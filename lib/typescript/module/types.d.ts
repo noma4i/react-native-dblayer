@@ -107,6 +107,8 @@ export interface CreateMergeConfig<TInput, TOutput extends {
      * @default 0
      */
     dedupeWindowMs?: number;
+    /** Resolve the default dedupe window when no model-level value is configured. */
+    resolveDedupeWindowMs?: () => number | undefined;
     /** Register a runtime reset callback for dedupe state. */
     registerReset?: (reset: () => void) => void;
 }

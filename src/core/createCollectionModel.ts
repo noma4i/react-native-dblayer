@@ -119,14 +119,14 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
   const { collection: rawCollection, normalize, staleTime = 0 } = config;
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<TStored>(collectionId, staleTime);
-  const modelDefaults = getDbModelDefaults();
   let resetMergeState = (): void => {};
 
   const merge = createMerge<TInput, TStored>({
     collection: rawCollection,
     normalize,
     shouldOverwrite: config.merge?.shouldOverwrite,
-    dedupeWindowMs: config.merge?.dedupeWindowMs ?? modelDefaults.merge?.dedupeWindowMs,
+    dedupeWindowMs: config.merge?.dedupeWindowMs,
+    resolveDedupeWindowMs: () => getDbModelDefaults().merge?.dedupeWindowMs,
     registerReset: reset => {
       resetMergeState = reset;
     }

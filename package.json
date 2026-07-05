@@ -1,6 +1,6 @@
 {
   "name": "@noma4i/react-native-dblayer",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Reactive, persistent collection DSL for React Native (TanStack DB + injectable storage/transport)",
   "author": "Alexander Tsirel",
   "license": "MIT",

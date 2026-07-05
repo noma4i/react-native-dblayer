@@ -141,6 +141,24 @@ describe('collection model core DSL', () => {
     expect(explicitModel.get('1')?.title).toBe('One');
   });
 
+  it('applies configureDb merge defaults configured after model creation', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+    configureDb({
+      transport: mockTransport({}),
+      modelDefaults: { merge: { dedupeWindowMs: 1000 } }
+    });
+    jest.spyOn(Date, 'now').mockReturnValue(1000);
+
+    const payload = [{ id: '1', title: 'One', listId: 'a', updatedAt: later }];
+
+    expect(model.applyServerData(payload, { mode: 'merge' })).toEqual({ merged: 1 });
+    model.clearScope();
+    expect(model.get('1')).toBeUndefined();
+    expect(model.applyServerData(payload, { mode: 'merge' })).toEqual({ merged: 0 });
+    expect(model.get('1')).toBeUndefined();
+  });
+
   it('replaces server data globally and within a scoped filter', () => {
     installMemoryStorage();
     const model = createTodoModel();

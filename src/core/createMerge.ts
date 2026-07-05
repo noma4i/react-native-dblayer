@@ -48,7 +48,6 @@ const upsertIfNewer = <T extends { id: string; updatedAt?: string | null }>(
 export function createMerge<TInput, TOutput extends { id: string; updatedAt?: string | null }>(config: CreateMergeConfig<TInput, TOutput>): (items: TInput[]) => MergeResult {
   let lastMergeTimestamp = 0;
   let lastMergeKey = 0;
-  const dedupeWindowMs = config.dedupeWindowMs ?? 0;
   const reset = (): void => {
     lastMergeTimestamp = 0;
     lastMergeKey = 0;
@@ -60,6 +59,7 @@ export function createMerge<TInput, TOutput extends { id: string; updatedAt?: st
     if (!items.length) return { merged: 0 };
 
     const normalized = items.map(item => config.normalize(item)).filter((item): item is Partial<TOutput> & { id: string } => item !== null);
+    const dedupeWindowMs = config.dedupeWindowMs ?? config.resolveDedupeWindowMs?.() ?? 0;
 
     if (dedupeWindowMs > 0) {
       const now = Date.now();
