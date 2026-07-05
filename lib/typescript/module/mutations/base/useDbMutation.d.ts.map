@@ -1,0 +1,1 @@
+{"version":3,"file":"useDbMutation.d.ts","sourceRoot":"","sources":["../../../../../src/mutations/base/useDbMutation.ts"],"names":[],"mappings":"AAEA,OAAO,KAAK,EAAE,gBAAgB,EAAiC,MAAM,aAAa,CAAC;AAmCnF;;;;;;;;;;;;;;;;;;;;GAoBG;AACH,eAAO,MAAM,aAAa,GAAI,KAAK,EAAE,MAAM,EAAE,QAAQ,GAAG,IAAI,EAAE,OAAO,GAAG,OAAO,EAAE,QAAQ,gBAAgB,CAAC,KAAK,EAAE,MAAM,EAAE,QAAQ,EAAE,OAAO,CAAC,4FA+DvI,CAAC"}

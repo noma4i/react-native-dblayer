@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1 - 2026-07-06
+
+- Track the prebuilt `lib/` in git so GitHub-tag installs ship usable output. Yarn does not run `prepare` for git dependencies, so the `prepare` script was removed.
+
 ## 1.0.0 - 2026-07-05
 
 Extracted from a production React Native application where it powers the app's local-first, GraphQL-backed data layer; 1.0.0 packages that engine as a standalone, dependency-injected library.

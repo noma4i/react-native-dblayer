@@ -1,5 +1,5 @@
 node_modules/
-lib/
+# lib/ is committed because GitHub tag installs do not run prepare/build.
 .DS_Store
 .yarn/*
 !.yarn/patches
