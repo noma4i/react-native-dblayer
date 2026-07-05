@@ -5,6 +5,7 @@ export { createMerge } from './core/createMerge';
 export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
+export { computeLoadingState } from './queries/base/loadingState';
 export {
   DEFAULT_FETCH_STATE_MAX_AGE_MS,
   clearAllFreshnessMetadata,
@@ -70,6 +71,7 @@ export type {
   DbGraphQLDocument,
   DbInfinitePatchContext,
   DbLogger,
+  DbModelDefaults,
   DbMutationOperation,
   DbMutationConfig,
   DbQueryOperation,

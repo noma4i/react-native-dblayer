@@ -1,9 +1,10 @@
 import { setDbExtractSink, setDbMutationExtractResolver } from './core/extract';
 import { setDbLogger } from './core/logger';
+import { setDbModelDefaults } from './core/modelDefaults';
 import { setDbStorageAdapter } from './core/storage';
 import { setDbTransport } from './core/transport';
 import type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
-import type { DbLogger, DbTransport, StorageAdapter } from './types';
+import type { DbLogger, DbModelDefaults, DbTransport, StorageAdapter } from './types';
 
 export type ConfigureDbOptions = {
   /** GraphQL executor used by query and mutation runtimes. */
@@ -31,6 +32,11 @@ export type ConfigureDbOptions = {
      */
     mutationResolver?: DbMutationExtractResolver;
   };
+  /**
+   * Defaults applied when a model does not specify its own option.
+   * @default {}
+   */
+  modelDefaults?: DbModelDefaults;
 };
 
 /**
@@ -47,4 +53,5 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   if (options.logger) setDbLogger(options.logger);
   if (options.extract?.sink) setDbExtractSink(options.extract.sink);
   if (options.extract?.mutationResolver) setDbMutationExtractResolver(options.extract.mutationResolver);
+  setDbModelDefaults(options.modelDefaults);
 };

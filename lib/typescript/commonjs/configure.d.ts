@@ -1,5 +1,5 @@
 import type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
-import type { DbLogger, DbTransport, StorageAdapter } from './types';
+import type { DbLogger, DbModelDefaults, DbTransport, StorageAdapter } from './types';
 export type ConfigureDbOptions = {
     /** GraphQL executor used by query and mutation runtimes. */
     transport: DbTransport;
@@ -26,6 +26,11 @@ export type ConfigureDbOptions = {
          */
         mutationResolver?: DbMutationExtractResolver;
     };
+    /**
+     * Defaults applied when a model does not specify its own option.
+     * @default {}
+     */
+    modelDefaults?: DbModelDefaults;
 };
 /**
  * Configure package-wide transport, storage, logger, and extract seams.

@@ -1,5 +1,5 @@
-import { clearAllCollections, devClearAllDataAndState } from '../index';
-import { createTodoModel, installMemoryStorage } from './helpers/testRuntime';
+import { clearAllCollections, computeLoadingState, configureDb, devClearAllDataAndState } from '../index';
+import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
 const later = '2026-01-02T00:00:00.000Z';
 const earlier = '2026-01-01T00:00:00.000Z';
@@ -8,6 +8,7 @@ describe('collection model core DSL', () => {
   afterEach(async () => {
     jest.restoreAllMocks();
     devClearAllDataAndState();
+    configureDb({ transport: mockTransport({}), modelDefaults: {} });
   });
 
   it('imports the root package with the mocked native storage modules', () => {
@@ -26,6 +27,54 @@ describe('collection model core DSL', () => {
     expect(model.getWhere({ listId: 'a' }).map(item => item.id)).toEqual(['1']);
     expect(model.getFirstWhere({ done: true })?.id).toBe('2');
     expect(model.getAll().map(item => item.id)).toEqual(['1', '2']);
+  });
+
+  it('exposes the backing collection through a public read accessor', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: earlier });
+
+    expect(model.collection).toBe(model._collection);
+    expect(model.collection.state.get('1')?.title).toBe('One');
+  });
+
+  it('computes exported ready and counting loading states', () => {
+    expect(computeLoadingState('ready', false)).toEqual({
+      phase: 'ready',
+      hasData: false,
+      isReady: true,
+      showSkeleton: false,
+      showData: false,
+      showEmptyState: true,
+      showRefreshIndicator: false,
+      showFooterSpinner: false,
+      showErrorBanner: false
+    });
+
+    expect(computeLoadingState('initial_loading', false)).toEqual({
+      phase: 'initial_loading',
+      hasData: false,
+      isReady: false,
+      showSkeleton: true,
+      showData: false,
+      showEmptyState: false,
+      showRefreshIndicator: false,
+      showFooterSpinner: false,
+      showErrorBanner: false
+    });
+
+    expect(computeLoadingState('ready', true)).toEqual({
+      phase: 'ready',
+      hasData: true,
+      isReady: true,
+      showSkeleton: false,
+      showData: true,
+      showEmptyState: false,
+      showRefreshIndicator: false,
+      showFooterSpinner: false,
+      showErrorBanner: false
+    });
   });
 
   it('merges server data with timestamp and dedupe gates', () => {
@@ -64,6 +113,32 @@ describe('collection model core DSL', () => {
         mode: 'merge'
       })
     ).toEqual({ merged: 0 });
+  });
+
+  it('applies configureDb merge defaults unless the model specifies its own value', () => {
+    installMemoryStorage();
+    configureDb({
+      transport: mockTransport({}),
+      modelDefaults: { merge: { dedupeWindowMs: 1000 } }
+    });
+    jest.spyOn(Date, 'now').mockReturnValue(1000);
+
+    const defaultedModel = createTodoModel();
+    const payload = [{ id: '1', title: 'One', listId: 'a', updatedAt: later }];
+
+    expect(defaultedModel.applyServerData(payload, { mode: 'merge' })).toEqual({ merged: 1 });
+    defaultedModel.clearScope();
+    expect(defaultedModel.get('1')).toBeUndefined();
+    expect(defaultedModel.applyServerData(payload, { mode: 'merge' })).toEqual({ merged: 0 });
+    expect(defaultedModel.get('1')).toBeUndefined();
+
+    const explicitModel = createTodoModel({ dedupeWindowMs: 0 });
+
+    expect(explicitModel.applyServerData(payload, { mode: 'merge' })).toEqual({ merged: 1 });
+    explicitModel.clearScope();
+    expect(explicitModel.get('1')).toBeUndefined();
+    expect(explicitModel.applyServerData(payload, { mode: 'merge' })).toEqual({ merged: 1 });
+    expect(explicitModel.get('1')?.title).toBe('One');
   });
 
   it('replaces server data globally and within a scoped filter', () => {

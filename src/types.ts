@@ -115,6 +115,16 @@ export interface CreateMergeConfig<TInput, TOutput extends { id: string; updated
   registerReset?: (reset: () => void) => void;
 }
 
+export type DbModelDefaults = {
+  merge?: {
+    /**
+     * Skip an identical merge batch within this window.
+     * @default 0
+     */
+    dedupeWindowMs?: number;
+  };
+};
+
 export interface ReplaceResult {
   /** Number of rows inserted or updated. */
   merged: number;
@@ -264,7 +274,9 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   byIds(ids: string[]): TStored[];
   /** React hook: count rows, optionally filtered. */
   count(filter?: Partial<TStored>): number;
-  /** Backing TanStack DB collection. */
+  /** Public backing TanStack DB collection for live-query joins. */
+  collection: Collection<TStored, string>;
+  /** Backing TanStack DB collection. Prefer `collection` for new consumers. */
   _collection: Collection<TStored, string>;
 }
 

@@ -1,0 +1,1 @@
+{"version":3,"names":["dbModelDefaults","getDbModelDefaults","setDbModelDefaults","defaults"],"sourceRoot":"../../../src","sources":["core/modelDefaults.ts"],"mappings":";;AAEA,IAAIA,eAAgC,GAAG,CAAC,CAAC;AAEzC,OAAO,MAAMC,kBAAkB,GAAGA,CAAA,KAAuBD,eAAe;AAExE,OAAO,MAAME,kBAAkB,GAAIC,QAA0B,IAAW;EACtEH,eAAe,GAAGG,QAAQ,IAAI,CAAC,CAAC;AAClC,CAAC","ignoreList":[]}

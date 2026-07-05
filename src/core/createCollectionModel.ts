@@ -6,6 +6,7 @@ import { createMerge } from './createMerge';
 import { createPatchCrud } from './createPatchCrud';
 import { createReplace } from './createReplace';
 import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
+import { getDbModelDefaults } from './modelDefaults';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { stableSerialize } from './serialize';
 
@@ -118,13 +119,14 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
   const { collection: rawCollection, normalize, staleTime = 0 } = config;
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<TStored>(collectionId, staleTime);
+  const modelDefaults = getDbModelDefaults();
   let resetMergeState = (): void => {};
 
   const merge = createMerge<TInput, TStored>({
     collection: rawCollection,
     normalize,
     shouldOverwrite: config.merge?.shouldOverwrite,
-    dedupeWindowMs: config.merge?.dedupeWindowMs,
+    dedupeWindowMs: config.merge?.dedupeWindowMs ?? modelDefaults.merge?.dedupeWindowMs,
     registerReset: reset => {
       resetMergeState = reset;
     }
@@ -354,6 +356,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     where: useWhere,
     byIds: useByIds,
     count: useCount,
+    collection: tanstackCollection,
     _collection: tanstackCollection
   };
 }
