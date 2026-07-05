@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2 - 2026-07-06
+
+- Expose `createUniqueIds`, `EMPTY_IDS`, and `pickEqual` from the public API for consumers building query stability/id helpers.
+
 ## 1.0.1 - 2026-07-06
 
 - Track the prebuilt `lib/` in git so GitHub-tag installs ship usable output. Yarn does not run `prepare` for git dependencies, so the `prepare` script was removed.
