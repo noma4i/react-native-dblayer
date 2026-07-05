@@ -1,8 +1,44 @@
 import type { StorageEventApi } from '@tanstack/db';
-import { AppState } from 'react-native';
-import { createMMKV } from 'react-native-mmkv';
 
-const dbStorage = createMMKV({ id: 'tanstack-db' });
+type AppStateStatus = 'active' | 'background' | 'inactive' | 'unknown' | 'extension';
+
+type AppStateModule = {
+  AppState: {
+    addEventListener: (event: 'change', listener: (state: AppStateStatus) => void) => unknown;
+  };
+};
+
+type MmkvStorage = {
+  getString: (key: string) => string | undefined;
+  set: (key: string, value: string) => void;
+  remove: (key: string) => void;
+  clearAll: () => void;
+  getAllKeys: () => string[];
+};
+
+type MmkvModule = {
+  createMMKV: (options: { id: string }) => MmkvStorage;
+};
+
+declare const require: <T>(moduleName: string) => T;
+
+let dbStorage: MmkvStorage | null = null;
+let appStateListenerRegistered = false;
+
+const getDbStorage = (): MmkvStorage => {
+  if (dbStorage === null) {
+    dbStorage = require<MmkvModule>('react-native-mmkv').createMMKV({ id: 'tanstack-db' });
+  }
+  if (!appStateListenerRegistered) {
+    appStateListenerRegistered = true;
+    require<AppStateModule>('react-native').AppState.addEventListener('change', state => {
+      if (state === 'background' || state === 'inactive') {
+        flushPendingWrites();
+      }
+    });
+  }
+  return dbStorage;
+};
 
 /**
  * Write-back buffer over MMKV. TanStack DB persists by re-serializing a WHOLE collection (full
@@ -41,9 +77,9 @@ const flushPendingWrites = (): void => {
   pendingWrites.clear();
   for (const [key, value] of entries) {
     if (value === DELETED) {
-      dbStorage.remove(key);
+      getDbStorage().remove(key);
     } else {
-      dbStorage.set(key, value);
+      getDbStorage().set(key, value);
     }
   }
 };
@@ -66,12 +102,6 @@ const scheduleFlush = (): void => {
   flushTimer = setTimeout(flushPendingWrites, Math.min(FLUSH_DEBOUNCE_MS, remainingMaxWait));
 };
 
-AppState.addEventListener('change', state => {
-  if (state === 'background' || state === 'inactive') {
-    flushPendingWrites();
-  }
-});
-
 /** Default MMKV-backed storage adapter with debounced write-back. */
 export const mmkvStorageAdapter = {
   getItem: (key: string): string | null => {
@@ -79,7 +109,7 @@ export const mmkvStorageAdapter = {
     if (pending !== undefined) {
       return pending === DELETED ? null : pending;
     }
-    return dbStorage.getString(key) ?? null;
+    return getDbStorage().getString(key) ?? null;
   },
   setItem: (key: string, value: string): void => {
     pendingWrites.set(key, value);
@@ -99,12 +129,12 @@ export const clearDbStorage = (): void => {
   }
   pendingWrites.clear();
   firstPendingAt = 0;
-  dbStorage.clearAll();
+  getDbStorage().clearAll();
 };
 
 /** Return all DB storage keys, including pending writes. */
 export const getDbStorageKeys = (): string[] => {
-  const keys = new Set(dbStorage.getAllKeys());
+  const keys = new Set(getDbStorage().getAllKeys());
   for (const [key, value] of pendingWrites) {
     if (value === DELETED) {
       keys.delete(key);
