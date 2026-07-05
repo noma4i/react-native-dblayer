@@ -1,0 +1,5 @@
+exports.AppState = {
+  addEventListener: () => ({
+    remove: () => {}
+  })
+};

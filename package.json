@@ -1,0 +1,138 @@
+{
+  "name": "@noma4i/react-native-dblayer",
+  "version": "1.0.0",
+  "description": "Reactive, persistent collection DSL for React Native (TanStack DB + injectable storage/transport)",
+  "author": "Alexander Tsirel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/noma4i/react-native-dblayer.git"
+  },
+  "homepage": "https://github.com/noma4i/react-native-dblayer#readme",
+  "source": "./src/index.ts",
+  "main": "./lib/commonjs/index.js",
+  "module": "./lib/module/index.js",
+  "types": "./lib/typescript/commonjs/index.d.ts",
+  "react-native": "./lib/module/index.js",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./lib/typescript/module/index.d.ts",
+        "default": "./lib/module/index.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/index.d.ts",
+        "default": "./lib/commonjs/index.js"
+      }
+    },
+    "./package.json": "./package.json",
+    "./core/*": {
+      "import": {
+        "types": "./lib/typescript/module/core/*.d.ts",
+        "default": "./lib/module/core/*.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/core/*.d.ts",
+        "default": "./lib/commonjs/core/*.js"
+      }
+    },
+    "./utils/*": {
+      "import": {
+        "types": "./lib/typescript/module/utils/*.d.ts",
+        "default": "./lib/module/utils/*.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/utils/*.d.ts",
+        "default": "./lib/commonjs/utils/*.js"
+      }
+    },
+    "./types": {
+      "import": {
+        "types": "./lib/typescript/module/types.d.ts",
+        "default": "./lib/module/types.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/types.d.ts",
+        "default": "./lib/commonjs/types.js"
+      }
+    }
+  },
+  "files": [
+    "src",
+    "lib",
+    "README.md",
+    "LICENSE",
+    "!**/__tests__",
+    "!**/*.test.*",
+    "!**/CLAUDE.md"
+  ],
+  "scripts": {
+    "build": "bob build",
+    "prepare": "bob build",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --runInBand --silent --forceExit",
+    "clean": "rm -rf lib"
+  },
+  "peerDependencies": {
+    "@graphql-typed-document-node/core": ">=3",
+    "@tanstack/db": ">=0.6.0",
+    "@tanstack/react-db": ">=0.1.0",
+    "@tanstack/react-query": ">=5.0.0",
+    "graphql": ">=16",
+    "react": "*",
+    "react-native": "*",
+    "react-native-mmkv": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7",
+    "@babel/preset-env": "^7",
+    "@graphql-typed-document-node/core": "^3",
+    "@tanstack/db": "0.6.12",
+    "@tanstack/react-db": "0.1.90",
+    "@tanstack/react-query": "^5.101.1",
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "^29.5.14",
+    "@types/react": "^19.0.10",
+    "@types/react-test-renderer": "^19.1.0",
+    "graphql": "^16",
+    "jest": "^29.7.0",
+    "react": "19.2.0",
+    "react-native": "0.83.4",
+    "react-native-builder-bob": "^0.40.0",
+    "react-native-mmkv": "^4.3.2",
+    "react-test-renderer": "19.2.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "yarn@4.9.2",
+  "publishConfig": {
+    "access": "public"
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      [
+        "commonjs",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "dependencies": {
+    "es-toolkit": "^1.49.0"
+  }
+}

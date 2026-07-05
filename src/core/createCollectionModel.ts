@@ -1,0 +1,359 @@
+import { createTransaction, count as dbCount, eq, inArray, isNull } from '@tanstack/db';
+import { useLiveQuery } from '@tanstack/react-db';
+import type { CollectionFetchState, CollectionModel, CreateCollectionModelConfig, MergeResult, PersistentMutationTransaction, ReplaceResult, SyncContract } from '../types';
+import { toQueryValue } from '../utils/typeBoundary';
+import { createMerge } from './createMerge';
+import { createPatchCrud } from './createPatchCrud';
+import { createReplace } from './createReplace';
+import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
+import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
+import { stableSerialize } from './serialize';
+
+const EMPTY: readonly unknown[] = [];
+const GROUP_ALL = 1 as const;
+const ROOT_FETCH_SCOPE = '__root__';
+
+const normalizeFilter = <TStored>(filter?: Partial<TStored>): Partial<TStored> | undefined => {
+  if (!filter) return undefined;
+  const entries = Object.entries(filter).filter(([, value]) => value !== undefined) as [keyof TStored & string, unknown][];
+  if (entries.length === 0) return undefined;
+  entries.sort(([a], [b]) => a.localeCompare(b));
+  return Object.fromEntries(entries) as Partial<TStored>;
+};
+
+const buildFetchScope = <TStored>(filter?: Partial<TStored>): string => {
+  const normalized = normalizeFilter(filter);
+  if (!normalized) return ROOT_FETCH_SCOPE;
+  return stableSerialize(normalized);
+};
+
+const applyFilterEntries = <TRow, Q extends { where(callback: (row: { items: TRow }) => unknown): Q }>(query: Q, filterEntries: [string, unknown][]): Q => {
+  let next = query;
+  for (const [key, value] of filterEntries) {
+    next =
+      value === null
+        ? next.where(({ items }) => isNull(toQueryValue((items as Record<string, unknown>)[key])))
+        : next.where(({ items }) => eq(toQueryValue((items as Record<string, unknown>)[key]), toQueryValue(value)));
+  }
+  return next;
+};
+
+const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime: number) => {
+  const fetchStateCache = new Map<string, CollectionFetchState | null>();
+
+  if (collectionId) {
+    fetchStateCache.set(ROOT_FETCH_SCOPE, getCollectionFetchState(collectionId));
+    registerCollectionFetchStateCache(collectionId, scopeKey => {
+      fetchStateCache.delete(scopeKey ?? ROOT_FETCH_SCOPE);
+    });
+  }
+
+  const getFetchState = (filter?: Partial<TStored>): CollectionFetchState | null => {
+    const scope = buildFetchScope(filter);
+    if (fetchStateCache.has(scope)) {
+      return fetchStateCache.get(scope) ?? null;
+    }
+
+    const nextState = collectionId ? getCollectionFetchState(collectionId, scope === ROOT_FETCH_SCOPE ? undefined : scope) : null;
+    fetchStateCache.set(scope, nextState);
+    return nextState;
+  };
+
+  const markFetched = (filter?: Partial<TStored>, state?: Omit<CollectionFetchState, 'touchedAt'>): void => {
+    const scope = buildFetchScope(filter);
+    const nextState: CollectionFetchState = {
+      touchedAt: Date.now(),
+      empty: state?.empty === true,
+      ...(state?.pageInfo ? { pageInfo: state.pageInfo } : {})
+    };
+    fetchStateCache.set(scope, nextState);
+    if (collectionId) {
+      setCollectionFetchState(collectionId, nextState, scope === ROOT_FETCH_SCOPE ? undefined : scope);
+    }
+  };
+
+  const touch = (): void => {
+    markFetched(undefined, { empty: false });
+  };
+
+  const clearFetchState = (filter?: Partial<TStored>): void => {
+    const scope = buildFetchScope(filter);
+    fetchStateCache.delete(scope);
+    if (collectionId) {
+      clearCollectionFetchState(collectionId, scope === ROOT_FETCH_SCOPE ? undefined : scope);
+    }
+  };
+
+  const isStale = (filter?: Partial<TStored>, maxAgeMs = staleTime): boolean => {
+    const fetchState = getFetchState(filter);
+    if (!fetchState) return true;
+    if (maxAgeMs <= 0) return true;
+    return Date.now() - fetchState.touchedAt > maxAgeMs;
+  };
+
+  const shouldSkipInitialFetch = (hasItems: (filter?: Partial<TStored>) => boolean, filter?: Partial<TStored>, maxAgeMs = staleTime): boolean => {
+    const fetchState = getFetchState(filter);
+    const hasKnownEmpty = fetchState?.empty === true;
+    return (hasItems(filter) || hasKnownEmpty) && !isStale(filter, maxAgeMs);
+  };
+
+  const clear = (): void => {
+    fetchStateCache.clear();
+    if (collectionId) {
+      clearCollectionFetchStates(collectionId);
+    }
+  };
+
+  const reset = (): void => {
+    fetchStateCache.clear();
+  };
+
+  return { getFetchState, markFetched, touch, clearFetchState, isStale, shouldSkipInitialFetch, clear, reset };
+};
+
+/** Create a collection model from a persistent collection and normalizer. */
+export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }>(
+  config: CreateCollectionModelConfig<TInput, TStored>
+): CollectionModel<TInput, TStored> {
+  const { collection: rawCollection, normalize, staleTime = 0 } = config;
+  const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
+  const freshness = createFreshnessTracker<TStored>(collectionId, staleTime);
+  let resetMergeState = (): void => {};
+
+  const merge = createMerge<TInput, TStored>({
+    collection: rawCollection,
+    normalize,
+    shouldOverwrite: config.merge?.shouldOverwrite,
+    dedupeWindowMs: config.merge?.dedupeWindowMs,
+    registerReset: reset => {
+      resetMergeState = reset;
+    }
+  });
+
+  const replace = createReplace<TInput, TStored>({
+    collection: rawCollection,
+    normalize,
+    shouldOverwrite: config.replace?.shouldOverwrite
+  });
+
+  const crud = createPatchCrud<TStored>({ collection: rawCollection });
+
+  const tanstackCollection = rawCollection._collection;
+  const acceptMutations = rawCollection.acceptMutations.bind(rawCollection);
+
+  const withTransaction = (fn: () => void): void => {
+    if (isInManagedMutationBatch()) {
+      fn();
+      return;
+    }
+    const tx = createTransaction({
+      mutationFn: ({ transaction }) => {
+        acceptMutations(transaction as PersistentMutationTransaction);
+        return Promise.resolve();
+      }
+    });
+    tx.mutate(fn);
+  };
+
+  const matchesFilter = (item: TStored, filterEntries: [string, unknown][]): boolean => filterEntries.every(([key, value]) => (item as Record<string, unknown>)[key] === value);
+
+  const getSnapshotWhere = (filter: Partial<TStored>): TStored[] => {
+    const normalized = normalizeFilter(filter);
+    const filterEntries = normalized ? (Object.entries(normalized) as [string, unknown][]) : [];
+    if (filterEntries.length === 0) {
+      return Array.from(rawCollection.values());
+    }
+
+    const results: TStored[] = [];
+    for (const item of rawCollection.values()) {
+      if (matchesFilter(item, filterEntries)) {
+        results.push(item);
+      }
+    }
+    return results;
+  };
+
+  const getSnapshotFirstWhere = (filter: Partial<TStored>): TStored | undefined => {
+    const normalized = normalizeFilter(filter);
+    const filterEntries = normalized ? (Object.entries(normalized) as [string, unknown][]) : [];
+    if (filterEntries.length === 0) {
+      return rawCollection.values().next().value;
+    }
+
+    for (const item of rawCollection.values()) {
+      if (matchesFilter(item, filterEntries)) {
+        return item;
+      }
+    }
+    return undefined;
+  };
+
+  const hasCached = (filter?: Partial<TStored>): boolean => {
+    if (filter && Object.keys(normalizeFilter(filter) ?? {}).length > 0) {
+      return getSnapshotFirstWhere(filter) !== undefined;
+    }
+    if ('size' in rawCollection && typeof rawCollection.size === 'number') {
+      return rawCollection.size > 0;
+    }
+    for (const _ of rawCollection.keys()) return true;
+    return false;
+  };
+
+  const shouldSkipInitialFetch = (filter?: Partial<TStored>, maxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs);
+
+  const clearScope = (): void => {
+    const ids: string[] = [];
+    for (const id of rawCollection.keys()) ids.push(String(id));
+    withTransaction(() => {
+      for (const id of ids) {
+        rawCollection.delete(id);
+      }
+    });
+    freshness.clear();
+  };
+
+  const destroyMany = (ids: string[]): number => {
+    let deleted = 0;
+    withTransaction(() => {
+      for (const id of ids) {
+        if (!rawCollection.has(id)) continue;
+        rawCollection.delete(id);
+        deleted += 1;
+      }
+    });
+    return deleted;
+  };
+
+  const destroyWhere = (filter: Partial<TStored>): number => {
+    const normalized = normalizeFilter(filter);
+    if (!normalized) {
+      throw new Error(`[${config.name}] destroyWhere requires a non-empty filter. Use clearScope() for full collection clears.`);
+    }
+    return destroyMany(getSnapshotWhere(normalized).map(item => item.id));
+  };
+
+  const applyServerData = (items: TInput[], contract: SyncContract): MergeResult | ReplaceResult => {
+    if (contract.mode === 'replace' && contract.scope !== undefined && contract._scopeFilter === undefined) {
+      throw new Error(`[${config.name}] scoped replace requires _scopeFilter. Use createCollectionBinding(...).applyServerData() or provide contract._scopeFilter explicitly.`);
+    }
+
+    let result: MergeResult | ReplaceResult = { merged: 0 };
+    withTransaction(() => {
+      if (contract.mode === 'replace') {
+        const scopeFilter = contract._scopeFilter as ((item: TStored) => boolean) | undefined;
+        result = replace(items, scopeFilter);
+      } else {
+        result = merge(items);
+      }
+    });
+
+    if (contract._freshnessFilter) {
+      freshness.markFetched(contract._freshnessFilter as Partial<TStored>, { empty: items.length === 0 });
+    } else if (contract.scope === undefined && contract._scopeFilter === undefined) {
+      freshness.touch();
+    }
+
+    return result;
+  };
+
+  const useFind = (id: string | undefined | null): TStored | undefined => {
+    const { data } = useLiveQuery(
+      q =>
+        id
+          ? q
+              .from({ items: tanstackCollection })
+              .where(({ items }) => eq(toQueryValue((items as Record<string, unknown>).id), id))
+              .findOne()
+          : undefined,
+      [id]
+    );
+    return data as TStored | undefined;
+  };
+
+  const useAll = (): TStored[] => {
+    const { data } = useLiveQuery(q => {
+      let query = q.from({ items: tanstackCollection });
+      const defaultSort = config.defaultSort;
+      if (defaultSort) {
+        query = query.orderBy(({ items }) => toQueryValue((items as Record<string, unknown>)[defaultSort.field]), defaultSort.direction);
+      }
+      return query;
+    });
+
+    return (data ?? EMPTY) as TStored[];
+  };
+
+  const useWhere = (filter: Partial<TStored>): TStored[] => {
+    const normalized = normalizeFilter(filter);
+    const filterEntries = normalized ? Object.entries(normalized) : [];
+    const { data } = useLiveQuery(
+      q => applyFilterEntries(q.from({ items: tanstackCollection }), filterEntries),
+      filterEntries.map(([, value]) => value)
+    );
+
+    return (data ?? EMPTY) as TStored[];
+  };
+
+  const useByIds = (ids: string[]): TStored[] => {
+    const { data } = useLiveQuery(
+      q => (ids.length > 0 ? q.from({ items: tanstackCollection }).where(({ items }) => inArray(toQueryValue((items as Record<string, unknown>).id), ids)) : undefined),
+      [ids]
+    );
+    return (data ?? EMPTY) as TStored[];
+  };
+
+  const useCount = (filter?: Partial<TStored>): number => {
+    const normalized = normalizeFilter(filter);
+    const filterEntries = normalized ? Object.entries(normalized) : [];
+
+    const { data } = useLiveQuery(
+      q =>
+        applyFilterEntries(q.from({ items: tanstackCollection }), filterEntries)
+          .groupBy(() => GROUP_ALL)
+          .select(({ items }) => ({ total: dbCount(toQueryValue((items as Record<string, unknown>).id)) })),
+      filterEntries.map(([, value]) => value)
+    );
+
+    return (data as Array<{ total: number }> | undefined)?.[0]?.total ?? 0;
+  };
+
+  registerModelRuntimeReset(config.name, () => {
+    freshness.reset();
+    resetMergeState();
+  });
+
+  return {
+    get: (id: string | undefined | null) => (id ? rawCollection.get(id) : undefined),
+    getAll: () => Array.from(rawCollection.values()),
+    getWhere: filter => getSnapshotWhere(filter),
+    getFirstWhere: filter => getSnapshotFirstWhere(filter),
+    patch: (id, updates) => crud.patch(id, updates),
+    destroy: id => crud.destroy(id),
+    destroyMany,
+    destroyWhere,
+    replaceRaw: (oldId: string, item: TInput): boolean => {
+      const normalized = normalize(item);
+      if (!normalized) return false;
+      withTransaction(() => {
+        rawCollection.delete(oldId);
+        rawCollection.insert(normalized as TStored);
+      });
+      return true;
+    },
+    insertStored: (item: TStored) => {
+      rawCollection.insert(item);
+    },
+    applyServerData,
+    markFetched: freshness.markFetched,
+    getFetchState: freshness.getFetchState,
+    clearFetchState: freshness.clearFetchState,
+    shouldSkipInitialFetch,
+    clearScope,
+    find: useFind,
+    all: useAll,
+    where: useWhere,
+    byIds: useByIds,
+    count: useCount,
+    _collection: tanstackCollection
+  };
+}
