@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 - 2026-07-06
+
+- Add Rails-style model statics for composing model-level helpers from the base DSL with collision protection.
+
 ## 1.1.0 - 2026-07-06
 
 - Add typed predicate reads with `DbWhere`, `DbReadOptions`, reactive `first`, and snapshot `getFirst` APIs.

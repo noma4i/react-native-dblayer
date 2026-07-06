@@ -24,8 +24,8 @@ export declare const createPersistentCollection: <T extends {
 export declare const defineModel: <TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}>(config: Omit<CreateCollectionModelConfig<TInput, TStored>, "collection"> & {
+}, TExt extends Record<string, unknown> = {}>(config: Omit<CreateCollectionModelConfig<TInput, TStored, TExt>, "collection"> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
-}) => CollectionModel<TInput, TStored>;
+}) => CollectionModel<TInput, TStored> & TExt;
 //# sourceMappingURL=createPersistentCollection.d.ts.map

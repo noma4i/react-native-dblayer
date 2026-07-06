@@ -95,9 +95,9 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
 };
 
 /** Create a collection model from a persistent collection and normalizer. */
-export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }>(
-  config: CreateCollectionModelConfig<TInput, TStored>
-): CollectionModel<TInput, TStored> {
+export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
+  config: CreateCollectionModelConfig<TInput, TStored, TExt>
+): CollectionModel<TInput, TStored> & TExt {
   const { collection: rawCollection, normalize, staleTime = 0 } = config;
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<TStored>(collectionId, staleTime);
@@ -294,7 +294,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     resetMergeState();
   });
 
-  return {
+  const baseModel: CollectionModel<TInput, TStored> = {
     get: (id: string | undefined | null) => (id ? rawCollection.get(id) : undefined),
     getAll: () => Array.from(rawCollection.values()),
     getWhere: filter => getSnapshotWhere(filter),
@@ -331,4 +331,15 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     collection: tanstackCollection,
     _collection: tanstackCollection
   };
+
+  const extensions = config.statics?.(baseModel);
+  if (!extensions) return baseModel as CollectionModel<TInput, TStored> & TExt;
+
+  for (const key of Object.keys(extensions)) {
+    if (key in baseModel) {
+      throw new Error(`[${config.name}] statics cannot override base model key "${key}".`);
+    }
+  }
+
+  return { ...baseModel, ...extensions };
 }

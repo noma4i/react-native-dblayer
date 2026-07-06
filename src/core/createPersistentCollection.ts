@@ -101,14 +101,14 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
  *   normalize: user => ({ id: user.id, name: user.name, updatedAt: user.updatedAt })
  * });
  */
-export const defineModel = <TInput, TStored extends { id: string; updatedAt?: string | null }>(
-  config: Omit<CreateCollectionModelConfig<TInput, TStored>, 'collection'> & {
+export const defineModel = <TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
+  config: Omit<CreateCollectionModelConfig<TInput, TStored, TExt>, 'collection'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
   }
-): CollectionModel<TInput, TStored> => {
+): CollectionModel<TInput, TStored> & TExt => {
   const { id, ...modelConfig } = config;
-  return createCollectionModel<TInput, TStored>({
+  return createCollectionModel<TInput, TStored, TExt>({
     ...modelConfig,
     collection: createPersistentCollection<TStored>({ id })
   });

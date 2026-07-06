@@ -3,5 +3,5 @@ import type { CollectionModel, CreateCollectionModelConfig } from '../types';
 export declare function createCollectionModel<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}>(config: CreateCollectionModelConfig<TInput, TStored>): CollectionModel<TInput, TStored>;
+}, TExt extends Record<string, unknown> = {}>(config: CreateCollectionModelConfig<TInput, TStored, TExt>): CollectionModel<TInput, TStored> & TExt;
 //# sourceMappingURL=createCollectionModel.d.ts.map

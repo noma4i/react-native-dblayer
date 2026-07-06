@@ -203,7 +203,7 @@ export interface FetchStateRemovalListener {
 export interface CreateCollectionModelConfig<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}> {
+}, TExt extends Record<string, unknown> = {}> {
     /** Unique model name used as a runtime-registry key and log tag. */
     name: string;
     /** Persistent collection backing the model. */
@@ -212,6 +212,8 @@ export interface CreateCollectionModelConfig<TInput, TStored extends {
     normalize: (item: TInput) => (Partial<TStored> & {
         id: string;
     }) | null;
+    /** Extra class-level model methods composed from the base model DSL. */
+    statics?: (model: CollectionModel<TInput, TStored>) => TExt;
     /**
      * Freshness window in milliseconds.
      * @default 0

@@ -1,4 +1,5 @@
-import { clearAllCollections, computeLoadingState, configureDb, devClearAllDataAndState } from '../index';
+import { clearAllCollections, computeLoadingState, configureDb, defineModel, devClearAllDataAndState } from '../index';
+import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
 const later = '2026-01-02T00:00:00.000Z';
@@ -37,6 +38,81 @@ describe('collection model core DSL', () => {
 
     expect(model.collection).toBe(model._collection);
     expect(model.collection.state.get('1')?.title).toBe('One');
+  });
+
+  it('adds statics that compose the base model DSL', () => {
+    installMemoryStorage();
+    const model = defineModel<TodoInput, Todo, { currentId: () => string | undefined }>({
+      id: 'static-current-id-model',
+      name: 'StaticCurrentIdModel',
+      normalize: input => ({
+        id: input.id,
+        title: input.title,
+        listId: input.listId ?? null,
+        done: input.done ?? false,
+        updatedAt: input.updatedAt ?? null
+      }),
+      statics: baseModel => ({
+        currentId: () => baseModel.getFirst()?.id
+      })
+    });
+
+    expect(model.currentId()).toBeUndefined();
+
+    model.insertStored({ id: 'singleton', title: 'Singleton', listId: null, done: false, updatedAt: earlier });
+    expect(model.currentId()).toBe('singleton');
+
+    model.clearScope();
+    expect(model.currentId()).toBeUndefined();
+  });
+
+  it('preserves the full base API on models with typed statics', () => {
+    installMemoryStorage();
+    const model = defineModel<TodoInput, Todo, { currentId: () => string | undefined }>({
+      id: 'typed-static-model',
+      name: 'TypedStaticModel',
+      normalize: input => ({
+        id: input.id,
+        title: input.title,
+        listId: input.listId ?? null,
+        done: input.done ?? false,
+        updatedAt: input.updatedAt ?? null
+      }),
+      statics: baseModel => ({
+        currentId: () => baseModel.getFirst()?.id
+      })
+    });
+
+    model.insertStored({ id: 'typed', title: 'Typed', listId: null, done: false, updatedAt: earlier });
+
+    const currentId: string | undefined = model.currentId();
+    const allRows: Todo[] = model.getAll();
+
+    expect(currentId).toBe('typed');
+    expect(allRows.map(row => row.id)).toEqual(['typed']);
+    expect(model.getFirst()?.title).toBe('Typed');
+    model.clearScope();
+  });
+
+  it('throws when statics collide with base model keys', () => {
+    installMemoryStorage();
+
+    expect(() =>
+      defineModel<TodoInput, Todo, { getFirst: () => undefined }>({
+        id: 'static-collision-model',
+        name: 'StaticCollisionModel',
+        normalize: input => ({
+          id: input.id,
+          title: input.title,
+          listId: input.listId ?? null,
+          done: input.done ?? false,
+          updatedAt: input.updatedAt ?? null
+        }),
+        statics: () => ({
+          getFirst: () => undefined
+        })
+      })
+    ).toThrow('[StaticCollisionModel] statics cannot override base model key "getFirst".');
   });
 
   it('computes exported ready and counting loading states', () => {
