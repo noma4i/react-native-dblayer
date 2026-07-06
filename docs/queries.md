@@ -14,7 +14,6 @@ import { USER_QUERY } from './operations'; // graphql-codegen TypedDocumentNode
 
 function UserCard({ id }: { id: string }) {
   const { data: user, isLoading, loadingState } = useDbSingleRequest({
-    key: ['user', id],
     query: USER_QUERY,                            // types inferred from the document
     vars: { id },
     select: (d) => d.user,                        // pick the payload
@@ -41,7 +40,7 @@ function OnlineDot({ id }: { id: string }) {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `query` | `TypedDocumentNode<TResponse, TVars> \| DocumentNode` | **required** | The GraphQL query. Types flow from a `TypedDocumentNode`. |
-| `key` | `readonly unknown[]` | **required** | React Query cache key. |
+| `key` | `readonly unknown[]` | derived when model-backed | React Query cache key. Explicit keys win. |
 | `select` | `(data: TResponse) => TSelected` | **required** | Pick the payload (e.g. `d => d.user`). |
 | `vars` | `TVars` | `—` | Query variables. |
 | `map` | `(selected) => TResult` | identity | Transform the payload before writing/returning. |
@@ -59,7 +58,6 @@ Writing a list into a collection and reading it all back:
 ```tsx
 function Members({ teamId }: { teamId: string }) {
   const { loadingState } = useDbSingleRequest({
-    key: ['members', teamId],
     query: MEMBERS_QUERY,
     vars: { teamId },
     select: (d) => d.team.members,               // User[]
@@ -78,7 +76,7 @@ Side-loading related entities with `extract` (needs the extract seam wired — s
 
 ```ts
 useDbSingleRequest({
-  key: ['post', id], query: POST_QUERY, vars: { id },
+  query: POST_QUERY, vars: { id },
   select: (d) => d.post,
   sync: { model: PostModel, contract: 'post' },
   extract: ({ selected }) => ({ users: [selected.author] }), // author lands in UserModel via the sink
@@ -114,7 +112,6 @@ Cursor-paginated connections. Each page's nodes are written into a collection.
 ```tsx
 function Feed() {
   const { items, loadingState, loadMore, hasNextPage } = useDbInfiniteRequest({
-    key: ['feed'],
     query: FEED_QUERY,
     selectPage: (d) => d.feed,                       // -> { edges | nodes, pageInfo }
     getCursor: (d) => d.feed.pageInfo.endCursor,
@@ -139,7 +136,7 @@ function Feed() {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `query` | `TypedDocumentNode<TResponse, TVars> \| DocumentNode` | **required** | The paginated query. |
-| `key` | `readonly unknown[]` | **required** | React Query key. |
+| `key` | `readonly unknown[]` | derived from collection binding | React Query key. Explicit keys win. |
 | `selectPage` | `(data) => ConnectionWithNodes \| ConnectionWithEdges \| null` | **required** | Pick the connection (`{ nodes, pageInfo }` or `{ edges, pageInfo }`). |
 | `read` | collection binding | **required** | Stores page nodes; read back reactively. |
 | `vars` | `TVars` | `—` | Base variables. |
@@ -153,6 +150,22 @@ function Feed() {
 | `currentUserId` | `() => string \| undefined` | `—` | Scope-key input. |
 | `direction` | `'forward' \| 'backward'` | `'forward'` | Pagination direction. |
 | `enabled` / `staleTime` / `gcTime` | | `true` / TanStack Query | As above. |
+
+Infinite requests derive omitted keys from `createCollectionBinding(model, { scopeMap })` and the runtime
+`filter`/`currentUserId` scope. Pass an explicit `key` for non-model-backed reads.
+
+## Derived keys and imperative requests
+
+```ts
+import { deriveDbKey, invalidateDbRequests, refetchDbRequests, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
+
+await invalidateDbRequests(deriveDbKey(MessageModel));          // all MessageModel scopes
+await refetchDbRequests(deriveDbKey(MessageModel, { chatId })); // one scope
+await resetDbQueryRuntime();                                    // cancel all queries, then clear cache
+```
+
+These helpers use the `queryClient` passed to `configureDb`. Without one, they no-op and log through the package
+logger. Hooks still read the React Query client from React context.
 
 ### Returns — `InfiniteQueryResult<TNode>`
 
@@ -179,3 +192,6 @@ await executeDbSingleRequest({ key: ['user', id], query: USER_QUERY, vars: { id 
 
 await executeDbInfiniteRequest(feedConfig, /* pageParam */ undefined);
 ```
+When `key` is omitted, model-backed single requests derive it from `read.model`, `read.id`, or `sync.model` as
+`['db', collectionId]` or `['db', collectionId, stableSerialize(scope)]`. Configs without an explicit key and
+without a model-backed `read` or `sync.model` throw a config error.

@@ -233,15 +233,30 @@ export interface CreateCollectionModelConfig<TInput, TStored extends { id: strin
   defaultSort?: { field: keyof TStored & string; direction: 'asc' | 'desc' };
 }
 
+export type DbCondition<T> = Partial<T>;
+
+export type DbWhere<T> =
+  | DbCondition<T>
+  | { and: Array<DbWhere<T>> }
+  | { or: Array<DbWhere<T>> }
+  | { not: DbWhere<T> };
+
+export interface DbReadOptions<T> {
+  orderBy?: { field: keyof T & string; direction: 'asc' | 'desc' };
+  limit?: number;
+}
+
 export interface CollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }> {
   /** Snapshot read by id; safe outside React. */
   get(id: string | undefined | null): TStored | undefined;
   /** Snapshot read of every row; safe outside React. */
   getAll(): TStored[];
-  /** Snapshot read of rows matching every defined filter field. */
-  getWhere(filter: Partial<TStored>): TStored[];
-  /** Snapshot read of the first row matching every defined filter field. */
-  getFirstWhere(filter: Partial<TStored>): TStored | undefined;
+  /** Snapshot read of rows matching a typed predicate. */
+  getWhere(filter: DbWhere<TStored>): TStored[];
+  /** Snapshot read of the first row matching a typed predicate. */
+  getFirstWhere(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
+  /** Snapshot alias for `getFirstWhere`. */
+  getFirst(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
   /** Shallow-update one row and return whether it changed. */
   patch(id: string, updates: Partial<TStored>): boolean;
   /** Delete one row and return whether it existed. */
@@ -270,12 +285,14 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   find(id: string | undefined | null): TStored | undefined;
   /** React hook: read all rows and re-render on change. */
   all(): TStored[];
-  /** React hook: read rows matching every defined filter field. */
-  where(filter: Partial<TStored>): TStored[];
+  /** React hook: read rows matching a typed predicate. */
+  where(filter: DbWhere<TStored>, options?: DbReadOptions<TStored>): TStored[];
   /** React hook: read rows matching the supplied ids. */
   byIds(ids: string[]): TStored[];
-  /** React hook: count rows, optionally filtered. */
-  count(filter?: Partial<TStored>): number;
+  /** React hook: read the first row matching a typed predicate. */
+  first(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
+  /** React hook: count rows, optionally filtered by a typed predicate. */
+  count(filter?: DbWhere<TStored>): number;
   /** Public backing TanStack DB collection for live-query joins. */
   collection: Collection<TStored, string>;
   /** Backing TanStack DB collection. Prefer `collection` for new consumers. */
@@ -306,6 +323,10 @@ export interface ModelRelation<T extends { id: string }> {
   /** Delete every matching row and return how many were removed. */
   delete(): number;
 }
+
+export type DbKeyModelSource = {
+  collection: { readonly id: string };
+};
 
 export type ModelInstance<T extends { id: string }> = Readonly<T> & {
   /** Patch this row by id. */
@@ -347,7 +368,7 @@ export type StableProjectionConfig<TSource, TEntry extends { item: TItem }, TIte
 
 type BaseQueryCollectionFind = {
   /** Model used for a reactive single-row read. */
-  model: {
+  model: DbKeyModelSource & {
     /** React hook: read one row by id. */
     find: (id: string | undefined | null) => unknown;
     /** Freshness gate for the row scope. */
@@ -363,7 +384,7 @@ type BaseQueryCollectionFind = {
 
 type BaseQueryCollectionAll = {
   /** Model used for a reactive all-rows read. */
-  model: {
+  model: DbKeyModelSource & {
     /** React hook: read all rows. */
     all: () => unknown[];
     /** Freshness gate for the root scope. */
@@ -483,6 +504,10 @@ export type InfiniteQueryConfig<TData, TNode> = {
   /** Override how each page is written to the collection. */
   resolveSyncContract?: (context: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
   collection: {
+    /** Model used for derived query keys. */
+    _dbModel?: DbKeyModelSource;
+    /** Map the runtime filter to the same stored scope used by freshness metadata. */
+    _dbScope?: (filter?: unknown) => object | undefined;
     /** Write extracted nodes to the collection. */
     applyServerData: (items: unknown[], contract: SyncContract) => void;
     /** React hook: read paged data from the collection. */
@@ -500,7 +525,7 @@ export type InfiniteQueryConfig<TData, TNode> = {
 
 export type SyncConfig = {
   /** Model that receives selected query payloads. */
-  model: {
+  model: DbKeyModelSource & {
     /** Write selected payloads using the configured sync contract. */
     applyServerData: (items: unknown[], contract: SyncContract) => unknown;
   };
@@ -518,8 +543,8 @@ export type DbInfinitePatchContext = {
 export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>> = {
   /** GraphQL query document. */
   query: DbGraphQLDocument<TResponse, TVariables>;
-  /** React Query cache key. */
-  key: readonly unknown[];
+  /** React Query cache key. Derived from a model-backed read or sync when omitted. */
+  key?: readonly unknown[];
   /** Pick the payload from response data. */
   select: (data: TResponse) => TSelected;
   /** Query variables. */
@@ -553,8 +578,8 @@ export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unkn
 export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string, unknown>> = {
   /** Paginated GraphQL query document. */
   query: DbGraphQLDocument<TResponse, TVariables>;
-  /** React Query cache key. */
-  key: readonly unknown[];
+  /** React Query cache key. Derived from the collection binding and scope when omitted. */
+  key?: readonly unknown[];
   /** Pick a connection with `nodes` or `edges` from response data. */
   selectPage: (data: TResponse) => ConnectionWithNodes | ConnectionWithEdges | null | undefined;
   /** Base query variables. */

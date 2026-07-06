@@ -1,5 +1,6 @@
 import type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
 import type { DbLogger, DbModelDefaults, DbTransport, StorageAdapter } from './types';
+import type { QueryClient } from '@tanstack/react-query';
 export type ConfigureDbOptions = {
     /** GraphQL executor used by query and mutation runtimes. */
     transport: DbTransport;
@@ -13,6 +14,8 @@ export type ConfigureDbOptions = {
      * @default no-op logger
      */
     logger?: DbLogger;
+    /** Optional QueryClient used by imperative request invalidation/refetch/reset APIs. */
+    queryClient?: QueryClient;
     /** Optional side-load extract seam. */
     extract?: {
         /**

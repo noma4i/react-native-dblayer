@@ -2,6 +2,7 @@ export { createCollectionModel } from './core/createCollectionModel';
 export { configureDb } from './configure';
 export { instance, query, useInstance } from './activeRecord';
 export { createMerge } from './core/createMerge';
+export { deriveDbKey } from './core/deriveDbKey';
 export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
@@ -13,6 +14,7 @@ export { acceptPersistentCollectionMutations, clearAllCollections, devClearAllDa
 export { stableSerialize } from './core/serialize';
 export { getDbExtractSink, getDbMutationExtractResolver, setDbExtractSink, setDbMutationExtractResolver } from './core/extract';
 export { getDbLogger, setDbLogger } from './core/logger';
+export { getDbQueryClient, invalidateDbRequests, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
 export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
@@ -30,5 +32,5 @@ export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export type { ConfigureDbOptions } from './configure';
 export type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
-export type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, BaseMutationContext, CollectionFetchState, CollectionModel, CollectionReadConfig, ComputePhaseInput, ConnectionResult, ConnectionWithEdges, ConnectionWithNodes, CreateCollectionModelConfig, CreateMergeConfig, CreatePatchCrudConfig, CreateReplaceConfig, DbCollection, DbCommandConfig, DbCommandMutationConfig, DbExtractSpec, DbGraphQLDocument, DbInfinitePatchContext, DbLogger, DbModelDefaults, DbMutationOperation, DbMutationConfig, DbQueryOperation, DbRequestInfiniteConfig, DbRequestSingleConfig, DbTransport, DisplayState, DisplayStateInput, FetchStatePageInfo, FetchStateRemovalListener, InfiniteQueryConfig, InfiniteQueryResult, InfiniteSyncContractResolverContext, IncomingRecord, LoadingPhase, LoadingState, MergeResult, ModelInstance, ModelRelation, NormalizedPageInfo, PageInfo, PageInfoInput, PaginationState, PatchCrud, PersistentCollection, PersistentMutationTransaction, ReplaceResult, ServerSyncContract, ServerSyncMode, ShouldAcceptIncomingOptions, StableProjectionConfig, StorageAdapter, SyncConfig, SyncContract, TransportResult } from './types';
+export type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, BaseMutationContext, CollectionFetchState, CollectionModel, CollectionReadConfig, ComputePhaseInput, ConnectionResult, ConnectionWithEdges, ConnectionWithNodes, CreateCollectionModelConfig, CreateMergeConfig, CreatePatchCrudConfig, CreateReplaceConfig, DbCollection, DbCommandConfig, DbCommandMutationConfig, DbCondition, DbExtractSpec, DbGraphQLDocument, DbInfinitePatchContext, DbLogger, DbModelDefaults, DbMutationOperation, DbMutationConfig, DbQueryOperation, DbReadOptions, DbRequestInfiniteConfig, DbRequestSingleConfig, DbTransport, DbWhere, DisplayState, DisplayStateInput, FetchStatePageInfo, FetchStateRemovalListener, InfiniteQueryConfig, InfiniteQueryResult, InfiniteSyncContractResolverContext, IncomingRecord, LoadingPhase, LoadingState, MergeResult, ModelInstance, ModelRelation, NormalizedPageInfo, PageInfo, PageInfoInput, PaginationState, PatchCrud, PersistentCollection, PersistentMutationTransaction, ReplaceResult, ServerSyncContract, ServerSyncMode, ShouldAcceptIncomingOptions, StableProjectionConfig, StorageAdapter, SyncConfig, SyncContract, TransportResult } from './types';
 //# sourceMappingURL=index.d.ts.map

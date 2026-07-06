@@ -2,6 +2,7 @@ export { createCollectionModel } from './core/createCollectionModel';
 export { configureDb } from './configure';
 export { instance, query, useInstance } from './activeRecord';
 export { createMerge } from './core/createMerge';
+export { deriveDbKey } from './core/deriveDbKey';
 export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
@@ -31,6 +32,7 @@ export {
 export { stableSerialize } from './core/serialize';
 export { getDbExtractSink, getDbMutationExtractResolver, setDbExtractSink, setDbMutationExtractResolver } from './core/extract';
 export { getDbLogger, setDbLogger } from './core/logger';
+export { getDbQueryClient, invalidateDbRequests, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
 export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
@@ -67,6 +69,7 @@ export type {
   DbCollection,
   DbCommandConfig,
   DbCommandMutationConfig,
+  DbCondition,
   DbExtractSpec,
   DbGraphQLDocument,
   DbInfinitePatchContext,
@@ -75,9 +78,11 @@ export type {
   DbMutationOperation,
   DbMutationConfig,
   DbQueryOperation,
+  DbReadOptions,
   DbRequestInfiniteConfig,
   DbRequestSingleConfig,
   DbTransport,
+  DbWhere,
   DisplayState,
   DisplayStateInput,
   FetchStatePageInfo,

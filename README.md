@@ -52,12 +52,14 @@ app in a `@tanstack/react-query` `QueryClientProvider` — the request/mutation 
 
 ```ts
 import { configureDb } from '@noma4i/react-native-dblayer';
+import { queryClient } from './queryClient';
 
 configureDb({
   transport: {
     query: (op) => apollo.query({ query: op.query, variables: op.variables, fetchPolicy: 'no-cache' }).then((r) => ({ data: r.data })),
     mutation: (op) => apollo.mutate({ mutation: op.mutation, variables: op.variables }).then((r) => ({ data: r.data })),
   },
+  queryClient, // enables imperative invalidate/refetch/reset helpers
   // storage?: default MMKV · logger?: default no-op · extract?: default no-op
 });
 ```
@@ -91,7 +93,6 @@ import { useDbSingleRequest } from '@noma4i/react-native-dblayer';
 
 function UserCard({ id }: { id: string }) {
   const { data: user, loadingState } = useDbSingleRequest({
-    key: ['user', id],
     query: USER_QUERY,                            // TypedDocumentNode -> types inferred
     vars: { id },
     select: (d) => d.user,
@@ -113,7 +114,10 @@ function OnlineDot({ id }: { id: string }) {
 }
 
 function AdminList() {
-  const admins = UserModel.where({ role: 'admin' }); // reactive list
+  const admins = UserModel.where(
+    { role: 'admin' },
+    { orderBy: { field: 'name', direction: 'asc' } }
+  ); // reactive list
   return <FlatList data={admins} keyExtractor={(u) => u.id} renderItem={/* ... */} />;
 }
 ```
@@ -161,7 +165,7 @@ Every model exposes reactive hooks and synchronous snapshots:
 
 | Reactive (hooks, re-render) | Snapshot (synchronous, anywhere) |
 | --- | --- |
-| `Model.find(id)` / `all()` / `where(f)` / `byIds(ids)` / `count(f?)` | `Model.get(id)` / `getAll()` / `getWhere(f)` / `getFirstWhere(f)` |
+| `Model.find(id)` / `all()` / `where(f, opts?)` / `first(f?, opts?)` / `byIds(ids)` / `count(f?)` | `Model.get(id)` / `getAll()` / `getWhere(f)` / `getFirstWhere(f?, opts?)` / `getFirst(f?, opts?)` |
 
 ```ts
 UserModel.applyServerData(rows, { mode: 'merge', source: 'users' }); // sync (merge | replace)

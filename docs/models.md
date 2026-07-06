@@ -83,9 +83,10 @@ export const FeedModel = defineModel<FeedEdge, FeedRow>({
 | --- | --- | --- |
 | `find` | `(id: string \| null \| undefined)` | the row, or `undefined` |
 | `all` | `()` | all rows (applies `defaultSort`) |
-| `where` | `(filter: Partial<TStored>)` | rows matching every field in `filter` |
+| `where` | `(filter: DbWhere<TStored>, options?: DbReadOptions<TStored>)` | rows matching `filter` |
 | `byIds` | `(ids: string[])` | rows for those ids |
-| `count` | `(filter?: Partial<TStored>)` | number of rows (optionally filtered) |
+| `first` | `(filter?: DbWhere<TStored>, options?: { orderBy })` | first matching row, or `undefined` |
+| `count` | `(filter?: DbWhere<TStored>)` | number of rows (optionally filtered) |
 
 ```tsx
 function ChatBadge({ chatId }: { chatId: string }) {
@@ -105,8 +106,9 @@ function AdminList() {
 | --- | --- | --- |
 | `get` | `(id: string \| null \| undefined)` | the row, or `undefined` |
 | `getAll` | `()` | all rows |
-| `getWhere` | `(filter: Partial<TStored>)` | matching rows |
-| `getFirstWhere` | `(filter: Partial<TStored>)` | first matching row, or `undefined` |
+| `getWhere` | `(filter: DbWhere<TStored>)` | matching rows |
+| `getFirstWhere` | `(filter?: DbWhere<TStored>, options?: { orderBy })` | first matching row, or `undefined` |
+| `getFirst` | `(filter?: DbWhere<TStored>, options?: { orderBy })` | alias for `getFirstWhere` |
 
 ```ts
 // in a subscription handler or event callback (no hooks allowed here):
@@ -116,8 +118,20 @@ function onIncoming(message: MessageInput) {
 }
 ```
 
-A `filter` is a `Partial<TStored>`: a row matches when it equals the filter on every provided field (`undefined`
-fields are ignored). Use `null` to match a null column.
+A `DbWhere<TStored>` can be a field equality map, `{ and: [...] }`, `{ or: [...] }`, or `{ not: ... }`.
+`undefined` fields are ignored. Use `null` to match a null column.
+
+```ts
+const recentPrimary = ChatModel.where(
+  { and: [{ status: 'primary' }, { or: [{ pinned: true }, { kind: 'system' }] }] },
+  { orderBy: { field: 'lastActivityAt', direction: 'desc' }, limit: 25 }
+);
+
+const latestMessage = MessageModel.first(
+  { chatId },
+  { orderBy: { field: 'createdAt', direction: 'desc' } }
+);
+```
 
 ## `CollectionModel` — write
 

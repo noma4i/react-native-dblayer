@@ -9,12 +9,14 @@ One call that wires every seam. Returns `void`. Call it once at app start, befor
 ```ts
 import { configureDb } from '@noma4i/react-native-dblayer';
 import { apolloClient } from './apollo';
+import { queryClient } from './queryClient';
 
 configureDb({
   transport: {
     query: (op) => apolloClient.query({ query: op.query, variables: op.variables, fetchPolicy: 'no-cache' }).then((r) => ({ data: r.data })),
     mutation: (op) => apolloClient.mutate({ mutation: op.mutation, variables: op.variables }).then((r) => ({ data: r.data })),
   },
+  queryClient,
   // storage defaults to MMKV, logger to no-op, extract to no-op — all optional.
 });
 ```
@@ -26,11 +28,32 @@ configureDb({
 | `transport` | `DbTransport` | **required** — throws if never set | Your GraphQL client executor. See below. |
 | `storage` | `StorageAdapter` | MMKV-backed adapter | Where collections persist. Omit to use the built-in MMKV adapter. |
 | `logger` | `DbLogger` | no-op | Receives `debug`/`error` from the request/mutation runtimes. |
+| `queryClient` | `QueryClient` | `null` | Used by imperative request helpers only. Hooks still read React context. |
 | `extract.sink` | `DbExtractSink` | no-op | Applies a resolved extract payload into your collections (side-loads). |
 | `extract.mutationResolver` | `DbMutationExtractResolver` | no-op | Turns a mutation's `extract` spec + server result into an extract payload for the sink. |
 
 Each seam also has a standalone setter if you prefer granular control: `setDbTransport`, `setDbStorageAdapter`,
 `setDbLogger`, `setDbExtractSink`, `setDbMutationExtractResolver`. `configureDb` just calls these.
+
+## QueryClient seam
+
+```ts
+import {
+  deriveDbKey,
+  getDbQueryClient,
+  invalidateDbRequests,
+  refetchDbRequests,
+  resetDbQueryRuntime,
+} from '@noma4i/react-native-dblayer';
+
+getDbQueryClient();                                      // QueryClient | null
+await invalidateDbRequests(deriveDbKey(UserModel));      // prefix invalidation
+await refetchDbRequests(deriveDbKey(UserModel, { id })); // awaitable refetch
+await resetDbQueryRuntime();                             // cancelQueries(), then clear()
+```
+
+The configured client is only for imperative APIs. Query hooks keep using `useQueryClient()` from
+`QueryClientProvider`.
 
 ## `DbTransport` — the GraphQL executor
 

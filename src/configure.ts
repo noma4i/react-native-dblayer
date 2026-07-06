@@ -1,10 +1,12 @@
 import { setDbExtractSink, setDbMutationExtractResolver } from './core/extract';
 import { setDbLogger } from './core/logger';
 import { setDbModelDefaults } from './core/modelDefaults';
+import { setDbQueryClient } from './core/queryClient';
 import { setDbStorageAdapter } from './core/storage';
 import { setDbTransport } from './core/transport';
 import type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
 import type { DbLogger, DbModelDefaults, DbTransport, StorageAdapter } from './types';
+import type { QueryClient } from '@tanstack/react-query';
 
 export type ConfigureDbOptions = {
   /** GraphQL executor used by query and mutation runtimes. */
@@ -19,6 +21,8 @@ export type ConfigureDbOptions = {
    * @default no-op logger
    */
   logger?: DbLogger;
+  /** Optional QueryClient used by imperative request invalidation/refetch/reset APIs. */
+  queryClient?: QueryClient;
   /** Optional side-load extract seam. */
   extract?: {
     /**
@@ -51,6 +55,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   setDbTransport(options.transport);
   if (options.storage) setDbStorageAdapter(options.storage);
   if (options.logger) setDbLogger(options.logger);
+  setDbQueryClient(options.queryClient);
   if (options.extract?.sink) setDbExtractSink(options.extract.sink);
   if (options.extract?.mutationResolver) setDbMutationExtractResolver(options.extract.mutationResolver);
   setDbModelDefaults(options.modelDefaults);

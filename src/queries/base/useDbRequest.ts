@@ -1,10 +1,33 @@
 import { useMemo, useRef } from 'react';
-import type { BaseQueryConfig, BaseQueryResult, DbRequestInfiniteConfig, DbRequestSingleConfig, InfiniteQueryConfig, InfiniteQueryResult } from '../../types';
+import type { BaseQueryConfig, BaseQueryResult, CollectionModel, DbRequestInfiniteConfig, DbRequestSingleConfig, InfiniteQueryConfig, InfiniteQueryResult } from '../../types';
+import { deriveDbKey } from '../../core/deriveDbKey';
 import { stableSerialize } from '../../core/serialize';
 import { makePageExtractor } from './extractPage';
 import { executeDbInfiniteRequest, executeDbSingleRequest } from './requestRuntime';
+import { buildModelFilter } from './shared';
 import { useBaseInfiniteQuery } from './useBaseInfiniteQuery';
 import { useBaseQuery } from './useBaseQuery';
+
+const resolveSingleRequestKey = (config: DbRequestSingleConfig<unknown, unknown, unknown>): readonly unknown[] => {
+  if (config.key) return config.key;
+  if (config.read) {
+    return 'id' in config.read ? deriveDbKey(config.read.model as CollectionModel<any, any>, config.read.id != null ? { id: config.read.id } : undefined) : deriveDbKey(config.read.model as CollectionModel<any, any>);
+  }
+  if (config.sync && typeof config.sync !== 'function') {
+    return deriveDbKey(config.sync.model as CollectionModel<any, any>);
+  }
+  throw new Error('useDbSingleRequest requires `key` unless `read` or `sync.model` can derive one.');
+};
+
+const resolveInfiniteRequestKey = (config: DbRequestInfiniteConfig<unknown, unknown>): readonly unknown[] => {
+  if (config.key) return config.key;
+  const model = config.read._dbModel;
+  if (!model) {
+    throw new Error('useDbInfiniteRequest requires `key` unless `read` is created by createCollectionBinding().');
+  }
+  const modelFilter = buildModelFilter(config.filter?.(), config.currentUserId?.());
+  return deriveDbKey(model as CollectionModel<any, any>, config.read._dbScope?.(modelFilter));
+};
 
 /**
  * React hook that runs one GraphQL query, syncs selected data, and returns a reactive read.
@@ -24,7 +47,8 @@ import { useBaseQuery } from './useBaseQuery';
 export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unknown>(config: DbRequestSingleConfig<TResponse, TResult, TSelected>): BaseQueryResult<TResult> => {
   const configRef = useRef(config);
   configRef.current = config;
-  const keySignature = stableSerialize(config.key);
+  const queryKey = resolveSingleRequestKey(config as DbRequestSingleConfig<unknown, unknown, unknown>);
+  const keySignature = stableSerialize(queryKey);
   const read = config.read;
   const readRef = useRef(read);
   readRef.current = read;
@@ -34,7 +58,7 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
   const collection = useMemo<BaseQueryConfig<TResult>['collection']>(() => readRef.current, [collectionHasId, collectionId, collectionModel]);
   const baseConfig = useMemo(
     (): BaseQueryConfig<TResult> => ({
-      queryKey: config.key,
+      queryKey,
       queryFn: () => executeDbSingleRequest(configRef.current),
       collection,
       inactive: config.inactive,
@@ -65,13 +89,14 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
 export const useDbInfiniteRequest = <TResponse, TNode>(config: DbRequestInfiniteConfig<TResponse, TNode>): InfiniteQueryResult<TNode> => {
   const configRef = useRef(config);
   configRef.current = config;
-  const keySignature = stableSerialize(config.key);
+  const queryKey = resolveInfiniteRequestKey(config as DbRequestInfiniteConfig<unknown, unknown>);
+  const keySignature = stableSerialize(queryKey);
 
   const baseConfig = useMemo<InfiniteQueryConfig<TResponse, TNode>>(() => {
     const extract = makePageExtractor<TResponse, TNode>(data => configRef.current.selectPage(data));
 
     return {
-      queryKey: config.key,
+      queryKey,
       queryFn: ({ pageParam }: { pageParam?: string }) => executeDbInfiniteRequest(configRef.current, pageParam),
       extract,
       inactive: config.inactive,

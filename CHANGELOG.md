@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 - 2026-07-06
+
+- Add typed predicate reads with `DbWhere`, `DbReadOptions`, reactive `first`, and snapshot `getFirst` APIs.
+- Add configured QueryClient imperative request APIs for invalidation, refetch, and runtime reset.
+- Derive db request keys from models and scoped collection bindings with `deriveDbKey`.
+
 ## 1.0.4 - 2026-07-06
 
 - Fix `configureDb` modelDefaults init-order: the `dedupeWindowMs` default is now resolved lazily per merge call, so calling `configureDb` after models are created still applies the default. Per-model explicit values keep winning; regression test added.

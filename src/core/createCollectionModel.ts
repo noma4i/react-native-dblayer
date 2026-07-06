@@ -1,7 +1,8 @@
-import { createTransaction, count as dbCount, eq, inArray, isNull } from '@tanstack/db';
+import { createTransaction, count as dbCount, eq, inArray } from '@tanstack/db';
 import { useLiveQuery } from '@tanstack/react-db';
-import type { CollectionFetchState, CollectionModel, CreateCollectionModelConfig, MergeResult, PersistentMutationTransaction, ReplaceResult, SyncContract } from '../types';
+import type { CollectionFetchState, CollectionModel, CreateCollectionModelConfig, DbReadOptions, DbWhere, MergeResult, PersistentMutationTransaction, ReplaceResult, SyncContract } from '../types';
 import { toQueryValue } from '../utils/typeBoundary';
+import { applyDbReadOptionsToQuery, applyDbReadOptionsToRows, applyDbWhereToQuery, createDbWhereSignature, matchesDbWhere, normalizeDbCondition } from './compileDbWhere';
 import { createMerge } from './createMerge';
 import { createPatchCrud } from './createPatchCrud';
 import { createReplace } from './createReplace';
@@ -14,29 +15,10 @@ const EMPTY: readonly unknown[] = [];
 const GROUP_ALL = 1 as const;
 const ROOT_FETCH_SCOPE = '__root__';
 
-const normalizeFilter = <TStored>(filter?: Partial<TStored>): Partial<TStored> | undefined => {
-  if (!filter) return undefined;
-  const entries = Object.entries(filter).filter(([, value]) => value !== undefined) as [keyof TStored & string, unknown][];
-  if (entries.length === 0) return undefined;
-  entries.sort(([a], [b]) => a.localeCompare(b));
-  return Object.fromEntries(entries) as Partial<TStored>;
-};
-
 const buildFetchScope = <TStored>(filter?: Partial<TStored>): string => {
-  const normalized = normalizeFilter(filter);
+  const normalized = normalizeDbCondition(filter);
   if (!normalized) return ROOT_FETCH_SCOPE;
   return stableSerialize(normalized);
-};
-
-const applyFilterEntries = <TRow, Q extends { where(callback: (row: { items: TRow }) => unknown): Q }>(query: Q, filterEntries: [string, unknown][]): Q => {
-  let next = query;
-  for (const [key, value] of filterEntries) {
-    next =
-      value === null
-        ? next.where(({ items }) => isNull(toQueryValue((items as Record<string, unknown>)[key])))
-        : next.where(({ items }) => eq(toQueryValue((items as Record<string, unknown>)[key]), toQueryValue(value)));
-  }
-  return next;
 };
 
 const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime: number) => {
@@ -157,41 +139,21 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     tx.mutate(fn);
   };
 
-  const matchesFilter = (item: TStored, filterEntries: [string, unknown][]): boolean => filterEntries.every(([key, value]) => (item as Record<string, unknown>)[key] === value);
-
-  const getSnapshotWhere = (filter: Partial<TStored>): TStored[] => {
-    const normalized = normalizeFilter(filter);
-    const filterEntries = normalized ? (Object.entries(normalized) as [string, unknown][]) : [];
-    if (filterEntries.length === 0) {
-      return Array.from(rawCollection.values());
-    }
-
+  const getSnapshotWhere = (filter: DbWhere<TStored>): TStored[] => {
     const results: TStored[] = [];
     for (const item of rawCollection.values()) {
-      if (matchesFilter(item, filterEntries)) {
-        results.push(item);
-      }
+      if (matchesDbWhere(item, filter)) results.push(item);
     }
     return results;
   };
 
-  const getSnapshotFirstWhere = (filter: Partial<TStored>): TStored | undefined => {
-    const normalized = normalizeFilter(filter);
-    const filterEntries = normalized ? (Object.entries(normalized) as [string, unknown][]) : [];
-    if (filterEntries.length === 0) {
-      return rawCollection.values().next().value;
-    }
-
-    for (const item of rawCollection.values()) {
-      if (matchesFilter(item, filterEntries)) {
-        return item;
-      }
-    }
-    return undefined;
+  const getSnapshotFirstWhere = (filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined => {
+    const rows = filter ? getSnapshotWhere(filter) : Array.from(rawCollection.values());
+    return applyDbReadOptionsToRows(rows, options)[0];
   };
 
   const hasCached = (filter?: Partial<TStored>): boolean => {
-    if (filter && Object.keys(normalizeFilter(filter) ?? {}).length > 0) {
+    if (filter && Object.keys(normalizeDbCondition(filter) ?? {}).length > 0) {
       return getSnapshotFirstWhere(filter) !== undefined;
     }
     if ('size' in rawCollection && typeof rawCollection.size === 'number') {
@@ -227,7 +189,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
   };
 
   const destroyWhere = (filter: Partial<TStored>): number => {
-    const normalized = normalizeFilter(filter);
+    const normalized = normalizeDbCondition(filter);
     if (!normalized) {
       throw new Error(`[${config.name}] destroyWhere requires a non-empty filter. Use clearScope() for full collection clears.`);
     }
@@ -269,7 +231,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
           : undefined,
       [id]
     );
-    return data as TStored | undefined;
+    return data as unknown as TStored | undefined;
   };
 
   const useAll = (): TStored[] => {
@@ -285,15 +247,24 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     return (data ?? EMPTY) as TStored[];
   };
 
-  const useWhere = (filter: Partial<TStored>): TStored[] => {
-    const normalized = normalizeFilter(filter);
-    const filterEntries = normalized ? Object.entries(normalized) : [];
+  const useWhere = (filter: DbWhere<TStored>, options?: DbReadOptions<TStored>): TStored[] => {
+    const signature = createDbWhereSignature(filter, options);
     const { data } = useLiveQuery(
-      q => applyFilterEntries(q.from({ items: tanstackCollection }), filterEntries),
-      filterEntries.map(([, value]) => value)
+      q => applyDbReadOptionsToQuery(applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter), options),
+      [signature]
     );
 
     return (data ?? EMPTY) as TStored[];
+  };
+
+  const useFirst = (filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined => {
+    const signature = createDbWhereSignature(filter, options);
+    const { data } = useLiveQuery(
+      q => applyDbReadOptionsToQuery(applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter), options).findOne(),
+      [signature]
+    );
+
+    return data as unknown as TStored | undefined;
   };
 
   const useByIds = (ids: string[]): TStored[] => {
@@ -304,16 +275,15 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     return (data ?? EMPTY) as TStored[];
   };
 
-  const useCount = (filter?: Partial<TStored>): number => {
-    const normalized = normalizeFilter(filter);
-    const filterEntries = normalized ? Object.entries(normalized) : [];
+  const useCount = (filter?: DbWhere<TStored>): number => {
+    const signature = createDbWhereSignature(filter);
 
     const { data } = useLiveQuery(
       q =>
-        applyFilterEntries(q.from({ items: tanstackCollection }), filterEntries)
+        applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter)
           .groupBy(() => GROUP_ALL)
-          .select(({ items }) => ({ total: dbCount(toQueryValue((items as Record<string, unknown>).id)) })),
-      filterEntries.map(([, value]) => value)
+          .select(({ items }: { items: unknown }) => ({ total: dbCount(toQueryValue((items as Record<string, unknown>).id)) })),
+      [signature]
     );
 
     return (data as Array<{ total: number }> | undefined)?.[0]?.total ?? 0;
@@ -328,7 +298,8 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     get: (id: string | undefined | null) => (id ? rawCollection.get(id) : undefined),
     getAll: () => Array.from(rawCollection.values()),
     getWhere: filter => getSnapshotWhere(filter),
-    getFirstWhere: filter => getSnapshotFirstWhere(filter),
+    getFirstWhere: (filter, options) => getSnapshotFirstWhere(filter, options),
+    getFirst: (filter, options) => getSnapshotFirstWhere(filter, options),
     patch: (id, updates) => crud.patch(id, updates),
     destroy: id => crud.destroy(id),
     destroyMany,
@@ -355,6 +326,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     all: useAll,
     where: useWhere,
     byIds: useByIds,
+    first: useFirst,
     count: useCount,
     collection: tanstackCollection,
     _collection: tanstackCollection

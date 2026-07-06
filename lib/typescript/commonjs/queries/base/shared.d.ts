@@ -5,6 +5,8 @@ export declare function useCollectionRead<TData>(collection: BaseQueryCollection
 export declare const createCollectionBinding: <TStored extends {
     id: string;
 }>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored>) => {
+    _dbModel: CollectionModel<unknown, TStored>;
+    _dbScope: (filter?: unknown) => Partial<TStored> | undefined;
     applyServerData: (items: unknown[], contract: SyncContract) => import("../..").MergeResult | import("../..").ReplaceResult;
     useData: (filter?: unknown, inactive?: boolean) => TStored[];
     shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => boolean;

@@ -45,6 +45,9 @@ const buildScopeFilter = <TStored>(scope: unknown, scopeMap: Record<string, keyo
 
 /** Create an infinite-query collection binding around a model. */
 export const createCollectionBinding = <TStored extends { id: string }>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored>) => ({
+  _dbModel: model,
+  _dbScope: (filter?: unknown) => toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap),
+
   applyServerData: (items: unknown[], contract: SyncContract) => {
     if (contract.scope && readConfig?.scopeMap) {
       const scopeFilter = buildScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
