@@ -69,18 +69,48 @@ and adapters for Apollo / urql / graphql-request.
 
 ## 2. Define a model
 
-A model normalizes a shape into a persistent collection. Domain logic stays in your queries and mutations, never in
-the model.
+A model describes how raw server payloads become persistent rows. The recommended path is declarative `fields`:
+the package generates the normalizer, keeps undefined fields sparse, and derives the stored/input types from the
+model itself.
 
 ```ts
-import { defineModel } from '@noma4i/react-native-dblayer';
+import { compositeId, defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
 
-export const UserModel = defineModel<UserInput, User>({
+export const UserModel = defineModel({
   name: 'UserModel',
   id: 'users',
-  normalize: (u) => ({ id: u.id, name: u.name, role: u.role, updatedAt: u.updatedAt }),
+  fields: {
+    uuid: f.str(),
+    fullName: f.str(),
+    age: f.num().nullable(),
+    coverUrl: f.str().nullDefault(),
+    countryName: f.custom((u) => (u as { country?: { name?: string } }).country?.name).nullable(),
+  },
+});
+
+export type UserData = ModelStored<typeof UserModel>;
+export type UserInput = ModelInput<typeof UserModel>;
+```
+
+Use `rowId`, `guard`, `compositeId`, and `sideload` for common model-level sync rules:
+
+```ts
+export const SimilarMomentModel = defineModel({
+  name: 'SimilarMomentModel',
+  id: 'similar-moments',
+  rowId: compositeId((row) => (row as any).momentId, (row) => (row as any).similarMomentId),
+  guard: (row) => (row as { hidden?: boolean }).hidden !== true,
+  fields: {
+    momentId: f.id(),
+    similarMomentId: f.id(),
+    score: f.num().nullable(),
+  },
+  sideload: [{ model: 'UserModel', pluck: (row) => (row as any).user }],
 });
 ```
+
+For irreducibly custom mappings, keep using `normalize`; shapes can still be reused with `readShape` inside that
+escape hatch.
 
 → **Reference:** [Models](./docs/models.md) — `defineModel` options and the full `CollectionModel` read/write API.
 

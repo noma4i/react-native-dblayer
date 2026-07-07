@@ -1,24 +1,45 @@
 # Models
 
-A model is a persistent, reactive collection plus a normalizer. Define one per entity.
+A model is a persistent, reactive collection plus a generated or custom normalizer. Define one per entity.
 
 ## `defineModel(config)`
 
+The recommended API is the declarative `fields` form. It generates the model normalizer, keeps sparse fields sparse
+(`undefined` means "do not write this key"), and lets you derive row types from the model.
+
 ```ts
-import { defineModel } from '@noma4i/react-native-dblayer';
+import { defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
 
-type UserInput = { id: string; name: string; role?: string; updatedAt?: string };
-type User = { id: string; name: string; role?: string; isOnline?: boolean; updatedAt?: string };
-
-export const UserModel = defineModel<UserInput, User>({
+export const UserModel = defineModel({
   name: 'UserModel',
   id: 'users',
-  normalize: (u) => ({ id: u.id, name: u.name, role: u.role, updatedAt: u.updatedAt }),
+  fields: {
+    uuid: f.str(),
+    fullName: f.str(),
+    age: f.num().nullable(),
+    coverUrl: f.str().nullDefault(),
+    countryName: f.custom((u) => (u as { country?: { name?: string } }).country?.name).nullable(),
+    updatedAt: f.str().nullable().optional(),
+  },
 });
+
+export type UserData = ModelStored<typeof UserModel>;
+export type UserInput = ModelInput<typeof UserModel>;
 ```
 
-Returns a `CollectionModel<UserInput, User>`. `UserInput` is what you write in (often a GraphQL type); `User` is
-what is stored.
+Returns a `CollectionModel<unknown, UserData>`. Raw server payloads can be passed directly to `applyServerData`;
+field readers are defensive and skip malformed values. `UserInput` is a sparse write shape:
+`Partial<UserData> & { id: string }`.
+
+The legacy normalize form remains supported as an escape hatch:
+
+```ts
+export const MessageModel = defineModel<MessageInput, Message>({
+  name: 'MessageModel',
+  id: 'messages',
+  normalize: (m) => ({ id: m.id, chatId: m.chatId, body: m.body, updatedAt: m.updatedAt }),
+});
+```
 
 ### Options
 
@@ -26,7 +47,11 @@ what is stored.
 | --- | --- | --- | --- |
 | `name` | `string` | **required** | Unique model name. Runtime-registry key and log tag. |
 | `id` | `string` | **required** | Collection id + storage-key prefix (e.g. `'users'`). Unique per app. |
-| `normalize` | `(input: TInput) => (Partial<TStored> & { id: string }) \| null` | **required** | Map an input to a stored row. Return `null` to drop it. Must produce a `string` `id`. |
+| `fields` | `Record<string, FieldSpec>` | recommended | Declarative field map used to generate `normalize`. Do not declare `id`; use `rowId` or input `id`. |
+| `rowId` | `(input) => string \| null \| undefined` | `input.id` via `toStr` | Custom row id resolver for fields models. `null`, `undefined`, or `''` drops the row. |
+| `guard` | `(input) => boolean` | `—` | Return `false` to drop an input before field reads. |
+| `sideload` | `SideloadSpec[]` | `—` | Sync nested payloads into registry-named target models before writing this model. |
+| `normalize` | `(input: TInput) => (Partial<TStored> & { id: string }) \| null` | escape hatch | Custom mapper for irreducibly custom rows. Return `null` to drop it. |
 | `staleTime` | `number` (ms) | `0` | How long a fetched scope stays fresh. `0` = always stale. Drives `shouldSkipInitialFetch`. |
 | `merge.dedupeWindowMs` | `number` (ms) | `0` | Skip a merge batch identical to the previous one within this window. `0` = no dedupe. |
 | `merge.shouldOverwrite` | `(existing, incoming) => boolean` | `—` | Force-accept a merge the timestamp gate would reject. |
@@ -36,15 +61,122 @@ what is stored.
 The stored type must extend `{ id: string; updatedAt?: string | null }`. `updatedAt` (ISO) enables the newer-wins
 gate; omit it and every incoming write is accepted.
 
+### Field builders
+
+| Builder | Stored value | Notes |
+| --- | --- | --- |
+| `f.str()` | `string` | Reads only strings. |
+| `f.num()` | `number` | Reads only numbers. |
+| `f.bool()` | `boolean` | Reads only booleans. |
+| `f.id()` | `string` | Coerces string/number ids to string. |
+| `f.enum<T>()` | `T` | Typed passthrough for GraphQL enums; no runtime validation. |
+| `f.raw<T>()` | `T` | Passthrough for arrays or JSON blobs. |
+| `f.custom(read)` | `TOut` | Read from the whole input item. |
+| `f.object(shape)` | nested object | Reads a nested shape. |
+| `f.array(shapeOrField)` | array | Drops elements that read as `undefined` or `null`. |
+
+Every field supports:
+
+| Modifier | Effect |
+| --- | --- |
+| `.nullable()` | Preserves explicit `null`; stored type becomes `T \| null`. |
+| `.optional()` | Stored key becomes optional. |
+| `.nullDefault()` | Maps missing/undefined source to `null`; stored type becomes `T \| null`. |
+| `.from(selector)` | Reads from selector output instead of `input[key]`. |
+
+### Shapes
+
+Shapes are reusable nested field groups. They can be used through `f.object`, `f.array`, or directly via
+`readShape` inside a custom `normalize`.
+
+```ts
+import { defineShape, f, readShape } from '@noma4i/react-native-dblayer';
+
+const mediaShape = defineShape<{ url?: unknown; coverUrl?: unknown; width?: unknown; height?: unknown }>()({
+  url: f.str(),
+  coverUrl: f.str().nullDefault(),
+  width: f.num().nullDefault(),
+  height: f.num().nullDefault(),
+});
+
+export const MomentModel = defineModel({
+  name: 'MomentModel',
+  id: 'moments',
+  fields: {
+    title: f.str(),
+    media: f.object(mediaShape).nullable(),
+    attachments: f.array(mediaShape).optional(),
+  },
+});
+
+export const MessageModel = defineModel<MessageInput, Message>({
+  name: 'MessageModel',
+  id: 'messages',
+  normalize: (m) => ({
+    id: m.id,
+    body: m.body,
+    media: readShape(mediaShape, m.media) ?? null,
+  }),
+});
+```
+
+### Row id, guard, and composite ids
+
+Fields models default to `input.id` for the row id. Use `rowId` for composite rows and `guard` to drop inputs early.
+
+```ts
+import { compositeId, defineModel, f } from '@noma4i/react-native-dblayer';
+
+export const SimilarMomentModel = defineModel({
+  name: 'SimilarMomentModel',
+  id: 'similar-moments',
+  rowId: compositeId((row) => (row as any).momentId, (row) => (row as any).similarMomentId),
+  guard: (row) => (row as { hidden?: boolean }).hidden !== true,
+  fields: {
+    momentId: f.id(),
+    similarMomentId: f.id(),
+    score: f.num().nullable(),
+  },
+});
+```
+
+### Sideload nested payloads
+
+Use `sideload` when a parent payload carries nested entities that must be synced before the parent row. Targets are
+looked up by model registry name, so model files do not need to import each other.
+
+```ts
+export const MomentModel = defineModel({
+  name: 'MomentModel',
+  id: 'moments',
+  fields: {
+    body: f.str(),
+    authorId: f.id().from((row) => (row as any).author?.id),
+  },
+  sideload: [
+    { model: 'UserModel', pluck: (row) => (row as any).author },
+    { model: 'UserModel', pluck: (row) => (row as any).mentionedUsers, source: 'momentMentions' },
+  ],
+});
+```
+
+Sideloads always merge into the target model, run before the parent merge/replace, drop nullish plucked values, and
+skip in-flight targets to prevent cycles. Missing target names throw with the list of registered models.
+
 ### Examples
 
 A model with a dedupe window and a default sort:
 
 ```ts
-export const MessageModel = defineModel<MessageInput, Message>({
+export const MessageModel = defineModel({
   name: 'MessageModel',
   id: 'messages',
-  normalize: (m) => ({ id: m.id, chatId: m.chatId, body: m.body, createdAt: m.createdAt, updatedAt: m.updatedAt }),
+  fields: {
+    chatId: f.id(),
+    body: f.str(),
+    createdAt: f.str(),
+    updatedAt: f.str().nullable().optional(),
+  },
   merge: { dedupeWindowMs: 200 },                       // ignore duplicate bursts
   defaultSort: { field: 'createdAt', direction: 'asc' }, // all() returns oldest-first
 });

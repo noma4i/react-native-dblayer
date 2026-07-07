@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.0 - 2026-07-07
+
+- Add the declarative fields schema DSL with `f.*` builders, generated model normalizers, nested shapes, and model-derived `ModelStored` / `ModelInput` types.
+- Add declarative model sideloads for syncing nested payloads into registry-named target models before parent writes.
+- Add the model registry helpers `registerModel`, `getRegisteredModel`, and `clearModelRegistry`.
+- Keep normalize-based models working unchanged; the new API is additive and does not introduce runtime breaking changes for existing models.
+
 ## 1.2.0 - 2026-07-06
 
 - Add Rails-style model statics for composing model-level helpers from the base DSL with collision protection.
