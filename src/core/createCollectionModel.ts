@@ -8,7 +8,9 @@ import type {
   CreateCollectionModelNormalizeConfig,
   DbReadOptions,
   DbWhere,
+  FieldsCollectionModel,
   MergeResult,
+  ModelBuildStoredInput,
   ModelFieldSpecs,
   ModelStoredFromFields,
   PersistentMutationTransaction,
@@ -131,13 +133,48 @@ const resolveNormalize = (config: RuntimeModelConfig): ((item: unknown) => ({ id
   }).normalize;
 };
 
+const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
+
+const hasFactoryDefault = (field: ModelFieldSpecs[string]): boolean => hasOwn(field, 'factoryDefault');
+
+const resolveFactoryDefault = (field: ModelFieldSpecs[string]): unknown => {
+  const value = field.factoryDefault;
+  return typeof value === 'function' ? (value as () => unknown)() : value;
+};
+
+const createStoredRowBuilder =
+  (name: string, fields: ModelFieldSpecs) =>
+  (partial: Record<string, unknown>): Record<string, unknown> & { id: string } => {
+    const input = typeof partial === 'object' && partial !== null ? partial : {};
+    if (!hasOwn(input, 'id')) {
+      throw new Error(`[${name}] buildStored missing required field "id".`);
+    }
+
+    const output: Record<string, unknown> & { id: string } = { ...(input as Record<string, unknown>) } as Record<string, unknown> & { id: string };
+
+    for (const key of Object.keys(fields)) {
+      if (hasOwn(input, key)) continue;
+
+      const field = fields[key]!;
+      if (hasFactoryDefault(field)) {
+        output[key] = resolveFactoryDefault(field);
+      } else if (field.mode === 'nullable') {
+        output[key] = null;
+      } else if (field.mode === 'required') {
+        throw new Error(`[${name}] buildStored missing required field "${key}".`);
+      }
+    }
+
+    return output;
+  };
+
 /** Create a collection model from a persistent collection and normalizer. */
 export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
   config: CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>
 ): CollectionModel<TInput, TStored> & TExt;
 export function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
   config: CreateCollectionModelFieldsConfig<TFields, TExt>
-): CollectionModel<unknown, ModelStoredFromFields<TFields>> & TExt;
+): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0 } = config;
   const normalize = resolveNormalize(config);
@@ -380,19 +417,20 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     _collection: tanstackCollection
   };
 
-  const extensions = (config.statics as ((model: CollectionModel<any, any>) => Record<string, unknown>) | undefined)?.(baseModel);
+  const modelBase = hasFieldsConfig(config) ? { ...baseModel, buildStored: createStoredRowBuilder(config.name, config.fields) } : baseModel;
+  const extensions = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
   if (!extensions) {
-    registerModel(config.name, baseModel);
-    return baseModel;
+    registerModel(config.name, modelBase);
+    return modelBase;
   }
 
   for (const key of Object.keys(extensions)) {
-    if (key in baseModel) {
+    if (key in modelBase) {
       throw new Error(`[${config.name}] statics cannot override base model key "${key}".`);
     }
   }
 
-  const model = { ...baseModel, ...extensions };
+  const model = { ...modelBase, ...extensions };
   registerModel(config.name, model);
   return model;
 }

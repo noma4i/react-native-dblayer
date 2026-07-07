@@ -3,6 +3,8 @@ import type {
   CollectionModel,
   CreateCollectionModelFieldsConfig,
   CreateCollectionModelNormalizeConfig,
+  FieldsCollectionModel,
+  ModelBuildStoredInput,
   ModelFieldSpecs,
   ModelStoredFromFields,
   PersistentCollection,
@@ -120,7 +122,7 @@ export function defineModel<TFields extends ModelFieldSpecs, TExt extends Record
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
   }
-): CollectionModel<unknown, ModelStoredFromFields<TFields>> & TExt;
+): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function defineModel(
   config: (Omit<CreateCollectionModelNormalizeConfig<any, any, any>, 'collection'> | Omit<CreateCollectionModelFieldsConfig<any, any>, 'collection'>) & {
     id: string;

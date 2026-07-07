@@ -115,6 +115,16 @@ describe('schema field builders', () => {
     expect(dense.read({ coverUrl: 1 }, 'coverUrl')).toBeUndefined();
   });
 
+  it('keeps factory defaults out of read semantics', () => {
+    const factoryDefault = f.str().default('factory');
+    const factoryAndNullDefault = factoryDefault.nullDefault();
+
+    expect(factoryDefault.factoryDefault).toBe('factory');
+    expect(factoryDefault.read({}, 'value')).toBeUndefined();
+    expect(factoryAndNullDefault.factoryDefault).toBe('factory');
+    expect(factoryAndNullDefault.read({}, 'value')).toBeNull();
+  });
+
   it('exposes optional mode transitions without mutating the source spec', () => {
     const required = f.str();
     const optional = required.optional();

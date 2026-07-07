@@ -4,11 +4,12 @@ import type { DbShape } from './shape';
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
-export type AnyFieldSpec = FieldSpec<any, any, any>;
+export type AnyFieldSpec = FieldSpec<any, any, any, any>;
 export type AnyFields = Record<string, AnyFieldSpec>;
 
-type FieldValue<TField> = TField extends FieldSpec<any, infer TOut, any> ? TOut : never;
-type FieldSpecMode<TField> = TField extends FieldSpec<any, any, infer TMode> ? TMode : never;
+type FieldValue<TField> = TField extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
+type FieldSpecMode<TField> = TField extends FieldSpec<any, any, infer TMode, any> ? TMode : never;
+type FieldSpecHasDefault<TField> = TField extends FieldSpec<any, any, any, infer THasDefault> ? THasDefault : false;
 
 type RequiredKeys<TFields extends AnyFields> = {
   [K in keyof TFields]: FieldSpecMode<TFields[K]> extends 'required' | 'nullable' ? K : never;
@@ -16,6 +17,10 @@ type RequiredKeys<TFields extends AnyFields> = {
 
 type OptionalKeys<TFields extends AnyFields> = {
   [K in keyof TFields]: FieldSpecMode<TFields[K]> extends 'optional' | 'optionalNullable' ? K : never;
+}[keyof TFields];
+
+type RequiredKeysWithoutDefaults<TFields extends AnyFields> = {
+  [K in keyof TFields]: FieldSpecMode<TFields[K]> extends 'required' ? (FieldSpecHasDefault<TFields[K]> extends true ? never : K) : never;
 }[keyof TFields];
 
 type RequiredFieldValue<TField> = FieldSpecMode<TField> extends 'nullable' ? FieldValue<TField> | null : FieldValue<TField>;
@@ -36,6 +41,9 @@ type InferFieldObject<TFields extends AnyFields> = Simplify<
 >;
 
 export type InferStoredFields<TFields extends AnyFields> = Simplify<{ id: string } & InferFieldObject<TFields>>;
+type BuildStoredRequiredKeys<TFields extends AnyFields> = 'id' | Extract<RequiredKeysWithoutDefaults<TFields>, keyof InferStoredFields<TFields>>;
+
+export type InferBuildStoredInput<TFields extends AnyFields> = Simplify<Partial<InferStoredFields<TFields>> & Pick<InferStoredFields<TFields>, BuildStoredRequiredKeys<TFields>>>;
 
 export type AnyDbSchema = DbSchema<any, AnyFields>;
 export type AnyDbShape = DbShape<any, AnyFields>;

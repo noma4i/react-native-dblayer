@@ -4,6 +4,16 @@
 server write-through — with automatic rollback of every local change if anything throws. Returns a
 `@tanstack/react-query` mutation (`{ mutate, mutateAsync, isPending, ... }`).
 
+Configure analytics-agnostic tracking once. Without `trackSink`, `track` sections are no-ops and their callbacks are
+not called.
+
+```ts
+configureDb({
+  transport,
+  trackSink: (event) => analytics.track(event.name, event.payload),
+});
+```
+
 ## Variant 1 — custom optimistic (`onMutate` + `onCommit`)
 
 The most flexible form: you insert a temp row, then swap it for the server row.
@@ -38,7 +48,50 @@ function Composer({ chatId }: { chatId: string }) {
 If `SEND_MESSAGE` throws, the optimistic `insertStored` is rolled back automatically and `onError` (if provided)
 runs before the error rethrows.
 
-## Variant 2 — declarative patch (`method: 'patch'`)
+## Variant 2 — declarative optimistic (`optimistic`)
+
+Use `optimistic` when a mutation always follows the temp-row pattern. The model is a direct reference, matching
+`method: 'patch' | 'destroy'`, so `insertStored`, `replaceRaw`, and `buildStored` remain type-checked.
+
+```tsx
+const send = useDbMutation({
+  key: () => ['sendMessage'],
+  logPrefix: 'sendMessage',
+  mutation: SEND_MESSAGE,
+  resultField: 'sendMessage',
+  optimistic: {
+    model: MessageModel,
+    tempIdPrefix: 'msg',
+    buildStored: ({ input, tempId }) =>
+      MessageModel.buildStored({ id: tempId, chatId: input.chatId, body: input.body, pending: true }),
+    selectServerNode: (data) => data?.message,
+  },
+  onCommit: (_data, input, ctx) => {
+    trackSent(input.chatId, ctx.tempId); // optional side effects after the preset commit
+  },
+  track: {
+    start: (input) => ({ name: 'message_send_initiated', payload: { chatId: input.chatId } }),
+    success: (_data, input, ctx) => ({ name: 'message_sent', payload: { chatId: input.chatId, tempId: ctx.tempId } }),
+    error: (error, input) => ({ name: 'message_send_failed', payload: { chatId: input.chatId, error: error.message } }),
+  },
+});
+```
+
+Preset behavior:
+
+| Step | Behavior |
+| --- | --- |
+| mutate | If `selectTempId(input)` or `input.tempId` returns an id, skip insertion and return `{ tempId }`. |
+| mutate | Otherwise generate `generateTempId(tempIdPrefix)`, call `buildStored({ input, tempId })`, and `insertStored(row)`. |
+| commit | `selectServerNode(data, input)` chooses the server node. |
+| commit | With `ctx.tempId`, run `model.replaceRaw(ctx.tempId, node)`; without it, run `model.applyServerData([node], mergeSyncContract('mutation'))`. |
+| escape hatch | `onMutate` may still run extra optimistic side effects; object returns are merged with `{ tempId }`. |
+| escape hatch | `onCommit` still runs after extract handling and after the preset commit. |
+
+Return `null` from `buildStored` to skip optimistic insertion and use the commit fallback. This covers flows where
+the row was already created elsewhere or no local optimistic row is available.
+
+## Variant 3 — declarative patch (`method: 'patch'`)
 
 For simple field updates, skip `onMutate`/`onCommit`:
 
@@ -57,7 +110,7 @@ const rename = useDbMutation({
 rename.mutate({ id, name: 'New name' }); // optimistic patch, rolled back on error
 ```
 
-## Variant 3 — declarative destroy (`method: 'destroy'`)
+## Variant 4 — declarative destroy (`method: 'destroy'`)
 
 ```ts
 const remove = useDbMutation({
@@ -88,14 +141,28 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | `onCommit` | `(data, input, context) => void` | `—` | Server write-through. Runs in the tx, after the response, before commit. |
 | `invalidate` | `(data, input) => void` | `—` | After commit — invalidate dependent queries. |
 | `onError` | `(error, input, context) => void` | `—` | On failure, before rollback rethrows. |
+| `track` | `{ start?, success?, error? }` | `—` | Emits analytics-agnostic events through `configureDb({ trackSink })`. |
 
-### `method` undefined (Variant 1)
+### `track`
+
+| Hook | Signature | Ordering |
+| --- | --- | --- |
+| `start` | `(input) => TrackEvent \| null` | Before optimistic preset / `onMutate` / patch / destroy. |
+| `success` | `(data, input, context) => TrackEvent \| null` | After extract, optimistic preset commit, and manual `onCommit`; before transaction commit. |
+| `error` | `(error, input) => TrackEvent \| null` | After rollback + manual `onError`; before rethrow. |
+
+`TrackEvent` is `{ name: string; payload?: Record<string, unknown> }`. Returning `null` or `undefined` skips emission.
+Track resolver errors and throwing sinks are swallowed and logged with `logger.debug`, so tracking never breaks the
+mutation.
+
+### `method` undefined (Variants 1 and 2)
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `onMutate` | `(input) => TContext` | `—` | Optimistic write; returns a context passed to `onCommit`/`onError`. |
+| `optimistic` | `{ model, tempIdPrefix?, selectTempId?, buildStored, selectServerNode }` | `—` | Declarative temp-row preset. |
+| `onMutate` | `(input) => TContext` | `—` | Manual optimistic write or extra side effects; with `optimistic`, object returns are merged into the preset context. |
 
-### `method: 'patch'` (Variant 2)
+### `method: 'patch'` (Variant 3)
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -103,7 +170,7 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | `selectId` | `(input) => string \| null` | **required** | Which row. |
 | `selectPatch` | `(input, current?) => Record<string, unknown> \| null` | **required** | The patch; `current` is the existing row. `null` skips. |
 
-### `method: 'destroy'` (Variant 3)
+### `method: 'destroy'` (Variant 4)
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -114,12 +181,15 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 
 ```
 mutate(input)
-  → optimistic write        (onMutate | selectPatch/selectId)   [inside tx]
+  → optimistic write        (optimistic | onMutate | selectPatch/selectId) [inside tx]
   → transport.mutation(...)  (network)
-  → onCommit(...)            (server write-through)              [inside tx]
+  → extract                  (optional side-loads)                [inside tx]
+  → optimistic commit        (replaceRaw | applyServerData)       [inside tx]
+  → onCommit(...)            (manual side effects/write-through)  [inside tx]
+  → track.success(...)       (optional event)                     [inside tx]
   → commit                                                        (persist)
   → invalidate(...)          (post-commit)
-  ── on any throw ──▶ rollback (all tx writes undone) → onError → rethrow
+  ── on any throw ──▶ rollback (all tx writes undone) → onError → track.error → rethrow
 ```
 
 ## `useCommand(config)`
@@ -160,11 +230,11 @@ const doAction = useCommand({
 
 ## Non-React execution
 
-`runDbMutationDirect(config, input)` runs the same `DbMutationConfig` outside React — same optimistic/commit/extract
-logic without a component (e.g. an upload controller committing after a background task):
+`runDbMutationDirect(config, input, context?)` runs the request plus extract/commit logic outside React. It does not
+run optimistic insertion; pass `{ tempId }` when an upload controller already created the temp row:
 
 ```ts
 import { runDbMutationDirect } from '@noma4i/react-native-dblayer';
 
-await runDbMutationDirect(sendMessageConfig, { chatId, body, attachmentUrl });
+await runDbMutationDirect(sendMessageConfig, { chatId, body, attachmentUrl, tempId }, { tempId });
 ```

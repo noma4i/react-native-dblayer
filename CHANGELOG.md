@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0 - 2026-07-08
+
+- Add field factory defaults with `.default(...)` and fields-model `buildStored(...)` for complete optimistic stored rows.
+- Add `useDbMutation` declarative `optimistic` preset for temp-row insert, retry, and server commit flows.
+- Add mutation `track` sections plus `configureDb({ trackSink })` for analytics-agnostic start/success/error events.
+- Add `pickDefined` and `pickPresent` sparse-patch helpers for defined-only and present-only patch construction.
+
 ## 2.0.0 - 2026-07-07
 
 - Add the declarative fields schema DSL with `f.*` builders, generated model normalizers, nested shapes, and model-derived `ModelStored` / `ModelInput` types.

@@ -20,5 +20,5 @@ import type { DbMutationConfig } from '../../types';
  *   }
  * });
  */
-export declare const useDbMutation: <TData, TInput, TContext = void, TStored = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored>) => import("@tanstack/react-query").UseMutationResult<TData | null, Error, TInput, unknown>;
+export declare const useDbMutation: <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>) => import("@tanstack/react-query").UseMutationResult<TData | null, Error, TInput, unknown>;
 //# sourceMappingURL=useDbMutation.d.ts.map

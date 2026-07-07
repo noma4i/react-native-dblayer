@@ -1,5 +1,5 @@
 import type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
-import type { DbLogger, DbModelDefaults, DbTransport, StorageAdapter } from './types';
+import type { DbLogger, DbModelDefaults, DbTrackSink, DbTransport, StorageAdapter } from './types';
 import type { QueryClient } from '@tanstack/react-query';
 export type ConfigureDbOptions = {
     /** GraphQL executor used by query and mutation runtimes. */
@@ -16,6 +16,11 @@ export type ConfigureDbOptions = {
     logger?: DbLogger;
     /** Optional QueryClient used by imperative request invalidation/refetch/reset APIs. */
     queryClient?: QueryClient;
+    /**
+     * Optional analytics-agnostic sink for declarative mutation track events.
+     * @default no-op
+     */
+    trackSink?: DbTrackSink;
     /** Optional side-load extract seam. */
     extract?: {
         /**
@@ -36,7 +41,7 @@ export type ConfigureDbOptions = {
     modelDefaults?: DbModelDefaults;
 };
 /**
- * Configure package-wide transport, storage, logger, and extract seams.
+ * Configure package-wide transport, storage, logger, extract, and track seams.
  * @param options Runtime seams for the DB layer.
  * @returns void
  *

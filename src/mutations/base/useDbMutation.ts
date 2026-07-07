@@ -1,12 +1,44 @@
 import { createTransaction } from '@tanstack/db';
 import { useMutation } from '@tanstack/react-query';
-import type { DbMutationConfig, PersistentMutationTransaction } from '../../types';
+import type { DbMutationConfig, DbMutationOptimisticConfig, DbOptimisticMutationContext, PersistentMutationTransaction } from '../../types';
 import { getDbLogger } from '../../core/logger';
 import { acceptPersistentCollectionMutations, runInManagedMutationBatch } from '../../core/registry';
+import { generateTempId } from '../../utils/generateTempId';
 import { applyDbMutationCommit, executeDbMutationRequest } from './executeDbMutation';
+import { emitMutationTrackError, emitMutationTrackStart } from './mutationTracking';
 import { createSingleFlightSignature, runSingleFlight } from './singleFlight';
 
-const runOptimisticMutation = <TData, TInput, TContext, TStored>(config: DbMutationConfig<TData, TInput, TContext, TStored>, input: TInput): TContext | undefined => {
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+const defaultSelectTempId = <TInput>(input: TInput): string | null => {
+  if (!isRecord(input)) return null;
+  const tempId = input.tempId;
+  return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
+};
+
+const mergeMutationContexts = (optimisticContext: DbOptimisticMutationContext | undefined, manualContext: unknown): unknown => {
+  if (!optimisticContext) return manualContext;
+  if (manualContext === undefined) return optimisticContext;
+  if (isRecord(manualContext)) return { ...manualContext, ...optimisticContext };
+  return optimisticContext;
+};
+
+const runDeclarativeOptimisticMutation = <TData, TInput, TStored, TServerNode>(
+  optimistic: DbMutationOptimisticConfig<TData, TInput, TStored, TServerNode>,
+  input: TInput
+): DbOptimisticMutationContext => {
+  const existingTempId = optimistic.selectTempId ? optimistic.selectTempId(input) : defaultSelectTempId(input);
+  if (existingTempId) return { tempId: existingTempId };
+
+  const tempId = generateTempId(optimistic.tempIdPrefix);
+  const row = optimistic.buildStored({ input, tempId });
+  if (!row) return { tempId: null };
+
+  optimistic.model.insertStored(row);
+  return { tempId };
+};
+
+const runOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>, input: TInput): unknown => {
   switch (config.method) {
     case 'destroy': {
       const id = config.selectId(input);
@@ -26,13 +58,13 @@ const runOptimisticMutation = <TData, TInput, TContext, TStored>(config: DbMutat
       return undefined;
     }
     default:
-      return config.onMutate?.(input);
+      return mergeMutationContexts(config.optimistic ? runDeclarativeOptimisticMutation(config.optimistic, input) : undefined, config.onMutate?.(input));
   }
 };
 
-const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored>(config: DbMutationConfig<TData, TInput, TContext, TStored>): boolean => {
+const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>): boolean => {
   if (config.method === 'destroy' || config.method === 'patch') return true;
-  return Boolean(config.onMutate);
+  return Boolean(config.onMutate || config.optimistic);
 };
 
 /**
@@ -56,7 +88,7 @@ const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored>(config: D
  *   }
  * });
  */
-export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored>) =>
+export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>) =>
   useMutation<TData | null, Error, TInput>({
     mutationKey: config.key(),
     mutationFn: (input: TInput) => {
@@ -67,7 +99,7 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown>
         // Shared log tag to keep mutation logs grouped by feature hook.
         getDbLogger().debug(config.logPrefix, 'mutationFn start');
         let result: TData | null = null;
-        let context: TContext = undefined as TContext;
+        let context: unknown;
 
         const tx = createTransaction({
           mutationFn: ({ transaction }) => {
@@ -79,6 +111,8 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown>
         });
 
         try {
+          emitMutationTrackStart(config, input);
+
           if (shouldRunOptimisticMutation(config)) {
             tx.mutate(() => {
               const nextContext = runInManagedMutationBatch(() => runOptimisticMutation(config, input));
@@ -90,12 +124,12 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown>
 
           result = await executeDbMutationRequest(config, mappedInput);
 
-          // Server write-through (extract presets + onCommit) runs in the same
+          // Server write-through (extract presets + onCommit + tracking) runs in the same
           // transaction, after the network response, before tx.commit().
-          if (config.extract || config.onCommit) {
+          if (config.extract || config.onCommit || config.optimistic || config.track?.success) {
             tx.mutate(() => {
               runInManagedMutationBatch(() => {
-                applyDbMutationCommit(config, result, input, context);
+                applyDbMutationCommit(config, result, input, context as TContext);
               });
             });
           }
@@ -107,7 +141,8 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown>
           // error path never awaits it (no commit was reached), so swallow it to avoid an unhandled
           // promise rejection. The original error is still rethrown below for the caller to handle.
           void tx.isPersisted.promise.catch(() => undefined);
-          config.onError?.(error as Error, input, context);
+          (config.onError as ((error: Error, input: TInput, context: unknown) => void) | undefined)?.(error as Error, input, context);
+          emitMutationTrackError(config, error as Error, input);
           throw error;
         }
 

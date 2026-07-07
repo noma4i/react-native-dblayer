@@ -1,4 +1,4 @@
-import { defineModel, setDbStorageAdapter } from '../../index';
+import { defineModel, f, setDbStorageAdapter } from '../../index';
 import type { DbTransport, StorageAdapter, TransportResult } from '../../types';
 
 export type TodoInput = {
@@ -85,6 +85,28 @@ export const createTodoModel = (options?: { id?: string; staleTime?: number; ded
       done: input.done ?? false,
       updatedAt: input.updatedAt ?? null
     }),
+    merge: {
+      dedupeWindowMs: options?.dedupeWindowMs
+    },
+    replace: {},
+    defaultSort: { field: 'id', direction: 'asc' }
+  });
+  testCollections.push(model._collection as unknown as { cleanup: () => Promise<void> });
+  return model;
+};
+
+export const createTodoFieldsModel = (options?: { id?: string; staleTime?: number; dedupeWindowMs?: number }) => {
+  const id = options?.id ?? `test-field-todos-${modelCounter++}`;
+  const model = defineModel({
+    id,
+    name: `TodoFieldsModel:${id}`,
+    staleTime: options?.staleTime,
+    fields: {
+      title: f.str(),
+      listId: f.str().nullable(),
+      done: f.bool().default(false),
+      updatedAt: f.str().nullable()
+    },
     merge: {
       dedupeWindowMs: options?.dedupeWindowMs
     },

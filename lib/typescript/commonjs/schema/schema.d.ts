@@ -1,6 +1,6 @@
 import type { FieldSpec } from './fieldSpec';
 import type { InferStoredFields } from './infer';
-type SchemaFields<TInput> = Record<string, FieldSpec<TInput, any, any>>;
+type SchemaFields<TInput> = Record<string, FieldSpec<TInput, any, any, any>>;
 export type DbSchema<TInput, TFields extends SchemaFields<TInput>> = {
     fields: TFields;
     normalize: (input: TInput) => (Partial<InferStoredFields<TFields>> & {

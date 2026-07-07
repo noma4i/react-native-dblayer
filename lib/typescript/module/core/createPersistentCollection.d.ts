@@ -1,4 +1,4 @@
-import type { CollectionModel, CreateCollectionModelFieldsConfig, CreateCollectionModelNormalizeConfig, ModelFieldSpecs, ModelStoredFromFields, PersistentCollection } from '../types';
+import type { CollectionModel, CreateCollectionModelFieldsConfig, CreateCollectionModelNormalizeConfig, FieldsCollectionModel, ModelBuildStoredInput, ModelFieldSpecs, ModelStoredFromFields, PersistentCollection } from '../types';
 /**
  * Create a persistent TanStack DB collection backed by the configured storage adapter.
  * @param config Collection id used as the storage key prefix.
@@ -31,5 +31,5 @@ export declare function defineModel<TInput, TStored extends {
 export declare function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'collection'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
-}): CollectionModel<unknown, ModelStoredFromFields<TFields>> & TExt;
+}): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 //# sourceMappingURL=createPersistentCollection.d.ts.map

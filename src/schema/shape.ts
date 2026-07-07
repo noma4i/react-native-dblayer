@@ -1,7 +1,7 @@
 import type { FieldSpec } from './fieldSpec';
 import type { InferShapeStored } from './infer';
 
-type ShapeFields<TInput> = Record<string, FieldSpec<TInput, any, any>>;
+type ShapeFields<TInput> = Record<string, FieldSpec<TInput, any, any, any>>;
 
 export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
   fields: TFields;

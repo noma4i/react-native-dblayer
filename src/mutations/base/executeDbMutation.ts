@@ -1,6 +1,8 @@
 import type { DbMutationConfig } from '../../types';
 import { getDbExtractSink, getDbMutationExtractResolver } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
+import { mergeSyncContract } from '../../utils/serverSync';
+import { emitMutationTrackSuccess } from './mutationTracking';
 
 /**
  * Execute only the network request portion of a DB mutation config.
@@ -8,8 +10,8 @@ import { getDbTransport } from '../../core/transport';
  * @param mappedInput Input already transformed for `variables.input`.
  * @returns Mutation result field or null.
  */
-export const executeDbMutationRequest = async <TData, TInput, TContext, TStored>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored>,
+export const executeDbMutationRequest = async <TData, TInput, TContext, TStored, TServerNode>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
   mappedInput: unknown
 ): Promise<TData | null> => {
   const response = await getDbTransport().mutation<Record<string, TData>, { input: unknown }>({
@@ -17,6 +19,31 @@ export const executeDbMutationRequest = async <TData, TInput, TContext, TStored>
     variables: { input: mappedInput }
   });
   return (response.data[config.resultField] ?? null) as TData | null;
+};
+
+const readOptimisticTempId = (context: unknown): string | null => {
+  if (typeof context !== 'object' || context === null) return null;
+  const tempId = (context as { tempId?: unknown }).tempId;
+  return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
+};
+
+const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServerNode>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+  result: TData | null,
+  input: TInput,
+  context: TContext
+): void => {
+  if (!config.optimistic) return;
+
+  const node = config.optimistic.selectServerNode(result, input);
+  if (node == null) return;
+
+  const tempId = readOptimisticTempId(context);
+  if (tempId) {
+    config.optimistic.model.replaceRaw(tempId, node);
+  } else {
+    config.optimistic.model.applyServerData([node], mergeSyncContract('mutation'));
+  }
 };
 
 /**
@@ -27,8 +54,8 @@ export const executeDbMutationRequest = async <TData, TInput, TContext, TStored>
  * @param context Optimistic mutation context.
  * @returns void
  */
-export const applyDbMutationCommit = <TData, TInput, TContext, TStored>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored>,
+export const applyDbMutationCommit = <TData, TInput, TContext, TStored, TServerNode>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
   result: TData | null,
   input: TInput,
   context: TContext
@@ -36,7 +63,9 @@ export const applyDbMutationCommit = <TData, TInput, TContext, TStored>(
   if (config.extract) {
     getDbExtractSink()(getDbMutationExtractResolver()(config.extract, result), 'mutation');
   }
-  config.onCommit?.(result, input, context);
+  applyOptimisticMutationCommit(config, result, input, context);
+  (config.onCommit as ((data: TData | null, input: TInput, context: unknown) => void) | undefined)?.(result, input, context);
+  emitMutationTrackSuccess(config, result, input, context);
 };
 
 /**
@@ -46,8 +75,8 @@ export const applyDbMutationCommit = <TData, TInput, TContext, TStored>(
  * @param context Optional context passed to `onCommit`.
  * @returns Mutation result field or null.
  */
-export const runDbMutationDirect = async <TData, TInput, TContext = void, TStored = unknown>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored>,
+export const runDbMutationDirect = async <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
   input: TInput,
   context?: TContext
 ): Promise<TData | null> => {

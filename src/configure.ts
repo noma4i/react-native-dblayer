@@ -3,9 +3,10 @@ import { setDbLogger } from './core/logger';
 import { setDbModelDefaults } from './core/modelDefaults';
 import { setDbQueryClient } from './core/queryClient';
 import { setDbStorageAdapter } from './core/storage';
+import { setDbTrackSink } from './core/tracking';
 import { setDbTransport } from './core/transport';
 import type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
-import type { DbLogger, DbModelDefaults, DbTransport, StorageAdapter } from './types';
+import type { DbLogger, DbModelDefaults, DbTrackSink, DbTransport, StorageAdapter } from './types';
 import type { QueryClient } from '@tanstack/react-query';
 
 export type ConfigureDbOptions = {
@@ -23,6 +24,11 @@ export type ConfigureDbOptions = {
   logger?: DbLogger;
   /** Optional QueryClient used by imperative request invalidation/refetch/reset APIs. */
   queryClient?: QueryClient;
+  /**
+   * Optional analytics-agnostic sink for declarative mutation track events.
+   * @default no-op
+   */
+  trackSink?: DbTrackSink;
   /** Optional side-load extract seam. */
   extract?: {
     /**
@@ -44,7 +50,7 @@ export type ConfigureDbOptions = {
 };
 
 /**
- * Configure package-wide transport, storage, logger, and extract seams.
+ * Configure package-wide transport, storage, logger, extract, and track seams.
  * @param options Runtime seams for the DB layer.
  * @returns void
  *
@@ -56,6 +62,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   if (options.storage) setDbStorageAdapter(options.storage);
   if (options.logger) setDbLogger(options.logger);
   setDbQueryClient(options.queryClient);
+  setDbTrackSink(options.trackSink);
   if (options.extract?.sink) setDbExtractSink(options.extract.sink);
   if (options.extract?.mutationResolver) setDbMutationExtractResolver(options.extract.mutationResolver);
   setDbModelDefaults(options.modelDefaults);

@@ -7,8 +7,8 @@ import { readShape } from './shape';
 
 const definedPassthrough = <T>(value: unknown): T | undefined => (value == null ? undefined : (value as T));
 
-type ArrayItem = AnyDbShape | FieldSpec<any, any, any>;
-type ArrayItemOut<TItem extends ArrayItem> = TItem extends AnyDbShape ? InferShapeStored<TItem> : TItem extends FieldSpec<any, infer TOut, any> ? TOut : never;
+type ArrayItem = AnyDbShape | FieldSpec<any, any, any, any>;
+type ArrayItemOut<TItem extends ArrayItem> = TItem extends AnyDbShape ? InferShapeStored<TItem> : TItem extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
 
 const readId = (value: unknown): string | undefined => {
   if (typeof value !== 'string' && typeof value !== 'number') return undefined;

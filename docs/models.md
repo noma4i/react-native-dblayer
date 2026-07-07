@@ -82,7 +82,12 @@ Every field supports:
 | `.nullable()` | Preserves explicit `null`; stored type becomes `T \| null`. |
 | `.optional()` | Stored key becomes optional. |
 | `.nullDefault()` | Maps missing/undefined source to `null`; stored type becomes `T \| null`. |
+| `.default(value \| () => value)` | Factory-time default used by `buildStored`; lazy form avoids shared references. |
 | `.from(selector)` | Reads from selector output instead of `input[key]`. |
+
+`.default` and `.nullDefault()` are independent. A field may use both: `normalize()` still follows `.nullDefault()`,
+while `buildStored()` uses `.default` first when the caller omits the key. Defaults are typed against the field output
+value, not the nullable wrapper.
 
 ### Shapes
 
@@ -269,6 +274,7 @@ const latestMessage = MessageModel.first(
 
 | Method | Signature | Returns | Notes |
 | --- | --- | --- | --- |
+| `buildStored` | `(partial)` | `TStored` | Fields models only. Pure stored-row factory; no normalize pass or write. |
 | `applyServerData` | `(items, contract: SyncContract)` | `MergeResult \| ReplaceResult` | The main sync path. |
 | `patch` | `(id, updates: Partial<TStored>)` | `boolean` | Shallow-update. `false` if absent or the gate rejects. |
 | `destroy` | `(id)` | `boolean` | Delete one row. |
@@ -302,6 +308,43 @@ MessageModel.replaceRaw(temp.id, serverMessage); // temp id gone, server row in
 // Direct edits:
 UserModel.patch(userId, { isOnline: true });
 UserModel.destroyWhere({ role: 'guest' });
+```
+
+### Sparse patch helpers
+
+Use `pickDefined(source, keys)` for patches where `undefined` means untouched and explicit `null` clears a value:
+
+```ts
+const patch = pickDefined(input, ['name', 'description', 'dob'] as const);
+CurrentUserModel.patch(userId, patch);
+```
+
+Use `pickPresent(source, keys)` for the few fields where both `null` and `undefined` should be skipped. It is a
+sibling helper instead of an options DSL because the package only needs the default and drop-null modes.
+
+For fields models, prefer `buildStored` when an optimistic row needs the same defaults every time:
+
+```ts
+export const MessageModel = defineModel({
+  name: 'MessageModel',
+  id: 'messages',
+  fields: {
+    chatId: f.id(),
+    body: f.str(),
+    status: f.enum<'sending' | 'sent'>().default('sending'),
+    createdAt: f.str(),
+    editedAt: f.str().nullable(),
+    attachments: f.array(f.raw<{ url: string }>()).default(() => []),
+  },
+});
+
+const temp = MessageModel.buildStored({
+  id: generateTempId('msg'),
+  chatId,
+  body,
+  createdAt: new Date().toISOString(),
+});
+MessageModel.insertStored(temp);
 ```
 
 ### `SyncContract`

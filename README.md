@@ -60,11 +60,12 @@ configureDb({
     mutation: (op) => apollo.mutate({ mutation: op.mutation, variables: op.variables }).then((r) => ({ data: r.data })),
   },
   queryClient, // enables imperative invalidate/refetch/reset helpers
-  // storage?: default MMKV · logger?: default no-op · extract?: default no-op
+  trackSink: (event) => analytics.track(event.name, event.payload),
+  // storage?: default MMKV · logger?: default no-op · extract?: default no-op · trackSink?: default no-op
 });
 ```
 
-→ **Reference:** [Configuration](./docs/configuration.md) — `configureDb`, transport/storage/logger/extract seams,
+→ **Reference:** [Configuration](./docs/configuration.md) — `configureDb`, transport/storage/logger/extract/track seams,
 and adapters for Apollo / urql / graphql-request.
 
 ## 2. Define a model
@@ -84,6 +85,7 @@ export const UserModel = defineModel({
     fullName: f.str(),
     age: f.num().nullable(),
     coverUrl: f.str().nullDefault(),
+    roles: f.array(f.str()).default(() => []),
     countryName: f.custom((u) => (u as { country?: { name?: string } }).country?.name).nullable(),
   },
 });
@@ -111,6 +113,10 @@ export const SimilarMomentModel = defineModel({
 
 For irreducibly custom mappings, keep using `normalize`; shapes can still be reused with `readShape` inside that
 escape hatch.
+
+Fields models also expose `buildStored(partial)` for optimistic rows. Explicit keys win, `.default(value | () => value)`
+fills factory-time defaults, nullable fields become `null`, and optional fields are omitted. `.default` does not affect
+normalization; `.nullDefault()` remains the read-time missing-to-null modifier.
 
 → **Reference:** [Models](./docs/models.md) — `defineModel` options and the full `CollectionModel` read/write API.
 
@@ -163,7 +169,7 @@ and return shapes.
 transaction** — any error rolls back every local change.
 
 ```tsx
-import { useDbMutation, generateTempId } from '@noma4i/react-native-dblayer';
+import { useDbMutation } from '@noma4i/react-native-dblayer';
 
 function useSendMessage() {
   return useDbMutation({
@@ -171,13 +177,16 @@ function useSendMessage() {
     logPrefix: 'sendMessage',
     mutation: SEND_MESSAGE,
     resultField: 'sendMessage',
-    onMutate: (input) => {
-      const temp = { id: generateTempId('msg'), ...input, pending: true };
-      MessageModel.insertStored(temp);          // shows instantly
-      return { tempId: temp.id };
+    optimistic: {
+      model: MessageModel,
+      tempIdPrefix: 'msg',
+      buildStored: ({ input, tempId }) => MessageModel.buildStored({ id: tempId, ...input, pending: true }),
+      selectServerNode: (data) => data,
     },
-    onCommit: (data, _input, ctx) => {
-      if (data) MessageModel.replaceRaw(ctx.tempId, data); // swap temp -> server row
+    track: {
+      start: (input) => ({ name: 'message_send_initiated', payload: { chatId: input.chatId, hasMedia: !!input.file } }),
+      success: (_data, input) => ({ name: 'message_sent', payload: { chatId: input.chatId, hasMedia: !!input.file } }),
+      error: (error, input) => ({ name: 'message_send_failed', payload: { chatId: input.chatId, error: error.message } }),
     },
   });
 }
@@ -200,6 +209,7 @@ Every model exposes reactive hooks and synchronous snapshots:
 ```ts
 UserModel.applyServerData(rows, { mode: 'merge', source: 'users' }); // sync (merge | replace)
 UserModel.patch(id, { name: 'New name' });
+UserModel.patch(id, pickDefined(input, ['name', 'description'] as const));
 UserModel.destroyWhere({ role: 'guest' });
 UserModel.replaceRaw(tempId, serverRow);                              // optimistic -> server swap
 ```

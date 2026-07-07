@@ -49,14 +49,15 @@ export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
 export { useDbInfiniteRequest, useDbSingleRequest } from './queries/base/useDbRequest';
 export { generateTempId, isTempId } from './utils/generateTempId';
 export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
+export { pickDefined, pickPresent } from './utils/pickDefined';
 export { readBoolean, readId, readNullableNumber, readNullableString, readNumber, readString, toRequiredStr, toStr } from './utils/normalizeHelpers';
 export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export type { ConfigureDbOptions } from './configure';
 export type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
 export type { SideloadSpec } from './core/sideload';
-export type { FieldMode, FieldSpec } from './schema/fieldSpec';
-export type { InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
+export type { FieldDefault, FieldMode, FieldSpec } from './schema/fieldSpec';
+export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
 export type { DbShape } from './schema/shape';
 export type {
   BaseQueryCollection,
@@ -85,16 +86,21 @@ export type {
   DbModelDefaults,
   DbMutationOperation,
   DbMutationConfig,
+  DbMutationOptimisticConfig,
+  DbOptimisticMutationContext,
   DbQueryOperation,
   DbReadOptions,
   DbRequestInfiniteConfig,
   DbRequestSingleConfig,
+  DbTrackEvent,
+  DbTrackSink,
   DbTransport,
   DbWhere,
   DisplayState,
   DisplayStateInput,
   FetchStatePageInfo,
   FetchStateRemovalListener,
+  FieldsCollectionModel,
   InfiniteQueryConfig,
   InfiniteQueryResult,
   InfiniteSyncContractResolverContext,
@@ -103,6 +109,7 @@ export type {
   LoadingState,
   MergeResult,
   ModelInstance,
+  ModelBuildStoredInput,
   ModelFieldSpecs,
   ModelRelation,
   NormalizedPageInfo,

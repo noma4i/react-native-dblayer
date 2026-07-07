@@ -2,6 +2,7 @@ import { configureDb, defineModel, devClearAllDataAndState } from '../index';
 import { getRegisteredModel } from '../core/modelRegistry';
 import { clearModelRegistry } from '../core/modelRegistry';
 import { f } from '../schema/f';
+import { defineShape } from '../schema/shape';
 import type { ModelInput, ModelStored } from '../schema/infer';
 import type { CollectionModel } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
@@ -36,6 +37,10 @@ const createUserModel = (id: string) =>
     replace: {},
     defaultSort: { field: 'fullName', direction: 'asc' }
   });
+
+const defaultMetaShape = defineShape<{ label?: unknown }>()({
+  label: f.str()
+});
 
 describe('fields-based model definitions', () => {
   afterEach(() => {
@@ -219,6 +224,97 @@ describe('fields-based model definitions', () => {
       coverUrl: null
     });
     expect(model.currentId()).toBe('u1');
+  });
+
+  it('builds complete stored rows from factory defaults', () => {
+    installMemoryStorage();
+    const model = defineModel({
+      id: 'fields-build-stored',
+      name: 'FieldsBuildStoredModel',
+      fields: {
+        title: f.str(),
+        status: f.enum<'sending' | 'sent'>().default('sending'),
+        archived: f.bool().default(false),
+        count: f.num().nullable(),
+        note: f.str().optional(),
+        optionalLabel: f.str().nullable().optional(),
+        tags: f.array(f.str()).default(() => []),
+        meta: f.object(defaultMetaShape).default(() => ({ label: 'new' })),
+        fromTitle: f.str().from<{ nested?: { title?: unknown } }>(input => input.nested?.title).default('from-default'),
+        coverUrl: f.str().nullDefault().default('factory-cover')
+      }
+    });
+
+    const first = model.buildStored({
+      id: 'row-1',
+      title: 'Draft',
+      status: 'sent',
+      note: 'local note'
+    });
+    const second = model.buildStored({ id: 'row-2', title: 'Second' });
+    const explicit = model.buildStored({
+      id: 'row-3',
+      title: 'Explicit',
+      count: 7,
+      tags: ['given'],
+      meta: { label: 'given' },
+      coverUrl: 'given-cover'
+    });
+
+    expect(first).toEqual({
+      id: 'row-1',
+      title: 'Draft',
+      status: 'sent',
+      archived: false,
+      count: null,
+      note: 'local note',
+      tags: [],
+      meta: { label: 'new' },
+      fromTitle: 'from-default',
+      coverUrl: 'factory-cover'
+    });
+    expect('optionalLabel' in first).toBe(false);
+    expect(second.tags).toEqual([]);
+    expect(second.meta).toEqual({ label: 'new' });
+    expect(first.tags).not.toBe(second.tags);
+    expect(first.meta).not.toBe(second.meta);
+    expect(explicit).toMatchObject({
+      id: 'row-3',
+      title: 'Explicit',
+      count: 7,
+      tags: ['given'],
+      meta: { label: 'given' },
+      coverUrl: 'given-cover'
+    });
+  });
+
+  it('enforces buildStored requirements in types and runtime', () => {
+    installMemoryStorage();
+    const model = defineModel({
+      id: 'fields-build-stored-types',
+      name: 'FieldsBuildStoredTypesModel',
+      fields: {
+        title: f.str(),
+        status: f.enum<'sending' | 'sent'>().default('sending'),
+        count: f.num().nullable(),
+        note: f.str().optional(),
+        labels: f.array(f.str()).default(() => [])
+      }
+    });
+    model.buildStored({ id: 'row-1', title: 'Draft' });
+    model.buildStored({ id: 'row-2', title: 'Draft', count: null, labels: ['a'] });
+    expect(() => (model as any).buildStored({ id: 'row-3' })).toThrow('[FieldsBuildStoredTypesModel] buildStored missing required field "title".');
+
+    if (false) {
+      // @ts-expect-error required field without a factory default must be provided
+      model.buildStored({ id: 'missing-title' });
+      // @ts-expect-error row id is always required
+      model.buildStored({ title: 'Missing id' });
+      // @ts-expect-error factory default values must match the field output type
+      f.num().default('bad');
+      // @ts-expect-error lazy factory defaults must return the field output type
+      f.array(f.str()).default(() => [1]);
+    }
   });
 
   it('registers fields and legacy normalize models', () => {
