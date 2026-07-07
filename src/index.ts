@@ -7,6 +7,7 @@ export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
 export { computeLoadingState } from './queries/base/loadingState';
+export { clearModelRegistry, getRegisteredModel, registerModel } from './core/modelRegistry';
 export {
   DEFAULT_FETCH_STATE_MAX_AGE_MS,
   clearAllFreshnessMetadata,
@@ -35,6 +36,9 @@ export { getDbLogger, setDbLogger } from './core/logger';
 export { getDbQueryClient, invalidateDbRequests, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
 export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
+export { f } from './schema/f';
+export { compositeId } from './schema/schema';
+export { defineShape, readShape } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
 export { useCommand } from './mutations/base/useCommand';
 export { useCommandMutation } from './mutations/base/useCommandMutation';
@@ -50,6 +54,10 @@ export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export type { ConfigureDbOptions } from './configure';
 export type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
+export type { SideloadSpec } from './core/sideload';
+export type { FieldMode, FieldSpec } from './schema/fieldSpec';
+export type { InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
+export type { DbShape } from './schema/shape';
 export type {
   BaseQueryCollection,
   BaseQueryConfig,
@@ -95,6 +103,7 @@ export type {
   LoadingState,
   MergeResult,
   ModelInstance,
+  ModelFieldSpecs,
   ModelRelation,
   NormalizedPageInfo,
   PageInfo,

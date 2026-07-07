@@ -1,6 +1,20 @@
 import { createTransaction, count as dbCount, eq, inArray } from '@tanstack/db';
 import { useLiveQuery } from '@tanstack/react-db';
-import type { CollectionFetchState, CollectionModel, CreateCollectionModelConfig, DbReadOptions, DbWhere, MergeResult, PersistentMutationTransaction, ReplaceResult, SyncContract } from '../types';
+import { createSchema } from '../schema/schema';
+import type {
+  CollectionFetchState,
+  CollectionModel,
+  CreateCollectionModelFieldsConfig,
+  CreateCollectionModelNormalizeConfig,
+  DbReadOptions,
+  DbWhere,
+  MergeResult,
+  ModelFieldSpecs,
+  ModelStoredFromFields,
+  PersistentMutationTransaction,
+  ReplaceResult,
+  SyncContract
+} from '../types';
 import { toQueryValue } from '../utils/typeBoundary';
 import { applyDbReadOptionsToQuery, applyDbReadOptionsToRows, applyDbWhereToQuery, createDbWhereSignature, matchesDbWhere, normalizeDbCondition } from './compileDbWhere';
 import { createMerge } from './createMerge';
@@ -8,8 +22,10 @@ import { createPatchCrud } from './createPatchCrud';
 import { createReplace } from './createReplace';
 import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
 import { getDbModelDefaults } from './modelDefaults';
+import { registerModel } from './modelRegistry';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { stableSerialize } from './serialize';
+import { runSideloads, withApplyingModel } from './sideload';
 
 const EMPTY: readonly unknown[] = [];
 const GROUP_ALL = 1 as const;
@@ -94,16 +110,42 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
   return { getFetchState, markFetched, touch, clearFetchState, isStale, shouldSkipInitialFetch, clear, reset };
 };
 
+type RuntimeModelConfig = CreateCollectionModelNormalizeConfig<any, any, any> | CreateCollectionModelFieldsConfig<any, any>;
+
+const hasFieldsConfig = (config: RuntimeModelConfig): config is CreateCollectionModelFieldsConfig<ModelFieldSpecs, Record<string, unknown>> => 'fields' in config;
+
+const assertValidFieldsConfig = (name: string, fields: ModelFieldSpecs): void => {
+  if (Object.prototype.hasOwnProperty.call(fields, 'id')) {
+    throw new Error(`[${name}] fields cannot include "id". Use rowId or input.id for the row id.`);
+  }
+};
+
+const resolveNormalize = (config: RuntimeModelConfig): ((item: unknown) => ({ id: string } & Record<string, unknown>) | null) => {
+  if (!hasFieldsConfig(config)) return config.normalize as (item: unknown) => ({ id: string } & Record<string, unknown>) | null;
+
+  assertValidFieldsConfig(config.name, config.fields);
+  return createSchema({
+    fields: config.fields,
+    rowId: config.rowId,
+    guard: config.guard
+  }).normalize;
+};
+
 /** Create a collection model from a persistent collection and normalizer. */
 export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
-  config: CreateCollectionModelConfig<TInput, TStored, TExt>
-): CollectionModel<TInput, TStored> & TExt {
-  const { collection: rawCollection, normalize, staleTime = 0 } = config;
+  config: CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>
+): CollectionModel<TInput, TStored> & TExt;
+export function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
+  config: CreateCollectionModelFieldsConfig<TFields, TExt>
+): CollectionModel<unknown, ModelStoredFromFields<TFields>> & TExt;
+export function createCollectionModel(config: RuntimeModelConfig): any {
+  const { collection: rawCollection, staleTime = 0 } = config;
+  const normalize = resolveNormalize(config);
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
-  const freshness = createFreshnessTracker<TStored>(collectionId, staleTime);
+  const freshness = createFreshnessTracker<any>(collectionId, staleTime);
   let resetMergeState = (): void => {};
 
-  const merge = createMerge<TInput, TStored>({
+  const merge = createMerge<any, any>({
     collection: rawCollection,
     normalize,
     shouldOverwrite: config.merge?.shouldOverwrite,
@@ -114,13 +156,13 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     }
   });
 
-  const replace = createReplace<TInput, TStored>({
+  const replace = createReplace<any, any>({
     collection: rawCollection,
     normalize,
     shouldOverwrite: config.replace?.shouldOverwrite
   });
 
-  const crud = createPatchCrud<TStored>({ collection: rawCollection });
+  const crud = createPatchCrud<any>({ collection: rawCollection });
 
   const tanstackCollection = rawCollection._collection;
   const acceptMutations = rawCollection.acceptMutations.bind(rawCollection);
@@ -139,20 +181,20 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     tx.mutate(fn);
   };
 
-  const getSnapshotWhere = (filter: DbWhere<TStored>): TStored[] => {
-    const results: TStored[] = [];
+  const getSnapshotWhere = (filter: DbWhere<any>): any[] => {
+    const results: any[] = [];
     for (const item of rawCollection.values()) {
       if (matchesDbWhere(item, filter)) results.push(item);
     }
     return results;
   };
 
-  const getSnapshotFirstWhere = (filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined => {
+  const getSnapshotFirstWhere = (filter?: DbWhere<any>, options?: Pick<DbReadOptions<any>, 'orderBy'>): any | undefined => {
     const rows = filter ? getSnapshotWhere(filter) : Array.from(rawCollection.values());
     return applyDbReadOptionsToRows(rows, options)[0];
   };
 
-  const hasCached = (filter?: Partial<TStored>): boolean => {
+  const hasCached = (filter?: Partial<any>): boolean => {
     if (filter && Object.keys(normalizeDbCondition(filter) ?? {}).length > 0) {
       return getSnapshotFirstWhere(filter) !== undefined;
     }
@@ -163,7 +205,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     return false;
   };
 
-  const shouldSkipInitialFetch = (filter?: Partial<TStored>, maxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs);
+  const shouldSkipInitialFetch = (filter?: Partial<any>, maxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs);
 
   const clearScope = (): void => {
     const ids: string[] = [];
@@ -188,7 +230,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     return deleted;
   };
 
-  const destroyWhere = (filter: Partial<TStored>): number => {
+  const destroyWhere = (filter: Partial<any>): number => {
     const normalized = normalizeDbCondition(filter);
     if (!normalized) {
       throw new Error(`[${config.name}] destroyWhere requires a non-empty filter. Use clearScope() for full collection clears.`);
@@ -196,23 +238,26 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     return destroyMany(getSnapshotWhere(normalized).map(item => item.id));
   };
 
-  const applyServerData = (items: TInput[], contract: SyncContract): MergeResult | ReplaceResult => {
+  const applyServerData = (items: unknown[], contract: SyncContract): MergeResult | ReplaceResult => {
     if (contract.mode === 'replace' && contract.scope !== undefined && contract._scopeFilter === undefined) {
       throw new Error(`[${config.name}] scoped replace requires _scopeFilter. Use createCollectionBinding(...).applyServerData() or provide contract._scopeFilter explicitly.`);
     }
 
     let result: MergeResult | ReplaceResult = { merged: 0 };
-    withTransaction(() => {
-      if (contract.mode === 'replace') {
-        const scopeFilter = contract._scopeFilter as ((item: TStored) => boolean) | undefined;
-        result = replace(items, scopeFilter);
-      } else {
-        result = merge(items);
-      }
+    withApplyingModel(config.name, () => {
+      withTransaction(() => {
+        runSideloads(config.sideload, items, contract);
+        if (contract.mode === 'replace') {
+          const scopeFilter = contract._scopeFilter as ((item: any) => boolean) | undefined;
+          result = replace(items, scopeFilter);
+        } else {
+          result = merge(items);
+        }
+      });
     });
 
     if (contract._freshnessFilter) {
-      freshness.markFetched(contract._freshnessFilter as Partial<TStored>, { empty: items.length === 0 });
+      freshness.markFetched(contract._freshnessFilter as Partial<any>, { empty: items.length === 0 });
     } else if (contract.scope === undefined && contract._scopeFilter === undefined) {
       freshness.touch();
     }
@@ -220,7 +265,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     return result;
   };
 
-  const useFind = (id: string | undefined | null): TStored | undefined => {
+  const useFind = (id: string | undefined | null): any | undefined => {
     const { data } = useLiveQuery(
       q =>
         id
@@ -231,10 +276,10 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
           : undefined,
       [id]
     );
-    return data as unknown as TStored | undefined;
+    return data as unknown as any | undefined;
   };
 
-  const useAll = (): TStored[] => {
+  const useAll = (): any[] => {
     const { data } = useLiveQuery(q => {
       let query = q.from({ items: tanstackCollection });
       const defaultSort = config.defaultSort;
@@ -244,38 +289,38 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
       return query;
     });
 
-    return (data ?? EMPTY) as TStored[];
+    return (data ?? EMPTY) as any[];
   };
 
-  const useWhere = (filter: DbWhere<TStored>, options?: DbReadOptions<TStored>): TStored[] => {
+  const useWhere = (filter: DbWhere<any>, options?: DbReadOptions<any>): any[] => {
     const signature = createDbWhereSignature(filter, options);
     const { data } = useLiveQuery(
       q => applyDbReadOptionsToQuery(applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter), options),
       [signature]
     );
 
-    return (data ?? EMPTY) as TStored[];
+    return (data ?? EMPTY) as any[];
   };
 
-  const useFirst = (filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined => {
+  const useFirst = (filter?: DbWhere<any>, options?: Pick<DbReadOptions<any>, 'orderBy'>): any | undefined => {
     const signature = createDbWhereSignature(filter, options);
     const { data } = useLiveQuery(
-      q => applyDbReadOptionsToQuery(applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter), options).findOne(),
+      q => applyDbReadOptionsToQuery(applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter), options as DbReadOptions<any> | undefined).findOne(),
       [signature]
     );
 
-    return data as unknown as TStored | undefined;
+    return data as unknown as any | undefined;
   };
 
-  const useByIds = (ids: string[]): TStored[] => {
+  const useByIds = (ids: string[]): any[] => {
     const { data } = useLiveQuery(
       q => (ids.length > 0 ? q.from({ items: tanstackCollection }).where(({ items }) => inArray(toQueryValue((items as Record<string, unknown>).id), ids)) : undefined),
       [ids]
     );
-    return (data ?? EMPTY) as TStored[];
+    return (data ?? EMPTY) as any[];
   };
 
-  const useCount = (filter?: DbWhere<TStored>): number => {
+  const useCount = (filter?: DbWhere<any>): number => {
     const signature = createDbWhereSignature(filter);
 
     const { data } = useLiveQuery(
@@ -294,7 +339,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     resetMergeState();
   });
 
-  const baseModel: CollectionModel<TInput, TStored> = {
+  const baseModel: CollectionModel<any, any> = {
     get: (id: string | undefined | null) => (id ? rawCollection.get(id) : undefined),
     getAll: () => Array.from(rawCollection.values()),
     getWhere: filter => getSnapshotWhere(filter),
@@ -304,16 +349,19 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     destroy: id => crud.destroy(id),
     destroyMany,
     destroyWhere,
-    replaceRaw: (oldId: string, item: TInput): boolean => {
+    replaceRaw: (oldId: string, item: unknown): boolean => {
       const normalized = normalize(item);
       if (!normalized) return false;
-      withTransaction(() => {
-        rawCollection.delete(oldId);
-        rawCollection.insert(normalized as TStored);
+      withApplyingModel(config.name, () => {
+        withTransaction(() => {
+          runSideloads(config.sideload, [item], { mode: 'merge', source: 'sideload' });
+          rawCollection.delete(oldId);
+          rawCollection.insert(normalized as any);
+        });
       });
       return true;
     },
-    insertStored: (item: TStored) => {
+    insertStored: (item: any) => {
       rawCollection.insert(item);
     },
     applyServerData,
@@ -332,8 +380,11 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     _collection: tanstackCollection
   };
 
-  const extensions = config.statics?.(baseModel);
-  if (!extensions) return baseModel as CollectionModel<TInput, TStored> & TExt;
+  const extensions = (config.statics as ((model: CollectionModel<any, any>) => Record<string, unknown>) | undefined)?.(baseModel);
+  if (!extensions) {
+    registerModel(config.name, baseModel);
+    return baseModel;
+  }
 
   for (const key of Object.keys(extensions)) {
     if (key in baseModel) {
@@ -341,5 +392,7 @@ export function createCollectionModel<TInput, TStored extends { id: string; upda
     }
   }
 
-  return { ...baseModel, ...extensions };
+  const model = { ...baseModel, ...extensions };
+  registerModel(config.name, model);
+  return model;
 }

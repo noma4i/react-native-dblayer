@@ -2,6 +2,9 @@ import type { Collection, StorageEventApi } from '@tanstack/db';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
 import type { UseQueryResult } from '@tanstack/react-query';
+import type { SideloadSpec } from './core/sideload';
+import type { FieldSpec } from './schema/fieldSpec';
+import type { InferStoredFields } from './schema/infer';
 
 export type PersistentMutationTransaction = {
   /** Raw TanStack DB mutation records accepted by persistent collections. */
@@ -204,7 +207,10 @@ export interface FetchStateRemovalListener {
   (scopeKey?: string): void;
 }
 
-export interface CreateCollectionModelConfig<
+export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any>>;
+export type ModelStoredFromFields<TFields extends ModelFieldSpecs> = InferStoredFields<TFields> extends { id: string; updatedAt?: string | null } ? InferStoredFields<TFields> : never;
+
+interface CreateCollectionModelBaseConfig<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
   TExt extends Record<string, unknown> = {}
@@ -213,8 +219,6 @@ export interface CreateCollectionModelConfig<
   name: string;
   /** Persistent collection backing the model. */
   collection: PersistentCollection<TStored>;
-  /** Map an input to a stored row patch; return null to drop it. */
-  normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
   /** Extra class-level model methods composed from the base model DSL. */
   statics?: (model: CollectionModel<TInput, TStored>) => TExt;
   /**
@@ -237,7 +241,38 @@ export interface CreateCollectionModelConfig<
   };
   /** Sort applied by the reactive `all()` hook. */
   defaultSort?: { field: keyof TStored & string; direction: 'asc' | 'desc' };
+  /** Nested payloads to sync before writing this model. */
+  sideload?: SideloadSpec<TInput>[];
 }
+
+export interface CreateCollectionModelNormalizeConfig<
+  TInput,
+  TStored extends { id: string; updatedAt?: string | null },
+  TExt extends Record<string, unknown> = {}
+> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt> {
+  /** Map an input to a stored row patch; return null to drop it. */
+  normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
+  fields?: never;
+  rowId?: never;
+  guard?: never;
+}
+
+export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>
+  extends CreateCollectionModelBaseConfig<unknown, ModelStoredFromFields<TFields>, TExt> {
+  /** Declarative field specs used to generate the model normalizer. */
+  fields: TFields;
+  /** Optional row id resolver; defaults to `input.id`. */
+  rowId?: (input: unknown) => string | null | undefined;
+  /** Return false to drop an incoming row before normalization. */
+  guard?: (input: unknown) => boolean;
+  normalize?: never;
+}
+
+export type CreateCollectionModelConfig<
+  TInput,
+  TStored extends { id: string; updatedAt?: string | null },
+  TExt extends Record<string, unknown> = {}
+> = CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>;
 
 export type DbCondition<T> = Partial<T>;
 
