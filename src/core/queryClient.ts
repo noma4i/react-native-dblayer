@@ -1,5 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { deriveDbKey } from './deriveDbKey';
 import { getDbLogger } from './logger';
+import type { CollectionModel } from '../types';
 
 let dbQueryClient: QueryClient | null = null;
 
@@ -22,6 +24,10 @@ export const invalidateDbRequests = async (key: readonly unknown[]): Promise<voi
   const queryClient = withDbQueryClient('invalidateDbRequests');
   if (!queryClient) return;
   await queryClient.invalidateQueries({ queryKey: key });
+};
+
+export const invalidateModel = (model: CollectionModel<any, any>, scope?: object): void => {
+  void invalidateDbRequests(deriveDbKey(model, scope));
 };
 
 export const refetchDbRequests = async (key: readonly unknown[], opts?: { exact?: boolean }): Promise<void> => {

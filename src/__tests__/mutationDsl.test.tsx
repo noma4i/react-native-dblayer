@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   configureDb,
   devClearAllDataAndState,
+  mergeOptimisticSnapshot,
+  runDbMutationDirect,
   setDbExtractSink,
   setDbMutationExtractResolver,
   useCommand,
@@ -56,6 +58,7 @@ const renderQueryHook = <T,>(read: () => T) => {
   });
 
   return {
+    queryClient,
     get current() {
       return current;
     },
@@ -79,6 +82,70 @@ describe('mutation DSL runtime', () => {
     setDbMutationExtractResolver(spec => spec);
     await flush();
     devClearAllDataAndState();
+  });
+
+  it('derives mutation key and log prefix from resultField when omitted', async () => {
+    const debug = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      logger: { debug, error: jest.fn() },
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            todoCreate: { id: 'server-derived', title: 'Server derived', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+          }
+        })
+      })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, { title: string }>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('DerivedMutationMetadata'),
+        resultField: 'todoCreate'
+      })
+    );
+
+    await act(async () => {
+      await hook.current.mutateAsync({ title: 'Derived' });
+    });
+
+    expect(debug).toHaveBeenCalledWith('TodoCreate', 'mutationFn start');
+    expect(hook.queryClient.getMutationCache().getAll()[0]?.options.mutationKey).toEqual(['todoCreate']);
+
+    hook.unmount();
+  });
+
+  it('keeps explicit mutation key and log prefix ahead of derived metadata', async () => {
+    const debug = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      logger: { debug, error: jest.fn() },
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            todoCreate: { id: 'server-explicit', title: 'Server explicit', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+          }
+        })
+      })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, { title: string }>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('ExplicitMutationMetadata'),
+        resultField: 'todoCreate',
+        key: () => ['explicit-key'],
+        logPrefix: 'ExplicitLog'
+      })
+    );
+
+    await act(async () => {
+      await hook.current.mutateAsync({ title: 'Explicit' });
+    });
+
+    expect(debug).toHaveBeenCalledWith('ExplicitLog', 'mutationFn start');
+    expect(hook.queryClient.getMutationCache().getAll()[0]?.options.mutationKey).toEqual(['explicit-key']);
+
+    hook.unmount();
   });
 
   it('commits optimistic rows into server rows on a successful mutation', async () => {
@@ -138,6 +205,10 @@ describe('mutation DSL runtime', () => {
     const model = createTodoFieldsModel();
     type Stored = ReturnType<typeof model.getAll>[number];
     const transportResult = deferred<{ data: Record<string, Todo> }>();
+    const commitContext = jest.fn((_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow: Stored | null }) => {
+      expect(context.tempId).toMatch(/^temp-todo-/);
+      expect(context.optimisticRow?.title).toBe('Optimistic preset');
+    });
     configureDb({
       storage: inMemoryStorageAdapter(),
       transport: mockTransport({
@@ -156,7 +227,8 @@ describe('mutation DSL runtime', () => {
           tempIdPrefix: 'todo',
           buildStored: ({ input, tempId }) => model.buildStored({ id: tempId, title: input.title }),
           selectServerNode: data => data
-        }
+        },
+        onCommit: commitContext
       })
     );
 
@@ -182,6 +254,7 @@ describe('mutation DSL runtime', () => {
     expect(model.get(optimisticRow.id)).toBeUndefined();
     expect(model.get('server-preset')?.title).toBe('Server preset');
     expect(model.getAll()).toHaveLength(1);
+    expect(commitContext).toHaveBeenCalledTimes(1);
 
     hook.unmount();
   });
@@ -194,6 +267,10 @@ describe('mutation DSL runtime', () => {
     const insertSpy = jest.spyOn(model, 'insertStored');
     const buildStored = jest.fn(({ input, tempId }: { input: TodoMutationInput; tempId: string }) => model.buildStored({ id: tempId, title: input.title }));
     const transportResult = deferred<{ data: Record<string, Todo> }>();
+    const commitContext = jest.fn((_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow: Stored | null }) => {
+      expect(context.tempId).toBe('temp-existing');
+      expect(context.optimisticRow).toEqual(expect.objectContaining({ id: existing.id, title: existing.title }));
+    });
     configureDb({
       storage: inMemoryStorageAdapter(),
       transport: mockTransport({
@@ -212,7 +289,8 @@ describe('mutation DSL runtime', () => {
           tempIdPrefix: 'todo',
           buildStored,
           selectServerNode: data => data
-        }
+        },
+        onCommit: commitContext
       })
     );
 
@@ -238,6 +316,7 @@ describe('mutation DSL runtime', () => {
     expect(model.get('temp-existing')).toBeUndefined();
     expect(model.get('server-retry')?.title).toBe('Server retry');
     expect(model.getAll()).toHaveLength(1);
+    expect(commitContext).toHaveBeenCalledTimes(1);
 
     hook.unmount();
   });
@@ -281,6 +360,161 @@ describe('mutation DSL runtime', () => {
     expect(model.getAll()).toHaveLength(1);
 
     hook.unmount();
+  });
+
+  it('merges optimistic snapshots with server-wins-unless-empty semantics and custom mergers', () => {
+    const optimistic = {
+      id: 'temp-1',
+      body: 'optimistic body',
+      mediaUrl: 'file://local.mov',
+      replyTo: { id: 'reply-1', body: 'local reply', media: { width: 320 } },
+      localOnly: 'keep'
+    };
+    const server = {
+      id: 'server-1',
+      body: '',
+      mediaUrl: null,
+      replyTo: { id: 'reply-1', body: '', media: { height: 180 } },
+      serverOnly: 'keep'
+    };
+
+    expect(
+      mergeOptimisticSnapshot(optimistic, server, {
+        mergers: {
+          replyTo: (optimisticValue, serverValue) => mergeOptimisticSnapshot(optimisticValue as object, serverValue as object)
+        }
+      })
+    ).toEqual({
+      id: 'server-1',
+      body: 'optimistic body',
+      mediaUrl: 'file://local.mov',
+      replyTo: { id: 'reply-1', body: 'local reply', media: { height: 180 } },
+      localOnly: 'keep',
+      serverOnly: 'keep'
+    });
+
+    expect(mergeOptimisticSnapshot({ body: 'local', mediaUrl: 'file://local.mov' }, { body: '', mediaUrl: null, id: 'server' }, { fields: ['body', 'mediaUrl'] })).toEqual({
+      id: 'server',
+      body: 'local',
+      mediaUrl: 'file://local.mov'
+    });
+  });
+
+  it('applies preserveOnCommit before replacing the optimistic row', async () => {
+    const model = createTodoFieldsModel();
+    type Stored = ReturnType<typeof model.getAll>[number];
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            todoCreate: { id: 'server-preserve', title: '', listId: null, done: false, updatedAt: '2026-01-04T00:00:00.000Z' }
+          }
+        })
+      })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, TodoMutationInput, void, Stored, Todo>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('CreateTodoPreservePreset'),
+        resultField: 'todoCreate',
+        optimistic: {
+          model,
+          tempIdPrefix: 'todo',
+          buildStored: ({ input, tempId }) => model.buildStored({ id: tempId, title: input.title }),
+          selectServerNode: data => data,
+          preserveOnCommit: { fields: ['title'] }
+        }
+      })
+    );
+
+    await act(async () => {
+      await hook.current.mutateAsync({ title: 'Optimistic title' });
+    });
+
+    expect(model.get('server-preserve')?.title).toBe('Optimistic title');
+    expect(model.getAll()).toHaveLength(1);
+
+    hook.unmount();
+  });
+
+  it('applies preserveOnCommit before the applyServerData fallback write', async () => {
+    const model = createTodoFieldsModel();
+    type Stored = ReturnType<typeof model.getAll>[number];
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            todoCreate: { id: 'server-preserve-fallback', title: 'Server fallback', listId: null, done: false, updatedAt: '2026-01-04T00:00:00.000Z' }
+          }
+        })
+      })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, TodoMutationInput, void, Stored, Todo>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('CreateTodoPreserveFallbackPreset'),
+        resultField: 'todoCreate',
+        optimistic: {
+          model,
+          tempIdPrefix: 'todo',
+          buildStored: () => null,
+          selectServerNode: data => data,
+          preserveOnCommit: serverNode => ({ ...serverNode, title: 'Transformed fallback' })
+        }
+      })
+    );
+
+    await act(async () => {
+      await hook.current.mutateAsync({ title: 'No optimistic row' });
+    });
+
+    expect(model.get('server-preserve-fallback')?.title).toBe('Transformed fallback');
+    expect(model.getAll()).toHaveLength(1);
+
+    hook.unmount();
+  });
+
+  it('hydrates optimisticRow for direct retry commits with an existing temp id', async () => {
+    const model = createTodoFieldsModel();
+    type Stored = ReturnType<typeof model.getAll>[number];
+    const existing = model.buildStored({ id: 'temp-direct', title: 'Existing direct upload' });
+    model.insertStored(existing);
+    const onCommit = jest.fn((_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow: Stored | null }) => {
+      expect(context.tempId).toBe('temp-direct');
+      expect(context.optimisticRow).toEqual(expect.objectContaining({ id: 'temp-direct', title: 'Existing direct upload' }));
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            todoCreate: { id: 'server-direct', title: '', listId: null, done: false, updatedAt: '2026-01-04T00:00:00.000Z' }
+          }
+        })
+      })
+    });
+
+    await runDbMutationDirect<Todo, TodoMutationInput, { tempId: string | null; optimisticRow?: Stored | null }, Stored, Todo>(
+      {
+        mutation: document<Record<string, Todo>, { input: unknown }>('CreateTodoDirectPreservePreset'),
+        resultField: 'todoCreate',
+        optimistic: {
+          model,
+          tempIdPrefix: 'todo',
+          buildStored: ({ input, tempId }) => model.buildStored({ id: tempId, title: input.title }),
+          selectServerNode: data => data,
+          preserveOnCommit: { fields: ['title'] }
+        },
+        onCommit
+      },
+      { title: 'Retry direct', tempId: 'temp-direct' }
+    );
+
+    expect(model.get('temp-direct')).toBeUndefined();
+    expect(model.get('server-direct')?.title).toBe('Existing direct upload');
+    expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
   it('runs manual commit side effects after the declarative optimistic commit and keeps extract handling', async () => {
@@ -345,22 +579,28 @@ describe('mutation DSL runtime', () => {
       const validConfig: DbMutationConfig<Todo, TodoMutationInput, void, Stored, Todo> = {
         mutation: document<Record<string, Todo>, { input: unknown }>('TypedTodoPreset'),
         resultField: 'todoCreate',
-        key: () => ['typed-todo-preset'],
-        logPrefix: 'typed-todo-preset',
         optimistic: {
           model,
           buildStored: ({ input, tempId }) => model.buildStored({ id: tempId, title: input.title }),
-          selectServerNode: data => data
+          selectServerNode: data => data,
+          preserveOnCommit: {
+            fields: ['title'],
+            mergers: {
+              title: (optimisticValue, serverValue) => serverValue ?? optimisticValue
+            }
+          }
         },
-        onCommit: (_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null }) => {
+        onCommit: (_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow: Stored | null }) => {
           const tempId: string | null = context.tempId;
-          expect(tempId).toBeDefined();
+          const optimisticRow: Stored | null = context.optimisticRow;
+          expect({ tempId, optimisticRow }).toBeDefined();
         },
         track: {
           start: input => ({ name: 'typed-start', payload: { title: input.title } }),
-          success: (_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null }) => {
+          success: (_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow: Stored | null }) => {
             const tempId: string | null = context.tempId;
-            return { name: 'typed-success', payload: { tempId } };
+            const optimisticRow: Stored | null = context.optimisticRow;
+            return { name: 'typed-success', payload: { tempId, optimisticTitle: optimisticRow?.title } };
           },
           error: (error, input) => ({ name: 'typed-error', payload: { title: input.title, error: error.message } })
         }
@@ -377,10 +617,11 @@ describe('mutation DSL runtime', () => {
           selectServerNode: data => data
         },
         onMutate: () => ({ tracked: true }),
-        onCommit: (_data: Todo | null, _input: TodoMutationInput, context: { tracked: boolean; tempId: string | null }) => {
+        onCommit: (_data: Todo | null, _input: TodoMutationInput, context: { tracked: boolean; tempId: string | null; optimisticRow: Stored | null }) => {
           const tracked: boolean = context.tracked;
           const tempId: string | null = context.tempId;
-          expect({ tracked, tempId }).toBeDefined();
+          const optimisticRow: Stored | null = context.optimisticRow;
+          expect({ tracked, tempId, optimisticRow }).toBeDefined();
         }
       };
 

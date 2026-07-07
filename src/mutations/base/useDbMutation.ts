@@ -5,6 +5,7 @@ import { getDbLogger } from '../../core/logger';
 import { acceptPersistentCollectionMutations, runInManagedMutationBatch } from '../../core/registry';
 import { generateTempId } from '../../utils/generateTempId';
 import { applyDbMutationCommit, executeDbMutationRequest } from './executeDbMutation';
+import { resolveMutationKey, resolveMutationLogPrefix } from './mutationConfig';
 import { emitMutationTrackError, emitMutationTrackStart } from './mutationTracking';
 import { createSingleFlightSignature, runSingleFlight } from './singleFlight';
 
@@ -28,14 +29,16 @@ const runDeclarativeOptimisticMutation = <TData, TInput, TStored, TServerNode>(
   input: TInput
 ): DbOptimisticMutationContext => {
   const existingTempId = optimistic.selectTempId ? optimistic.selectTempId(input) : defaultSelectTempId(input);
-  if (existingTempId) return { tempId: existingTempId };
+  if (existingTempId) {
+    return { tempId: existingTempId, optimisticRow: optimistic.model.get(existingTempId) ?? null };
+  }
 
   const tempId = generateTempId(optimistic.tempIdPrefix);
   const row = optimistic.buildStored({ input, tempId });
-  if (!row) return { tempId: null };
+  if (!row) return { tempId: null, optimisticRow: null };
 
   optimistic.model.insertStored(row);
-  return { tempId };
+  return { tempId, optimisticRow: row };
 };
 
 const runOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>, input: TInput): unknown => {
@@ -90,14 +93,16 @@ const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored, TServerNo
  */
 export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>) =>
   useMutation<TData | null, Error, TInput>({
-    mutationKey: config.key(),
+    mutationKey: resolveMutationKey(config),
     mutationFn: (input: TInput) => {
       const mappedInput = config.mapInput ? config.mapInput(input) : input;
-      const singleFlightSignature = createSingleFlightSignature('db-mutation', config.key(), mappedInput);
+      const mutationKey = resolveMutationKey(config);
+      const logPrefix = resolveMutationLogPrefix(config);
+      const singleFlightSignature = createSingleFlightSignature('db-mutation', mutationKey, mappedInput);
 
       return runSingleFlight(singleFlightSignature, async () => {
         // Shared log tag to keep mutation logs grouped by feature hook.
-        getDbLogger().debug(config.logPrefix, 'mutationFn start');
+        getDbLogger().debug(logPrefix, 'mutationFn start');
         let result: TData | null = null;
         let context: unknown;
 
@@ -152,6 +157,6 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown,
       });
     },
     onError: error => {
-      getDbLogger().error(config.logPrefix, 'onError', error);
+      getDbLogger().error(resolveMutationLogPrefix(config), 'onError', error);
     }
   });

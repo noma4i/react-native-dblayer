@@ -29,8 +29,8 @@ configureDb({
 | `storage` | `StorageAdapter` | MMKV-backed adapter | Where collections persist. Omit to use the built-in MMKV adapter. |
 | `logger` | `DbLogger` | no-op | Receives `debug`/`error` from the request/mutation runtimes. |
 | `queryClient` | `QueryClient` | `null` | Used by imperative request helpers only. Hooks still read React context. |
-| `extract.sink` | `DbExtractSink` | no-op | Applies a resolved extract payload into your collections (side-loads). |
-| `extract.mutationResolver` | `DbMutationExtractResolver` | no-op | Turns a mutation's `extract` spec + server result into an extract payload for the sink. |
+| `extract.sink` | `DbExtractSink` | no-op | Applies a resolved extract payload into your collections (side-loads). Use `createExtractSink(...)` for declarative model/custom routing. |
+| `extract.mutationResolver` | `DbMutationExtractResolver` | no-op | Turns a mutation's `extract` spec + server result into an extract payload for the sink. Use `createMutationExtractResolver(...)` for declarative presets. |
 
 Each seam also has a standalone setter if you prefer granular control: `setDbTransport`, `setDbStorageAdapter`,
 `setDbLogger`, `setDbExtractSink`, `setDbMutationExtractResolver`. `configureDb` just calls these.
@@ -148,22 +148,48 @@ functions so the library stays domain-agnostic:
 - A **mutation** config's `extract` is a spec; the runtime calls `mutationResolver(spec, result)` then the sink
   with source `'mutation'`.
 
-Both default to no-ops, so a config's `extract` field simply does nothing until you wire these. Example — a query
-that side-loads its author into `UserModel`, and mutations whose `extract` presets are resolved by your app:
+Both default to no-ops, so a config's `extract` field simply does nothing until you wire these. The package includes
+two factories for the common declarative shape:
+
+| Helper | Input | Output |
+| --- | --- | --- |
+| `createMutationExtractResolver(presetTable)` | `{ presetKey: { read, sink, many? } }` | Existing `DbMutationExtractResolver` seam. |
+| `createExtractSink(sinkTable)` | `{ extractKey: Model \| (payload, source) => void }` | Existing `DbExtractSink` seam. |
+
+`createMutationExtractResolver` walks the preset table in declaration order. The `result` argument is the mutation
+`resultField` payload, not the full GraphQL response envelope. A mutation `extract` spec can use `true` to call the
+table's default `read(result)`, or a selector function to override it. Resolved nodes are lifted to arrays by
+default; set `many: false` for singleton payloads such as a wallet patch. `null`, `undefined`, and empty arrays are
+dropped; if every preset is empty, the resolver returns `undefined`.
+
+`createExtractSink` walks sink keys in declaration order and applies only non-empty payloads. Model entries receive
+`Model.applyServerData(castNodes(payload), mergeSyncContract(source))`; custom functions receive the raw
+`(payload, source)`. Declaration order is part of the contract, so put dependency sinks first, for example
+`users` before `messages`.
+
+Example — a query that side-loads its author into `UserModel`, and mutations whose `extract` presets are resolved
+by a table:
 
 ```ts
-import { configureDb, mergeSyncContract } from '@noma4i/react-native-dblayer';
+import { configureDb, createExtractSink, createMutationExtractResolver } from '@noma4i/react-native-dblayer';
+
+const mutationResolver = createMutationExtractResolver({
+  user: { sink: 'users', read: (result) => result.user },
+  message: { sink: 'messages', read: (result) => result.message },
+  wallet: { sink: 'walletPatch', read: (result) => result.wallet, many: false },
+});
+
+const sink = createExtractSink({
+  users: UserModel,
+  walletPatch: (payload) => applyWalletPatch(payload),
+  messages: MessageModel,
+});
 
 configureDb({
   transport,
   extract: {
-    // apply any resolved payload into collections
-    sink: (payload, source) => {
-      const p = payload as { users?: UserInput[] };
-      if (p?.users?.length) UserModel.applyServerData(p.users, mergeSyncContract(source));
-    },
-    // turn a mutation's `extract` spec + server result into a payload for the sink
-    mutationResolver: (spec, result) => resolveMutationExtract(spec, result), // your app's resolver
+    sink,
+    mutationResolver,
   },
 });
 
@@ -173,5 +199,29 @@ useDbSingleRequest({
   sync: { model: PostModel, contract: 'post' },
   extract: ({ selected }) => ({ users: [selected.author] }), // -> sink -> UserModel
   read: { model: PostModel, id },
+});
+```
+
+An app with chat side-loads can keep domain transforms inside the table readers:
+
+```ts
+const mutationResolver = createMutationExtractResolver({
+  user: { sink: 'users', read: (result) => result.user },
+  chatLastMessage: { sink: 'chatLastMessages', read: (result) => buildChatLastMessageSyncEntry(result.chat.id, result.chat.lastMessage) },
+  wallet: { sink: 'walletPatch', read: (result) => result.wallet, many: false },
+  transaction: { sink: 'transactions', read: (result) => result.transaction },
+  message: { sink: 'messages', read: (result) => result.message },
+  chat: { sink: 'chats', read: (result) => result.chat },
+  moment: { sink: 'moments', read: (result) => result.moment },
+});
+
+const sink = createExtractSink({
+  users: UserModel,
+  chatLastMessages: syncChatLastMessages,
+  walletPatch: applyWalletPatch,
+  transactions: WalletTransactionModel,
+  messages: MessageModel,
+  chats: ChatModel,
+  moments: MomentModel,
 });
 ```

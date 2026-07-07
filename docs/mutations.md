@@ -55,8 +55,6 @@ Use `optimistic` when a mutation always follows the temp-row pattern. The model 
 
 ```tsx
 const send = useDbMutation({
-  key: () => ['sendMessage'],
-  logPrefix: 'sendMessage',
   mutation: SEND_MESSAGE,
   resultField: 'sendMessage',
   optimistic: {
@@ -65,9 +63,10 @@ const send = useDbMutation({
     buildStored: ({ input, tempId }) =>
       MessageModel.buildStored({ id: tempId, chatId: input.chatId, body: input.body, pending: true }),
     selectServerNode: (data) => data?.message,
+    preserveOnCommit: { fields: ['body', 'media', 'localPreviewUrl'] },
   },
   onCommit: (_data, input, ctx) => {
-    trackSent(input.chatId, ctx.tempId); // optional side effects after the preset commit
+    trackSent(input.chatId, ctx.tempId, ctx.optimisticRow); // optional side effects after the preset commit
   },
   track: {
     start: (input) => ({ name: 'message_send_initiated', payload: { chatId: input.chatId } }),
@@ -81,15 +80,22 @@ Preset behavior:
 
 | Step | Behavior |
 | --- | --- |
-| mutate | If `selectTempId(input)` or `input.tempId` returns an id, skip insertion and return `{ tempId }`. |
-| mutate | Otherwise generate `generateTempId(tempIdPrefix)`, call `buildStored({ input, tempId })`, and `insertStored(row)`. |
+| mutate | If `selectTempId(input)` or `input.tempId` returns an id, skip insertion and return `{ tempId, optimisticRow: model.get(tempId) ?? null }`. |
+| mutate | Otherwise generate `generateTempId(tempIdPrefix)`, call `buildStored({ input, tempId })`, `insertStored(row)`, and return `{ tempId, optimisticRow: row }`. |
 | commit | `selectServerNode(data, input)` chooses the server node. |
+| commit | `preserveOnCommit` transforms the server node before any write. |
 | commit | With `ctx.tempId`, run `model.replaceRaw(ctx.tempId, node)`; without it, run `model.applyServerData([node], mergeSyncContract('mutation'))`. |
 | escape hatch | `onMutate` may still run extra optimistic side effects; object returns are merged with `{ tempId }`. |
 | escape hatch | `onCommit` still runs after extract handling and after the preset commit. |
 
 Return `null` from `buildStored` to skip optimistic insertion and use the commit fallback. This covers flows where
 the row was already created elsewhere or no local optimistic row is available.
+
+`preserveOnCommit` can be a function `(serverNode, context) => nextServerNode` or a declarative field list:
+`{ fields: ['body'], mergers?: { body: (optimisticValue, serverValue) => value } }`. The declarative form uses
+`mergeOptimisticSnapshot(ctx.optimisticRow, serverNode, options)`: server values win unless they are `null`,
+`undefined`, or an empty string while the optimistic row has a value. Without `fields`, `mergeOptimisticSnapshot`
+performs the same keyed union merge for every key.
 
 ## Variant 3 — declarative patch (`method: 'patch'`)
 
@@ -134,10 +140,10 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | --- | --- | --- | --- |
 | `mutation` | `TypedDocumentNode<Record<string, TData>, { input }> \| DocumentNode` | **required** | The GraphQL mutation. |
 | `resultField` | `string` | **required** | Field of `response.data` holding the result (e.g. `'sendMessage'`). |
-| `key` | `() => readonly unknown[]` | **required** | Key factory (also single-flight de-dupe). |
-| `logPrefix` | `string` | **required** | Log tag for `debug`/`error`. |
+| `key` | `() => readonly unknown[]` | `() => [resultField]` | Key factory (also single-flight de-dupe). The default is input-independent. |
+| `logPrefix` | `string` | capitalized `resultField` | Log tag for `debug`/`error`. |
 | `mapInput` | `(input) => unknown` | identity | Transform caller input → the mutation's `variables.input`. |
-| `extract` | `DbExtractSpec` (`unknown`) | `—` | Side-load spec → mutation resolver → sink (source `'mutation'`). |
+| `extract` | `DbExtractSpec` (`unknown`) | `—` | Side-load spec → `createMutationExtractResolver`/custom resolver → sink (source `'mutation'`). |
 | `onCommit` | `(data, input, context) => void` | `—` | Server write-through. Runs in the tx, after the response, before commit. |
 | `invalidate` | `(data, input) => void` | `—` | After commit — invalidate dependent queries. |
 | `onError` | `(error, input, context) => void` | `—` | On failure, before rollback rethrows. |
@@ -159,7 +165,7 @@ mutation.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `optimistic` | `{ model, tempIdPrefix?, selectTempId?, buildStored, selectServerNode }` | `—` | Declarative temp-row preset. |
+| `optimistic` | `{ model, tempIdPrefix?, selectTempId?, buildStored, selectServerNode, preserveOnCommit? }` | `—` | Declarative temp-row preset. |
 | `onMutate` | `(input) => TContext` | `—` | Manual optimistic write or extra side effects; with `optimistic`, object returns are merged into the preset context. |
 
 ### `method: 'patch'` (Variant 3)
@@ -192,14 +198,29 @@ mutate(input)
   ── on any throw ──▶ rollback (all tx writes undone) → onError → track.error → rethrow
 ```
 
+### `extract` presets
+
+Wire `configureDb({ extract: { mutationResolver: createMutationExtractResolver(table), sink } })` once, then use
+declarative preset flags in mutation configs:
+
+```ts
+const send = useDbMutation({
+  mutation: SEND_MESSAGE,
+  resultField: 'sendMessage',
+  extract: { user: true, message: true, chat: (result) => result.chat },
+});
+```
+
+For each preset key, `true` uses the table reader and a function overrides the reader. The resolver drops empty
+results and array-lifts nodes by default, so `{ message: true }` can emit `{ messages: [node] }` when the table maps
+`message` to the `messages` sink key. Use `many: false` in the table for singleton payloads.
+
 ## `useCommand(config)`
 
 Fire-and-forget GraphQL command — no optimistic write, no transaction.
 
 ```ts
 const track = useCommand({
-  key: () => ['trackEvent'],
-  logPrefix: 'trackEvent',
   mutation: TRACK_EVENT,
   resultField: 'trackEvent',
 });
@@ -218,8 +239,8 @@ const doAction = useCommand({
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `key` | `() => readonly unknown[]` | **required** | Command key (single-flight). |
-| `logPrefix` | `string` | **required** | Log tag. |
+| `key` | `() => readonly unknown[]` | `() => [resultField]` for static commands | Command key (single-flight). Resolved and low-level command defaults use `['command']`. |
+| `logPrefix` | `string` | capitalized `resultField` for static commands | Log tag. Resolved and low-level command defaults use `Command`. |
 | `mutation` | document | **required** (static form) | The mutation. |
 | `resultField` | `string` | **required** (static form) | Response field to return. |
 | `mapInput` | `(input) => unknown` | identity | Map input → `variables.input`. |
@@ -231,10 +252,11 @@ const doAction = useCommand({
 ## Non-React execution
 
 `runDbMutationDirect(config, input, context?)` runs the request plus extract/commit logic outside React. It does not
-run optimistic insertion; pass `{ tempId }` when an upload controller already created the temp row:
+run optimistic insertion; for optimistic configs it reads `input.tempId`/`selectTempId(input)` or `context.tempId`
+and adds `{ tempId, optimisticRow: model.get(tempId) ?? null }` before commit:
 
 ```ts
 import { runDbMutationDirect } from '@noma4i/react-native-dblayer';
 
-await runDbMutationDirect(sendMessageConfig, { chatId, body, attachmentUrl, tempId }, { tempId });
+await runDbMutationDirect(sendMessageConfig, { chatId, body, attachmentUrl, tempId });
 ```

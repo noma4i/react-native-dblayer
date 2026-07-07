@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import type { DbCommandConfig } from '../../types';
 import { getDbLogger } from '../../core/logger';
+import { resolveCommandKey, resolveCommandLogPrefix } from './mutationConfig';
 import { createSingleFlightSignature, runSingleFlight } from './singleFlight';
 
 /**
@@ -10,13 +11,15 @@ import { createSingleFlightSignature, runSingleFlight } from './singleFlight';
  */
 export const useCommandMutation = <TData, TInput>(config: DbCommandConfig<TData, TInput>) =>
   useMutation<TData, Error, TInput>({
-    mutationKey: config.key(),
+    mutationKey: resolveCommandKey(config),
     mutationFn: (input: TInput) => {
       const singleFlightInput = config.singleFlightInput ? config.singleFlightInput(input) : input;
-      const singleFlightSignature = createSingleFlightSignature('command-mutation', config.key(), singleFlightInput);
+      const commandKey = resolveCommandKey(config);
+      const logPrefix = resolveCommandLogPrefix(config);
+      const singleFlightSignature = createSingleFlightSignature('command-mutation', commandKey, singleFlightInput);
 
       return runSingleFlight(singleFlightSignature, () => {
-        getDbLogger().debug(config.logPrefix, 'mutationFn start');
+        getDbLogger().debug(logPrefix, 'mutationFn start');
         return config.mutationFn(input);
       });
     },
@@ -25,7 +28,7 @@ export const useCommandMutation = <TData, TInput>(config: DbCommandConfig<TData,
     },
     onError: (error, input) => {
       config.onError?.(error, input);
-      getDbLogger().error(config.logPrefix, 'onError', error);
+      getDbLogger().error(resolveCommandLogPrefix(config), 'onError', error);
     },
     onSettled: () => {
       config.onSettled?.();

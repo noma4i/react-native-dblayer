@@ -4,7 +4,7 @@ import { deriveDbKey } from '../../core/deriveDbKey';
 import { stableSerialize } from '../../core/serialize';
 import { makePageExtractor } from './extractPage';
 import { executeDbInfiniteRequest, executeDbSingleRequest } from './requestRuntime';
-import { buildModelFilter } from './shared';
+import { buildModelFilter, resolveRequestFilter } from './shared';
 import { useBaseInfiniteQuery } from './useBaseInfiniteQuery';
 import { useBaseQuery } from './useBaseQuery';
 
@@ -25,7 +25,7 @@ const resolveInfiniteRequestKey = (config: DbRequestInfiniteConfig<unknown, unkn
   if (!model) {
     throw new Error('useDbInfiniteRequest requires `key` unless `read` is created by createCollectionBinding().');
   }
-  const modelFilter = buildModelFilter(config.filter?.(), config.currentUserId?.());
+  const modelFilter = buildModelFilter(resolveRequestFilter(config.filter, config.scope), config.currentUserId?.());
   return deriveDbKey(model as CollectionModel<any, any>, config.read._dbScope?.(modelFilter));
 };
 
@@ -44,7 +44,9 @@ const resolveInfiniteRequestKey = (config: DbRequestInfiniteConfig<unknown, unkn
  *   read: { model: UserModel, id }
  * });
  */
-export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unknown>(config: DbRequestSingleConfig<TResponse, TResult, TSelected>): BaseQueryResult<TResult> => {
+export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(
+  config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>
+): BaseQueryResult<TResult> => {
   const configRef = useRef(config);
   configRef.current = config;
   const queryKey = resolveSingleRequestKey(config as DbRequestSingleConfig<unknown, unknown, unknown>);
@@ -86,7 +88,9 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
  *   read: feedCollectionBinding
  * });
  */
-export const useDbInfiniteRequest = <TResponse, TNode>(config: DbRequestInfiniteConfig<TResponse, TNode>): InfiniteQueryResult<TNode> => {
+export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<string, unknown>>(
+  config: DbRequestInfiniteConfig<TResponse, TNode, TVariables>
+): InfiniteQueryResult<TNode> => {
   const configRef = useRef(config);
   configRef.current = config;
   const queryKey = resolveInfiniteRequestKey(config as DbRequestInfiniteConfig<unknown, unknown>);
@@ -105,13 +109,13 @@ export const useDbInfiniteRequest = <TResponse, TNode>(config: DbRequestInfinite
       staleTime: config.staleTime,
       gcTime: config.gcTime,
       direction: config.direction,
-      getFilter: () => configRef.current.filter?.(),
+      getFilter: () => resolveRequestFilter(configRef.current.filter, configRef.current.scope),
       getCurrentUserId: () => configRef.current.currentUserId?.(),
       ...(config.resolveSyncContract ? { resolveSyncContract: context => configRef.current.resolveSyncContract!(context) } : {}),
       collection: config.read,
       readMode: config.readMode
     };
-  }, [config.direction, config.enabled, config.gcTime, config.getCursor, config.inactive, keySignature, config.query, config.read, config.readMode, config.resolveSyncContract, config.staleTime]);
+  }, [config.direction, config.enabled, config.gcTime, config.getCursor, config.inactive, keySignature, config.query, config.read, config.readMode, config.resolveSyncContract, config.scope, config.staleTime]);
 
   return useBaseInfiniteQuery<TResponse, TNode>(baseConfig);
 };

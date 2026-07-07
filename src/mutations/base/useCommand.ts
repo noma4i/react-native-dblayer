@@ -2,6 +2,9 @@ import type { DbCommandMutationConfig, DbGraphQLDocument } from '../../types';
 import { getDbTransport } from '../../core/transport';
 import { useCommandMutation } from './useCommandMutation';
 
+const capitalize = (value: string): string => (value ? value[0]!.toUpperCase() + value.slice(1) : value);
+const staticResultField = <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>): string | undefined => ('resultField' in config ? config.resultField : undefined);
+
 const resolveCommandConfig = <TData, TInput>(
   config: DbCommandMutationConfig<TInput, TData>,
   input: TInput
@@ -38,8 +41,8 @@ const resolveCommandConfig = <TData, TInput>(
  */
 export const useCommand = <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>) =>
   useCommandMutation<TData, TInput>({
-    key: config.key,
-    logPrefix: config.logPrefix,
+    key: config.key ?? (() => [staticResultField(config) ?? 'command']),
+    logPrefix: config.logPrefix ?? (staticResultField(config) ? capitalize(staticResultField(config)!) : undefined),
     singleFlightInput: input => resolveCommandConfig(config, input).mappedInput,
     mutationFn: async (input: TInput) => {
       const { mutation, resultField, mappedInput } = resolveCommandConfig(config, input);

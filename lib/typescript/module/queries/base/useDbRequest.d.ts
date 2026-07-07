@@ -14,7 +14,7 @@ import type { BaseQueryResult, DbRequestInfiniteConfig, DbRequestSingleConfig, I
  *   read: { model: UserModel, id }
  * });
  */
-export declare const useDbSingleRequest: <TResponse, TResult = unknown, TSelected = unknown>(config: DbRequestSingleConfig<TResponse, TResult, TSelected>) => BaseQueryResult<TResult>;
+export declare const useDbSingleRequest: <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>) => BaseQueryResult<TResult>;
 /**
  * React hook that runs cursor-paginated GraphQL queries and syncs page nodes.
  * @param config Paginated query, connection selector, collection binding, and pagination options.
@@ -28,5 +28,5 @@ export declare const useDbSingleRequest: <TResponse, TResult = unknown, TSelecte
  *   read: feedCollectionBinding
  * });
  */
-export declare const useDbInfiniteRequest: <TResponse, TNode>(config: DbRequestInfiniteConfig<TResponse, TNode>) => InfiniteQueryResult<TNode>;
+export declare const useDbInfiniteRequest: <TResponse, TNode, TVariables = Record<string, unknown>>(config: DbRequestInfiniteConfig<TResponse, TNode, TVariables>) => InfiniteQueryResult<TNode>;
 //# sourceMappingURL=useDbRequest.d.ts.map

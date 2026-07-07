@@ -35,6 +35,48 @@ function OnlineDot({ id }: { id: string }) {
 }
 ```
 
+### `modelDetailRequest(model, config)`
+
+Use this builder for standard "fetch one node, write it to the same model, read it back by id" requests. Raw
+`useDbSingleRequest` configs remain supported for custom flows.
+
+```tsx
+import { modelDetailRequest, useDbSingleRequest } from '@noma4i/react-native-dblayer';
+
+const user = useDbSingleRequest(
+  modelDetailRequest(UserModel, {
+    query: USER_QUERY,
+    id: userId,
+    select: (d) => d.user,
+    contract: 'profile',
+    staleTime: Infinity,
+  })
+);
+```
+
+The builder derives:
+
+| Field | Derived value |
+| --- | --- |
+| `key` | `deriveDbKey(model, { id })`; explicit `key` wins. |
+| `vars` | `{ id }`; pass `vars: (id) => ({ momentId: id })` or an object for custom variable names. |
+| `sync` | `{ model, contract: config.contract ?? 'detail' }`. |
+| `read` | `{ model, id }`; pass `read: false` for select-only detail lookups such as public uuid routes. |
+| `enabled` | `Boolean(id) && callerEnabled`; `enabled` may be a boolean or `(id) => boolean`. |
+
+No-read variant:
+
+```ts
+modelDetailRequest(UserModel, {
+  query: USER_BY_UUID_QUERY,
+  id: uuid,
+  select: (d) => d.user,
+  vars: (id) => ({ id, first: 1 }),
+  contract: 'deepLink',
+  read: false,
+});
+```
+
 ### `DbRequestSingleConfig`
 
 | Option | Type | Default | Description |
@@ -140,6 +182,7 @@ function Feed() {
 | `selectPage` | `(data) => ConnectionWithNodes \| ConnectionWithEdges \| null` | **required** | Pick the connection (`{ nodes, pageInfo }` or `{ edges, pageInfo }`). |
 | `read` | collection binding | **required** | Stores page nodes; read back reactively. |
 | `vars` | `TVars` | `—` | Base variables. |
+| `scope` | `object \| () => object` | `—` | Scope values merged into variables and used as the read/write filter when `filter` is omitted. |
 | `getPageVars` | `(pageParam: string) => Record<string, unknown>` | `—` | Cursor → next page's variables. |
 | `getCursor` | `(data) => string \| number \| null` | `—` | Next cursor from a page. |
 | `patchNode` | `(node, { index, pageParam }) => Partial \| null` | `—` | Decorate each node before storing. |
@@ -154,12 +197,35 @@ function Feed() {
 Infinite requests derive omitted keys from `createCollectionBinding(model, { scopeMap })` and the runtime
 `filter`/`currentUserId` scope. Pass an explicit `key` for non-model-backed reads.
 
+When `scope` is provided, the runtime merges it into query variables before `vars`, so explicit `vars` win on
+conflicts. If `filter` is omitted, the same `scope` becomes the collection read/write filter:
+
+```ts
+const chatCollection = createCollectionBinding(ChatModel, {
+  sortField: 'lastActivityAt',
+  scopeMap: { statusFilter: 'status' },
+});
+
+useDbInfiniteRequest({
+  query: CHATS_QUERY,
+  selectPage: (d) => d.chats,
+  vars: { first: 20 },
+  scope: { statusFilter },
+  read: chatCollection,
+});
+```
+
+That is equivalent to `vars: { statusFilter, first: 20 }` plus `filter: () => ({ statusFilter })`. Explicit
+`filter` still wins over `scope`, which keeps raw configs a first-class escape hatch for scopes whose server
+variables do not match the collection scope vocabulary.
+
 ## Derived keys and imperative requests
 
 ```ts
-import { deriveDbKey, invalidateDbRequests, refetchDbRequests, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
+import { deriveDbKey, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
 
 await invalidateDbRequests(deriveDbKey(MessageModel));          // all MessageModel scopes
+invalidateModel(MessageModel, { chatId });                      // fire-and-forget model invalidation
 await refetchDbRequests(deriveDbKey(MessageModel, { chatId })); // one scope
 await resetDbQueryRuntime();                                    // cancel all queries, then clear cache
 ```
@@ -195,3 +261,29 @@ await executeDbInfiniteRequest(feedConfig, /* pageParam */ undefined);
 When `key` is omitted, model-backed single requests derive it from `read.model`, `read.id`, or `sync.model` as
 `['db', collectionId]` or `['db', collectionId, stableSerialize(scope)]`. Configs without an explicit key and
 without a model-backed `read` or `sync.model` throw a config error.
+
+## Stable View and List Hooks
+
+Collection emissions often create fresh arrays and row objects even when rendered fields did not change. These hooks
+preserve item and array references for list UIs.
+
+| API | Purpose |
+| --- | --- |
+| `buildStableItems(source, config, previousCache)` | Non-React core; reuses prior entry items when `entriesEqual` passes. |
+| `useStableItems(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
+| `useStableSorted(source, compare, invalidationKey?)` | Sorts without mutating `source`; reuses previous sorted output when source item refs and optional key are unchanged. |
+| `useStableArray(next)` | Bare array identity guard; returns the prior array when element refs are unchanged. |
+| `useOrderedEntities(model, ids)` | Reads `model.byIds(ids)`, returns entities in input id order, drops missing ids, and shares a stable empty array. |
+| `useWindowedLoadMore(loadMore, refresh, pageSize, resetKey)` | Grows a render window by `pageSize`, delegates network load-more/refresh, and resets on refresh or reset-key change. |
+
+`useStableItems` accepts either custom entry equality or render-key equality:
+
+| Config path | Contract |
+| --- | --- |
+| `entriesEqual(prev, next)` | Full control; entry shape can include context fields beyond `item`. |
+| `renderKeys: Array<keyof TItem>` | Compares `prev.item` and `next.item` through `pickEqual`; mutually exclusive with `entriesEqual`. |
+
+`emptyItems` is returned for empty source and all-skipped projections. The hook also keeps that empty array stable
+across emissions. For comparator behavior that depends on outside state, pass that state as `invalidationKey`.
+`useOrderedEntities` returns only the ordered item array; use `useEntitiesById` directly when a view also needs random
+lookup by id.

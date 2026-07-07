@@ -1,4 +1,4 @@
-import type { BaseQueryCollection, CollectionFetchState, CollectionModel, CollectionReadConfig, StableProjectionConfig, SyncContract } from '../../types';
+import type { BaseQueryCollection, CollectionFetchState, CollectionModel, CollectionReadConfig, StableItemsConfig, StableProjectionConfig, SyncContract } from '../../types';
 /** React hook that reads configured query data from a model. */
 export declare function useCollectionRead<TData>(collection: BaseQueryCollection | undefined): TData | undefined;
 /** Create an infinite-query collection binding around a model. */
@@ -15,6 +15,12 @@ export declare const createCollectionBinding: <TStored extends {
 };
 /** Combine a scope filter with the current user id. */
 export declare const buildModelFilter: (filter: unknown, currentUserId: string | undefined) => unknown;
+/** Resolve a request scope value, including lazy scopes. */
+export declare const resolveRequestScope: (scope: unknown | (() => unknown) | undefined) => unknown;
+/** Use explicit filters ahead of derived scopes. */
+export declare const resolveRequestFilter: (filter: (() => unknown) | undefined, scope: unknown | (() => unknown) | undefined) => unknown;
+/** Merge derived scope variables with explicit variables; explicit variables win on conflicts. */
+export declare const mergeScopeVars: <TVariables>(vars: TVariables | undefined, scope: unknown) => TVariables | undefined;
 /** Build stable projected items by reusing unchanged cached entries. */
 export declare const buildStableItems: <TSource, TEntry extends {
     item: TItem;
@@ -30,10 +36,30 @@ export declare const buildStableItems: <TSource, TEntry extends {
  * array to track it.
  */
 export declare const pickEqual: <T extends object>(prev: T | null | undefined, next: T | null | undefined, keys: Array<keyof T>) => boolean;
+/** React hook wrapper around `buildStableItems` with cache ownership and array identity reuse. */
+export declare function useStableItems<TSource, TEntry extends {
+    item: TItem;
+}, TItem extends object>(sources: TSource[], config: StableItemsConfig<TSource, TEntry, TItem>): TItem[];
+/** React hook that reuses an array instance when its element references did not change. */
+export declare const useStableArray: <TItems extends readonly unknown[]>(next: TItems) => TItems;
+/** React hook that memoizes sorted output and reuses it for element-identical input arrays. */
+export declare const useStableSorted: <T>(source: T[], compare: (left: T, right: T) => number, invalidationKey?: unknown) => T[];
 /** React hook that reads rows by id and returns them keyed by id. */
 export declare const useEntitiesById: <T extends {
     id: string;
 }>(model: {
     byIds: (ids: string[]) => T[];
 }, ids: string[]) => Map<string, T>;
+/** React hook that reads entities by id and returns rows in the input id order, dropping missing ids. */
+export declare const useOrderedEntities: <T extends {
+    id: string;
+}>(model: {
+    byIds: (ids: string[]) => T[];
+}, ids: string[]) => T[];
+/** Window a rendered list one page at a time while delegating network pagination and refresh. */
+export declare const useWindowedLoadMore: (networkLoadMore: () => void, networkRefresh: () => Promise<void>, pageSize: number, resetKey: unknown) => {
+    windowSize: number;
+    loadMore: () => void;
+    refresh: () => Promise<void>;
+};
 //# sourceMappingURL=shared.d.ts.map

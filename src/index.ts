@@ -31,20 +31,41 @@ export {
   runInManagedMutationBatch
 } from './core/registry';
 export { stableSerialize } from './core/serialize';
-export { getDbExtractSink, getDbMutationExtractResolver, setDbExtractSink, setDbMutationExtractResolver } from './core/extract';
+export {
+  createExtractSink,
+  createMutationExtractResolver,
+  getDbExtractSink,
+  getDbMutationExtractResolver,
+  setDbExtractSink,
+  setDbMutationExtractResolver
+} from './core/extract';
 export { getDbLogger, setDbLogger } from './core/logger';
-export { getDbQueryClient, invalidateDbRequests, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
+export { getDbQueryClient, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
 export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';
 export { defineShape, readShape } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
+export { mergeOptimisticSnapshot, resolveMergedField } from './mutations/base/mergeOptimisticSnapshot';
+export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';
 export { useCommand } from './mutations/base/useCommand';
 export { useCommandMutation } from './mutations/base/useCommandMutation';
 export { useDbMutation } from './mutations/base/useDbMutation';
 export { executeDbInfiniteRequest, executeDbSingleRequest } from './queries/base/requestRuntime';
-export { buildStableItems, createCollectionBinding, pickEqual, useCollectionRead, useEntitiesById } from './queries/base/shared';
+export { modelDetailRequest } from './queries/base/modelDetailRequest';
+export {
+  buildStableItems,
+  createCollectionBinding,
+  pickEqual,
+  useCollectionRead,
+  useEntitiesById,
+  useOrderedEntities,
+  useStableArray,
+  useStableItems,
+  useStableSorted,
+  useWindowedLoadMore
+} from './queries/base/shared';
 export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
 export { useDbInfiniteRequest, useDbSingleRequest } from './queries/base/useDbRequest';
 export { generateTempId, isTempId } from './utils/generateTempId';
@@ -53,12 +74,39 @@ export { pickDefined, pickPresent } from './utils/pickDefined';
 export { readBoolean, readId, readNullableNumber, readNullableString, readNumber, readString, toRequiredStr, toStr } from './utils/normalizeHelpers';
 export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
+export {
+  createNestedObjectPatcher,
+  createThrottledSingleFlight,
+  pruneOrphanedRows,
+  reconcileOptimisticRows,
+  resolveStaleTempRows,
+  singletonStatics,
+  trimRowsPerScope
+} from './utils/runtimePrimitives';
 export type { ConfigureDbOptions } from './configure';
-export type { DbExtractSink, DbMutationExtractResolver } from './core/extract';
+export type {
+  DbExtractCustomSink,
+  DbExtractModelSink,
+  DbExtractSink,
+  DbExtractSinkTable,
+  DbMutationExtractPresetEntry,
+  DbMutationExtractPresetSelector,
+  DbMutationExtractPresetTable,
+  DbMutationExtractResolver
+} from './core/extract';
 export type { SideloadSpec } from './core/sideload';
 export type { FieldDefault, FieldMode, FieldSpec } from './schema/fieldSpec';
 export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
 export type { DbShape } from './schema/shape';
+export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
+export type {
+  NestedObjectPatcher,
+  ReconcileOptimisticRowsOptions,
+  ReconcileScopeFields,
+  ResolveStaleTempRowsOptions,
+  RowProtect,
+  ThrottledSingleFlightOptions
+} from './utils/runtimePrimitives';
 export type {
   BaseQueryCollection,
   BaseQueryConfig,
@@ -87,6 +135,7 @@ export type {
   DbMutationOperation,
   DbMutationConfig,
   DbMutationOptimisticConfig,
+  DbMutationPreserveOnCommitConfig,
   DbOptimisticMutationContext,
   DbQueryOperation,
   DbReadOptions,
@@ -123,7 +172,9 @@ export type {
   ServerSyncContract,
   ServerSyncMode,
   ShouldAcceptIncomingOptions,
+  StableItemsConfig,
   StableProjectionConfig,
+  StableProjectionRenderKeysConfig,
   StorageAdapter,
   SyncConfig,
   SyncContract,

@@ -1,6 +1,7 @@
 import { getDbLogger } from '../../core/logger';
 import { emitDbTrackEvent, hasDbTrackSink } from '../../core/tracking';
 import type { DbMutationConfig, DbTrackEvent } from '../../types';
+import { resolveMutationLogPrefix } from './mutationConfig';
 
 const emitResolvedTrackEvent = (event: DbTrackEvent | null | undefined, logPrefix: string, phase: string): void => {
   if (!event) return;
@@ -14,11 +15,12 @@ export const emitMutationTrackStart = <TData, TInput, TContext, TStored, TServer
   if (!hasDbTrackSink()) return;
   const resolve = config.track?.start;
   if (!resolve) return;
+  const logPrefix = resolveMutationLogPrefix(config);
 
   try {
-    emitResolvedTrackEvent(resolve(input), config.logPrefix, 'start');
+    emitResolvedTrackEvent(resolve(input), logPrefix, 'start');
   } catch (error) {
-    getDbLogger().debug(config.logPrefix, 'track resolver failed', 'start', error);
+    getDbLogger().debug(logPrefix, 'track resolver failed', 'start', error);
   }
 };
 
@@ -31,11 +33,12 @@ export const emitMutationTrackSuccess = <TData, TInput, TContext, TStored, TServ
   if (!hasDbTrackSink()) return;
   const resolve = config.track?.success as ((data: TData | null, input: TInput, context: unknown) => DbTrackEvent | null | undefined) | undefined;
   if (!resolve) return;
+  const logPrefix = resolveMutationLogPrefix(config);
 
   try {
-    emitResolvedTrackEvent(resolve(result, input, context), config.logPrefix, 'success');
+    emitResolvedTrackEvent(resolve(result, input, context), logPrefix, 'success');
   } catch (error) {
-    getDbLogger().debug(config.logPrefix, 'track resolver failed', 'success', error);
+    getDbLogger().debug(logPrefix, 'track resolver failed', 'success', error);
   }
 };
 
@@ -47,10 +50,11 @@ export const emitMutationTrackError = <TData, TInput, TContext, TStored, TServer
   if (!hasDbTrackSink()) return;
   const resolve = config.track?.error;
   if (!resolve) return;
+  const logPrefix = resolveMutationLogPrefix(config);
 
   try {
-    emitResolvedTrackEvent(resolve(error, input), config.logPrefix, 'error');
+    emitResolvedTrackEvent(resolve(error, input), logPrefix, 'error');
   } catch (trackError) {
-    getDbLogger().debug(config.logPrefix, 'track resolver failed', 'error', trackError);
+    getDbLogger().debug(logPrefix, 'track resolver failed', 'error', trackError);
   }
 };

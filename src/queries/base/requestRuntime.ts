@@ -3,7 +3,7 @@ import { getDbExtractSink } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
 import { mergeSyncContract, replaceSyncContract } from '../../utils/serverSync';
 import { makePageExtractor } from './extractPage';
-import { buildModelFilter } from './shared';
+import { buildModelFilter, mergeScopeVars, resolveRequestFilter, resolveRequestScope } from './shared';
 
 const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleConfig<unknown, unknown, TSelected>['sync']): void => {
   if (!sync || selected == null) return;
@@ -36,8 +36,10 @@ const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfi
  * @param config Same config accepted by `useDbSingleRequest`.
  * @returns Selected or mapped result, or null when `read` owns the reactive data.
  */
-export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSelected = unknown>(config: DbRequestSingleConfig<TResponse, TResult, TSelected>): Promise<TResult> => {
-  const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars });
+export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(
+  config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>
+): Promise<TResult> => {
+  const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars as Record<string, unknown> | undefined });
   const data = response.data;
   const selected = config.select(data);
   getDbExtractSink()(config.extract?.({ data, selected }), 'query');
@@ -64,9 +66,13 @@ export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSele
  * @param pageParam Optional cursor for the page to load.
  * @returns Raw page response data.
  */
-export const executeDbInfiniteRequest = async <TResponse, TNode>(config: DbRequestInfiniteConfig<TResponse, TNode>, pageParam?: string): Promise<TResponse> => {
+export const executeDbInfiniteRequest = async <TResponse, TNode, TVariables = Record<string, unknown>>(
+  config: DbRequestInfiniteConfig<TResponse, TNode, TVariables>,
+  pageParam?: string
+): Promise<TResponse> => {
   const extractPage = makePageExtractor<TResponse, TNode>(config.selectPage);
-  let variables = config.vars ?? {};
+  const requestScope = resolveRequestScope(config.scope);
+  let variables = mergeScopeVars(config.vars, requestScope) ?? {};
 
   if (pageParam) {
     const pageVars = config.getPageVars ? config.getPageVars(pageParam) : config.direction === 'backward' ? { before: pageParam } : { after: pageParam };
@@ -83,7 +89,7 @@ export const executeDbInfiniteRequest = async <TResponse, TNode>(config: DbReque
     getDbExtractSink()(config.extract({ data, nodes }), 'query');
   }
 
-  const modelFilter = buildModelFilter(config.filter?.(), config.currentUserId?.());
+  const modelFilter = buildModelFilter(resolveRequestFilter(config.filter, config.scope), config.currentUserId?.());
   const contract = config.resolveSyncContract
     ? config.resolveSyncContract({ pageParam, nodes, scope: modelFilter })
     : pageParam !== undefined

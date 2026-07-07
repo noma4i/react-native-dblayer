@@ -7,6 +7,7 @@ import {
   deriveDbKey,
   devClearAllDataAndState,
   invalidateDbRequests,
+  invalidateModel,
   refetchDbRequests,
   resetDbQueryRuntime,
   stableSerialize,
@@ -152,6 +153,22 @@ describe('request keys and imperative query runtime', () => {
     await resetDbQueryRuntime();
 
     expect(logger.error).toHaveBeenCalledTimes(3);
+  });
+
+  it('invalidates a model key through the configured QueryClient', () => {
+    const queryClient = createQueryClient();
+    const model = createTodoModel({ id: 'invalidate-model' });
+    const invalidateQueries = jest.spyOn(queryClient, 'invalidateQueries');
+
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      queryClient,
+      transport: mockTransport({})
+    });
+
+    invalidateModel(model, { listId: 'inbox' });
+
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: deriveDbKey(model, { listId: 'inbox' }) });
   });
 
   it('keeps explicit single request keys ahead of derived model keys', async () => {

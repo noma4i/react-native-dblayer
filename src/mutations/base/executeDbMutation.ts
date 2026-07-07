@@ -2,6 +2,7 @@ import type { DbMutationConfig } from '../../types';
 import { getDbExtractSink, getDbMutationExtractResolver } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
 import { mergeSyncContract } from '../../utils/serverSync';
+import { mergeOptimisticSnapshot } from './mergeOptimisticSnapshot';
 import { emitMutationTrackSuccess } from './mutationTracking';
 
 /**
@@ -27,6 +28,34 @@ const readOptimisticTempId = (context: unknown): string | null => {
   return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+const readInputTempId = (input: unknown): string | null => {
+  if (!isRecord(input)) return null;
+  const tempId = input.tempId;
+  return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
+};
+
+const readOptimisticRow = (context: unknown): unknown => {
+  if (typeof context !== 'object' || context === null) return null;
+  return (context as { optimisticRow?: unknown }).optimisticRow ?? null;
+};
+
+const applyPreserveOnCommit = <TData, TInput, TContext, TStored, TServerNode>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+  node: TServerNode,
+  context: TContext
+): TServerNode => {
+  const preserve = config.optimistic?.preserveOnCommit;
+  if (!preserve) return node;
+
+  if (typeof preserve === 'function') {
+    return preserve(node, context as { tempId: string | null; optimisticRow: TStored | null });
+  }
+
+  return mergeOptimisticSnapshot(readOptimisticRow(context) as object | null, node as object, preserve as never) as TServerNode;
+};
+
 const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServerNode>(
   config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
   result: TData | null,
@@ -37,12 +66,13 @@ const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServer
 
   const node = config.optimistic.selectServerNode(result, input);
   if (node == null) return;
+  const preservedNode = applyPreserveOnCommit(config, node, context);
 
   const tempId = readOptimisticTempId(context);
   if (tempId) {
-    config.optimistic.model.replaceRaw(tempId, node);
+    config.optimistic.model.replaceRaw(tempId, preservedNode);
   } else {
-    config.optimistic.model.applyServerData([node], mergeSyncContract('mutation'));
+    config.optimistic.model.applyServerData([preservedNode], mergeSyncContract('mutation'));
   }
 };
 
@@ -68,6 +98,26 @@ export const applyDbMutationCommit = <TData, TInput, TContext, TStored, TServerN
   emitMutationTrackSuccess(config, result, input, context);
 };
 
+const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+  input: TInput,
+  context: TContext | undefined
+): TContext | ({ tempId: string | null; optimisticRow: TStored | null } & Record<string, unknown>) | undefined => {
+  if (!config.optimistic) return context;
+
+  const tempId = readOptimisticTempId(context) ?? (config.optimistic.selectTempId ? (config.optimistic.selectTempId(input) ?? null) : readInputTempId(input));
+  const optimisticContext = {
+    tempId,
+    optimisticRow: tempId ? (config.optimistic.model.get(tempId) ?? null) : null
+  };
+
+  if (isRecord(context)) {
+    return { ...context, ...optimisticContext };
+  }
+
+  return optimisticContext;
+};
+
 /**
  * Run a DB mutation config outside React without optimistic transaction handling.
  * @param config Same config accepted by `useDbMutation`.
@@ -82,6 +132,6 @@ export const runDbMutationDirect = async <TData, TInput, TContext = void, TStore
 ): Promise<TData | null> => {
   const mappedInput = config.mapInput ? config.mapInput(input) : input;
   const result = await executeDbMutationRequest(config, mappedInput);
-  applyDbMutationCommit(config, result, input, context as TContext);
+  applyDbMutationCommit(config, result, input, buildDirectCommitContext(config, input, context) as TContext);
   return result;
 };

@@ -1,7 +1,16 @@
 import { eq, isNull } from '@tanstack/db';
 import { useLiveQuery } from '@tanstack/react-db';
 import { isEqual, pick } from 'es-toolkit';
-import type { BaseQueryCollection, CollectionFetchState, CollectionModel, CollectionReadConfig, StableProjectionConfig, SyncContract } from '../../types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  BaseQueryCollection,
+  CollectionFetchState,
+  CollectionModel,
+  CollectionReadConfig,
+  StableItemsConfig,
+  StableProjectionConfig,
+  SyncContract
+} from '../../types';
 import { useMapById } from './mapById';
 
 /** React hook that reads configured query data from a model. */
@@ -120,6 +129,25 @@ export const buildModelFilter = (filter: unknown, currentUserId: string | undefi
   return filter;
 };
 
+const isPlainScopeRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Resolve a request scope value, including lazy scopes. */
+export const resolveRequestScope = (scope: unknown | (() => unknown) | undefined): unknown => (typeof scope === 'function' ? (scope as () => unknown)() : scope);
+
+/** Use explicit filters ahead of derived scopes. */
+export const resolveRequestFilter = (filter: (() => unknown) | undefined, scope: unknown | (() => unknown) | undefined): unknown => {
+  if (filter) return filter();
+  return resolveRequestScope(scope);
+};
+
+/** Merge derived scope variables with explicit variables; explicit variables win on conflicts. */
+export const mergeScopeVars = <TVariables>(vars: TVariables | undefined, scope: unknown): TVariables | undefined => {
+  if (!isPlainScopeRecord(scope)) return vars;
+  if (vars === undefined) return scope as TVariables;
+  if (!isPlainScopeRecord(vars)) return vars;
+  return { ...scope, ...vars } as TVariables;
+};
+
 /** Build stable projected items by reusing unchanged cached entries. */
 export const buildStableItems = <TSource, TEntry extends { item: TItem }, TItem>(
   sources: TSource[],
@@ -150,6 +178,8 @@ export const buildStableItems = <TSource, TEntry extends { item: TItem }, TItem>
   return { items, cache };
 };
 
+const sameItems = <T>(left: readonly T[], right: readonly T[]): boolean => left.length === right.length && left.every((item, index) => item === right[index]);
+
 /**
  * Shared value-equality: reuse a prior view object when its rendered fields are unchanged. `useLiveQuery`
  * emits new object refs for unchanged rows, so identity-only reuse fails broadly and re-renders the whole
@@ -164,5 +194,114 @@ export const pickEqual = <T extends object>(prev: T | null | undefined, next: T 
   return isEqual(pick(prev, keys), pick(next, keys));
 };
 
+const resolveStableItemsConfig = <TSource, TEntry extends { item: TItem }, TItem extends object>(
+  config: StableItemsConfig<TSource, TEntry, TItem>
+): StableProjectionConfig<TSource, TEntry, TItem> => {
+  if ('entriesEqual' in config && typeof config.entriesEqual === 'function') {
+    return config;
+  }
+
+  return {
+    getKey: config.getKey,
+    buildEntry: config.buildEntry,
+    emptyItems: config.emptyItems,
+    entriesEqual: (prev, next) => pickEqual(prev.item, next.item, config.renderKeys)
+  };
+};
+
+/** React hook wrapper around `buildStableItems` with cache ownership and array identity reuse. */
+export function useStableItems<TSource, TEntry extends { item: TItem }, TItem extends object>(
+  sources: TSource[],
+  config: StableItemsConfig<TSource, TEntry, TItem>
+): TItem[] {
+  const cacheRef = useRef<Map<string, TEntry>>(new Map());
+  const itemsRef = useRef<TItem[] | null>(null);
+
+  return useMemo(() => {
+    const stableConfig = resolveStableItemsConfig(config);
+    const built = buildStableItems(sources, stableConfig, cacheRef.current);
+    cacheRef.current = built.cache;
+
+    const nextItems = built.items.length > 0 ? built.items : stableConfig.emptyItems;
+    const previousItems = itemsRef.current;
+    if (previousItems && sameItems(previousItems, nextItems)) {
+      return previousItems;
+    }
+
+    itemsRef.current = nextItems;
+    return nextItems;
+  }, [sources, config]);
+}
+
+/** React hook that reuses an array instance when its element references did not change. */
+export const useStableArray = <TItems extends readonly unknown[]>(next: TItems): TItems => {
+  const stableRef = useRef<TItems | null>(null);
+  const previous = stableRef.current;
+  if (previous && sameItems(previous, next)) {
+    return previous;
+  }
+
+  stableRef.current = next;
+  return next;
+};
+
+/** React hook that memoizes sorted output and reuses it for element-identical input arrays. */
+export const useStableSorted = <T>(source: T[], compare: (left: T, right: T) => number, invalidationKey?: unknown): T[] => {
+  const sortRef = useRef<{ source: T[]; invalidationKey: unknown; output: T[] } | null>(null);
+
+  return useMemo(() => {
+    const previous = sortRef.current;
+    if (previous && Object.is(previous.invalidationKey, invalidationKey) && sameItems(previous.source, source)) {
+      return previous.output;
+    }
+
+    const output = source.length > 0 ? [...source].sort(compare) : [];
+    sortRef.current = { source, invalidationKey, output };
+    return output;
+  }, [source, compare, invalidationKey]);
+};
+
 /** React hook that reads rows by id and returns them keyed by id. */
 export const useEntitiesById = <T extends { id: string }>(model: { byIds: (ids: string[]) => T[] }, ids: string[]): Map<string, T> => useMapById(model.byIds(ids));
+
+/** React hook that reads entities by id and returns rows in the input id order, dropping missing ids. */
+export const useOrderedEntities = <T extends { id: string }>(model: { byIds: (ids: string[]) => T[] }, ids: string[]): T[] => {
+  const byId = useEntitiesById(model, ids);
+  return useMemo(() => {
+    if (ids.length === 0) return EMPTY as T[];
+
+    const ordered: T[] = [];
+    for (const id of ids) {
+      const item = byId.get(id);
+      if (item) ordered.push(item);
+    }
+
+    return ordered.length > 0 ? ordered : (EMPTY as T[]);
+  }, [byId, ids]);
+};
+
+/** Window a rendered list one page at a time while delegating network pagination and refresh. */
+export const useWindowedLoadMore = (
+  networkLoadMore: () => void,
+  networkRefresh: () => Promise<void>,
+  pageSize: number,
+  resetKey: unknown
+): { windowSize: number; loadMore: () => void; refresh: () => Promise<void> } => {
+  const [windowSize, setWindowSize] = useState(pageSize);
+
+  useEffect(() => {
+    setWindowSize(pageSize);
+  }, [pageSize, resetKey]);
+
+  const loadMore = useCallback(() => {
+    setWindowSize(previous => previous + pageSize);
+    networkLoadMore();
+  }, [networkLoadMore, pageSize]);
+
+  const refresh = useCallback(() => {
+    setWindowSize(pageSize);
+    return networkRefresh();
+  }, [networkRefresh, pageSize]);
+
+  return { windowSize, loadMore, refresh };
+};

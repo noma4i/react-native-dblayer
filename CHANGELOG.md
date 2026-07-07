@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.0 - 2026-07-08
+
+- Add stable-view helpers: `useStableItems`, `useStableSorted`, `useStableArray`, `useOrderedEntities`, and `useWindowedLoadMore`.
+- Add request runtime helpers: `invalidateModel`, `modelDetailRequest`, and scope-derived infinite request filters/variables.
+- Add mutation ergonomics: optional derived `key`/`logPrefix`, optimistic `optimisticRow` context, `mergeOptimisticSnapshot`, and `preserveOnCommit`.
+- Add declarative extract helpers: `createMutationExtractResolver` and `createExtractSink`.
+- Add runtime primitives for subscriptions and maintenance: `reconcileOptimisticRows`, cleanup helpers, `createThrottledSingleFlight`, `createNestedObjectPatcher`, and `singletonStatics`.
+
 ## 2.1.0 - 2026-07-08
 
 - Add field factory defaults with `.default(...)` and fields-model `buildStored(...)` for complete optimistic stored rows.
