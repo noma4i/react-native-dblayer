@@ -46,6 +46,7 @@ export {
 export { getDbLogger, setDbLogger } from './core/logger';
 export { getDbQueryClient, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
 export { createDbSubscriptionRuntime } from './core/subscriptionRuntime';
+export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';

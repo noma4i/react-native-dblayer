@@ -12,13 +12,16 @@ import {
   defineModel,
   devClearAllDataAndState,
   f,
+  patchWhenPresent,
   pruneExpiredRows,
   pruneOrphanedRows,
   reconcileOptimisticRows,
   resolveStaleTempRows,
   singletonStatics,
-  trimRowsPerScope
+  trimRowsPerScope,
+  waitForRow
 } from '../index';
+import { getRowWaiterDebugInfo } from '../core/rowWaiters';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
 const reactionShape = defineShape<{ id?: unknown; kind?: unknown; count?: unknown }>()({
@@ -78,6 +81,10 @@ const message = (input: Partial<MessageRow> & Pick<MessageRow, 'id' | 'createdAt
   sequenceNumber: null,
   ...input
 });
+
+const flushMicrotasks = async (): Promise<void> => {
+  await Promise.resolve();
+};
 
 describe('runtime primitives', () => {
   afterEach(() => {
@@ -256,6 +263,131 @@ describe('runtime primitives', () => {
     ledger.clear();
 
     expect(ledger.has('deleted')).toBe(false);
+  });
+
+  it('applies row patches immediately and resolves existing row waiters immediately', async () => {
+    installMemoryStorage();
+    const model = createMessageModel('runtime-row-waiters-immediate');
+    const row = message({ id: 'message-1', createdAt: '2026-01-01T00:00:00.000Z' });
+    model.insertStored(row);
+
+    patchWhenPresent(model, 'message-1', { status: 'read' }, { ttlMs: 100 });
+    const resolved = await waitForRow(model, 'message-1', { timeoutMs: 100 });
+
+    expect(model.get('message-1')?.status).toBe('read');
+    expect(resolved?.id).toBe('message-1');
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 0 });
+  });
+
+  it('applies deferred row patches and resolves row waiters when the row appears', async () => {
+    jest.useFakeTimers();
+    installMemoryStorage();
+    const model = createMessageModel('runtime-row-waiters-deferred');
+
+    patchWhenPresent(model, 'message-1', { status: 'received' }, { ttlMs: 1_000 });
+    const promise = waitForRow(model, 'message-1', { timeoutMs: 1_000 });
+
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 1, waiters: 1 });
+
+    model.insertStored(message({ id: 'message-1', createdAt: '2026-01-01T00:00:00.000Z' }));
+    await flushMicrotasks();
+
+    await expect(promise).resolves.toEqual(expect.objectContaining({ id: 'message-1' }));
+    expect(model.get('message-1')?.status).toBe('received');
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 0 });
+  });
+
+  it('applies multiple deferred patches in registration order including updater patches', async () => {
+    jest.useFakeTimers();
+    installMemoryStorage();
+    const model = createMessageModel('runtime-row-waiters-order');
+
+    patchWhenPresent(model, 'message-1', { body: 'first' }, { ttlMs: 1_000 });
+    patchWhenPresent(model, 'message-1', row => ({ body: `${row.body}-second`, status: 'patched' }), { ttlMs: 1_000 });
+
+    model.insertStored(message({ id: 'message-1', body: 'base', createdAt: '2026-01-01T00:00:00.000Z' }));
+    await flushMicrotasks();
+
+    expect(model.get('message-1')).toEqual(expect.objectContaining({ body: 'first-second', status: 'patched' }));
+  });
+
+  it('expires deferred row patches and waiters without applying later rows', async () => {
+    jest.useFakeTimers();
+    installMemoryStorage();
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    configureDb({ transport: mockTransport({}), modelDefaults: {}, logger });
+    const model = createMessageModel('runtime-row-waiters-expire');
+
+    patchWhenPresent(model, 'message-1', { status: 'late' }, { ttlMs: 100 });
+    const promise = waitForRow(model, 'message-1', { timeoutMs: 100 });
+
+    jest.advanceTimersByTime(100);
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 0 });
+
+    model.insertStored(message({ id: 'message-1', createdAt: '2026-01-01T00:00:00.000Z' }));
+    await flushMicrotasks();
+
+    expect(model.get('message-1')?.status).toBeNull();
+    expect(logger.debug).toHaveBeenCalledWith('db', 'row patch queue expired', {
+      collectionId: 'runtime-row-waiters-expire',
+      id: 'message-1',
+      count: 1
+    });
+  });
+
+  it('cleans up row waiters on abort', async () => {
+    jest.useFakeTimers();
+    installMemoryStorage();
+    const model = createMessageModel('runtime-row-waiters-abort');
+    const controller = new AbortController();
+
+    const promise = waitForRow(model, 'message-1', { timeoutMs: 1_000, signal: controller.signal });
+
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 1 });
+
+    controller.abort();
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 0 });
+  });
+
+  it('clears deferred row queues on model runtime reset', async () => {
+    jest.useFakeTimers();
+    installMemoryStorage();
+    const model = createMessageModel('runtime-row-waiters-reset');
+
+    patchWhenPresent(model, 'message-1', { status: 'reset' }, { ttlMs: 1_000 });
+    const promise = waitForRow(model, 'message-1', { timeoutMs: 1_000 });
+
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 1, waiters: 1 });
+
+    devClearAllDataAndState();
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 0 });
+
+    model.insertStored(message({ id: 'message-1', createdAt: '2026-01-01T00:00:00.000Z' }));
+    await flushMicrotasks();
+
+    expect(model.get('message-1')?.status).toBeNull();
+  });
+
+  it('does not double-apply a deferred row patch at the ttl boundary', async () => {
+    jest.useFakeTimers();
+    installMemoryStorage();
+    const model = createMessageModel('runtime-row-waiters-boundary');
+    const patchSpy = jest.spyOn(model, 'patch');
+
+    patchWhenPresent(model, 'message-1', { status: 'once' }, { ttlMs: 100 });
+    model.insertStored(message({ id: 'message-1', createdAt: '2026-01-01T00:00:00.000Z' }));
+    await flushMicrotasks();
+    jest.advanceTimersByTime(100);
+
+    expect(model.get('message-1')?.status).toBe('once');
+    expect(patchSpy).toHaveBeenCalledTimes(1);
+    expect(getRowWaiterDebugInfo(model.collection)).toEqual({ patchQueues: 0, waiters: 0 });
   });
 
   it('reconciles optimistic rows by scoped candidates, content match, window, best delta, and existing server ids', () => {

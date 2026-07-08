@@ -71,6 +71,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "mmkvStorageAdapter",
   "mmkvStorageEventApi",
   "modelDetailRequest",
+  "patchWhenPresent",
   "pickDefined",
   "pickEqual",
   "pickPresent",
@@ -134,5 +135,6 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "useStableItems",
   "useStableSorted",
   "useWindowedLoadMore",
+  "waitForRow",
 ]
 `;

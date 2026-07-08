@@ -51,6 +51,7 @@ import { registerModel } from './modelRegistry';
 import { attachRowRelated, buildRelatedAccessors, getCascadeController, propagateBelongsToParents, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { isModelApplying, runSideloads, withApplyingModel } from './sideload';
+import { clearRowWaitersForCollection } from './rowWaiters';
 import { createWritePropagation } from './writePropagation';
 
 const EMPTY: readonly unknown[] = [];
@@ -607,6 +608,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   registerModelRuntimeReset(config.name, () => {
     freshness.reset();
     resetMergeState();
+    clearRowWaitersForCollection(tanstackCollection);
   });
 
   const getIdsWhereFieldIn = (field: string, values: ReadonlySet<string>): string[] => {
