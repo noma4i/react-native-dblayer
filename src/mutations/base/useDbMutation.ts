@@ -4,12 +4,11 @@ import type { DbMutationConfig, DbMutationOptimisticConfig, DbOptimisticMutation
 import { getDbLogger } from '../../core/logger';
 import { acceptPersistentCollectionMutations, runInManagedMutationBatch } from '../../core/registry';
 import { generateTempId } from '../../utils/generateTempId';
+import { isRecord } from '../../utils/normalizeHelpers';
 import { applyDbMutationCommit, executeDbMutationRequest } from './executeDbMutation';
 import { resolveMutationKey, resolveMutationLogPrefix } from './mutationConfig';
 import { emitMutationTrackError, emitMutationTrackStart } from './mutationTracking';
 import { createSingleFlightSignature, runSingleFlight } from './singleFlight';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 const defaultSelectTempId = <TInput>(input: TInput): string | null => {
   if (!isRecord(input)) return null;

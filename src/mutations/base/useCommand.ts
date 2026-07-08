@@ -1,8 +1,8 @@
 import type { DbCommandMutationConfig, DbGraphQLDocument } from '../../types';
 import { getDbTransport } from '../../core/transport';
+import { capitalize } from './mutationConfig';
 import { useCommandMutation } from './useCommandMutation';
 
-const capitalize = (value: string): string => (value ? value[0]!.toUpperCase() + value.slice(1) : value);
 const staticResultField = <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>): string | undefined => ('resultField' in config ? config.resultField : undefined);
 
 const resolveCommandConfig = <TData, TInput>(

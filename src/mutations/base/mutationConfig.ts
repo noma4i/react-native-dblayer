@@ -1,6 +1,7 @@
 import type { DbCommandConfig, DbMutationConfig } from '../../types';
 
-const capitalize = (value: string): string => {
+/** Capitalize the first character; returns falsy input unchanged. */
+export const capitalize = (value: string): string => {
   if (!value) return value;
   return value[0]!.toUpperCase() + value.slice(1);
 };

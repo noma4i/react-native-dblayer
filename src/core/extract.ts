@@ -1,4 +1,5 @@
 import type { SyncContract } from '../types';
+import { isRecord } from '../utils/normalizeHelpers';
 import { mergeSyncContract } from '../utils/serverSync';
 import { castNodes } from '../utils/typeBoundary';
 
@@ -55,8 +56,6 @@ export const setDbMutationExtractResolver = (resolver: DbMutationExtractResolver
 
 /** Get the currently configured mutation extract resolver. */
 export const getDbMutationExtractResolver = (): DbMutationExtractResolver => currentDbMutationExtractResolver;
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 /**
  * Normalize a mutation extract value into a compact array of non-null nodes.

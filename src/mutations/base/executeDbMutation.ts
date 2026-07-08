@@ -1,6 +1,7 @@
 import type { DbMutationConfig } from '../../types';
 import { getDbExtractSink, getDbMutationExtractResolver } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
+import { isRecord } from '../../utils/normalizeHelpers';
 import { mergeSyncContract } from '../../utils/serverSync';
 import { mergeOptimisticSnapshot } from './mergeOptimisticSnapshot';
 import { emitMutationTrackSuccess } from './mutationTracking';
@@ -27,8 +28,6 @@ const readOptimisticTempId = (context: unknown): string | null => {
   const tempId = (context as { tempId?: unknown }).tempId;
   return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 const readInputTempId = (input: unknown): string | null => {
   if (!isRecord(input)) return null;
