@@ -72,6 +72,26 @@ export const liftExtractNodes = (value: DbMutationExtractValue): unknown[] => {
 
 const isEmptyExtractValue = (value: unknown): boolean => value == null || (Array.isArray(value) && value.length === 0);
 
+/**
+ * Merge a newly resolved preset value into an in-progress extract output under a shared sink key.
+ *
+ * Two or more mutation extract presets may target the same sink key (e.g. a `wallet` preset and a
+ * `currentUser` preset both routing into a `currentUser` sink). Every combination is additive - no
+ * combination silently drops a previously resolved value:
+ *
+ * - No existing value: the new value is stored as-is (array or single value, unchanged).
+ * - Existing array + new array: concatenated (`existing.concat(value)`).
+ * - Existing array + new single value: appended (`existing.concat([value])`).
+ * - Existing single value + new array: prepended (`[existing].concat(value)`).
+ * - Existing single value + new single value: promoted to a two-element array (`[existing, value]`),
+ *   declaration order preserved. `createExtractSink` always runs `liftExtractNodes` on a sink's
+ *   payload before dispatch, so a promoted array reaches a model sink exactly like any other array
+ *   payload; a custom function sink receives the same lifted array as its `payload` argument.
+ *
+ * @param output Extract result accumulator, keyed by sink key.
+ * @param key Sink key the resolved value should be merged into.
+ * @param value Newly resolved preset value (array or single value).
+ */
 const appendExtractValue = (output: Record<string, unknown>, key: string, value: unknown): void => {
   const existing = output[key];
   if (existing === undefined) {
@@ -84,7 +104,7 @@ const appendExtractValue = (output: Record<string, unknown>, key: string, value:
     return;
   }
 
-  output[key] = Array.isArray(value) ? [existing].concat(value) : value;
+  output[key] = Array.isArray(value) ? [existing].concat(value) : [existing, value];
 };
 
 const resolvePresetValue = <TResult>(
@@ -131,6 +151,12 @@ const isModelSink = (sink: DbExtractModelSink | DbExtractCustomSink): sink is Db
 /**
  * Build an extract sink from a declarative sink table.
  * Sink keys run in declaration order.
+ *
+ * Every sink key's payload runs through `liftExtractNodes` before dispatch, so both branches see an
+ * array regardless of whether the resolver produced a single value or an array (including the merged
+ * multi-preset arrays `appendExtractValue` can now produce for a shared sink key): a model sink's
+ * `applyServerData` always receives an array, and a custom function sink's `payload` argument is
+ * always an array too.
  */
 export const createExtractSink =
   (sinkTable: DbExtractSinkTable): DbExtractSink =>

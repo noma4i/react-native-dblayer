@@ -85,6 +85,50 @@ describe('extract factories', () => {
     expect(resolver({ user: true }, { user: null })).toBeUndefined();
   });
 
+  it('merges every existing/incoming shape combination additively when two presets share a sink key', () => {
+    type SharedResult = { a?: unknown; b?: unknown };
+    const buildResolver = (aValue: unknown, bValue: unknown, aMany: boolean, bMany: boolean) =>
+      createMutationExtractResolver<SharedResult>({
+        a: { sink: 'shared', read: () => aValue, many: aMany },
+        b: { sink: 'shared', read: () => bValue, many: bMany }
+      });
+
+    // value + value (the fix): neither preset resolves an array, so the previous implementation
+    // silently replaced the first value with the second instead of merging them.
+    expect(buildResolver({ tag: 'a' }, { tag: 'b' }, false, false)({ a: true, b: true }, {})).toEqual({
+      shared: [{ tag: 'a' }, { tag: 'b' }]
+    });
+
+    // array + value
+    expect(buildResolver([{ tag: 'a' }], { tag: 'b' }, true, false)({ a: true, b: true }, {})).toEqual({
+      shared: [{ tag: 'a' }, { tag: 'b' }]
+    });
+
+    // value + array
+    expect(buildResolver({ tag: 'a' }, [{ tag: 'b' }], false, true)({ a: true, b: true }, {})).toEqual({
+      shared: [{ tag: 'a' }, { tag: 'b' }]
+    });
+
+    // array + array
+    expect(buildResolver([{ tag: 'a' }], [{ tag: 'b' }], true, true)({ a: true, b: true }, {})).toEqual({
+      shared: [{ tag: 'a' }, { tag: 'b' }]
+    });
+  });
+
+  it('delivers a merged multi-preset sink payload to the sink as one array, declaration order preserved', () => {
+    const sharedSink = jest.fn();
+    const resolver = createMutationExtractResolver<{ a?: unknown; b?: unknown }>({
+      a: { sink: 'shared', read: () => ({ tag: 'a' }), many: false },
+      b: { sink: 'shared', read: () => ({ tag: 'b' }), many: false }
+    });
+    const sink = createExtractSink({ shared: sharedSink });
+
+    const extractResult = resolver({ a: true, b: true }, {});
+    sink(extractResult, 'mutation');
+
+    expect(sharedSink).toHaveBeenCalledWith([{ tag: 'a' }, { tag: 'b' }], 'mutation');
+  });
+
   it('applies model sinks, custom sinks, and declaration order', () => {
     const order: string[] = [];
     const usersModel = {
