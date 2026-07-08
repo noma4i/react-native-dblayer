@@ -14,6 +14,7 @@ import type {
   StableProjectionConfig,
   SyncContract
 } from '../../types';
+import { readId } from '../../utils/normalizeHelpers';
 import { useMapById } from './mapById';
 
 /**
@@ -398,6 +399,126 @@ export const useOrderedEntities = <T extends { id: string }>(model: { byIds: (id
     return ordered.length > 0 ? ordered : (EMPTY as T[]);
   }, [byId, ids]);
 };
+
+type JoinedEntitiesModel<TStored extends { id: string }> = {
+  byIds(ids: string[]): TStored[];
+};
+
+type JoinedEntitiesConfig<TJoin, TStored extends { id: string }, TItem extends object> = {
+  idField: keyof TJoin & string;
+  model: JoinedEntitiesModel<TStored>;
+  renderKeys?: ReadonlyArray<keyof TItem & string>;
+  map?: (join: TJoin, entity: TStored) => TItem;
+};
+
+type JoinedEntityPair<TJoin> = {
+  id: string;
+  join: TJoin;
+};
+
+type JoinedEntitySource<TJoin, TStored extends { id: string }> = {
+  id: string;
+  join: TJoin;
+  entity: TStored;
+};
+
+const readJoinEntityId = <TJoin,>(join: TJoin, idField: keyof TJoin & string): string | undefined => {
+  if (!join || typeof join !== 'object') return undefined;
+  return readId((join as Record<string, unknown>)[idField]);
+};
+
+/**
+ * React hook that hydrates join rows into entity rows while preserving join-row order.
+ *
+ * Missing entity ids are dropped, matching `useOrderedEntities`. The optional `map` callback must be
+ * pure; its result participates in the same `useStableItems` render-key stability contract as manual
+ * `useOrderedEntities` plus `useStableItems` pipelines.
+ *
+ * @param joinRows Join rows whose `idField` stores the entity id. Nullish and empty inputs return the shared stable empty array.
+ * @param config Entity id field, model read surface, optional render keys, and optional pure join/entity projection.
+ * @returns Stable hydrated entities, or mapped items when `map` is provided.
+ */
+export function useJoinedEntities<TJoin, TStored extends { id: string }>(
+  joinRows: readonly TJoin[] | null | undefined,
+  config: JoinedEntitiesConfig<TJoin, TStored, TStored> & { map?: undefined }
+): TStored[];
+export function useJoinedEntities<TJoin, TStored extends { id: string }, TItem extends object>(
+  joinRows: readonly TJoin[] | null | undefined,
+  config: JoinedEntitiesConfig<TJoin, TStored, TItem> & { map: (join: TJoin, entity: TStored) => TItem }
+): TItem[];
+export function useJoinedEntities<TJoin, TStored extends { id: string }, TItem extends object = TStored>(
+  joinRows: readonly TJoin[] | null | undefined,
+  config: JoinedEntitiesConfig<TJoin, TStored, TItem>
+): TItem[] {
+  const pairs = useMemo(() => {
+    if (!joinRows?.length) return EMPTY as JoinedEntityPair<TJoin>[];
+
+    const nextPairs: JoinedEntityPair<TJoin>[] = [];
+    for (const join of joinRows) {
+      const id = readJoinEntityId(join, config.idField);
+      if (id) {
+        nextPairs.push({ id, join });
+      }
+    }
+
+    return nextPairs.length > 0 ? nextPairs : (EMPTY as JoinedEntityPair<TJoin>[]);
+  }, [joinRows, config.idField]);
+
+  const ids = useMemo(() => {
+    if (pairs.length === 0) return EMPTY as string[];
+    return pairs.map(pair => pair.id);
+  }, [pairs]);
+
+  const orderedEntities = useOrderedEntities(config.model, ids);
+  const sources = useMemo(() => {
+    if (pairs.length === 0 || orderedEntities.length === 0) return EMPTY as JoinedEntitySource<TJoin, TStored>[];
+
+    const entitiesById = new Map<string, TStored[]>();
+    for (const entity of orderedEntities) {
+      const bucket = entitiesById.get(entity.id);
+      if (bucket) {
+        bucket.push(entity);
+      } else {
+        entitiesById.set(entity.id, [entity]);
+      }
+    }
+
+    const nextSources: JoinedEntitySource<TJoin, TStored>[] = [];
+    for (const pair of pairs) {
+      const bucket = entitiesById.get(pair.id);
+      const entity = bucket?.shift();
+      if (entity) {
+        nextSources.push({ id: pair.id, join: pair.join, entity });
+      }
+    }
+
+    return nextSources.length > 0 ? nextSources : (EMPTY as JoinedEntitySource<TJoin, TStored>[]);
+  }, [orderedEntities, pairs]);
+
+  const stableConfig = useMemo(() => {
+    const baseConfig = {
+      getKey: (source: JoinedEntitySource<TJoin, TStored>) => source.id,
+      buildEntry: (source: JoinedEntitySource<TJoin, TStored>) => ({
+        item: config.map ? config.map(source.join, source.entity) : (source.entity as unknown as TItem)
+      }),
+      emptyItems: EMPTY as TItem[]
+    };
+
+    if (config.renderKeys) {
+      return {
+        ...baseConfig,
+        renderKeys: config.renderKeys as Array<keyof TItem>
+      };
+    }
+
+    return {
+      ...baseConfig,
+      entriesEqual: (prev: { item: TItem }, next: { item: TItem }) => Object.is(prev.item, next.item)
+    };
+  }, [config.map, config.renderKeys]);
+
+  return useStableItems(sources, stableConfig);
+}
 
 /** Window a rendered list one page at a time while delegating network pagination and refresh. */
 export const useWindowedLoadMore = (

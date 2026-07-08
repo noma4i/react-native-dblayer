@@ -64,6 +64,7 @@ export {
   pickEqual,
   useCollectionRead,
   useEntitiesById,
+  useJoinedEntities,
   useOrderedEntities,
   useStableEntity,
   useStableArray,
