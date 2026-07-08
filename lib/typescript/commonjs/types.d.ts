@@ -1164,7 +1164,7 @@ export type DbCommandConfig<TData, TInput> = {
     /** Settled callback. */
     onSettled?: () => void;
 };
-type DbCommandMutationBase<TExtractSpec = DbExtractSpec> = {
+type DbCommandMutationBase<TInput, TData, TExtractSpec = DbExtractSpec> = {
     /** Command key factory used for React Query and single-flight dedupe. */
     key?: () => readonly unknown[];
     /** Log tag for command lifecycle messages. */
@@ -1173,8 +1173,17 @@ type DbCommandMutationBase<TExtractSpec = DbExtractSpec> = {
     extract?: TExtractSpec;
     /** Source label passed to the extract sink; defaults to `mutation`. */
     extractSource?: string;
+    /** Declarative analytics-agnostic command tracking. */
+    track?: {
+        /** Event emitted before the transport request. */
+        start?: (input: TInput) => DbTrackEvent | null | undefined;
+        /** Event emitted after extract handling. */
+        success?: (data: TData | null, input: TInput) => DbTrackEvent | null | undefined;
+        /** Event emitted before rethrow when the command fails. */
+        error?: (error: Error, input: TInput) => DbTrackEvent | null | undefined;
+    };
 };
-type DbCommandStaticConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TExtractSpec> & {
+type DbCommandStaticConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TInput, TData, TExtractSpec> & {
     /** Static GraphQL mutation document. */
     mutation: DbGraphQLDocument<Record<string, TData>, {
         input: unknown;
@@ -1185,7 +1194,7 @@ type DbCommandStaticConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbComm
     mapInput?: (input: TInput) => unknown;
     resolve?: never;
 };
-type DbCommandResolvedConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TExtractSpec> & {
+type DbCommandResolvedConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TInput, TData, TExtractSpec> & {
     mutation?: never;
     resultField?: never;
     mapInput?: never;

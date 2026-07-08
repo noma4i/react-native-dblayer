@@ -19,5 +19,5 @@ export declare const runDbCommandDirect: <TData, TInput, TExtractSpec = unknown>
  *   resultField: 'trackEvent'
  * });
  */
-export declare const useCommand: <TData, TInput, TExtractSpec = unknown>(config: DbCommandMutationConfig<TInput, TData, TExtractSpec>) => import("@tanstack/react-query").UseMutationResult<TData, Error, TInput, unknown>;
+export declare const useCommand: <TData, TInput, TExtractSpec = unknown>(config: DbCommandMutationConfig<TInput, TData, TExtractSpec>) => import("@tanstack/react-query").UseMutationResult<TData | null, Error, TInput, unknown>;
 //# sourceMappingURL=useCommand.d.ts.map
