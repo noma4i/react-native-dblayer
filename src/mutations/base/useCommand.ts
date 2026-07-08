@@ -63,19 +63,9 @@ export const runDbCommandDirect = async <TData, TInput, TExtractSpec = unknown>(
  * });
  */
 export const useCommand = <TData, TInput, TExtractSpec = unknown>(config: DbCommandMutationConfig<TInput, TData, TExtractSpec>) =>
-  useCommandMutation<TData, TInput>({
+  useCommandMutation<TData | null, TInput>({
     key: config.key ?? (() => [staticResultField(config) ?? 'command']),
     logPrefix: config.logPrefix ?? (staticResultField(config) ? capitalize(staticResultField(config)!) : undefined),
     singleFlightInput: input => resolveCommandConfig(config, input).mappedInput,
-    mutationFn: async (input: TInput) => {
-      const { mutation, resultField, mappedInput } = resolveCommandConfig(config, input);
-      const variables = { input: mappedInput };
-      const result = await getDbTransport().mutation<Record<string, TData>, { input: unknown }>({
-        mutation,
-        variables
-      });
-      const selected = result.data[resultField];
-      applyCommandExtract(config, selected ?? null);
-      return selected;
-    }
+    mutationFn: (input: TInput) => runDbCommandDirect(config, input)
   });
