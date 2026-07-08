@@ -8,8 +8,11 @@ import { buildModelFilter, resolveRequestFilter } from './shared';
 import { useBaseInfiniteQuery } from './useBaseInfiniteQuery';
 import { useBaseQuery } from './useBaseQuery';
 
-const resolveSingleRequestKey = (config: DbRequestSingleConfig<unknown, unknown, unknown>): readonly unknown[] => {
-  if (config.key) return config.key;
+/**
+ * Derive the base model-backed key portion, before the `vars` suffix is appended.
+ * Throws when neither `read` nor `sync.model` can anchor a key.
+ */
+const resolveSingleRequestBaseKey = (config: DbRequestSingleConfig<unknown, unknown, unknown>): readonly unknown[] => {
   if (config.read) {
     return 'id' in config.read ? deriveDbKey(config.read.model as CollectionModel<any, any>, config.read.id != null ? { id: config.read.id } : undefined) : deriveDbKey(config.read.model as CollectionModel<any, any>);
   }
@@ -17,6 +20,22 @@ const resolveSingleRequestKey = (config: DbRequestSingleConfig<unknown, unknown,
     return deriveDbKey(config.sync.model as CollectionModel<any, any>);
   }
   throw new Error('useDbSingleRequest requires `key` unless `read` or `sync.model` can derive one.');
+};
+
+/**
+ * Derive the React Query key for a single-request config.
+ *
+ * An explicit `config.key` always wins unchanged. Otherwise the key is derived from `read`/`sync.model`
+ * (see `resolveSingleRequestBaseKey`) with a stable-serialized `config.vars` suffix appended when `vars`
+ * is present, so two configs reading/syncing the same model with different `vars` do not collide on one
+ * cache entry. The suffix is appended (never inserted before the model/scope segments), so
+ * `invalidateModel(model, scope)` - which invalidates by key prefix - still matches every `vars` variant.
+ */
+const resolveSingleRequestKey = (config: DbRequestSingleConfig<unknown, unknown, unknown>): readonly unknown[] => {
+  if (config.key) return config.key;
+
+  const baseKey = resolveSingleRequestBaseKey(config);
+  return config.vars !== undefined ? [...baseKey, stableSerialize(config.vars)] : baseKey;
 };
 
 const resolveInfiniteRequestKey = (config: DbRequestInfiniteConfig<unknown, unknown>): readonly unknown[] => {

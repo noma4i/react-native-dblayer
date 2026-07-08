@@ -279,6 +279,124 @@ describe('request keys and imperative query runtime', () => {
     hook.unmount();
   });
 
+  it('derives different single-request keys for different vars on the same model', async () => {
+    const queryClient = createQueryClient();
+    const model = createTodoModel({ id: 'vars-key-distinct' });
+    const query = jest.fn(async (operation: unknown) => {
+      const id = (operation as { variables?: { id?: string } }).variables?.id ?? 'unknown';
+      return {
+        data: {
+          todo: { id, title: `Todo ${id}`, listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+        }
+      };
+    });
+
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      queryClient,
+      transport: mockTransport({ query })
+    });
+
+    const makeHook = (id: string) =>
+      renderQueryHook(queryClient, () =>
+        useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+          query: document<{ todo: Todo }, { id: string }>('TodoByVars'),
+          vars: { id },
+          select: data => data.todo,
+          sync: { model, contract: 'todo' }
+        })
+      );
+
+    const hookA = makeHook('todo-a');
+    const hookB = makeHook('todo-b');
+    await hookA.flush();
+    await hookB.flush();
+
+    expect(query).toHaveBeenCalledTimes(2);
+
+    const baseKey = deriveDbKey(model);
+    expect(queryClient.getQueryCache().find({ queryKey: [...baseKey, stableSerialize({ id: 'todo-a' })], exact: true })).toBeDefined();
+    expect(queryClient.getQueryCache().find({ queryKey: [...baseKey, stableSerialize({ id: 'todo-b' })], exact: true })).toBeDefined();
+    expect(model.get('todo-a')?.title).toBe('Todo todo-a');
+    expect(model.get('todo-b')?.title).toBe('Todo todo-b');
+
+    hookA.unmount();
+    hookB.unmount();
+  });
+
+  it('derives the same single-request key for identical vars (stability)', async () => {
+    const queryClient = createQueryClient();
+    const model = createTodoModel({ id: 'vars-key-stable', staleTime: Infinity });
+    const query = jest.fn(async () => ({
+      data: { todo: { id: 'todo-stable', title: 'Stable', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' } }
+    }));
+
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      queryClient,
+      transport: mockTransport({ query })
+    });
+
+    const makeHook = () =>
+      renderQueryHook(queryClient, () =>
+        useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+          query: document<{ todo: Todo }, { id: string }>('TodoByStableVars'),
+          vars: { id: 'todo-stable' },
+          select: data => data.todo,
+          sync: { model, contract: 'todo' },
+          staleTime: Infinity
+        })
+      );
+
+    // Two concurrently mounted instances with identical vars must resolve to the same derived key -
+    // React Query dedupes them into a single in-flight request instead of two independent fetches.
+    const hookA = makeHook();
+    const hookB = makeHook();
+    await hookA.flush();
+    await hookB.flush();
+
+    expect(query).toHaveBeenCalledTimes(1);
+
+    const baseKey = deriveDbKey(model);
+    expect(queryClient.getQueryCache().getAll().filter(entry => entry.queryKey[0] === baseKey[0] && entry.queryKey[1] === baseKey[1])).toHaveLength(1);
+
+    hookA.unmount();
+    hookB.unmount();
+  });
+
+  it('keeps an explicit single-request key unaffected by vars', async () => {
+    const queryClient = createQueryClient();
+    const model = createTodoModel({ id: 'vars-key-explicit' });
+
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      queryClient,
+      transport: mockTransport({
+        query: async () => ({
+          data: { todo: { id: 'todo-explicit', title: 'Explicit with vars', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' } }
+        })
+      })
+    });
+
+    const hook = renderQueryHook(queryClient, () =>
+      useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+        key: ['explicit', 'todo-explicit'],
+        query: document<{ todo: Todo }, { id: string }>('ExplicitKeyWithVarsTodo'),
+        vars: { id: 'todo-explicit' },
+        select: data => data.todo,
+        sync: { model, contract: 'todo' }
+      })
+    );
+
+    await hook.flush();
+    await hook.flush();
+
+    expect(queryClient.getQueryCache().find({ queryKey: ['explicit', 'todo-explicit'], exact: true })).toBeDefined();
+    expect(queryClient.getQueryCache().find({ queryKey: [...deriveDbKey(model), stableSerialize({ id: 'todo-explicit' })], exact: true })).toBeUndefined();
+
+    hook.unmount();
+  });
+
   it('derives infinite request keys from collection binding scope vocabulary', async () => {
     const queryClient = createQueryClient();
     const model = createTodoModel({ id: 'infinite-scope-key' });
