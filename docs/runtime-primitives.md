@@ -31,6 +31,76 @@ omits it from the return value. The return value is the unmatched server nodes.
 
 Returns `{ next: () => number }`, an independent monotonic counter for local optimistic ordering.
 
+## Subscription runtime and ingest primitives
+
+### `createDbSubscriptionRuntime(entries)`
+
+Creates an imperative subscription dispatcher for transport-level GraphQL subscriptions.
+
+| Surface | Signature essentials | Behavior |
+| --- | --- | --- |
+| `start()` | `() => void` | Subscribes every entry through `configureDb({ transport: { subscribe } })`. |
+| `stop()` | `() => void` | Unsubscribes active subscriptions and clears runtime state. |
+| `dispatch(key, payload)` | `(key: string, payload: unknown) => void` | Manually routes a payload through the matching entry for tests or external transports. |
+| `inspect()` | `() => DbSubscriptionRuntimeInspectRow[]` | Returns runtime status rows for diagnostics. |
+
+Entries provide `{ key, query, variables?, read, onData }`. `read(payload)` extracts the domain payload, and
+`onData(value)` performs app-level model writes. Transport errors are logged and contained.
+
+### `createKeyedBatchBuffer(config)`
+
+Buffers items by key with one trailing timer per bucket.
+
+| Config | Signature essentials | Behavior |
+| --- | --- | --- |
+| `keyOf` | `(item) => string` | Chooses the bucket. |
+| `flushMs` | `number` | Trailing flush delay per bucket. |
+| `maxSize` | `number` optional | Flushes that bucket synchronously when reached. |
+| `dedupe` | `{ idOf, isNewer }` optional | Keeps one item per id; replaces only when `isNewer(candidate, existing)` is true. |
+| `onFlush` | `(key, items) => void` | Receives a copied item array; thrown errors are logged and contained. |
+
+Returns `{ push, flushAll, clear }`. `flushAll()` fires every non-empty bucket immediately. `clear()` drops pending
+items without firing.
+
+### `createTombstoneLedger({ ttlMs })`
+
+Returns `{ mark, has, clear }`, a memory-only deleted-id ledger. Expired tombstones are pruned lazily on `mark` and
+`has`; there is no interval and no persistence.
+
+## Row waiters
+
+### `patchWhenPresent(model, id, patch, { ttlMs })`
+
+Applies a partial patch immediately if `model.get(id)` exists. Otherwise it queues the patch and applies queued
+patches in registration order when the row appears through the model collection's `subscribeChanges` channel.
+`patch` may be a partial object or `(row) => partial`. TTL expiry drops queued patches and logs a debug entry.
+Model runtime reset clears deferred queues.
+
+### `waitForRow(model, id, { timeoutMs, signal? })`
+
+Resolves immediately with `model.get(id)` when present. Otherwise it subscribes to the model collection and resolves
+with the row when it appears, or `undefined` on timeout/abort. Every exit path removes the timer and subscription.
+
+## `createModelStatusPoller(config)`
+
+Creates a non-React poller for records that expose a status field.
+
+| Config | Signature essentials | Behavior |
+| --- | --- | --- |
+| `read` | `() => row \| undefined` | Reads the latest local row before each decision. |
+| `fetch` | `() => Promise<row \| undefined>` | Fetches a fresh row while the record is pending. |
+| `apply` | `(row) => void` | Writes fetched data back into the model. |
+| `isPending` | `(row) => boolean` | Controls whether the poller continues. |
+
+The returned controller starts/stops polling, avoids overlapping fetches, and stops when the row is missing, no
+longer pending, or the caller stops it.
+
+## `mergeOptimisticMedia(optimistic, server)`
+
+Merges server media with optimistic local media fields. Server values win except for local preview/cover/blur data
+that the server has not populated yet. Use it from mutation commit paths that must preserve visible media continuity
+while the backend finishes processing.
+
 ## `createThrottledSingleFlight(fn, { minIntervalMs, isForced? })`
 
 Returns a function that coalesces concurrent calls and suppresses calls inside the post-success interval.
@@ -81,5 +151,5 @@ Builds statics for one-row models:
 | `defaults` | The default row returned by `useCurrent()` before insertion. |
 | `current()` | Snapshot read by `recordId`. |
 | `useCurrent()` | Reactive read by `recordId`, falling back to `defaults`. |
-| `upsert(input)` / `upsertCurrent(input)` | Patches existing row or inserts `{ ...defaults, ...input, id: recordId }`; ignores `input.id`. |
+| `upsertCurrent(input)` | Patches existing row or inserts `{ ...defaults, ...input, id: recordId }`; ignores `input.id`. |
 | `patchClamped(field, delta, min = 0)` | Adds `delta` to a numeric field and clamps at `min`. Returns `false` when the row is missing or `delta` is zero. |

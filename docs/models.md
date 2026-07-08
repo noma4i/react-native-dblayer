@@ -87,6 +87,7 @@ Every field supports:
 | `.default(value \| () => value)` | Factory-time default used by `buildStored`; lazy form avoids shared references. |
 | `.emptyDefault()` | Object fields only: factory-time default equal to `readShape(shape, {})`. |
 | `.from(selector)` | Reads from selector output instead of `input[key]`. |
+| `.fromKey(key, source?)` | Reads an own property from `input` or from `source(input)`, then applies the same field reader/null/default rules. |
 
 `.default` and `.nullDefault()` are independent. A field may use both: `normalize()` still follows `.nullDefault()`,
 while `buildStored()` uses `.default` first when the caller omits the key. Defaults are typed against the field output
@@ -134,6 +135,10 @@ same reader and throws `<label>: invalid shape payload` when the payload is unre
 `projectShape(shape, source, overrides?)` is a named projection wrapper for `readShape(shape, { ...source, ...overrides })`.
 It keeps only fields declared on the shape and applies typed overrides last. Use it when a model or mutation derives a
 nested stored object from a wider source object.
+
+`readFieldsPatch(fields, source)` reads a sparse patch from a field map. It returns only keys whose field reader
+produces a defined value, so patch callers can pass the result to `Model.patch(id, patch)` without overwriting missing
+fields.
 
 `f.object(shape).emptyDefault()` gives required nested objects a build-time zero-state. The factory reads `shape` from
 an empty object, so `nullDefault` fields become `null` and custom list readers can return their own empty arrays. Explicit
@@ -235,6 +240,9 @@ export const UserModel = defineModel({
 });
 ```
 
+`hasOne(childModel, { foreignKey })` is the single-row counterpart to `hasMany`: `get(parentId)` returns the first
+matching child snapshot, and `use(parentId)` reacts to the scoped child row or returns `undefined` for nullish ids.
+
 `hasMany(childModel, { foreignKey })` requires `foreignKey` to be a string field on the child stored row. Omit
 `dependent` for a query-only relation: related accessors work, but cascade destroy ignores it. Add
 `dependent: 'destroy'` for owned children. Explicit destroy paths (`destroy`, `destroyMany`, `destroyWhere`, and utilities
@@ -285,6 +293,15 @@ With `touch: true`, local child insert-style writes, `patch`, and `replaceRaw` b
 `updatedAt: new Date().toISOString()`. Server writes through `applyServerData` do not touch parents, because server
 payloads are authoritative. Child destroy does not touch. Touch propagation stops after one level: a parent patch caused
 by touch does not trigger that parent's own `belongsTo({ touch: true })` relations.
+
+With `propagate`, a `belongsTo` relation can project child writes into an existing parent row:
+`belongsTo(ParentModel, { foreignKey, propagate: (child, parent) => patchOrNull })`. Returning `null` skips the parent
+write. Destroy does not propagate, and writes produced by propagation do not re-enter propagation.
+
+`mirror` on a model config projects same-id writes into target models. Each mirror entry supplies
+`{ model: () => TargetModel, project }`; `project(row)` returns a target patch or `null` to skip. Undefined projection
+keys are dropped. Missing target rows can be inserted when the target has a fields-model row builder. Mutual mirrors do
+not re-enter write propagation.
 
 Related accessors are local reads only. They do not fetch network data, expose fetch state, or mark freshness scopes.
 Network scoping stays in request configs and collection bindings.
@@ -372,8 +389,7 @@ function AdminList() {
 | `get` | `(id: string \| null \| undefined)` | the row, or `undefined` |
 | `getAll` | `()` | all rows |
 | `getWhere` | `(filter: DbWhere<TStored>)` | matching rows |
-| `getFirstWhere` | `(filter?: DbWhere<TStored>, options?: { orderBy })` | first matching row, or `undefined` |
-| `getFirst` | `(filter?: DbWhere<TStored>, options?: { orderBy })` | alias for `getFirstWhere` |
+| `getFirst` | `(filter?: DbWhere<TStored>, options?: { orderBy })` | first matching row, or `undefined` |
 
 ```ts
 // in a subscription handler or event callback (no hooks allowed here):
@@ -419,7 +435,7 @@ freshness for the model.
 ```ts
 import { mergeSyncContract, replaceSyncContract, generateTempId } from '@noma4i/react-native-dblayer';
 
-// Merge a page of users (upsert-if-newer):
+// Merge a page of users (write-if-newer):
 UserModel.applyServerData(users, mergeSyncContract('usersQuery'));
 
 // Replace the whole collection (drop rows the server no longer returns):
@@ -491,7 +507,7 @@ MessageModel.insertStored(temp);
 
 - **merge** — insert new; update existing only when incoming is newer (`updatedAt` gate) unless `shouldOverwrite`.
   Only defined fields overwrite. Honors `dedupeWindowMs`.
-- **replace** — upsert every incoming row, delete rows not in the incoming set (optionally limited to
+- **replace** — write every incoming row, delete rows not in the incoming set (optionally limited to
   `_scopeFilter`). Returns `{ merged, deleted }`.
 
 ## `CollectionModel` — freshness

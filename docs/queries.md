@@ -58,7 +58,7 @@ The builder derives:
 
 | Field | Derived value |
 | --- | --- |
-| `key` | `deriveDbKey(model, { id })`; explicit `key` wins. |
+| `key` | model-scoped DB query key; explicit `key` wins. |
 | `vars` | `{ id }`; pass `vars: (id) => ({ momentId: id })` or an object for custom variable names. |
 | `sync` | `{ model, contract: config.contract ?? 'detail' }`. |
 | `read` | `{ model, id }`; pass `read: false` for select-only detail lookups such as public uuid routes. |
@@ -88,9 +88,9 @@ modelDetailRequest(UserModel, {
 | `map` | `(selected) => TResult` | identity | Transform the payload before writing/returning. |
 | `sync` | `{ model, contract: string } \| ((selected) => void)` | `—` | Where to write. `{ model, contract }` merges into the model under the `contract` label; a function writes manually. |
 | `extract` | `({ data, selected }) => unknown` | `—` | Side-load payload → extract sink (source `'query'`). |
+| `extractSource` | `string` | `'query'` | Source label passed to the extract sink. |
 | `read` | `{ model, id } \| { model }` | `—` | Reactive read returned: `{ model, id }` = one row, `{ model }` = `all()`. |
-| `enabled` | `boolean` | `true` | Gate the query. |
-| `inactive` | `boolean` | `false` | Background/inactive screen (affects `loadingState`). |
+| `enabled` | `boolean` | `true` | `false` disables the request and marks the screen as not actively loading. |
 | `staleTime` | `number` (ms) | TanStack Query | Freshness window. |
 | `emptyStaleTime` | `number` (ms) | `0` | Known-empty DB fetch-state skip window. Not passed to React Query. |
 | `gcTime` | `number` (ms) | TanStack Query | Cache GC time. |
@@ -195,6 +195,7 @@ function Feed() {
 | `getCursor` | `(data) => string \| number \| null` | `—` | Next cursor from a page. |
 | `patchNode` | `(node, { index, globalIndex, pageParam }) => Partial \| null` | `—` | Decorate each node before storing. `globalIndex` resets on initial-page fetches and increments across loaded pages. |
 | `extract` | `({ data, nodes }) => unknown` | `—` | Side-load payload (extract sink, source `'query'`). |
+| `extractSource` | `string` | `'query'` | Source label passed to the extract sink. |
 | `resolveSyncContract` | `(ctx) => SyncContract` | replace initial page, merge loaded pages | Override how each page is written. Use `mergeInitialSyncContract` when initial pages should merge instead of replace. |
 | `readMode` | `'data' \| 'none'` | `'data'` | `'none'` when a view hook owns the reactive read. |
 | `filter` | `() => unknown` | `—` | Scope filter for the read. |
@@ -241,20 +242,19 @@ Bindings connect an infinite request to a model. They own collection writes, fre
 | `scopeMap` | Maps request/filter keys to stored-row fields for scoped reads, freshness, and scoped replace filters. |
 | `sortField` / `sortDirection` | Field ordering for the bound read. `sortDirection` defaults to `'desc'`. |
 | `comparator` | Custom row comparator for canonical ordering. Mutually exclusive with `sortField`. |
-| `useData` | Override hook for read projections. Receives `{ filter, scope, rows, inactive, empty }`; return `empty` for stable no-data output. |
+| `useData` | Override hook for read projections. Receives `{ filter, scope, rows, disabled, empty }`; return `empty` for stable no-data output. |
 
 For scoped bindings, explicit nullish reads are disabled: `binding.useData(null)` and `binding.useData(undefined)`
 return a stable empty array, and `binding.count(null)` / `binding.count(undefined)` return `0`. Unscoped
 `binding.useData()` and `binding.count()` still read the full collection.
 
-## Derived keys and imperative requests
+## Imperative requests
 
 ```ts
-import { deriveDbKey, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
+import { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
 
-await invalidateDbRequests(deriveDbKey(MessageModel));          // React Query only
 invalidateModel(MessageModel, { chatId });                      // fetch-state clear + React Query invalidation
-await refetchDbRequests(deriveDbKey(MessageModel, { chatId })); // one scope
+await invalidateDbRequests(['messages', chatId]);                // explicit React Query key invalidation
 await resetDbQueryRuntime();                                    // cancel all queries, then clear cache
 ```
 
@@ -270,29 +270,28 @@ Mounted hooks subscribe to fetch-state changes, so a gate-disabled request can r
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `items` / `data` | `TNode[]` | Accumulated nodes (reactive). |
+| `data` | `TNode[]` | Accumulated nodes (reactive). |
 | `loadingState` | `LoadingState` | UI state machine (as above). |
 | `hasNextPage` | `boolean` | Another page exists. |
 | `isFetchingNextPage` | `boolean` | A page load is in flight. |
 | `isBackgroundFetching` | `boolean` | Background refresh running. |
 | `loadMore` | `() => void` | Load the next page. |
-| `fetchNextPage` | `() => void` | Lower-level next-page trigger. |
-| `refetch` / `refresh` | `() => Promise<void>` | Re-run from the first page. |
+| `refetch` | `() => Promise<void>` | Re-run from the first page. |
 
 ## Non-React execution
 
 Run the same configs outside React (services, preloads):
 
 ```ts
-import { executeDbInfiniteRequest, runDbQueryDirect } from '@noma4i/react-native-dblayer';
+import { runDbInfiniteQueryDirect, runDbQueryDirect } from '@noma4i/react-native-dblayer';
 
 await runDbQueryDirect({ key: ['user', id], query: USER_QUERY, vars: { id }, select: (d) => d.user,
   sync: { model: UserModel, contract: 'user' } });
 
-await executeDbInfiniteRequest(feedConfig, /* pageParam */ undefined);
+await runDbInfiniteQueryDirect(feedConfig, /* pageParam */ undefined);
 ```
 `runDbQueryDirect` is the one-shot counterpart to `useDbSingleRequest`. It ignores hook-only fields such as `key`,
-`enabled`, `staleTime`, `gcTime`, `inactive`, and `refetchOnMount`; the request runs immediately. When `select` is
+`enabled`, `staleTime`, `gcTime`, and `refetchOnMount`; the request runs immediately. When `select` is
 omitted, the full response data is used as the selected payload.
 
 When `key` is omitted in hooks, model-backed single requests derive it from `read.model`, `read.id`, or `sync.model`
@@ -310,8 +309,9 @@ preserve item and array references for list UIs.
 | `useStableItems(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
 | `useStableEntity(value, config)` | Single-row identity guard; returns the prior entity while configured fields are equal. |
 | `useStableSorted(source, compare, invalidationKey?)` | Sorts without mutating `source`; reuses previous sorted output when source item refs and optional key are unchanged. |
-| `useStableArray(next)` | Bare array identity guard; returns the prior array when element refs are unchanged. |
 | `useOrderedEntities(model, ids)` | Reads `model.byIds(ids)`, returns entities in input id order, drops missing ids, and shares a stable empty array. |
+| `useEntitiesById(model, ids)` | Reads `model.byIds(ids)` and returns a stable `Map<string, row>` keyed by id. |
+| `useJoinedEntities(config)` | Joins model rows by id across two model sources while preserving stable output identity. |
 | `useWindowedLoadMore(loadMore, refresh, pageSize, resetKey)` | Grows a render window by `pageSize`, delegates network load-more/refresh, and resets on refresh or reset-key change. |
 
 `useStableItems` accepts either custom entry equality or render-key equality:

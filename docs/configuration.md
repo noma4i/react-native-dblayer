@@ -32,25 +32,22 @@ configureDb({
 | `extract.sink` | `DbExtractSink` | no-op | Applies a resolved extract payload into your collections (side-loads). Use `createExtractSink(...)` for declarative model/custom routing. |
 | `extract.mutationResolver` | `DbMutationExtractResolver` | no-op | Turns a mutation's `extract` spec + server result into an extract payload for the sink. Use `createMutationExtractResolver(...)` for declarative presets. |
 
-Each seam also has a standalone setter if you prefer granular control: `setDbTransport`, `setDbStorageAdapter`,
-`setDbLogger`, `setDbExtractSink`, `setDbMutationExtractResolver`. `configureDb` wires those seams, then prunes
-stale fetch-state metadata older than `DEFAULT_FETCH_STATE_MAX_AGE_MS`.
+`configureDb` is the public seam owner. It wires those seams, then prunes stale fetch-state metadata using the
+package freshness policy.
 
 ## QueryClient seam
 
 ```ts
 import {
-  deriveDbKey,
-  getDbQueryClient,
   invalidateDbRequests,
-  refetchDbRequests,
+  invalidateModel,
   resetDbQueryRuntime,
 } from '@noma4i/react-native-dblayer';
 
-getDbQueryClient();                                      // QueryClient | null
-await invalidateDbRequests(deriveDbKey(UserModel));      // prefix invalidation
-await refetchDbRequests(deriveDbKey(UserModel, { id })); // awaitable refetch
-await resetDbQueryRuntime();                             // cancelQueries(), then clear()
+invalidateModel(UserModel);                     // clear model freshness + invalidate model queries
+invalidateModel(UserModel, { id });             // scoped model invalidation
+await invalidateDbRequests(['custom', 'key']);   // React Query invalidation for explicit keys
+await resetDbQueryRuntime();                     // cancelQueries(), then clear()
 ```
 
 The configured client is only for imperative APIs. Query hooks keep using `useQueryClient()` from
@@ -148,6 +145,8 @@ functions so the library stays domain-agnostic:
   sink with source `'query'`.
 - A **mutation** config's `extract` is a spec; the runtime calls `mutationResolver(spec, result)` then the sink
   with source `'mutation'`.
+- `extractSource` on a query, mutation, or command config overrides the source label passed to the sink while keeping
+  the same resolver/sink mechanics.
 
 Both default to no-ops, so a config's `extract` field simply does nothing until you wire these. The package includes
 two factories for the common declarative shape:
@@ -178,15 +177,15 @@ import { configureDb, createExtractSink, createMutationExtractResolver } from '@
 const mutationResolver = createMutationExtractResolver({
   user: { sink: 'users', read: 'user' },
   message: { sink: 'messages', read: (result) => result.message },
-  wallet: { sink: 'walletPatch', read: (result) => result.wallet, many: false },
+  wallet: { sink: 'wallets', read: (result) => result.wallet, many: false },
+  transaction: { sink: 'transactions', read: (result) => result.transaction },
 });
 
 const sink = createExtractSink({
   users: UserModel,
-  walletPatch: (payloads) => {
-    for (const payload of payloads) applyWalletPatch(payload);
-  },
   messages: MessageModel,
+  wallets: WalletModel,
+  transactions: WalletTransactionModel,
 });
 
 configureDb({
@@ -212,7 +211,7 @@ An app with chat side-loads can keep domain transforms inside the table readers:
 const mutationResolver = createMutationExtractResolver({
   user: { sink: 'users', read: (result) => result.user },
   chatLastMessage: { sink: 'chatLastMessages', read: (result) => buildChatLastMessageSyncEntry(result.chat.id, result.chat.lastMessage) },
-  wallet: { sink: 'walletPatch', read: (result) => result.wallet, many: false },
+  wallet: { sink: 'wallets', read: (result) => result.wallet, many: false },
   transaction: { sink: 'transactions', read: (result) => result.transaction },
   message: { sink: 'messages', read: (result) => result.message },
   chat: { sink: 'chats', read: (result) => result.chat },
@@ -222,10 +221,15 @@ const mutationResolver = createMutationExtractResolver({
 const sink = createExtractSink({
   users: UserModel,
   chatLastMessages: syncChatLastMessages,
-  walletPatch: applyWalletPatch,
+  wallets: WalletModel,
   transactions: WalletTransactionModel,
   messages: MessageModel,
   chats: ChatModel,
   moments: MomentModel,
 });
 ```
+
+Extraction is two-pass: first the query/mutation config resolves an extract payload, then the sink table applies that
+payload in declaration order. The sink merges repeated payload keys before applying a key. Put dependency sinks first,
+then dependent sinks. If two extract sources emit `users`, the sink receives one lifted user payload array for that key
+and writes it once with `mergeSyncContract(source)`.

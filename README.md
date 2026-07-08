@@ -158,7 +158,7 @@ function AdminList() {
 }
 ```
 
-Cursor-paginated connections use `useDbInfiniteRequest` (`items`, `loadMore`, `hasNextPage`, …).
+Cursor-paginated connections use `useDbInfiniteRequest` (`data`, `loadMore`, `hasNextPage`, ...).
 
 → **Reference:** [Queries](./docs/queries.md) — `useDbSingleRequest` / `useDbInfiniteRequest` config, direct
 `runDbQueryDirect` execution, `loadingState`, and return shapes.
@@ -205,7 +205,7 @@ Every model exposes reactive hooks and synchronous snapshots:
 
 | Reactive (hooks, re-render) | Snapshot (synchronous, anywhere) |
 | --- | --- |
-| `Model.find(id)` / `all()` / `where(f, opts?)` / `first(f?, opts?)` / `byIds(ids)` / `count(f?)` | `Model.get(id)` / `getAll()` / `getWhere(f)` / `getFirstWhere(f?, opts?)` / `getFirst(f?, opts?)` |
+| `Model.find(id)` / `all()` / `where(f, opts?)` / `first(f?, opts?)` / `byIds(ids)` / `count(f?)` | `Model.get(id)` / `getAll()` / `getWhere(f)` / `getFirst(f?, opts?)` |
 
 ```ts
 UserModel.applyServerData(rows, { mode: 'merge', source: 'users' }); // sync (merge | replace)

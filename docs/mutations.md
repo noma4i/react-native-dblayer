@@ -144,6 +144,7 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | `logPrefix` | `string` | capitalized `resultField` | Log tag for `debug`/`error`. |
 | `mapInput` | `(input) => unknown` | identity | Transform caller input → the mutation's `variables.input`. |
 | `extract` | `DbExtractSpec` (`unknown`) | `—` | Side-load spec → `createMutationExtractResolver`/custom resolver → sink (source `'mutation'`). |
+| `extractSource` | `string` | `'mutation'` | Source label passed to the extract sink. |
 | `onCommit` | `(data, input, context) => void` | `—` | Server write-through. Runs in the tx, after the response, before commit. |
 | `invalidate` | `(data, input) => void` | `—` | After commit — invalidate dependent queries. |
 | `onError` | `(error, input, context) => void` | `—` | On failure, before rollback rethrows. |
@@ -248,9 +249,6 @@ const doAction = useCommand({
 
 `runDbCommandDirect(config, input)` runs the same static or resolved command config outside React. It ignores
 hook-only `key`/`logPrefix`, sends `variables.input`, and returns `response.data[resultField] ?? null`.
-
-`useCommandMutation(config: DbCommandConfig)` is the lower-level primitive when you supply your own `mutationFn`
-(fields: `key`, `logPrefix`, `mutationFn`, `singleFlightInput?`, `onSuccess?`, `onError?`, `onSettled?`).
 
 ## Non-React execution
 

@@ -17,6 +17,98 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 - [Runtime primitives](./runtime-primitives.md) — optimistic subscription reconcile, cleanup helpers,
   optimistic ordering sequences, throttled single-flight, nested object patching, and singleton statics.
 
+## Public runtime exports
+
+| Export | Purpose | Signature essentials |
+| --- | --- | --- |
+| `EMPTY_IDS` | Shared empty string-id array. | `readonly string[]` |
+| `belongsTo` | Define inverse relation from child to parent. | `belongsTo(model,{ foreignKey, touch? })` |
+| `buildStableItems` | Build stable item projections outside React. | `buildStableItems(source, config, previous?)` |
+| `castNode` | Type boundary cast for one node. | `castNode<T>(value)` |
+| `castNodes` | Type boundary cast for node arrays. | `castNodes<T>(value)` |
+| `clearAllCollections` | Clear every registered persistent collection. | `clearAllCollections.run()` |
+| `clearDbStorage` | Clear DB-owned storage keys. | `clearDbStorage()` |
+| `compositeId` | Build deterministic composite ids. | `compositeId(...parts)` |
+| `computeLoadingState` | Build UI loading-state flags from phase/data. | `computeLoadingState(phase, hasData)` |
+| `computePhase` | Resolve a loading phase. | `computePhase(input)` |
+| `configureDb` | Configure transport, storage, logger, query client, extract, tracking. | `configureDb(options)` |
+| `createCollectionBinding` | Bind a model to scoped infinite-query reads/writes. | `createCollectionBinding(model, options?)` |
+| `createDbSubscriptionRuntime` | Create imperative subscription dispatcher. | `createDbSubscriptionRuntime(entries)` |
+| `createExtractSink` | Build extract sink from model/custom table. | `createExtractSink(sinkTable)` |
+| `createIdArrayPatcher` | Create immutable id-array patch helpers. | `createIdArrayPatcher()` |
+| `createKeyedArrayPatcher` | Create immutable keyed sub-row array patch helpers. | `createKeyedArrayPatcher(shape,{ key })` |
+| `createKeyedBatchBuffer` | Create keyed trailing batch buffer. | `createKeyedBatchBuffer(config)` |
+| `createModelStatusPoller` | Create non-React status poller. | `createModelStatusPoller(config)` |
+| `createMutationExtractResolver` | Build mutation extract preset resolver. | `createMutationExtractResolver(presetTable)` |
+| `createNestedObjectPatcher` | Create nested object patch helper. | `createNestedObjectPatcher(model, field, transform)` |
+| `createOptimisticSequence` | Create local monotonic optimistic sequence. | `createOptimisticSequence()` |
+| `createThrottledSingleFlight` | Create coalesced throttled async runner. | `createThrottledSingleFlight(fn, options)` |
+| `createTombstoneLedger` | Create memory-only ttl tombstone ledger. | `createTombstoneLedger({ ttlMs })` |
+| `createUniqueIds` | Dedupe ids preserving order. | `createUniqueIds(ids)` |
+| `defineModel` | Define a collection model. | `defineModel(config)` |
+| `defineShape` | Define reusable field shape. | `defineShape<T>()(fields)` |
+| `devClearAllDataAndState` | Clear collections and runtime state. | `devClearAllDataAndState()` |
+| `f` | Field builder namespace. | `f.str(), f.num(), f.id(), ...` |
+| `generateTempId` | Generate optimistic temporary id. | `generateTempId(prefix?)` |
+| `getDbStorageKeys` | List DB-owned storage keys. | `getDbStorageKeys()` |
+| `hasMany` | Define one-to-many relation. | `hasMany(model,{ foreignKey, dependent? })` |
+| `hasManyThrough` | Define query-only through relation. | `hasManyThrough({ through, source })` |
+| `hasOne` | Define one-to-one relation. | `hasOne(model,{ foreignKey })` |
+| `invalidateDbRequests` | Invalidate explicit React Query key. | `invalidateDbRequests(key, options?)` |
+| `invalidateModel` | Clear model freshness and invalidate model query keys. | `invalidateModel(model, scope?)` |
+| `isTempId` | Check optimistic temp id. | `isTempId(id)` |
+| `liftExtractNodes` | Normalize extract payload to array. | `liftExtractNodes(value)` |
+| `mergeInitialSyncContract` | Initial-page merge sync contract resolver. | `mergeInitialSyncContract(ctx)` |
+| `mergeOptimisticMedia` | Preserve optimistic media while server catches up. | `mergeOptimisticMedia(optimistic, server)` |
+| `mergeOptimisticSnapshot` | Merge optimistic row fields into server row. | `mergeOptimisticSnapshot(optimistic, server, options?)` |
+| `mergeSyncContract` | Create merge sync contract. | `mergeSyncContract(source, scope?)` |
+| `mmkvStorageAdapter` | Default MMKV storage adapter. | `StorageAdapter` |
+| `mmkvStorageEventApi` | No-op RN storage event API. | `StorageEventApi` |
+| `modelDetailRequest` | Build standard single-row request config. | `modelDetailRequest(model, config)` |
+| `patchWhenPresent` | Patch a row now or when it appears. | `patchWhenPresent(model,id,patch,options)` |
+| `pickDefined` | Build sparse patch from defined values. | `pickDefined(source, keys)` |
+| `pickEqual` | Compare selected render keys. | `pickEqual(left,right,keys)` |
+| `pickPresent` | Build sparse patch from non-nullish values. | `pickPresent(source, keys)` |
+| `projectShape` | Project source through a shape. | `projectShape(shape, source, overrides?)` |
+| `pruneExpiredRows` | Delete rows older than ttl. | `pruneExpiredRows(model, field, ttlMs, now?)` |
+| `pruneOrphanedRows` | Delete rows whose parent id is not live. | `pruneOrphanedRows(model, field, liveIds)` |
+| `pruneStaleFetchStates` | Remove stale persisted fetch metadata. | `pruneStaleFetchStates(maxAgeMs?)` |
+| `readFieldsPatch` | Read sparse patch from field specs. | `readFieldsPatch(fields, source)` |
+| `readId` | Read/coerce required id. | `readId(value)` |
+| `readNullableNumber` | Read number or null. | `readNullableNumber(value)` |
+| `readNullableString` | Read string or null. | `readNullableString(value)` |
+| `readNumber` | Read required number. | `readNumber(value)` |
+| `readShape` | Read reusable shape. | `readShape(shape, input)` |
+| `readShapeOrThrow` | Read shape or throw labeled error. | `readShapeOrThrow(shape,input,label)` |
+| `reconcileOptimisticRows` | Match server rows to optimistic rows. | `reconcileOptimisticRows(model,nodes,options)` |
+| `removeDbStorageKey` | Remove one DB storage key. | `removeDbStorageKey(key)` |
+| `replaceInitialSyncContract` | Initial-page replace sync contract resolver. | `replaceInitialSyncContract(ctx)` |
+| `replaceSyncContract` | Create replace sync contract. | `replaceSyncContract(source, filter?)` |
+| `resetAllModelsState` | Reset registered model runtime state. | `resetAllModelsState()` |
+| `resetDbQueryRuntime` | Cancel and clear configured QueryClient. | `resetDbQueryRuntime()` |
+| `resolveStaleTempRows` | Find stale temp rows and call handler. | `resolveStaleTempRows(model, options)` |
+| `runDbCommandDirect` | Run command mutation outside React. | `runDbCommandDirect(config,input)` |
+| `runDbInfiniteQueryDirect` | Run one infinite-query page outside React. | `runDbInfiniteQueryDirect(config,pageParam?)` |
+| `runDbMutationDirect` | Run mutation config outside React. | `runDbMutationDirect(config,input,context?)` |
+| `runDbQueryDirect` | Run single query outside React. | `runDbQueryDirect(config)` |
+| `singletonStatics` | Build singleton model statics. | `singletonStatics(model, recordId, defaults)` |
+| `stableSerialize` | Stable serialize scope objects. | `stableSerialize(value)` |
+| `toRequiredStr` | Coerce required string. | `toRequiredStr(value)` |
+| `toStr` | Coerce nullable string. | `toStr(value)` |
+| `trimRowsPerScope` | Trim rows per scope with protection. | `trimRowsPerScope(model, field, max, compare, protect?)` |
+| `useCommand` | Run command mutation hook. | `useCommand(config)` |
+| `useDbInfiniteRequest` | Run cursor-paginated query hook. | `useDbInfiniteRequest(config)` |
+| `useDbMutation` | Run optimistic mutation hook. | `useDbMutation(config)` |
+| `useDbSingleRequest` | Run single query hook. | `useDbSingleRequest(config)` |
+| `useEntitiesById` | Read rows as stable id map. | `useEntitiesById(model, ids)` |
+| `useJoinedEntities` | Join entity arrays by ids. | `useJoinedEntities(config)` |
+| `useOrderedEntities` | Read rows ordered by ids. | `useOrderedEntities(model, ids)` |
+| `useStableEntity` | Stabilize one entity reference. | `useStableEntity(value, config)` |
+| `useStableItems` | Stabilize list item references. | `useStableItems(source, config)` |
+| `useStableSorted` | Stable sorted projection hook. | `useStableSorted(source, compare, key?)` |
+| `useWindowedLoadMore` | Window render count around loadMore/refetch. | `useWindowedLoadMore(loadMore, refetch, pageSize, resetKey)` |
+| `waitForRow` | Resolve when row appears without polling. | `waitForRow(model,id,options)` |
+
 ## Conventions used in these docs
 
 - **Reactive** = a React hook. Call it at the top level of a component (or another hook); it re-renders the
