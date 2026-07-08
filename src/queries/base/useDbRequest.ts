@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react';
-import type { BaseQueryConfig, BaseQueryResult, CollectionModel, DbRequestInfiniteConfig, DbRequestSingleConfig, InfiniteQueryConfig, InfiniteQueryResult } from '../../types';
+import type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, CollectionModel, DbRequestInfiniteConfig, DbRequestSingleConfig, DbRequestSingleData, InfiniteQueryConfig, InfiniteQueryResult } from '../../types';
 import { deriveDbKey } from '../../core/deriveDbKey';
 import { stableSerialize } from '../../core/serialize';
 import { makePageExtractor } from './extractPage';
@@ -63,9 +63,16 @@ const resolveInfiniteRequestKey = (config: DbRequestInfiniteConfig<unknown, unkn
  *   read: { model: UserModel, id }
  * });
  */
-export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(
-  config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>
-): BaseQueryResult<TResult> => {
+export const useDbSingleRequest = <
+  TResponse,
+  TResult = unknown,
+  TSelected = unknown,
+  TVariables = Record<string, unknown>,
+  TRead extends BaseQueryCollection | undefined = BaseQueryCollection | undefined
+>(
+  config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables, TRead>
+): BaseQueryResult<DbRequestSingleData<TResult, TSelected, TRead>> => {
+  type TData = DbRequestSingleData<TResult, TSelected, TRead>;
   const configRef = useRef(config);
   configRef.current = config;
   const queryKey = resolveSingleRequestKey(config as DbRequestSingleConfig<unknown, unknown, unknown>);
@@ -76,9 +83,9 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
   const collectionModel = read?.model;
   const collectionHasId = !!read && 'id' in read;
   const collectionId = read && 'id' in read ? read.id : undefined;
-  const collection = useMemo<BaseQueryConfig<TResult>['collection']>(() => readRef.current, [collectionHasId, collectionId, collectionModel]);
+  const collection = useMemo<BaseQueryConfig<TData, TRead>['collection']>(() => readRef.current, [collectionHasId, collectionId, collectionModel]);
   const baseConfig = useMemo(
-    (): BaseQueryConfig<TResult> => ({
+    (): BaseQueryConfig<TData, TRead> => ({
       queryKey,
       queryFn: () => runDbQueryDirect(configRef.current),
       collection,
@@ -91,7 +98,7 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
     [collection, config.emptyStaleTime, config.enabled, config.gcTime, keySignature, config.query, config.refetchOnMount, config.staleTime]
   );
 
-  return useBaseQuery<TResult>(baseConfig);
+  return useBaseQuery<TData, TRead>(baseConfig) as BaseQueryResult<TData>;
 };
 
 /**

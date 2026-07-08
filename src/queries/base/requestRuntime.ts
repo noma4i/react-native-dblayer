@@ -1,4 +1,4 @@
-import type { DbRequestInfiniteConfig, DbRequestSingleConfig, InfiniteSyncContractResolverContext, SyncContract } from '../../types';
+import type { BaseQueryCollection, DbRequestInfiniteConfig, DbRequestSingleConfig, DbRequestSingleData, InfiniteSyncContractResolverContext, SyncContract } from '../../types';
 import { getDbExtractSink } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
 import { mergeSyncContract, replaceSyncContract } from '../../utils/serverSync';
@@ -75,9 +75,15 @@ const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfi
  * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, and `refetchOnMount` are hook-only.
  * @returns Selected or mapped result, or null when `read` owns the reactive data.
  */
-export const runDbQueryDirect = async <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(
-  config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>
-): Promise<TResult> => {
+export const runDbQueryDirect = async <
+  TResponse,
+  TResult = unknown,
+  TSelected = unknown,
+  TVariables = Record<string, unknown>,
+  TRead extends BaseQueryCollection | undefined = BaseQueryCollection | undefined
+>(
+  config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables, TRead>
+): Promise<DbRequestSingleData<TResult, TSelected, TRead>> => {
   const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars as Record<string, unknown> | undefined });
   const data = response.data;
   const selected = (config.select ?? identitySelect<TResponse, TSelected>)(data);
@@ -93,10 +99,10 @@ export const runDbQueryDirect = async <TResponse, TResult = unknown, TSelected =
   }
 
   if (config.read) {
-    return null as TResult;
+    return null as DbRequestSingleData<TResult, TSelected, TRead>;
   }
 
-  return (config.map ? config.map(selected) : selected) as TResult;
+  return (config.map ? config.map(selected) : selected) as DbRequestSingleData<TResult, TSelected, TRead>;
 };
 
 /**

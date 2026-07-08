@@ -1,4 +1,4 @@
-import type { CollectionModel, DbGraphQLDocument, DbRequestSingleConfig } from '../../types';
+import type { BaseQueryCollection, CollectionModel, DbGraphQLDocument, DbRequestSingleConfig } from '../../types';
 import { deriveDbKey } from '../../core/deriveDbKey';
 
 type DetailId = string | null | undefined;
@@ -62,17 +62,20 @@ const resolveDetailEnabled = (id: DetailId, enabled: DetailEnabled | undefined):
 
 /**
  * Build a model-backed detail request config with derived key, vars, sync, read, and enabled fields.
+ * @param model Collection model that stores and reads the detail row.
+ * @param config Detail query, selection, sync, read, and React Query options.
+ * @returns A single-request config whose default result type is the model stored row for reactive reads.
  */
 export const modelDetailRequest = <
   TResponse,
   TStored extends { id: string; updatedAt?: string | null },
   TSelected = TStored,
-  TResult = TSelected,
+  TResult = TStored | null,
   TVariables = Record<string, unknown>
 >(
   model: CollectionModel<any, TStored>,
   config: ModelDetailRequestConfig<TResponse, TSelected, TResult, TVariables>
-): DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables> => {
+): DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables, Extract<BaseQueryCollection<TStored>, { id: DetailId }>> => {
   const id = resolveDetailId(config.id);
   const readEnabled = config.read !== false;
 

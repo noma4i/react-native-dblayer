@@ -4,6 +4,7 @@ import { isEqual, omit, pick } from 'es-toolkit';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BaseQueryCollection,
+  BaseQueryCollectionData,
   CollectionFetchState,
   CollectionModel,
   CollectionReadConfig,
@@ -40,13 +41,14 @@ import { useMapById } from './mapById';
  * @param collection Model-backed detail (`find`) or all-rows (`all`) read configuration.
  * @returns The read row/rows, or `undefined` when no collection is configured or nothing matched.
  */
-export function useCollectionRead<TData>(collection: BaseQueryCollection | undefined): TData | undefined {
+export function useCollectionRead<TCollection extends BaseQueryCollection | undefined>(collection: TCollection): BaseQueryCollectionData<TCollection> | undefined;
+export function useCollectionRead(collection: BaseQueryCollection | undefined): unknown {
   if (!collection) return undefined;
   if ('id' in collection) {
-    return collection.model.find(collection.id) as TData | undefined;
+    return collection.model.find(collection.id);
   }
   const items = collection.model.all();
-  return items.length > 0 ? (items as unknown as TData) : undefined;
+  return items.length > 0 ? items : undefined;
 }
 
 const EMPTY: readonly unknown[] = Object.freeze([]);

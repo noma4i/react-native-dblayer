@@ -3,7 +3,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { buildScopeKey, ROOT_SCOPE_KEY } from '../../core/compileDbWhere';
 import { getCollectionFetchStateVersion, subscribeCollectionFetchState } from '../../core/freshnessStorage';
 import { getDbLogger } from '../../core/logger';
-import type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, CollectionFetchState } from '../../types';
+import type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, CollectionFetchState, DbRequestSingleData } from '../../types';
 import { computeLoadingState, computePhase } from './loadingState';
 import { useCollectionRead } from './shared';
 
@@ -66,7 +66,11 @@ const useCollectionFetchStateVersion = (collection: BaseQueryConfig<unknown>['co
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
-export const useBaseQuery = <TData>(config: BaseQueryConfig<TData>): BaseQueryResult<TData> => {
+type BaseQueryResolvedData<TData, TCollection extends BaseQueryCollection | undefined> = DbRequestSingleData<TData, TData, TCollection>;
+
+export const useBaseQuery = <TData, TCollection extends BaseQueryCollection | undefined = undefined>(
+  config: BaseQueryConfig<TData, TCollection>
+): BaseQueryResult<BaseQueryResolvedData<TData, TCollection>> => {
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
   const isInactive = config.enabled === false;
@@ -82,18 +86,19 @@ export const useBaseQuery = <TData>(config: BaseQueryConfig<TData>): BaseQueryRe
     return { fetchState: decision.fetchState, shouldSkip };
   }, [config.collection, config.emptyStaleTime, config.staleTime, freshnessVersion, hasQueryData, isInactive]);
 
-  const result = useQuery<TData, Error>({
+  type TResolvedData = BaseQueryResolvedData<TData, TCollection>;
+  const result = useQuery<TResolvedData, Error>({
     queryKey: config.queryKey,
-    queryFn: config.queryFn,
+    queryFn: config.queryFn as () => Promise<TResolvedData>,
     enabled: !isInactive && !isRestoring && !shouldSkipInitialFetch,
     staleTime: config.staleTime,
     gcTime: config.gcTime,
     refetchOnMount: config.refetchOnMount
   });
 
-  const collectionData = useCollectionRead<TData>(config.collection);
+  const collectionData = useCollectionRead(config.collection);
   const hasKnownEmptySingleton = !isInactive && !!config.collection && 'id' in config.collection && fetchState?.empty === true;
-  const data = isInactive ? undefined : hasKnownEmptySingleton ? (null as TData) : config.collection ? (collectionData !== undefined ? collectionData : result.data) : result.data;
+  const data = isInactive ? undefined : hasKnownEmptySingleton ? null : config.collection ? (collectionData !== undefined ? collectionData : result.data) : result.data;
   const hasData = data !== undefined && data !== null;
   const hasFetchedData = !isInactive && (result.dataUpdatedAt > 0 || (shouldSkipInitialFetch && fetchState !== null));
 
@@ -111,5 +116,5 @@ export const useBaseQuery = <TData>(config: BaseQueryConfig<TData>): BaseQueryRe
 
   const loadingState = useMemo(() => computeLoadingState(phase, hasData), [phase, hasData]);
 
-  return { ...result, data, loadingState } as BaseQueryResult<TData>;
+  return { ...result, data, loadingState } as BaseQueryResult<TResolvedData>;
 };

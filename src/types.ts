@@ -635,27 +635,27 @@ export type StableEntityRenderKeysConfig<TItem extends object> = {
 
 export type StableEntityConfig<TItem extends object> = StableEntityVolatileKeysConfig<TItem> | StableEntityRenderKeysConfig<TItem>;
 
-type BaseQueryCollectionFind = {
+type BaseQueryCollectionFind<TStored = unknown> = {
   /** Model used for a reactive single-row read. */
   model: DbKeyModelSource & {
     /** React hook: read one row by id. */
-    find: (id: string | undefined | null) => unknown;
+    find: (id: string | undefined | null) => TStored | undefined;
     /** Freshness gate for the row scope. */
-    shouldSkipInitialFetch?: (filter?: { id?: string | null }, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
+    shouldSkipInitialFetch?: (filter?: any, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
     /** Snapshot freshness state for the row scope. */
-    getFetchState?: (filter?: { id?: string | null }) => CollectionFetchState | null;
+    getFetchState?: (filter?: any) => CollectionFetchState | null;
     /** Mark the row scope as fetched. */
-    markFetched?: (filter?: { id?: string | null }, state?: Omit<CollectionFetchState, 'touchedAt'>) => void;
+    markFetched?: (filter?: any, state?: Omit<CollectionFetchState, 'touchedAt'>) => void;
   };
   /** Row id to read reactively. */
   id: string | undefined | null;
 };
 
-type BaseQueryCollectionAll = {
+type BaseQueryCollectionAll<TStored = unknown> = {
   /** Model used for a reactive all-rows read. */
   model: DbKeyModelSource & {
     /** React hook: read all rows. */
-    all: () => unknown[];
+    all: () => TStored[];
     /** Freshness gate for the root scope. */
     shouldSkipInitialFetch?: (filter?: undefined, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
     /** Snapshot freshness state for the root scope. */
@@ -665,10 +665,34 @@ type BaseQueryCollectionAll = {
   };
 };
 
-/** Reactive read config attached to a base query. */
-export type BaseQueryCollection = BaseQueryCollectionFind | BaseQueryCollectionAll;
+/**
+ * Reactive read config attached to a base query.
+ *
+ * @template TStored Stored row type returned by the model read hooks. Omit it for the staged-adoption
+ * escape hatch: untyped collections still read as `unknown`.
+ */
+export type BaseQueryCollection<TStored = unknown> = BaseQueryCollectionFind<TStored> | BaseQueryCollectionAll<TStored>;
 
-export type BaseQueryConfig<TData> = {
+type BaseQueryCollectionReadData<TCollection> = TCollection extends BaseQueryCollectionFind<infer TStored>
+  ? TStored | null
+  : TCollection extends BaseQueryCollectionAll<infer TStored>
+    ? TStored[]
+    : unknown;
+
+type IsUnknown<T> = unknown extends T ? ([T] extends [unknown] ? true : false) : false;
+
+/** Data shape produced by a typed base-query collection read. */
+export type BaseQueryCollectionData<TCollection extends BaseQueryCollection | undefined> =
+  NonNullable<TCollection> extends BaseQueryCollection ? BaseQueryCollectionReadData<NonNullable<TCollection>> : unknown;
+
+/** Default single-request result data after applying explicit result, model read, or selected payload inference. */
+export type DbRequestSingleData<TResult, TSelected, TRead extends BaseQueryCollection | undefined> = IsUnknown<TResult> extends true
+  ? NonNullable<TRead> extends BaseQueryCollection
+    ? BaseQueryCollectionData<TRead>
+    : TSelected
+  : TResult;
+
+export type BaseQueryConfig<TData, TCollection extends BaseQueryCollection | undefined = BaseQueryCollection | undefined> = {
   /** React Query cache key. */
   queryKey: readonly unknown[];
   /** Function that resolves query data. */
@@ -689,7 +713,7 @@ export type BaseQueryConfig<TData> = {
   /** React Query remount refetch behavior. */
   refetchOnMount?: boolean;
   /** Optional model read used to derive displayed data and freshness. */
-  collection?: BaseQueryCollection;
+  collection?: TCollection;
 };
 
 export type PageInfo = {
@@ -824,7 +848,13 @@ export type DbInfinitePatchContext = {
   pageParam?: string;
 };
 
-export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>> = {
+export type DbRequestSingleConfig<
+  TResponse,
+  TResult = unknown,
+  TSelected = unknown,
+  TVariables = Record<string, unknown>,
+  TRead extends BaseQueryCollection | undefined = BaseQueryCollection | undefined
+> = {
   /** GraphQL query document. */
   query: DbGraphQLDocument<TResponse, TVariables>;
   /** React Query cache key. Derived from a model-backed read or sync when omitted. */
@@ -840,7 +870,7 @@ export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unkn
   /** Side-load payload passed to the extract sink with source `query`. */
   extract?: (params: { data: TResponse; selected: TSelected }) => unknown;
   /** Reactive read returned from the model after the query writes. */
-  read?: BaseQueryCollection;
+  read?: TRead;
   /**
    * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
    * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,

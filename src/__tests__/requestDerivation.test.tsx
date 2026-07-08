@@ -11,13 +11,60 @@ import {
   runDbInfiniteQueryDirect,
   runDbQueryDirect,
   stableSerialize,
-  useDbInfiniteRequest
+  useDbInfiniteRequest,
+  useDbSingleRequest
 } from '../index';
-import type { ConnectionWithNodes, DbGraphQLDocument, DbRequestInfiniteConfig, DbRequestSingleConfig, PageInfoInput } from '../types';
+import type { BaseQueryCollection, BaseQueryResult, ConnectionWithNodes, DbGraphQLDocument, DbRequestInfiniteConfig, DbRequestSingleConfig, PageInfoInput } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const document = <TData, TVariables = Record<string, unknown>>(name: string): DbGraphQLDocument<TData, TVariables> => ({ kind: 'Document', name } as unknown as DbGraphQLDocument<TData, TVariables>);
+
+type Equal<TActual, TExpected> = (<T>() => T extends TActual ? 1 : 2) extends <T>() => T extends TExpected ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
+type ResultData<T> = T extends { data: infer TData } ? TData : never;
+
+declare const typedTodoModel: ReturnType<typeof createTodoModel>;
+declare const typedTodoQuery: DbGraphQLDocument<{ todo: Todo }, { id: string }>;
+declare const untypedRead: BaseQueryCollection;
+
+const inferModelBackedSingleRequest = () =>
+  useDbSingleRequest({
+    query: typedTodoQuery,
+    vars: { id: 'todo-1' },
+    select: data => data.todo,
+    sync: { model: typedTodoModel, contract: 'typed' },
+    read: { model: typedTodoModel, id: 'todo-1' }
+  });
+type _ModelBackedSingleRequestData = Expect<Equal<ResultData<ReturnType<typeof inferModelBackedSingleRequest>>, Todo | null | undefined>>;
+
+const inferExplicitSingleRequest = () =>
+  useDbSingleRequest<{ todo: Todo }, { title: string }, Todo, { id: string }>({
+    query: typedTodoQuery,
+    vars: { id: 'todo-1' },
+    select: data => data.todo,
+    sync: { model: typedTodoModel, contract: 'explicit' },
+    read: { model: typedTodoModel, id: 'todo-1' }
+  });
+type _ExplicitSingleRequestData = Expect<Equal<ResultData<ReturnType<typeof inferExplicitSingleRequest>>, { title: string } | undefined>>;
+
+const inferMappedSingleRequest = () =>
+  useDbSingleRequest({
+    key: ['mapped-single-request'],
+    query: typedTodoQuery,
+    vars: { id: 'todo-1' },
+    select: data => data.todo,
+    map: selected => selected.title
+  });
+type _MappedSingleRequestData = Expect<Equal<ResultData<ReturnType<typeof inferMappedSingleRequest>>, string | undefined>>;
+
+const inferUntypedSingleRequest = () =>
+  useDbSingleRequest({
+    query: typedTodoQuery,
+    vars: { id: 'todo-1' },
+    read: untypedRead
+  });
+type _UntypedSingleRequestResult = Expect<Equal<ReturnType<typeof inferUntypedSingleRequest>, BaseQueryResult<unknown>>>;
 
 const createQueryClient = () =>
   new QueryClient({
