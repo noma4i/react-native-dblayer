@@ -166,6 +166,12 @@ describe('schema normalize', () => {
     expect(fixtureSchema.normalize({ name: 'Missing id' })).toBeNull();
   });
 
+  it('drops non-object input instead of throwing on the default id lookup', () => {
+    expect(fixtureSchema.normalize(null as unknown as FixtureInput)).toBeNull();
+    expect(fixtureSchema.normalize(undefined as unknown as FixtureInput)).toBeNull();
+    expect(fixtureSchema.normalize('not-an-object' as unknown as FixtureInput)).toBeNull();
+  });
+
   it('builds composite ids from non-empty selector parts', () => {
     const readId = compositeId<FixtureInput>(input => input.momentId, input => input.similarMomentId);
 

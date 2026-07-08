@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.4.0-beta.1 - 2026-07-08
+
+- Fix `createSchema.normalize` to drop non-object/null row sources instead of throwing, matching the existing defensive behavior of `readObjectField` used by every field reader. `applyServerData`/`merge` now tolerate sparse arrays (nulls mixed with valid rows) for every model, not just ones with app-side pre-filtering.
+
 ## 2.3.2-beta.0 - 2026-07-08
 
 - Add IntelliSense-grade JSDoc for every value exported from `src/index.ts`, including schema builders, field-spec modifiers, shape helpers, relations, query/runtime helpers, and runtime primitives.

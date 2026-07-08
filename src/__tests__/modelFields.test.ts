@@ -101,6 +101,31 @@ describe('fields-based model definitions', () => {
     });
   });
 
+  it('drops null and id-less entries from a merge payload instead of throwing', () => {
+    installMemoryStorage();
+    const model = createUserModel('fields-users-sparse-list');
+
+    expect(
+      model.applyServerData(
+        [
+          null,
+          { uuid: 'no-id', fullName: 'Missing id' },
+          {
+            id: 'u1',
+            uuid: 'user-1',
+            fullName: 'Ada Lovelace',
+            age: 36,
+            country: { name: 'United Kingdom' }
+          }
+        ] as never,
+        { mode: 'merge' }
+      )
+    ).toEqual({ merged: 1 });
+
+    expect(model.getAll()).toHaveLength(1);
+    expect(model.get('u1')).toMatchObject({ id: 'u1', fullName: 'Ada Lovelace' });
+  });
+
   it('supports rowId and guard row drops', () => {
     installMemoryStorage();
     const model = defineModel({

@@ -1,4 +1,5 @@
 import { toStr } from '../utils/normalizeHelpers';
+import { readObjectField } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
 import type { InferStoredFields } from './infer';
 
@@ -14,6 +15,9 @@ const normalizeId = (value: unknown): string | null => {
   if (!id) return null;
   return id;
 };
+
+/** A row source must be a non-null object; guard/rowId/field readers assume object shape. */
+const isNormalizableInput = (input: unknown): boolean => typeof input === 'object' && input !== null;
 
 /**
  * Build a row-id resolver by joining normalized selector outputs with `:`.
@@ -51,9 +55,10 @@ export const createSchema = <TInput, TFields extends SchemaFields<TInput>>(confi
 }): DbSchema<TInput, TFields> => ({
   fields: config.fields,
   normalize(input) {
+    if (!isNormalizableInput(input)) return null;
     if (config.guard && !config.guard(input)) return null;
 
-    const id = normalizeId(config.rowId ? config.rowId(input) : (input as any).id);
+    const id = normalizeId(config.rowId ? config.rowId(input) : readObjectField(input, 'id'));
     if (id === null) return null;
 
     const output: Record<string, unknown> & { id: string } = { id };
