@@ -25,6 +25,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "createExtractSink",
   "createIdArrayPatcher",
   "createKeyedArrayPatcher",
+  "createKeyedBatchBuffer",
   "createMerge",
   "createModelStatusPoller",
   "createMutationExtractResolver",

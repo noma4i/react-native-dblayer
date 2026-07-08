@@ -1,4 +1,5 @@
 import { isTempId } from './generateTempId';
+import { getDbLogger } from '../core/logger';
 import type { AnyDbShape, InferShapeStored } from '../schema/infer';
 import { readShapeOrThrow } from '../schema/shape';
 
@@ -368,6 +369,131 @@ export const createThrottledSingleFlight = <TArgs extends unknown[], TResult>(
     }
 
     return inFlight;
+  };
+};
+
+export type KeyedBatchBufferDedupe<TItem> = {
+  /** Stable dedupe id for an item inside a keyed bucket. */
+  idOf: (item: TItem) => string;
+  /** Return true when the candidate should replace the existing item with the same dedupe id. */
+  isNewer: (candidate: TItem, existing: TItem) => boolean;
+};
+
+export type KeyedBatchBufferConfig<TItem> = {
+  /** Bucket key for an incoming item. */
+  keyOf: (item: TItem) => string;
+  /** Trailing flush delay for each independent bucket. */
+  flushMs: number;
+  /** Flush a bucket synchronously when its buffered item count reaches this size. */
+  maxSize?: number;
+  /** Optional newest-wins dedupe policy inside each bucket. */
+  dedupe?: KeyedBatchBufferDedupe<TItem>;
+  /** Flush callback. Errors are contained and logged. */
+  onFlush: (key: string, items: TItem[]) => void;
+};
+
+export type KeyedBatchBuffer<TItem> = {
+  /** Push an item into its keyed bucket and start or refresh that bucket's trailing timer. */
+  push(item: TItem): void;
+  /** Flush every non-empty bucket immediately. */
+  flushAll(): void;
+  /** Drop every bucket without firing `onFlush`. */
+  clear(): void;
+};
+
+type KeyedBatchBucket<TItem> = {
+  items: TItem[];
+  itemIndexes: Map<string, number>;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+const clearBucketTimer = <TItem>(bucket: KeyedBatchBucket<TItem>): void => {
+  if (!bucket.timer) return;
+  clearTimeout(bucket.timer);
+  bucket.timer = null;
+};
+
+/**
+ * Create a keyed trailing batch buffer with independent bucket timers.
+ *
+ * @param config Keying, timing, optional cap/dedupe policy, and flush callback.
+ * @returns Runtime buffer controls for pushing, flushing, and clearing pending items.
+ */
+export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TItem>): KeyedBatchBuffer<TItem> => {
+  const buckets = new Map<string, KeyedBatchBucket<TItem>>();
+
+  const getBucket = (key: string): KeyedBatchBucket<TItem> => {
+    const existing = buckets.get(key);
+    if (existing) return existing;
+
+    const bucket: KeyedBatchBucket<TItem> = { items: [], itemIndexes: new Map(), timer: null };
+    buckets.set(key, bucket);
+    return bucket;
+  };
+
+  const flushBucket = (key: string, bucket: KeyedBatchBucket<TItem>): void => {
+    clearBucketTimer(bucket);
+    buckets.delete(key);
+    if (bucket.items.length === 0) return;
+
+    try {
+      config.onFlush(key, [...bucket.items]);
+    } catch (error) {
+      getDbLogger().error('db', 'keyed batch buffer flush failed', { key, error });
+    }
+  };
+
+  const scheduleBucket = (key: string, bucket: KeyedBatchBucket<TItem>): void => {
+    clearBucketTimer(bucket);
+    bucket.timer = setTimeout(() => {
+      flushBucket(key, bucket);
+    }, config.flushMs);
+  };
+
+  const pushDistinct = (bucket: KeyedBatchBucket<TItem>, item: TItem): void => {
+    if (!config.dedupe) {
+      bucket.items.push(item);
+      return;
+    }
+
+    const dedupeId = config.dedupe.idOf(item);
+    const existingIndex = bucket.itemIndexes.get(dedupeId);
+    if (existingIndex === undefined) {
+      bucket.itemIndexes.set(dedupeId, bucket.items.length);
+      bucket.items.push(item);
+      return;
+    }
+
+    const existing = bucket.items[existingIndex];
+    if (existing !== undefined && config.dedupe.isNewer(item, existing)) {
+      bucket.items[existingIndex] = item;
+    }
+  };
+
+  return {
+    push(item) {
+      const key = config.keyOf(item);
+      const bucket = getBucket(key);
+      pushDistinct(bucket, item);
+
+      if (config.maxSize !== undefined && config.maxSize > 0 && bucket.items.length >= config.maxSize) {
+        flushBucket(key, bucket);
+        return;
+      }
+
+      scheduleBucket(key, bucket);
+    },
+    flushAll() {
+      for (const [key, bucket] of [...buckets.entries()]) {
+        flushBucket(key, bucket);
+      }
+    },
+    clear() {
+      for (const bucket of buckets.values()) {
+        clearBucketTimer(bucket);
+      }
+      buckets.clear();
+    }
   };
 };
 

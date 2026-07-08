@@ -4,6 +4,7 @@ import {
   configureDb,
   createIdArrayPatcher,
   createKeyedArrayPatcher,
+  createKeyedBatchBuffer,
   createNestedObjectPatcher,
   createThrottledSingleFlight,
   defineShape,
@@ -79,9 +80,139 @@ const message = (input: Partial<MessageRow> & Pick<MessageRow, 'id' | 'createdAt
 
 describe('runtime primitives', () => {
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
     devClearAllDataAndState();
     configureDb({ transport: mockTransport({}), modelDefaults: {} });
+  });
+
+  it('flushes keyed batch buckets with independent trailing timers', () => {
+    jest.useFakeTimers();
+    const onFlush = jest.fn();
+    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
+      keyOf: item => item.key,
+      flushMs: 100,
+      onFlush
+    });
+
+    buffer.push({ key: 'a', id: 'a1' });
+    jest.advanceTimersByTime(60);
+    buffer.push({ key: 'b', id: 'b1' });
+    jest.advanceTimersByTime(39);
+
+    expect(onFlush).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+
+    expect(onFlush).toHaveBeenCalledTimes(1);
+    expect(onFlush).toHaveBeenLastCalledWith('a', [{ key: 'a', id: 'a1' }]);
+
+    jest.advanceTimersByTime(60);
+
+    expect(onFlush).toHaveBeenCalledTimes(2);
+    expect(onFlush).toHaveBeenLastCalledWith('b', [{ key: 'b', id: 'b1' }]);
+  });
+
+  it('restarts a keyed batch timer for later pushes into the same bucket', () => {
+    jest.useFakeTimers();
+    const onFlush = jest.fn();
+    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
+      keyOf: item => item.key,
+      flushMs: 100,
+      onFlush
+    });
+
+    buffer.push({ key: 'a', id: 'a1' });
+    jest.advanceTimersByTime(80);
+    buffer.push({ key: 'a', id: 'a2' });
+    jest.advanceTimersByTime(99);
+
+    expect(onFlush).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+
+    expect(onFlush).toHaveBeenCalledWith('a', [
+      { key: 'a', id: 'a1' },
+      { key: 'a', id: 'a2' }
+    ]);
+  });
+
+  it('flushes a capped keyed batch synchronously and clears its timer', () => {
+    jest.useFakeTimers();
+    const onFlush = jest.fn();
+    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
+      keyOf: item => item.key,
+      flushMs: 100,
+      maxSize: 2,
+      onFlush
+    });
+
+    buffer.push({ key: 'a', id: 'a1' });
+    buffer.push({ key: 'a', id: 'a2' });
+
+    expect(onFlush).toHaveBeenCalledTimes(1);
+    expect(onFlush).toHaveBeenCalledWith('a', [
+      { key: 'a', id: 'a1' },
+      { key: 'a', id: 'a2' }
+    ]);
+
+    jest.advanceTimersByTime(100);
+
+    expect(onFlush).toHaveBeenCalledTimes(1);
+  });
+
+  it('dedupes keyed batch items with newest-wins replacement while preserving distinct id order', () => {
+    jest.useFakeTimers();
+    const onFlush = jest.fn();
+    const buffer = createKeyedBatchBuffer<{ key: string; id: string; version: number }>({
+      keyOf: item => item.key,
+      flushMs: 100,
+      dedupe: {
+        idOf: item => item.id,
+        isNewer: (candidate, existing) => candidate.version > existing.version
+      },
+      onFlush
+    });
+
+    buffer.push({ key: 'a', id: 'first', version: 1 });
+    buffer.push({ key: 'a', id: 'second', version: 1 });
+    buffer.push({ key: 'a', id: 'first', version: 0 });
+    buffer.push({ key: 'a', id: 'first', version: 2 });
+    buffer.flushAll();
+
+    expect(onFlush).toHaveBeenCalledWith('a', [
+      { key: 'a', id: 'first', version: 2 },
+      { key: 'a', id: 'second', version: 1 }
+    ]);
+  });
+
+  it('flushes all buckets, clears without firing, and contains flush errors', () => {
+    jest.useFakeTimers();
+    const error = new Error('boom');
+    const onFlush = jest.fn((key: string) => {
+      if (key === 'bad') throw error;
+    });
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    configureDb({ transport: mockTransport({}), modelDefaults: {}, logger });
+    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
+      keyOf: item => item.key,
+      flushMs: 100,
+      onFlush
+    });
+
+    buffer.push({ key: 'good', id: 'g1' });
+    buffer.push({ key: 'bad', id: 'b1' });
+    buffer.flushAll();
+
+    expect(onFlush).toHaveBeenCalledWith('good', [{ key: 'good', id: 'g1' }]);
+    expect(onFlush).toHaveBeenCalledWith('bad', [{ key: 'bad', id: 'b1' }]);
+    expect(logger.error).toHaveBeenCalledWith('db', 'keyed batch buffer flush failed', { key: 'bad', error });
+
+    buffer.push({ key: 'clear', id: 'c1' });
+    buffer.clear();
+    jest.advanceTimersByTime(100);
+
+    expect(onFlush).toHaveBeenCalledTimes(2);
   });
 
   it('reconciles optimistic rows by scoped candidates, content match, window, best delta, and existing server ids', () => {

@@ -86,6 +86,7 @@ export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export {
   createNestedObjectPatcher,
   createIdArrayPatcher,
+  createKeyedBatchBuffer,
   createKeyedArrayPatcher,
   createThrottledSingleFlight,
   pruneExpiredRows,
