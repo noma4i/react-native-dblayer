@@ -1,5 +1,5 @@
 import type { FieldSpec } from './fieldSpec';
-import type { InferShapeStored } from './infer';
+import type { InferShapeStored, InferStoredFields } from './infer';
 type ShapeFields<TInput> = Record<string, FieldSpec<TInput, any, any, any>>;
 export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
     fields: TFields;
@@ -15,11 +15,25 @@ export declare const defineShape: <TInput = unknown>() => <TFields extends Shape
 /**
  * Read an unknown payload through a shape and drop unreadable fields.
  *
+ * Unlike `readFieldsPatch`, shape reads are dense row projections: field-level null defaults and other
+ * reader defaults are applied to build a full shape object.
+ *
  * @param shape Shape created by `defineShape`.
  * @param input Candidate object payload; non-objects and arrays return `undefined`.
  * @returns The normalized shape object, or `undefined` when the payload is not an object.
  */
 export declare const readShape: <TInput, TFields extends ShapeFields<TInput>>(shape: DbShape<TInput, TFields>, input: unknown) => InferShapeStored<DbShape<TInput, TFields>> | undefined;
+/**
+ * Read sparse field updates from an unknown payload.
+ *
+ * Unlike `readShape`, this patch reader returns only fields whose readers produced a defined value.
+ * Field defaults are not applied; explicit `null` is preserved when the field reader returns `null`.
+ *
+ * @param fields Field specs keyed by stored row properties.
+ * @param input Candidate payload passed unchanged to every field reader.
+ * @returns A sparse patch containing only defined reader outputs.
+ */
+export declare const readFieldsPatch: <TFields extends Record<string, FieldSpec<any, any, any, any>>>(fields: TFields, input: unknown) => Partial<InferStoredFields<TFields>>;
 /**
  * Read an unknown payload through a shape or throw a labelled error.
  *

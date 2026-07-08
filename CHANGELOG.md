@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.5.0-beta.1 - 2026-07-08
+
+### Breaking changes
+
+| Old | New |
+| --- | --- |
+| `executeDbSingleRequest` | `runDbQueryDirect` |
+| `executeDbInfiniteRequest` | `runDbInfiniteQueryDirect` |
+| `InfiniteQueryResult.items` | `InfiniteQueryResult.data` |
+| `InfiniteQueryResult.refresh` | `InfiniteQueryResult.refetch` |
+| `InfiniteQueryResult.fetchNextPage` | `InfiniteQueryResult.loadMore` |
+| `getFirstWhere` | `getFirst` |
+| singleton `upsert` | `upsertCurrent` |
+| `_collection` | `collection` |
+| config `inactive` | config `enabled` with inverted meaning |
+| `FetchStatePageInfo` | removed |
+| `NormalizedPageInfo` | removed |
+| `DisplayState` | removed |
+| `DisplayStateInput` | removed |
+| `ServerSyncContract` | removed |
+| `ServerSyncMode` | removed |
+
+- Prune 47 runtime exports from the public barrel. The following internals moved out of the public package surface: `DEFAULT_FETCH_STATE_MAX_AGE_MS`, `acceptPersistentCollectionMutations`, `clearAllFreshnessMetadata`, `clearCollectionFetchState`, `clearCollectionFetchStates`, `clearModelRegistry`, `createCollectionModel`, `createMerge`, `createPatchCrud`, `createPersistentCollection`, `createReplace`, `deriveDbKey`, `getCollectionFetchState`, `getCollectionFetchStateVersion`, `getDbExtractSink`, `getDbLogger`, `getDbMutationExtractResolver`, `getDbQueryClient`, `getDbStorageAdapter`, `getDbTransport`, `getRegisteredModel`, `isInManagedMutationBatch`, `isIncomingNewer`, `listCollectionFetchScopes`, `mmkvCollectionOptions`, `readBoolean`, `readString`, `refetchDbRequests`, `registerCollectionFetchStateCache`, `registerModel`, `registerModelRuntimeReset`, `registerPersistentCollectionMutationAcceptor`, `resolveMergedField`, `runInManagedMutationBatch`, `setCollectionFetchState`, `setDbExtractSink`, `setDbLogger`, `setDbMutationExtractResolver`, `setDbStorageAdapter`, `setDbTransport`, `shallowEqual`, `shouldAcceptIncoming`, `subscribeCollectionFetchState`, `toQueryValue`, `useCollectionRead`, `useCommandMutation`, and `useStableArray`.
+
+### Intentional behavior changes
+
+- `enabled: false` now yields phase `idle` instead of an eternal `initial_loading` state.
+- Scope keys are canonicalized: `{}` equals the root scope, `undefined` fields are stripped, and object key order is stable.
+- Extract collisions for the same sink key now merge into arrays instead of silently clobbering earlier values.
+- Extract sinks dispatch in a model-first two-pass order.
+- `runDbMutationDirect` now applies optimistic destroy behavior.
+- Single-request derived keys are salted with variables.
+
+### New primitives
+
+- Defects and canonicalization: `reconcileOptimisticRows` `onExisting`, strict `readId`, unconditional read hooks, and invalid-preset throws.
+- Schema: `fromKey` and `readFieldsPatch`.
+- Typing: typed reads, `ExtractSpecOf`, and typed sideload pluck.
+- Relations: `hasOne`, `belongsTo` propagation, and model mirror helpers.
+- Extract: `extractSource`, sink contracts, and command extract support.
+- Subscriptions: `DbTransport.subscribe`, `createDbSubscriptionRuntime`, `createKeyedBatchBuffer`, `createTombstoneLedger`, `patchWhenPresent`, and `waitForRow`.
+- Misc: `createModelStatusPoller`, `mergeOptimisticMedia`, `useJoinedEntities`, `computePhase`, and `replaceInitialSyncContract`.
+
 ## 2.4.0-beta.1 - 2026-07-08
 
 - Fix `createSchema.normalize` to drop non-object/null row sources instead of throwing, matching the existing defensive behavior of `readObjectField` used by every field reader. `applyServerData`/`merge` now tolerate sparse arrays (nulls mixed with valid rows) for every model, not just ones with app-side pre-filtering.

@@ -9,5 +9,5 @@ export type SideloadSpec<TInput = unknown> = {
 };
 export declare const isModelApplying: (name: string) => boolean;
 export declare const withApplyingModel: <T>(name: string, fn: () => T) => T;
-export declare const runSideloads: (specs: SideloadSpec[] | undefined, items: unknown[], parentContract: SyncContract) => void;
+export declare const runSideloads: (specs: SideloadSpec<any>[] | undefined, items: unknown[], parentContract: SyncContract) => void;
 //# sourceMappingURL=sideload.d.ts.map

@@ -1,4 +1,4 @@
-import type { BaseQueryResult, DbRequestInfiniteConfig, DbRequestSingleConfig, InfiniteQueryResult } from '../../types';
+import type { BaseQueryCollection, BaseQueryResult, DbRequestInfiniteConfig, DbRequestSingleConfig, DbRequestSingleData, InfiniteQueryResult } from '../../types';
 /**
  * React hook that runs one GraphQL query, syncs selected data, and returns a reactive read.
  * @param config Query, selection, sync, extract, read, and React Query options.
@@ -14,11 +14,11 @@ import type { BaseQueryResult, DbRequestInfiniteConfig, DbRequestSingleConfig, I
  *   read: { model: UserModel, id }
  * });
  */
-export declare const useDbSingleRequest: <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>) => BaseQueryResult<TResult>;
+export declare const useDbSingleRequest: <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>, TRead extends BaseQueryCollection | undefined = BaseQueryCollection | undefined>(config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables, TRead>) => BaseQueryResult<DbRequestSingleData<TResult, TSelected, TRead>>;
 /**
  * React hook that runs cursor-paginated GraphQL queries and syncs page nodes.
  * @param config Paginated query, connection selector, collection binding, and pagination options.
- * @returns Infinite query result with reactive `items`, loading state, and pagination helpers.
+ * @returns Infinite query result with reactive `data`, loading state, and pagination helpers.
  *
  * @example
  * const feed = useDbInfiniteRequest({

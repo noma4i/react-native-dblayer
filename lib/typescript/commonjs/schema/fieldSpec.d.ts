@@ -53,6 +53,17 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
      * @returns A field spec with the same output rules and a new input type.
      */
     from: <TNextInput = TInput>(selector: (input: TNextInput) => unknown) => FieldSpec<TNextInput, TOut, TMode, THasDefault>;
+    /**
+     * Read this field from an own property on the input or a source-selected object.
+     *
+     * Missing keys, nullish sources, and non-object sources resolve to `undefined`; the field reader,
+     * nullability, and defaults then apply exactly as they do for `.from(...)`.
+     *
+     * @param key Source object key to read.
+     * @param source Optional selector that receives the full input object before the key read.
+     * @returns A field spec with the same output rules and a new input type.
+     */
+    fromKey: <TNextInput = TInput>(key: string, source?: (input: TNextInput) => unknown) => FieldSpec<TNextInput, TOut, TMode, THasDefault>;
 }
 export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = 'required', THasDefault extends boolean = false> extends FieldSpec<TInput, TOut, TMode, THasDefault> {
     /**
@@ -68,6 +79,7 @@ export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = '
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
 /** Select the raw source value for a field from an input object and key. */
 export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
+export declare const fieldSpecSparseRead: unique symbol;
 type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
     mode: TMode;
     selectSource: FieldSourceSelector<TInput>;
@@ -78,6 +90,8 @@ type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
 };
 /** Read `input[key]` when input is an object, otherwise return undefined. */
 export declare const readObjectField: <TInput>(input: TInput, key: string) => unknown;
+/** Read an own key from a source object, otherwise return undefined. */
+export declare const readSourceKey: (source: unknown, key: string) => unknown;
 /** Wrap a value reader so explicit null is preserved. */
 export declare const preserveNull: <TOut>(readValue: FieldValueReader<TOut>) => FieldValueReader<TOut>;
 /** Create a chainable field spec from low-level reader functions. */

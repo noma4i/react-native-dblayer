@@ -5,7 +5,7 @@ import type { DbCommandMutationConfig } from '../../types';
  * @param input Caller input.
  * @returns Command result field or null when the response field is missing.
  */
-export declare const runDbCommandDirect: <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>, input: TInput) => Promise<TData | null>;
+export declare const runDbCommandDirect: <TData, TInput, TExtractSpec = unknown>(config: DbCommandMutationConfig<TInput, TData, TExtractSpec>, input: TInput) => Promise<TData | null>;
 /**
  * React hook for fire-and-forget GraphQL commands without optimistic writes.
  * @param config Static or per-input command mutation config.
@@ -19,5 +19,5 @@ export declare const runDbCommandDirect: <TData, TInput>(config: DbCommandMutati
  *   resultField: 'trackEvent'
  * });
  */
-export declare const useCommand: <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>) => import("@tanstack/react-query").UseMutationResult<TData, Error, TInput, unknown>;
+export declare const useCommand: <TData, TInput, TExtractSpec = unknown>(config: DbCommandMutationConfig<TInput, TData, TExtractSpec>) => import("@tanstack/react-query").UseMutationResult<TData, Error, TInput, unknown>;
 //# sourceMappingURL=useCommand.d.ts.map

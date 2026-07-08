@@ -40,14 +40,29 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
     createdAtWindowMs?: number;
     /** Commit a matched optimistic row to the server node. */
     commit: (tempId: string, node: TNode) => void;
+    /**
+     * How to handle an incoming node whose id already exists in the model.
+     *
+     * - `'drop'` (default): the node is silently skipped - neither returned nor committed. This is the
+     *   original behavior; callers that need to apply an existing-id node as an update have to pre-check
+     *   `model.get(node.id)` themselves before calling this function.
+     * - `'return'`: the node is pushed into the returned array as-is, with no candidate matching attempted
+     *   and no `commit` call - e.g. a subscription echo of a row already applied by its own mutation
+     *   response. The caller decides how to apply it (patch, replace, or ignore).
+     *
+     * @default 'drop'
+     */
+    onExisting?: 'drop' | 'return';
 };
 /**
  * Reconcile incoming server nodes with matching optimistic rows.
  *
  * @param model Snapshot model used to check existing rows and scoped optimistic candidates.
  * @param nodes Incoming server nodes.
- * @param options Candidate resolution, matching, timestamp window, and commit callback.
- * @returns Server nodes that were not matched or skipped as already present.
+ * @param options Candidate resolution, matching, timestamp window, commit callback, and `onExisting`
+ * policy for nodes whose id already exists in the model.
+ * @returns Server nodes that were not matched, plus (with `onExisting: 'return'`) nodes whose id already
+ * existed in the model.
  */
 export declare const reconcileOptimisticRows: <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(model: SnapshotModel<TStored>, nodes: TNode[], options: ReconcileOptimisticRowsOptions<TStored, TNode>) => TNode[];
 /**
@@ -113,6 +128,60 @@ export type ThrottledSingleFlightOptions<TArgs extends unknown[]> = {
  * @returns A wrapped function that shares in-flight work and resolves `undefined` for suppressed or failed calls.
  */
 export declare const createThrottledSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options: ThrottledSingleFlightOptions<TArgs>) => ((...args: TArgs) => Promise<TResult | undefined>);
+export type KeyedBatchBufferDedupe<TItem> = {
+    /** Stable dedupe id for an item inside a keyed bucket. */
+    idOf: (item: TItem) => string;
+    /** Return true when the candidate should replace the existing item with the same dedupe id. */
+    isNewer: (candidate: TItem, existing: TItem) => boolean;
+};
+export type KeyedBatchBufferConfig<TItem> = {
+    /** Bucket key for an incoming item. */
+    keyOf: (item: TItem) => string;
+    /** Trailing flush delay for each independent bucket. */
+    flushMs: number;
+    /** Flush a bucket synchronously when its buffered item count reaches this size. */
+    maxSize?: number;
+    /** Optional newest-wins dedupe policy inside each bucket. */
+    dedupe?: KeyedBatchBufferDedupe<TItem>;
+    /** Flush callback. Errors are contained and logged. */
+    onFlush: (key: string, items: TItem[]) => void;
+};
+export type KeyedBatchBuffer<TItem> = {
+    /** Push an item into its keyed bucket and start or refresh that bucket's trailing timer. */
+    push(item: TItem): void;
+    /** Flush every non-empty bucket immediately. */
+    flushAll(): void;
+    /** Drop every bucket without firing `onFlush`. */
+    clear(): void;
+};
+/**
+ * Create a keyed trailing batch buffer with independent bucket timers.
+ *
+ * @param config Keying, timing, optional cap/dedupe policy, and flush callback.
+ * @returns Runtime buffer controls for pushing, flushing, and clearing pending items.
+ */
+export declare const createKeyedBatchBuffer: <TItem>(config: KeyedBatchBufferConfig<TItem>) => KeyedBatchBuffer<TItem>;
+export type TombstoneLedgerConfig = {
+    /** Maximum age for an in-memory tombstone. */
+    ttlMs: number;
+};
+export type TombstoneLedger = {
+    /** Mark an id as tombstoned in memory. */
+    mark(id: string): void;
+    /** Return true while the id has a non-expired in-memory tombstone. */
+    has(id: string): boolean;
+    /** Drop every in-memory tombstone. */
+    clear(): void;
+};
+/**
+ * Create a memory-only tombstone ledger.
+ *
+ * Expired entries are pruned lazily on `mark` and `has`; no interval or persistence is used by design.
+ *
+ * @param config Tombstone TTL in milliseconds.
+ * @returns In-memory mark, lookup, and clear operations.
+ */
+export declare const createTombstoneLedger: (config: TombstoneLedgerConfig) => TombstoneLedger;
 export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (id: string, ...args: TArgs) => boolean;
 export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
     /** Replace an existing sub-row with the same key, then append the normalized sub-row. */
@@ -167,7 +236,6 @@ export declare const singletonStatics: <TStored extends RowId>(model: SingletonM
     defaults: TStored;
     current: () => TStored | undefined;
     useCurrent: () => TStored;
-    upsert: (input: Partial<TStored>) => void;
     upsertCurrent: (input: Partial<TStored>) => void;
     patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min?: number) => boolean;
 };
