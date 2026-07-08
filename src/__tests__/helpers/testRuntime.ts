@@ -92,7 +92,7 @@ export const createTodoModel = (options?: { id?: string; staleTime?: number; emp
     replace: {},
     defaultSort: { field: 'id', direction: 'asc' }
   });
-  testCollections.push(model._collection as unknown as { cleanup: () => Promise<void> });
+  testCollections.push(model.collection as unknown as { cleanup: () => Promise<void> });
   return model;
 };
 
@@ -115,7 +115,7 @@ export const createTodoFieldsModel = (options?: { id?: string; staleTime?: numbe
     replace: {},
     defaultSort: { field: 'id', direction: 'asc' }
   });
-  testCollections.push(model._collection as unknown as { cleanup: () => Promise<void> });
+  testCollections.push(model.collection as unknown as { cleanup: () => Promise<void> });
   return model;
 };
 

@@ -627,7 +627,6 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     },
     getAll: () => attachRelatedToRows(Array.from(rawCollection.values())),
     getWhere: filter => getSnapshotWhere(filter),
-    getFirstWhere: (filter, options) => getSnapshotFirstWhere(filter, options),
     getFirst: (filter, options) => getSnapshotFirstWhere(filter, options),
     patch: (id, updates) => {
       const changed = crud.patch(id, updates);
@@ -668,8 +667,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     byIds: useByIds,
     first: useFirst,
     count: useCount,
-    collection: tanstackCollection,
-    _collection: tanstackCollection
+    collection: tanstackCollection
   };
 
   const modelBase = hasFieldsConfig(config) ? { ...baseModel, buildStored: createStoredRowBuilder(config.name, config.fields) } : baseModel;

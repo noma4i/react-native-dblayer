@@ -432,7 +432,7 @@ describe('model relations', () => {
       chats: hasMany(hydratedChatModel, { foreignKey: 'userId', dependent: 'destroy' })
     }));
 
-    await Promise.all([hydratedUserModel._collection.stateWhenReady(), hydratedChatModel._collection.stateWhenReady(), hydratedMessageModel._collection.stateWhenReady()]);
+    await Promise.all([hydratedUserModel.collection.stateWhenReady(), hydratedChatModel.collection.stateWhenReady(), hydratedMessageModel.collection.stateWhenReady()]);
 
     expect(hydratedUserModel.get('user-1')?.related.chats.map(chat => chat.id)).toEqual(['chat-1']);
     expect(hydratedChatModel.get('chat-1')?.related.messages.map(message => message.id)).toEqual(['message-1']);

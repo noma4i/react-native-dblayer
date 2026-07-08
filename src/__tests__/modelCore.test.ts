@@ -36,7 +36,7 @@ describe('collection model core DSL', () => {
 
     expect(model.get('1')?.title).toBe('One');
     expect(model.getWhere({ listId: 'a' }).map(item => item.id)).toEqual(['1']);
-    expect(model.getFirstWhere({ done: true })?.id).toBe('2');
+    expect(model.getFirst({ done: true })?.id).toBe('2');
     expect(model.getAll().map(item => item.id)).toEqual(['1', '2']);
   });
 
@@ -46,7 +46,6 @@ describe('collection model core DSL', () => {
 
     model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: earlier });
 
-    expect(model.collection).toBe(model._collection);
     expect(model.collection.state.get('1')?.title).toBe('One');
   });
 

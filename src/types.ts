@@ -500,8 +500,6 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   /** Snapshot read of rows matching a typed predicate. */
   getWhere(filter: DbWhere<TStored>): TStored[];
   /** Snapshot read of the first row matching a typed predicate. */
-  getFirstWhere(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
-  /** Snapshot alias for `getFirstWhere`. */
   getFirst(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
   /** Shallow-update one row and return whether it changed. */
   patch(id: string, updates: Partial<StoredWriteInput<TStored>>): boolean;
@@ -543,8 +541,6 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   count(filter?: DbWhere<TStored> | null): number;
   /** Public backing TanStack DB collection for live-query joins. */
   collection: Collection<TStored, string>;
-  /** Backing TanStack DB collection. Prefer `collection` for new consumers. */
-  _collection: Collection<TStored, string>;
 }
 
 export type DbKeyModelSource = {

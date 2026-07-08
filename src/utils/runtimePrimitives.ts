@@ -493,7 +493,6 @@ export const singletonStatics = <TStored extends RowId>(model: SingletonModel<TS
     defaults,
     current: (): TStored | undefined => model.get(recordId),
     useCurrent: (): TStored => model.find(recordId) ?? defaults,
-    upsert,
     upsertCurrent: upsert,
     patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min = 0): boolean => {
       if (delta === 0) return false;

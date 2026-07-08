@@ -113,7 +113,7 @@ describe('typed predicate DSL', () => {
     expect(count.current).toBe(2);
     expect(primaryRows.current.map(row => row.id)).toEqual(['c', 'b', 'd']);
     expect(latestInChat.current?.id).toBe('e');
-    expect(model.getFirstWhere({ chatId: 'c1' }, { orderBy: { field: 'createdAt', direction: 'desc' } })?.id).toBe('e');
+    expect(model.getFirst({ chatId: 'c1' }, { orderBy: { field: 'createdAt', direction: 'desc' } })?.id).toBe('e');
     expect(model.getFirst({ chatId: 'c1' }, { orderBy: { field: 'createdAt', direction: 'desc' } })?.id).toBe('e');
 
     act(() => {

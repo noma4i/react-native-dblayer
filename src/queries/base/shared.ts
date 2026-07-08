@@ -87,7 +87,7 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
   }
 
   const readRows = (filter: unknown, inactive: boolean): TStored[] => {
-    const col = model._collection;
+    const col = model.collection;
     const sortField = readConfig?.sortField;
     const sortDir = readConfig?.sortDirection ?? 'desc';
     const scopeEntries = buildScopeEntries<TStored>(filter, readConfig?.scopeMap);
