@@ -129,6 +129,24 @@ describe('extract factories', () => {
     expect(sharedSink).toHaveBeenCalledWith([{ tag: 'a' }, { tag: 'b' }], 'mutation');
   });
 
+  it('resolves true and selector-function presets, skips false/undefined/null silently, and rejects anything else', () => {
+    const resolver = createMutationExtractResolver<{ chat?: unknown }>({
+      chat: { sink: 'chats', read: () => ({ id: 'chat-1' }), many: false }
+    });
+
+    expect(resolver({ chat: true }, {})).toEqual({ chats: { id: 'chat-1' } });
+    expect(resolver({ chat: () => ({ id: 'chat-selected' }) }, {})).toEqual({ chats: { id: 'chat-selected' } });
+
+    // `false`/`undefined`/`null` are the recognized "not requested" markers - they skip silently.
+    expect(resolver({ chat: false }, {})).toBeUndefined();
+    expect(resolver({ chat: undefined }, {})).toBeUndefined();
+    expect(resolver({ chat: null }, {})).toBeUndefined();
+
+    // Anything else is a configuration mistake, not a skip - it throws with the sink key name.
+    expect(() => resolver({ chat: 'true' }, {})).toThrow(/sink "chats"/);
+    expect(() => resolver({ chat: 1 }, {})).toThrow(/sink "chats"/);
+  });
+
   it('applies model sinks, custom sinks, and declaration order', () => {
     const order: string[] = [];
     const usersModel = {

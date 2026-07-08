@@ -107,6 +107,24 @@ const appendExtractValue = (output: Record<string, unknown>, key: string, value:
   output[key] = Array.isArray(value) ? [existing].concat(value) : [existing, value];
 };
 
+const describePresetValue = (value: unknown): string => {
+  if (typeof value === 'string') return `string "${value}"`;
+  if (typeof value === 'symbol' || typeof value === 'function') return typeof value;
+  try {
+    return `${typeof value} ${JSON.stringify(value)}`;
+  } catch {
+    return typeof value;
+  }
+};
+
+/**
+ * Resolve one mutation extract preset entry's value for the current result.
+ *
+ * `false`/`undefined`/`null` are the only recognized "not requested" markers and resolve to `undefined`
+ * (skipped by the caller's `isEmptyExtractValue` check) exactly as before. Any other value that is
+ * neither `true` nor a selector function is a configuration mistake, not a legitimate skip - e.g.
+ * `extract: { chat: 'true' }` or `{ chat: 1 }` - and throws instead of silently extracting nothing.
+ */
 const resolvePresetValue = <TResult>(
   preset: unknown,
   entry: DbMutationExtractPresetEntry<TResult>,
@@ -123,7 +141,9 @@ const resolvePresetValue = <TResult>(
     return entry.many === false ? selected : liftExtractNodes(selected);
   }
 
-  return undefined;
+  if (preset === false || preset == null) return undefined;
+
+  throw new Error(`Invalid mutation extract preset for sink "${entry.sink}": expected \`true\` or a selector function, received ${describePresetValue(preset)}.`);
 };
 
 /**
