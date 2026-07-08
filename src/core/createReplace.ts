@@ -14,7 +14,7 @@ export function createReplace<TInput, TOutput extends { id: string }>(
       if (config.collection.has(item.id)) {
         const existing = config.collection.get(item.id);
         if (existing) {
-          // Replace keeps the legacy timestamp gate only when both sides carry updatedAt.
+          // Replace keeps the timestamp gate only when both sides carry updatedAt.
           if (
             !shouldAcceptIncoming(existing as TOutput & Record<string, unknown>, item as TOutput & Record<string, unknown>, {
               timestampMode: 'when-both-present',

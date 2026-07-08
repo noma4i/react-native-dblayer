@@ -108,6 +108,10 @@ const findBestOptimisticCandidate = <TStored extends CreatedAtRow, TNode extends
 
 /**
  * Reconcile incoming server nodes with matching optimistic rows.
+ *
+ * @param model Snapshot model used to check existing rows and scoped optimistic candidates.
+ * @param nodes Incoming server nodes.
+ * @param options Candidate resolution, matching, timestamp window, and commit callback.
  * @returns Server nodes that were not matched or skipped as already present.
  */
 export const reconcileOptimisticRows = <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(
@@ -148,7 +152,14 @@ const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel
 
 const toExpiryTimestamp = (value: CreatedAtLike): number => toTimestamp(value);
 
-/** Delete rows whose foreign key no longer points at a live parent id. */
+/**
+ * Delete rows whose foreign key no longer points at a live parent id.
+ *
+ * @param model Model that can snapshot rows and destroy by id.
+ * @param foreignKeyField Row field that stores the parent id.
+ * @param liveParentIds Live parent ids accepted by the cleanup pass.
+ * @returns Number of rows deleted through `destroyMany`.
+ */
 export const pruneOrphanedRows = <TStored extends RowId, TForeignKey extends Extract<keyof TStored, string>>(
   model: DestroyManyModel<TStored>,
   foreignKeyField: TForeignKey,
@@ -166,7 +177,17 @@ export const pruneOrphanedRows = <TStored extends RowId, TForeignKey extends Ext
   return destroyManyIfNeeded(model, idsToDestroy);
 };
 
-/** Delete rows whose timestamp field is older than the supplied TTL. Invalid timestamps are kept. */
+/**
+ * Delete rows whose timestamp field is older than the supplied TTL.
+ *
+ * Invalid timestamps are kept.
+ *
+ * @param model Model that can snapshot rows and destroy by id.
+ * @param field Row field containing a string, number, or Date timestamp.
+ * @param ttlMs Maximum allowed age in milliseconds.
+ * @param now Reference time; defaults to `Date.now()`.
+ * @returns Number of rows deleted through `destroyMany`.
+ */
 export const pruneExpiredRows = <TStored extends RowId, TField extends Extract<keyof TStored, string>>(
   model: DestroyManyModel<TStored>,
   field: TField,
@@ -199,7 +220,15 @@ const toProtectPredicate = <TStored extends RowId>(protect?: RowProtect<TStored>
 
 /**
  * Keep at most `maxPerScope` unprotected rows in each scope.
+ *
  * The supplied comparator must order rows from newest/most important to oldest.
+ *
+ * @param model Model that can snapshot rows and delete rows for maintenance.
+ * @param scopeField Row field used to group rows.
+ * @param maxPerScope Maximum unprotected rows kept per scope.
+ * @param compare Comparator applied inside each scope before trimming.
+ * @param protect Optional protected row predicate or id list.
+ * @returns Number of rows deleted.
  */
 export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extract<keyof TStored, string>>(
   model: DestroyManyModel<TStored>,
@@ -242,7 +271,13 @@ export type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
   onStale: (row: TStored) => void;
 };
 
-/** Run `onStale` for temp-id rows older than the age threshold and not protected. */
+/**
+ * Run `onStale` for temp-id rows older than the age threshold and not protected.
+ *
+ * @param model Snapshot model used to scan temp rows.
+ * @param options Age threshold, optional protected ids, and stale-row callback.
+ * @returns Number of stale temp rows resolved.
+ */
 export const resolveStaleTempRows = <TStored extends CreatedAtRow>(
   model: Pick<DestroyManyModel<TStored>, 'getAll'>,
   options: ResolveStaleTempRowsOptions<TStored>
@@ -274,7 +309,12 @@ const defaultIsForced = (arg: unknown): boolean =>
 
 /**
  * Coalesce concurrent calls and suppress calls inside the post-success interval.
+ *
  * Suppressed calls and failed executions resolve to `undefined`.
+ *
+ * @param fn Async task to run at most once concurrently.
+ * @param options Minimum post-success interval and optional force predicate.
+ * @returns A wrapped function that shares in-flight work and resolves `undefined` for suppressed or failed calls.
  */
 export const createThrottledSingleFlight = <TArgs extends unknown[], TResult>(
   fn: (...args: TArgs) => Promise<TResult>,
@@ -330,7 +370,13 @@ export type IdArrayPatcher = {
   remove(ids: string[] | null | undefined, id: string): string[];
 };
 
-/** Create immutable patch helpers for an array of keyed shape sub-rows. */
+/**
+ * Create immutable patch helpers for an array of keyed shape sub-rows.
+ *
+ * @param shape Shape used to normalize incoming sub-rows.
+ * @param options Key field used for replacement/removal.
+ * @returns Immutable `upsert` and `remove` helpers for nullable arrays.
+ */
 export const createKeyedArrayPatcher = <TShape extends AnyDbShape, TSub extends InferShapeStored<TShape>, TKey extends Extract<keyof TSub, string>>(
   shape: TShape,
   options: { key: TKey }
@@ -345,7 +391,11 @@ export const createKeyedArrayPatcher = <TShape extends AnyDbShape, TSub extends 
   }
 });
 
-/** Create immutable patch helpers for id arrays. */
+/**
+ * Create immutable patch helpers for id arrays.
+ *
+ * @returns Immutable `upsert` and `remove` helpers that tolerate nullish arrays.
+ */
 export const createIdArrayPatcher = (): IdArrayPatcher => ({
   upsert(ids, id, position) {
     const next = (ids ?? []).filter(existingId => existingId !== id);
@@ -356,7 +406,14 @@ export const createIdArrayPatcher = (): IdArrayPatcher => ({
   }
 });
 
-/** Create a shallow patcher for a nullable nested object field. */
+/**
+ * Create a shallow patcher for a nullable nested object field.
+ *
+ * @param model Model used to read and patch the containing row.
+ * @param field Nested object field to patch.
+ * @param transform Function that derives a partial nested update from the current nested value and caller args.
+ * @returns A patcher that returns `false` when the row or nested object is missing.
+ */
 export const createNestedObjectPatcher = <
   TRow extends RowId,
   TField extends Extract<keyof TRow, string>,
@@ -391,7 +448,14 @@ const removeSingletonId = <TStored extends RowId>(input: Partial<TStored>): Omit
   return updates;
 };
 
-/** Build statics for a single-row model with defaults and clamped numeric updates. */
+/**
+ * Build statics for a single-row model with defaults and clamped numeric updates.
+ *
+ * @param model Model that owns the singleton row.
+ * @param recordId Stable singleton row id.
+ * @param defaults Default row returned before insertion and used for first upsert.
+ * @returns Singleton statics for reading, upserting, and clamped numeric patches.
+ */
 export const singletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
   const upsert = (input: Partial<TStored>): void => {
     const updates = removeSingletonId(input);

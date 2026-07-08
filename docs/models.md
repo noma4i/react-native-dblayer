@@ -31,7 +31,7 @@ Returns a `CollectionModel<unknown, UserData>`. Raw server payloads can be passe
 field readers are defensive and skip malformed values. `UserInput` is a sparse write shape:
 `Partial<UserData> & { id: string }`.
 
-The legacy normalize form remains supported as an escape hatch:
+The custom `normalize` form remains supported as an escape hatch:
 
 ```ts
 export const MessageModel = defineModel<MessageInput, Message>({

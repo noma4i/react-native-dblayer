@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.2-beta.0 - 2026-07-08
+
+- Add IntelliSense-grade JSDoc for every value exported from `src/index.ts`, including schema builders, field-spec modifiers, shape helpers, relations, query/runtime helpers, and runtime primitives.
+- Keep documentation current by removing the retired ActiveRecord README references and documenting array patchers in runtime primitives.
+
 ## 2.3.1 - 2026-07-08
 
 - Add shape-derivation helpers: `projectShape`, `f.object(shape).emptyDefault()`, `createKeyedArrayPatcher`, and `createIdArrayPatcher`.

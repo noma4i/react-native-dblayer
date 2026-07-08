@@ -358,16 +358,16 @@ describe('fields-based model definitions', () => {
     }
   });
 
-  it('registers fields and legacy normalize models', () => {
+  it('registers fields and custom normalize models', () => {
     installMemoryStorage();
     const fieldsModel = createUserModel('fields-users-registry');
-    const legacyModel = defineModel<{ id: string; title: string }, { id: string; title: string }>({
-      id: 'legacy-registry',
-      name: 'LegacyRegistryModel',
+    const normalizeModel = defineModel<{ id: string; title: string }, { id: string; title: string }>({
+      id: 'normalize-registry',
+      name: 'NormalizeRegistryModel',
       normalize: input => ({ id: input.id, title: input.title })
     });
 
     expect(getRegisteredModel('FieldsUserModel:fields-users-registry')).toBe(fieldsModel);
-    expect(getRegisteredModel('LegacyRegistryModel')).toBe(legacyModel);
+    expect(getRegisteredModel('NormalizeRegistryModel')).toBe(normalizeModel);
   });
 });

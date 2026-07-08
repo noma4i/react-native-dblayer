@@ -42,10 +42,34 @@ Returns a function that coalesces concurrent calls and suppresses calls inside t
 | `isForced(...args)` is true, or first arg has `{ force: true }` | Bypasses interval suppression. |
 | `fn` rejects or throws | Resolves `undefined`; the success timestamp is not advanced. |
 
+## Array patchers
+
+`createKeyedArrayPatcher(shape, { key })` returns immutable helpers for array-of-shape sub-rows:
+
+| Method | Parameters | Behavior |
+| --- | --- | --- |
+| `upsert` | `(rows, input)` | Normalizes `input` with `shape`, removes an existing row with the same `key`, then appends the normalized row. Nullish `rows` are treated as `[]`. |
+| `remove` | `(rows, keyValue)` | Removes rows whose `key` equals `keyValue`. Nullish `rows` are treated as `[]`. |
+
+`createIdArrayPatcher()` returns immutable helpers for id arrays:
+
+| Method | Parameters | Behavior |
+| --- | --- | --- |
+| `upsert` | `(ids, id, 'prepend' | 'append')` | Dedupes `id` and inserts it at the requested edge. Nullish `ids` are treated as `[]`. |
+| `remove` | `(ids, id)` | Removes `id`. Nullish `ids` are treated as `[]`. |
+
 ## `createNestedObjectPatcher(model, field, transform)`
 
-Creates `(id, ...args) => boolean`. The patcher reads the row, returns `false` when `row[field]` is `null` or
-missing, and otherwise patches `{ [field]: { ...current, ...transform(current, ...args) } }`.
+Creates `(id, ...args) => boolean`.
+
+| Parameter | Description |
+| --- | --- |
+| `model` | Model used to read and patch the containing row. |
+| `field` | Nested object field to patch. |
+| `transform` | Function that receives the current nested object and caller args, then returns a shallow partial update. |
+
+The patcher reads the row, returns `false` when `row[field]` is `null` or missing, and otherwise patches
+`{ [field]: { ...current, ...transform(current, ...args) } }`.
 
 ## `singletonStatics(model, recordId, defaults)`
 

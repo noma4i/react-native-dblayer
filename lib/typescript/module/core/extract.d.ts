@@ -31,6 +31,12 @@ export declare const getDbExtractSink: () => DbExtractSink;
 export declare const setDbMutationExtractResolver: (resolver: DbMutationExtractResolver) => void;
 /** Get the currently configured mutation extract resolver. */
 export declare const getDbMutationExtractResolver: () => DbMutationExtractResolver;
+/**
+ * Normalize a mutation extract value into a compact array of non-null nodes.
+ *
+ * @param value Single node, node array, or nullish extract result.
+ * @returns A node array with nullish entries removed.
+ */
 export declare const liftExtractNodes: (value: DbMutationExtractValue) => unknown[];
 /**
  * Build a mutation extract resolver from a declarative preset table.

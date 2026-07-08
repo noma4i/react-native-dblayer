@@ -217,27 +217,6 @@ UserModel.replaceRaw(tempId, serverRow);                              // optimis
 
 → **Reference:** [Models](./docs/models.md) — reads, writes, `SyncContract` (merge vs replace), and freshness.
 
-## 6. ActiveRecord DSL
-
-A chainable, ergonomic layer over any model.
-
-```tsx
-import { query, useInstance } from '@noma4i/react-native-dblayer';
-
-const count = query(UserModel).where({ role: 'admin' }).count(); // reactive hook
-
-function UserRow({ id }: { id: string }) {
-  const user = useInstance(UserModel, id);                        // Readonly<User> + update/delete
-  return user ? <Button title={user.name} onPress={() => user.update({ role: 'admin' })} /> : null;
-}
-
-query(UserModel).where({ active: false }).update({ archived: true }); // bulk, anywhere
-query(UserModel).where({ role: 'guest' }).delete();
-```
-
-→ **Reference:** [ActiveRecord](./docs/active-record.md) — `query` / `ModelRelation`, `instance` / `useInstance` /
-`ModelInstance`.
-
 ## Freshness & storage
 
 Every model records when each scope was last fetched (persisted across restarts), so the query DSL skips redundant
@@ -251,7 +230,7 @@ network calls — tune it with `staleTime`. Persistence is MMKV-backed by defaul
 
 Full, parameter-by-parameter reference lives in [`docs/`](./docs/README.md):
 [Configuration](./docs/configuration.md) · [Models](./docs/models.md) · [Queries](./docs/queries.md) ·
-[Mutations](./docs/mutations.md) · [ActiveRecord](./docs/active-record.md).
+[Mutations](./docs/mutations.md) · [Runtime primitives](./docs/runtime-primitives.md).
 
 ## License
 

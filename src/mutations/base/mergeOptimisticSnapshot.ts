@@ -5,6 +5,13 @@ export type MergeOptimisticSnapshotOptions<TOptimistic extends object, TServer e
   mergers?: Partial<Record<keyof (TOptimistic & TServer), MergeOptimisticFieldMerger>>;
 };
 
+/**
+ * Choose a committed field value while preserving useful optimistic placeholders.
+ *
+ * @param optimisticValue Existing optimistic field value.
+ * @param serverValue Incoming server field value.
+ * @returns The optimistic value when the server value is nullish or empty string, otherwise the server value.
+ */
 export const resolveMergedField = (optimisticValue: unknown, serverValue: unknown): unknown => {
   if (serverValue === null || serverValue === undefined) {
     return optimisticValue;
@@ -43,6 +50,14 @@ const mergeAllFields = <TOptimistic extends object, TServer extends object>(
   return merged as TOptimistic & TServer;
 };
 
+/**
+ * Merge an optimistic row snapshot with a committed server node.
+ *
+ * @param optimistic Optimistic row captured before commit.
+ * @param server Server node returned by the mutation.
+ * @param options Optional field allowlist and custom field mergers.
+ * @returns The merged object, or whichever side exists when the other side is nullish.
+ */
 export const mergeOptimisticSnapshot = <TOptimistic extends object, TServer extends object>(
   optimistic: TOptimistic | null | undefined,
   server: TServer | null | undefined,

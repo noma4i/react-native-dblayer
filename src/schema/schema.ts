@@ -15,6 +15,12 @@ const normalizeId = (value: unknown): string | null => {
   return id;
 };
 
+/**
+ * Build a row-id resolver by joining normalized selector outputs with `:`.
+ *
+ * @param selectors Functions that read id parts from an input object.
+ * @returns A resolver that returns `null` when any selector fails or yields an empty id part.
+ */
 export const compositeId =
   <TInput>(...selectors: Array<(input: TInput) => unknown>): ((input: TInput) => string | null) =>
   input => {

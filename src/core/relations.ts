@@ -60,6 +60,13 @@ export const getCascadeController = (model: unknown): CascadeController | undefi
   return cascadeControllers.get(model);
 };
 
+/**
+ * Declare a direct child collection relation.
+ *
+ * @param model Child model whose stored rows contain the parent foreign key.
+ * @param options Foreign-key field and optional dependent action.
+ * @returns Relation metadata used for related accessors and cascade destroy.
+ */
 export const hasMany = <
   TChildModel extends RelationModel<any>,
   TChildStored extends StoredRowBase = StoredOfRelationModel<TChildModel>,
@@ -74,6 +81,12 @@ export const hasMany = <
   dependent: options.dependent
 });
 
+/**
+ * Declare a query-only relation through another direct hasMany relation.
+ *
+ * @param options Names of the through relation and the source relation on through rows.
+ * @returns Relation metadata used for composed related accessors.
+ */
 export const hasManyThrough = <TThrough extends string, TSource extends string>(options: {
   through: TThrough;
   source: TSource;
@@ -83,6 +96,13 @@ export const hasManyThrough = <TThrough extends string, TSource extends string>(
   source: options.source
 });
 
+/**
+ * Declare an inverse parent relation from a child row foreign key.
+ *
+ * @param model Parent model read by the child foreign key.
+ * @param options Foreign-key field and optional touch propagation.
+ * @returns Relation metadata used for parent related accessors.
+ */
 export const belongsTo = <
   TParentModel extends BelongsToModel<any>,
   TForeignKey extends string

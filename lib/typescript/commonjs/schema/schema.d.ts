@@ -7,6 +7,12 @@ export type DbSchema<TInput, TFields extends SchemaFields<TInput>> = {
         id: string;
     }) | null;
 };
+/**
+ * Build a row-id resolver by joining normalized selector outputs with `:`.
+ *
+ * @param selectors Functions that read id parts from an input object.
+ * @returns A resolver that returns `null` when any selector fails or yields an empty id part.
+ */
 export declare const compositeId: <TInput>(...selectors: Array<(input: TInput) => unknown>) => ((input: TInput) => string | null);
 export declare const createSchema: <TInput, TFields extends SchemaFields<TInput>>(config: {
     fields: TFields;

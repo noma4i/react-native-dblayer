@@ -229,16 +229,16 @@ describe('model sideload runtime', () => {
     expect(childModel.getAll().map(row => ({ id: row.id, name: row.name }))).toEqual([{ id: 'c1', name: 'Child' }]);
   });
 
-  it('supports sideload on legacy normalize models', () => {
+  it('supports sideload on custom normalize models', () => {
     installMemoryStorage();
-    const childModel = createChildModel('sideload-legacy-child', 'SideloadLegacyChildModel');
+    const childModel = createChildModel('sideload-normalize-child', 'SideloadNormalizeChildModel');
     const parentModel = defineModel<{ id: string; title: string; child?: unknown }, { id: string; title: string }>({
-      id: 'sideload-legacy-parent',
-      name: 'SideloadLegacyParentModel',
+      id: 'sideload-normalize-parent',
+      name: 'SideloadNormalizeParentModel',
       normalize: input => ({ id: input.id, title: input.title }),
       sideload: [
         {
-          model: 'SideloadLegacyChildModel',
+          model: 'SideloadNormalizeChildModel',
           pluck: input => input.child
         }
       ],

@@ -58,6 +58,12 @@ export const getDbMutationExtractResolver = (): DbMutationExtractResolver => cur
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
+/**
+ * Normalize a mutation extract value into a compact array of non-null nodes.
+ *
+ * @param value Single node, node array, or nullish extract result.
+ * @returns A node array with nullish entries removed.
+ */
 export const liftExtractNodes = (value: DbMutationExtractValue): unknown[] => {
   if (value == null) return [];
   if (Array.isArray(value)) return value.filter(item => item != null);
