@@ -6,7 +6,7 @@ export { deriveDbKey } from './core/deriveDbKey';
 export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
-export { hasMany } from './core/relations';
+export { hasMany, hasManyThrough } from './core/relations';
 export { computeLoadingState } from './queries/base/loadingState';
 export { clearModelRegistry, getRegisteredModel, registerModel } from './core/modelRegistry';
 export {
@@ -157,6 +157,7 @@ export type {
   HasManyDependent,
   HasManyOptions,
   HasManyRelation,
+  HasManyThroughRelation,
   InfiniteQueryConfig,
   InfiniteQueryResult,
   InfiniteSyncContractResolverContext,
@@ -168,6 +169,7 @@ export type {
   ModelBuildStoredInput,
   ModelFieldSpecs,
   ModelRelation,
+  ModelRelationConfigValue,
   ModelRelationDefinition,
   ModelRelationsConfig,
   NormalizedPageInfo,
@@ -178,6 +180,9 @@ export type {
   PersistentCollection,
   PersistentMutationTransaction,
   RelationModel,
+  RelatedAccessor,
+  RelatedRecord,
+  RelatedSurface,
   ReplaceResult,
   ServerSyncContract,
   ServerSyncMode,

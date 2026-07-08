@@ -12,8 +12,10 @@ import type {
   MergeResult,
   ModelBuildStoredInput,
   ModelFieldSpecs,
+  ModelRelationsConfig,
   ModelStoredFromFields,
   PersistentMutationTransaction,
+  RelatedSurface,
   ReplaceResult,
   SyncContract
 } from '../types';
@@ -25,7 +27,7 @@ import { createReplace } from './createReplace';
 import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
 import { getDbModelDefaults } from './modelDefaults';
 import { registerModel } from './modelRegistry';
-import { getCascadeController, registerCascadeController, relationValues } from './relations';
+import { buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { stableSerialize } from './serialize';
 import { runSideloads, withApplyingModel } from './sideload';
@@ -113,7 +115,7 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
   return { getFetchState, markFetched, touch, clearFetchState, isStale, shouldSkipInitialFetch, clear, reset };
 };
 
-type RuntimeModelConfig = CreateCollectionModelNormalizeConfig<any, any, any> | CreateCollectionModelFieldsConfig<any, any>;
+type RuntimeModelConfig = CreateCollectionModelNormalizeConfig<any, any, any, any> | CreateCollectionModelFieldsConfig<any, any, any>;
 
 const hasFieldsConfig = (config: RuntimeModelConfig): config is CreateCollectionModelFieldsConfig<ModelFieldSpecs, Record<string, unknown>> => 'fields' in config;
 
@@ -169,12 +171,27 @@ const createStoredRowBuilder =
     return output;
   };
 
+export function createCollectionModel<
+  TInput,
+  TStored extends { id: string; updatedAt?: string | null },
+  TExt extends Record<string, unknown> = {},
+  TRelations extends ModelRelationsConfig = any
+>(
+  config: CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, TRelations> & { relations: () => TRelations }
+): CollectionModel<TInput, TStored> & TExt & RelatedSurface<TRelations>;
 /** Create a collection model from a persistent collection and normalizer. */
 export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
-  config: CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>
+  config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'relations'> & { relations?: undefined }
 ): CollectionModel<TInput, TStored> & TExt;
+export function createCollectionModel<
+  TFields extends ModelFieldSpecs,
+  TExt extends Record<string, unknown> = {},
+  TRelations extends ModelRelationsConfig = any
+>(
+  config: CreateCollectionModelFieldsConfig<TFields, TExt, TRelations> & { relations: () => TRelations }
+): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt & RelatedSurface<TRelations>;
 export function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
-  config: CreateCollectionModelFieldsConfig<TFields, TExt>
+  config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'relations'> & { relations?: undefined }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0 } = config;
@@ -182,7 +199,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<any>(collectionId, staleTime);
   let resetMergeState = (): void => {};
-  let relationCache: ReturnType<typeof relationValues> | null = null;
+  let relationCache: ModelRelationsConfig | null = null;
 
   const merge = createMerge<any, any>({
     collection: rawCollection,
@@ -246,11 +263,14 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
 
   const shouldSkipInitialFetch = (filter?: Partial<any>, maxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs);
 
-  const resolveRelations = (): ReturnType<typeof relationValues> => {
-    if (relationCache) return relationCache;
-    relationCache = relationValues(config.relations?.());
-    return relationCache;
+  const resolveRelationMap = (): ModelRelationsConfig => {
+    if (relationCache !== null) return relationCache;
+    const nextRelations = config.relations?.() ?? {};
+    relationCache = nextRelations;
+    return nextRelations;
   };
+
+  const resolveRelations = (): ReturnType<typeof relationValues> => relationValues(resolveRelationMap());
 
   const hasRelations = (): boolean => typeof config.relations === 'function';
 
@@ -284,7 +304,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
 
     const victimSet = new Set(victimIds);
     for (const relation of relations) {
-      if (relation.dependent !== 'destroy') continue;
+      if (relation.kind !== 'hasMany' || relation.dependent !== 'destroy') continue;
 
       const childController = getCascadeController(relation.model);
       if (!childController) {
@@ -436,7 +456,8 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     registerCascadeController(model, {
       modelName: config.name,
       destroyManyWithCascade,
-      getIdsWhereFieldIn
+      getIdsWhereFieldIn,
+      getRelation: name => (hasRelations() ? resolveRelationMap()[name] : undefined)
     });
   };
 
@@ -483,10 +504,29 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
 
   const modelBase = hasFieldsConfig(config) ? { ...baseModel, buildStored: createStoredRowBuilder(config.name, config.fields) } : baseModel;
   registerModelCascadeController(modelBase);
+
+  const attachRelatedAccessors = <TModel extends object>(model: TModel): TModel => {
+    if (!hasRelations()) return model;
+
+    let relatedCache: unknown;
+    Object.defineProperty(model, 'related', {
+      enumerable: true,
+      configurable: false,
+      get() {
+        if (!relatedCache) {
+          relatedCache = buildRelatedAccessors(config.name, resolveRelationMap);
+        }
+        return relatedCache;
+      }
+    });
+    return model;
+  };
+
   const extensions = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
   if (!extensions) {
-    registerModel(config.name, modelBase);
-    return modelBase;
+    const model = attachRelatedAccessors(modelBase);
+    registerModel(config.name, model);
+    return model;
   }
 
   for (const key of Object.keys(extensions)) {
@@ -496,7 +536,8 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   }
 
   const model = { ...modelBase, ...extensions };
-  registerModelCascadeController(model);
-  registerModel(config.name, model);
-  return model;
+  const modelWithRelated = attachRelatedAccessors(model);
+  registerModelCascadeController(modelWithRelated);
+  registerModel(config.name, modelWithRelated);
+  return modelWithRelated;
 }

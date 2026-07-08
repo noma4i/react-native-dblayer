@@ -123,7 +123,7 @@ export type HasManyOptions<TChildStored extends StoredRowBase, TForeignKey exten
 
 export type RelationModel<TStored extends StoredRowBase> = Pick<
   CollectionModel<unknown, TStored>,
-  'getAll' | 'getWhere' | 'destroyMany' | 'destroyWhere'
+  'getAll' | 'getWhere' | 'where' | 'count' | 'destroyMany' | 'destroyWhere' | 'collection'
 >;
 
 export type ModelRelationDefinition = {
@@ -137,14 +137,76 @@ export type ModelRelationDefinition = {
   dependent: HasManyDependent;
 };
 
-export type HasManyRelation<TChildStored extends StoredRowBase, TForeignKey extends StringFieldKey<TChildStored>> = ModelRelationDefinition & {
+export type HasManyRelation<
+  TChildStored extends StoredRowBase,
+  TForeignKey extends StringFieldKey<TChildStored>,
+  TChildModel = RelationModel<TChildStored>
+> = ModelRelationDefinition & {
   /** Child model. */
-  model: RelationModel<TChildStored>;
+  model: TChildModel & RelationModel<TChildStored>;
   /** Child row field that stores the parent id. */
   foreignKey: TForeignKey;
 };
 
-export type ModelRelationsConfig = Record<string, ModelRelationDefinition>;
+export type HasManyThroughRelation<TThrough extends string = string, TSource extends string = string> = {
+  /** Relation kind. */
+  kind: 'hasManyThrough';
+  /** Direct hasMany relation name on this model. */
+  through: TThrough;
+  /** Direct hasMany relation name on the through-child model. */
+  source: TSource;
+};
+
+export type ModelRelationConfigValue = ModelRelationDefinition | HasManyThroughRelation;
+
+export type ModelRelationsConfig = Record<string, ModelRelationConfigValue>;
+
+export type RelatedAccessor<TChildStored extends StoredRowBase> = {
+  /** Snapshot read of child rows for a parent id. Nullish parent returns an empty array. */
+  get(parentId: string | null | undefined): TChildStored[];
+  /** React hook: reactive child rows for a parent id. Nullish parent returns a stable empty array. */
+  use(parentId: string | null | undefined): TChildStored[];
+  /** React hook: reactive child count for a parent id. Nullish parent returns zero. */
+  count(parentId: string | null | undefined): number;
+};
+
+type RelatedSourceRecord<TModel> = TModel extends { readonly related: infer TRelated } ? TRelated : never;
+
+type RelatedSourceChild<
+  TRelations extends ModelRelationsConfig,
+  TThrough extends string,
+  TSource extends string
+> = TThrough extends keyof TRelations
+  ? TRelations[TThrough] extends { kind: 'hasMany'; model: infer TThroughModel }
+    ? TSource extends keyof RelatedSourceRecord<TThroughModel>
+      ? RelatedSourceRecord<TThroughModel>[TSource] extends RelatedAccessor<infer TSourceStored>
+        ? TSourceStored
+        : never
+      : never
+    : never
+  : never;
+
+export type ChildStoredOf<
+  TRelation,
+  TRelations extends ModelRelationsConfig
+> = TRelation extends { kind: 'hasMany'; model: RelationModel<infer TChildStored> }
+  ? TChildStored
+  : TRelation extends HasManyThroughRelation<infer TThrough, infer TSource>
+    ? RelatedSourceChild<TRelations, TThrough, TSource>
+    : never;
+
+export type RelatedRecord<TRelations extends ModelRelationsConfig> = {
+  [K in keyof TRelations]: RelatedAccessor<ChildStoredOf<TRelations[K], TRelations>>;
+};
+
+type IsAny<T> = 0 extends 1 & T ? true : false;
+type HasBroadRelationKeys<TRelations> = IsAny<TRelations> extends true ? true : string extends keyof TRelations ? true : false;
+
+export type RelatedSurface<TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig]
+  ? HasBroadRelationKeys<TRelations> extends true
+    ? { readonly related: never }
+    : { readonly related: RelatedRecord<TRelations> }
+  : {};
 
 export interface MergeResult {
   /** Number of rows inserted or updated. */
@@ -268,6 +330,7 @@ interface CreateCollectionModelBaseConfig<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
   TExt extends Record<string, unknown> = {},
+  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined,
   TModel extends CollectionModel<TInput, TStored> = CollectionModel<TInput, TStored>
 > {
   /** Unique model name used as a runtime-registry key and log tag. */
@@ -299,14 +362,15 @@ interface CreateCollectionModelBaseConfig<
   /** Nested payloads to sync before writing this model. */
   sideload?: SideloadSpec<TInput>[];
   /** Lazy relation declarations. Lazy resolution avoids circular model import timing. */
-  relations?: () => ModelRelationsConfig;
+  relations?: () => TRelations;
 }
 
 export interface CreateCollectionModelNormalizeConfig<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
-  TExt extends Record<string, unknown> = {}
-> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt> {
+  TExt extends Record<string, unknown> = {},
+  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
+> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt, TRelations> {
   /** Map an input to a stored row patch; return null to drop it. */
   normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
   fields?: never;
@@ -314,8 +378,18 @@ export interface CreateCollectionModelNormalizeConfig<
   guard?: never;
 }
 
-export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>
-  extends CreateCollectionModelBaseConfig<unknown, ModelStoredFromFields<TFields>, TExt, FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>>> {
+export interface CreateCollectionModelFieldsConfig<
+  TFields extends ModelFieldSpecs,
+  TExt extends Record<string, unknown> = {},
+  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
+>
+  extends CreateCollectionModelBaseConfig<
+    unknown,
+    ModelStoredFromFields<TFields>,
+    TExt,
+    TRelations,
+    FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>>
+  > {
   /** Declarative field specs used to generate the model normalizer. */
   fields: TFields;
   /** Optional row id resolver; defaults to `input.id`. */
@@ -328,8 +402,9 @@ export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpe
 export type CreateCollectionModelConfig<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
-  TExt extends Record<string, unknown> = {}
-> = CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>;
+  TExt extends Record<string, unknown> = {},
+  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
+> = CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, TRelations>;
 
 export type DbCondition<T> = Partial<T>;
 

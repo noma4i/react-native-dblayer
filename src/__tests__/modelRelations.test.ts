@@ -1,35 +1,97 @@
-import { configureDb, defineModel, devClearAllDataAndState, hasMany, pruneOrphanedRows } from '../index';
-import type { CollectionModel } from '../types';
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
+import { configureDb, defineModel, devClearAllDataAndState, hasMany, hasManyThrough, pruneOrphanedRows } from '../index';
+import type { CollectionModel, ModelRelationsConfig, RelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
 type UserRow = { id: string; name: string; updatedAt?: string | null };
 type ChatRow = { id: string; userId: string; title: string; updatedAt?: string | null };
 type MessageRow = { id: string; chatId: string; body: string; updatedAt?: string | null };
 
-const defineUserModel = (id: string, relations?: () => Record<string, ReturnType<typeof hasMany<unknown, ChatRow, 'userId'>>>) =>
-  defineModel<Partial<UserRow> & { id: string }, UserRow>({
-    id,
-    name: `RelationUserModel:${id}`,
-    normalize: input => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
-    merge: {},
-    replace: {},
-    ...(relations ? { relations } : {})
+const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+type HookResult<TProps, TResult> = {
+  current: TResult;
+  flush: () => Promise<void>;
+  rerender: (props: TProps) => void;
+  unmount: () => void;
+};
+
+const renderHook = <TProps, TResult>(read: (props: TProps) => TResult, initialProps: TProps): HookResult<TProps, TResult> => {
+  let current!: TResult;
+  let renderer!: TestRenderer.ReactTestRenderer;
+
+  const Harness = ({ props }: { props: TProps }) => {
+    current = read(props);
+    return null;
+  };
+
+  act(() => {
+    renderer = TestRenderer.create(React.createElement(Harness, { props: initialProps }));
   });
 
-const defineChatModel = (id: string, relations?: () => Record<string, ReturnType<typeof hasMany<unknown, MessageRow, 'chatId'>>>) =>
-  defineModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow>({
+  return {
+    get current() {
+      return current;
+    },
+    async flush() {
+      await flush();
+    },
+    rerender(props) {
+      act(() => {
+        renderer.update(React.createElement(Harness, { props }));
+      });
+    },
+    unmount() {
+      act(() => {
+        renderer.unmount();
+      });
+    }
+  };
+};
+
+function defineUserModel(id: string): CollectionModel<Partial<UserRow> & { id: string }, UserRow>;
+function defineUserModel<TRelations extends ModelRelationsConfig>(
+  id: string,
+  relations: () => TRelations
+): CollectionModel<Partial<UserRow> & { id: string }, UserRow> & RelatedSurface<TRelations>;
+function defineUserModel(id: string, relations?: () => ModelRelationsConfig): any {
+  const config = {
+    id,
+    name: `RelationUserModel:${id}`,
+    normalize: (input: Partial<UserRow> & { id: string }) => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+    merge: {},
+    replace: {}
+  };
+
+  return relations
+    ? defineModel<Partial<UserRow> & { id: string }, UserRow>({ ...config, relations })
+    : defineModel<Partial<UserRow> & { id: string }, UserRow>(config);
+}
+
+function defineChatModel(id: string): CollectionModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow>;
+function defineChatModel<TRelations extends ModelRelationsConfig>(
+  id: string,
+  relations: () => TRelations
+): CollectionModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow> & RelatedSurface<TRelations>;
+function defineChatModel(id: string, relations?: () => ModelRelationsConfig): any {
+  const config = {
     id,
     name: `RelationChatModel:${id}`,
-    normalize: input => ({
+    normalize: (input: Partial<ChatRow> & { id: string; userId: string }) => ({
       id: input.id,
       userId: input.userId,
       title: input.title ?? input.id,
       updatedAt: input.updatedAt ?? null
     }),
     merge: {},
-    replace: {},
-    ...(relations ? { relations } : {})
-  });
+    replace: {}
+  };
+
+  return relations
+    ? defineModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow>({ ...config, relations })
+    : defineModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow>(config);
+}
 
 const defineMessageModel = (id: string) =>
   defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>({
@@ -46,7 +108,8 @@ const defineMessageModel = (id: string) =>
   });
 
 describe('model relations', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await flush();
     devClearAllDataAndState();
     configureDb({ transport: mockTransport({}), modelDefaults: {} });
   });
@@ -62,6 +125,238 @@ describe('model relations', () => {
       hasMany(messageModel, { foreignKey: 'missingId', dependent: 'destroy' });
       // @ts-expect-error dependent supports only destroy for now
       hasMany(messageModel, { foreignKey: 'chatId', dependent: 'nullify' });
+    }
+  });
+
+  it('exposes direct hasMany related get, use, and count accessors', async () => {
+    installMemoryStorage();
+    const chatModel = defineChatModel('relation-direct-chat');
+    const userModel = defineUserModel('relation-direct-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-2', userId: 'user-2', title: 'Two', updatedAt: null });
+
+    expect(userModel.related.chats.get('user-1').map(row => row.id)).toEqual(['chat-1']);
+
+    const hook = renderHook(
+      (parentId: string) => ({
+        rows: userModel.related.chats.use(parentId),
+        count: userModel.related.chats.count(parentId)
+      }),
+      'user-1'
+    );
+    await hook.flush();
+
+    expect(hook.current.rows.map(row => row.id)).toEqual(['chat-1']);
+    expect(hook.current.count).toBe(1);
+
+    act(() => {
+      chatModel.patch('chat-2', { userId: 'user-1', updatedAt: '2026-01-02T00:00:00.000Z' });
+    });
+    await hook.flush();
+
+    expect(hook.current.rows.map(row => row.id).sort()).toEqual(['chat-1', 'chat-2']);
+    expect(hook.current.count).toBe(2);
+
+    act(() => {
+      chatModel.destroy('chat-1');
+    });
+    await hook.flush();
+
+    expect(hook.current.rows.map(row => row.id)).toEqual(['chat-2']);
+    expect(hook.current.count).toBe(1);
+
+    hook.unmount();
+  });
+
+  it('keeps nullish related reads empty and stable', async () => {
+    installMemoryStorage();
+    const chatModel = defineChatModel('relation-nullish-chat');
+    const userModel = defineUserModel('relation-nullish-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' })
+    }));
+
+    expect(userModel.related.chats.get(null)).toEqual([]);
+    expect(userModel.related.chats.get(undefined)).toEqual([]);
+
+    const hook = renderHook<
+      string | null | undefined,
+      { rows: ChatRow[]; count: number }
+    >(
+      (parentId: string | null | undefined) => ({
+        rows: userModel.related.chats.use(parentId),
+        count: userModel.related.chats.count(parentId)
+      }),
+      undefined
+    );
+    await hook.flush();
+    const firstRows = hook.current.rows;
+
+    hook.rerender(null as string | null | undefined);
+    await hook.flush();
+
+    expect(hook.current.rows).toBe(firstRows);
+    expect(hook.current.rows).toEqual([]);
+    expect(hook.current.count).toBe(0);
+
+    act(() => {
+      chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    });
+    await hook.flush();
+
+    expect(hook.current.rows).toBe(firstRows);
+    expect(hook.current.count).toBe(0);
+
+    hook.unmount();
+  });
+
+  it('exposes hasManyThrough related get and reactive use accessors', async () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-through-message');
+    const chatRelations = () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    });
+    const chatModel = defineChatModel('relation-through-chat', chatRelations);
+    const userRelations = () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      messages: hasManyThrough({ through: 'chats', source: 'messages' })
+    });
+    const userModel = defineUserModel('relation-through-user', userRelations);
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-2', userId: 'user-2', title: 'Two', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', body: 'One', updatedAt: null });
+    messageModel.insertStored({ id: 'message-2', chatId: 'chat-2', body: 'Two', updatedAt: null });
+    messageModel.insertStored({ id: 'message-3', chatId: 'chat-3', body: 'Three', updatedAt: null });
+
+    expect(userModel.related.messages.get('user-1').map(row => row.id)).toEqual(['message-1']);
+
+    const hook = renderHook(
+      (parentId: string) => ({
+        rows: userModel.related.messages.use(parentId),
+        count: userModel.related.messages.count(parentId)
+      }),
+      'user-1'
+    );
+    await hook.flush();
+
+    expect(hook.current.rows.map(row => row.id)).toEqual(['message-1']);
+    expect(hook.current.count).toBe(1);
+
+    act(() => {
+      chatModel.insertStored({ id: 'chat-3', userId: 'user-1', title: 'Three', updatedAt: null });
+    });
+    await hook.flush();
+
+    expect(hook.current.rows.map(row => row.id).sort()).toEqual(['message-1', 'message-3']);
+    expect(hook.current.count).toBe(2);
+
+    act(() => {
+      messageModel.insertStored({ id: 'message-4', chatId: 'chat-1', body: 'Four', updatedAt: null });
+    });
+    await hook.flush();
+
+    expect(hook.current.rows.map(row => row.id).sort()).toEqual(['message-1', 'message-3', 'message-4']);
+    expect(hook.current.count).toBe(3);
+
+    hook.unmount();
+  });
+
+  it('throws model-prefixed errors for invalid hasManyThrough names', () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-invalid-message');
+    const chatModel = defineChatModel('relation-invalid-chat', () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    }));
+    const missingThroughModel = defineUserModel('relation-invalid-through-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      messages: hasManyThrough({ through: 'missing', source: 'messages' })
+    }));
+    const missingSourceModel = defineUserModel('relation-invalid-source-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      messages: hasManyThrough({ through: 'chats', source: 'missing' })
+    }));
+
+    expect(() => missingThroughModel.related.messages.get('user-1')).toThrow('[RelationUserModel:relation-invalid-through-user] relation "messages"');
+    expect(() => missingSourceModel.related.messages.get('user-1')).toThrow('[RelationUserModel:relation-invalid-source-user] relation "messages"');
+  });
+
+  it('infers related keys and child row types from relation configs', () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-type-message');
+    const chatRelations = () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    });
+    const chatModel = defineModel({
+      id: 'relation-type-chat',
+      name: 'RelationChatModel:relation-type-chat',
+      normalize: (input: Partial<ChatRow> & { id: string; userId: string }): ChatRow => ({
+        id: input.id,
+        userId: input.userId,
+        title: input.title ?? input.id,
+        updatedAt: input.updatedAt ?? null
+      }),
+      relations: chatRelations
+    });
+    const userRelations = () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      messages: hasManyThrough({ through: 'chats', source: 'messages' })
+    });
+    const userModel = defineModel({
+      id: 'relation-type-user',
+      name: 'RelationUserModel:relation-type-user',
+      normalize: (input: Partial<UserRow> & { id: string }): UserRow => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+      relations: userRelations
+    });
+
+    const chatRows: ChatRow[] = userModel.related.chats.get('user-1');
+    const messageRows: MessageRow[] = userModel.related.messages.get('user-1');
+    expect(chatRows).toEqual([]);
+    expect(messageRows).toEqual([]);
+    expect(Object.keys(userModel.related).sort()).toEqual(['chats', 'messages']);
+
+    if (false) {
+      // @ts-expect-error unknown relation keys are not exposed
+      userModel.related.missing;
+      // @ts-expect-error through relation returns message rows, not chat rows
+      const wrongRows: ChatRow[] = userModel.related.messages.get('user-1');
+      const count: number = userModel.related.chats.count('user-1');
+      void wrongRows;
+      void count;
+    }
+  });
+
+  it('keeps helper typed related accessors available for through configs', () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-helper-type-message');
+    const chatRelations = () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    });
+    const chatModel = defineChatModel('relation-helper-type-chat', chatRelations);
+    const userRelations = () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      messages: hasManyThrough({ through: 'chats', source: 'messages' })
+    });
+    const userModel = defineUserModel('relation-helper-type-user', userRelations);
+
+    const chatRows: ChatRow[] = userModel.related.chats.get('user-1');
+    const messageRows: MessageRow[] = userModel.related.messages.get('user-1');
+    expect(chatRows).toEqual([]);
+    expect(messageRows).toEqual([]);
+    expect(Object.keys(userModel.related).sort()).toEqual(['chats', 'messages']);
+
+    if (false) {
+      // @ts-expect-error unknown relation keys are not exposed
+      userModel.related.missing;
+      // @ts-expect-error through relation returns message rows, not chat rows
+      const wrongRows: ChatRow[] = userModel.related.messages.get('user-1');
+      const count: number = userModel.related.chats.count('user-1');
+      void wrongRows;
+      void count;
     }
   });
 
@@ -103,6 +398,28 @@ describe('model relations', () => {
     expect(userModel.getAll()).toEqual([]);
     expect(chatModel.getAll().map(row => row.id)).toEqual(['chat-2']);
     expect(messageModel.getAll().map(row => row.id)).toEqual(['message-2']);
+  });
+
+  it('skips hasManyThrough entries during cascade destroy', () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-cascade-through-message');
+    const chatModel = defineChatModel('relation-cascade-through-chat', () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    }));
+    const userModel = defineUserModel('relation-cascade-through-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      invalidThrough: hasManyThrough({ through: 'missing', source: 'messages' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'Owned', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', body: 'Owned', updatedAt: null });
+
+    expect(userModel.destroy('user-1')).toBe(true);
+
+    expect(userModel.getAll()).toEqual([]);
+    expect(chatModel.getAll()).toEqual([]);
+    expect(messageModel.getAll()).toEqual([]);
   });
 
   it('terminates cycles without infinite recursion', () => {
@@ -265,6 +582,7 @@ describe('model relations', () => {
     chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
     chatModel.insertStored({ id: 'chat-2', userId: 'user-2', title: 'Two', updatedAt: null });
     plainModel.insertStored({ id: 'plain-1', name: 'Plain', updatedAt: null });
+    expect('related' in plainModel).toBe(false);
 
     expect(userModel.destroy('missing')).toBe(false);
     expect(relations).not.toHaveBeenCalled();

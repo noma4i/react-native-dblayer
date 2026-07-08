@@ -178,7 +178,7 @@ Use `relations` for domain ownership between models. The thunk is lazy so model 
 eager circular-import failures.
 
 ```ts
-import { defineModel, f, hasMany } from '@noma4i/react-native-dblayer';
+import { defineModel, f, hasMany, hasManyThrough } from '@noma4i/react-native-dblayer';
 
 export const MessageModel = defineModel({
   name: 'MessageModel',
@@ -200,12 +200,43 @@ export const ChatModel = defineModel({
     messages: hasMany(MessageModel, { foreignKey: 'chatId', dependent: 'destroy' }),
   }),
 });
+
+export const UserModel = defineModel({
+  name: 'UserModel',
+  id: 'users',
+  fields: {
+    name: f.str(),
+  },
+  relations: () => ({
+    chats: hasMany(ChatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+    messages: hasManyThrough({ through: 'chats', source: 'messages' }),
+  }),
+});
 ```
 
 `hasMany(childModel, { foreignKey, dependent: 'destroy' })` requires `foreignKey` to be a string field on the child
 stored row. Explicit destroy paths (`destroy`, `destroyMany`, `destroyWhere`, and utilities that call those methods)
 resolve parent ids, destroy dependent children depth-first, then delete parent rows. Cascades recurse through child
 relations. In cycles, re-entered models delete the matched rows but do not cascade their relations again.
+
+Models with a `relations` thunk expose local query accessors under `model.related.<name>`:
+
+| Accessor | Type | Behavior |
+| --- | --- | --- |
+| `get(parentId)` | snapshot read | Returns child rows where the child foreign key equals `parentId`; `null`/`undefined` returns `[]`. |
+| `use(parentId)` | React hook | Reactive scoped child rows using the model live-query path; `null`/`undefined` returns a stable empty array without a bogus scope. |
+| `count(parentId)` | React hook | Reactive scoped count; `null`/`undefined` returns `0`. For through relations this is `use(parentId).length`. |
+
+`hasManyThrough({ through, source })` is query-only. `through` must name a direct `hasMany` relation on the current
+model, and `source` must name a direct `hasMany` relation on the through-child model. Through accessors first read the
+through rows, collect their ids, then read source rows whose source foreign key is in that id set. Both levels are
+reactive for `use`.
+
+Related accessors are local reads only. They do not fetch network data, expose fetch state, or mark freshness scopes.
+Network scoping stays in request configs and collection bindings.
+
+`hasManyThrough` does not participate in cascade destroy. Cascades follow only direct
+`hasMany(..., { dependent: 'destroy' })` relations; transitive deletes still happen through those direct relations.
 
 Server replace-mode removals from `applyServerData(..., { mode: 'replace' })` do not cascade. Replace eviction is sync
 bookkeeping, not a domain delete. Later merge/replace server payloads can recreate previously cascaded rows normally;
