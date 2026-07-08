@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 're
 import { getCollectionFetchStateVersion, subscribeCollectionFetchState } from '../../core/freshnessStorage';
 import { getDbLogger } from '../../core/logger';
 import { stableSerialize } from '../../core/serialize';
-import type { CollectionFetchState, FetchStatePageInfo, InfiniteQueryConfig, InfiniteQueryResult } from '../../types';
+import type { CollectionFetchState, InfiniteQueryConfig, InfiniteQueryResult, PageInfo } from '../../types';
 import { computeLoadingState, computePhase } from './loadingState';
 import { buildModelFilter } from './shared';
 
@@ -16,7 +16,7 @@ type FreshnessGateDecision = {
   shouldSkip: boolean;
 };
 
-const getPageInfo = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>, page: TData | undefined): FetchStatePageInfo | undefined => {
+const getPageInfo = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>, page: TData | undefined): PageInfo | undefined => {
   if (!page) return undefined;
   return config.extract(page).pageInfo;
 };

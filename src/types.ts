@@ -345,24 +345,13 @@ export interface SyncContract {
   _freshnessFilter?: Record<string, unknown>;
 }
 
-export type FetchStatePageInfo = {
-  /** Whether another page is available after the current page. */
-  hasNextPage: boolean;
-  /** Whether another page is available before the current page. */
-  hasPreviousPage: boolean;
-  /** Cursor of the first item in the page. */
-  startCursor?: string | null;
-  /** Cursor of the last item in the page. */
-  endCursor?: string | null;
-};
-
 export type CollectionFetchState = {
   /** Millisecond timestamp when the scope was marked fetched. */
   touchedAt: number;
   /** Whether the fetched scope was known empty. */
   empty: boolean;
   /** Last known pagination state for the fetched scope. */
-  pageInfo?: FetchStatePageInfo;
+  pageInfo?: PageInfo;
 };
 
 export type CollectionFetchScopeRecord = {
@@ -708,9 +697,6 @@ export type PageInfo = {
   endCursor?: string | null;
 };
 
-/** Normalized cursor pagination metadata. */
-export type NormalizedPageInfo = PageInfo;
-
 export type PageInfoInput = {
   /** Optional raw next-page flag from a connection. */
   hasNextPage?: boolean | null;
@@ -963,11 +949,6 @@ export type ComputePhaseInput = {
   /** Whether network data has been fetched at least once. */
   hasFetchedData: boolean;
 };
-
-/** Input for computing display state. */
-export type DisplayStateInput = ComputePhaseInput;
-/** Alias for the query loading-state output. */
-export type DisplayState = LoadingState;
 
 /** React Query result plus the derived loading-state machine. */
 export type BaseQueryResult<TData> = UseQueryResult<TData, Error> & { loadingState: LoadingState };
