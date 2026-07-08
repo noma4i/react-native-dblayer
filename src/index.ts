@@ -6,6 +6,7 @@ export { deriveDbKey } from './core/deriveDbKey';
 export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
+export { hasMany } from './core/relations';
 export { computeLoadingState } from './queries/base/loadingState';
 export { clearModelRegistry, getRegisteredModel, registerModel } from './core/modelRegistry';
 export {
@@ -153,6 +154,9 @@ export type {
   FetchStatePageInfo,
   FetchStateRemovalListener,
   FieldsCollectionModel,
+  HasManyDependent,
+  HasManyOptions,
+  HasManyRelation,
   InfiniteQueryConfig,
   InfiniteQueryResult,
   InfiniteSyncContractResolverContext,
@@ -164,6 +168,8 @@ export type {
   ModelBuildStoredInput,
   ModelFieldSpecs,
   ModelRelation,
+  ModelRelationDefinition,
+  ModelRelationsConfig,
   NormalizedPageInfo,
   PageInfo,
   PageInfoInput,
@@ -171,6 +177,7 @@ export type {
   PatchCrud,
   PersistentCollection,
   PersistentMutationTransaction,
+  RelationModel,
   ReplaceResult,
   ServerSyncContract,
   ServerSyncMode,
@@ -181,7 +188,9 @@ export type {
   StableItemsConfig,
   StableProjectionConfig,
   StableProjectionRenderKeysConfig,
+  StoredRowBase,
   StorageAdapter,
+  StringFieldKey,
   SyncConfig,
   SyncContract,
   TransportResult

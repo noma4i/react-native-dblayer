@@ -25,6 +25,7 @@ import { createReplace } from './createReplace';
 import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
 import { getDbModelDefaults } from './modelDefaults';
 import { registerModel } from './modelRegistry';
+import { getCascadeController, registerCascadeController, relationValues } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { stableSerialize } from './serialize';
 import { runSideloads, withApplyingModel } from './sideload';
@@ -181,6 +182,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<any>(collectionId, staleTime);
   let resetMergeState = (): void => {};
+  let relationCache: ReturnType<typeof relationValues> | null = null;
 
   const merge = createMerge<any, any>({
     collection: rawCollection,
@@ -244,6 +246,14 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
 
   const shouldSkipInitialFetch = (filter?: Partial<any>, maxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs);
 
+  const resolveRelations = (): ReturnType<typeof relationValues> => {
+    if (relationCache) return relationCache;
+    relationCache = relationValues(config.relations?.());
+    return relationCache;
+  };
+
+  const hasRelations = (): boolean => typeof config.relations === 'function';
+
   const clearScope = (): void => {
     const ids: string[] = [];
     for (const id of rawCollection.keys()) ids.push(String(id));
@@ -255,7 +265,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     freshness.clear();
   };
 
-  const destroyMany = (ids: string[]): number => {
+  const deleteManyWithoutCascade = (ids: string[]): number => {
     let deleted = 0;
     withTransaction(() => {
       for (const id of ids) {
@@ -266,6 +276,39 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     });
     return deleted;
   };
+
+  const cascadeDependents = (victimIds: string[], visitedModelNames: Set<string>): void => {
+    if (!hasRelations() || victimIds.length === 0) return;
+    const relations = resolveRelations();
+    if (relations.length === 0) return;
+
+    const victimSet = new Set(victimIds);
+    for (const relation of relations) {
+      if (relation.dependent !== 'destroy') continue;
+
+      const childController = getCascadeController(relation.model);
+      if (!childController) {
+        throw new Error(`[${config.name}] relation "${relation.foreignKey}" target is not registered for cascade destroy.`);
+      }
+      const childIds = childController.getIdsWhereFieldIn(relation.foreignKey, victimSet);
+      if (childIds.length === 0) continue;
+      childController.destroyManyWithCascade(childIds, visitedModelNames);
+    }
+  };
+
+  const destroyManyWithCascade = (ids: string[], visitedModelNames: Set<string>): number => {
+    const victimIds = ids.filter((id, index) => ids.indexOf(id) === index && rawCollection.has(id));
+    if (victimIds.length === 0) return 0;
+    if (visitedModelNames.has(config.name)) return deleteManyWithoutCascade(victimIds);
+
+    const nextVisitedModelNames = new Set(visitedModelNames);
+    nextVisitedModelNames.add(config.name);
+    cascadeDependents(victimIds, nextVisitedModelNames);
+    const deletedDuringCascade = victimIds.filter(id => !rawCollection.has(id)).length;
+    return deletedDuringCascade + deleteManyWithoutCascade(victimIds);
+  };
+
+  const destroyMany = (ids: string[]): number => destroyManyWithCascade(ids, new Set());
 
   const destroyWhere = (filter: Partial<any>): number => {
     const normalized = normalizeDbCondition(filter);
@@ -378,6 +421,25 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     resetMergeState();
   });
 
+  const getIdsWhereFieldIn = (field: string, values: ReadonlySet<string>): string[] => {
+    const ids: string[] = [];
+    for (const row of rawCollection.values()) {
+      const value = (row as Record<string, unknown>)[field];
+      if (typeof value === 'string' && values.has(value)) {
+        ids.push(row.id);
+      }
+    }
+    return ids;
+  };
+
+  const registerModelCascadeController = (model: object): void => {
+    registerCascadeController(model, {
+      modelName: config.name,
+      destroyManyWithCascade,
+      getIdsWhereFieldIn
+    });
+  };
+
   const baseModel: CollectionModel<any, any> = {
     get: (id: string | undefined | null) => (id ? rawCollection.get(id) : undefined),
     getAll: () => Array.from(rawCollection.values()),
@@ -385,7 +447,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     getFirstWhere: (filter, options) => getSnapshotFirstWhere(filter, options),
     getFirst: (filter, options) => getSnapshotFirstWhere(filter, options),
     patch: (id, updates) => crud.patch(id, updates),
-    destroy: id => crud.destroy(id),
+    destroy: id => destroyMany([id]) === 1,
     destroyMany,
     destroyWhere,
     replaceRaw: (oldId: string, item: unknown): boolean => {
@@ -420,6 +482,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   };
 
   const modelBase = hasFieldsConfig(config) ? { ...baseModel, buildStored: createStoredRowBuilder(config.name, config.fields) } : baseModel;
+  registerModelCascadeController(modelBase);
   const extensions = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
   if (!extensions) {
     registerModel(config.name, modelBase);
@@ -433,6 +496,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   }
 
   const model = { ...modelBase, ...extensions };
+  registerModelCascadeController(model);
   registerModel(config.name, model);
   return model;
 }

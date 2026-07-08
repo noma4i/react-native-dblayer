@@ -2,6 +2,7 @@
 
 ## Pending
 
+- Add lazy `hasMany` model relations with explicit cascade destroy support.
 - Change custom extract function sinks to receive lifted payload arrays, and export `liftExtractNodes`.
 - Add `useStableEntity`, stable-items defaults, `readShapeOrThrow`, `pruneExpiredRows`, and `createOptimisticSequence`.
 - Add direct query and command executors, plus direct patch optimistic mutation support.

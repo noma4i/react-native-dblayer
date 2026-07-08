@@ -51,6 +51,7 @@ export const MessageModel = defineModel<MessageInput, Message>({
 | `rowId` | `(input) => string \| null \| undefined` | `input.id` via `toStr` | Custom row id resolver for fields models. `null`, `undefined`, or `''` drops the row. |
 | `guard` | `(input) => boolean` | `—` | Return `false` to drop an input before field reads. |
 | `sideload` | `SideloadSpec[]` | `—` | Sync nested payloads into registry-named target models before writing this model. |
+| `relations` | `() => ModelRelationsConfig` | `—` | Lazy model relations used by explicit cascade destroy paths. |
 | `normalize` | `(input: TInput) => (Partial<TStored> & { id: string }) \| null` | escape hatch | Custom mapper for irreducibly custom rows. Return `null` to drop it. |
 | `staleTime` | `number` (ms) | `0` | How long a fetched scope stays fresh. `0` = always stale. Drives `shouldSkipInitialFetch`. |
 | `merge.dedupeWindowMs` | `number` (ms) | `0` | Skip a merge batch identical to the previous one within this window. `0` = no dedupe. |
@@ -170,6 +171,45 @@ export const MomentModel = defineModel({
 
 Sideloads always merge into the target model, run before the parent merge/replace, drop nullish plucked values, and
 skip in-flight targets to prevent cycles. Missing target names throw with the list of registered models.
+
+### Relations and cascade destroy
+
+Use `relations` for domain ownership between models. The thunk is lazy so model files can reference each other without
+eager circular-import failures.
+
+```ts
+import { defineModel, f, hasMany } from '@noma4i/react-native-dblayer';
+
+export const MessageModel = defineModel({
+  name: 'MessageModel',
+  id: 'messages',
+  fields: {
+    chatId: f.id(),
+    body: f.str(),
+  },
+});
+
+export const ChatModel = defineModel({
+  name: 'ChatModel',
+  id: 'chats',
+  fields: {
+    userId: f.id(),
+    title: f.str(),
+  },
+  relations: () => ({
+    messages: hasMany(MessageModel, { foreignKey: 'chatId', dependent: 'destroy' }),
+  }),
+});
+```
+
+`hasMany(childModel, { foreignKey, dependent: 'destroy' })` requires `foreignKey` to be a string field on the child
+stored row. Explicit destroy paths (`destroy`, `destroyMany`, `destroyWhere`, and utilities that call those methods)
+resolve parent ids, destroy dependent children depth-first, then delete parent rows. Cascades recurse through child
+relations. In cycles, re-entered models delete the matched rows but do not cascade their relations again.
+
+Server replace-mode removals from `applyServerData(..., { mode: 'replace' })` do not cascade. Replace eviction is sync
+bookkeeping, not a domain delete. Later merge/replace server payloads can recreate previously cascaded rows normally;
+freshness metadata follows the incoming write contract.
 
 ### Examples
 

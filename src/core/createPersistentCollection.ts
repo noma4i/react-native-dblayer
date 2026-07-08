@@ -74,12 +74,14 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
     has: (id: string) => collection.state.has(id),
     insert: (item: T) => {
       if (
-        !tryUpdate(item.id, draft => {
+        collection.state.has(item.id) &&
+        tryUpdate(item.id, draft => {
           Object.assign(draft, item);
         })
       ) {
-        collection.insert(item);
+        return;
       }
+      collection.insert(item);
     },
     update: (id: string, updater: (draft: T) => void) => {
       tryUpdate(id, updater);

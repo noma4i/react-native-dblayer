@@ -106,6 +106,46 @@ export type PersistentCollection<T extends { id: string }> = DbCollection<T> & {
   acceptMutations: (transaction: PersistentMutationTransaction) => void;
 };
 
+export type StoredRowBase = { id: string; updatedAt?: string | null };
+
+export type StringFieldKey<TStored extends StoredRowBase> = {
+  [K in keyof TStored & string]: TStored[K] extends string ? K : never;
+}[keyof TStored & string];
+
+export type HasManyDependent = 'destroy';
+
+export type HasManyOptions<TChildStored extends StoredRowBase, TForeignKey extends StringFieldKey<TChildStored>> = {
+  /** Child row field that stores the parent id. */
+  foreignKey: TForeignKey;
+  /** Dependent action for child rows. */
+  dependent: HasManyDependent;
+};
+
+export type RelationModel<TStored extends StoredRowBase> = Pick<
+  CollectionModel<unknown, TStored>,
+  'getAll' | 'getWhere' | 'destroyMany' | 'destroyWhere'
+>;
+
+export type ModelRelationDefinition = {
+  /** Relation kind. */
+  kind: 'hasMany';
+  /** Runtime child model reference. */
+  model: unknown;
+  /** Child row field that stores the parent id. */
+  foreignKey: string;
+  /** Dependent action for child rows. */
+  dependent: HasManyDependent;
+};
+
+export type HasManyRelation<TChildStored extends StoredRowBase, TForeignKey extends StringFieldKey<TChildStored>> = ModelRelationDefinition & {
+  /** Child model. */
+  model: RelationModel<TChildStored>;
+  /** Child row field that stores the parent id. */
+  foreignKey: TForeignKey;
+};
+
+export type ModelRelationsConfig = Record<string, ModelRelationDefinition>;
+
 export interface MergeResult {
   /** Number of rows inserted or updated. */
   merged: number;
@@ -258,6 +298,8 @@ interface CreateCollectionModelBaseConfig<
   defaultSort?: { field: keyof TStored & string; direction: 'asc' | 'desc' };
   /** Nested payloads to sync before writing this model. */
   sideload?: SideloadSpec<TInput>[];
+  /** Lazy relation declarations. Lazy resolution avoids circular model import timing. */
+  relations?: () => ModelRelationsConfig;
 }
 
 export interface CreateCollectionModelNormalizeConfig<
