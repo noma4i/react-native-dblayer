@@ -78,7 +78,12 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
   const freshnessVersion = useCollectionFetchStateVersion(config);
   const hasQueryData = (queryClient.getQueryState(config.queryKey)?.dataUpdatedAt ?? 0) > 0;
   const { fetchState, shouldSkip: shouldSkipInitialFetch } = useMemo(() => {
-    if (isInactive) return { fetchState: null, shouldSkip: false };
+    if (isInactive) {
+      return {
+        fetchState: config.collection.getFetchState?.(filter) ?? null,
+        shouldSkip: false
+      };
+    }
     const decision = resolveFreshnessGateDecision(config, filter);
     const shouldSkip = decision.shouldSkip && !hasQueryData;
     if (shouldSkip) {
@@ -101,19 +106,19 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
 
   const pages = result.data?.pages ?? (EMPTY_PAGES as TData[]);
   const lastPage = pages.at(-1);
-  const collectionReadDisabled = isInactive || readMode === 'none';
-  const collectionData = config.collection.useData(filter, collectionReadDisabled);
+  const collectionData = config.collection.useData(filter);
   const finalData = (readMode === 'none' ? EMPTY_PAGES : collectionData) as TNode[];
   const hasData = finalData.length > 0;
   const fallbackPageInfo = fetchState?.pageInfo;
   const lastPageInfo = getPageInfo(config, lastPage) ?? fallbackPageInfo;
   const hasNextPage = lastPageInfo ? (config.direction === 'backward' ? lastPageInfo.hasPreviousPage : lastPageInfo.hasNextPage) : false;
-  const hasFetchedData = !isInactive && (result.dataUpdatedAt > 0 || (shouldSkipInitialFetch && fetchState !== null));
+  const hasFetchedData = hasData || result.dataUpdatedAt > 0 || fetchState !== null || shouldSkipInitialFetch;
   const isFetchingNextPage = result.isFetchingNextPage || isManualLoadingMore;
   const isBackgroundFetching = result.isFetching && hasData && !isFetchingNextPage && !isRefreshing;
+  const isDisplayIdle = isInactive && !hasData;
 
   const phase = computePhase({
-    isInactive,
+    isInactive: isDisplayIdle,
     isRestoring,
     isSyncReady: true,
     isFetching: result.isFetching || isRefreshing || isManualLoadingMore,

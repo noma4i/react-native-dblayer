@@ -77,7 +77,12 @@ export const useBaseQuery = <TData, TCollection extends BaseQueryCollection | un
   const freshnessVersion = useCollectionFetchStateVersion(config.collection);
   const hasQueryData = (queryClient.getQueryState(config.queryKey)?.dataUpdatedAt ?? 0) > 0;
   const { fetchState, shouldSkip: shouldSkipInitialFetch } = useMemo(() => {
-    if (isInactive) return { fetchState: null, shouldSkip: false };
+    if (isInactive) {
+      return {
+        fetchState: resolveFetchState(config.collection),
+        shouldSkip: false
+      };
+    }
     const decision = resolveFreshnessGateDecision(config.collection, config.staleTime, config.emptyStaleTime);
     const shouldSkip = decision.shouldSkip && !hasQueryData;
     if (shouldSkip) {
@@ -97,13 +102,15 @@ export const useBaseQuery = <TData, TCollection extends BaseQueryCollection | un
   });
 
   const collectionData = useCollectionRead(config.collection);
-  const hasKnownEmptySingleton = !isInactive && !!config.collection && 'id' in config.collection && fetchState?.empty === true;
-  const data = isInactive ? undefined : hasKnownEmptySingleton ? null : config.collection ? (collectionData !== undefined ? collectionData : result.data) : result.data;
+  const hasCollectionData = collectionData !== undefined && collectionData !== null;
+  const hasKnownEmptySingleton = !!config.collection && 'id' in config.collection && fetchState?.empty === true && !hasCollectionData;
+  const data = hasKnownEmptySingleton ? null : config.collection ? (collectionData !== undefined ? collectionData : result.data) : result.data;
   const hasData = data !== undefined && data !== null;
-  const hasFetchedData = !isInactive && (result.dataUpdatedAt > 0 || (shouldSkipInitialFetch && fetchState !== null));
+  const hasFetchedData = hasData || result.dataUpdatedAt > 0 || fetchState !== null || shouldSkipInitialFetch;
+  const isDisplayIdle = isInactive && !hasData;
 
   const phase = computePhase({
-    isInactive,
+    isInactive: isDisplayIdle,
     isRestoring,
     isSyncReady: true,
     isFetching: result.isFetching,

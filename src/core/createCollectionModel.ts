@@ -588,7 +588,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     const filter = args[0];
     // An explicit nullish filter (caller passed an argument that resolved to null/undefined) disables
     // the count query - it does not skip the hook. `useLiveQuery` still runs on every call; only the
-    // query builder's return value is gated, mirroring `readRows`/`binding.useData`'s disabled pattern.
+    // query builder's return value is gated, matching nullish scoped read behavior in collection bindings.
     const disabled = args.length > 0 && filter == null;
     const signature = createDbWhereSignature(filter);
 

@@ -90,7 +90,7 @@ modelDetailRequest(UserModel, {
 | `extract` | `({ data, selected }) => unknown` | `—` | Side-load payload → extract sink (source `'query'`). |
 | `extractSource` | `string` | `'query'` | Source label passed to the extract sink. |
 | `read` | `{ model, id } \| { model }` | `—` | Reactive read returned: `{ model, id }` = one row, `{ model }` = `all()`. |
-| `enabled` | `boolean` | `true` | `false` disables the request and marks the screen as not actively loading. |
+| `enabled` | `boolean` | `true` | `false` disables network execution and fetch scheduling. Local model reads stay live: rows produce `ready`, no rows produce `idle` without skeleton. |
 | `staleTime` | `number` (ms) | TanStack Query | Freshness window. |
 | `emptyStaleTime` | `number` (ms) | `0` | Known-empty DB fetch-state skip window. Not passed to React Query. |
 | `gcTime` | `number` (ms) | TanStack Query | Cache GC time. |
@@ -242,9 +242,9 @@ Bindings connect an infinite request to a model. They own collection writes, fre
 | `scopeMap` | Maps request/filter keys to stored-row fields for scoped reads, freshness, and scoped replace filters. |
 | `sortField` / `sortDirection` | Field ordering for the bound read. `sortDirection` defaults to `'desc'`. |
 | `comparator` | Custom row comparator for canonical ordering. Mutually exclusive with `sortField`. |
-| `useData` | Override hook for read projections. Receives `{ filter, scope, rows, disabled, empty }`; return `empty` for stable no-data output. |
+| `useData` | Override hook for read projections. Receives `{ filter, scope, rows, empty }`; return `empty` for stable no-data output. |
 
-For scoped bindings, explicit nullish reads are disabled: `binding.useData(null)` and `binding.useData(undefined)`
+For scoped bindings, explicit nullish reads return no rows: `binding.useData(null)` and `binding.useData(undefined)`
 return a stable empty array, and `binding.count(null)` / `binding.count(undefined)` return `0`. Unscoped
 `binding.useData()` and `binding.count()` still read the full collection.
 
@@ -263,7 +263,7 @@ logger. Hooks still read the React Query client from React context.
 
 `invalidateModel(model, scope?)` first clears DB fetch-state (`model.clearFetchState(scope)` for a scoped call,
 or every persisted fetch-state record for that model when unscoped), then invalidates the derived React Query key.
-Mounted hooks subscribe to fetch-state changes, so a gate-disabled request can re-enable after `invalidateModel`.
+Mounted hooks subscribe to fetch-state changes, so a freshness-gated request can fetch after `invalidateModel`.
 `invalidateDbRequests(key)` is intentionally React Query only and does not clear DB fetch-state.
 
 ### Returns — `InfiniteQueryResult<TNode>`
