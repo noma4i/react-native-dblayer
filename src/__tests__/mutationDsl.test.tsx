@@ -12,12 +12,15 @@ import {
   useCommand,
   useDbMutation
 } from '../index';
-import type { DbGraphQLDocument, DbMutationConfig } from '../types';
+import type { DbMutationExtractPresetEntry, ExtractSpecOf } from '../index';
+import type { DbCommandMutationConfig, DbGraphQLDocument, DbMutationConfig } from '../types';
 import { createTodoFieldsModel, createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const document = <TData, TVariables = Record<string, unknown>>(name: string): DbGraphQLDocument<TData, TVariables> => ({ kind: 'Document', name } as unknown as DbGraphQLDocument<TData, TVariables>);
 type TodoMutationInput = { title: string; tempId?: string | null };
+type Equal<TActual, TExpected> = (<T>() => T extends TActual ? 1 : 2) extends <T>() => T extends TExpected ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -576,6 +579,28 @@ describe('mutation DSL runtime', () => {
     if (false) {
       const model = null as unknown as ReturnType<typeof createTodoFieldsModel>;
       type Stored = ReturnType<typeof model.getAll>[number];
+      type TodoMutationResult = { todo: Todo; currentUser: { id: string } };
+      const extractPresetTable: {
+        todo: DbMutationExtractPresetEntry<TodoMutationResult, 'todos'>;
+        currentUser: DbMutationExtractPresetEntry<TodoMutationResult, 'users'>;
+      } = {
+        todo: { sink: 'todos', read: result => result.todo },
+        currentUser: { sink: 'users', read: 'currentUser' }
+      };
+      type TodoExtractSpec = ExtractSpecOf<typeof extractPresetTable>;
+      type TodoSelector = Exclude<TodoExtractSpec['todo'], boolean | undefined>;
+      type _TodoSelectorResult = Expect<Equal<Parameters<TodoSelector>[0], TodoMutationResult>>;
+      const validTrueExtract: TodoExtractSpec = { todo: true };
+      const validSelectorExtract: TodoExtractSpec = {
+        currentUser: result => {
+          type _CurrentUserSelectorResult = Expect<Equal<typeof result, TodoMutationResult>>;
+          return result.currentUser;
+        }
+      };
+      const invalidExtract: TodoExtractSpec = {
+        // @ts-expect-error unknown extract preset keys are rejected
+        missing: true
+      };
 
       const validConfig: DbMutationConfig<Todo, TodoMutationInput, void, Stored, Todo> = {
         mutation: document<Record<string, Todo>, { input: unknown }>('TypedTodoPreset'),
@@ -606,6 +631,32 @@ describe('mutation DSL runtime', () => {
           error: (error, input) => ({ name: 'typed-error', payload: { title: input.title, error: error.message } })
         }
       };
+
+      const typedExtractConfig: DbMutationConfig<Todo, TodoMutationInput, void, Stored, Todo, TodoExtractSpec> = {
+        mutation: document<Record<string, Todo>, { input: unknown }>('TypedTodoExtract'),
+        resultField: 'todoCreate',
+        extract: {
+          todo: true,
+          currentUser: result => result.currentUser
+        }
+      };
+
+      const untypedExtractConfig: DbMutationConfig<Todo, TodoMutationInput> = {
+        mutation: document<Record<string, Todo>, { input: unknown }>('UntypedTodoExtract'),
+        resultField: 'todoCreate',
+        extract: { anyRuntimeShape: 'still allowed' }
+      };
+
+      const typedCommandConfig: DbCommandMutationConfig<TodoMutationInput, Todo, TodoExtractSpec> = {
+        mutation: document<Record<string, Todo>, { input: unknown }>('TypedCommandExtract'),
+        resultField: 'todoCreate',
+        extract: { todo: true }
+      };
+
+      useDbMutation<Todo, TodoMutationInput, void, Stored, Todo, TodoExtractSpec>(typedExtractConfig);
+      void runDbMutationDirect<Todo, TodoMutationInput, void, Stored, Todo, TodoExtractSpec>(typedExtractConfig, { title: 'Typed' });
+      useCommand<Todo, TodoMutationInput, TodoExtractSpec>(typedCommandConfig);
+      void runDbCommandDirect<Todo, TodoMutationInput, TodoExtractSpec>(typedCommandConfig, { title: 'Typed' });
 
       const extraContextConfig: DbMutationConfig<Todo, TodoMutationInput, { tracked: boolean }, Stored, Todo> = {
         mutation: document<Record<string, Todo>, { input: unknown }>('TypedTodoPresetExtraContext'),
@@ -684,7 +735,20 @@ describe('mutation DSL runtime', () => {
         }
       };
 
-      expect({ validConfig, extraContextConfig, wrongStoredConfig, wrongServerNodeConfig, wrongTrackNameConfig, wrongTrackPayloadConfig }).toBeDefined();
+      expect({
+        validTrueExtract,
+        validSelectorExtract,
+        invalidExtract,
+        validConfig,
+        typedExtractConfig,
+        untypedExtractConfig,
+        typedCommandConfig,
+        extraContextConfig,
+        wrongStoredConfig,
+        wrongServerNodeConfig,
+        wrongTrackNameConfig,
+        wrongTrackPayloadConfig
+      }).toBeDefined();
     }
   });
 

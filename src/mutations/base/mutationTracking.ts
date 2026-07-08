@@ -8,8 +8,8 @@ const emitResolvedTrackEvent = (event: DbTrackEvent | null | undefined, logPrefi
   emitDbTrackEvent(event, logPrefix, phase);
 };
 
-export const emitMutationTrackStart = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+export const emitMutationTrackStart = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   input: TInput
 ): void => {
   if (!hasDbTrackSink()) return;
@@ -24,8 +24,8 @@ export const emitMutationTrackStart = <TData, TInput, TContext, TStored, TServer
   }
 };
 
-export const emitMutationTrackSuccess = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+export const emitMutationTrackSuccess = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   result: TData | null,
   input: TInput,
   context: unknown
@@ -42,8 +42,8 @@ export const emitMutationTrackSuccess = <TData, TInput, TContext, TStored, TServ
   }
 };
 
-export const emitMutationTrackError = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+export const emitMutationTrackError = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   error: Error,
   input: TInput
 ): void => {

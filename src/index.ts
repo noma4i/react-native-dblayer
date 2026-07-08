@@ -100,7 +100,8 @@ export type {
   DbMutationExtractPresetEntry,
   DbMutationExtractPresetSelector,
   DbMutationExtractPresetTable,
-  DbMutationExtractResolver
+  DbMutationExtractResolver,
+  ExtractSpecOf
 } from './core/extract';
 export type { SideloadSpec } from './core/sideload';
 export type { FieldDefault, FieldMode, FieldSpec } from './schema/fieldSpec';

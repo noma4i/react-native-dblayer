@@ -12,8 +12,8 @@ import { emitMutationTrackSuccess } from './mutationTracking';
  * @param mappedInput Input already transformed for `variables.input`.
  * @returns Mutation result field or null.
  */
-export const executeDbMutationRequest = async <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+export const executeDbMutationRequest = async <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   mappedInput: unknown
 ): Promise<TData | null> => {
   const response = await getDbTransport().mutation<Record<string, TData>, { input: unknown }>({
@@ -40,8 +40,8 @@ const readOptimisticRow = (context: unknown): unknown => {
   return (context as { optimisticRow?: unknown }).optimisticRow ?? null;
 };
 
-const applyPreserveOnCommit = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+const applyPreserveOnCommit = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   node: TServerNode,
   context: TContext
 ): TServerNode => {
@@ -55,8 +55,8 @@ const applyPreserveOnCommit = <TData, TInput, TContext, TStored, TServerNode>(
   return mergeOptimisticSnapshot(readOptimisticRow(context) as object | null, node as object, preserve as never) as TServerNode;
 };
 
-const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   result: TData | null,
   input: TInput,
   context: TContext
@@ -83,8 +83,8 @@ const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServer
  * @param context Optimistic mutation context.
  * @returns void
  */
-export const applyDbMutationCommit = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+export const applyDbMutationCommit = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   result: TData | null,
   input: TInput,
   context: TContext
@@ -97,8 +97,8 @@ export const applyDbMutationCommit = <TData, TInput, TContext, TStored, TServerN
   emitMutationTrackSuccess(config, result, input, context);
 };
 
-const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   input: TInput,
   context: TContext | undefined
 ): TContext | ({ tempId: string | null; optimisticRow: TStored | null } & Record<string, unknown>) | undefined => {
@@ -124,8 +124,8 @@ const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode>
  * No-op for any other `method` - those configs rely on `config.optimistic`/`config.onMutate` instead,
  * which `runDbMutationDirect` does not run (it has no transaction/rollback machinery).
  */
-const applyDirectPatchOrDestroyOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+const applyDirectPatchOrDestroyOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   input: TInput
 ): void => {
   if (config.method === 'destroy') {
@@ -155,8 +155,8 @@ const applyDirectPatchOrDestroyOptimisticMutation = <TData, TInput, TContext, TS
  * @param context Optional context passed to `onCommit`.
  * @returns Mutation result field or null.
  */
-export const runDbMutationDirect = async <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown>(
-  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+export const runDbMutationDirect = async <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown, TExtractSpec = unknown>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
   input: TInput,
   context?: TContext
 ): Promise<TData | null> => {

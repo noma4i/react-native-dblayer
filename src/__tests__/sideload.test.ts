@@ -1,4 +1,5 @@
 import { configureDb, defineModel, devClearAllDataAndState } from '../index';
+import type { SideloadSpec } from '../index';
 import { clearModelRegistry } from '../core/modelRegistry';
 import { f } from '../schema/f';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
@@ -10,6 +11,9 @@ const childFields = {
 const parentFields = {
   title: f.str()
 };
+
+type Equal<TActual, TExpected> = (<T>() => T extends TActual ? 1 : 2) extends <T>() => T extends TExpected ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
 
 const createChildModel = (id: string, name = `SideloadChildModel:${id}`) =>
   defineModel({
@@ -72,6 +76,49 @@ describe('model sideload runtime', () => {
       { id: 'c2', name: 'Child 2' },
       { id: 'c3', name: 'Child 3' }
     ]);
+  });
+
+  it('types owner-model sideload pluck input and keeps untyped sideload specs valid', () => {
+    expect(true).toBe(true);
+
+    if (false) {
+      const untypedSpec: SideloadSpec = {
+        model: 'UntypedTarget',
+        pluck: input => {
+          type _UntypedInput = Expect<Equal<typeof input, unknown>>;
+          return input;
+        }
+      };
+      const typedParentModel = defineModel({
+        id: 'sideload-typed-parent',
+        name: 'SideloadTypedParentModel',
+        fields: {
+          title: f.str(),
+          child: f.custom<{ id: string; name: string }>(input => input as { id: string; name: string }).optional()
+        },
+        sideload: [
+          {
+            model: 'SideloadTypedChildModel',
+            pluck: input => {
+              type _TypedInput = Expect<
+                Equal<
+                  typeof input,
+                  {
+                    id: string;
+                    title: string;
+                    child?: { id: string; name: string };
+                  }
+                >
+              >;
+              return input.child;
+            }
+          }
+        ],
+        merge: {}
+      });
+
+      expect({ typedParentModel, untypedSpec }).toBeDefined();
+    }
   });
 
   it('throws when the sideload target is missing from the registry', () => {

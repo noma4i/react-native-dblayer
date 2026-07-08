@@ -40,7 +40,7 @@ const runDeclarativeOptimisticMutation = <TData, TInput, TStored, TServerNode>(
   return { tempId, optimisticRow: row };
 };
 
-const runOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>, input: TInput): unknown => {
+const runOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, input: TInput): unknown => {
   switch (config.method) {
     case 'destroy': {
       const id = config.selectId(input);
@@ -64,7 +64,7 @@ const runOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(co
   }
 };
 
-const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>): boolean => {
+const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>): boolean => {
   if (config.method === 'destroy' || config.method === 'patch') return true;
   return Boolean(config.onMutate || config.optimistic);
 };
@@ -90,7 +90,7 @@ const shouldRunOptimisticMutation = <TData, TInput, TContext, TStored, TServerNo
  *   }
  * });
  */
-export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>) =>
+export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown, TExtractSpec = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>) =>
   useMutation<TData | null, Error, TInput>({
     mutationKey: resolveMutationKey(config),
     mutationFn: (input: TInput) => {

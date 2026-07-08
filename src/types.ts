@@ -492,7 +492,7 @@ export interface CreateCollectionModelFieldsConfig<
   TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
 >
   extends CreateCollectionModelBaseConfig<
-    unknown,
+    ModelBuildStoredInput<TFields>,
     ModelStoredFromFields<TFields>,
     TExt,
     TRelations,
@@ -1059,7 +1059,7 @@ export type InfiniteQueryResult<TNode> = {
   loadMore: () => void;
 };
 
-type DbMutationSharedConfig<TData, TInput, TContext> = {
+type DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpec> = {
   /** GraphQL mutation document. */
   mutation: DbGraphQLDocument<Record<string, TData>, { input: unknown }>;
   /** Response data field that contains the mutation result. */
@@ -1071,7 +1071,7 @@ type DbMutationSharedConfig<TData, TInput, TContext> = {
   /** Log tag for mutation lifecycle messages. */
   logPrefix?: string;
   /** Side-load spec resolved through the mutation extract seam. */
-  extract?: DbExtractSpec;
+  extract?: TExtractSpec;
   /** Source label passed to the extract sink; defaults to `mutation`. */
   extractSource?: string;
   /** Server write-through that runs inside the transaction after the response. */
@@ -1139,7 +1139,7 @@ type PatchModelAdapter<TData = unknown> = {
   patch: (id: string, updates: Record<string, unknown>) => boolean;
 };
 
-type DbMutationDefaultConfig<TData, TInput, TContext> = DbMutationSharedConfig<TData, TInput, TContext> & {
+type DbMutationDefaultConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpec> = DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec> & {
   /** Custom optimistic variant; leave undefined. */
   method?: undefined;
   optimistic?: never;
@@ -1150,7 +1150,12 @@ type DbMutationDefaultConfig<TData, TInput, TContext> = DbMutationSharedConfig<T
   selectPatch?: never;
 };
 
-type DbMutationOptimisticDefaultConfig<TData, TInput, TContext, TStored, TServerNode> = DbMutationSharedConfig<TData, TInput, DbMutationContextWithOptimistic<TContext, TStored>> & {
+type DbMutationOptimisticDefaultConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec = DbExtractSpec> = DbMutationSharedConfig<
+  TData,
+  TInput,
+  DbMutationContextWithOptimistic<TContext, TStored>,
+  TExtractSpec
+> & {
   /** Custom optimistic variant; leave undefined. */
   method?: undefined;
   /** Declarative optimistic row preset. */
@@ -1162,7 +1167,7 @@ type DbMutationOptimisticDefaultConfig<TData, TInput, TContext, TStored, TServer
   selectPatch?: never;
 };
 
-type DbMutationDestroyConfig<TData, TInput, TContext> = DbMutationSharedConfig<TData, TInput, TContext> & {
+type DbMutationDestroyConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpec> = DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec> & {
   /** Declarative optimistic delete variant. */
   method: 'destroy';
   /** Model to delete from. */
@@ -1174,7 +1179,7 @@ type DbMutationDestroyConfig<TData, TInput, TContext> = DbMutationSharedConfig<T
   selectPatch?: never;
 };
 
-type DbMutationPatchConfig<TData, TInput, TContext, TStored> = DbMutationSharedConfig<TData, TInput, TContext> & {
+type DbMutationPatchConfig<TData, TInput, TContext, TStored, TExtractSpec = DbExtractSpec> = DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec> & {
   /** Declarative optimistic patch variant. */
   method: 'patch';
   /** Model to patch. */
@@ -1187,12 +1192,17 @@ type DbMutationPatchConfig<TData, TInput, TContext, TStored> = DbMutationSharedC
   onMutate?: never;
 };
 
-/** Transactional GraphQL mutation config with custom, patch, or destroy optimistic variants. */
-export type DbMutationConfig<TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown> =
-  | DbMutationDefaultConfig<TData, TInput, TContext>
-  | DbMutationOptimisticDefaultConfig<TData, TInput, TContext, TStored, TServerNode>
-  | DbMutationDestroyConfig<TData, TInput, TContext>
-  | DbMutationPatchConfig<TData, TInput, TContext, TStored>;
+/**
+ * Transactional GraphQL mutation config with custom, patch, or destroy optimistic variants.
+ *
+ * `TExtractSpec` narrows the `extract` property for preset-table key and selector checks. It defaults
+ * to the untyped extract seam so existing configs compile unchanged.
+ */
+export type DbMutationConfig<TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown, TExtractSpec = DbExtractSpec> =
+  | DbMutationDefaultConfig<TData, TInput, TContext, TExtractSpec>
+  | DbMutationOptimisticDefaultConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>
+  | DbMutationDestroyConfig<TData, TInput, TContext, TExtractSpec>
+  | DbMutationPatchConfig<TData, TInput, TContext, TStored, TExtractSpec>;
 
 export type BaseMutationContext<TStored = unknown> = {
   /** Previous row snapshot captured for rollback. */
@@ -1216,18 +1226,18 @@ export type DbCommandConfig<TData, TInput> = {
   onSettled?: () => void;
 };
 
-type DbCommandMutationBase = {
+type DbCommandMutationBase<TExtractSpec = DbExtractSpec> = {
   /** Command key factory used for React Query and single-flight dedupe. */
   key?: () => readonly unknown[];
   /** Log tag for command lifecycle messages. */
   logPrefix?: string;
   /** Side-load spec resolved through the mutation extract seam after the transport response. */
-  extract?: DbExtractSpec;
+  extract?: TExtractSpec;
   /** Source label passed to the extract sink; defaults to `mutation`. */
   extractSource?: string;
 };
 
-type DbCommandStaticConfig<TInput, TData> = DbCommandMutationBase & {
+type DbCommandStaticConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TExtractSpec> & {
   /** Static GraphQL mutation document. */
   mutation: DbGraphQLDocument<Record<string, TData>, { input: unknown }>;
   /** Response data field returned by the command. */
@@ -1237,7 +1247,7 @@ type DbCommandStaticConfig<TInput, TData> = DbCommandMutationBase & {
   resolve?: never;
 };
 
-type DbCommandResolvedConfig<TInput, TData> = DbCommandMutationBase & {
+type DbCommandResolvedConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TExtractSpec> & {
   mutation?: never;
   resultField?: never;
   mapInput?: never;
@@ -1252,5 +1262,9 @@ type DbCommandResolvedConfig<TInput, TData> = DbCommandMutationBase & {
   };
 };
 
-/** Fire-and-forget GraphQL command config, either static or resolved per input. */
-export type DbCommandMutationConfig<TInput, TData = unknown> = DbCommandStaticConfig<TInput, TData> | DbCommandResolvedConfig<TInput, TData>;
+/**
+ * Fire-and-forget GraphQL command config, either static or resolved per input.
+ *
+ * `TExtractSpec` narrows the command `extract` property and defaults to the untyped extract seam.
+ */
+export type DbCommandMutationConfig<TInput, TData = unknown, TExtractSpec = DbExtractSpec> = DbCommandStaticConfig<TInput, TData, TExtractSpec> | DbCommandResolvedConfig<TInput, TData, TExtractSpec>;

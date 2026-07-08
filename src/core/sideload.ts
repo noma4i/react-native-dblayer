@@ -15,7 +15,7 @@ const applyingModels = new Set<string>();
 
 type SideloadTarget = Pick<CollectionModel<unknown, { id: string; updatedAt?: string | null }>, 'applyServerData'>;
 
-const collectPayloads = (spec: SideloadSpec, items: unknown[]): unknown[] => {
+const collectPayloads = (spec: SideloadSpec<any>, items: unknown[]): unknown[] => {
   const payloads: unknown[] = [];
 
   for (const item of items) {
@@ -48,7 +48,7 @@ export const withApplyingModel = <T>(name: string, fn: () => T): T => {
   }
 };
 
-export const runSideloads = (specs: SideloadSpec[] | undefined, items: unknown[], parentContract: SyncContract): void => {
+export const runSideloads = (specs: SideloadSpec<any>[] | undefined, items: unknown[], parentContract: SyncContract): void => {
   if (!specs?.length || !items.length) return;
 
   for (const spec of specs) {

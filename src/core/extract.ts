@@ -26,6 +26,18 @@ export type DbMutationExtractPresetEntry<TResult = unknown, TSinkKey extends str
 
 export type DbMutationExtractPresetTable<TResult = unknown, TSinkKey extends string = string> = Record<string, DbMutationExtractPresetEntry<TResult, TSinkKey>>;
 
+type ExtractPresetResult<TEntry> = TEntry extends DbMutationExtractPresetEntry<infer TResult, any> ? TResult : never;
+
+/**
+ * Derive the legal mutation extract config shape from a mutation extract preset table.
+ *
+ * The resulting spec accepts only declared preset keys. Each key supports `true` or a selector whose
+ * result parameter matches that preset entry's `TResult`.
+ */
+export type ExtractSpecOf<TTable extends Record<string, DbMutationExtractPresetEntry<any, string>>> = {
+  [K in keyof TTable]?: boolean | DbMutationExtractPresetSelector<ExtractPresetResult<TTable[K]>>;
+};
+
 export type DbExtractModelSink = {
   /** Apply server payloads with the resolved sync contract. */
   applyServerData: (items: unknown[], contract: SyncContract) => unknown;
