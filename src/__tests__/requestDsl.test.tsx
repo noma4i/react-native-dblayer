@@ -171,7 +171,7 @@ describe('request DSL runtime', () => {
     await hook.flush();
 
     expect(model.getAll().map(item => item.id)).toEqual(['todo-1']);
-    expect(hook.current.items.map(item => item.id)).toEqual(['todo-1']);
+    expect(hook.current.data.map(item => item.id)).toEqual(['todo-1']);
     expect(hook.current.hasNextPage).toBe(true);
 
     act(() => {
@@ -181,7 +181,7 @@ describe('request DSL runtime', () => {
     await hook.flush();
 
     expect(model.getAll().map(item => item.id).sort()).toEqual(['todo-1', 'todo-2']);
-    expect(hook.current.items.map(item => item.id).sort()).toEqual(['todo-1', 'todo-2']);
+    expect(hook.current.data.map(item => item.id).sort()).toEqual(['todo-1', 'todo-2']);
     expect(calls).toContainEqual({ after: 'cursor-1' });
 
     hook.unmount();

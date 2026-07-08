@@ -960,7 +960,14 @@ export type ComputePhaseInput = {
 /** React Query result plus the derived loading-state machine. */
 export type BaseQueryResult<TData> = UseQueryResult<TData, Error> & { loadingState: LoadingState };
 
-/** Infinite query result with reactive items, pagination, and refresh helpers. */
+/**
+ * Infinite query result with pagination and refresh helpers.
+ *
+ * Mirrors `BaseQueryResult`/TanStack's `UseQueryResult` surface (`data`, `refetch`) so single-request
+ * and infinite hooks read the same way; `loadMore` is the domain-named pagination trigger. There is no
+ * separate `items`/`refresh`/`fetchNextPage` alias set - `data`/`refetch`/`loadMore` are the only names,
+ * and `fetchNextPage` was never actually lower-level than `loadMore` (same throttled function).
+ */
 export type InfiniteQueryResult<TNode> = {
   /** Accumulated reactive nodes. */
   data: TNode[];
@@ -972,16 +979,10 @@ export type InfiniteQueryResult<TNode> = {
   isFetchingNextPage: boolean;
   /** Whether a background refresh is in flight. */
   isBackgroundFetching: boolean;
-  /** Lower-level trigger for the next page. */
-  fetchNextPage: () => void;
   /** Re-run the query from the first page. */
   refetch: () => Promise<void>;
-  /** Refresh helper equivalent to refetch. */
-  refresh: () => Promise<void>;
   /** Load the next page when available. */
   loadMore: () => void;
-  /** Alias for accumulated reactive nodes. */
-  items: TNode[];
 };
 
 type DbMutationSharedConfig<TData, TInput, TContext> = {

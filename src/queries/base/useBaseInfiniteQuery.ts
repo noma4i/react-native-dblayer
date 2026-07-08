@@ -195,14 +195,11 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
 
   return {
     data: finalData,
-    items: finalData,
     loadingState,
     hasNextPage,
     isFetchingNextPage,
     isBackgroundFetching,
-    fetchNextPage: loadMore,
     loadMore,
-    refetch: refresh,
-    refresh
+    refetch: refresh
   };
 };

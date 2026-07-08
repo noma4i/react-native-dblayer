@@ -252,7 +252,7 @@ describe('request config derivation', () => {
 
     expect(calls).toEqual([{ listId: 'inbox', first: 10 }]);
     expect(queryClient.getQueryCache().find({ queryKey: deriveDbKey(model, { listId: 'inbox' }), exact: true })).toBeDefined();
-    expect(hook.current.items.map(item => item.id)).toEqual(['todo-inbox']);
+    expect(hook.current.data.map(item => item.id)).toEqual(['todo-inbox']);
     expect(model.getFetchState({ listId: 'inbox' })).toMatchObject({ empty: false });
 
     hook.unmount();
@@ -298,7 +298,7 @@ describe('request config derivation', () => {
     expect(calls).toEqual([{ listId: 'vars-value' }]);
     expect(queryClient.getQueryCache().find({ queryKey: deriveDbKey(model, { listId: 'filter-value' }), exact: true })).toBeDefined();
     expect(queryClient.getQueryCache().find({ queryKey: ['db', 'scope-explicit-wins', stableSerialize({ listId: 'scope-value' })], exact: true })).toBeUndefined();
-    expect(hook.current.items.map(item => item.id)).toEqual(['todo-filter']);
+    expect(hook.current.data.map(item => item.id)).toEqual(['todo-filter']);
     expect(model.getFetchState({ listId: 'filter-value' })).toMatchObject({ empty: false });
 
     hook.unmount();

@@ -98,7 +98,7 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
 /**
  * React hook that runs cursor-paginated GraphQL queries and syncs page nodes.
  * @param config Paginated query, connection selector, collection binding, and pagination options.
- * @returns Infinite query result with reactive `items`, loading state, and pagination helpers.
+ * @returns Infinite query result with reactive `data`, loading state, and pagination helpers.
  *
  * @example
  * const feed = useDbInfiniteRequest({
