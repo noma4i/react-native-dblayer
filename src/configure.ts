@@ -1,4 +1,5 @@
 import { setDbExtractSink, setDbMutationExtractResolver } from './core/extract';
+import { DEFAULT_FETCH_STATE_MAX_AGE_MS, pruneStaleFetchStates } from './core/freshnessStorage';
 import { setDbLogger } from './core/logger';
 import { setDbModelDefaults } from './core/modelDefaults';
 import { setDbQueryClient } from './core/queryClient';
@@ -66,4 +67,5 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   if (options.extract?.sink) setDbExtractSink(options.extract.sink);
   if (options.extract?.mutationResolver) setDbMutationExtractResolver(options.extract.mutationResolver);
   setDbModelDefaults(options.modelDefaults);
+  pruneStaleFetchStates(DEFAULT_FETCH_STATE_MAX_AGE_MS);
 };

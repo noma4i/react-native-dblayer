@@ -72,12 +72,13 @@ export const mockTransport = (handlers: {
       }))
 });
 
-export const createTodoModel = (options?: { id?: string; staleTime?: number; dedupeWindowMs?: number }) => {
+export const createTodoModel = (options?: { id?: string; staleTime?: number; emptyStaleTime?: number; dedupeWindowMs?: number }) => {
   const id = options?.id ?? `test-todos-${modelCounter++}`;
   const model = defineModel<TodoInput, Todo>({
     id,
     name: `TodoModel:${id}`,
     staleTime: options?.staleTime,
+    emptyStaleTime: options?.emptyStaleTime,
     normalize: input => ({
       id: input.id,
       title: input.title,
@@ -95,12 +96,13 @@ export const createTodoModel = (options?: { id?: string; staleTime?: number; ded
   return model;
 };
 
-export const createTodoFieldsModel = (options?: { id?: string; staleTime?: number; dedupeWindowMs?: number }) => {
+export const createTodoFieldsModel = (options?: { id?: string; staleTime?: number; emptyStaleTime?: number; dedupeWindowMs?: number }) => {
   const id = options?.id ?? `test-field-todos-${modelCounter++}`;
   const model = defineModel({
     id,
     name: `TodoFieldsModel:${id}`,
     staleTime: options?.staleTime,
+    emptyStaleTime: options?.emptyStaleTime,
     fields: {
       title: f.str(),
       listId: f.str().nullable(),

@@ -92,8 +92,16 @@ modelDetailRequest(UserModel, {
 | `enabled` | `boolean` | `true` | Gate the query. |
 | `inactive` | `boolean` | `false` | Background/inactive screen (affects `loadingState`). |
 | `staleTime` | `number` (ms) | TanStack Query | Freshness window. |
+| `emptyStaleTime` | `number` (ms) | `0` | Known-empty DB fetch-state skip window. Not passed to React Query. |
 | `gcTime` | `number` (ms) | TanStack Query | Cache GC time. |
 | `refetchOnMount` | `boolean` | TanStack Query | Refetch on remount. |
+
+### Freshness gate resolution
+
+| Knob | Resolution | Default | Meaning |
+| --- | --- | --- | --- |
+| `staleTime` | request config > model config > package default | `0` = DB gate off for non-empty scopes | DB fetch-state skip window for scopes with rows. Request `staleTime` is still passed to React Query unchanged. |
+| `emptyStaleTime` | request config > model config > package default | `0` = known-empty scopes never skip | DB fetch-state skip window only when stored fetch-state has `empty === true`. Not passed to React Query. |
 
 Writing a list into a collection and reading it all back:
 
@@ -192,7 +200,7 @@ function Feed() {
 | `filter` | `() => unknown` | `—` | Scope filter for the read. |
 | `currentUserId` | `() => string \| undefined` | `—` | Scope-key input. |
 | `direction` | `'forward' \| 'backward'` | `'forward'` | Pagination direction. |
-| `enabled` / `staleTime` / `gcTime` | | `true` / TanStack Query | As above. |
+| `enabled` / `staleTime` / `emptyStaleTime` / `gcTime` / `refetchOnMount` | | `true` / see freshness table / TanStack Query | As above. |
 
 Infinite requests derive omitted keys from `createCollectionBinding(model, { scopeMap })` and the runtime
 `filter`/`currentUserId` scope. Pass an explicit `key` for non-model-backed reads.
@@ -244,14 +252,19 @@ return a stable empty array, and `binding.count(null)` / `binding.count(undefine
 ```ts
 import { deriveDbKey, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
 
-await invalidateDbRequests(deriveDbKey(MessageModel));          // all MessageModel scopes
-invalidateModel(MessageModel, { chatId });                      // fire-and-forget model invalidation
+await invalidateDbRequests(deriveDbKey(MessageModel));          // React Query only
+invalidateModel(MessageModel, { chatId });                      // fetch-state clear + React Query invalidation
 await refetchDbRequests(deriveDbKey(MessageModel, { chatId })); // one scope
 await resetDbQueryRuntime();                                    // cancel all queries, then clear cache
 ```
 
 These helpers use the `queryClient` passed to `configureDb`. Without one, they no-op and log through the package
 logger. Hooks still read the React Query client from React context.
+
+`invalidateModel(model, scope?)` first clears DB fetch-state (`model.clearFetchState(scope)` for a scoped call,
+or every persisted fetch-state record for that model when unscoped), then invalidates the derived React Query key.
+Mounted hooks subscribe to fetch-state changes, so a gate-disabled request can re-enable after `invalidateModel`.
+`invalidateDbRequests(key)` is intentionally React Query only and does not clear DB fetch-state.
 
 ### Returns — `InfiniteQueryResult<TNode>`
 

@@ -26,7 +26,15 @@ import { applyDbReadOptionsToQuery, applyDbReadOptionsToRows, applyDbWhereToQuer
 import { createMerge } from './createMerge';
 import { createPatchCrud } from './createPatchCrud';
 import { createReplace } from './createReplace';
-import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
+import {
+  clearCollectionFetchState,
+  clearCollectionFetchStates,
+  getCollectionFetchState,
+  listCollectionFetchScopes,
+  registerCollectionFetchStateCache,
+  setCollectionFetchState
+} from './freshnessStorage';
+import { getDbLogger } from './logger';
 import { getDbModelDefaults } from './modelDefaults';
 import { registerModel } from './modelRegistry';
 import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
@@ -38,13 +46,13 @@ const EMPTY: readonly unknown[] = [];
 const GROUP_ALL = 1 as const;
 const ROOT_FETCH_SCOPE = '__root__';
 
-const buildFetchScope = <TStored>(filter?: Partial<TStored>): string => {
+const buildFetchScope = <TStored>(filter?: Partial<TStored>): { scope: string; filter?: Record<string, unknown> } => {
   const normalized = normalizeDbCondition(filter);
-  if (!normalized) return ROOT_FETCH_SCOPE;
-  return stableSerialize(normalized);
+  if (!normalized) return { scope: ROOT_FETCH_SCOPE };
+  return { scope: stableSerialize(normalized), filter: normalized as Record<string, unknown> };
 };
 
-const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime: number) => {
+const createFreshnessTracker = <TStored>(modelName: string, collectionId: string | null, staleTime: number, emptyStaleTime: number) => {
   const fetchStateCache = new Map<string, CollectionFetchState | null>();
 
   if (collectionId) {
@@ -55,7 +63,7 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
   }
 
   const getFetchState = (filter?: Partial<TStored>): CollectionFetchState | null => {
-    const scope = buildFetchScope(filter);
+    const { scope } = buildFetchScope(filter);
     if (fetchStateCache.has(scope)) {
       return fetchStateCache.get(scope) ?? null;
     }
@@ -66,7 +74,7 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
   };
 
   const markFetched = (filter?: Partial<TStored>, state?: Omit<CollectionFetchState, 'touchedAt'>): void => {
-    const scope = buildFetchScope(filter);
+    const { scope, filter: normalizedFilter } = buildFetchScope(filter);
     const nextState: CollectionFetchState = {
       touchedAt: Date.now(),
       empty: state?.empty === true,
@@ -74,7 +82,7 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
     };
     fetchStateCache.set(scope, nextState);
     if (collectionId) {
-      setCollectionFetchState(collectionId, nextState, scope === ROOT_FETCH_SCOPE ? undefined : scope);
+      setCollectionFetchState(collectionId, nextState, scope === ROOT_FETCH_SCOPE ? undefined : scope, normalizedFilter);
     }
   };
 
@@ -83,24 +91,33 @@ const createFreshnessTracker = <TStored>(collectionId: string | null, staleTime:
   };
 
   const clearFetchState = (filter?: Partial<TStored>): void => {
-    const scope = buildFetchScope(filter);
+    const { scope, filter: normalizedFilter } = buildFetchScope(filter);
     fetchStateCache.delete(scope);
     if (collectionId) {
+      getDbLogger().debug('db', 'freshness:clear', { model: modelName, scope: normalizedFilter });
       clearCollectionFetchState(collectionId, scope === ROOT_FETCH_SCOPE ? undefined : scope);
     }
   };
 
-  const isStale = (filter?: Partial<TStored>, maxAgeMs = staleTime): boolean => {
+  const isStale = (filter?: Partial<TStored>, maxAgeMs = staleTime, emptyMaxAgeMs = emptyStaleTime): boolean => {
     const fetchState = getFetchState(filter);
     if (!fetchState) return true;
-    if (maxAgeMs <= 0) return true;
-    return Date.now() - fetchState.touchedAt > maxAgeMs;
+    const effectiveMaxAgeMs = fetchState.empty ? emptyMaxAgeMs : maxAgeMs;
+    if (effectiveMaxAgeMs <= 0) return true;
+    return Date.now() - fetchState.touchedAt > effectiveMaxAgeMs;
   };
 
-  const shouldSkipInitialFetch = (hasItems: (filter?: Partial<TStored>) => boolean, filter?: Partial<TStored>, maxAgeMs = staleTime): boolean => {
+  const shouldSkipInitialFetch = (
+    hasItems: (filter?: Partial<TStored>) => boolean,
+    filter?: Partial<TStored>,
+    maxAgeMs = staleTime,
+    emptyMaxAgeMs = emptyStaleTime
+  ): boolean => {
     const fetchState = getFetchState(filter);
-    const hasKnownEmpty = fetchState?.empty === true;
-    return (hasItems(filter) || hasKnownEmpty) && !isStale(filter, maxAgeMs);
+    if (fetchState?.empty === true) {
+      return !isStale(filter, maxAgeMs, emptyMaxAgeMs);
+    }
+    return hasItems(filter) && !isStale(filter, maxAgeMs, emptyMaxAgeMs);
   };
 
   const clear = (): void => {
@@ -196,7 +213,7 @@ export function createCollectionModel<TFields extends ModelFieldSpecs, TExt exte
   config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'relations'> & { relations?: undefined }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function createCollectionModel(config: RuntimeModelConfig): any {
-  const { collection: rawCollection, staleTime = 0 } = config;
+  const { collection: rawCollection, staleTime = 0, emptyStaleTime = 0 } = config;
   const normalizeBase = resolveNormalize(config);
   let attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => row;
   let touchRelatedParents = (_row: StoredRowBase | undefined): void => {};
@@ -205,7 +222,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     return normalized ? attachRelatedToRow(normalized as StoredRowBase & Record<string, unknown>) : null;
   };
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
-  const freshness = createFreshnessTracker<any>(collectionId, staleTime);
+  const freshness = createFreshnessTracker<any>(config.name, collectionId, staleTime, emptyStaleTime);
   let resetMergeState = (): void => {};
   let relationCache: ModelRelationsConfig | null = null;
   let relatedAccessorsCache: unknown;
@@ -303,7 +320,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     return false;
   };
 
-  const shouldSkipInitialFetch = (filter?: Partial<any>, maxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs);
+  const shouldSkipInitialFetch = (filter?: Partial<any>, maxAgeMs?: number, emptyMaxAgeMs?: number): boolean => freshness.shouldSkipInitialFetch(hasCached, filter, maxAgeMs, emptyMaxAgeMs);
 
   const resolveRelationMap = (): ModelRelationsConfig => {
     if (relationCache !== null) return relationCache;
@@ -371,8 +388,24 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     freshness.clear();
   };
 
-  const deleteManyWithoutCascade = (ids: string[]): number => {
+  const scopeMatchesRow = (scope: Record<string, unknown>, row: Record<string, unknown>): boolean => Object.entries(scope).every(([field, value]) => row[field] === value);
+
+  const clearFetchStatesForRows = (rows: Array<StoredRowBase & Record<string, unknown>>): void => {
+    if (!collectionId || rows.length === 0) return;
+    for (const record of listCollectionFetchScopes(collectionId)) {
+      if (!record.scopeKey || !record.scope) continue;
+      const scope = record.scope;
+      if (rows.some(row => scopeMatchesRow(scope, row))) {
+        clearCollectionFetchState(collectionId, record.scopeKey);
+      }
+    }
+  };
+
+  const deleteManyWithoutCascade = (ids: string[], options?: { clearFreshness?: boolean }): number => {
     let deleted = 0;
+    const rowsToDelete = options?.clearFreshness === false
+      ? []
+      : ids.map(id => rawCollection.get(id)).filter((row): row is StoredRowBase & Record<string, unknown> => Boolean(row));
     withTransaction(() => {
       for (const id of ids) {
         if (!rawCollection.has(id)) continue;
@@ -380,6 +413,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
         deleted += 1;
       }
     });
+    clearFetchStatesForRows(rowsToDelete);
     return deleted;
   };
 
@@ -568,6 +602,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     destroy: id => destroyMany([id]) === 1,
     destroyMany,
     destroyWhere,
+    _deleteManyWithoutFreshness: ids => deleteManyWithoutCascade(ids, { clearFreshness: false }),
     replaceRaw: (oldId: string, item: unknown): boolean => {
       const normalized = normalize(item);
       if (!normalized) return false;

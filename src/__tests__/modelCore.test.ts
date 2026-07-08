@@ -1,4 +1,13 @@
-import { clearAllCollections, computeLoadingState, configureDb, defineModel, devClearAllDataAndState } from '../index';
+import {
+  DEFAULT_FETCH_STATE_MAX_AGE_MS,
+  clearAllCollections,
+  computeLoadingState,
+  configureDb,
+  defineModel,
+  devClearAllDataAndState,
+  getCollectionFetchStateVersion,
+  setCollectionFetchState
+} from '../index';
 import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -315,6 +324,92 @@ describe('collection model core DSL', () => {
     expect(model.shouldSkipInitialFetch({ listId: 'a' }, 1000)).toBe(false);
 
     model.markFetched({ listId: 'empty' }, { empty: true });
-    expect(model.shouldSkipInitialFetch({ listId: 'empty' }, 1000)).toBe(true);
+    expect(model.shouldSkipInitialFetch({ listId: 'empty' }, 1000)).toBe(false);
+    expect(model.shouldSkipInitialFetch({ listId: 'empty' }, 1000, 1000)).toBe(true);
+  });
+
+  it('uses a separate empty stale-time that can be overridden by request config', () => {
+    installMemoryStorage();
+    const model = createTodoModel({ id: 'freshness-empty-ttl', staleTime: 1000, emptyStaleTime: 100 });
+    jest.spyOn(Date, 'now').mockReturnValue(1000);
+
+    model.markFetched({ listId: 'empty' }, { empty: true });
+
+    jest.spyOn(Date, 'now').mockReturnValue(1050);
+    expect(model.shouldSkipInitialFetch({ listId: 'empty' })).toBe(true);
+
+    jest.spyOn(Date, 'now').mockReturnValue(1150);
+    expect(model.shouldSkipInitialFetch({ listId: 'empty' })).toBe(false);
+    expect(model.shouldSkipInitialFetch({ listId: 'empty' }, 1000, 500)).toBe(true);
+
+    jest.spyOn(Date, 'now').mockReturnValue(1501);
+    expect(model.shouldSkipInitialFetch({ listId: 'empty' }, 1000, 500)).toBe(false);
+  });
+
+  it('bumps fetch-state versions only when fetch-state changes', () => {
+    installMemoryStorage();
+    const model = createTodoModel({ id: 'freshness-version-bounds', staleTime: 1000 });
+    const initialVersion = getCollectionFetchStateVersion('freshness-version-bounds');
+
+    model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: later });
+    model.patch('1', { title: 'One updated', updatedAt: '2026-01-03T00:00:00.000Z' });
+    expect(getCollectionFetchStateVersion('freshness-version-bounds')).toBe(initialVersion);
+
+    model.markFetched({ listId: 'a' }, { empty: false });
+    expect(getCollectionFetchStateVersion('freshness-version-bounds')).toBe(initialVersion + 1);
+    expect(model.getFetchState({ listId: 'a' })).toMatchObject({ empty: false });
+    expect(getCollectionFetchStateVersion('freshness-version-bounds')).toBe(initialVersion + 1);
+
+    model.clearFetchState({ listId: 'a' });
+    expect(getCollectionFetchStateVersion('freshness-version-bounds')).toBe(initialVersion + 2);
+  });
+
+  it('prunes stale fetch-state metadata during configureDb', () => {
+    const storage = installMemoryStorage();
+    jest.spyOn(Date, 'now').mockReturnValue(10_000_000_000);
+
+    setCollectionFetchState(
+      'freshness-configure-prune',
+      { touchedAt: Date.now() - DEFAULT_FETCH_STATE_MAX_AGE_MS - 1, empty: false },
+      'stale',
+      { listId: 'stale' }
+    );
+    setCollectionFetchState(
+      'freshness-configure-prune',
+      { touchedAt: Date.now() - DEFAULT_FETCH_STATE_MAX_AGE_MS + 1, empty: false },
+      'fresh',
+      { listId: 'fresh' }
+    );
+
+    configureDb({
+      storage,
+      transport: mockTransport({})
+    });
+
+    const keys = Object.keys(storage.dump()).filter(key => key.startsWith('tanstack-db-freshness:freshness-configure-prune:'));
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toContain('fresh');
+  });
+
+  it('clears only matching scoped fetch-state records when rows are destroyed', () => {
+    installMemoryStorage();
+    const model = createTodoModel({ id: 'freshness-destroy-scopes', staleTime: 1000 });
+    model.insertStored({ id: 'a1', title: 'A1', listId: 'a', done: false, updatedAt: later });
+    model.insertStored({ id: 'a2', title: 'A2', listId: 'a', done: false, updatedAt: later });
+    model.insertStored({ id: 'b1', title: 'B1', listId: 'b', done: false, updatedAt: later });
+    model.markFetched(undefined, { empty: false });
+    model.markFetched({ listId: 'a' }, { empty: false });
+    model.markFetched({ listId: 'b' }, { empty: false });
+
+    expect(model.destroy('a1')).toBe(true);
+
+    expect(model.getFetchState({ listId: 'a' })).toBeNull();
+    expect(model.getFetchState({ listId: 'b' })).toMatchObject({ empty: false });
+    expect(model.getFetchState()).toMatchObject({ empty: false });
+
+    expect(model.destroyWhere({ listId: 'b' })).toBe(1);
+
+    expect(model.getFetchState({ listId: 'b' })).toBeNull();
+    expect(model.getFetchState()).toMatchObject({ empty: false });
   });
 });

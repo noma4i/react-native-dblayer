@@ -355,6 +355,15 @@ export type CollectionFetchState = {
   pageInfo?: FetchStatePageInfo;
 };
 
+export type CollectionFetchScopeRecord = {
+  /** Storage key suffix for the fetch-state scope; undefined is the root scope. */
+  scopeKey?: string;
+  /** Stored-row filter persisted with scoped fetch-state metadata. */
+  scope?: Record<string, unknown>;
+  /** Snapshot freshness state for this scope. */
+  state: CollectionFetchState;
+};
+
 export interface FetchStateRemovalListener {
   /** Called when a freshness scope is removed. */
   (scopeKey?: string): void;
@@ -386,6 +395,11 @@ interface CreateCollectionModelBaseConfig<
    * @default 0
    */
   staleTime?: number;
+  /**
+   * Freshness window for known-empty scopes in milliseconds.
+   * @default 0
+   */
+  emptyStaleTime?: number;
   merge?: {
     /**
      * Skip an identical merge batch within this window.
@@ -492,8 +506,10 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   getFetchState(filter?: Partial<TStored>): CollectionFetchState | null;
   /** Clear freshness metadata for a filter scope. */
   clearFetchState(filter?: Partial<TStored>): void;
-  /** Return true when the scope has data or known-empty freshness and is not stale. */
-  shouldSkipInitialFetch(filter?: Partial<TStored>, maxAgeMs?: number): boolean;
+  /** Return true when the scope has data or opted-in known-empty freshness and is not stale. */
+  shouldSkipInitialFetch(filter?: Partial<TStored>, maxAgeMs?: number, emptyMaxAgeMs?: number): boolean;
+  /** Internal maintenance delete that skips cascade and freshness clearing. */
+  _deleteManyWithoutFreshness?(ids: string[]): number;
   /** Delete every row and clear freshness metadata. */
   clearScope(): void;
   /** React hook: read one row by id and re-render on change. */
@@ -655,7 +671,7 @@ type BaseQueryCollectionFind = {
     /** React hook: read one row by id. */
     find: (id: string | undefined | null) => unknown;
     /** Freshness gate for the row scope. */
-    shouldSkipInitialFetch?: (filter?: { id?: string | null }, maxAgeMs?: number) => boolean;
+    shouldSkipInitialFetch?: (filter?: { id?: string | null }, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
     /** Snapshot freshness state for the row scope. */
     getFetchState?: (filter?: { id?: string | null }) => CollectionFetchState | null;
     /** Mark the row scope as fetched. */
@@ -671,7 +687,7 @@ type BaseQueryCollectionAll = {
     /** React hook: read all rows. */
     all: () => unknown[];
     /** Freshness gate for the root scope. */
-    shouldSkipInitialFetch?: (filter?: undefined, maxAgeMs?: number) => boolean;
+    shouldSkipInitialFetch?: (filter?: undefined, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
     /** Snapshot freshness state for the root scope. */
     getFetchState?: () => CollectionFetchState | null;
     /** Mark the root scope as fetched. */
@@ -693,6 +709,8 @@ export type BaseQueryConfig<TData> = {
   enabled?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
+  /** Freshness window for known-empty DB scopes in milliseconds. */
+  emptyStaleTime?: number;
   /** React Query cache garbage-collection window in milliseconds. */
   gcTime?: number;
   /** React Query remount refetch behavior. */
@@ -774,8 +792,12 @@ export type InfiniteQueryConfig<TData, TNode> = {
   enabled?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
+  /** Freshness window for known-empty DB scopes in milliseconds. */
+  emptyStaleTime?: number;
   /** React Query cache garbage-collection window in milliseconds. */
   gcTime?: number;
+  /** React Query remount refetch behavior. */
+  refetchOnMount?: boolean;
   /** Pagination direction. */
   direction?: 'forward' | 'backward';
   /** Read the next cursor from page data. */
@@ -798,7 +820,7 @@ export type InfiniteQueryConfig<TData, TNode> = {
     /** React hook: count rows matching the runtime filter. Explicit nullish filters return 0. */
     count?: (filter?: unknown | null) => number;
     /** Freshness gate for the page scope. */
-    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => boolean;
+    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
     /** Snapshot freshness state for the page scope. */
     getFetchState?: (filter?: unknown) => CollectionFetchState | null;
     /** Mark the page scope as fetched. */
@@ -856,6 +878,8 @@ export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unkn
   inactive?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
+  /** Freshness window for known-empty DB scopes in milliseconds. */
+  emptyStaleTime?: number;
   /** React Query cache garbage-collection window in milliseconds. */
   gcTime?: number;
   /** React Query remount refetch behavior. */
@@ -908,8 +932,12 @@ export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string
   enabled?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
+  /** Freshness window for known-empty DB scopes in milliseconds. */
+  emptyStaleTime?: number;
   /** React Query cache garbage-collection window in milliseconds. */
   gcTime?: number;
+  /** React Query remount refetch behavior. */
+  refetchOnMount?: boolean;
 };
 
 /** UI loading-state phase. */

@@ -140,9 +140,9 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
       return scopedFilter ? model.count(scopedFilter as never) : model.count();
     },
 
-    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => {
+    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number, emptyMaxAgeMs?: number) => {
       const scopedFilter = readScope(filter);
-      return model.shouldSkipInitialFetch(scopedFilter, maxAgeMs);
+      return model.shouldSkipInitialFetch(scopedFilter, maxAgeMs, emptyMaxAgeMs);
     },
 
     getFetchState: (filter?: unknown) => {

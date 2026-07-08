@@ -33,7 +33,8 @@ configureDb({
 | `extract.mutationResolver` | `DbMutationExtractResolver` | no-op | Turns a mutation's `extract` spec + server result into an extract payload for the sink. Use `createMutationExtractResolver(...)` for declarative presets. |
 
 Each seam also has a standalone setter if you prefer granular control: `setDbTransport`, `setDbStorageAdapter`,
-`setDbLogger`, `setDbExtractSink`, `setDbMutationExtractResolver`. `configureDb` just calls these.
+`setDbLogger`, `setDbExtractSink`, `setDbMutationExtractResolver`. `configureDb` wires those seams, then prunes
+stale fetch-state metadata older than `DEFAULT_FETCH_STATE_MAX_AGE_MS`.
 
 ## QueryClient seam
 

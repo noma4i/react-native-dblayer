@@ -54,6 +54,7 @@ export const MessageModel = defineModel<MessageInput, Message>({
 | `relations` | `() => ModelRelationsConfig` | `—` | Lazy model relations used by explicit cascade destroy paths. |
 | `normalize` | `(input: TInput) => (Partial<TStored> & { id: string }) \| null` | escape hatch | Custom mapper for irreducibly custom rows. Return `null` to drop it. |
 | `staleTime` | `number` (ms) | `0` | How long a fetched scope stays fresh. `0` = always stale. Drives `shouldSkipInitialFetch`. |
+| `emptyStaleTime` | `number` (ms) | `0` | How long a known-empty fetched scope may skip. `0` = known-empty scopes never skip. |
 | `merge.dedupeWindowMs` | `number` (ms) | `0` | Skip a merge batch identical to the previous one within this window. `0` = no dedupe. |
 | `merge.shouldOverwrite` | `(existing, incoming) => boolean` | `—` | Force-accept a merge the timestamp gate would reject. |
 | `replace.shouldOverwrite` | `(existing, incoming) => boolean` | `—` | Same, for replace writes. |
@@ -393,6 +394,10 @@ const latestMessage = MessageModel.first(
 | `insertStored` | `(item: TStored)` | `void` | Insert an already-stored-shaped row. |
 | `clearScope` | `()` | `void` | Delete every row + clear freshness. |
 
+`destroy`, `destroyMany`, and `destroyWhere` clear per-scope fetch-state records whose persisted freshness filter
+matches at least one deleted row. Root fetch-state survives row destroys; `clearScope()` clears all rows and all
+freshness for the model.
+
 ```ts
 import { mergeSyncContract, replaceSyncContract, generateTempId } from '@noma4i/react-native-dblayer';
 
@@ -478,7 +483,7 @@ MessageModel.insertStored(temp);
 | `markFetched` | `(filter?, state?: { empty?: boolean; pageInfo? })` | Stamp a scope as fetched now. |
 | `getFetchState` | `(filter?)` | `{ touchedAt, empty, pageInfo } \| null`. |
 | `clearFetchState` | `(filter?)` | Forget a scope's freshness. |
-| `shouldSkipInitialFetch` | `(filter?, maxAgeMs = staleTime)` | `true` when the scope has data (or is known-empty) and is not stale. |
+| `shouldSkipInitialFetch` | `(filter?, maxAgeMs = staleTime, emptyMaxAgeMs = emptyStaleTime)` | `true` when the scope has data, or has opted-in known-empty freshness, and is not stale. |
 
 ```ts
 // Manual fetch that respects freshness (the query DSL does this for you):

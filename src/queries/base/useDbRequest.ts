@@ -66,10 +66,11 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
       inactive: config.inactive,
       enabled: config.enabled,
       staleTime: config.staleTime,
+      emptyStaleTime: config.emptyStaleTime,
       gcTime: config.gcTime,
       refetchOnMount: config.refetchOnMount
     }),
-    [collection, config.enabled, config.gcTime, config.inactive, keySignature, config.query, config.refetchOnMount, config.staleTime]
+    [collection, config.emptyStaleTime, config.enabled, config.gcTime, config.inactive, keySignature, config.query, config.refetchOnMount, config.staleTime]
   );
 
   return useBaseQuery<TResult>(baseConfig);
@@ -108,7 +109,9 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
       ...(config.getCursor ? { getCursor: data => configRef.current.getCursor!(data) } : {}),
       enabled: config.enabled,
       staleTime: config.staleTime,
+      emptyStaleTime: config.emptyStaleTime,
       gcTime: config.gcTime,
+      refetchOnMount: config.refetchOnMount,
       direction: config.direction,
       getFilter: () => resolveRequestFilter(configRef.current.filter, configRef.current.scope),
       getCurrentUserId: () => configRef.current.currentUserId?.(),
@@ -116,7 +119,22 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
       collection: config.read,
       readMode: config.readMode
     };
-  }, [config.direction, config.enabled, config.gcTime, config.getCursor, config.inactive, keySignature, config.query, config.read, config.readMode, config.resolveSyncContract, config.scope, config.staleTime]);
+  }, [
+    config.direction,
+    config.emptyStaleTime,
+    config.enabled,
+    config.gcTime,
+    config.getCursor,
+    config.inactive,
+    keySignature,
+    config.query,
+    config.read,
+    config.readMode,
+    config.refetchOnMount,
+    config.resolveSyncContract,
+    config.scope,
+    config.staleTime
+  ]);
 
   return useBaseInfiniteQuery<TResponse, TNode>(baseConfig);
 };

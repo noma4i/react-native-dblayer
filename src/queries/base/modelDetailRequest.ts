@@ -34,6 +34,8 @@ export type ModelDetailRequestConfig<TResponse, TSelected, TResult = TSelected, 
   inactive?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
+  /** Freshness window for known-empty DB scopes in milliseconds. */
+  emptyStaleTime?: number;
   /** React Query cache garbage-collection window in milliseconds. */
   gcTime?: number;
   /** React Query remount refetch behavior. */
@@ -83,6 +85,7 @@ export const modelDetailRequest = <
     enabled: resolveDetailEnabled(id, config.enabled),
     inactive: config.inactive,
     staleTime: config.staleTime,
+    emptyStaleTime: config.emptyStaleTime,
     gcTime: config.gcTime,
     refetchOnMount: config.refetchOnMount
   };

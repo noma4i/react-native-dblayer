@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { deriveDbKey } from './deriveDbKey';
+import { clearCollectionFetchStates } from './freshnessStorage';
 import { getDbLogger } from './logger';
 import type { CollectionModel } from '../types';
 
@@ -27,6 +28,12 @@ export const invalidateDbRequests = async (key: readonly unknown[]): Promise<voi
 };
 
 export const invalidateModel = (model: CollectionModel<any, any>, scope?: object): void => {
+  if (scope) {
+    model.clearFetchState(scope);
+  } else {
+    getDbLogger().debug('db', 'freshness:clear', { model: model.collection.id, scope: undefined });
+    clearCollectionFetchStates(model.collection.id);
+  }
   void invalidateDbRequests(deriveDbKey(model, scope));
 };
 

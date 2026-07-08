@@ -20,7 +20,7 @@ import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } fro
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const document = <TData, TVariables = Record<string, unknown>>(name: string): DbGraphQLDocument<TData, TVariables> => ({ kind: 'Document', name } as unknown as DbGraphQLDocument<TData, TVariables>);
 
-const renderQueryHook = <T,>(queryClient: QueryClient, read: () => T) => {
+const renderQueryHook = <T,>(queryClient: QueryClient, read: () => T, options?: { clearOnUnmount?: boolean }) => {
   let current!: T;
   let renderer!: TestRenderer.ReactTestRenderer;
 
@@ -50,7 +50,9 @@ const renderQueryHook = <T,>(queryClient: QueryClient, read: () => T) => {
       act(() => {
         renderer.unmount();
       });
-      queryClient.clear();
+      if (options?.clearOnUnmount !== false) {
+        queryClient.clear();
+      }
     }
   };
 };
@@ -155,20 +157,91 @@ describe('request keys and imperative query runtime', () => {
     expect(logger.error).toHaveBeenCalledTimes(3);
   });
 
-  it('invalidates a model key through the configured QueryClient', () => {
+  it('clears fetch-state before invalidating model keys through the configured QueryClient', () => {
     const queryClient = createQueryClient();
     const model = createTodoModel({ id: 'invalidate-model' });
     const invalidateQueries = jest.spyOn(queryClient, 'invalidateQueries');
+    const logger = { debug: jest.fn(), error: jest.fn() };
 
     configureDb({
       storage: inMemoryStorageAdapter(),
+      logger,
       queryClient,
       transport: mockTransport({})
     });
+    model.markFetched({ listId: 'inbox' }, { empty: false });
+    model.markFetched({ listId: 'archive' }, { empty: false });
 
     invalidateModel(model, { listId: 'inbox' });
 
+    expect(model.getFetchState({ listId: 'inbox' })).toBeNull();
+    expect(model.getFetchState({ listId: 'archive' })).toMatchObject({ empty: false });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: deriveDbKey(model, { listId: 'inbox' }) });
+    expect(logger.debug).toHaveBeenCalledWith('db', 'freshness:clear', expect.objectContaining({ scope: { listId: 'inbox' } }));
+
+    invalidateModel(model);
+
+    expect(model.getFetchState({ listId: 'archive' })).toBeNull();
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: deriveDbKey(model) });
+    expect(logger.debug).toHaveBeenCalledWith('db', 'freshness:clear', expect.objectContaining({ scope: undefined }));
+  });
+
+  it('reenables a mounted gate-disabled request after invalidateModel clears fetch-state', async () => {
+    const queryClient = createQueryClient();
+    const model = createTodoModel({ id: 'invalidate-mounted', staleTime: Infinity });
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    const query = jest.fn(async () => ({
+      data: {
+        todo: {
+          id: 'todo-1',
+          title: 'Fetched after invalidate',
+          listId: 'inbox',
+          done: false,
+          updatedAt: '2026-01-02T00:00:00.000Z'
+        }
+      }
+    }));
+
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      logger,
+      queryClient,
+      transport: mockTransport({ query })
+    });
+    model.insertStored({ id: 'todo-1', title: 'Cached', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    model.markFetched({ id: 'todo-1' }, { empty: false });
+
+    const hook = renderQueryHook(queryClient, () =>
+      useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+        query: document<{ todo: Todo }>('InvalidateMountedTodo'),
+        select: data => data.todo,
+        sync: { model, contract: 'todo' },
+        read: { model, id: 'todo-1' },
+        staleTime: Infinity
+      })
+    );
+
+    await hook.flush();
+    expect(query).not.toHaveBeenCalled();
+    expect(hook.current.data?.title).toBe('Cached');
+    expect(logger.debug).toHaveBeenCalledWith('db', 'freshness:skip', expect.objectContaining({ empty: false }));
+
+    act(() => {
+      model.markFetched({ id: 'todo-1' }, { empty: false });
+    });
+    await hook.flush();
+    expect(query).not.toHaveBeenCalled();
+
+    act(() => {
+      invalidateModel(model, { id: 'todo-1' });
+    });
+    await hook.flush();
+    await hook.flush();
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(model.get('todo-1')?.title).toBe('Fetched after invalidate');
+
+    hook.unmount();
   });
 
   it('keeps explicit single request keys ahead of derived model keys', async () => {

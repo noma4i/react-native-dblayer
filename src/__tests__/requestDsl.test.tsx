@@ -14,13 +14,16 @@ type HookResult<T> = {
   unmount: () => void;
 };
 
-const renderQueryHook = <T,>(read: () => T): HookResult<T> => {
-  const queryClient = new QueryClient({
+const createQueryClient = () =>
+  new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false }
     }
   });
+
+const renderQueryHook = <T,>(read: () => T, options?: { queryClient?: QueryClient; clearOnUnmount?: boolean }): HookResult<T> => {
+  const queryClient = options?.queryClient ?? createQueryClient();
   let current!: T;
   let renderer!: TestRenderer.ReactTestRenderer;
 
@@ -50,13 +53,16 @@ const renderQueryHook = <T,>(read: () => T): HookResult<T> => {
       act(() => {
         renderer.unmount();
       });
-      queryClient.clear();
+      if (options?.clearOnUnmount !== false) {
+        queryClient.clear();
+      }
     }
   };
 };
 
 describe('request DSL runtime', () => {
   afterEach(async () => {
+    jest.restoreAllMocks();
     setDbExtractSink(() => {});
     await flush();
     devClearAllDataAndState();
@@ -272,5 +278,121 @@ describe('request DSL runtime', () => {
     expect(hook.current.bindingAllCount).toBe(2);
 
     hook.unmount();
+  });
+
+  it('runs known-empty single requests again on the next mount by default', async () => {
+    const model = createTodoModel({ id: 'request-empty-default', staleTime: Infinity });
+    const query = jest.fn(async () => ({
+      data: {
+        todo: null
+      }
+    }));
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ query })
+    });
+
+    const read = () =>
+      useDbSingleRequest<{ todo: Todo | null }, Todo | null, Todo | null>({
+        query: document<{ todo: Todo | null }>('KnownEmptyDefaultTodo'),
+        key: ['known-empty-default', 'todo-missing'],
+        select: data => data.todo,
+        read: { model, id: 'todo-missing' },
+        staleTime: Infinity
+      });
+
+    const first = renderQueryHook(read);
+    await first.flush();
+    await first.flush();
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(model.getFetchState({ id: 'todo-missing' })).toMatchObject({ empty: true });
+    first.unmount();
+
+    const second = renderQueryHook(read);
+    await second.flush();
+    await second.flush();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    second.unmount();
+  });
+
+  it('lets request emptyStaleTime opt known-empty single scopes into the skip window', async () => {
+    const model = createTodoModel({ id: 'request-empty-override', staleTime: 1000, emptyStaleTime: 0 });
+    const query = jest.fn(async () => ({
+      data: {
+        todo: null
+      }
+    }));
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ query })
+    });
+    jest.spyOn(Date, 'now').mockReturnValue(1000);
+    model.markFetched({ id: 'todo-missing' }, { empty: true });
+    jest.spyOn(Date, 'now').mockReturnValue(1050);
+
+    const hook = renderQueryHook(() =>
+      useDbSingleRequest<{ todo: Todo | null }, Todo | null, Todo | null>({
+        query: document<{ todo: Todo | null }>('KnownEmptyOverrideTodo'),
+        key: ['known-empty-override', 'todo-missing'],
+        select: data => data.todo,
+        read: { model, id: 'todo-missing' },
+        staleTime: 1000,
+        emptyStaleTime: 500
+      })
+    );
+    await hook.flush();
+
+    expect(query).not.toHaveBeenCalled();
+    expect(hook.current.data).toBeNull();
+    hook.unmount();
+  });
+
+  it('passes refetchOnMount through the infinite request path', async () => {
+    const model = createTodoModel({ id: 'infinite-refetch-on-mount' });
+    const binding = createCollectionBinding(model);
+    const queryClient = createQueryClient();
+    const query = jest.fn(async () => ({
+      data: {
+        todos: {
+          nodes: [{ id: 'todo-1', title: 'Cached page', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }],
+          pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: 'cursor-1', endCursor: 'cursor-1' }
+        }
+      }
+    }));
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ query })
+    });
+
+    type TodoConnectionResponse = {
+      todos: ConnectionWithNodes & {
+        pageInfo?: PageInfoInput | null;
+      };
+    };
+
+    const read = () =>
+      useDbInfiniteRequest({
+        query: document<TodoConnectionResponse>('InfiniteRefetchOnMountTodos'),
+        key: ['infinite-refetch-on-mount'],
+        selectPage: data => data.todos,
+        read: binding,
+        staleTime: 0,
+        refetchOnMount: false
+      });
+
+    const first = renderQueryHook(read, { queryClient, clearOnUnmount: false });
+    await first.flush();
+    await first.flush();
+    expect(query).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = renderQueryHook(read, { queryClient, clearOnUnmount: false });
+    await second.flush();
+    await second.flush();
+    expect(query).toHaveBeenCalledTimes(1);
+    second.unmount();
+    queryClient.clear();
   });
 });

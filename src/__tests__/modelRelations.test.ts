@@ -699,12 +699,20 @@ describe('model relations', () => {
     chatModel.insertStored({ id: 'chat-2', userId: 'user-2', title: 'Other', updatedAt: null });
     messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', body: 'Owned', updatedAt: null });
     messageModel.insertStored({ id: 'message-2', chatId: 'chat-2', body: 'Other', updatedAt: null });
+    chatModel.markFetched({ userId: 'user-1' }, { empty: false });
+    chatModel.markFetched({ userId: 'user-2' }, { empty: false });
+    messageModel.markFetched({ chatId: 'chat-1' }, { empty: false });
+    messageModel.markFetched({ chatId: 'chat-2' }, { empty: false });
 
     expect(userModel.destroy('user-1')).toBe(true);
 
     expect(userModel.getAll()).toEqual([]);
     expect(chatModel.getAll().map(row => row.id)).toEqual(['chat-2']);
     expect(messageModel.getAll().map(row => row.id)).toEqual(['message-2']);
+    expect(chatModel.getFetchState({ userId: 'user-1' })).toBeNull();
+    expect(chatModel.getFetchState({ userId: 'user-2' })).toMatchObject({ empty: false });
+    expect(messageModel.getFetchState({ chatId: 'chat-1' })).toBeNull();
+    expect(messageModel.getFetchState({ chatId: 'chat-2' })).toMatchObject({ empty: false });
   });
 
   it('skips hasManyThrough entries during cascade destroy', () => {

@@ -15,9 +15,12 @@ export {
   clearCollectionFetchState,
   clearCollectionFetchStates,
   getCollectionFetchState,
+  getCollectionFetchStateVersion,
+  listCollectionFetchScopes,
   pruneStaleFetchStates,
   registerCollectionFetchStateCache,
-  setCollectionFetchState
+  setCollectionFetchState,
+  subscribeCollectionFetchState
 } from './core/freshnessStorage';
 export { isIncomingNewer, shallowEqual, shouldAcceptIncoming } from './core/invariants';
 export { mmkvCollectionOptions } from './core/mmkvCollectionOptions';
@@ -120,6 +123,7 @@ export type {
   BelongsToModel,
   BelongsToRelation,
   CollectionFetchState,
+  CollectionFetchScopeRecord,
   CollectionModel,
   CollectionReadConfig,
   ComputePhaseInput,

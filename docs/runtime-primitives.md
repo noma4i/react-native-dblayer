@@ -22,9 +22,9 @@ omits it from the return value. The return value is the unmatched server nodes.
 
 | Helper | Behavior |
 | --- | --- |
-| `pruneOrphanedRows(model, foreignKeyField, liveParentIds)` | Deletes rows whose foreign key is not in the live id set. Uses one `destroyMany(ids)` batch and returns the deleted count. |
-| `pruneExpiredRows(model, field, ttlMs, now?)` | Deletes rows whose timestamp field is older than `ttlMs`. Boundary rows and invalid/missing timestamps are kept. |
-| `trimRowsPerScope(model, scopeField, maxPerScope, compare, protect?)` | Groups unprotected rows by scope, sorts each group with `compare`, keeps the first `maxPerScope`, deletes the rest in one batch, and returns the deleted count. Protected ids/rows do not count toward the limit. |
+| `pruneOrphanedRows(model, foreignKeyField, liveParentIds)` | Deletes rows whose foreign key is not in the live id set. Uses one public `destroyMany(ids)` batch, so cascade and fetch-state clearing run. |
+| `pruneExpiredRows(model, field, ttlMs, now?)` | Deletes rows whose timestamp field is older than `ttlMs`. Boundary rows and invalid/missing timestamps are kept. Uses public `destroyMany(ids)`. |
+| `trimRowsPerScope(model, scopeField, maxPerScope, compare, protect?)` | Groups unprotected rows by scope, sorts each group with `compare`, keeps the first `maxPerScope`, deletes the rest through the internal maintenance delete path, and returns the deleted count. It does not cascade or clear fetch-state. Protected ids/rows do not count toward the limit. |
 | `resolveStaleTempRows(model, { maxAgeMs, protectedIds?, onStale })` | Calls `onStale(row)` for temp-id rows older than `maxAgeMs` and not protected. Returns the resolved count. |
 
 ## `createOptimisticSequence()`

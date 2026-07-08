@@ -13,6 +13,7 @@ type SnapshotModel<TStored extends RowId> = {
 type DestroyManyModel<TStored extends RowId> = {
   getAll(): TStored[];
   destroyMany(ids: string[]): number;
+  _deleteManyWithoutFreshness?: (ids: string[]) => number;
 };
 
 type PatchModel<TStored extends RowId> = {
@@ -138,6 +139,11 @@ const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlyS
 
 const destroyManyIfNeeded = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => (ids.length > 0 ? model.destroyMany(ids) : 0);
 
+const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => {
+  if (ids.length === 0) return 0;
+  return model._deleteManyWithoutFreshness?.(ids) ?? model.destroyMany(ids);
+};
+
 const toExpiryTimestamp = (value: CreatedAtLike): number => toTimestamp(value);
 
 /** Delete rows whose foreign key no longer points at a live parent id. */
@@ -225,7 +231,7 @@ export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extr
     idsToDestroy.push(...rows.slice(limit).map(row => row.id));
   }
 
-  return destroyManyIfNeeded(model, idsToDestroy);
+  return deleteManyForMaintenance(model, idsToDestroy);
 };
 
 export type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {

@@ -164,13 +164,17 @@ describe('runtime primitives', () => {
     model.insertStored(message({ id: 'new-1', createdAt: '2026-01-01T00:00:03.000Z', sequenceNumber: 4 }));
     model.insertStored(message({ id: 'new-2', createdAt: '2026-01-01T00:00:02.000Z', sequenceNumber: 3 }));
     model.insertStored(message({ id: 'old-delete', createdAt: '2026-01-01T00:00:01.000Z', sequenceNumber: 2 }));
+    model.markFetched({ chatId: 'chat-1' }, { empty: false });
     const destroyMany = jest.spyOn(model, 'destroyMany');
+    const maintenanceDelete = jest.spyOn(model, '_deleteManyWithoutFreshness');
 
     const deleted = trimRowsPerScope(model, 'chatId', 2, (left, right) => (right.sequenceNumber ?? 0) - (left.sequenceNumber ?? 0), new Set(['old-protected']));
 
     expect(deleted).toBe(1);
-    expect(destroyMany).toHaveBeenCalledWith(['old-delete']);
+    expect(maintenanceDelete).toHaveBeenCalledWith(['old-delete']);
+    expect(destroyMany).not.toHaveBeenCalled();
     expect(model.getAll().map(row => row.id).sort()).toEqual(['new-1', 'new-2', 'old-protected']);
+    expect(model.getFetchState({ chatId: 'chat-1' })).toMatchObject({ empty: false });
   });
 
   it('resolves stale temp rows by age while skipping protected and non-temp rows', () => {
