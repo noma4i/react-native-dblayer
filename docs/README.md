@@ -16,7 +16,6 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
   `runDbCommandDirect`, `runDbMutationDirect`.
 - [Runtime primitives](./runtime-primitives.md) — optimistic subscription reconcile, cleanup helpers,
   optimistic ordering sequences, throttled single-flight, nested object patching, and singleton statics.
-- [ActiveRecord](./active-record.md) — `query`, `instance`, `useInstance`, `ModelRelation`, `ModelInstance`.
 
 ## Conventions used in these docs
 
@@ -30,14 +29,10 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 - All ids are `string`. Rows must have a `string` `id`; an optional `updatedAt` (ISO string) enables the
   newer-wins timestamp gate on writes.
 
-## Two layers, one model
+## One model surface
 
-You can drive a model at two levels, and mix them freely:
-
-1. **Direct `CollectionModel` API** — `Model.find(id)`, `Model.where(...)`, `Model.applyServerData(...)`, etc.
-   Explicit and complete. See [Models](./models.md).
-2. **ActiveRecord DSL** — `query(Model).where(...).all()`, `useInstance(Model, id)`. Chainable sugar over the
-   same model. See [ActiveRecord](./active-record.md).
+Drive models through the direct `CollectionModel` API: `Model.find(id)`, `Model.where(...)`,
+`Model.applyServerData(...)`, related accessors, and row-level related chains. See [Models](./models.md).
 
 Data is fetched with the [query DSL](./queries.md) and changed with the [mutation DSL](./mutations.md); both write
 into the same collections your components read from.

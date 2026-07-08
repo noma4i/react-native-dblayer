@@ -1,15 +1,16 @@
-import type { BaseQueryCollection, CollectionFetchState, CollectionModel, CollectionReadConfig, StableItemsConfig, StableProjectionConfig, SyncContract } from '../../types';
+import type { BaseQueryCollection, CollectionFetchState, CollectionModel, CollectionReadConfig, StableItemsConfig, StableEntityConfig, SyncContract } from '../../types';
 /** React hook that reads configured query data from a model. */
 export declare function useCollectionRead<TData>(collection: BaseQueryCollection | undefined): TData | undefined;
 /** Create an infinite-query collection binding around a model. */
 export declare const createCollectionBinding: <TStored extends {
     id: string;
-}>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored>) => {
+}, TRead = TStored>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored, TRead>) => {
     _dbModel: CollectionModel<unknown, TStored>;
     _dbScope: (filter?: unknown) => Partial<TStored> | undefined;
     applyServerData: (items: unknown[], contract: SyncContract) => import("../..").MergeResult | import("../..").ReplaceResult;
-    useData: (filter?: unknown, inactive?: boolean) => TStored[];
-    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => boolean;
+    useData(filter?: unknown, inactive?: boolean): TRead[];
+    count(filter?: unknown | null): number;
+    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
     getFetchState: (filter?: unknown) => CollectionFetchState | null;
     markFetched: (filter?: unknown, state?: Omit<CollectionFetchState, "touchedAt">) => void;
 };
@@ -21,10 +22,18 @@ export declare const resolveRequestScope: (scope: unknown | (() => unknown) | un
 export declare const resolveRequestFilter: (filter: (() => unknown) | undefined, scope: unknown | (() => unknown) | undefined) => unknown;
 /** Merge derived scope variables with explicit variables; explicit variables win on conflicts. */
 export declare const mergeScopeVars: <TVariables>(vars: TVariables | undefined, scope: unknown) => TVariables | undefined;
+type ResolvedStableProjectionConfig<TSource, TEntry extends {
+    item: TItem;
+}, TItem> = {
+    getKey: (source: TSource) => string;
+    buildEntry: (source: TSource) => TEntry | null;
+    emptyItems: TItem[];
+    entriesEqual: (prev: TEntry, next: TEntry) => boolean;
+};
 /** Build stable projected items by reusing unchanged cached entries. */
 export declare const buildStableItems: <TSource, TEntry extends {
     item: TItem;
-}, TItem>(sources: TSource[], config: StableProjectionConfig<TSource, TEntry, TItem>, previousCache: Map<string, TEntry>) => {
+}, TItem>(sources: TSource[], config: ResolvedStableProjectionConfig<TSource, TEntry, TItem>, previousCache: Map<string, TEntry>) => {
     items: TItem[];
     cache: Map<string, TEntry>;
 };
@@ -40,6 +49,8 @@ export declare const pickEqual: <T extends object>(prev: T | null | undefined, n
 export declare function useStableItems<TSource, TEntry extends {
     item: TItem;
 }, TItem extends object>(sources: TSource[], config: StableItemsConfig<TSource, TEntry, TItem>): TItem[];
+/** React hook that reuses one entity reference while configured fields remain equal. */
+export declare function useStableEntity<TItem extends object>(value: TItem | null | undefined, config: StableEntityConfig<TItem>): TItem | null | undefined;
 /** React hook that reuses an array instance when its element references did not change. */
 export declare const useStableArray: <TItems extends readonly unknown[]>(next: TItems) => TItems;
 /** React hook that memoizes sorted output and reuses it for element-identical input arrays. */
@@ -62,4 +73,5 @@ export declare const useWindowedLoadMore: (networkLoadMore: () => void, networkR
     loadMore: () => void;
     refresh: () => Promise<void>;
 };
+export {};
 //# sourceMappingURL=shared.d.ts.map

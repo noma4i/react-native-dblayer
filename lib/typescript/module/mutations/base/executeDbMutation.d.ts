@@ -17,6 +17,7 @@ export declare const executeDbMutationRequest: <TData, TInput, TContext, TStored
 export declare const applyDbMutationCommit: <TData, TInput, TContext, TStored, TServerNode>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>, result: TData | null, input: TInput, context: TContext) => void;
 /**
  * Run a DB mutation config outside React without optimistic transaction handling.
+ * Patch configs apply `selectPatch` before the transport call and do not roll back when the request fails.
  * @param config Same config accepted by `useDbMutation`.
  * @param input Caller input.
  * @param context Optional context passed to `onCommit`.

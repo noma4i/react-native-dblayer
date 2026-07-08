@@ -7,7 +7,7 @@ type DbMutationExtractValue = unknown | unknown[] | null | undefined;
 export type DbMutationExtractPresetSelector<TResult = unknown> = (result: TResult) => DbMutationExtractValue;
 export type DbMutationExtractPresetEntry<TResult = unknown, TSinkKey extends string = string> = {
     /** Default reader used when the mutation extract preset is `true`. */
-    read: (result: TResult) => DbMutationExtractValue;
+    read: string | ((result: TResult) => DbMutationExtractValue);
     /** Output key consumed by the extract sink. */
     sink: TSinkKey;
     /**
@@ -21,7 +21,7 @@ export type DbExtractModelSink = {
     /** Apply server payloads with the source merge contract. */
     applyServerData: (items: unknown[], contract: SyncContract) => unknown;
 };
-export type DbExtractCustomSink = (payload: unknown, source: string) => void;
+export type DbExtractCustomSink = (payload: unknown[], source: string) => void;
 export type DbExtractSinkTable = Record<string, DbExtractModelSink | DbExtractCustomSink>;
 /** Set the sink used for query and mutation side-load payloads. */
 export declare const setDbExtractSink: (sink: DbExtractSink) => void;
@@ -31,6 +31,7 @@ export declare const getDbExtractSink: () => DbExtractSink;
 export declare const setDbMutationExtractResolver: (resolver: DbMutationExtractResolver) => void;
 /** Get the currently configured mutation extract resolver. */
 export declare const getDbMutationExtractResolver: () => DbMutationExtractResolver;
+export declare const liftExtractNodes: (value: DbMutationExtractValue) => unknown[];
 /**
  * Build a mutation extract resolver from a declarative preset table.
  * Boolean presets use the table reader; selector presets override the reader.

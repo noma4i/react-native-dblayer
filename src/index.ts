@@ -1,6 +1,5 @@
 export { createCollectionModel } from './core/createCollectionModel';
 export { configureDb } from './configure';
-export { instance, query, useInstance } from './activeRecord';
 export { createMerge } from './core/createMerge';
 export { deriveDbKey } from './core/deriveDbKey';
 export { createPatchCrud } from './core/createPatchCrud';
@@ -172,10 +171,8 @@ export type {
   LoadingPhase,
   LoadingState,
   MergeResult,
-  ModelInstance,
   ModelBuildStoredInput,
   ModelFieldSpecs,
-  ModelRelation,
   ModelRelationConfigValue,
   ModelRelationDefinition,
   ModelRelationsConfig,

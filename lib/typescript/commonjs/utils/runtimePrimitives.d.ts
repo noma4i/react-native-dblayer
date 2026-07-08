@@ -13,6 +13,7 @@ type SnapshotModel<TStored extends RowId> = {
 type DestroyManyModel<TStored extends RowId> = {
     getAll(): TStored[];
     destroyMany(ids: string[]): number;
+    _deleteManyWithoutFreshness?: (ids: string[]) => number;
 };
 type PatchModel<TStored extends RowId> = {
     get(id: string): TStored | undefined;
@@ -46,6 +47,8 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
 export declare const reconcileOptimisticRows: <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(model: SnapshotModel<TStored>, nodes: TNode[], options: ReconcileOptimisticRowsOptions<TStored, TNode>) => TNode[];
 /** Delete rows whose foreign key no longer points at a live parent id. */
 export declare const pruneOrphanedRows: <TStored extends RowId, TForeignKey extends Extract<keyof TStored, string>>(model: DestroyManyModel<TStored>, foreignKeyField: TForeignKey, liveParentIds: ReadonlySet<string> | readonly string[]) => number;
+/** Delete rows whose timestamp field is older than the supplied TTL. Invalid timestamps are kept. */
+export declare const pruneExpiredRows: <TStored extends RowId, TField extends Extract<keyof TStored, string>>(model: DestroyManyModel<TStored>, field: TField, ttlMs: number, now?: CreatedAtLike) => number;
 export type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
 /**
  * Keep at most `maxPerScope` unprotected rows in each scope.

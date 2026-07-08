@@ -1,5 +1,12 @@
 import type { DbCommandMutationConfig } from '../../types';
 /**
+ * Run a command mutation outside React without optimistic writes or invalidation.
+ * @param config Same config accepted by `useCommand`; `key` and `logPrefix` are hook-only.
+ * @param input Caller input.
+ * @returns Command result field or null when the response field is missing.
+ */
+export declare const runDbCommandDirect: <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>, input: TInput) => Promise<TData | null>;
+/**
  * React hook for fire-and-forget GraphQL commands without optimistic writes.
  * @param config Static or per-input command mutation config.
  * @returns React Query mutation result.

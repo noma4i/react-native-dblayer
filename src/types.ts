@@ -530,40 +530,8 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   _collection: Collection<TStored, string>;
 }
 
-export interface ModelRelation<T extends { id: string }> {
-  /** Return a new immutable relation with a shallow-merged filter. */
-  where(filter: Partial<T>): ModelRelation<T>;
-  /** Snapshot terminal: all matching rows. */
-  getAll(): T[];
-  /** Snapshot terminal: first matching row. */
-  getFirst(): T | undefined;
-  /** Snapshot terminal: number of matching rows. */
-  getCount(): number;
-  /** Snapshot terminal: ids of matching rows. */
-  getIds(): string[];
-  /** React hook terminal. Call only from React components or other hooks. */
-  all(): T[];
-  /** React hook terminal. Call only from React components or other hooks. */
-  first(): T | undefined;
-  /** React hook terminal. Call only from React components or other hooks. */
-  count(): number;
-  /** React hook terminal. Call only from React components or other hooks. */
-  ids(): string[];
-  /** Patch every matching row and return how many were updated. */
-  update(patch: Partial<StoredWriteInput<T>>): number;
-  /** Delete every matching row and return how many were removed. */
-  delete(): number;
-}
-
 export type DbKeyModelSource = {
   collection: { readonly id: string };
-};
-
-export type ModelInstance<T extends { id: string }> = Readonly<T> & {
-  /** Patch this row by id. */
-  update(patch: Partial<StoredWriteInput<T>>): boolean;
-  /** Delete this row by id. */
-  delete(): boolean;
 };
 
 export type ServerSyncMode = 'merge' | 'replace';
