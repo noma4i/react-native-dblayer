@@ -14,7 +14,31 @@ import type {
 } from '../../types';
 import { useMapById } from './mapById';
 
-/** React hook that reads configured query data from a model. */
+/**
+ * React hook that reads configured query data from a model.
+ *
+ * KNOWN RULES-OF-HOOKS HAZARD (not fixed - see constraint below): if the same call site's `collection`
+ * argument toggles between `undefined` and a defined value across renders, or between the
+ * `BaseQueryCollectionFind` and `BaseQueryCollectionAll` variants, this function calls a different
+ * number/identity of hooks per render. `collection.model.find(id)` itself is already hook-order-safe for
+ * any `id` value including nullish (its internal `useLiveQuery` always runs; only the query builder is
+ * gated) - the unsafe part is this function's own early `return undefined` when `collection` is absent,
+ * and its choice between calling `.find` vs `.all` when it IS present.
+ *
+ * This could not be unified without one of: (a) requiring `collection` to always be defined so there is
+ * always a model reference to call a hook against - genuinely absent at call sites that gate the whole
+ * read on a not-yet-available id, and a change to the public `BaseQueryCollection | undefined` contract
+ * this function is exported with; or (b) always calling both `.find` and `.all` on every render to keep
+ * hook count constant, which would run a permanent full-collection `all()` subscription behind every
+ * single detail read in the app for a result it never uses - an unacceptable resource-usage regression,
+ * not merely a style change. Both fixes cross the "no public behavior change" line for this task, so the
+ * only safe path in practice today is what callers already do: keep a call site's `collection` argument
+ * on the same code path (defined-or-undefined, find-or-all) for the lifetime of the mounted component
+ * that reads it, rather than swapping it dynamically.
+ *
+ * @param collection Model-backed detail (`find`) or all-rows (`all`) read configuration.
+ * @returns The read row/rows, or `undefined` when no collection is configured or nothing matched.
+ */
 export function useCollectionRead<TData>(collection: BaseQueryCollection | undefined): TData | undefined {
   if (!collection) return undefined;
   if ('id' in collection) {
@@ -135,7 +159,11 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
     },
 
     count(filter?: unknown | null): number {
-      if (hasExplicitNullishFilter(arguments.length, filter)) return 0;
+      // `model.count(...)` runs its hook unconditionally on every call - never skip calling it. An
+      // explicit nullish filter here forwards a nullish argument to `model.count`, which disables its
+      // own query internally (same "hook always runs, only the query is gated" contract), instead of
+      // returning 0 without calling the hook at all.
+      if (hasExplicitNullishFilter(arguments.length, filter)) return model.count(null as never);
       const scopedFilter = readScope(filter);
       return scopedFilter ? model.count(scopedFilter as never) : model.count();
     },

@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { devClearAllDataAndState } from '../index';
+import { createCollectionBinding, devClearAllDataAndState } from '../index';
 import { createTodoModel, installMemoryStorage } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -21,6 +21,40 @@ const renderHook = <T,>(read: () => T) => {
   return {
     get current() {
       return current;
+    },
+    async flush() {
+      await flush();
+    },
+    unmount() {
+      act(() => {
+        renderer.unmount();
+      });
+    }
+  };
+};
+
+/** Render harness that supports re-rendering the SAME mounted component with a new prop. */
+const renderHookWithProps = <TProps, T>(read: (props: TProps) => T, initialProps: TProps) => {
+  let current!: T;
+  let renderer!: TestRenderer.ReactTestRenderer;
+
+  const Harness = ({ props }: { props: TProps }) => {
+    current = read(props);
+    return null;
+  };
+
+  act(() => {
+    renderer = TestRenderer.create(<Harness props={initialProps} />);
+  });
+
+  return {
+    get current() {
+      return current;
+    },
+    rerender(props: TProps) {
+      act(() => {
+        renderer.update(<Harness props={props} />);
+      });
     },
     async flush() {
       await flush();
@@ -95,5 +129,48 @@ describe('collection model reactive hooks', () => {
     byIds.unmount();
     count.unmount();
     await flush();
+  });
+
+  it('keeps model.count hook order stable while its filter flips null -> object -> null across renders', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+    model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+
+    const hook = renderHookWithProps<{ listId: string } | null, number>(filter => model.count(filter as never), null);
+    expect(hook.current).toBe(0);
+
+    // Each rerender keeps the SAME mounted component instance; a hook-order violation here would throw
+    // inside `act` ("Rendered more/fewer hooks than during the previous render").
+    hook.rerender({ listId: 'a' });
+    expect(hook.current).toBe(1);
+
+    hook.rerender(null);
+    expect(hook.current).toBe(0);
+
+    hook.rerender({ listId: 'a' });
+    expect(hook.current).toBe(1);
+
+    hook.unmount();
+  });
+
+  it('keeps collection-binding count hook order stable while its filter flips null -> object -> null across renders', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+    model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const binding = createCollectionBinding(model, { scopeMap: { listId: 'listId' } });
+
+    const hook = renderHookWithProps<{ listId: string } | null, number>(filter => binding.count(filter), null);
+    expect(hook.current).toBe(0);
+
+    hook.rerender({ listId: 'a' });
+    expect(hook.current).toBe(1);
+
+    hook.rerender(null);
+    expect(hook.current).toBe(0);
+
+    hook.rerender({ listId: 'a' });
+    expect(hook.current).toBe(1);
+
+    hook.unmount();
   });
 });

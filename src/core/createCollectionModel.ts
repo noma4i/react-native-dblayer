@@ -565,15 +565,20 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
 
   const useCount = (...args: [DbWhere<any>?]): number => {
     const filter = args[0];
-    if (args.length > 0 && filter == null) return 0;
+    // An explicit nullish filter (caller passed an argument that resolved to null/undefined) disables
+    // the count query - it does not skip the hook. `useLiveQuery` still runs on every call; only the
+    // query builder's return value is gated, mirroring `readRows`/`binding.useData`'s inactive pattern.
+    const disabled = args.length > 0 && filter == null;
     const signature = createDbWhereSignature(filter);
 
     const { data } = useLiveQuery(
-      q =>
-        applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter)
+      q => {
+        if (disabled) return undefined;
+        return applyDbWhereToQuery(q.from({ items: tanstackCollection }) as any, filter)
           .groupBy(() => GROUP_ALL)
-          .select(({ items }: { items: unknown }) => ({ total: dbCount(toQueryValue((items as Record<string, unknown>).id)) })),
-      [signature]
+          .select(({ items }: { items: unknown }) => ({ total: dbCount(toQueryValue((items as Record<string, unknown>).id)) }));
+      },
+      [disabled, signature]
     );
 
     return (data as Array<{ total: number }> | undefined)?.[0]?.total ?? 0;
