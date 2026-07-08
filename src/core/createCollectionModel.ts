@@ -357,7 +357,9 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     return (data ?? EMPTY) as any[];
   };
 
-  const useCount = (filter?: DbWhere<any>): number => {
+  const useCount = (...args: [DbWhere<any>?]): number => {
+    const filter = args[0];
+    if (args.length > 0 && filter == null) return 0;
     const signature = createDbWhereSignature(filter);
 
     const { data } = useLiveQuery(

@@ -185,9 +185,9 @@ function Feed() {
 | `scope` | `object \| () => object` | `—` | Scope values merged into variables and used as the read/write filter when `filter` is omitted. |
 | `getPageVars` | `(pageParam: string) => Record<string, unknown>` | `—` | Cursor → next page's variables. |
 | `getCursor` | `(data) => string \| number \| null` | `—` | Next cursor from a page. |
-| `patchNode` | `(node, { index, pageParam }) => Partial \| null` | `—` | Decorate each node before storing. |
+| `patchNode` | `(node, { index, globalIndex, pageParam }) => Partial \| null` | `—` | Decorate each node before storing. `globalIndex` resets on initial-page fetches and increments across loaded pages. |
 | `extract` | `({ data, nodes }) => unknown` | `—` | Side-load payload (extract sink, source `'query'`). |
-| `resolveSyncContract` | `(ctx) => SyncContract` | replace first page, merge rest | Override how each page is written. |
+| `resolveSyncContract` | `(ctx) => SyncContract` | replace initial page, merge loaded pages | Override how each page is written. Use `mergeInitialSyncContract` when initial pages should merge instead of replace. |
 | `readMode` | `'data' \| 'none'` | `'data'` | `'none'` when a view hook owns the reactive read. |
 | `filter` | `() => unknown` | `—` | Scope filter for the read. |
 | `currentUserId` | `() => string \| undefined` | `—` | Scope-key input. |
@@ -218,6 +218,26 @@ useDbInfiniteRequest({
 That is equivalent to `vars: { statusFilter, first: 20 }` plus `filter: () => ({ statusFilter })`. Explicit
 `filter` still wins over `scope`, which keeps raw configs a first-class escape hatch for scopes whose server
 variables do not match the collection scope vocabulary.
+
+By default, an initial page writes `replaceSyncContract('initial', scope)` and a loaded page writes
+`mergeSyncContract('loadMore', scope)`. Pass `resolveSyncContract: mergeInitialSyncContract` for append-only
+scopes where the initial page should merge with existing rows while still tagging sources as `'initial'` or
+`'loadMore'`.
+
+### `createCollectionBinding(model, options)`
+
+Bindings connect an infinite request to a model. They own collection writes, freshness scopes, and reactive reads.
+
+| Option | Description |
+| --- | --- |
+| `scopeMap` | Maps request/filter keys to stored-row fields for scoped reads, freshness, and scoped replace filters. |
+| `sortField` / `sortDirection` | Field ordering for the bound read. `sortDirection` defaults to `'desc'`. |
+| `comparator` | Custom row comparator for canonical ordering. Mutually exclusive with `sortField`. |
+| `useData` | Override hook for read projections. Receives `{ filter, scope, rows, inactive, empty }`; return `empty` for stable no-data output. |
+
+For scoped bindings, explicit nullish reads are disabled: `binding.useData(null)` and `binding.useData(undefined)`
+return a stable empty array, and `binding.count(null)` / `binding.count(undefined)` return `0`. Unscoped
+`binding.useData()` and `binding.count()` still read the full collection.
 
 ## Derived keys and imperative requests
 

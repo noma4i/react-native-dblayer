@@ -6,7 +6,9 @@ import {
   createCollectionBinding,
   deriveDbKey,
   devClearAllDataAndState,
+  executeDbInfiniteRequest,
   executeDbSingleRequest,
+  mergeInitialSyncContract,
   modelDetailRequest,
   runDbQueryDirect,
   stableSerialize,
@@ -301,5 +303,145 @@ describe('request config derivation', () => {
     expect(model.getFetchState({ listId: 'filter-value' })).toMatchObject({ empty: false });
 
     hook.unmount();
+  });
+
+  it('uses replace for default initial infinite writes and merge for default loadMore writes', async () => {
+    const applyServerData = jest.fn();
+    const read = {
+      applyServerData,
+      useData: () => [],
+      shouldSkipInitialFetch: () => false,
+      markFetched: jest.fn()
+    };
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async () => ({
+          data: {
+            todos: {
+              nodes: [{ id: 'todo-contract', title: 'Contract', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: 'cursor-1', endCursor: 'cursor-1' }
+            }
+          }
+        })
+      })
+    });
+
+    const baseConfig: DbRequestInfiniteConfig<TodoConnectionResponse, Todo> = {
+      query: document<TodoConnectionResponse>('DefaultContractTodos'),
+      selectPage: data => data.todos,
+      filter: () => ({ listId: 'inbox' }),
+      read
+    };
+
+    await executeDbInfiniteRequest(baseConfig);
+    await executeDbInfiniteRequest(baseConfig, 'cursor-1');
+
+    expect(applyServerData).toHaveBeenNthCalledWith(1, expect.any(Array), { mode: 'replace', source: 'initial', scope: { listId: 'inbox' } });
+    expect(applyServerData).toHaveBeenNthCalledWith(2, expect.any(Array), { mode: 'merge', source: 'loadMore', scope: { listId: 'inbox' } });
+  });
+
+  it('exports a merge-initial infinite sync resolver while explicit configs still win', async () => {
+    const applyServerData = jest.fn();
+    const read = {
+      applyServerData,
+      useData: () => [],
+      shouldSkipInitialFetch: () => false,
+      markFetched: jest.fn()
+    };
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async () => ({
+          data: {
+            todos: {
+              nodes: [{ id: 'todo-merge-contract', title: 'Merge Contract', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: 'cursor-1', endCursor: 'cursor-1' }
+            }
+          }
+        })
+      })
+    });
+
+    const mergeConfig: DbRequestInfiniteConfig<TodoConnectionResponse, Todo> = {
+      query: document<TodoConnectionResponse>('MergeInitialContractTodos'),
+      selectPage: data => data.todos,
+      filter: () => ({ listId: 'inbox' }),
+      resolveSyncContract: mergeInitialSyncContract,
+      read
+    };
+
+    await executeDbInfiniteRequest(mergeConfig);
+    await executeDbInfiniteRequest(mergeConfig, 'cursor-1');
+
+    expect(applyServerData).toHaveBeenNthCalledWith(1, expect.any(Array), { mode: 'merge', source: 'initial', scope: { listId: 'inbox' } });
+    expect(applyServerData).toHaveBeenNthCalledWith(2, expect.any(Array), { mode: 'merge', source: 'loadMore', scope: { listId: 'inbox' } });
+
+    const explicitConfig: DbRequestInfiniteConfig<TodoConnectionResponse, Todo> = {
+      ...mergeConfig,
+      resolveSyncContract: ({ scope }) => ({ mode: 'replace', source: 'explicit', scope })
+    };
+    await executeDbInfiniteRequest(explicitConfig);
+
+    expect(applyServerData).toHaveBeenNthCalledWith(3, expect.any(Array), { mode: 'replace', source: 'explicit', scope: { listId: 'inbox' } });
+  });
+
+  it('passes globalIndex to patchNode across pages and resets it on an initial fetch', async () => {
+    const seen: Array<{ id: string; index: number; globalIndex: number; pageParam?: string }> = [];
+    const applyServerData = jest.fn();
+    const read = {
+      applyServerData,
+      useData: () => [],
+      shouldSkipInitialFetch: () => false,
+      markFetched: jest.fn()
+    };
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async op => {
+          const pageParam = (op as { variables?: { after?: string } }).variables?.after;
+          const suffix = pageParam === 'cursor-1' ? 'load' : 'initial';
+          return {
+            data: {
+              todos: {
+                nodes: [
+                  { id: `${suffix}-1`, title: `${suffix} 1`, listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' },
+                  { id: `${suffix}-2`, title: `${suffix} 2`, listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+                ],
+                pageInfo: { hasNextPage: pageParam !== 'cursor-1', hasPreviousPage: false, startCursor: 'cursor-1', endCursor: 'cursor-1' }
+              }
+            }
+          };
+        }
+      })
+    });
+
+    const config: DbRequestInfiniteConfig<TodoConnectionResponse, Todo> = {
+      query: document<TodoConnectionResponse>('GlobalIndexTodos'),
+      selectPage: data => data.todos,
+      getPageVars: after => ({ after }),
+      patchNode: (node, context) => {
+        seen.push({ id: node.id, index: context.index, globalIndex: context.globalIndex, pageParam: context.pageParam });
+        return { title: `${context.globalIndex}:${node.title}` };
+      },
+      read
+    };
+
+    await executeDbInfiniteRequest(config);
+    await executeDbInfiniteRequest(config, 'cursor-1');
+    await executeDbInfiniteRequest(config);
+
+    expect(seen).toEqual([
+      { id: 'initial-1', index: 0, globalIndex: 0, pageParam: undefined },
+      { id: 'initial-2', index: 1, globalIndex: 1, pageParam: undefined },
+      { id: 'load-1', index: 0, globalIndex: 2, pageParam: 'cursor-1' },
+      { id: 'load-2', index: 1, globalIndex: 3, pageParam: 'cursor-1' },
+      { id: 'initial-1', index: 0, globalIndex: 0, pageParam: undefined },
+      { id: 'initial-2', index: 1, globalIndex: 1, pageParam: undefined }
+    ]);
+    expect(applyServerData.mock.calls[1]?.[0]).toEqual([
+      expect.objectContaining({ id: 'load-1', title: '2:load 1' }),
+      expect.objectContaining({ id: 'load-2', title: '3:load 2' })
+    ]);
   });
 });

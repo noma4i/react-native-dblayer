@@ -52,31 +52,15 @@ const buildScopeFilter = <TStored>(scope: unknown, scopeMap: Record<string, keyo
   return (item: unknown) => entries.every(([field, value]) => (item as Record<string, unknown>)[field] === value);
 };
 
+const hasExplicitNullishFilter = (argsLength: number, filter: unknown): boolean => argsLength > 0 && filter == null;
+
 /** Create an infinite-query collection binding around a model. */
-export const createCollectionBinding = <TStored extends { id: string }>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored>) => ({
-  _dbModel: model,
-  _dbScope: (filter?: unknown) => toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap),
+export const createCollectionBinding = <TStored extends { id: string }, TRead = TStored>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored, TRead>) => {
+  if (readConfig?.sortField && readConfig.comparator) {
+    throw new Error('createCollectionBinding received both `sortField` and `comparator`. Use one ordering strategy.');
+  }
 
-  applyServerData: (items: unknown[], contract: SyncContract) => {
-    if (contract.scope && readConfig?.scopeMap) {
-      const scopeFilter = buildScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
-      const freshnessFilter = toStoredScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
-      const nextScopeFilter =
-        contract.mode === 'replace'
-          ? scopeFilter && contract._scopeFilter
-            ? (item: unknown) => scopeFilter(item as TStored) && contract._scopeFilter!(item)
-            : (scopeFilter ?? contract._scopeFilter)
-          : contract._scopeFilter;
-      return model.applyServerData(items, {
-        ...contract,
-        _scopeFilter: nextScopeFilter,
-        ...(freshnessFilter ? { _freshnessFilter: freshnessFilter as Record<string, unknown> } : {})
-      });
-    }
-    return model.applyServerData(items, contract);
-  },
-
-  useData: (filter?: unknown, inactive = false): TStored[] => {
+  const readRows = (filter: unknown, inactive: boolean): TStored[] => {
     const col = model._collection;
     const sortField = readConfig?.sortField;
     const sortDir = readConfig?.sortDirection ?? 'desc';
@@ -102,24 +86,75 @@ export const createCollectionBinding = <TStored extends { id: string }>(model: C
     );
 
     if (inactive) return EMPTY as TStored[];
-    return (data ?? EMPTY) as TStored[];
-  },
+    const rows = (data ?? EMPTY) as TStored[];
+    return readConfig?.comparator && rows.length > 1 ? [...rows].sort(readConfig.comparator) : rows;
+  };
 
-  shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => {
-    const scopedFilter = toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap);
-    return model.shouldSkipInitialFetch(scopedFilter, maxAgeMs);
-  },
+  const readScope = (filter: unknown): Partial<TStored> | undefined => toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap);
+  const isDisabledScopedRead = (argsLength: number, filter: unknown, inactive: boolean): boolean => inactive || Boolean(readConfig?.scopeMap && hasExplicitNullishFilter(argsLength, filter));
 
-  getFetchState: (filter?: unknown) => {
-    const scopedFilter = toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap);
-    return model.getFetchState(scopedFilter);
-  },
+  return {
+    _dbModel: model,
+    _dbScope: (filter?: unknown) => readScope(filter),
 
-  markFetched: (filter?: unknown, state?: Omit<CollectionFetchState, 'touchedAt'>) => {
-    const scopedFilter = toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap);
-    model.markFetched(scopedFilter, state);
-  }
-});
+    applyServerData: (items: unknown[], contract: SyncContract) => {
+      if (contract.scope && readConfig?.scopeMap) {
+        const scopeFilter = buildScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
+        const freshnessFilter = toStoredScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
+        const nextScopeFilter =
+          contract.mode === 'replace'
+            ? scopeFilter && contract._scopeFilter
+              ? (item: unknown) => scopeFilter(item as TStored) && contract._scopeFilter!(item)
+              : (scopeFilter ?? contract._scopeFilter)
+            : contract._scopeFilter;
+        return model.applyServerData(items, {
+          ...contract,
+          _scopeFilter: nextScopeFilter,
+          ...(freshnessFilter ? { _freshnessFilter: freshnessFilter as Record<string, unknown> } : {})
+        });
+      }
+      return model.applyServerData(items, contract);
+    },
+
+    useData(filter?: unknown, inactive = false): TRead[] {
+      const disabled = isDisabledScopedRead(arguments.length, filter, inactive);
+      const rows = readRows(filter, disabled);
+      const overrideRows = readConfig?.useData
+        ? readConfig.useData({
+          filter,
+          scope: readScope(filter),
+          rows,
+          inactive: disabled || inactive,
+          empty: EMPTY as TRead[]
+        })
+        : undefined;
+      if (disabled) return EMPTY as TRead[];
+      if (overrideRows) return overrideRows;
+      return rows as unknown as TRead[];
+    },
+
+    count(filter?: unknown | null): number {
+      if (hasExplicitNullishFilter(arguments.length, filter)) return 0;
+      const scopedFilter = readScope(filter);
+      return scopedFilter ? model.count(scopedFilter as never) : model.count();
+    },
+
+    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => {
+      const scopedFilter = readScope(filter);
+      return model.shouldSkipInitialFetch(scopedFilter, maxAgeMs);
+    },
+
+    getFetchState: (filter?: unknown) => {
+      const scopedFilter = readScope(filter);
+      return model.getFetchState(scopedFilter);
+    },
+
+    markFetched: (filter?: unknown, state?: Omit<CollectionFetchState, 'touchedAt'>) => {
+      const scopedFilter = readScope(filter);
+      model.markFetched(scopedFilter, state);
+    }
+  };
+};
 
 /** Combine a scope filter with the current user id. */
 export const buildModelFilter = (filter: unknown, currentUserId: string | undefined): unknown => {

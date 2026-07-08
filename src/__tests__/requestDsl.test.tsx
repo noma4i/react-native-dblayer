@@ -2,7 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { configureDb, createCollectionBinding, devClearAllDataAndState, setDbExtractSink, useDbInfiniteRequest, useDbSingleRequest } from '../index';
-import type { ConnectionWithNodes, DbGraphQLDocument, PageInfoInput } from '../types';
+import type { CollectionReadConfig, ConnectionWithNodes, DbGraphQLDocument, PageInfoInput } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -177,6 +177,99 @@ describe('request DSL runtime', () => {
     expect(model.getAll().map(item => item.id).sort()).toEqual(['todo-1', 'todo-2']);
     expect(hook.current.items.map(item => item.id).sort()).toEqual(['todo-1', 'todo-2']);
     expect(calls).toContainEqual({ after: 'cursor-1' });
+
+    hook.unmount();
+  });
+
+  it('orders collection binding reads with a comparator and rejects mixed ordering config', async () => {
+    const model = createTodoModel();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({})
+    });
+    model.insertStored({ id: 'todo-b', title: 'Beta', listId: 'group-1', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    model.insertStored({ id: 'todo-c', title: 'Gamma', listId: 'group-2', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    model.insertStored({ id: 'todo-a', title: 'Alpha', listId: 'group-1', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+
+    const binding = createCollectionBinding(model, {
+      comparator: (left, right) => {
+        const groupCompare = (left.listId ?? '').localeCompare(right.listId ?? '');
+        return groupCompare !== 0 ? groupCompare : left.title.localeCompare(right.title);
+      }
+    });
+    const hook = renderQueryHook(() => binding.useData());
+
+    await hook.flush();
+
+    expect(hook.current.map(item => item.id)).toEqual(['todo-a', 'todo-b', 'todo-c']);
+
+    const invalidConfig = { sortField: 'title', comparator: () => 0 } as unknown as CollectionReadConfig<Todo>;
+    expect(() => createCollectionBinding(model, invalidConfig)).toThrow('createCollectionBinding received both `sortField` and `comparator`');
+
+    hook.unmount();
+  });
+
+  it('lets collection bindings override useData with scoped rows', async () => {
+    const model = createTodoModel();
+    const contexts: Array<{ scope: unknown; rows: string[] }> = [];
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({})
+    });
+    model.insertStored({ id: 'todo-inbox', title: 'Inbox', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    model.insertStored({ id: 'todo-other', title: 'Other', listId: 'other', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+
+    const binding = createCollectionBinding<Todo, { id: string; label: string; scopeListId: string | null }>(model, {
+      scopeMap: { listId: 'listId' },
+      useData: ({ rows, scope, empty }) => {
+        contexts.push({ scope, rows: rows.map(row => row.id) });
+        if (rows.length === 0) return empty;
+        return rows.map(row => ({ id: row.id, label: row.title, scopeListId: (scope?.listId as string | undefined) ?? null }));
+      }
+    });
+    const hook = renderQueryHook(() => binding.useData({ listId: 'inbox' }));
+
+    await hook.flush();
+
+    expect(hook.current).toEqual([{ id: 'todo-inbox', label: 'Inbox', scopeListId: 'inbox' }]);
+    expect(contexts.at(-1)).toEqual({ scope: { listId: 'inbox' }, rows: ['todo-inbox'] });
+
+    hook.unmount();
+  });
+
+  it('keeps nullish scoped binding reads empty and counts explicit nullish filters as zero', async () => {
+    const model = createTodoModel();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({})
+    });
+    model.insertStored({ id: 'todo-inbox', title: 'Inbox', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const binding = createCollectionBinding(model, { scopeMap: { listId: 'listId' } });
+    const hook = renderQueryHook(() => ({
+      rows: binding.useData(null),
+      modelNullCount: model.count(null),
+      modelUndefinedCount: model.count(undefined),
+      bindingNullCount: binding.count(null),
+      bindingUndefinedCount: binding.count(undefined),
+      modelAllCount: model.count(),
+      bindingAllCount: binding.count()
+    }));
+
+    const firstRows = hook.current.rows;
+
+    act(() => {
+      model.insertStored({ id: 'todo-later', title: 'Later', listId: 'inbox', done: false, updatedAt: '2026-01-02T00:00:00.000Z' });
+    });
+    await hook.flush();
+
+    expect(hook.current.rows).toBe(firstRows);
+    expect(hook.current.rows).toEqual([]);
+    expect(hook.current.modelNullCount).toBe(0);
+    expect(hook.current.modelUndefinedCount).toBe(0);
+    expect(hook.current.bindingNullCount).toBe(0);
+    expect(hook.current.bindingUndefinedCount).toBe(0);
+    expect(hook.current.modelAllCount).toBe(2);
+    expect(hook.current.bindingAllCount).toBe(2);
 
     hook.unmount();
   });

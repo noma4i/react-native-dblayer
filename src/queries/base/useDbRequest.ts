@@ -93,6 +93,7 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
 ): InfiniteQueryResult<TNode> => {
   const configRef = useRef(config);
   configRef.current = config;
+  const patchStateRef = useRef({ nextGlobalIndex: 0 });
   const queryKey = resolveInfiniteRequestKey(config as DbRequestInfiniteConfig<unknown, unknown>);
   const keySignature = stableSerialize(queryKey);
 
@@ -101,7 +102,7 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
 
     return {
       queryKey,
-      queryFn: ({ pageParam }: { pageParam?: string }) => executeDbInfiniteRequest(configRef.current, pageParam),
+      queryFn: ({ pageParam }: { pageParam?: string }) => executeDbInfiniteRequest(configRef.current, pageParam, patchStateRef.current),
       extract,
       inactive: config.inactive,
       ...(config.getCursor ? { getCursor: data => configRef.current.getCursor!(data) } : {}),

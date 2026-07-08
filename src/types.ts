@@ -347,8 +347,8 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   byIds(ids: string[]): TStored[];
   /** React hook: read the first row matching a typed predicate. */
   first(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
-  /** React hook: count rows, optionally filtered by a typed predicate. */
-  count(filter?: DbWhere<TStored>): number;
+  /** React hook: count rows, optionally filtered by a typed predicate. Explicit nullish filters return 0. */
+  count(filter?: DbWhere<TStored> | null): number;
   /** Public backing TanStack DB collection for live-query joins. */
   collection: Collection<TStored, string>;
   /** Backing TanStack DB collection. Prefer `collection` for new consumers. */
@@ -402,14 +402,42 @@ export interface ServerSyncContract<TScope = unknown> {
   scope?: TScope;
 }
 
-export type CollectionReadConfig<TStored> = {
+export type CollectionBindingUseDataContext<TStored, TRead = TStored> = {
+  /** Original runtime filter passed to the binding. */
+  filter: unknown;
+  /** Stored-row scope derived through `scopeMap`. */
+  scope: Partial<TStored> | undefined;
+  /** Rows read from the bound model after scope filtering and ordering. */
+  rows: TStored[];
+  /** Whether the owning query has disabled collection reads. */
+  inactive: boolean;
+  /** Stable empty result for no-data projections. */
+  empty: TRead[];
+};
+
+type CollectionReadBaseConfig<TStored, TRead = TStored> = {
+  /** Map scope keys to stored row fields. */
+  scopeMap?: Record<string, keyof TStored & string>;
+  /** Override the bound read hook while retaining model writes, freshness, and scope plumbing. */
+  useData?: (context: CollectionBindingUseDataContext<TStored, TRead>) => TRead[];
+};
+
+type CollectionReadSortFieldConfig<TStored, TRead = TStored> = CollectionReadBaseConfig<TStored, TRead> & {
   /** Optional field used to sort read results. */
   sortField?: keyof TStored & string;
   /** Sort direction for `sortField`. */
   sortDirection?: 'asc' | 'desc';
-  /** Map scope keys to stored row fields. */
-  scopeMap?: Record<string, keyof TStored & string>;
+  comparator?: never;
 };
+
+type CollectionReadComparatorConfig<TStored, TRead = TStored> = CollectionReadBaseConfig<TStored, TRead> & {
+  sortField?: never;
+  sortDirection?: never;
+  /** Optional comparator used to sort read results. Mutually exclusive with `sortField`. */
+  comparator?: (left: TStored, right: TStored) => number;
+};
+
+export type CollectionReadConfig<TStored, TRead = TStored> = CollectionReadSortFieldConfig<TStored, TRead> | CollectionReadComparatorConfig<TStored, TRead>;
 
 type StableProjectionBaseConfig<TSource, TEntry extends { item: TItem }, TItem> = {
   /** Stable key for a source value. */
@@ -584,6 +612,8 @@ export type InfiniteQueryConfig<TData, TNode> = {
     applyServerData: (items: unknown[], contract: SyncContract) => void;
     /** React hook: read paged data from the collection. */
     useData: (filter?: unknown, inactive?: boolean) => TNode[];
+    /** React hook: count rows matching the runtime filter. Explicit nullish filters return 0. */
+    count?: (filter?: unknown | null) => number;
     /** Freshness gate for the page scope. */
     shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number) => boolean;
     /** Snapshot freshness state for the page scope. */
@@ -608,6 +638,8 @@ export type SyncConfig = {
 export type DbInfinitePatchContext = {
   /** Node index within the page. */
   index: number;
+  /** Node index across the current request lifecycle; resets on initial-page fetches. */
+  globalIndex: number;
   /** Cursor used for the page being patched. */
   pageParam?: string;
 };

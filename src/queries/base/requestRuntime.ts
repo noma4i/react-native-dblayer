@@ -1,9 +1,19 @@
-import type { DbRequestInfiniteConfig, DbRequestSingleConfig } from '../../types';
+import type { DbRequestInfiniteConfig, DbRequestSingleConfig, InfiniteSyncContractResolverContext, SyncContract } from '../../types';
 import { getDbExtractSink } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
 import { mergeSyncContract, replaceSyncContract } from '../../utils/serverSync';
 import { makePageExtractor } from './extractPage';
 import { buildModelFilter, mergeScopeVars, resolveRequestFilter, resolveRequestScope } from './shared';
+
+type InfiniteRequestPatchState = {
+  nextGlobalIndex: number;
+};
+
+const infinitePatchStates = new WeakMap<DbRequestInfiniteConfig<unknown, unknown>, InfiniteRequestPatchState>();
+
+/** Resolver for infinite requests that should merge initial and loaded pages into the target scope. */
+export const mergeInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
+  mergeSyncContract(pageParam === undefined ? 'initial' : 'loadMore', scope);
 
 const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleConfig<unknown, unknown, TSelected>['sync']): void => {
   if (!sync || selected == null) return;
@@ -22,11 +32,25 @@ const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleCo
 const isEmptySelectedPayload = (selected: unknown): boolean => selected == null || (Array.isArray(selected) && selected.length === 0);
 const identitySelect = <TResponse, TSelected>(data: TResponse): TSelected => data as unknown as TSelected;
 
-const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfig<unknown, TNode>['patchNode'], pageParam?: string): void => {
+const resolvePatchState = <TResponse, TNode, TVariables>(config: DbRequestInfiniteConfig<TResponse, TNode, TVariables>, patchState?: InfiniteRequestPatchState): InfiniteRequestPatchState => {
+  if (patchState) return patchState;
+  const weakConfig = config as DbRequestInfiniteConfig<unknown, unknown>;
+  const existing = infinitePatchStates.get(weakConfig);
+  if (existing) return existing;
+  const next = { nextGlobalIndex: 0 };
+  infinitePatchStates.set(weakConfig, next);
+  return next;
+};
+
+const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfig<unknown, TNode>['patchNode'], patchState: InfiniteRequestPatchState, pageParam?: string): void => {
+  if (pageParam === undefined) {
+    patchState.nextGlobalIndex = 0;
+  }
   if (!patchNode) return;
 
   for (const [index, node] of nodes.entries()) {
-    const patch = patchNode(node, { index, pageParam });
+    const patch = patchNode(node, { index, globalIndex: patchState.nextGlobalIndex, pageParam });
+    patchState.nextGlobalIndex += 1;
     if (!patch) continue;
     Object.assign(node as Record<string, unknown>, patch);
   }
@@ -76,8 +100,10 @@ export const runDbQueryDirect = executeDbSingleRequest;
  */
 export const executeDbInfiniteRequest = async <TResponse, TNode, TVariables = Record<string, unknown>>(
   config: DbRequestInfiniteConfig<TResponse, TNode, TVariables>,
-  pageParam?: string
+  pageParam?: string,
+  patchState?: InfiniteRequestPatchState
 ): Promise<TResponse> => {
+  const resolvedPatchState = resolvePatchState(config, patchState);
   const extractPage = makePageExtractor<TResponse, TNode>(config.selectPage);
   const requestScope = resolveRequestScope(config.scope);
   let variables = mergeScopeVars(config.vars, requestScope) ?? {};
@@ -91,7 +117,7 @@ export const executeDbInfiniteRequest = async <TResponse, TNode, TVariables = Re
   const data = result.data;
   const page = extractPage(data);
   const nodes = page.nodes;
-  applyNodePatch(nodes, config.patchNode, pageParam);
+  applyNodePatch(nodes, config.patchNode, resolvedPatchState, pageParam);
 
   if (config.extract) {
     getDbExtractSink()(config.extract({ data, nodes }), 'query');
@@ -100,9 +126,9 @@ export const executeDbInfiniteRequest = async <TResponse, TNode, TVariables = Re
   const modelFilter = buildModelFilter(resolveRequestFilter(config.filter, config.scope), config.currentUserId?.());
   const contract = config.resolveSyncContract
     ? config.resolveSyncContract({ pageParam, nodes, scope: modelFilter })
-    : pageParam !== undefined
-      ? mergeSyncContract('loadMore', modelFilter)
-      : replaceSyncContract('initial', modelFilter);
+    : pageParam === undefined
+      ? replaceSyncContract('initial', modelFilter)
+      : mergeSyncContract('loadMore', modelFilter);
   config.read.applyServerData(nodes, contract);
   config.read.markFetched?.(modelFilter, { empty: nodes.length === 0, pageInfo: page.pageInfo });
 
