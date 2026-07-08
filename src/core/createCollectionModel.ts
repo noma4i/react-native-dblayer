@@ -50,6 +50,7 @@ import { registerModel } from './modelRegistry';
 import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { isModelApplying, runSideloads, withApplyingModel } from './sideload';
+import { createWritePropagation } from './writePropagation';
 
 const EMPTY: readonly unknown[] = [];
 const GROUP_ALL = 1 as const;
@@ -246,7 +247,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0, emptyStaleTime = 0 } = config;
   const normalizeBase = resolveNormalize(config);
   let attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => row;
-  let touchRelatedParents = (_row: StoredRowBase | undefined): void => {};
+  const writePropagation = createWritePropagation<StoredRowBase & Record<string, unknown>>();
   const normalize = (item: unknown): ({ id: string } & Record<string, unknown>) | null => {
     const normalized = normalizeBase(item);
     return normalized ? attachRelatedToRow(normalized as StoredRowBase & Record<string, unknown>) : null;
@@ -270,7 +271,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       const row = rawCollection.get(item.id);
       if (row) {
         attachRelatedToRow(row);
-        touchRelatedParents(row);
+        writePropagation.announce(row, 'insert');
       }
     },
     update: (id: string, updater: (draft: StoredRowBase & Record<string, unknown>) => void) => {
@@ -278,7 +279,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       const row = rawCollection.get(id);
       if (row) {
         attachRelatedToRow(row);
-        touchRelatedParents(row);
+        writePropagation.announce(row, 'update');
       }
     },
     delete: (id: string) => rawCollection.delete(id),
@@ -381,10 +382,10 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     return attachRowRelated(config.name, row, resolveRelationMap, resolveRelatedAccessors) as TRow;
   };
 
-  touchRelatedParents = (row: StoredRowBase | undefined): void => {
+  writePropagation.register((row: StoredRowBase | undefined): void => {
     if (!hasRelations() || isModelApplying(config.name)) return;
     touchBelongsToParents(resolveRelationMap(), row);
-  };
+  });
 
   const attachRelatedToRows = <TRow extends StoredRowBase>(rows: TRow[]): TRow[] => {
     if (!hasRelations() || rows.length === 0) return rows;
