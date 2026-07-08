@@ -1,5 +1,15 @@
 import type { ComputePhaseInput, LoadingPhase, LoadingState } from '../../types';
 
+/**
+ * Compute the current loading phase from query and collection state.
+ *
+ * Exported so a screen composing a custom loading state out of multiple hook results (rather than
+ * consuming one hook's own `loadingState`) can derive the same phase strings this package produces
+ * internally, instead of hardcoding them.
+ *
+ * @param input Query, sync, and data-presence flags for one query/read.
+ * @returns The current `LoadingPhase`.
+ */
 export const computePhase = (input: ComputePhaseInput): LoadingPhase => {
   if (input.isInactive) return 'idle';
   if (input.isRestoring || !input.isSyncReady) return 'hydrating';

@@ -6,7 +6,7 @@ export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
 export { belongsTo, hasMany, hasManyThrough } from './core/relations';
-export { computeLoadingState } from './queries/base/loadingState';
+export { computeLoadingState, computePhase } from './queries/base/loadingState';
 export { clearModelRegistry, getRegisteredModel, registerModel } from './core/modelRegistry';
 export {
   DEFAULT_FETCH_STATE_MAX_AGE_MS,
@@ -56,7 +56,7 @@ export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from 
 export { runDbCommandDirect, useCommand } from './mutations/base/useCommand';
 export { useCommandMutation } from './mutations/base/useCommandMutation';
 export { useDbMutation } from './mutations/base/useDbMutation';
-export { mergeInitialSyncContract, runDbInfiniteQueryDirect, runDbQueryDirect } from './queries/base/requestRuntime';
+export { mergeInitialSyncContract, replaceInitialSyncContract, runDbInfiniteQueryDirect, runDbQueryDirect } from './queries/base/requestRuntime';
 export { modelDetailRequest } from './queries/base/modelDetailRequest';
 export {
   buildStableItems,

@@ -11,9 +11,23 @@ type InfiniteRequestPatchState = {
 
 const infinitePatchStates = new WeakMap<DbRequestInfiniteConfig<unknown, unknown>, InfiniteRequestPatchState>();
 
-/** Resolver for infinite requests that should merge initial and loaded pages into the target scope. */
+/**
+ * Alternate infinite-request resolver that merges both the initial and every subsequently loaded page
+ * into the target scope, instead of replacing the scope on the initial page.
+ * Pass this explicitly via `resolveSyncContract` when a request's initial page should not clear rows
+ * already present in the scope (e.g. a paginated thread read alongside other writers into the same scope).
+ */
 export const mergeInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
   mergeSyncContract(pageParam === undefined ? 'initial' : 'loadMore', scope);
+
+/**
+ * Default infinite-request resolver: replace the target scope on the initial page, then merge every
+ * subsequently loaded page into it. `runDbInfiniteQueryDirect`/`useDbInfiniteRequest` use this whenever
+ * a config omits `resolveSyncContract` - pass it explicitly only where a call site needs to name the
+ * default resolution (e.g. composing it with other resolver logic).
+ */
+export const replaceInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
+  pageParam === undefined ? replaceSyncContract('initial', scope) : mergeSyncContract('loadMore', scope);
 
 const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleConfig<unknown, unknown, TSelected>['sync']): void => {
   if (!sync || selected == null) return;
@@ -117,11 +131,7 @@ export const runDbInfiniteQueryDirect = async <TResponse, TNode, TVariables = Re
   }
 
   const modelFilter = buildModelFilter(resolveRequestFilter(config.filter, config.scope), config.currentUserId?.());
-  const contract = config.resolveSyncContract
-    ? config.resolveSyncContract({ pageParam, nodes, scope: modelFilter })
-    : pageParam === undefined
-      ? replaceSyncContract('initial', modelFilter)
-      : mergeSyncContract('loadMore', modelFilter);
+  const contract = (config.resolveSyncContract ?? replaceInitialSyncContract)({ pageParam, nodes, scope: modelFilter });
   config.read.applyServerData(nodes, contract);
   config.read.markFetched?.(modelFilter, { empty: nodes.length === 0, pageInfo: page.pageInfo });
 
