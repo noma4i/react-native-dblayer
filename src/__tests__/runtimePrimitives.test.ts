@@ -7,6 +7,7 @@ import {
   createKeyedBatchBuffer,
   createNestedObjectPatcher,
   createThrottledSingleFlight,
+  createTombstoneLedger,
   defineShape,
   defineModel,
   devClearAllDataAndState,
@@ -213,6 +214,48 @@ describe('runtime primitives', () => {
     jest.advanceTimersByTime(100);
 
     expect(onFlush).toHaveBeenCalledTimes(2);
+  });
+
+  it('tracks tombstones in memory until their ttl expires', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(1_000);
+    const ledger = createTombstoneLedger({ ttlMs: 100 });
+
+    ledger.mark('deleted');
+
+    expect(ledger.has('deleted')).toBe(true);
+
+    jest.setSystemTime(1_100);
+
+    expect(ledger.has('deleted')).toBe(true);
+
+    jest.setSystemTime(1_101);
+
+    expect(ledger.has('deleted')).toBe(false);
+  });
+
+  it('lazily prunes expired tombstones on mark and allows re-marking after expiry', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(1_000);
+    const ledger = createTombstoneLedger({ ttlMs: 100 });
+
+    ledger.mark('deleted');
+    jest.setSystemTime(1_101);
+    ledger.mark('fresh');
+    ledger.mark('deleted');
+
+    expect(ledger.has('deleted')).toBe(true);
+    expect(ledger.has('fresh')).toBe(true);
+  });
+
+  it('clears all tombstones without waiting for ttl expiry', () => {
+    jest.useFakeTimers();
+    const ledger = createTombstoneLedger({ ttlMs: 100 });
+
+    ledger.mark('deleted');
+    ledger.clear();
+
+    expect(ledger.has('deleted')).toBe(false);
   });
 
   it('reconciles optimistic rows by scoped candidates, content match, window, best delta, and existing server ids', () => {

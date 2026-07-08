@@ -497,6 +497,56 @@ export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TIt
   };
 };
 
+export type TombstoneLedgerConfig = {
+  /** Maximum age for an in-memory tombstone. */
+  ttlMs: number;
+};
+
+export type TombstoneLedger = {
+  /** Mark an id as tombstoned in memory. */
+  mark(id: string): void;
+  /** Return true while the id has a non-expired in-memory tombstone. */
+  has(id: string): boolean;
+  /** Drop every in-memory tombstone. */
+  clear(): void;
+};
+
+/**
+ * Create a memory-only tombstone ledger.
+ *
+ * Expired entries are pruned lazily on `mark` and `has`; no interval or persistence is used by design.
+ *
+ * @param config Tombstone TTL in milliseconds.
+ * @returns In-memory mark, lookup, and clear operations.
+ */
+export const createTombstoneLedger = (config: TombstoneLedgerConfig): TombstoneLedger => {
+  const tombstones = new Map<string, number>();
+
+  const pruneExpired = (now: number): void => {
+    for (const [id, markedAt] of tombstones.entries()) {
+      if (now - markedAt > config.ttlMs) {
+        tombstones.delete(id);
+      }
+    }
+  };
+
+  return {
+    mark(id) {
+      const now = Date.now();
+      pruneExpired(now);
+      tombstones.set(id, now);
+    },
+    has(id) {
+      const now = Date.now();
+      pruneExpired(now);
+      return tombstones.has(id);
+    },
+    clear() {
+      tombstones.clear();
+    }
+  };
+};
+
 export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (
   id: string,
   ...args: TArgs

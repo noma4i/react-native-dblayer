@@ -87,6 +87,7 @@ export {
   createNestedObjectPatcher,
   createIdArrayPatcher,
   createKeyedBatchBuffer,
+  createTombstoneLedger,
   createKeyedArrayPatcher,
   createThrottledSingleFlight,
   pruneExpiredRows,

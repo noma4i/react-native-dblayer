@@ -35,6 +35,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "createPersistentCollection",
   "createReplace",
   "createThrottledSingleFlight",
+  "createTombstoneLedger",
   "createUniqueIds",
   "defineModel",
   "defineShape",
