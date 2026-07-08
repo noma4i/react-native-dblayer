@@ -163,6 +163,7 @@ export type HasManyRelation<
 export type BelongsToRelation<
   TParentStored extends StoredRowBase,
   TForeignKey extends string,
+  TChildStored extends StoredRowBase = StoredRowBase,
   TParentModel = BelongsToModel<TParentStored>
 > = {
   /** Relation kind. */
@@ -173,6 +174,15 @@ export type BelongsToRelation<
   foreignKey: TForeignKey;
   /** Whether local child writes should bump the parent timestamp. */
   touch: boolean;
+  /**
+   * Project child writes into the existing parent row.
+   *
+   * Runs for every child insert/patch/replaceRaw/applyServerData write. Missing parents are skipped
+   * silently because parent/child arrival ordering is not guaranteed. Returning `null` skips the parent
+   * patch; callback-owned gating should handle child ordering and staleness. Undefined-valued patch
+   * keys are dropped. Child destroy does not trigger propagation.
+   */
+  propagate?: (child: TChildStored, parent: TParentStored) => Partial<TParentStored> | null;
 };
 
 export type HasManyThroughRelation<TThrough extends string = string, TSource extends string = string> = {
@@ -184,7 +194,7 @@ export type HasManyThroughRelation<TThrough extends string = string, TSource ext
   source: TSource;
 };
 
-export type ModelRelationConfigValue = ModelRelationDefinition | BelongsToRelation<any, string, any> | HasManyThroughRelation;
+export type ModelRelationConfigValue = ModelRelationDefinition | BelongsToRelation<any, string, any, any> | HasManyThroughRelation;
 
 export type ModelRelationsConfig = Record<string, ModelRelationConfigValue>;
 

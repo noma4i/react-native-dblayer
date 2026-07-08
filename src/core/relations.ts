@@ -20,6 +20,7 @@ import type {
   StringFieldKey
 } from '../types';
 import { useStableArray } from '../queries/base/shared';
+import { pickDefined } from '../utils/pickDefined';
 import { toQueryValue } from '../utils/typeBoundary';
 
 const EMPTY: readonly never[] = Object.freeze([]);
@@ -28,7 +29,7 @@ type RuntimeHasManyRelation = ModelRelationDefinition & {
   model: RelationModel<StoredRowBase>;
 };
 
-type RuntimeBelongsToRelation = BelongsToRelation<StoredRowBase, string, BelongsToModel<StoredRowBase>>;
+type RuntimeBelongsToRelation = BelongsToRelation<StoredRowBase, string, StoredRowBase, BelongsToModel<StoredRowBase>>;
 
 type RelatedAccessorsContext = {
   collection: RelationModel<StoredRowBase>['collection'];
@@ -100,20 +101,29 @@ export const hasManyThrough = <TThrough extends string, TSource extends string>(
  * Declare an inverse parent relation from a child row foreign key.
  *
  * @param model Parent model read by the child foreign key.
- * @param options Foreign-key field and optional touch propagation.
+ * @param options Foreign-key field, optional local-only timestamp touch, and optional full-path parent propagation.
  * @returns Relation metadata used for parent related accessors.
  */
 export const belongsTo = <
   TParentModel extends BelongsToModel<any>,
-  TForeignKey extends string
+  TForeignKey extends string,
+  TChildStored extends StoredRowBase = StoredRowBase
 >(
   model: TParentModel,
-  options: { foreignKey: TForeignKey; touch?: boolean }
-): BelongsToRelation<StoredOfBelongsToModel<TParentModel>, TForeignKey, TParentModel> => ({
+  options: {
+    /** Child row field that stores the parent id. */
+    foreignKey: TForeignKey;
+    /** Whether local child writes should bump the parent timestamp. Server writes do not touch. */
+    touch?: boolean;
+    /** Project each child write into a parent patch; return null when domain ordering gates reject it. */
+    propagate?: (child: TChildStored, parent: StoredOfBelongsToModel<TParentModel>) => Partial<StoredOfBelongsToModel<TParentModel>> | null;
+  }
+): BelongsToRelation<StoredOfBelongsToModel<TParentModel>, TForeignKey, TChildStored, TParentModel> => ({
   kind: 'belongsTo',
   model,
   foreignKey: options.foreignKey,
-  touch: options.touch === true
+  touch: options.touch === true,
+  ...(options.propagate ? { propagate: options.propagate as BelongsToRelation<StoredOfBelongsToModel<TParentModel>, TForeignKey, TChildStored, TParentModel>['propagate'] } : {})
 });
 
 export const relationValues = (relations: ModelRelationsConfig | undefined): ModelRelationConfigValue[] => {
@@ -401,5 +411,26 @@ export const touchBelongsToParents = (relations: ModelRelationsConfig, row: Stor
     }
   } finally {
     touchDepth = Math.max(0, touchDepth - 1);
+  }
+};
+
+export const propagateBelongsToParents = (relations: ModelRelationsConfig, row: StoredRowBase | undefined): void => {
+  if (!row) return;
+
+  const propagateRelations = Object.values(relations).filter((relation): relation is RuntimeBelongsToRelation => isBelongsToRelation(relation) && typeof relation.propagate === 'function');
+  if (propagateRelations.length === 0) return;
+
+  for (const relation of propagateRelations) {
+    const parentId = readParentId(row, relation.foreignKey);
+    if (!parentId) continue;
+
+    const parent = relation.model.get(parentId);
+    if (!parent) continue;
+
+    const projected = relation.propagate?.(row, parent);
+    if (projected === null || projected === undefined) continue;
+
+    const patch = pickDefined(projected, Object.keys(projected) as Array<keyof typeof projected>);
+    relation.model.patch(parentId, patch);
   }
 };

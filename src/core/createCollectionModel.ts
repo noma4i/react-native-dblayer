@@ -48,7 +48,7 @@ import { getDbLogger } from './logger';
 import { getDbModelDefaults } from './modelDefaults';
 import { createMirrorPropagator } from './modelMirror';
 import { registerModel } from './modelRegistry';
-import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
+import { attachRowRelated, buildRelatedAccessors, getCascadeController, propagateBelongsToParents, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { isModelApplying, runSideloads, withApplyingModel } from './sideload';
 import { createWritePropagation } from './writePropagation';
@@ -386,6 +386,10 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   writePropagation.register((row: StoredRowBase | undefined): void => {
     if (!hasRelations() || isModelApplying(config.name)) return;
     touchBelongsToParents(resolveRelationMap(), row);
+  });
+  writePropagation.register((row: StoredRowBase | undefined): void => {
+    if (!hasRelations()) return;
+    propagateBelongsToParents(resolveRelationMap(), row);
   });
   const mirrorPropagator = createMirrorPropagator(config.name, config.mirror);
   if (mirrorPropagator) {

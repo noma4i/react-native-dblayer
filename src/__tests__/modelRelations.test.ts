@@ -10,6 +10,8 @@ type MessageRow = { id: string; chatId: string; userId?: string | null; body: st
 type OrgRow = { id: string; name: string; updatedAt?: string | null };
 type MirrorSourceRow = { id: string; name: string; avatarUrl?: string | null; updatedAt?: string | null };
 type MirrorTargetRow = { id: string; name: string; avatarUrl?: string | null; updatedAt?: string | null };
+type PropagationParentRow = { id: string; title: string; preview?: string | null; lastChildId?: string | null; updatedAt?: string | null };
+type PropagationChildRow = { id: string; parentId: string; body: string; updatedAt?: string | null };
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -163,6 +165,65 @@ const defineMirrorSourceModel = (
         project
       }
     ],
+    merge: {},
+    replace: {}
+  });
+
+const definePropagationParentModel = (id: string, mirrorTarget?: ReturnType<typeof defineMirrorTargetModel>) =>
+  defineModel<Partial<PropagationParentRow> & { id: string }, PropagationParentRow>({
+    id,
+    name: `RelationPropagationParentModel:${id}`,
+    normalize: input => ({
+      id: input.id,
+      title: input.title ?? input.id,
+      ...(input.preview !== undefined ? { preview: input.preview } : {}),
+      ...(input.lastChildId !== undefined ? { lastChildId: input.lastChildId } : {}),
+      updatedAt: input.updatedAt ?? null
+    }),
+    ...(mirrorTarget
+      ? {
+          mirror: [
+            {
+              model: () => mirrorTarget,
+              project: (row: PropagationParentRow) => ({ name: row.title, updatedAt: row.updatedAt })
+            }
+          ]
+        }
+      : {}),
+    merge: {},
+    replace: {}
+  });
+
+const definePropagationChildModel = (
+  id: string,
+  parentModel: ReturnType<typeof definePropagationParentModel>,
+  options?: {
+    touch?: boolean;
+    propagate?: (child: PropagationChildRow, parent: PropagationParentRow) => Partial<PropagationParentRow> | null;
+  }
+) =>
+  defineModel<Partial<PropagationChildRow> & { id: string; parentId: string }, PropagationChildRow>({
+    id,
+    name: `RelationPropagationChildModel:${id}`,
+    normalize: input => ({
+      id: input.id,
+      parentId: input.parentId,
+      body: input.body ?? input.id,
+      updatedAt: input.updatedAt ?? null
+    }),
+    relations: () => ({
+      parent: belongsTo(parentModel, {
+        foreignKey: 'parentId',
+        touch: options?.touch,
+        propagate:
+          options?.propagate ??
+          ((child: PropagationChildRow) => ({
+            preview: child.body,
+            lastChildId: child.id,
+            updatedAt: child.updatedAt
+          }))
+      })
+    }),
     merge: {},
     replace: {}
   });
@@ -786,6 +847,124 @@ describe('model relations', () => {
 
     expect(userModel.get('user-1')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
     expect(mirrorModel.get('message-1')).toMatchObject({ chatId: 'chat-1', body: 'One' });
+  });
+
+  it('propagates local child inserts into existing parent rows', () => {
+    installMemoryStorage();
+    const parentModel = definePropagationParentModel('propagate-local-parent');
+    const childModel = definePropagationChildModel('propagate-local-child', parentModel);
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.insertStored({ id: 'child-1', parentId: 'parent-1', body: 'Local', updatedAt: '2000-01-02T00:00:00.000Z' });
+
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Local',
+      lastChildId: 'child-1',
+      updatedAt: '2000-01-02T00:00:00.000Z'
+    });
+  });
+
+  it('propagates server child writes into existing parent rows', () => {
+    installMemoryStorage();
+    const parentModel = definePropagationParentModel('propagate-server-parent');
+    const childModel = definePropagationChildModel('propagate-server-child', parentModel);
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.applyServerData([{ id: 'child-1', parentId: 'parent-1', body: 'Server', updatedAt: '2000-01-03T00:00:00.000Z' }], { mode: 'merge' });
+
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Server',
+      lastChildId: 'child-1',
+      updatedAt: '2000-01-03T00:00:00.000Z'
+    });
+  });
+
+  it('skips parent propagation when the callback returns null', () => {
+    installMemoryStorage();
+    const parentModel = definePropagationParentModel('propagate-null-parent');
+    const childModel = definePropagationChildModel('propagate-null-child', parentModel, {
+      propagate: child => (child.body === 'Older' ? null : { preview: child.body, lastChildId: child.id })
+    });
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', preview: 'Existing', lastChildId: 'child-0', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.insertStored({ id: 'child-1', parentId: 'parent-1', body: 'Older', updatedAt: '2000-01-02T00:00:00.000Z' });
+
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Existing',
+      lastChildId: 'child-0',
+      updatedAt: '2000-01-01T00:00:00.000Z'
+    });
+  });
+
+  it('skips parent propagation when the parent row is absent', () => {
+    installMemoryStorage();
+    const parentModel = definePropagationParentModel('propagate-missing-parent');
+    const childModel = definePropagationChildModel('propagate-missing-child', parentModel);
+
+    expect(() => childModel.insertStored({ id: 'child-1', parentId: 'parent-missing', body: 'Missing', updatedAt: null })).not.toThrow();
+    expect(parentModel.get('parent-missing')).toBeUndefined();
+  });
+
+  it('does not propagate when a child is destroyed', () => {
+    installMemoryStorage();
+    const parentModel = definePropagationParentModel('propagate-destroy-parent');
+    const childModel = definePropagationChildModel('propagate-destroy-child', parentModel);
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', preview: 'Existing', lastChildId: 'child-0', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.applyServerData([{ id: 'child-1', parentId: 'parent-1', body: 'Existing', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+    parentModel.patch('parent-1', { preview: 'Existing', lastChildId: 'child-0', updatedAt: '2000-01-01T00:00:00.000Z' });
+
+    expect(childModel.destroy('child-1')).toBe(true);
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Existing',
+      lastChildId: 'child-0',
+      updatedAt: '2000-01-01T00:00:00.000Z'
+    });
+  });
+
+  it('keeps propagate and touch independent on local and server child writes', () => {
+    installMemoryStorage();
+    const parentModel = definePropagationParentModel('propagate-touch-parent');
+    const childModel = definePropagationChildModel('propagate-touch-child', parentModel, {
+      touch: true,
+      propagate: child => ({
+        preview: child.body,
+        lastChildId: child.id
+      })
+    });
+
+    parentModel.insertStored({ id: 'parent-local', title: 'Local Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.insertStored({ id: 'child-local', parentId: 'parent-local', body: 'Local', updatedAt: '2000-01-02T00:00:00.000Z' });
+    expect(parentModel.get('parent-local')).toMatchObject({
+      preview: 'Local',
+      lastChildId: 'child-local'
+    });
+    expect(parentModel.get('parent-local')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+
+    parentModel.insertStored({ id: 'parent-server', title: 'Server Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.applyServerData([{ id: 'child-server', parentId: 'parent-server', body: 'Server', updatedAt: '2000-01-03T00:00:00.000Z' }], { mode: 'merge' });
+    expect(parentModel.get('parent-server')).toMatchObject({
+      preview: 'Server',
+      lastChildId: 'child-server',
+      updatedAt: '2000-01-01T00:00:00.000Z'
+    });
+  });
+
+  it('does not re-enter propagation from parent writes produced by child propagation', () => {
+    installMemoryStorage();
+    const auditModel = defineMirrorTargetModel('propagate-reentry-audit');
+    const parentModel = definePropagationParentModel('propagate-reentry-parent', auditModel);
+    const childModel = definePropagationChildModel('propagate-reentry-child', parentModel);
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    auditModel.destroy('parent-1');
+    childModel.insertStored({ id: 'child-1', parentId: 'parent-1', body: 'Preview', updatedAt: '2000-01-02T00:00:00.000Z' });
+
+    expect(parentModel.get('parent-1')).toMatchObject({ preview: 'Preview' });
+    expect(auditModel.get('parent-1')).toBeUndefined();
+
+    parentModel.patch('parent-1', { title: 'Direct Parent Patch', updatedAt: '2000-01-03T00:00:00.000Z' });
+    expect(auditModel.get('parent-1')).toMatchObject({ name: 'Direct Parent Patch' });
   });
 
   it('throws model-prefixed errors for invalid hasManyThrough names', () => {
