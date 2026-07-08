@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { belongsTo, configureDb, defineModel, devClearAllDataAndState, f, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
-import type { CollectionModel, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
+import type { CollectionModel, InternalSyncContract, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
 type UserRow = { id: string; name: string; orgId?: string | null; updatedAt?: string | null };
@@ -910,18 +910,10 @@ describe('model relations', () => {
     await Promise.resolve();
 
     jest.spyOn(Date, 'now').mockReturnValue(1100);
-    expect(
-      chatModel.applyServerData([{ id: 'chat-1', userId: 'user-1', title: 'Recreated', updatedAt: null }], {
-        mode: 'merge',
-        _freshnessFilter: { userId: 'user-1' }
-      })
-    ).toEqual({ merged: 1 });
-    expect(
-      messageModel.applyServerData([{ id: 'message-1', chatId: 'chat-1', body: 'Recreated', updatedAt: null }], {
-        mode: 'merge',
-        _freshnessFilter: { chatId: 'chat-1' }
-      })
-    ).toEqual({ merged: 1 });
+    const chatRecreatedContract: InternalSyncContract = { mode: 'merge', _freshnessFilter: { userId: 'user-1' } };
+    expect(chatModel.applyServerData([{ id: 'chat-1', userId: 'user-1', title: 'Recreated', updatedAt: null }], chatRecreatedContract)).toEqual({ merged: 1 });
+    const messageRecreatedContract: InternalSyncContract = { mode: 'merge', _freshnessFilter: { chatId: 'chat-1' } };
+    expect(messageModel.applyServerData([{ id: 'message-1', chatId: 'chat-1', body: 'Recreated', updatedAt: null }], messageRecreatedContract)).toEqual({ merged: 1 });
     await Promise.resolve();
 
     expect(chatModel.get('chat-1')).toMatchObject({ title: 'Recreated' });

@@ -8,6 +8,7 @@ import {
   getCollectionFetchStateVersion,
   setCollectionFetchState
 } from '../index';
+import type { InternalSyncContract } from '../types';
 import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -257,13 +258,12 @@ describe('collection model core DSL', () => {
       { mode: 'merge' }
     );
 
-    expect(
-      model.applyServerData([{ id: 'a1', title: 'A1 updated', listId: 'a', updatedAt: later }], {
-        mode: 'replace',
-        scope: { listId: 'a' },
-        _scopeFilter: item => (item as { listId?: string | null }).listId === 'a'
-      })
-    ).toEqual({ merged: 1, deleted: 1 });
+    const scopedReplaceContract: InternalSyncContract = {
+      mode: 'replace',
+      scope: { listId: 'a' },
+      _scopeFilter: item => (item as { listId?: string | null }).listId === 'a'
+    };
+    expect(model.applyServerData([{ id: 'a1', title: 'A1 updated', listId: 'a', updatedAt: later }], scopedReplaceContract)).toEqual({ merged: 1, deleted: 1 });
     expect(model.getAll().map(item => item.id).sort()).toEqual(['a1', 'b1']);
     expect(model.get('a1')?.title).toBe('A1 updated');
 

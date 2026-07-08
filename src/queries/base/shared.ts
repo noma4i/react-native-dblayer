@@ -7,6 +7,7 @@ import type {
   CollectionFetchState,
   CollectionModel,
   CollectionReadConfig,
+  InternalSyncContract,
   StableItemsConfig,
   StableEntityConfig,
   StableProjectionConfig,
@@ -123,20 +124,24 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
     _dbScope: (filter?: unknown) => readScope(filter),
 
     applyServerData: (items: unknown[], contract: SyncContract) => {
-      if (contract.scope && readConfig?.scopeMap) {
-        const scopeFilter = buildScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
-        const freshnessFilter = toStoredScopeFilter<TStored>(contract.scope, readConfig.scopeMap);
+      // Widen to the package-internal contract shape to compute `_scopeFilter`/`_freshnessFilter`
+      // before forwarding to the model - `applyServerData`'s public signature never exposes them.
+      const internalContract = contract as InternalSyncContract;
+      if (internalContract.scope && readConfig?.scopeMap) {
+        const scopeFilter = buildScopeFilter<TStored>(internalContract.scope, readConfig.scopeMap);
+        const freshnessFilter = toStoredScopeFilter<TStored>(internalContract.scope, readConfig.scopeMap);
         const nextScopeFilter =
-          contract.mode === 'replace'
-            ? scopeFilter && contract._scopeFilter
-              ? (item: unknown) => scopeFilter(item as TStored) && contract._scopeFilter!(item)
-              : (scopeFilter ?? contract._scopeFilter)
-            : contract._scopeFilter;
-        return model.applyServerData(items, {
-          ...contract,
+          internalContract.mode === 'replace'
+            ? scopeFilter && internalContract._scopeFilter
+              ? (item: unknown) => scopeFilter(item as TStored) && internalContract._scopeFilter!(item)
+              : (scopeFilter ?? internalContract._scopeFilter)
+            : internalContract._scopeFilter;
+        const enrichedContract: InternalSyncContract = {
+          ...internalContract,
           _scopeFilter: nextScopeFilter,
           ...(freshnessFilter ? { _freshnessFilter: freshnessFilter as Record<string, unknown> } : {})
-        });
+        };
+        return model.applyServerData(items, enrichedContract);
       }
       return model.applyServerData(items, contract);
     },

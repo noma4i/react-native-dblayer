@@ -9,6 +9,7 @@ import type {
   DbReadOptions,
   DbWhere,
   FieldsCollectionModel,
+  InternalSyncContract,
   MergeResult,
   ModelBuildStoredInput,
   ModelFieldSpecs,
@@ -488,7 +489,10 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   };
 
   const applyServerData = (items: unknown[], contract: SyncContract): MergeResult | ReplaceResult => {
-    if (contract.mode === 'replace' && contract.scope !== undefined && contract._scopeFilter === undefined) {
+    // `createCollectionBinding`'s `applyServerData` wrapper is the only caller that enriches a plain
+    // `SyncContract` with `_scopeFilter`/`_freshnessFilter` before reaching here - see `InternalSyncContract`.
+    const internalContract = contract as InternalSyncContract;
+    if (internalContract.mode === 'replace' && internalContract.scope !== undefined && internalContract._scopeFilter === undefined) {
       throw new Error(`[${config.name}] scoped replace requires _scopeFilter. Use createCollectionBinding(...).applyServerData() or provide contract._scopeFilter explicitly.`);
     }
 
@@ -496,8 +500,8 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     withApplyingModel(config.name, () => {
       withTransaction(() => {
         runSideloads(config.sideload, items, contract);
-        if (contract.mode === 'replace') {
-          const scopeFilter = contract._scopeFilter as ((item: any) => boolean) | undefined;
+        if (internalContract.mode === 'replace') {
+          const scopeFilter = internalContract._scopeFilter as ((item: any) => boolean) | undefined;
           result = replace(items, scopeFilter);
         } else {
           result = merge(items);
@@ -505,9 +509,9 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       });
     });
 
-    if (contract._freshnessFilter) {
-      freshness.markFetched(contract._freshnessFilter as Partial<any>, { empty: items.length === 0 });
-    } else if (contract.scope === undefined && contract._scopeFilter === undefined) {
+    if (internalContract._freshnessFilter) {
+      freshness.markFetched(internalContract._freshnessFilter as Partial<any>, { empty: items.length === 0 });
+    } else if (internalContract.scope === undefined && internalContract._scopeFilter === undefined) {
       freshness.touch();
     }
 

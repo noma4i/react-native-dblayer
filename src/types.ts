@@ -332,13 +332,31 @@ export interface ShouldAcceptIncomingOptions<TExisting extends IncomingRecord, T
   shouldOverwrite?: (existing: TExisting, incoming: TIncoming) => boolean;
 }
 
-export interface SyncContract {
+/**
+ * Public write contract for a server-data sync: write strategy, freshness label, and optional scope tag.
+ * `source` is optional rather than the originally proposed required field - `mergeSyncContract`/
+ * `replaceSyncContract` always set it, but some package-internal test call sites construct a bare
+ * `{ mode: 'merge' }` literal directly against a model's `applyServerData` without it; making it
+ * required would silently break those callers (see the P2a-fix report for the exact list).
+ */
+export interface SyncContract<TScope = unknown> {
   /** Write strategy: merge new data or replace the scoped set. */
   mode: 'merge' | 'replace';
-  /** Optional freshness/debug label for this write. */
+  /** Freshness/debug label for this write. */
   source?: string;
-  /** Opaque scope tag for scoped writes. */
-  scope?: unknown;
+  /** Optional opaque scope tag for scoped writes. */
+  scope?: TScope;
+}
+
+/**
+ * Package-internal widening of `SyncContract` carrying the scoped-replace predicate and freshness
+ * scope that `createCollectionBinding`'s `applyServerData` wrapper computes before forwarding to a
+ * model's `applyServerData` implementation. Never part of the public surface - callers only ever
+ * construct or receive a plain `SyncContract`.
+ * Only package internals and package tests (`src/__tests__`) may construct this type directly; app
+ * code always goes through `mergeSyncContract`/`replaceSyncContract`.
+ */
+export interface InternalSyncContract<TScope = unknown> extends SyncContract<TScope> {
   /** Scoped replace predicate; required when replacing with `scope`. */
   _scopeFilter?: (item: unknown) => boolean;
   /** Freshness scope recorded after the write. */
@@ -532,17 +550,6 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
 export type DbKeyModelSource = {
   collection: { readonly id: string };
 };
-
-export type ServerSyncMode = 'merge' | 'replace';
-
-export interface ServerSyncContract<TScope = unknown> {
-  /** Write strategy for server data. */
-  mode: ServerSyncMode;
-  /** Freshness/debug label for this write. */
-  source: string;
-  /** Optional opaque scope tag for scoped writes. */
-  scope?: TScope;
-}
 
 export type CollectionBindingUseDataContext<TStored, TRead = TStored> = {
   /** Original runtime filter passed to the binding. */

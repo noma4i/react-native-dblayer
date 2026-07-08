@@ -190,8 +190,6 @@ export type {
   RowRelatedRecord,
   RowRelatedSurface,
   ReplaceResult,
-  ServerSyncContract,
-  ServerSyncMode,
   ShouldAcceptIncomingOptions,
   StableEntityConfig,
   StableEntityRenderKeysConfig,
