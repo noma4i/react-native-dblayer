@@ -72,6 +72,21 @@ export type DbTransport = {
   query: <TData = unknown, TVariables = Record<string, unknown>>(operation: DbQueryOperation<TData, TVariables>) => Promise<TransportResult<TData>>;
   /** Execute a GraphQL mutation and resolve to `{ data }`. */
   mutation: <TData = unknown, TVariables = Record<string, unknown>>(operation: DbMutationOperation<TData, TVariables>) => Promise<TransportResult<TData>>;
+  /**
+   * Subscribe to a GraphQL document and push response `data` objects to the provided callbacks.
+   *
+   * Implement this over the consumer GraphQL client's subscription primitive. Transport-level
+   * reconnect and observer resubscription belong to the transport and are transparent to callers of
+   * this seam.
+   *
+   * @param options GraphQL subscription document plus optional static variables.
+   * @param handlers Callback pair for successful response data and transport/subscription errors.
+   * @returns Unsubscribe callback for the active subscription.
+   */
+  subscribe?: (
+    options: { query: DbGraphQLDocument; variables?: Record<string, unknown> },
+    handlers: { next: (data: unknown) => void; error: (error: unknown) => void }
+  ) => () => void;
 };
 
 export interface DbCollection<T> {
