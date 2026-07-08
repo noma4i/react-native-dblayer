@@ -1,3 +1,4 @@
+import type { AnyDbShape, InferShapeStored } from '../schema/infer';
 type RowId = {
     id: string;
 };
@@ -73,6 +74,24 @@ export type ThrottledSingleFlightOptions<TArgs extends unknown[]> = {
  */
 export declare const createThrottledSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options: ThrottledSingleFlightOptions<TArgs>) => ((...args: TArgs) => Promise<TResult | undefined>);
 export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (id: string, ...args: TArgs) => boolean;
+export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
+    /** Replace an existing sub-row with the same key, then append the normalized sub-row. */
+    upsert(rows: TSub[] | null | undefined, input: unknown): TSub[];
+    /** Remove sub-rows whose key equals the supplied value. */
+    remove(rows: TSub[] | null | undefined, keyValue: string): TSub[];
+};
+export type IdArrayPatcher = {
+    /** Replace an existing id, then insert it at the requested edge. */
+    upsert(ids: string[] | null | undefined, id: string, position: 'prepend' | 'append'): string[];
+    /** Remove an id. */
+    remove(ids: string[] | null | undefined, id: string): string[];
+};
+/** Create immutable patch helpers for an array of keyed shape sub-rows. */
+export declare const createKeyedArrayPatcher: <TShape extends AnyDbShape, TSub extends InferShapeStored<TShape>, TKey extends Extract<keyof TSub, string>>(shape: TShape, options: {
+    key: TKey;
+}) => KeyedArrayPatcher<TSub, TKey>;
+/** Create immutable patch helpers for id arrays. */
+export declare const createIdArrayPatcher: () => IdArrayPatcher;
 /** Create a shallow patcher for a nullable nested object field. */
 export declare const createNestedObjectPatcher: <TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[], TNested extends object = NonNullable<TRow[TField]> & object>(model: PatchModel<TRow>, field: TField, transform: (current: TNested, ...args: TArgs) => Partial<TNested>) => NestedObjectPatcher<TRow, TField, TArgs>;
 type NumericField<TStored> = {

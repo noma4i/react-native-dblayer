@@ -85,6 +85,7 @@ Every field supports:
 | `.optional()` | Stored key becomes optional. |
 | `.nullDefault()` | Maps missing/undefined source to `null`; stored type becomes `T \| null`. |
 | `.default(value \| () => value)` | Factory-time default used by `buildStored`; lazy form avoids shared references. |
+| `.emptyDefault()` | Object fields only: factory-time default equal to `readShape(shape, {})`. |
 | `.from(selector)` | Reads from selector output instead of `input[key]`. |
 
 `.default` and `.nullDefault()` are independent. A field may use both: `normalize()` still follows `.nullDefault()`,
@@ -129,6 +130,21 @@ export const MessageModel = defineModel<MessageInput, Message>({
 
 `readShape(shape, input)` returns `undefined` for non-object input. `readShapeOrThrow(shape, input, label)` uses the
 same reader and throws `<label>: invalid shape payload` when the payload is unreadable.
+
+`projectShape(shape, source, overrides?)` is a named projection wrapper for `readShape(shape, { ...source, ...overrides })`.
+It keeps only fields declared on the shape and applies typed overrides last. Use it when a model or mutation derives a
+nested stored object from a wider source object.
+
+`f.object(shape).emptyDefault()` gives required nested objects a build-time zero-state. The factory reads `shape` from
+an empty object, so `nullDefault` fields become `null` and custom list readers can return their own empty arrays. Explicit
+`buildStored({ field: ... })` input still wins.
+
+`createKeyedArrayPatcher(shape, { key })` builds immutable helpers for array-of-shape sub-rows:
+`upsert(rows, input)` normalizes `input` through the shape, removes an existing row with the same key, then appends the
+normalized row; `remove(rows, keyValue)` filters by key. Nullish arrays are treated as `[]`.
+
+`createIdArrayPatcher()` builds immutable id-array helpers: `upsert(ids, id, 'prepend' | 'append')` dedupes and inserts
+at the requested edge, and `remove(ids, id)` filters the id out.
 
 ### Row id, guard, and composite ids
 
@@ -219,10 +235,12 @@ export const UserModel = defineModel({
 });
 ```
 
-`hasMany(childModel, { foreignKey, dependent: 'destroy' })` requires `foreignKey` to be a string field on the child
-stored row. Explicit destroy paths (`destroy`, `destroyMany`, `destroyWhere`, and utilities that call those methods)
-resolve parent ids, destroy dependent children depth-first, then delete parent rows. Cascades recurse through child
-relations. In cycles, re-entered models delete the matched rows but do not cascade their relations again.
+`hasMany(childModel, { foreignKey })` requires `foreignKey` to be a string field on the child stored row. Omit
+`dependent` for a query-only relation: related accessors work, but cascade destroy ignores it. Add
+`dependent: 'destroy'` for owned children. Explicit destroy paths (`destroy`, `destroyMany`, `destroyWhere`, and utilities
+that call those methods) resolve parent ids, destroy dependent children depth-first, then delete parent rows. Cascades
+recurse through child relations. In cycles, re-entered models delete the matched rows but do not cascade their relations
+again.
 
 Models with a `relations` thunk expose local query accessors under `model.related.<name>`:
 

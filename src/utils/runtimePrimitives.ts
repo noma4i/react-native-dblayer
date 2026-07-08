@@ -1,4 +1,6 @@
 import { isTempId } from './generateTempId';
+import type { AnyDbShape, InferShapeStored } from '../schema/infer';
+import { readShapeOrThrow } from '../schema/shape';
 
 type RowId = { id: string };
 type CreatedAtLike = string | number | Date | null | undefined;
@@ -313,6 +315,46 @@ export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof
   id: string,
   ...args: TArgs
 ) => boolean;
+
+export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
+  /** Replace an existing sub-row with the same key, then append the normalized sub-row. */
+  upsert(rows: TSub[] | null | undefined, input: unknown): TSub[];
+  /** Remove sub-rows whose key equals the supplied value. */
+  remove(rows: TSub[] | null | undefined, keyValue: string): TSub[];
+};
+
+export type IdArrayPatcher = {
+  /** Replace an existing id, then insert it at the requested edge. */
+  upsert(ids: string[] | null | undefined, id: string, position: 'prepend' | 'append'): string[];
+  /** Remove an id. */
+  remove(ids: string[] | null | undefined, id: string): string[];
+};
+
+/** Create immutable patch helpers for an array of keyed shape sub-rows. */
+export const createKeyedArrayPatcher = <TShape extends AnyDbShape, TSub extends InferShapeStored<TShape>, TKey extends Extract<keyof TSub, string>>(
+  shape: TShape,
+  options: { key: TKey }
+): KeyedArrayPatcher<TSub, TKey> => ({
+  upsert(rows, input) {
+    const next = readShapeOrThrow(shape, input, 'Keyed array patch item') as TSub;
+    const keyValue = next[options.key];
+    return [...(rows ?? []).filter(entry => entry[options.key] !== keyValue), next];
+  },
+  remove(rows, keyValue) {
+    return (rows ?? []).filter(entry => entry[options.key] !== keyValue);
+  }
+});
+
+/** Create immutable patch helpers for id arrays. */
+export const createIdArrayPatcher = (): IdArrayPatcher => ({
+  upsert(ids, id, position) {
+    const next = (ids ?? []).filter(existingId => existingId !== id);
+    return position === 'prepend' ? [id, ...next] : [...next, id];
+  },
+  remove(ids, id) {
+    return (ids ?? []).filter(existingId => existingId !== id);
+  }
+});
 
 /** Create a shallow patcher for a nullable nested object field. */
 export const createNestedObjectPatcher = <

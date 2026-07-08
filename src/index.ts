@@ -49,7 +49,7 @@ export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';
-export { defineShape, readShape, readShapeOrThrow } from './schema/shape';
+export { defineShape, projectShape, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
 export { mergeOptimisticSnapshot, resolveMergedField } from './mutations/base/mergeOptimisticSnapshot';
 export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';
@@ -81,6 +81,8 @@ export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export {
   createNestedObjectPatcher,
+  createIdArrayPatcher,
+  createKeyedArrayPatcher,
   createThrottledSingleFlight,
   pruneExpiredRows,
   pruneOrphanedRows,
@@ -107,6 +109,8 @@ export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
 export type {
   NestedObjectPatcher,
+  IdArrayPatcher,
+  KeyedArrayPatcher,
   ReconcileOptimisticRowsOptions,
   ReconcileScopeFields,
   ResolveStaleTempRowsOptions,

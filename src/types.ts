@@ -117,16 +117,26 @@ export type HasManyDependent = 'destroy';
 export type HasManyOptions<TChildStored extends StoredRowBase, TForeignKey extends StringFieldKey<TChildStored>> = {
   /** Child row field that stores the parent id. */
   foreignKey: TForeignKey;
-  /** Dependent action for child rows. */
-  dependent: HasManyDependent;
+  /** Dependent action for child rows. Omit for query-only relations. */
+  dependent?: HasManyDependent;
 };
 
-export type RelationModel<TStored extends StoredRowBase> = Pick<
-  CollectionModel<unknown, TStored>,
-  'getAll' | 'getWhere' | 'where' | 'count' | 'destroyMany' | 'destroyWhere' | 'collection'
->;
+export type RelationModel<TStored extends StoredRowBase> = {
+  getAll(): TStored[];
+  getWhere(filter: DbWhere<any>): TStored[];
+  where(filter: DbWhere<any>, options?: DbReadOptions<any>): TStored[];
+  count(filter?: DbWhere<any> | null): number;
+  destroyMany(ids: string[]): number;
+  destroyWhere(filter: Partial<any>): number;
+  collection: Collection<TStored, string>;
+};
 
-export type BelongsToModel<TStored extends StoredRowBase> = Pick<CollectionModel<unknown, TStored>, 'get' | 'find' | 'patch' | 'collection'>;
+export type BelongsToModel<TStored extends StoredRowBase> = {
+  get(id: string | undefined | null): TStored | undefined;
+  find(id: string | undefined | null): TStored | undefined;
+  patch(id: string, updates: Partial<any>): boolean;
+  collection: Collection<TStored, string>;
+};
 
 export type ModelRelationDefinition = {
   /** Relation kind. */
@@ -135,13 +145,13 @@ export type ModelRelationDefinition = {
   model: unknown;
   /** Child row field that stores the parent id. */
   foreignKey: string;
-  /** Dependent action for child rows. */
-  dependent: HasManyDependent;
+  /** Dependent action for child rows. Omitted for query-only relations. */
+  dependent?: HasManyDependent;
 };
 
 export type HasManyRelation<
   TChildStored extends StoredRowBase,
-  TForeignKey extends StringFieldKey<TChildStored>,
+  TForeignKey extends string,
   TChildModel = RelationModel<TChildStored>
 > = ModelRelationDefinition & {
   /** Child model. */

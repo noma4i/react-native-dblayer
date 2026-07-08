@@ -1,5 +1,5 @@
 import { f } from '../schema/f';
-import { defineShape, readShape, readShapeOrThrow } from '../schema/shape';
+import { defineShape, projectShape, readShape, readShapeOrThrow } from '../schema/shape';
 
 type MediaInput = {
   url?: unknown;
@@ -87,6 +87,30 @@ describe('schema shapes', () => {
       width: 200,
       height: 100
     });
+  });
+
+  it('projects source objects through shape fields and applies overrides last', () => {
+    const projected = projectShape(
+      mediaShape,
+      {
+        url: 'https://example.test/source.png',
+        coverUrl: 'https://example.test/source-cover.png',
+        width: 320,
+        extra: 'ignored'
+      },
+      {
+        coverUrl: 'https://example.test/override-cover.png',
+        height: 180
+      }
+    );
+
+    expect(projected).toEqual({
+      url: 'https://example.test/source.png',
+      coverUrl: 'https://example.test/override-cover.png',
+      width: 320,
+      height: 180
+    });
+    expect('extra' in projected).toBe(false);
   });
 
   it('throws a labelled error for unreadable shape payloads', () => {

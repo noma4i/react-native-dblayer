@@ -39,3 +39,9 @@ export const readShapeOrThrow = <TInput, TFields extends ShapeFields<TInput>>(sh
   }
   return result;
 };
+
+export const projectShape = <TInput, TFields extends ShapeFields<TInput>>(
+  shape: DbShape<TInput, TFields>,
+  source: object,
+  overrides?: Partial<InferShapeStored<DbShape<TInput, TFields>>>
+): InferShapeStored<DbShape<TInput, TFields>> => readShape(shape, { ...source, ...overrides }) as InferShapeStored<DbShape<TInput, TFields>>;

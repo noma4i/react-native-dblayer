@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { belongsTo, configureDb, defineModel, devClearAllDataAndState, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
+import { belongsTo, configureDb, defineModel, devClearAllDataAndState, f, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
 import type { CollectionModel, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -162,6 +162,33 @@ describe('model relations', () => {
     }
   });
 
+  it('accepts statics-extended fields models in hasMany without casts', () => {
+    installMemoryStorage();
+    const messageModel = defineModel({
+      id: 'relation-fields-statics-message',
+      name: 'RelationFieldsStaticsMessageModel',
+      fields: {
+        chatId: f.id(),
+        body: f.str(),
+        readCount: f.num().default(0)
+      },
+      statics: model => ({
+        firstBody: () => model.getFirst()?.body
+      })
+    });
+
+    hasMany(messageModel, { foreignKey: 'chatId' });
+    hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' });
+    expect(messageModel.firstBody()).toBeUndefined();
+
+    if (false) {
+      // @ts-expect-error numeric fields are not valid hasMany foreign keys
+      hasMany(messageModel, { foreignKey: 'readCount' });
+      // @ts-expect-error missing keys are not valid hasMany foreign keys
+      hasMany(messageModel, { foreignKey: 'missingId' });
+    }
+  });
+
   it('exposes direct hasMany related get, use, and count accessors', async () => {
     installMemoryStorage();
     const chatModel = defineChatModel('relation-direct-chat');
@@ -204,6 +231,28 @@ describe('model relations', () => {
     expect(hook.current.count).toBe(1);
 
     hook.unmount();
+  });
+
+  it('keeps hasMany without dependent query-only and out of cascade destroy', async () => {
+    installMemoryStorage();
+    const chatModel = defineChatModel('relation-query-only-chat');
+    const userModel = defineUserModel('relation-query-only-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+
+    expect(userModel.related.chats.get('user-1').map(row => row.id)).toEqual(['chat-1']);
+    const hook = renderHook((parentId: string) => userModel.related.chats.count(parentId), 'user-1');
+    await hook.flush();
+    expect(hook.current).toBe(1);
+    hook.unmount();
+
+    expect(userModel.destroy('user-1')).toBe(true);
+
+    expect(userModel.get('user-1')).toBeUndefined();
+    expect(chatModel.get('chat-1')).toEqual(expect.objectContaining({ id: 'chat-1', userId: 'user-1' }));
   });
 
   it('keeps nullish related reads empty and stable', async () => {
@@ -744,10 +793,10 @@ describe('model relations', () => {
     let aModel!: any;
     let bModel!: any;
     const aRelations = jest.fn(() => ({
-      bs: hasMany(bModel as CollectionModel<unknown, BRow>, { foreignKey: 'aId', dependent: 'destroy' })
+      bs: hasMany(bModel, { foreignKey: 'aId', dependent: 'destroy' })
     }));
     const bRelations = jest.fn(() => ({
-      as: hasMany(aModel as CollectionModel<unknown, ARow>, { foreignKey: 'bId', dependent: 'destroy' })
+      as: hasMany(aModel, { foreignKey: 'bId', dependent: 'destroy' })
     }));
 
     aModel = defineModel<ARow, ARow>({

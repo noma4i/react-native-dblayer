@@ -2,8 +2,11 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import {
   configureDb,
+  createIdArrayPatcher,
+  createKeyedArrayPatcher,
   createNestedObjectPatcher,
   createThrottledSingleFlight,
+  defineShape,
   defineModel,
   devClearAllDataAndState,
   f,
@@ -15,6 +18,12 @@ import {
   trimRowsPerScope
 } from '../index';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
+
+const reactionShape = defineShape<{ id?: unknown; kind?: unknown; count?: unknown }>()({
+  id: f.id(),
+  kind: f.str().nullDefault(),
+  count: f.num().nullDefault()
+});
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -276,6 +285,41 @@ describe('runtime primitives', () => {
       transcoded: true
     });
     expect(updateTranscodeStatus('media-null', 'FAILED')).toBe(false);
+  });
+
+  it('patches keyed shape arrays immutably with normalized append upserts and removals', () => {
+    const patcher = createKeyedArrayPatcher(reactionShape, { key: 'id' });
+    const original = [
+      { id: 'a', kind: 'like', count: 1 },
+      { id: 'b', kind: 'love', count: 2 }
+    ];
+
+    const upserted = patcher.upsert(original, { id: 'a', count: 3 });
+
+    expect(upserted).toEqual([
+      { id: 'b', kind: 'love', count: 2 },
+      { id: 'a', kind: null, count: 3 }
+    ]);
+    expect(upserted).not.toBe(original);
+    expect(original).toEqual([
+      { id: 'a', kind: 'like', count: 1 },
+      { id: 'b', kind: 'love', count: 2 }
+    ]);
+    expect(patcher.upsert(null, { id: 7, kind: 'wow' })).toEqual([{ id: '7', kind: 'wow', count: null }]);
+    expect(patcher.remove(upserted, 'b')).toEqual([{ id: 'a', kind: null, count: 3 }]);
+    expect(patcher.remove(undefined, 'missing')).toEqual([]);
+  });
+
+  it('patches id arrays immutably with dedupe, edge placement, and removals', () => {
+    const patcher = createIdArrayPatcher();
+    const original = ['a', 'b'];
+
+    expect(patcher.upsert(original, 'a', 'append')).toEqual(['b', 'a']);
+    expect(patcher.upsert(original, 'c', 'prepend')).toEqual(['c', 'a', 'b']);
+    expect(patcher.upsert(null, 'a', 'append')).toEqual(['a']);
+    expect(patcher.remove(original, 'b')).toEqual(['a']);
+    expect(patcher.remove(undefined, 'b')).toEqual([]);
+    expect(patcher.remove(original, 'missing')).not.toBe(original);
   });
 
   it('builds singleton statics for current reads, upsert, and clamped numeric patches', () => {

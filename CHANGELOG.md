@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1 - 2026-07-08
+
+- Add shape-derivation helpers: `projectShape`, `f.object(shape).emptyDefault()`, `createKeyedArrayPatcher`, and `createIdArrayPatcher`.
+- Relax relation typing so real statics-extended fields models work in `hasMany` without casts.
+- Make `hasMany` `dependent` optional; omitted relations are query-only and ignored by cascade destroy.
+
 ## 2.3.0 - 2026-07-08
 
 - Add direct execution paths: `runDbQueryDirect`, `runDbCommandDirect`, and `runDbMutationDirect` support for patch mutations through `selectPatch`.

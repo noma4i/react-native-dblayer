@@ -5,7 +5,6 @@ import type {
   BelongsToAccessor,
   BelongsToModel,
   BelongsToRelation,
-  CollectionModel,
   HasManyOptions,
   HasManyRelation,
   HasManyThroughRelation,
@@ -32,9 +31,13 @@ type RuntimeHasManyRelation = ModelRelationDefinition & {
 type RuntimeBelongsToRelation = BelongsToRelation<StoredRowBase, string, BelongsToModel<StoredRowBase>>;
 
 type RelatedAccessorsContext = {
-  collection: CollectionModel<unknown, StoredRowBase>['collection'];
+  collection: RelationModel<StoredRowBase>['collection'];
   getRow: (id: string | null | undefined) => StoredRowBase | undefined;
 };
+
+type StoredOfRelationModel<TModel> = TModel extends { getAll: () => Array<infer TStored> } ? (TStored extends StoredRowBase ? TStored : never) : never;
+
+type StoredOfBelongsToModel<TModel> = TModel extends { get: (id: string | undefined | null) => infer TStored | undefined } ? (TStored extends StoredRowBase ? TStored : never) : never;
 
 export type CascadeController = {
   modelName: string;
@@ -58,12 +61,11 @@ export const getCascadeController = (model: unknown): CascadeController | undefi
 };
 
 export const hasMany = <
-  TInput,
-  TChildStored extends StoredRowBase,
-  TForeignKey extends StringFieldKey<TChildStored>,
-  TChildModel extends CollectionModel<TInput, TChildStored> = CollectionModel<TInput, TChildStored>
+  TChildModel extends RelationModel<any>,
+  TChildStored extends StoredRowBase = StoredOfRelationModel<TChildModel>,
+  TForeignKey extends StringFieldKey<TChildStored> = StringFieldKey<TChildStored>
 >(
-  model: TChildModel & CollectionModel<TInput, TChildStored>,
+  model: TChildModel,
   options: HasManyOptions<TChildStored, TForeignKey>
 ): HasManyRelation<TChildStored, TForeignKey, TChildModel> => ({
   kind: 'hasMany',
@@ -82,14 +84,12 @@ export const hasManyThrough = <TThrough extends string, TSource extends string>(
 });
 
 export const belongsTo = <
-  TParentInput,
-  TParentStored extends StoredRowBase,
-  TForeignKey extends string,
-  TParentModel extends CollectionModel<TParentInput, TParentStored> = CollectionModel<TParentInput, TParentStored>
+  TParentModel extends BelongsToModel<any>,
+  TForeignKey extends string
 >(
-  model: TParentModel & CollectionModel<TParentInput, TParentStored>,
+  model: TParentModel,
   options: { foreignKey: TForeignKey; touch?: boolean }
-): BelongsToRelation<TParentStored, TForeignKey, TParentModel> => ({
+): BelongsToRelation<StoredOfBelongsToModel<TParentModel>, TForeignKey, TParentModel> => ({
   kind: 'belongsTo',
   model,
   foreignKey: options.foreignKey,

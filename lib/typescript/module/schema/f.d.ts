@@ -1,4 +1,4 @@
-import type { FieldSpec } from './fieldSpec';
+import type { EmptyDefaultFieldSpec, FieldSpec } from './fieldSpec';
 import type { AnyDbShape } from './infer';
 import type { InferShapeStored } from './infer';
 type ArrayItem = AnyDbShape | FieldSpec<any, any, any, any>;
@@ -11,7 +11,7 @@ export declare const f: {
     enum: <T>() => FieldSpec<unknown, T, "required", false>;
     raw: <T>() => FieldSpec<unknown, T, "required", false>;
     custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => FieldSpec<TInput, TOut, "required", false>;
-    object: <TShape extends AnyDbShape>(shape: TShape) => FieldSpec<unknown, InferShapeStored<TShape>, "required", false>;
+    object: <TShape extends AnyDbShape>(shape: TShape) => EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>, "required", false>;
     array: <TItem extends ArrayItem>(item: TItem) => FieldSpec<unknown, ArrayItemOut<TItem>[], "required", false>;
 };
 export {};

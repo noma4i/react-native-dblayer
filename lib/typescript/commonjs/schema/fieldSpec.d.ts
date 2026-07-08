@@ -13,6 +13,9 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
     default: (value: FieldDefault<TOut>) => FieldSpec<TInput, TOut, TMode, true>;
     from: <TNextInput = TInput>(selector: (input: TNextInput) => unknown) => FieldSpec<TNextInput, TOut, TMode, THasDefault>;
 }
+export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = 'required', THasDefault extends boolean = false> extends FieldSpec<TInput, TOut, TMode, THasDefault> {
+    emptyDefault: () => EmptyDefaultFieldSpec<TInput, TOut, TMode, true>;
+}
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
 export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
 type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {

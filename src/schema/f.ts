@@ -1,6 +1,6 @@
 import { readBoolean, readNullableNumber, readNullableString, readNumber, readString, toStr } from '../utils/normalizeHelpers';
 import { createFieldSpec, preserveNull, readObjectField } from './fieldSpec';
-import type { FieldSpec, FieldValueReader } from './fieldSpec';
+import type { EmptyDefaultFieldSpec, FieldSpec, FieldValueReader } from './fieldSpec';
 import type { AnyDbShape } from './infer';
 import type { InferShapeStored } from './infer';
 import { readShape } from './shape';
@@ -40,6 +40,15 @@ const readObjectShape =
   value =>
     readShape(shape, value) as InferShapeStored<TShape> | undefined;
 
+const withEmptyDefault = <TShape extends AnyDbShape>(shape: TShape, field: FieldSpec<unknown, InferShapeStored<TShape>, any, any>): EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>, any, any> => {
+  const objectSpec = field as EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>, any, any>;
+  objectSpec.emptyDefault = () => withEmptyDefault(shape, field.default(() => readShape(shape, {}) as InferShapeStored<TShape>));
+  return objectSpec;
+};
+
+const objectField = <TShape extends AnyDbShape>(shape: TShape): EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>> =>
+  withEmptyDefault(shape, valueField<InferShapeStored<TShape>>(readObjectShape(shape))) as EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>>;
+
 const readArray =
   <TItem extends ArrayItem>(item: TItem): FieldValueReader<ArrayItemOut<TItem>[]> =>
   value => {
@@ -65,6 +74,6 @@ export const f = {
   enum: <T>() => valueField<T>(definedPassthrough),
   raw: <T>() => valueField<T>(definedPassthrough),
   custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => customField<TInput, TOut>(input => read(input as TInput)),
-  object: <TShape extends AnyDbShape>(shape: TShape) => valueField<InferShapeStored<TShape>>(readObjectShape(shape)),
+  object: <TShape extends AnyDbShape>(shape: TShape) => objectField(shape),
   array: <TItem extends ArrayItem>(item: TItem) => valueField<ArrayItemOut<TItem>[]>(readArray(item))
 };
