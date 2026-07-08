@@ -49,7 +49,7 @@ export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';
-export { defineShape, projectShape, readShape, readShapeOrThrow } from './schema/shape';
+export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
 export { mergeOptimisticSnapshot, resolveMergedField } from './mutations/base/mergeOptimisticSnapshot';
 export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';

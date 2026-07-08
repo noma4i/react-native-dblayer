@@ -1,4 +1,5 @@
 import { f } from '../schema/f';
+import type { FieldSpec } from '../schema/fieldSpec';
 
 describe('schema field builders', () => {
   describe('primitive field reads', () => {
@@ -96,8 +97,40 @@ describe('schema field builders', () => {
     expect(spec.read({}, 'ignored')).toBeUndefined();
   });
 
+  it('reads keyed values from direct and selected sources when fromKey is applied', () => {
+    const fromProfile = f.str().fromKey<unknown>('displayName', input => (typeof input === 'object' && input !== null ? (input as { profile?: unknown }).profile : undefined));
+    const directAlias = f.id().fromKey<{ uuid?: unknown }>('uuid');
+
+    expect(fromProfile.read({ profile: { displayName: 'Ada' } }, 'ignored')).toBe('Ada');
+    expect(fromProfile.read({ profile: { name: 'Ada' } }, 'ignored')).toBeUndefined();
+    expect(fromProfile.read({ profile: null }, 'ignored')).toBeUndefined();
+    expect(fromProfile.read(null, 'ignored')).toBeUndefined();
+    expect(directAlias.read({ uuid: 42 }, 'id')).toBe('42');
+  });
+
+  it('lets field defaults apply when fromKey cannot read a source key', () => {
+    const spec = f.str().fromKey('name').default('Anonymous');
+
+    expect(spec.read(null, 'name')).toBeUndefined();
+    expect(spec.factoryDefault).toBe('Anonymous');
+  });
+
+  it('preserves the field mode and default type chain when fromKey is applied', () => {
+    const spec: FieldSpec<{ profile?: unknown }, string, 'nullable', true> = f.str().nullable().default('Anonymous').fromKey<{ profile?: unknown }>('name', input => input.profile);
+
+    expect(spec.mode).toBe('nullable');
+    expect(spec.factoryDefault).toBe('Anonymous');
+    expect(spec.read({ profile: { name: null } }, 'ignored')).toBeNull();
+  });
+
   it('treats selector exceptions as skipped writes', () => {
     const spec = f.str().from<{ profile?: { name: string } }>(input => input.profile!.name);
+
+    expect(spec.read({}, 'ignored')).toBeUndefined();
+  });
+
+  it('treats fromKey source selector exceptions as skipped writes', () => {
+    const spec = f.str().fromKey<{ profile?: { name: string } }>('name', input => input.profile!);
 
     expect(spec.read({}, 'ignored')).toBeUndefined();
   });

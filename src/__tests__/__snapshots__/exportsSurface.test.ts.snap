@@ -73,6 +73,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "pruneOrphanedRows",
   "pruneStaleFetchStates",
   "readBoolean",
+  "readFieldsPatch",
   "readId",
   "readNullableNumber",
   "readNullableString",

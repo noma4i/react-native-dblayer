@@ -55,6 +55,17 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
    * @returns A field spec with the same output rules and a new input type.
    */
   from: <TNextInput = TInput>(selector: (input: TNextInput) => unknown) => FieldSpec<TNextInput, TOut, TMode, THasDefault>;
+  /**
+   * Read this field from an own property on the input or a source-selected object.
+   *
+   * Missing keys, nullish sources, and non-object sources resolve to `undefined`; the field reader,
+   * nullability, and defaults then apply exactly as they do for `.from(...)`.
+   *
+   * @param key Source object key to read.
+   * @param source Optional selector that receives the full input object before the key read.
+   * @returns A field spec with the same output rules and a new input type.
+   */
+  fromKey: <TNextInput = TInput>(key: string, source?: (input: TNextInput) => unknown) => FieldSpec<TNextInput, TOut, TMode, THasDefault>;
 }
 
 export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = 'required', THasDefault extends boolean = false> extends FieldSpec<TInput, TOut, TMode, THasDefault> {
@@ -72,6 +83,7 @@ export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = '
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
 /** Select the raw source value for a field from an input object and key. */
 export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
+export const fieldSpecSparseRead = Symbol('fieldSpecSparseRead');
 
 type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
   mode: TMode;
@@ -88,6 +100,13 @@ export const readObjectField = <TInput>(input: TInput, key: string): unknown => 
   return (input as Record<string, unknown>)[key];
 };
 
+/** Read an own key from a source object, otherwise return undefined. */
+export const readSourceKey = (source: unknown, key: string): unknown => {
+  if (typeof source !== 'object' || source === null) return undefined;
+  if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
+  return (source as Record<string, unknown>)[key];
+};
+
 const nullableMode = <TMode extends FieldMode>(mode: TMode): NullableMode<TMode> => (mode === 'optional' || mode === 'optionalNullable' ? 'optionalNullable' : 'nullable') as NullableMode<TMode>;
 
 const optionalMode = <TMode extends FieldMode>(mode: TMode): OptionalMode<TMode> => (mode === 'nullable' || mode === 'optionalNullable' ? 'optionalNullable' : 'optional') as OptionalMode<TMode>;
@@ -102,12 +121,19 @@ export const preserveNull = <TOut>(readValue: FieldValueReader<TOut>): FieldValu
 export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefault extends boolean = false>(
   options: FieldSpecOptions<TInput, TOut, TMode>
 ): FieldSpec<TInput, TOut, TMode, THasDefault> => {
-  const spec: FieldSpec<TInput, TOut, TMode, THasDefault> = {
+  const spec = {
     mode: options.mode,
     readValue(value) {
       const output = options.readValue(value);
       if (output === undefined && options.defaultNull && value === undefined) return null;
       return output;
+    },
+    [fieldSpecSparseRead](input: TInput, key: string) {
+      try {
+        return options.readValue(options.selectSource(input, key));
+      } catch {
+        return undefined;
+      }
     },
     read(input, key) {
       try {
@@ -148,7 +174,14 @@ export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefau
       createFieldSpec<TNextInput, TOut, TMode, THasDefault>({
         ...options,
         selectSource: input => selector(input)
+      }),
+    fromKey: <TNextInput = TInput>(key: string, source?: (input: TNextInput) => unknown) =>
+      createFieldSpec<TNextInput, TOut, TMode, THasDefault>({
+        ...options,
+        selectSource: input => readSourceKey(source ? source(input) : input, key)
       })
+  } as FieldSpec<TInput, TOut, TMode, THasDefault> & {
+    [fieldSpecSparseRead]: (input: TInput, key: string) => TOut | null | undefined;
   };
 
   if (Object.prototype.hasOwnProperty.call(options, 'factoryDefault')) {
