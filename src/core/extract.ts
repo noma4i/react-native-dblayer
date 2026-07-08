@@ -27,8 +27,10 @@ export type DbMutationExtractPresetEntry<TResult = unknown, TSinkKey extends str
 export type DbMutationExtractPresetTable<TResult = unknown, TSinkKey extends string = string> = Record<string, DbMutationExtractPresetEntry<TResult, TSinkKey>>;
 
 export type DbExtractModelSink = {
-  /** Apply server payloads with the source merge contract. */
+  /** Apply server payloads with the resolved sync contract. */
   applyServerData: (items: unknown[], contract: SyncContract) => unknown;
+  /** Override the sync contract for this sink's nodes and source. Defaults to `mergeSyncContract(source)`. */
+  contract?: (nodes: unknown[], source: string) => SyncContract;
 };
 
 export type DbExtractCustomSink = (payload: unknown[], source: string) => void;
@@ -192,7 +194,7 @@ export const createExtractSink =
       const nodes = liftExtractNodes(payload);
       if (nodes.length === 0) return;
       if (isModelSink(sink)) {
-        sink.applyServerData(castNodes(nodes), mergeSyncContract(source));
+        sink.applyServerData(castNodes(nodes), sink.contract ? sink.contract(nodes, source) : mergeSyncContract(source));
       } else {
         sink(nodes, source);
       }

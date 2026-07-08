@@ -1,9 +1,11 @@
 import {
   configureDb,
+  createCollectionBinding,
   createExtractSink,
   createMutationExtractResolver,
   devClearAllDataAndState,
   liftExtractNodes,
+  replaceSyncContract,
   runDbMutationDirect,
   setDbExtractSink,
   setDbMutationExtractResolver
@@ -256,6 +258,51 @@ describe('extract factories', () => {
 
     expect(modelOrder).toEqual(['users', 'messages']);
     expect(customOrder).toEqual(['walletPatch', 'badgePatch']);
+  });
+
+  it('uses model sink contracts for scoped replace writes', () => {
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({}) });
+    const model = createTodoModel();
+    model.insertStored({ id: 'old-inbox', title: 'Old inbox', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    model.insertStored({ id: 'old-archive', title: 'Old archive', listId: 'archive', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const binding = createCollectionBinding(model, { scopeMap: { listId: 'listId' } });
+    const contract = jest.fn((nodes: unknown[], source: string) => replaceSyncContract(source, { listId: (nodes[0] as Todo).listId }));
+    const sink = createExtractSink({
+      todos: {
+        applyServerData: binding.applyServerData,
+        contract
+      }
+    });
+
+    sink(
+      {
+        todos: { id: 'new-inbox', title: 'New inbox', listId: 'inbox', done: false, updatedAt: '2026-01-02T00:00:00.000Z' }
+      },
+      'feedSync'
+    );
+
+    expect(contract).toHaveBeenCalledWith([expect.objectContaining({ id: 'new-inbox' })], 'feedSync');
+    expect(model.get('old-inbox')).toBeUndefined();
+    expect(model.get('new-inbox')?.title).toBe('New inbox');
+    expect(model.get('old-archive')?.title).toBe('Old archive');
+  });
+
+  it('keeps the default merge contract when a model sink omits a contract override', () => {
+    const todosModel = {
+      applyServerData: jest.fn(() => ({ merged: 1 }))
+    };
+    const sink = createExtractSink({
+      todos: todosModel
+    });
+
+    sink(
+      {
+        todos: { id: 'todo-default-contract' }
+      },
+      'mutation'
+    );
+
+    expect(todosModel.applyServerData).toHaveBeenCalledWith([{ id: 'todo-default-contract' }], { mode: 'merge', source: 'mutation', scope: undefined });
   });
 
   it('exports node lifting and uses it for custom sinks', () => {
