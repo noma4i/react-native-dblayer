@@ -3,7 +3,7 @@ import type { BaseQueryConfig, BaseQueryResult, CollectionModel, DbRequestInfini
 import { deriveDbKey } from '../../core/deriveDbKey';
 import { stableSerialize } from '../../core/serialize';
 import { makePageExtractor } from './extractPage';
-import { executeDbInfiniteRequest, executeDbSingleRequest } from './requestRuntime';
+import { runDbInfiniteQueryDirect, runDbQueryDirect } from './requestRuntime';
 import { buildModelFilter, resolveRequestFilter } from './shared';
 import { useBaseInfiniteQuery } from './useBaseInfiniteQuery';
 import { useBaseQuery } from './useBaseQuery';
@@ -80,7 +80,7 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
   const baseConfig = useMemo(
     (): BaseQueryConfig<TResult> => ({
       queryKey,
-      queryFn: () => executeDbSingleRequest(configRef.current),
+      queryFn: () => runDbQueryDirect(configRef.current),
       collection,
       inactive: config.inactive,
       enabled: config.enabled,
@@ -122,7 +122,7 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
 
     return {
       queryKey,
-      queryFn: ({ pageParam }: { pageParam?: string }) => executeDbInfiniteRequest(configRef.current, pageParam, patchStateRef.current),
+      queryFn: ({ pageParam }: { pageParam?: string }) => runDbInfiniteQueryDirect(configRef.current, pageParam, patchStateRef.current),
       extract,
       inactive: config.inactive,
       ...(config.getCursor ? { getCursor: data => configRef.current.getCursor!(data) } : {}),

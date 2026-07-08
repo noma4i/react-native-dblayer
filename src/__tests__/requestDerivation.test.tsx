@@ -6,10 +6,9 @@ import {
   createCollectionBinding,
   deriveDbKey,
   devClearAllDataAndState,
-  executeDbInfiniteRequest,
-  executeDbSingleRequest,
   mergeInitialSyncContract,
   modelDetailRequest,
+  runDbInfiniteQueryDirect,
   runDbQueryDirect,
   stableSerialize,
   useDbInfiniteRequest
@@ -144,7 +143,7 @@ describe('request config derivation', () => {
     expect(config.read).toBeUndefined();
     expect(config.enabled).toBe(true);
 
-    await expect(executeDbSingleRequest(config)).resolves.toMatchObject({ id: 'server-user-1', title: 'Server user' });
+    await expect(runDbQueryDirect(config)).resolves.toMatchObject({ id: 'server-user-1', title: 'Server user' });
     expect(model.get('server-user-1')?.title).toBe('Server user');
   });
 
@@ -334,8 +333,8 @@ describe('request config derivation', () => {
       read
     };
 
-    await executeDbInfiniteRequest(baseConfig);
-    await executeDbInfiniteRequest(baseConfig, 'cursor-1');
+    await runDbInfiniteQueryDirect(baseConfig);
+    await runDbInfiniteQueryDirect(baseConfig, 'cursor-1');
 
     expect(applyServerData).toHaveBeenNthCalledWith(1, expect.any(Array), { mode: 'replace', source: 'initial', scope: { listId: 'inbox' } });
     expect(applyServerData).toHaveBeenNthCalledWith(2, expect.any(Array), { mode: 'merge', source: 'loadMore', scope: { listId: 'inbox' } });
@@ -371,8 +370,8 @@ describe('request config derivation', () => {
       read
     };
 
-    await executeDbInfiniteRequest(mergeConfig);
-    await executeDbInfiniteRequest(mergeConfig, 'cursor-1');
+    await runDbInfiniteQueryDirect(mergeConfig);
+    await runDbInfiniteQueryDirect(mergeConfig, 'cursor-1');
 
     expect(applyServerData).toHaveBeenNthCalledWith(1, expect.any(Array), { mode: 'merge', source: 'initial', scope: { listId: 'inbox' } });
     expect(applyServerData).toHaveBeenNthCalledWith(2, expect.any(Array), { mode: 'merge', source: 'loadMore', scope: { listId: 'inbox' } });
@@ -381,7 +380,7 @@ describe('request config derivation', () => {
       ...mergeConfig,
       resolveSyncContract: ({ scope }) => ({ mode: 'replace', source: 'explicit', scope })
     };
-    await executeDbInfiniteRequest(explicitConfig);
+    await runDbInfiniteQueryDirect(explicitConfig);
 
     expect(applyServerData).toHaveBeenNthCalledWith(3, expect.any(Array), { mode: 'replace', source: 'explicit', scope: { listId: 'inbox' } });
   });
@@ -427,9 +426,9 @@ describe('request config derivation', () => {
       read
     };
 
-    await executeDbInfiniteRequest(config);
-    await executeDbInfiniteRequest(config, 'cursor-1');
-    await executeDbInfiniteRequest(config);
+    await runDbInfiniteQueryDirect(config);
+    await runDbInfiniteQueryDirect(config, 'cursor-1');
+    await runDbInfiniteQueryDirect(config);
 
     expect(seen).toEqual([
       { id: 'initial-1', index: 0, globalIndex: 0, pageParam: undefined },

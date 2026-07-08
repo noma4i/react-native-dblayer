@@ -57,11 +57,11 @@ const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfi
 };
 
 /**
- * Execute a single request config outside React.
- * @param config Same config accepted by `useDbSingleRequest`.
+ * Run a single request config outside React.
+ * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, `inactive`, and `refetchOnMount` are hook-only.
  * @returns Selected or mapped result, or null when `read` owns the reactive data.
  */
-export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(
+export const runDbQueryDirect = async <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(
   config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables>
 ): Promise<TResult> => {
   const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars as Record<string, unknown> | undefined });
@@ -86,19 +86,12 @@ export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSele
 };
 
 /**
- * Run a single request config outside React.
- * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, `inactive`, and `refetchOnMount` are hook-only.
- * @returns Selected or mapped result, or null when `read` owns the reactive data.
- */
-export const runDbQueryDirect = executeDbSingleRequest;
-
-/**
- * Execute one page of an infinite request config outside React.
+ * Run one page of an infinite request config outside React.
  * @param config Same config accepted by `useDbInfiniteRequest`.
  * @param pageParam Optional cursor for the page to load.
  * @returns Raw page response data.
  */
-export const executeDbInfiniteRequest = async <TResponse, TNode, TVariables = Record<string, unknown>>(
+export const runDbInfiniteQueryDirect = async <TResponse, TNode, TVariables = Record<string, unknown>>(
   config: DbRequestInfiniteConfig<TResponse, TNode, TVariables>,
   pageParam?: string,
   patchState?: InfiniteRequestPatchState

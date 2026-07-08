@@ -56,7 +56,7 @@ export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from 
 export { runDbCommandDirect, useCommand } from './mutations/base/useCommand';
 export { useCommandMutation } from './mutations/base/useCommandMutation';
 export { useDbMutation } from './mutations/base/useDbMutation';
-export { executeDbInfiniteRequest, executeDbSingleRequest, mergeInitialSyncContract, runDbQueryDirect } from './queries/base/requestRuntime';
+export { mergeInitialSyncContract, runDbInfiniteQueryDirect, runDbQueryDirect } from './queries/base/requestRuntime';
 export { modelDetailRequest } from './queries/base/modelDetailRequest';
 export {
   buildStableItems,
