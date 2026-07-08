@@ -74,6 +74,7 @@ export {
 export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
 export { useDbInfiniteRequest, useDbSingleRequest } from './queries/base/useDbRequest';
 export { createOptimisticSequence, generateTempId, isTempId } from './utils/generateTempId';
+export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { readBoolean, readId, readNullableNumber, readNullableString, readNumber, readString, toRequiredStr, toStr } from './utils/normalizeHelpers';
@@ -108,6 +109,7 @@ export type { FieldDefault, FieldMode, FieldSpec } from './schema/fieldSpec';
 export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
 export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
+export type { ModelStatusPoller, ModelStatusPollerConfig } from './utils/modelStatusPoller';
 export type {
   NestedObjectPatcher,
   IdArrayPatcher,
