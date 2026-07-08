@@ -246,6 +246,9 @@ const doAction = useCommand({
 | `mapInput` | `(input) => unknown` | identity | Map input → `variables.input`. |
 | `resolve` | `(input) => { mutation, resultField, input? }` | — (resolved form) | Per-input operation instead of static `mutation`/`resultField`. |
 
+`runDbCommandDirect(config, input)` runs the same static or resolved command config outside React. It ignores
+hook-only `key`/`logPrefix`, sends `variables.input`, and returns `response.data[resultField] ?? null`.
+
 `useCommandMutation(config: DbCommandConfig)` is the lower-level primitive when you supply your own `mutationFn`
 (fields: `key`, `logPrefix`, `mutationFn`, `singleFlightInput?`, `onSuccess?`, `onError?`, `onSettled?`).
 
@@ -253,10 +256,12 @@ const doAction = useCommand({
 
 `runDbMutationDirect(config, input, context?)` runs the request plus extract/commit logic outside React. It does not
 run optimistic insertion; for optimistic configs it reads `input.tempId`/`selectTempId(input)` or `context.tempId`
-and adds `{ tempId, optimisticRow: model.get(tempId) ?? null }` before commit:
+and adds `{ tempId, optimisticRow: model.get(tempId) ?? null }` before commit. Patch configs run `selectPatch`
+before the transport call and do not roll back that patch if the request throws:
 
 ```ts
-import { runDbMutationDirect } from '@noma4i/react-native-dblayer';
+import { runDbCommandDirect, runDbMutationDirect } from '@noma4i/react-native-dblayer';
 
 await runDbMutationDirect(sendMessageConfig, { chatId, body, attachmentUrl, tempId });
+await runDbCommandDirect(trackEventConfig, { name: 'opened_chat', chatId });
 ```

@@ -83,7 +83,7 @@ modelDetailRequest(UserModel, {
 | --- | --- | --- | --- |
 | `query` | `TypedDocumentNode<TResponse, TVars> \| DocumentNode` | **required** | The GraphQL query. Types flow from a `TypedDocumentNode`. |
 | `key` | `readonly unknown[]` | derived when model-backed | React Query cache key. Explicit keys win. |
-| `select` | `(data: TResponse) => TSelected` | **required** | Pick the payload (e.g. `d => d.user`). |
+| `select` | `(data: TResponse) => TSelected` | identity | Pick the payload (e.g. `d => d.user`). Omit to use the full response data. |
 | `vars` | `TVars` | `—` | Query variables. |
 | `map` | `(selected) => TResult` | identity | Transform the payload before writing/returning. |
 | `sync` | `{ model, contract: string } \| ((selected) => void)` | `—` | Where to write. `{ model, contract }` merges into the model under the `contract` label; a function writes manually. |
@@ -251,16 +251,20 @@ logger. Hooks still read the React Query client from React context.
 Run the same configs outside React (services, preloads):
 
 ```ts
-import { executeDbSingleRequest, executeDbInfiniteRequest } from '@noma4i/react-native-dblayer';
+import { executeDbInfiniteRequest, runDbQueryDirect } from '@noma4i/react-native-dblayer';
 
-await executeDbSingleRequest({ key: ['user', id], query: USER_QUERY, vars: { id }, select: (d) => d.user,
+await runDbQueryDirect({ key: ['user', id], query: USER_QUERY, vars: { id }, select: (d) => d.user,
   sync: { model: UserModel, contract: 'user' } });
 
 await executeDbInfiniteRequest(feedConfig, /* pageParam */ undefined);
 ```
-When `key` is omitted, model-backed single requests derive it from `read.model`, `read.id`, or `sync.model` as
-`['db', collectionId]` or `['db', collectionId, stableSerialize(scope)]`. Configs without an explicit key and
-without a model-backed `read` or `sync.model` throw a config error.
+`runDbQueryDirect` is the one-shot counterpart to `useDbSingleRequest`. It ignores hook-only fields such as `key`,
+`enabled`, `staleTime`, `gcTime`, `inactive`, and `refetchOnMount`; the request runs immediately. When `select` is
+omitted, the full response data is used as the selected payload.
+
+When `key` is omitted in hooks, model-backed single requests derive it from `read.model`, `read.id`, or `sync.model`
+as `['db', collectionId]` or `['db', collectionId, stableSerialize(scope)]`. Hook configs without an explicit key
+and without a model-backed `read` or `sync.model` throw a config error.
 
 ## Stable View and List Hooks
 

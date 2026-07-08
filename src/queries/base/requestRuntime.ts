@@ -20,6 +20,7 @@ const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleCo
 };
 
 const isEmptySelectedPayload = (selected: unknown): boolean => selected == null || (Array.isArray(selected) && selected.length === 0);
+const identitySelect = <TResponse, TSelected>(data: TResponse): TSelected => data as unknown as TSelected;
 
 const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfig<unknown, TNode>['patchNode'], pageParam?: string): void => {
   if (!patchNode) return;
@@ -41,7 +42,7 @@ export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSele
 ): Promise<TResult> => {
   const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars as Record<string, unknown> | undefined });
   const data = response.data;
-  const selected = config.select(data);
+  const selected = (config.select ?? identitySelect<TResponse, TSelected>)(data);
   getDbExtractSink()(config.extract?.({ data, selected }), 'query');
   applySingleSync(selected, config.sync);
 
@@ -59,6 +60,13 @@ export const executeDbSingleRequest = async <TResponse, TResult = unknown, TSele
 
   return (config.map ? config.map(selected) : selected) as TResult;
 };
+
+/**
+ * Run a single request config outside React.
+ * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, `inactive`, and `refetchOnMount` are hook-only.
+ * @returns Selected or mapped result, or null when `read` owns the reactive data.
+ */
+export const runDbQueryDirect = executeDbSingleRequest;
 
 /**
  * Execute one page of an infinite request config outside React.

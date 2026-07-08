@@ -160,8 +160,8 @@ function AdminList() {
 
 Cursor-paginated connections use `useDbInfiniteRequest` (`items`, `loadMore`, `hasNextPage`, …).
 
-→ **Reference:** [Queries](./docs/queries.md) — `useDbSingleRequest` / `useDbInfiniteRequest` config, `loadingState`,
-and return shapes.
+→ **Reference:** [Queries](./docs/queries.md) — `useDbSingleRequest` / `useDbInfiniteRequest` config, direct
+`runDbQueryDirect` execution, `loadingState`, and return shapes.
 
 ## 4. Change data
 
@@ -193,10 +193,11 @@ function useSendMessage() {
 ```
 
 For simple updates/deletes, declare `method: 'patch' | 'destroy'` with `selectId` (and `selectPatch`) instead of
-`onMutate`. `useCommand` covers fire-and-forget commands.
+`onMutate`. `useCommand` covers fire-and-forget commands. Outside React, use `runDbMutationDirect` and
+`runDbCommandDirect` for the same mutation and command configs.
 
 → **Reference:** [Mutations](./docs/mutations.md) — `useDbMutation` variants (custom / patch / destroy), lifecycle,
-`useCommand`, `runDbMutationDirect`.
+`useCommand`, `runDbCommandDirect`, `runDbMutationDirect`.
 
 ## 5. Read & write directly
 

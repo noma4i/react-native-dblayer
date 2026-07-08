@@ -617,8 +617,8 @@ export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unkn
   query: DbGraphQLDocument<TResponse, TVariables>;
   /** React Query cache key. Derived from a model-backed read or sync when omitted. */
   key?: readonly unknown[];
-  /** Pick the payload from response data. */
-  select: (data: TResponse) => TSelected;
+  /** Pick the payload from response data. Defaults to the full response data. */
+  select?: (data: TResponse) => TSelected;
   /** Query variables. */
   vars?: TVariables;
   /** Transform the selected payload before returning it when no `read` is configured. */

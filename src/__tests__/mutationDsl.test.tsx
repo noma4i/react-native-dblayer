@@ -5,6 +5,7 @@ import {
   configureDb,
   devClearAllDataAndState,
   mergeOptimisticSnapshot,
+  runDbCommandDirect,
   runDbMutationDirect,
   setDbExtractSink,
   setDbMutationExtractResolver,
@@ -1070,6 +1071,141 @@ describe('mutation DSL runtime', () => {
     expect(mutationSpy).toHaveBeenCalledWith(expect.objectContaining({ variables: { input: { id: 'command-1' } } }));
 
     hook.unmount();
+  });
+
+  it('runs command mutations directly and returns null when resultField is missing', async () => {
+    const mutationSpy = jest.fn(async op => ({
+      data:
+        ((op as { variables?: { input: { id: string } } }).variables?.input.id === 'missing')
+          ? {}
+          : {
+              commandRun: { ok: true }
+            }
+    }));
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy })
+    });
+
+    await expect(
+      runDbCommandDirect<{ ok: boolean }, { id: string; label: string }>(
+        {
+          mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunCommandDirect'),
+          resultField: 'commandRun',
+          mapInput: input => ({ id: input.id })
+        },
+        { id: 'command-1', label: 'ignored' }
+      )
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      runDbCommandDirect<{ ok: boolean }, { id: string }>({ mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunCommandMissing'), resultField: 'commandRun' }, { id: 'missing' })
+    ).resolves.toBeNull();
+
+    expect(mutationSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ variables: { input: { id: 'command-1' } } }));
+    expect(mutationSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ variables: { input: { id: 'missing' } } }));
+  });
+
+  it('applies direct patch mutations before transport and keeps the patch when transport rejects', async () => {
+    const model = createTodoModel();
+    model.insertStored({ id: 'direct-patch', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const selectPatch = jest.fn((input: { id: string; title: string }, current?: Todo) => {
+      expect(current?.title).toBe('Original');
+      return { title: input.title };
+    });
+    const mutationSpy = jest.fn(async op => {
+      expect((op as { variables?: { input: { id: string; title: string } } }).variables?.input).toEqual({ id: 'direct-patch', title: 'Mapped patch' });
+      expect(model.get('direct-patch')?.title).toBe('patch');
+      throw new Error('network failed');
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy })
+    });
+
+    await expect(
+      runDbMutationDirect<null, { id: string; title: string }, void, Todo>(
+        {
+          method: 'patch',
+          mutation: document<Record<string, null>, { input: unknown }>('DirectPatchTodo'),
+          resultField: 'noop',
+          model,
+          mapInput: input => ({ id: input.id, title: `Mapped ${input.title}` }),
+          selectId: input => input.id,
+          selectPatch
+        },
+        { id: 'direct-patch', title: 'patch' }
+      )
+    ).rejects.toThrow('network failed');
+
+    expect(mutationSpy).toHaveBeenCalledTimes(1);
+    expect(selectPatch).toHaveBeenCalledWith({ id: 'direct-patch', title: 'patch' }, expect.objectContaining({ title: 'Original' }));
+    expect(model.get('direct-patch')?.title).toBe('patch');
+  });
+
+  it('passes raw input to hook patch selectors while sending mapped input to transport', async () => {
+    const model = createTodoModel();
+    model.insertStored({ id: 'hook-patch-map-input', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const selectPatch = jest.fn((input: { id: string; title: string }, current?: Todo) => {
+      expect(current?.title).toBe('Original');
+      return { title: input.title };
+    });
+    const mutationSpy = jest.fn(async op => {
+      expect((op as { variables?: { input: { id: string; title: string } } }).variables?.input).toEqual({ id: 'hook-patch-map-input', title: 'Mapped hook patch' });
+      expect(model.get('hook-patch-map-input')?.title).toBe('hook patch');
+      return { data: { noop: null } };
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy })
+    });
+
+    const patchHook = renderQueryHook(() =>
+      useDbMutation<null, { id: string; title: string }, void, Todo>({
+        method: 'patch',
+        mutation: document<Record<string, null>, { input: unknown }>('HookPatchMapInputTodo'),
+        resultField: 'noop',
+        key: () => ['hook-patch-map-input-todo'],
+        logPrefix: 'hook-patch-map-input-todo',
+        model,
+        mapInput: input => ({ id: input.id, title: `Mapped ${input.title}` }),
+        selectId: input => input.id,
+        selectPatch
+      })
+    );
+
+    await act(async () => {
+      await patchHook.current.mutateAsync({ id: 'hook-patch-map-input', title: 'hook patch' });
+    });
+
+    expect(mutationSpy).toHaveBeenCalledTimes(1);
+    expect(selectPatch).toHaveBeenCalledWith({ id: 'hook-patch-map-input', title: 'hook patch' }, expect.objectContaining({ title: 'Original' }));
+    expect(model.get('hook-patch-map-input')?.title).toBe('hook patch');
+
+    patchHook.unmount();
+  });
+
+  it('does not run optimistic patch logic for non-patch direct mutations', async () => {
+    const model = createTodoModel();
+    model.insertStored({ id: 'direct-default', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const mutationSpy = jest.fn(async () => {
+      expect(model.get('direct-default')?.title).toBe('Original');
+      return { data: { noop: null } };
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy })
+    });
+
+    await runDbMutationDirect<null, { id: string; title: string }>(
+      {
+        mutation: document<Record<string, null>, { input: unknown }>('DirectDefaultTodo'),
+        resultField: 'noop',
+        mapInput: input => ({ id: input.id, title: `Mapped ${input.title}` })
+      },
+      { id: 'direct-default', title: 'patch' }
+    );
+
+    expect(model.get('direct-default')?.title).toBe('Original');
   });
 
   it('resolves mutation extract specs before passing them to the extract sink', async () => {

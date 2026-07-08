@@ -1,5 +1,9 @@
 # Changelog
 
+## Pending
+
+- Add direct query and command executors, plus direct patch optimistic mutation support.
+
 ## 2.2.0 - 2026-07-08
 
 - Add stable-view helpers: `useStableItems`, `useStableSorted`, `useStableArray`, `useOrderedEntities`, and `useWindowedLoadMore`.

@@ -49,10 +49,10 @@ export { defineShape, readShape } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
 export { mergeOptimisticSnapshot, resolveMergedField } from './mutations/base/mergeOptimisticSnapshot';
 export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';
-export { useCommand } from './mutations/base/useCommand';
+export { runDbCommandDirect, useCommand } from './mutations/base/useCommand';
 export { useCommandMutation } from './mutations/base/useCommandMutation';
 export { useDbMutation } from './mutations/base/useDbMutation';
-export { executeDbInfiniteRequest, executeDbSingleRequest } from './queries/base/requestRuntime';
+export { executeDbInfiniteRequest, executeDbSingleRequest, runDbQueryDirect } from './queries/base/requestRuntime';
 export { modelDetailRequest } from './queries/base/modelDetailRequest';
 export {
   buildStableItems,

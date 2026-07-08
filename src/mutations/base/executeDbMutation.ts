@@ -118,8 +118,22 @@ const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode>
   return optimisticContext;
 };
 
+const applyDirectPatchOptimisticMutation = <TData, TInput, TContext, TStored, TServerNode>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode>,
+  input: TInput
+): void => {
+  if (config.method !== 'patch') return;
+  const id = config.selectId(input);
+  if (!id) return;
+  const patch = config.selectPatch(input, config.model.get(id));
+  if (patch) {
+    config.model.patch(id, patch);
+  }
+};
+
 /**
  * Run a DB mutation config outside React without optimistic transaction handling.
+ * Patch configs apply `selectPatch` before the transport call and do not roll back when the request fails.
  * @param config Same config accepted by `useDbMutation`.
  * @param input Caller input.
  * @param context Optional context passed to `onCommit`.
@@ -131,6 +145,7 @@ export const runDbMutationDirect = async <TData, TInput, TContext = void, TStore
   context?: TContext
 ): Promise<TData | null> => {
   const mappedInput = config.mapInput ? config.mapInput(input) : input;
+  applyDirectPatchOptimisticMutation(config, input);
   const result = await executeDbMutationRequest(config, mappedInput);
   applyDbMutationCommit(config, result, input, buildDirectCommitContext(config, input, context) as TContext);
   return result;

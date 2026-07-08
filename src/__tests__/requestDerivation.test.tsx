@@ -8,6 +8,7 @@ import {
   devClearAllDataAndState,
   executeDbSingleRequest,
   modelDetailRequest,
+  runDbQueryDirect,
   stableSerialize,
   useDbInfiniteRequest
 } from '../index';
@@ -143,6 +144,74 @@ describe('request config derivation', () => {
 
     await expect(executeDbSingleRequest(config)).resolves.toMatchObject({ id: 'server-user-1', title: 'Server user' });
     expect(model.get('server-user-1')?.title).toBe('Server user');
+  });
+
+  it('runs direct single requests with explicit select, extract, sync, and map', async () => {
+    const model = createTodoModel({ id: 'direct-selected-query' });
+    const sink = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async op => {
+          expect((op as { variables?: unknown }).variables).toEqual({ id: 'todo-selected' });
+          return {
+            data: {
+              todo: { id: 'todo-selected', title: 'Selected', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' },
+              ignored: { id: 'todo-ignored', title: 'Ignored' }
+            }
+          };
+        }
+      }),
+      extract: { sink }
+    });
+
+    await expect(
+      runDbQueryDirect<{ todo: Todo; ignored: { id: string; title: string } }, string, Todo, { id: string }>({
+        query: document<{ todo: Todo; ignored: { id: string; title: string } }, { id: string }>('DirectSelectedTodo'),
+        vars: { id: 'todo-selected' },
+        select: data => data.todo,
+        sync: { model, contract: 'direct-selected' },
+        extract: ({ selected }) => ({ todos: [selected] }),
+        map: selected => selected.title
+      })
+    ).resolves.toBe('Selected');
+
+    expect(model.get('todo-selected')?.title).toBe('Selected');
+    expect(model.get('todo-ignored')).toBeUndefined();
+    expect(sink).toHaveBeenCalledWith({ todos: [expect.objectContaining({ id: 'todo-selected' })] }, 'query');
+  });
+
+  it('uses the full response as the direct single request default selection', async () => {
+    const sync = jest.fn();
+    const sink = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async () => ({
+          data: {
+            todo: { id: 'todo-identity', title: 'Identity', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+          }
+        })
+      }),
+      extract: { sink }
+    });
+
+    await expect(
+      runDbQueryDirect<{ todo: Todo }, { id: string }, { todo: Todo }>({
+        query: document<{ todo: Todo }>('DirectIdentityTodo'),
+        sync,
+        extract: ({ data, selected }) => ({ sameReference: data === selected }),
+        map: selected => ({ id: selected.todo.id }),
+        key: ['hook-only-key'],
+        enabled: false,
+        staleTime: 1
+      })
+    ).resolves.toEqual({ id: 'todo-identity' });
+
+    expect(sync).toHaveBeenCalledWith({
+      todo: { id: 'todo-identity', title: 'Identity', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+    });
+    expect(sink).toHaveBeenCalledWith({ sameReference: true }, 'query');
   });
 
   it('derives infinite request vars, key, read filter, and freshness scope from scope', async () => {
