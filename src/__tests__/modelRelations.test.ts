@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { belongsTo, configureDb, defineModel, devClearAllDataAndState, f, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
+import { belongsTo, configureDb, defineModel, devClearAllDataAndState, f, hasMany, hasOne, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
 import type { CollectionModel, InternalSyncContract, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -291,6 +291,71 @@ describe('model relations', () => {
       // @ts-expect-error missing keys are not valid hasMany foreign keys
       hasMany(messageModel, { foreignKey: 'missingId' });
     }
+  });
+
+  it('exposes hasOne get, use, and row-chain accessors ordered by comparator', async () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-has-one-message');
+    const chatModel = defineChatModel('relation-has-one-chat', () => ({
+      lastMessage: hasOne(messageModel, {
+        foreignKey: 'chatId',
+        comparator: (a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+      })
+    }));
+
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    messageModel.insertStored({ id: 'message-old', chatId: 'chat-1', body: 'Old', updatedAt: '2026-01-01T00:00:00.000Z' });
+    messageModel.insertStored({ id: 'message-new', chatId: 'chat-1', body: 'New', updatedAt: '2026-01-02T00:00:00.000Z' });
+    messageModel.insertStored({ id: 'message-other', chatId: 'chat-2', body: 'Other', updatedAt: '2026-01-03T00:00:00.000Z' });
+
+    expect(chatModel.related.lastMessage.get('chat-1')?.id).toBe('message-new');
+    expect(chatModel.get('chat-1')?.related.lastMessage?.id).toBe('message-new');
+    expect(chatModel.related.lastMessage.get(null)).toBeUndefined();
+    expect(chatModel.related.lastMessage.get('chat-empty')).toBeUndefined();
+
+    const hook = renderHook<string | null | undefined, MessageRow | undefined>((chatId: string | null | undefined) => chatModel.related.lastMessage.use(chatId), 'chat-1');
+    await hook.flush();
+
+    expect(hook.current?.id).toBe('message-new');
+
+    act(() => {
+      messageModel.insertStored({ id: 'message-latest', chatId: 'chat-1', body: 'Latest', updatedAt: '2026-01-04T00:00:00.000Z' });
+    });
+    await hook.flush();
+
+    expect(hook.current?.id).toBe('message-latest');
+    const latest = hook.current;
+
+    act(() => {
+      messageModel.insertStored({ id: 'message-unrelated', chatId: 'chat-2', body: 'Unrelated', updatedAt: '2026-01-05T00:00:00.000Z' });
+    });
+    await hook.flush();
+
+    expect(hook.current).toBe(latest);
+
+    hook.rerender(null);
+    await hook.flush();
+    expect(hook.current).toBeUndefined();
+
+    hook.unmount();
+  });
+
+  it('keeps hasOne query-only and out of cascade destroy', () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-has-one-cascade-message');
+    const chatModel = defineChatModel('relation-has-one-cascade-chat', () => ({
+      lastMessage: hasOne(messageModel, {
+        foreignKey: 'chatId',
+        comparator: (a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+      })
+    }));
+
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', body: 'One', updatedAt: '2026-01-01T00:00:00.000Z' });
+
+    expect(chatModel.destroy('chat-1')).toBe(true);
+    expect(chatModel.get('chat-1')).toBeUndefined();
+    expect(messageModel.get('message-1')).toEqual(expect.objectContaining({ id: 'message-1', chatId: 'chat-1' }));
   });
 
   it('exposes direct hasMany related get, use, and count accessors', async () => {
@@ -1054,6 +1119,27 @@ describe('model relations', () => {
       // @ts-expect-error belongsTo returns one parent row, not an array
       const wrongRows: UserRow[] = messageModel.related.user.get('message-1');
       void wrongRows;
+    }
+  });
+
+  it('infers hasOne accessors and row-chain child types', () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-has-one-type-message');
+    const chatModel = defineChatModel('relation-has-one-type-chat', () => ({
+      lastMessage: hasOne(messageModel, {
+        foreignKey: 'chatId',
+        comparator: (a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+      })
+    }));
+
+    const lastMessage: MessageRow | undefined = chatModel.related.lastMessage.get('chat-1');
+    const rowLastMessage: MessageRow | undefined = chatModel.get('chat-1')?.related.lastMessage;
+    expect(lastMessage).toBeUndefined();
+    expect(rowLastMessage).toBeUndefined();
+
+    if (false) {
+      // @ts-expect-error singular hasOne accessors do not expose count
+      chatModel.related.lastMessage.count('chat-1');
     }
   });
 

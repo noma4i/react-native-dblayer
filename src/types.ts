@@ -160,6 +160,21 @@ export type HasManyRelation<
   foreignKey: TForeignKey;
 };
 
+export type HasOneRelation<
+  TChildStored extends StoredRowBase,
+  TForeignKey extends string,
+  TChildModel = RelationModel<TChildStored>
+> = {
+  /** Relation kind. */
+  kind: 'hasOne';
+  /** Child model. */
+  model: TChildModel & RelationModel<TChildStored>;
+  /** Child row field that stores the parent id. */
+  foreignKey: TForeignKey;
+  /** Required comparator; the first sorted child is returned. */
+  comparator: (a: TChildStored, b: TChildStored) => number;
+};
+
 export type BelongsToRelation<
   TParentStored extends StoredRowBase,
   TForeignKey extends string,
@@ -194,7 +209,7 @@ export type HasManyThroughRelation<TThrough extends string = string, TSource ext
   source: TSource;
 };
 
-export type ModelRelationConfigValue = ModelRelationDefinition | BelongsToRelation<any, string, any, any> | HasManyThroughRelation;
+export type ModelRelationConfigValue = ModelRelationDefinition | HasOneRelation<any, string, any> | BelongsToRelation<any, string, any, any> | HasManyThroughRelation;
 
 export type ModelRelationsConfig = Record<string, ModelRelationConfigValue>;
 
@@ -212,6 +227,13 @@ export type BelongsToAccessor<TParentStored extends StoredRowBase> = {
   get(childId: string | null | undefined): TParentStored | undefined;
   /** React hook: reactive parent row for a child id. Nullish child returns undefined. */
   use(childId: string | null | undefined): TParentStored | undefined;
+};
+
+export type HasOneAccessor<TChildStored extends StoredRowBase> = {
+  /** Snapshot read of the comparator-first child row for a parent id. Nullish parent returns undefined. */
+  get(parentId: string | null | undefined): TChildStored | undefined;
+  /** React hook: reactive comparator-first child row for a parent id. Nullish parent returns undefined. */
+  use(parentId: string | null | undefined): TChildStored | undefined;
 };
 
 type RelatedSourceRecord<TModel> = TModel extends { readonly related: infer TRelated } ? TRelated : never;
@@ -235,6 +257,8 @@ export type ChildStoredOf<
   TRelations extends ModelRelationsConfig
 > = TRelation extends { kind: 'belongsTo'; model: BelongsToModel<infer TParentStored> }
   ? TParentStored
+  : TRelation extends { kind: 'hasOne'; model: RelationModel<infer TChildStored> }
+  ? TChildStored
   : TRelation extends { kind: 'hasMany'; model: RelationModel<infer TChildStored> }
   ? TChildStored
   : TRelation extends HasManyThroughRelation<infer TThrough, infer TSource>
@@ -244,12 +268,16 @@ export type ChildStoredOf<
 export type RelatedRecord<TRelations extends ModelRelationsConfig> = {
   [K in keyof TRelations]: TRelations[K] extends { kind: 'belongsTo' }
     ? BelongsToAccessor<ChildStoredOf<TRelations[K], TRelations>>
+    : TRelations[K] extends { kind: 'hasOne' }
+      ? HasOneAccessor<ChildStoredOf<TRelations[K], TRelations>>
     : RelatedAccessor<ChildStoredOf<TRelations[K], TRelations>>;
 };
 
 export type RowRelatedRecord<TRelations extends ModelRelationsConfig> = {
   readonly [K in keyof TRelations]: TRelations[K] extends { kind: 'belongsTo' }
     ? ChildStoredOf<TRelations[K], TRelations> | undefined
+    : TRelations[K] extends { kind: 'hasOne' }
+      ? ChildStoredOf<TRelations[K], TRelations> | undefined
     : Array<ChildStoredOf<TRelations[K], TRelations>>;
 };
 

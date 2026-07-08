@@ -7,6 +7,8 @@ import type {
   BelongsToRelation,
   HasManyOptions,
   HasManyRelation,
+  HasOneAccessor,
+  HasOneRelation,
   HasManyThroughRelation,
   ModelRelationConfigValue,
   ModelRelationDefinition,
@@ -28,6 +30,13 @@ const EMPTY: readonly never[] = Object.freeze([]);
 type RuntimeHasManyRelation = ModelRelationDefinition & {
   model: RelationModel<StoredRowBase>;
 };
+
+type RuntimeForeignKeyRelation = {
+  model: RelationModel<StoredRowBase>;
+  foreignKey: string;
+};
+
+type RuntimeHasOneRelation = HasOneRelation<StoredRowBase, string, RelationModel<StoredRowBase>>;
 
 type RuntimeBelongsToRelation = BelongsToRelation<StoredRowBase, string, StoredRowBase, BelongsToModel<StoredRowBase>>;
 
@@ -83,6 +92,35 @@ export const hasMany = <
 });
 
 /**
+ * Declare a query-only single child relation.
+ *
+ * The relation does not participate in cascade destroy. The required comparator orders matching child
+ * rows inside the parent scope, and the first row is exposed through snapshot, hook, and row-chain reads.
+ *
+ * @param model Child model whose stored rows contain the parent foreign key.
+ * @param options Foreign-key field and required child-row comparator.
+ * @returns Relation metadata used for related accessors.
+ */
+export const hasOne = <
+  TChildModel extends RelationModel<any>,
+  TChildStored extends StoredRowBase = StoredOfRelationModel<TChildModel>,
+  TForeignKey extends StringFieldKey<TChildStored> = StringFieldKey<TChildStored>
+>(
+  model: TChildModel,
+  options: {
+    /** Child row field that stores the parent id. */
+    foreignKey: TForeignKey;
+    /** Order matching child rows; the first sorted row is returned. */
+    comparator: (a: TChildStored, b: TChildStored) => number;
+  }
+): HasOneRelation<TChildStored, TForeignKey, TChildModel> => ({
+  kind: 'hasOne',
+  model,
+  foreignKey: options.foreignKey,
+  comparator: options.comparator
+});
+
+/**
  * Declare a query-only relation through another direct hasMany relation.
  *
  * @param options Names of the through relation and the source relation on through rows.
@@ -132,6 +170,7 @@ export const relationValues = (relations: ModelRelationsConfig | undefined): Mod
 };
 
 const isHasManyRelation = (relation: ModelRelationConfigValue | undefined): relation is RuntimeHasManyRelation => relation?.kind === 'hasMany';
+const isHasOneRelation = (relation: ModelRelationConfigValue | undefined): relation is RuntimeHasOneRelation => relation?.kind === 'hasOne';
 const isBelongsToRelation = (relation: ModelRelationConfigValue | undefined): relation is RuntimeBelongsToRelation => relation?.kind === 'belongsTo';
 
 const assertDirectRelation = (
@@ -144,7 +183,7 @@ const assertDirectRelation = (
   throw new Error(`[${modelName}] relation "${relationName}" ${detail}`);
 };
 
-const attachRowsForRelation = <TChildStored extends StoredRowBase>(relation: RuntimeHasManyRelation, rows: readonly TChildStored[]): TChildStored[] => {
+const attachRowsForRelation = <TChildStored extends StoredRowBase>(relation: RuntimeForeignKeyRelation, rows: readonly TChildStored[]): TChildStored[] => {
   const output = rows as TChildStored[];
   if (output.length === 0) return output;
 
@@ -158,7 +197,7 @@ const attachRowsForRelation = <TChildStored extends StoredRowBase>(relation: Run
 };
 
 const useRowsByForeignKey = <TChildStored extends StoredRowBase>(
-  relation: RuntimeHasManyRelation,
+  relation: RuntimeForeignKeyRelation,
   parentId: string | null | undefined
 ): TChildStored[] => {
   const foreignKey = relation.foreignKey;
@@ -191,11 +230,17 @@ const useCountByForeignKey = (relation: RuntimeHasManyRelation, parentId: string
 };
 
 const getRowsByForeignKey = <TChildStored extends StoredRowBase>(
-  relation: RuntimeHasManyRelation,
+  relation: RuntimeForeignKeyRelation,
   parentId: string | null | undefined
 ): TChildStored[] => {
   if (parentId == null) return [];
   return attachRowsForRelation(relation, relation.model.getWhere({ [relation.foreignKey]: parentId } as never) as TChildStored[]);
+};
+
+const pickFirstRelatedRow = <TChildStored extends StoredRowBase>(rows: TChildStored[], comparator: (a: TChildStored, b: TChildStored) => number): TChildStored | undefined => {
+  if (rows.length === 0) return undefined;
+  if (rows.length === 1) return rows[0];
+  return [...rows].sort(comparator)[0];
 };
 
 const useRowsByForeignKeySet = <TChildStored extends StoredRowBase>(relation: RuntimeHasManyRelation, parentIds: string[]): TChildStored[] => {
@@ -268,6 +313,14 @@ const createDirectAccessor = <TChildStored extends StoredRowBase>(relation: Runt
   count: parentId => useCountByForeignKey(relation, parentId)
 });
 
+const createHasOneAccessor = <TChildStored extends StoredRowBase>(relation: RuntimeHasOneRelation): HasOneAccessor<TChildStored> => ({
+  get: parentId => pickFirstRelatedRow(getRowsByForeignKey<TChildStored>(relation, parentId), relation.comparator as (a: TChildStored, b: TChildStored) => number),
+  use(parentId) {
+    const rows = useRowsByForeignKey<TChildStored>(relation, parentId);
+    return useMemo(() => pickFirstRelatedRow(rows, relation.comparator as (a: TChildStored, b: TChildStored) => number), [rows, relation]);
+  }
+});
+
 const createThroughAccessor = <TChildStored extends StoredRowBase>(
   modelName: string,
   relationName: string,
@@ -325,6 +378,10 @@ export const buildRelatedAccessors = <TRelations extends ModelRelationsConfig>(
       related[relationName] = createDirectAccessor(relation);
       continue;
     }
+    if (isHasOneRelation(relation)) {
+      related[relationName] = createHasOneAccessor(relation);
+      continue;
+    }
     if (relation.kind === 'hasManyThrough') {
       related[relationName] = createThroughAccessor(modelName, relationName, relation, resolveRelations);
       continue;
@@ -356,6 +413,9 @@ const buildRowRelatedRecord = <TRow extends StoredRowBase, TRelations extends Mo
         const relation = relations[relationName];
         if (isBelongsToRelation(relation)) {
           return getParentRow(relation, row);
+        }
+        if (isHasOneRelation(relation)) {
+          return (resolveRelatedAccessors() as Record<string, HasOneAccessor<StoredRowBase>>)[relationName]?.get(row.id);
         }
         return (resolveRelatedAccessors() as Record<string, RelatedAccessor<StoredRowBase>>)[relationName]?.get(row.id) ?? [];
       }
