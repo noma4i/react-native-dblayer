@@ -394,6 +394,29 @@ export interface FieldsCollectionModel<TStored extends { id: string; updatedAt?:
   buildStored(partial: TBuildInput): TBuildOutput;
 }
 
+export type ModelMirrorTarget<TStored extends { id: string; updatedAt?: string | null }> = Pick<CollectionModel<unknown, TStored>, 'get' | 'patch' | 'insertStored' | 'collection'> & {
+  /** Optional fields-model row builder used before inserting a missing mirrored target row. */
+  buildStored?: (partial: any) => StoredWriteInput<TStored>;
+};
+
+export type ModelMirrorConfig<
+  TSourceStored extends { id: string; updatedAt?: string | null },
+  TTargetStored extends { id: string; updatedAt?: string | null }
+> = {
+  /** Lazy target model resolver; lazy resolution avoids circular model import timing. */
+  model: () => ModelMirrorTarget<TTargetStored>;
+  /**
+   * Project a source row into same-id target writes.
+   *
+   * Mirrors run for local insert/patch/replaceRaw writes and for `applyServerData` writes. This differs
+   * from relation touch, which remains local-only because server payloads already carry their own
+   * `updatedAt`; mirror targets never receive the source model's server payload. Returning `null` skips
+   * the target write. Undefined-valued projection keys are dropped before patch/insert, and writes made
+   * by a mirror do not re-enter write propagation.
+   */
+  project: (row: TSourceStored) => Partial<TTargetStored> | null;
+};
+
 interface CreateCollectionModelBaseConfig<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
@@ -436,6 +459,8 @@ interface CreateCollectionModelBaseConfig<
   sideload?: SideloadSpec<TInput>[];
   /** Lazy relation declarations. Lazy resolution avoids circular model import timing. */
   relations?: () => TRelations;
+  /** Same-id target model mirrors that receive projected writes from this model. */
+  mirror?: Array<ModelMirrorConfig<TStored, any>>;
 }
 
 export interface CreateCollectionModelNormalizeConfig<

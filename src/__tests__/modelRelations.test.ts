@@ -8,6 +8,8 @@ type UserRow = { id: string; name: string; orgId?: string | null; updatedAt?: st
 type ChatRow = { id: string; userId: string; title: string; updatedAt?: string | null };
 type MessageRow = { id: string; chatId: string; userId?: string | null; body: string; updatedAt?: string | null };
 type OrgRow = { id: string; name: string; updatedAt?: string | null };
+type MirrorSourceRow = { id: string; name: string; avatarUrl?: string | null; updatedAt?: string | null };
+type MirrorTargetRow = { id: string; name: string; avatarUrl?: string | null; updatedAt?: string | null };
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -123,6 +125,47 @@ function defineMessageModel(id: string, relations?: () => ModelRelationsConfig):
     ? defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>({ ...config, relations })
     : defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>(config);
 }
+
+const defineMirrorTargetModel = (id: string) =>
+  defineModel({
+    id,
+    name: `RelationMirrorTargetModel:${id}`,
+    fields: {
+      name: f.str(),
+      avatarUrl: f.str().nullable(),
+      updatedAt: f.str().nullable()
+    },
+    merge: {},
+    replace: {}
+  });
+
+const defineMirrorSourceModel = (
+  id: string,
+  targetModel: ReturnType<typeof defineMirrorTargetModel>,
+  project: (row: MirrorSourceRow) => Partial<MirrorTargetRow> | null = row => ({
+    name: row.name,
+    avatarUrl: row.avatarUrl,
+    updatedAt: row.updatedAt
+  })
+) =>
+  defineModel<Partial<MirrorSourceRow> & { id: string }, MirrorSourceRow>({
+    id,
+    name: `RelationMirrorSourceModel:${id}`,
+    normalize: input => ({
+      id: input.id,
+      name: input.name ?? input.id,
+      ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {}),
+      updatedAt: input.updatedAt ?? null
+    }),
+    mirror: [
+      {
+        model: () => targetModel,
+        project
+      }
+    ],
+    merge: {},
+    replace: {}
+  });
 
 const defineOrgModel = (id: string) =>
   defineModel<Partial<OrgRow> & { id: string }, OrgRow>({
@@ -590,6 +633,159 @@ describe('model relations', () => {
 
     expect(userModel.get('user-1')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
     expect(orgModel.get('org-1')?.updatedAt).toBe('2000-01-01T00:00:00.000Z');
+  });
+
+  it('mirrors local source patches into existing same-id target rows', () => {
+    installMemoryStorage();
+    const targetModel = defineMirrorTargetModel('mirror-local-target');
+    const sourceModel = defineMirrorSourceModel('mirror-local-source', targetModel);
+
+    targetModel.insertStored(targetModel.buildStored({ id: 'user-1', name: 'Existing', avatarUrl: 'https://example.test/old.png' }));
+    sourceModel.insertStored({ id: 'user-1', name: 'Ada', avatarUrl: 'https://example.test/a.png', updatedAt: null });
+    expect(targetModel.get('user-1')).toMatchObject({ name: 'Ada', avatarUrl: 'https://example.test/a.png' });
+
+    sourceModel.patch('user-1', { name: 'Ada Updated', updatedAt: '2000-01-02T00:00:00.000Z' });
+    expect(targetModel.get('user-1')).toMatchObject({ name: 'Ada Updated', avatarUrl: 'https://example.test/a.png' });
+  });
+
+  it('inserts missing mirror target rows through the target stored-row builder', () => {
+    installMemoryStorage();
+    const targetModel = defineMirrorTargetModel('mirror-insert-target');
+    const sourceModel = defineMirrorSourceModel('mirror-insert-source', targetModel);
+
+    sourceModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+
+    expect(targetModel.get('user-1')).toMatchObject({
+      id: 'user-1',
+      name: 'Ada',
+      avatarUrl: null,
+      updatedAt: null
+    });
+  });
+
+  it('skips mirror writes when project returns null', () => {
+    installMemoryStorage();
+    const targetModel = defineMirrorTargetModel('mirror-null-target');
+    const sourceModel = defineMirrorSourceModel('mirror-null-source', targetModel, row => (row.name === 'Skip' ? null : { name: row.name }));
+
+    sourceModel.insertStored({ id: 'user-1', name: 'Skip', updatedAt: null });
+    sourceModel.insertStored({ id: 'user-2', name: 'Keep', updatedAt: null });
+
+    expect(targetModel.get('user-1')).toBeUndefined();
+    expect(targetModel.get('user-2')).toMatchObject({ name: 'Keep' });
+  });
+
+  it('mirrors applyServerData writes from the source model', () => {
+    installMemoryStorage();
+    const targetModel = defineMirrorTargetModel('mirror-server-target');
+    const sourceModel = defineMirrorSourceModel('mirror-server-source', targetModel);
+
+    sourceModel.applyServerData([{ id: 'user-1', name: 'Server', avatarUrl: 'https://example.test/server.png', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+
+    expect(targetModel.get('user-1')).toMatchObject({
+      name: 'Server',
+      avatarUrl: 'https://example.test/server.png',
+      updatedAt: '2000-01-01T00:00:00.000Z'
+    });
+  });
+
+  it('drops undefined mirror projection keys before writing the target', () => {
+    installMemoryStorage();
+    const targetModel = defineMirrorTargetModel('mirror-defined-target');
+    const sourceModel = defineMirrorSourceModel('mirror-defined-source', targetModel, row => ({
+      name: row.name,
+      avatarUrl: undefined,
+      updatedAt: row.updatedAt
+    }));
+
+    targetModel.insertStored(targetModel.buildStored({ id: 'user-1', name: 'Existing', avatarUrl: 'https://example.test/old.png' }));
+    sourceModel.insertStored({ id: 'user-1', name: 'Ada', avatarUrl: 'https://example.test/new.png', updatedAt: null });
+
+    expect(targetModel.get('user-1')).toMatchObject({
+      name: 'Ada',
+      avatarUrl: 'https://example.test/old.png'
+    });
+  });
+
+  it('does not re-enter propagation for mutual mirrors', () => {
+    installMemoryStorage();
+    type MirrorPairRow = { id: string; label: string; updatedAt?: string | null };
+    let aModel!: CollectionModel<Partial<MirrorPairRow> & { id: string }, MirrorPairRow>;
+    let bModel!: CollectionModel<Partial<MirrorPairRow> & { id: string }, MirrorPairRow>;
+    const definePairModel = (id: string, target: () => CollectionModel<Partial<MirrorPairRow> & { id: string }, MirrorPairRow>) =>
+      defineModel<Partial<MirrorPairRow> & { id: string }, MirrorPairRow>({
+        id,
+        name: `RelationMirrorPairModel:${id}`,
+        normalize: input => ({
+          id: input.id,
+          label: input.label ?? input.id,
+          updatedAt: input.updatedAt ?? null
+        }),
+        mirror: [
+          {
+            model: target,
+            project: row => ({ label: row.label, updatedAt: row.updatedAt })
+          }
+        ],
+        merge: {},
+        replace: {}
+      });
+
+    aModel = definePairModel('mirror-mutual-a', () => bModel);
+    bModel = definePairModel('mirror-mutual-b', () => aModel);
+
+    aModel.insertStored({ id: 'pair-1', label: 'A', updatedAt: null });
+    expect(aModel.get('pair-1')?.label).toBe('A');
+    expect(bModel.get('pair-1')?.label).toBe('A');
+
+    bModel.patch('pair-1', { label: 'B', updatedAt: '2000-01-02T00:00:00.000Z' });
+    expect(aModel.get('pair-1')?.label).toBe('B');
+    expect(bModel.get('pair-1')?.label).toBe('B');
+  });
+
+  it('keeps relation touch and mirror propagation on the same local write', () => {
+    installMemoryStorage();
+    const userModel = defineUserModel('relation-touch-mirror-user');
+    const mirrorModel = defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>({
+      id: 'relation-touch-mirror-target',
+      name: 'RelationTouchMirrorTarget',
+      normalize: input => ({
+        id: input.id,
+        chatId: input.chatId,
+        body: input.body ?? input.id,
+        updatedAt: input.updatedAt ?? null
+      }),
+      merge: {},
+      replace: {}
+    });
+    const messageModel = defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>({
+      id: 'relation-touch-mirror-message',
+      name: 'RelationTouchMirrorMessage',
+      normalize: input => ({
+        id: input.id,
+        chatId: input.chatId,
+        ...(input.userId !== undefined ? { userId: input.userId } : {}),
+        body: input.body ?? input.id,
+        updatedAt: input.updatedAt ?? null
+      }),
+      relations: () => ({
+        user: belongsTo(userModel, { foreignKey: 'userId', touch: true })
+      }),
+      mirror: [
+        {
+          model: () => mirrorModel,
+          project: row => ({ chatId: row.chatId, body: row.body, updatedAt: row.updatedAt })
+        }
+      ],
+      merge: {},
+      replace: {}
+    });
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', userId: 'user-1', body: 'One', updatedAt: null });
+
+    expect(userModel.get('user-1')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(mirrorModel.get('message-1')).toMatchObject({ chatId: 'chat-1', body: 'One' });
   });
 
   it('throws model-prefixed errors for invalid hasManyThrough names', () => {

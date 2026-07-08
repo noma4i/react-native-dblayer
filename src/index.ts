@@ -174,6 +174,8 @@ export type {
   MergeResult,
   ModelBuildStoredInput,
   ModelFieldSpecs,
+  ModelMirrorConfig,
+  ModelMirrorTarget,
   ModelRelationConfigValue,
   ModelRelationDefinition,
   ModelRelationsConfig,
