@@ -8,6 +8,8 @@ type PollerSession = {
   terminal: boolean;
 };
 
+type ModelStatusPollerStopReason = 'terminal' | 'budget';
+
 export type ModelStatusPollerConfig<TResult> = {
   /** Fetch the latest status payload for an id. */
   fetch: (id: string) => Promise<TResult>;
@@ -15,6 +17,8 @@ export type ModelStatusPollerConfig<TResult> = {
   apply: (id: string, result: TResult) => void;
   /** Return true when the fetched payload should stop polling this id. */
   isTerminal: (result: TResult) => boolean;
+  /** Called once when a session stops because it reached a terminal payload or exhausted its budget. */
+  onSessionStop?: (id: string, reason: ModelStatusPollerStopReason) => void;
   /** Interval between scheduled status refreshes. */
   intervalMs: number;
   /** Maximum number of fetch attempts before a non-terminal session stops. */
@@ -28,6 +32,8 @@ export type ModelStatusPoller = {
   refresh: (id: string, options?: { resetBudget?: boolean }) => Promise<void>;
   /** Return whether an id currently has an active polling interval. */
   isPolling: (id: string) => boolean;
+  /** Return true while a retained session has stopped on a terminal payload or exhausted budget. Detached sessions are removed and return false. */
+  isSessionTerminal: (id: string) => boolean;
 };
 
 /**
@@ -67,12 +73,29 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     }
   };
 
+  const emitSessionStop = (id: string, reason: ModelStatusPollerStopReason): void => {
+    if (!config.onSessionStop) return;
+
+    try {
+      config.onSessionStop(id, reason);
+    } catch (error) {
+      getDbLogger().error('ModelStatusPoller', 'session stop callback failed', { id, reason, error });
+    }
+  };
+
+  const markSessionStopped = (id: string, session: PollerSession, reason: ModelStatusPollerStopReason): void => {
+    if (sessions.get(id) !== session) return;
+    if (session.terminal) return;
+    session.terminal = true;
+    stopSession(id, session, false);
+    emitSessionStop(id, reason);
+  };
+
   const tickSession = async (id: string, session: PollerSession): Promise<void> => {
     if (session.inFlight || session.terminal) return;
 
     if (session.attempts >= config.maxAttempts) {
-      session.terminal = true;
-      stopSession(id, session, false);
+      markSessionStopped(id, session, 'budget');
       return;
     }
 
@@ -83,16 +106,14 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
       const result = await config.fetch(id);
       config.apply(id, result);
       if (config.isTerminal(result)) {
-        session.terminal = true;
-        stopSession(id, session, false);
+        markSessionStopped(id, session, 'terminal');
       }
     } catch (error) {
       getDbLogger().error('ModelStatusPoller', 'fetch failed', { id, attempts: session.attempts, error });
     } finally {
       session.inFlight = false;
       if (!session.terminal && session.attempts >= config.maxAttempts) {
-        session.terminal = true;
-        stopSession(id, session, false);
+        markSessionStopped(id, session, 'budget');
       }
     }
   };
@@ -133,6 +154,9 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     isPolling(id) {
       const session = sessions.get(id);
       return Boolean(session?.intervalId && !session.terminal && session.refs > 0);
+    },
+    isSessionTerminal(id) {
+      return sessions.get(id)?.terminal === true;
     }
   };
 };

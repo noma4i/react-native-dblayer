@@ -83,17 +83,30 @@ with the row when it appears, or `undefined` on timeout/abort. Every exit path r
 
 ## `createModelStatusPoller(config)`
 
-Creates a non-React poller for records that expose a status field.
+Creates a refcounted non-React poller for model-backed async status updates.
 
 | Config | Signature essentials | Behavior |
 | --- | --- | --- |
-| `read` | `() => row \| undefined` | Reads the latest local row before each decision. |
-| `fetch` | `() => Promise<row \| undefined>` | Fetches a fresh row while the record is pending. |
-| `apply` | `(row) => void` | Writes fetched data back into the model. |
-| `isPending` | `(row) => boolean` | Controls whether the poller continues. |
+| `fetch` | `(id) => Promise<TResult>` | Fetches the latest status payload for an id. |
+| `apply` | `(id, result) => void` | Writes fetched data back into the model. |
+| `isTerminal` | `(result) => boolean` | Stops the session when the fetched payload is terminal. |
+| `onSessionStop` | `(id, reason) => void` | Optional lifecycle callback for terminal payloads and exhausted budgets. |
+| `intervalMs` | `number` | Interval between scheduled status refreshes. |
+| `maxAttempts` | `number` | Maximum fetch attempts before a non-terminal session stops. |
 
-The returned controller starts/stops polling, avoids overlapping fetches, and stops when the row is missing, no
-longer pending, or the caller stops it.
+`onSessionStop` receives reason `'terminal'` when `isTerminal(result)` stops the session and `'budget'` when
+`maxAttempts` is exhausted. Last-detach teardown and `refresh(id, { resetBudget: true })` re-arming do not emit the
+callback. Callback errors are logged and do not break polling.
+
+| Method | Signature essentials | Behavior |
+| --- | --- | --- |
+| `attach` | `(id) => detach` | Starts or refs a session; the returned detach decrements refs and removes the last detached session. |
+| `refresh` | `(id, { resetBudget? }) => Promise<void>` | Runs an immediate fetch; `resetBudget` clears attempts and terminal state before fetching. |
+| `isPolling` | `(id) => boolean` | True while an attached non-terminal session has an active interval. |
+| `isSessionTerminal` | `(id) => boolean` | True while a retained session has stopped on a terminal payload or budget; detached/unknown ids return false. |
+
+The returned controller avoids overlapping fetches per id. Fetch errors consume attempts, are logged, and never throw
+from scheduled ticks.
 
 ## `mergeOptimisticMedia(optimistic, server)`
 

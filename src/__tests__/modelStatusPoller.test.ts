@@ -33,10 +33,12 @@ describe('model status poller', () => {
   it('starts on first attach, ticks on intervals, and stops on last detach', async () => {
     const fetch = jest.fn(async () => ({ terminal: false }));
     const apply = jest.fn();
+    const onSessionStop = jest.fn();
     const poller = createModelStatusPoller<{ terminal: boolean }>({
       fetch,
       apply,
       isTerminal: result => result.terminal,
+      onSessionStop,
       intervalMs: 1000,
       maxAttempts: 5
     });
@@ -56,6 +58,8 @@ describe('model status poller', () => {
 
     detachB();
     expect(poller.isPolling('item-1')).toBe(false);
+    expect(poller.isSessionTerminal('item-1')).toBe(false);
+    expect(onSessionStop).not.toHaveBeenCalled();
 
     await jest.advanceTimersByTimeAsync(1000);
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -64,10 +68,12 @@ describe('model status poller', () => {
   it('stops when a terminal result is applied', async () => {
     const fetch = jest.fn(async () => ({ terminal: true }));
     const apply = jest.fn();
+    const onSessionStop = jest.fn();
     const poller = createModelStatusPoller<{ terminal: boolean }>({
       fetch,
       apply,
       isTerminal: result => result.terminal,
+      onSessionStop,
       intervalMs: 1000,
       maxAttempts: 5
     });
@@ -77,14 +83,22 @@ describe('model status poller', () => {
 
     expect(apply).toHaveBeenCalledWith('item-terminal', { terminal: true });
     expect(poller.isPolling('item-terminal')).toBe(false);
+    expect(poller.isSessionTerminal('item-terminal')).toBe(true);
+    expect(onSessionStop).toHaveBeenCalledTimes(1);
+    expect(onSessionStop).toHaveBeenCalledWith('item-terminal', 'terminal');
+
+    await poller.refresh('item-terminal');
+    expect(onSessionStop).toHaveBeenCalledTimes(1);
   });
 
   it('stops when the attempt budget is exhausted', async () => {
     const fetch = jest.fn(async () => ({ terminal: false }));
+    const onSessionStop = jest.fn();
     const poller = createModelStatusPoller<{ terminal: boolean }>({
       fetch,
       apply: jest.fn(),
       isTerminal: result => result.terminal,
+      onSessionStop,
       intervalMs: 1000,
       maxAttempts: 2
     });
@@ -95,14 +109,70 @@ describe('model status poller', () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(poller.isPolling('item-budget')).toBe(false);
+    expect(poller.isSessionTerminal('item-budget')).toBe(true);
+    expect(onSessionStop).toHaveBeenCalledTimes(1);
+    expect(onSessionStop).toHaveBeenCalledWith('item-budget', 'budget');
   });
 
-  it('refreshes immediately and resetBudget restarts a stopped budget', async () => {
+  it('stops before fetching when the attempt budget is already exhausted', async () => {
     const fetch = jest.fn(async () => ({ terminal: false }));
+    const onSessionStop = jest.fn();
     const poller = createModelStatusPoller<{ terminal: boolean }>({
       fetch,
       apply: jest.fn(),
       isTerminal: result => result.terminal,
+      onSessionStop,
+      intervalMs: 1000,
+      maxAttempts: 0
+    });
+
+    poller.attach('item-pre-budget');
+    await flush();
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(poller.isPolling('item-pre-budget')).toBe(false);
+    expect(poller.isSessionTerminal('item-pre-budget')).toBe(true);
+    expect(onSessionStop).toHaveBeenCalledTimes(1);
+    expect(onSessionStop).toHaveBeenCalledWith('item-pre-budget', 'budget');
+  });
+
+  it('does not emit session stop after last detach while a fetch is in flight', async () => {
+    const pending = deferred<{ terminal: boolean }>();
+    const fetch = jest.fn(() => pending.promise);
+    const onSessionStop = jest.fn();
+    const poller = createModelStatusPoller<{ terminal: boolean }>({
+      fetch,
+      apply: jest.fn(),
+      isTerminal: result => result.terminal,
+      onSessionStop,
+      intervalMs: 1000,
+      maxAttempts: 5
+    });
+
+    const detach = poller.attach('item-detached-in-flight');
+    await flush();
+    detach();
+
+    pending.resolve({ terminal: true });
+    await flush();
+
+    expect(poller.isPolling('item-detached-in-flight')).toBe(false);
+    expect(poller.isSessionTerminal('item-detached-in-flight')).toBe(false);
+    expect(onSessionStop).not.toHaveBeenCalled();
+  });
+
+  it('refreshes immediately and resetBudget restarts a stopped budget', async () => {
+    const pending = deferred<{ terminal: boolean }>();
+    const fetch = jest.fn()
+      .mockResolvedValueOnce({ terminal: false })
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue({ terminal: false });
+    const onSessionStop = jest.fn();
+    const poller = createModelStatusPoller<{ terminal: boolean }>({
+      fetch,
+      apply: jest.fn(),
+      isTerminal: result => result.terminal,
+      onSessionStop,
       intervalMs: 1000,
       maxAttempts: 1
     });
@@ -110,13 +180,53 @@ describe('model status poller', () => {
     poller.attach('item-refresh');
     await flush();
     expect(poller.isPolling('item-refresh')).toBe(false);
+    expect(poller.isSessionTerminal('item-refresh')).toBe(true);
+    expect(onSessionStop).toHaveBeenCalledTimes(1);
+    expect(onSessionStop).toHaveBeenLastCalledWith('item-refresh', 'budget');
 
     await poller.refresh('item-refresh');
     expect(fetch).toHaveBeenCalledTimes(1);
 
-    await poller.refresh('item-refresh', { resetBudget: true });
+    const resetRefresh = poller.refresh('item-refresh', { resetBudget: true });
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(poller.isSessionTerminal('item-refresh')).toBe(false);
+
+    pending.resolve({ terminal: false });
+    await resetRefresh;
+
     expect(poller.isPolling('item-refresh')).toBe(false);
+    expect(poller.isSessionTerminal('item-refresh')).toBe(true);
+    expect(onSessionStop).toHaveBeenCalledTimes(2);
+    expect(onSessionStop).toHaveBeenLastCalledWith('item-refresh', 'budget');
+  });
+
+  it('contains throwing session stop callbacks', async () => {
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    configureDb({
+      transport: mockTransport({}),
+      logger
+    });
+    const fetch = jest.fn(async () => ({ terminal: true }));
+    const poller = createModelStatusPoller<{ terminal: boolean }>({
+      fetch,
+      apply: jest.fn(),
+      isTerminal: result => result.terminal,
+      onSessionStop: () => {
+        throw new Error('callback failed');
+      },
+      intervalMs: 1000,
+      maxAttempts: 5
+    });
+
+    poller.attach('item-callback-error');
+    await flush();
+
+    expect(poller.isSessionTerminal('item-callback-error')).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith(
+      'ModelStatusPoller',
+      'session stop callback failed',
+      expect.objectContaining({ id: 'item-callback-error', reason: 'terminal', error: expect.any(Error) })
+    );
   });
 
   it('dedupes overlapping fetches for the same id', async () => {
