@@ -1,13 +1,11 @@
 import { useIsRestoring, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { buildScopeKey, ROOT_SCOPE_KEY } from '../../core/compileDbWhere';
 import { getCollectionFetchStateVersion, subscribeCollectionFetchState } from '../../core/freshnessStorage';
 import { getDbLogger } from '../../core/logger';
-import { stableSerialize } from '../../core/serialize';
 import type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, CollectionFetchState } from '../../types';
 import { computeLoadingState, computePhase } from './loadingState';
 import { useCollectionRead } from './shared';
-
-const ROOT_SCOPE_KEY = '__root__';
 
 type CollectionScope = {
   filter?: { id?: string | null };
@@ -18,8 +16,6 @@ type FreshnessGateDecision = {
   fetchState: CollectionFetchState | null;
   shouldSkip: boolean;
 };
-
-const buildScopeKey = (filter?: object): string => (filter ? stableSerialize(filter) : ROOT_SCOPE_KEY);
 
 const resolveCollectionId = (collection: BaseQueryCollection | undefined): string | undefined => collection?.model.collection.id;
 

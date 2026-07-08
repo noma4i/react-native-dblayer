@@ -1,15 +1,14 @@
 import { type InfiniteData, useInfiniteQuery, useIsRestoring, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { buildScopeKey } from '../../core/compileDbWhere';
 import { getCollectionFetchStateVersion, subscribeCollectionFetchState } from '../../core/freshnessStorage';
 import { getDbLogger } from '../../core/logger';
-import { stableSerialize } from '../../core/serialize';
 import type { CollectionFetchState, InfiniteQueryConfig, InfiniteQueryResult, PageInfo } from '../../types';
 import { computeLoadingState, computePhase } from './loadingState';
 import { buildModelFilter } from './shared';
 
 const LOAD_MORE_THROTTLE_MS = 800;
 const EMPTY_PAGES: unknown[] = [];
-const ROOT_SCOPE_KEY = '__root__';
 
 type FreshnessGateDecision = {
   fetchState: CollectionFetchState | null;
@@ -40,10 +39,6 @@ const trimInfiniteDataToFirstPage = <TData>(data: InfiniteData<TData> | undefine
     pageParams: data.pageParams.slice(0, 1)
   };
 };
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const buildScopeKey = (scope: unknown): string => (isPlainObject(scope) ? stableSerialize(scope) : ROOT_SCOPE_KEY);
 
 const resolveStoredScope = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>, filter: unknown): unknown => config.collection._dbScope?.(filter) ?? filter;
 

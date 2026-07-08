@@ -1,8 +1,8 @@
 import type { CollectionFetchScopeRecord, CollectionFetchState, FetchStateRemovalListener } from '../types';
+import { ROOT_SCOPE_KEY } from './compileDbWhere';
 import { getDbStorageAdapter } from './storage';
 
 const FRESHNESS_KEY_PREFIX = 'tanstack-db-freshness:';
-const ROOT_SCOPE_KEY = '__root__';
 /** Default maximum age before persisted fetch-state metadata is pruned. */
 export const DEFAULT_FETCH_STATE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const fetchStateRemovalListeners = new Map<string, Set<FetchStateRemovalListener>>();

@@ -22,7 +22,16 @@ import type {
   SyncContract
 } from '../types';
 import { toQueryValue } from '../utils/typeBoundary';
-import { applyDbReadOptionsToQuery, applyDbReadOptionsToRows, applyDbWhereToQuery, createDbWhereSignature, matchesDbWhere, normalizeDbCondition } from './compileDbWhere';
+import {
+  applyDbReadOptionsToQuery,
+  applyDbReadOptionsToRows,
+  applyDbWhereToQuery,
+  buildScopeKey,
+  createDbWhereSignature,
+  matchesDbWhere,
+  normalizeDbCondition,
+  ROOT_SCOPE_KEY
+} from './compileDbWhere';
 import { createMerge } from './createMerge';
 import { createPatchCrud } from './createPatchCrud';
 import { createReplace } from './createReplace';
@@ -39,26 +48,23 @@ import { getDbModelDefaults } from './modelDefaults';
 import { registerModel } from './modelRegistry';
 import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
-import { stableSerialize } from './serialize';
 import { isModelApplying, runSideloads, withApplyingModel } from './sideload';
 
 const EMPTY: readonly unknown[] = [];
 const GROUP_ALL = 1 as const;
-const ROOT_FETCH_SCOPE = '__root__';
 
 const buildFetchScope = <TStored>(filter?: Partial<TStored>): { scope: string; filter?: Record<string, unknown> } => {
   const normalized = normalizeDbCondition(filter);
-  if (!normalized) return { scope: ROOT_FETCH_SCOPE };
-  return { scope: stableSerialize(normalized), filter: normalized as Record<string, unknown> };
+  return normalized ? { scope: buildScopeKey(filter), filter: normalized as Record<string, unknown> } : { scope: ROOT_SCOPE_KEY };
 };
 
 const createFreshnessTracker = <TStored>(modelName: string, collectionId: string | null, staleTime: number, emptyStaleTime: number) => {
   const fetchStateCache = new Map<string, CollectionFetchState | null>();
 
   if (collectionId) {
-    fetchStateCache.set(ROOT_FETCH_SCOPE, getCollectionFetchState(collectionId));
+    fetchStateCache.set(ROOT_SCOPE_KEY, getCollectionFetchState(collectionId));
     registerCollectionFetchStateCache(collectionId, scopeKey => {
-      fetchStateCache.delete(scopeKey ?? ROOT_FETCH_SCOPE);
+      fetchStateCache.delete(scopeKey ?? ROOT_SCOPE_KEY);
     });
   }
 
@@ -68,7 +74,7 @@ const createFreshnessTracker = <TStored>(modelName: string, collectionId: string
       return fetchStateCache.get(scope) ?? null;
     }
 
-    const nextState = collectionId ? getCollectionFetchState(collectionId, scope === ROOT_FETCH_SCOPE ? undefined : scope) : null;
+    const nextState = collectionId ? getCollectionFetchState(collectionId, scope === ROOT_SCOPE_KEY ? undefined : scope) : null;
     fetchStateCache.set(scope, nextState);
     return nextState;
   };
@@ -82,7 +88,7 @@ const createFreshnessTracker = <TStored>(modelName: string, collectionId: string
     };
     fetchStateCache.set(scope, nextState);
     if (collectionId) {
-      setCollectionFetchState(collectionId, nextState, scope === ROOT_FETCH_SCOPE ? undefined : scope, normalizedFilter);
+      setCollectionFetchState(collectionId, nextState, scope === ROOT_SCOPE_KEY ? undefined : scope, normalizedFilter);
     }
   };
 
@@ -95,7 +101,7 @@ const createFreshnessTracker = <TStored>(modelName: string, collectionId: string
     fetchStateCache.delete(scope);
     if (collectionId) {
       getDbLogger().debug('db', 'freshness:clear', { model: modelName, scope: normalizedFilter });
-      clearCollectionFetchState(collectionId, scope === ROOT_FETCH_SCOPE ? undefined : scope);
+      clearCollectionFetchState(collectionId, scope === ROOT_SCOPE_KEY ? undefined : scope);
     }
   };
 
