@@ -2,6 +2,9 @@ import { count as dbCount, eq, inArray } from '@tanstack/db';
 import { useLiveQuery } from '@tanstack/react-db';
 import { useMemo } from 'react';
 import type {
+  BelongsToAccessor,
+  BelongsToModel,
+  BelongsToRelation,
   CollectionModel,
   HasManyOptions,
   HasManyRelation,
@@ -26,6 +29,13 @@ type RuntimeHasManyRelation = ModelRelationDefinition & {
   model: RelationModel<StoredRowBase>;
 };
 
+type RuntimeBelongsToRelation = BelongsToRelation<StoredRowBase, string, BelongsToModel<StoredRowBase>>;
+
+type RelatedAccessorsContext = {
+  collection: CollectionModel<unknown, StoredRowBase>['collection'];
+  getRow: (id: string | null | undefined) => StoredRowBase | undefined;
+};
+
 export type CascadeController = {
   modelName: string;
   attachRowRelated: <TRow extends StoredRowBase>(row: TRow) => TRow;
@@ -36,6 +46,7 @@ export type CascadeController = {
 
 const cascadeControllers = new WeakMap<object, CascadeController>();
 const rowRelatedRecords = new WeakMap<object, unknown>();
+let touchDepth = 0;
 
 export const registerCascadeController = (model: object, controller: CascadeController): void => {
   cascadeControllers.set(model, controller);
@@ -70,12 +81,28 @@ export const hasManyThrough = <TThrough extends string, TSource extends string>(
   source: options.source
 });
 
+export const belongsTo = <
+  TParentInput,
+  TParentStored extends StoredRowBase,
+  TForeignKey extends string,
+  TParentModel extends CollectionModel<TParentInput, TParentStored> = CollectionModel<TParentInput, TParentStored>
+>(
+  model: TParentModel & CollectionModel<TParentInput, TParentStored>,
+  options: { foreignKey: TForeignKey; touch?: boolean }
+): BelongsToRelation<TParentStored, TForeignKey, TParentModel> => ({
+  kind: 'belongsTo',
+  model,
+  foreignKey: options.foreignKey,
+  touch: options.touch === true
+});
+
 export const relationValues = (relations: ModelRelationsConfig | undefined): ModelRelationConfigValue[] => {
   if (!relations) return [];
   return Object.values(relations);
 };
 
 const isHasManyRelation = (relation: ModelRelationConfigValue | undefined): relation is RuntimeHasManyRelation => relation?.kind === 'hasMany';
+const isBelongsToRelation = (relation: ModelRelationConfigValue | undefined): relation is RuntimeBelongsToRelation => relation?.kind === 'belongsTo';
 
 const assertDirectRelation = (
   modelName: string,
@@ -160,6 +187,34 @@ const getRowsByForeignKeySet = <TChildStored extends StoredRowBase>(relation: Ru
   return attachRowsForRelation(relation, relation.model.getWhere({ or: parentIds.map(parentId => ({ [relation.foreignKey]: parentId })) } as never) as TChildStored[]);
 };
 
+const readParentId = (row: StoredRowBase | undefined, foreignKey: string): string | undefined => {
+  const value = row ? (row as Record<string, unknown>)[foreignKey] : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+};
+
+const getParentRow = <TParentStored extends StoredRowBase>(
+  relation: RuntimeBelongsToRelation,
+  childRow: StoredRowBase | undefined
+): TParentStored | undefined => {
+  const parentId = readParentId(childRow, relation.foreignKey);
+  return parentId ? relation.model.get(parentId) as TParentStored | undefined : undefined;
+};
+
+const useChildRowById = (context: RelatedAccessorsContext, childId: string | null | undefined): StoredRowBase | undefined => {
+  const { data } = useLiveQuery(
+    q =>
+      childId == null
+        ? undefined
+        : q
+            .from({ items: context.collection })
+            .where(({ items }) => eq(toQueryValue((items as Record<string, unknown>).id), childId))
+            .findOne(),
+    [childId]
+  );
+
+  return data as unknown as StoredRowBase | undefined;
+};
+
 const resolveThroughRelations = (
   modelName: string,
   relationName: string,
@@ -208,14 +263,34 @@ const createThroughAccessor = <TChildStored extends StoredRowBase>(
   }
 });
 
+const createBelongsToAccessor = <TParentStored extends StoredRowBase>(
+  relation: RuntimeBelongsToRelation,
+  context: RelatedAccessorsContext
+): BelongsToAccessor<TParentStored> => ({
+  get(childId) {
+    if (childId == null) return undefined;
+    return getParentRow<TParentStored>(relation, context.getRow(childId));
+  },
+  use(childId) {
+    const childRow = useChildRowById(context, childId);
+    const parentId = readParentId(childRow, relation.foreignKey);
+    return relation.model.find(parentId) as TParentStored | undefined;
+  }
+});
+
 export const buildRelatedAccessors = <TRelations extends ModelRelationsConfig>(
   modelName: string,
-  resolveRelations: () => TRelations
+  resolveRelations: () => TRelations,
+  context: RelatedAccessorsContext
 ): RelatedRecord<TRelations> => {
   const relations = resolveRelations();
-  const related: Record<string, RelatedAccessor<StoredRowBase>> = {};
+  const related: Record<string, RelatedAccessor<StoredRowBase> | BelongsToAccessor<StoredRowBase>> = {};
 
   for (const [relationName, relation] of Object.entries(relations)) {
+    if (isBelongsToRelation(relation)) {
+      related[relationName] = createBelongsToAccessor(relation, context);
+      continue;
+    }
     if (isHasManyRelation(relation)) {
       related[relationName] = createDirectAccessor(relation);
       continue;
@@ -236,16 +311,22 @@ export const buildRelatedAccessors = <TRelations extends ModelRelationsConfig>(
 
 const buildRowRelatedRecord = <TRow extends StoredRowBase, TRelations extends ModelRelationsConfig>(
   row: TRow,
+  resolveRelations: () => TRelations,
   resolveRelatedAccessors: () => RelatedRecord<TRelations>
 ): RowRelatedRecord<TRelations> => {
   const relatedRecord: Record<string, unknown> = {};
   const relatedAccessors = resolveRelatedAccessors();
+  const relations = resolveRelations();
 
   for (const relationName of Object.keys(relatedAccessors)) {
     Object.defineProperty(relatedRecord, relationName, {
       enumerable: true,
       configurable: true,
       get() {
+        const relation = relations[relationName];
+        if (isBelongsToRelation(relation)) {
+          return getParentRow(relation, row);
+        }
         return (resolveRelatedAccessors() as Record<string, RelatedAccessor<StoredRowBase>>)[relationName]?.get(row.id) ?? [];
       }
     });
@@ -257,6 +338,7 @@ const buildRowRelatedRecord = <TRow extends StoredRowBase, TRelations extends Mo
 export const attachRowRelated = <TRow extends StoredRowBase, TRelations extends ModelRelationsConfig>(
   modelName: string,
   row: TRow,
+  resolveRelations: () => TRelations,
   resolveRelatedAccessors: () => RelatedRecord<TRelations>
 ): TRow & RowRelatedSurface<TRelations> => {
   if (Object.prototype.hasOwnProperty.call(row, 'related')) {
@@ -273,7 +355,7 @@ export const attachRowRelated = <TRow extends StoredRowBase, TRelations extends 
     get() {
       let relatedRecord = rowRelatedRecords.get(row) as RowRelatedRecord<TRelations> | undefined;
       if (!relatedRecord) {
-        relatedRecord = buildRowRelatedRecord(row, resolveRelatedAccessors);
+        relatedRecord = buildRowRelatedRecord(row, resolveRelations, resolveRelatedAccessors);
         rowRelatedRecords.set(row, relatedRecord);
       }
       return relatedRecord;
@@ -281,4 +363,23 @@ export const attachRowRelated = <TRow extends StoredRowBase, TRelations extends 
   });
 
   return row as TRow & RowRelatedSurface<TRelations>;
+};
+
+export const touchBelongsToParents = (relations: ModelRelationsConfig, row: StoredRowBase | undefined): void => {
+  if (!row || touchDepth > 0) return;
+
+  const touchRelations = Object.values(relations).filter((relation): relation is RuntimeBelongsToRelation => isBelongsToRelation(relation) && relation.touch);
+  if (touchRelations.length === 0) return;
+
+  touchDepth += 1;
+  try {
+    const updatedAt = new Date().toISOString();
+    for (const relation of touchRelations) {
+      const parentId = readParentId(row, relation.foreignKey);
+      if (!parentId || !relation.model.get(parentId)) continue;
+      relation.model.patch(parentId, { updatedAt } as Partial<StoredRowBase>);
+    }
+  } finally {
+    touchDepth = Math.max(0, touchDepth - 1);
+  }
 };

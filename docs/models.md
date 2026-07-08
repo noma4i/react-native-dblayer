@@ -178,15 +178,19 @@ Use `relations` for domain ownership between models. The thunk is lazy so model 
 eager circular-import failures.
 
 ```ts
-import { defineModel, f, hasMany, hasManyThrough } from '@noma4i/react-native-dblayer';
+import { belongsTo, defineModel, f, hasMany, hasManyThrough } from '@noma4i/react-native-dblayer';
 
 export const MessageModel = defineModel({
   name: 'MessageModel',
   id: 'messages',
   fields: {
     chatId: f.id(),
+    userId: f.id(),
     body: f.str(),
   },
+  relations: () => ({
+    user: belongsTo(UserModel, { foreignKey: 'userId', touch: true }),
+  }),
 });
 
 export const ChatModel = defineModel({
@@ -221,24 +225,29 @@ relations. In cycles, re-entered models delete the matched rows but do not casca
 
 Models with a `relations` thunk expose local query accessors under `model.related.<name>`:
 
-| Accessor | Type | Behavior |
+| Relation | Accessor | Type | Behavior |
 | --- | --- | --- |
-| `get(parentId)` | snapshot read | Returns child rows where the child foreign key equals `parentId`; `null`/`undefined` returns `[]`. |
-| `use(parentId)` | React hook | Reactive scoped child rows using the model live-query path; `null`/`undefined` returns a stable empty array without a bogus scope. |
-| `count(parentId)` | React hook | Reactive scoped count; `null`/`undefined` returns `0`. For through relations this is `use(parentId).length`. |
+| `hasMany` / `hasManyThrough` | `get(parentId)` | snapshot read | Returns child rows where the child foreign key equals `parentId`; `null`/`undefined` returns `[]`. |
+| `hasMany` / `hasManyThrough` | `use(parentId)` | React hook | Reactive scoped child rows using the model live-query path; `null`/`undefined` returns a stable empty array without a bogus scope. |
+| `hasMany` / `hasManyThrough` | `count(parentId)` | React hook | Reactive scoped count; `null`/`undefined` returns `0`. For through relations this is `use(parentId).length`. |
+| `belongsTo` | `get(childId)` | snapshot read | Reads the child row, takes its `foreignKey` value, and returns the parent row; `null`/`undefined` or a missing parent id returns `undefined`. |
+| `belongsTo` | `use(childId)` | React hook | Reactive on both the child row foreign-key value and the parent row. Nullish child ids return `undefined` without a bogus subscription. |
 
 Rows returned by read paths on models with relations also expose `row.related.<name>` as a snapshot property getter:
 
 ```ts
 const chats = UserModel.find(userId)?.related.chats;
 const messages = ChatModel.get(chatId)?.related.messages;
+const user = MessageModel.get(messageId)?.related.user;
 const liveMessages = ChatModel.related.messages.use(chatId);
+const liveUser = MessageModel.related.user.use(messageId);
 ```
 
 | Form | Use when | Behavior |
 | --- | --- | --- |
-| `row.related.<name>` | You already have a row from `get`, `find`, `where`, `all`, or related reads and need a snapshot of its children. | Calls the same snapshot path as `Model.related.<name>.get(row.id)` at property access time. Children inserted after the row object was obtained are visible on the next property access. |
-| `Model.related.<name>.use(id)` | The child list itself must be reactive. | React hook; call unconditionally from a component or another hook. |
+| `row.related.<name>` for `hasMany` / `hasManyThrough` | You already have a row from `get`, `find`, `where`, `all`, or related reads and need a snapshot of its children. | Calls the same snapshot path as `Model.related.<name>.get(row.id)` at property access time. Children inserted after the row object was obtained are visible on the next property access. |
+| `row.related.<name>` for `belongsTo` | You already have a child row and need its parent snapshot. | Reads the child row's own `foreignKey` value and returns the parent row or `undefined`. |
+| `Model.related.<name>.use(id)` | The related value itself must be reactive. | React hook; call unconditionally from a component or another hook. |
 
 Row-level related values are not hooks and do not subscribe. This keeps `find(id)?.related.<name>` valid: making row-level children reactive would require conditional hook calls after a possibly undefined `find(id)` result. Reactive child reads stay on the model-level accessor.
 
@@ -249,10 +258,19 @@ model, and `source` must name a direct `hasMany` relation on the through-child m
 through rows, collect their ids, then read source rows whose source foreign key is in that id set. Both levels are
 reactive for `use`; row-level through properties use the same snapshot composition.
 
+`belongsTo(parentModel, { foreignKey, touch })` is the inverse direction. `foreignKey` names a field on the current
+child row that stores the parent id; missing or non-string values read as no parent. `dependent` is not accepted, and
+`belongsTo` never participates in cascade destroy.
+
+With `touch: true`, local child insert-style writes, `patch`, and `replaceRaw` bump an existing local parent row with
+`updatedAt: new Date().toISOString()`. Server writes through `applyServerData` do not touch parents, because server
+payloads are authoritative. Child destroy does not touch. Touch propagation stops after one level: a parent patch caused
+by touch does not trigger that parent's own `belongsTo({ touch: true })` relations.
+
 Related accessors are local reads only. They do not fetch network data, expose fetch state, or mark freshness scopes.
 Network scoping stays in request configs and collection bindings.
 
-`hasManyThrough` does not participate in cascade destroy. Cascades follow only direct
+`hasManyThrough` and `belongsTo` do not participate in cascade destroy. Cascades follow only direct
 `hasMany(..., { dependent: 'destroy' })` relations; transitive deletes still happen through those direct relations.
 
 Server replace-mode removals from `applyServerData(..., { mode: 'replace' })` do not cascade. Replace eviction is sync

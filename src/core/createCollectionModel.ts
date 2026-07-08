@@ -29,10 +29,10 @@ import { createReplace } from './createReplace';
 import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
 import { getDbModelDefaults } from './modelDefaults';
 import { registerModel } from './modelRegistry';
-import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues } from './relations';
+import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { stableSerialize } from './serialize';
-import { runSideloads, withApplyingModel } from './sideload';
+import { isModelApplying, runSideloads, withApplyingModel } from './sideload';
 
 const EMPTY: readonly unknown[] = [];
 const GROUP_ALL = 1 as const;
@@ -199,6 +199,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0 } = config;
   const normalizeBase = resolveNormalize(config);
   let attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => row;
+  let touchRelatedParents = (_row: StoredRowBase | undefined): void => {};
   const normalize = (item: unknown): ({ id: string } & Record<string, unknown>) | null => {
     const normalized = normalizeBase(item);
     return normalized ? attachRelatedToRow(normalized as StoredRowBase & Record<string, unknown>) : null;
@@ -220,12 +221,18 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     insert: (item: StoredRowBase & Record<string, unknown>) => {
       rawCollection.insert(attachRelatedToRow(item));
       const row = rawCollection.get(item.id);
-      if (row) attachRelatedToRow(row);
+      if (row) {
+        attachRelatedToRow(row);
+        touchRelatedParents(row);
+      }
     },
     update: (id: string, updater: (draft: StoredRowBase & Record<string, unknown>) => void) => {
       rawCollection.update(id, updater);
       const row = rawCollection.get(id);
-      if (row) attachRelatedToRow(row);
+      if (row) {
+        attachRelatedToRow(row);
+        touchRelatedParents(row);
+      }
     },
     delete: (id: string) => rawCollection.delete(id),
     keys: () => rawCollection.keys(),
@@ -311,14 +318,25 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
 
   const resolveRelatedAccessors = (): any => {
     if (!relatedAccessorsCache) {
-      relatedAccessorsCache = buildRelatedAccessors(config.name, resolveRelationMap);
+      relatedAccessorsCache = buildRelatedAccessors(config.name, resolveRelationMap, {
+        collection: tanstackCollection as CollectionModel<unknown, StoredRowBase>['collection'],
+        getRow: id => {
+          const row = id ? rawCollection.get(id) : undefined;
+          return row ? attachRelatedToRow(row) : undefined;
+        }
+      });
     }
     return relatedAccessorsCache;
   };
 
   attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => {
     if (!hasRelations()) return row;
-    return attachRowRelated(config.name, row, resolveRelatedAccessors) as TRow;
+    return attachRowRelated(config.name, row, resolveRelationMap, resolveRelatedAccessors) as TRow;
+  };
+
+  touchRelatedParents = (row: StoredRowBase | undefined): void => {
+    if (!hasRelations() || isModelApplying(config.name)) return;
+    touchBelongsToParents(resolveRelationMap(), row);
   };
 
   const attachRelatedToRows = <TRow extends StoredRowBase>(rows: TRow[]): TRow[] => {
@@ -553,12 +571,12 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     replaceRaw: (oldId: string, item: unknown): boolean => {
       const normalized = normalize(item);
       if (!normalized) return false;
-      withApplyingModel(config.name, () => {
-        withTransaction(() => {
+      withTransaction(() => {
+        withApplyingModel(config.name, () => {
           runSideloads(config.sideload, [item], { mode: 'merge', source: 'sideload' });
-          rawCollection.delete(oldId);
-          runtimeCollection.insert(normalized as any);
         });
+        rawCollection.delete(oldId);
+        runtimeCollection.insert(normalized as any);
       });
       return true;
     },

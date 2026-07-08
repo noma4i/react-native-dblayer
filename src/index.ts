@@ -6,7 +6,7 @@ export { deriveDbKey } from './core/deriveDbKey';
 export { createPatchCrud } from './core/createPatchCrud';
 export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
 export { createReplace } from './core/createReplace';
-export { hasMany, hasManyThrough } from './core/relations';
+export { belongsTo, hasMany, hasManyThrough } from './core/relations';
 export { computeLoadingState } from './queries/base/loadingState';
 export { clearModelRegistry, getRegisteredModel, registerModel } from './core/modelRegistry';
 export {
@@ -116,6 +116,9 @@ export type {
   BaseQueryConfig,
   BaseQueryResult,
   BaseMutationContext,
+  BelongsToAccessor,
+  BelongsToModel,
+  BelongsToRelation,
   CollectionFetchState,
   CollectionModel,
   CollectionReadConfig,

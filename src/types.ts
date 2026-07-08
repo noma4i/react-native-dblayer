@@ -126,6 +126,8 @@ export type RelationModel<TStored extends StoredRowBase> = Pick<
   'getAll' | 'getWhere' | 'where' | 'count' | 'destroyMany' | 'destroyWhere' | 'collection'
 >;
 
+export type BelongsToModel<TStored extends StoredRowBase> = Pick<CollectionModel<unknown, TStored>, 'get' | 'find' | 'patch' | 'collection'>;
+
 export type ModelRelationDefinition = {
   /** Relation kind. */
   kind: 'hasMany';
@@ -148,6 +150,21 @@ export type HasManyRelation<
   foreignKey: TForeignKey;
 };
 
+export type BelongsToRelation<
+  TParentStored extends StoredRowBase,
+  TForeignKey extends string,
+  TParentModel = BelongsToModel<TParentStored>
+> = {
+  /** Relation kind. */
+  kind: 'belongsTo';
+  /** Parent model. */
+  model: TParentModel & BelongsToModel<TParentStored>;
+  /** Field on this child row that stores the parent id. */
+  foreignKey: TForeignKey;
+  /** Whether local child writes should bump the parent timestamp. */
+  touch: boolean;
+};
+
 export type HasManyThroughRelation<TThrough extends string = string, TSource extends string = string> = {
   /** Relation kind. */
   kind: 'hasManyThrough';
@@ -157,7 +174,7 @@ export type HasManyThroughRelation<TThrough extends string = string, TSource ext
   source: TSource;
 };
 
-export type ModelRelationConfigValue = ModelRelationDefinition | HasManyThroughRelation;
+export type ModelRelationConfigValue = ModelRelationDefinition | BelongsToRelation<any, string, any> | HasManyThroughRelation;
 
 export type ModelRelationsConfig = Record<string, ModelRelationConfigValue>;
 
@@ -168,6 +185,13 @@ export type RelatedAccessor<TChildStored extends StoredRowBase> = {
   use(parentId: string | null | undefined): TChildStored[];
   /** React hook: reactive child count for a parent id. Nullish parent returns zero. */
   count(parentId: string | null | undefined): number;
+};
+
+export type BelongsToAccessor<TParentStored extends StoredRowBase> = {
+  /** Snapshot read of the parent row for a child id. Nullish child returns undefined. */
+  get(childId: string | null | undefined): TParentStored | undefined;
+  /** React hook: reactive parent row for a child id. Nullish child returns undefined. */
+  use(childId: string | null | undefined): TParentStored | undefined;
 };
 
 type RelatedSourceRecord<TModel> = TModel extends { readonly related: infer TRelated } ? TRelated : never;
@@ -189,18 +213,24 @@ type RelatedSourceChild<
 export type ChildStoredOf<
   TRelation,
   TRelations extends ModelRelationsConfig
-> = TRelation extends { kind: 'hasMany'; model: RelationModel<infer TChildStored> }
+> = TRelation extends { kind: 'belongsTo'; model: BelongsToModel<infer TParentStored> }
+  ? TParentStored
+  : TRelation extends { kind: 'hasMany'; model: RelationModel<infer TChildStored> }
   ? TChildStored
   : TRelation extends HasManyThroughRelation<infer TThrough, infer TSource>
     ? RelatedSourceChild<TRelations, TThrough, TSource>
     : never;
 
 export type RelatedRecord<TRelations extends ModelRelationsConfig> = {
-  [K in keyof TRelations]: RelatedAccessor<ChildStoredOf<TRelations[K], TRelations>>;
+  [K in keyof TRelations]: TRelations[K] extends { kind: 'belongsTo' }
+    ? BelongsToAccessor<ChildStoredOf<TRelations[K], TRelations>>
+    : RelatedAccessor<ChildStoredOf<TRelations[K], TRelations>>;
 };
 
 export type RowRelatedRecord<TRelations extends ModelRelationsConfig> = {
-  readonly [K in keyof TRelations]: Array<ChildStoredOf<TRelations[K], TRelations>>;
+  readonly [K in keyof TRelations]: TRelations[K] extends { kind: 'belongsTo' }
+    ? ChildStoredOf<TRelations[K], TRelations> | undefined
+    : Array<ChildStoredOf<TRelations[K], TRelations>>;
 };
 
 type IsAny<T> = 0 extends 1 & T ? true : false;

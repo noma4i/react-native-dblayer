@@ -1,12 +1,13 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { configureDb, defineModel, devClearAllDataAndState, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
+import { belongsTo, configureDb, defineModel, devClearAllDataAndState, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
 import type { CollectionModel, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
-type UserRow = { id: string; name: string; updatedAt?: string | null };
+type UserRow = { id: string; name: string; orgId?: string | null; updatedAt?: string | null };
 type ChatRow = { id: string; userId: string; title: string; updatedAt?: string | null };
-type MessageRow = { id: string; chatId: string; body: string; updatedAt?: string | null };
+type MessageRow = { id: string; chatId: string; userId?: string | null; body: string; updatedAt?: string | null };
+type OrgRow = { id: string; name: string; updatedAt?: string | null };
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -59,7 +60,12 @@ function defineUserModel(id: string, relations?: () => ModelRelationsConfig): an
   const config = {
     id,
     name: `RelationUserModel:${id}`,
-    normalize: (input: Partial<UserRow> & { id: string }) => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+    normalize: (input: Partial<UserRow> & { id: string }) => ({
+      id: input.id,
+      name: input.name ?? input.id,
+      ...(input.orgId !== undefined ? { orgId: input.orgId } : {}),
+      updatedAt: input.updatedAt ?? null
+    }),
     merge: {},
     replace: {}
   };
@@ -93,14 +99,38 @@ function defineChatModel(id: string, relations?: () => ModelRelationsConfig): an
     : defineModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow>(config);
 }
 
-const defineMessageModel = (id: string) =>
-  defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>({
+function defineMessageModel(id: string): CollectionModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>;
+function defineMessageModel<TRelations extends ModelRelationsConfig>(
+  id: string,
+  relations: () => TRelations
+): CollectionModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow & RowRelatedSurface<TRelations>> & RelatedSurface<TRelations>;
+function defineMessageModel(id: string, relations?: () => ModelRelationsConfig): any {
+  const config = {
     id,
     name: `RelationMessageModel:${id}`,
-    normalize: input => ({
+    normalize: (input: Partial<MessageRow> & { id: string; chatId: string }) => ({
       id: input.id,
       chatId: input.chatId,
+      ...(input.userId !== undefined ? { userId: input.userId } : {}),
       body: input.body ?? input.id,
+      updatedAt: input.updatedAt ?? null
+    }),
+    merge: {},
+    replace: {}
+  };
+
+  return relations
+    ? defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>({ ...config, relations })
+    : defineModel<Partial<MessageRow> & { id: string; chatId: string }, MessageRow>(config);
+}
+
+const defineOrgModel = (id: string) =>
+  defineModel<Partial<OrgRow> & { id: string }, OrgRow>({
+    id,
+    name: `RelationOrgModel:${id}`,
+    normalize: input => ({
+      id: input.id,
+      name: input.name ?? input.id,
       updatedAt: input.updatedAt ?? null
     }),
     merge: {},
@@ -116,15 +146,19 @@ describe('model relations', () => {
 
   it('enforces hasMany foreign keys against child string fields', () => {
     installMemoryStorage();
+    const userModel = defineUserModel('relation-types-user');
     const messageModel = defineMessageModel('relation-types-message');
 
     hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' });
+    belongsTo(userModel, { foreignKey: 'userId' });
 
     if (false) {
       // @ts-expect-error missing keys are not valid child foreign keys
       hasMany(messageModel, { foreignKey: 'missingId', dependent: 'destroy' });
       // @ts-expect-error dependent supports only destroy for now
       hasMany(messageModel, { foreignKey: 'chatId', dependent: 'nullify' });
+      // @ts-expect-error belongsTo does not accept dependent options
+      belongsTo(userModel, { foreignKey: 'userId', dependent: 'destroy' });
     }
   });
 
@@ -372,6 +406,143 @@ describe('model relations', () => {
     expect(row.related).toBe(row.related);
   });
 
+  it('exposes belongsTo get and use accessors', async () => {
+    installMemoryStorage();
+    const userModel = defineUserModel('relation-belongs-user');
+    const messageModel = defineMessageModel('relation-belongs-message', () => ({
+      user: belongsTo(userModel, { foreignKey: 'userId' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: '2000-01-01T00:00:00.000Z' });
+    userModel.insertStored({ id: 'user-2', name: 'Grace', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', userId: 'user-1', body: 'One', updatedAt: null });
+
+    expect(messageModel.related.user.get('message-1')?.id).toBe('user-1');
+    expect(messageModel.related.user.get(null)).toBeUndefined();
+    expect(messageModel.related.user.get(undefined)).toBeUndefined();
+
+    const hook = renderHook<string | null | undefined, UserRow | undefined>(childId => messageModel.related.user.use(childId), undefined);
+    await hook.flush();
+    expect(hook.current).toBeUndefined();
+
+    act(() => {
+      userModel.patch('user-1', { name: 'Ada Updated', updatedAt: '2000-01-02T00:00:00.000Z' });
+    });
+    await hook.flush();
+    expect(hook.current).toBeUndefined();
+
+    hook.rerender('message-1');
+    await hook.flush();
+    expect(hook.current?.id).toBe('user-1');
+    expect(hook.current?.name).toBe('Ada Updated');
+
+    act(() => {
+      userModel.patch('user-1', { name: 'Ada Live', updatedAt: '2000-01-03T00:00:00.000Z' });
+    });
+    await hook.flush();
+    expect(hook.current?.name).toBe('Ada Live');
+
+    act(() => {
+      messageModel.patch('message-1', { userId: 'user-2', updatedAt: '2000-01-04T00:00:00.000Z' });
+    });
+    await hook.flush();
+    expect(hook.current?.id).toBe('user-2');
+
+    hook.rerender(null);
+    await hook.flush();
+    expect(hook.current).toBeUndefined();
+
+    hook.unmount();
+  });
+
+  it('exposes belongsTo row-level snapshots', () => {
+    installMemoryStorage();
+    const userModel = defineUserModel('relation-belongs-row-user');
+    const messageModel = defineMessageModel('relation-belongs-row-message', () => ({
+      user: belongsTo(userModel, { foreignKey: 'userId' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', userId: 'user-1', body: 'One', updatedAt: null });
+
+    const message = messageModel.get('message-1')!;
+    expect(message.related.user?.id).toBe('user-1');
+
+    userModel.patch('user-1', { name: 'Ada Snapshot', updatedAt: '2000-01-02T00:00:00.000Z' });
+    expect(message.related.user?.name).toBe('Ada Snapshot');
+  });
+
+  it('keeps belongsTo out of cascade destroy', () => {
+    installMemoryStorage();
+    const userModel = defineUserModel('relation-belongs-cascade-user');
+    const messageModel = defineMessageModel('relation-belongs-cascade-message', () => ({
+      user: belongsTo(userModel, { foreignKey: 'userId' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', userId: 'user-1', body: 'One', updatedAt: null });
+
+    expect(messageModel.destroy('message-1')).toBe(true);
+    expect(userModel.get('user-1')?.name).toBe('Ada');
+
+    messageModel.insertStored({ id: 'message-2', chatId: 'chat-1', userId: 'user-1', body: 'Two', updatedAt: null });
+    expect(userModel.destroy('user-1')).toBe(true);
+    expect(messageModel.get('message-2')?.body).toBe('Two');
+  });
+
+  it('touches belongsTo parents only for local child writes', () => {
+    installMemoryStorage();
+    const userModel = defineUserModel('relation-touch-user');
+    const messageModel = defineMessageModel('relation-touch-message', () => ({
+      user: belongsTo(userModel, { foreignKey: 'userId', touch: true })
+    }));
+
+    userModel.insertStored({ id: 'user-insert', name: 'Insert', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.insertStored({ id: 'message-insert', chatId: 'chat-1', userId: 'user-insert', body: 'Insert', updatedAt: null });
+    expect(userModel.get('user-insert')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+
+    userModel.insertStored({ id: 'user-patch', name: 'Patch', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.applyServerData([{ id: 'message-patch', chatId: 'chat-1', userId: 'user-patch', body: 'Patch', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+    expect(userModel.get('user-patch')?.updatedAt).toBe('2000-01-01T00:00:00.000Z');
+    messageModel.patch('message-patch', { body: 'Patched', updatedAt: '2000-01-02T00:00:00.000Z' });
+    expect(userModel.get('user-patch')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+
+    userModel.insertStored({ id: 'user-replace', name: 'Replace', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.applyServerData([{ id: 'message-replace-old', chatId: 'chat-1', userId: 'user-replace', body: 'Old', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+    expect(userModel.get('user-replace')?.updatedAt).toBe('2000-01-01T00:00:00.000Z');
+    expect(messageModel.replaceRaw('message-replace-old', { id: 'message-replace-new', chatId: 'chat-1', userId: 'user-replace', body: 'New' })).toBe(true);
+    expect(userModel.get('user-replace')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+
+    userModel.insertStored({ id: 'user-server', name: 'Server', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.applyServerData([{ id: 'message-server', chatId: 'chat-1', userId: 'user-server', body: 'Server', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+    expect(userModel.get('user-server')?.updatedAt).toBe('2000-01-01T00:00:00.000Z');
+
+    userModel.insertStored({ id: 'user-destroy', name: 'Destroy', updatedAt: '2000-01-01T00:00:00.000Z' });
+    messageModel.applyServerData([{ id: 'message-destroy', chatId: 'chat-1', userId: 'user-destroy', body: 'Destroy', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+    expect(messageModel.destroy('message-destroy')).toBe(true);
+    expect(userModel.get('user-destroy')?.updatedAt).toBe('2000-01-01T00:00:00.000Z');
+
+    expect(() => messageModel.insertStored({ id: 'message-missing', chatId: 'chat-1', userId: 'missing-user', body: 'Missing', updatedAt: null })).not.toThrow();
+  });
+
+  it('limits belongsTo touch propagation to one level', () => {
+    installMemoryStorage();
+    const orgModel = defineOrgModel('relation-touch-org');
+    const userModel = defineUserModel('relation-touch-chain-user', () => ({
+      org: belongsTo(orgModel, { foreignKey: 'orgId', touch: true })
+    }));
+    const messageModel = defineMessageModel('relation-touch-chain-message', () => ({
+      user: belongsTo(userModel, { foreignKey: 'userId', touch: true })
+    }));
+
+    orgModel.insertStored({ id: 'org-1', name: 'Org', updatedAt: '2000-01-01T00:00:00.000Z' });
+    userModel.applyServerData([{ id: 'user-1', name: 'Ada', orgId: 'org-1', updatedAt: '2000-01-01T00:00:00.000Z' }], { mode: 'merge' });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', userId: 'user-1', body: 'One', updatedAt: null });
+
+    expect(userModel.get('user-1')?.updatedAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(orgModel.get('org-1')?.updatedAt).toBe('2000-01-01T00:00:00.000Z');
+  });
+
   it('throws model-prefixed errors for invalid hasManyThrough names', () => {
     installMemoryStorage();
     const messageModel = defineMessageModel('relation-invalid-message');
@@ -437,6 +608,28 @@ describe('model relations', () => {
       void rowChatRows;
       void rowMessageRows;
       void count;
+    }
+  });
+
+  it('infers belongsTo accessors and row-chain parent types', () => {
+    installMemoryStorage();
+    const userModel = defineUserModel('relation-belongs-type-user');
+    const messageModel = defineMessageModel('relation-belongs-type-message', () => ({
+      user: belongsTo(userModel, { foreignKey: 'userId' })
+    }));
+
+    const parentRow: UserRow | undefined = messageModel.related.user.get('message-1');
+    const rowParent: UserRow | undefined = messageModel.get('message-1')?.related.user;
+    expect(parentRow).toBeUndefined();
+    expect(rowParent).toBeUndefined();
+    expect(Object.keys(messageModel.related)).toEqual(['user']);
+
+    if (false) {
+      // @ts-expect-error singular belongsTo accessors do not expose count
+      messageModel.related.user.count('message-1');
+      // @ts-expect-error belongsTo returns one parent row, not an array
+      const wrongRows: UserRow[] = messageModel.related.user.get('message-1');
+      void wrongRows;
     }
   });
 
@@ -699,6 +892,7 @@ describe('model relations', () => {
     expect('related' in plainModel).toBe(false);
     expect('related' in plainModel.get('plain-1')!).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(plainModel.get('plain-1')!, 'related')).toBe(false);
+    expect(relations).toHaveBeenCalledTimes(1);
 
     if (false) {
       // @ts-expect-error plain rows do not expose row-level relations
@@ -706,7 +900,7 @@ describe('model relations', () => {
     }
 
     expect(userModel.destroy('missing')).toBe(false);
-    expect(relations).not.toHaveBeenCalled();
+    expect(relations).toHaveBeenCalledTimes(1);
 
     expect(userModel.destroy('user-1')).toBe(true);
     expect(userModel.destroy('user-2')).toBe(true);
