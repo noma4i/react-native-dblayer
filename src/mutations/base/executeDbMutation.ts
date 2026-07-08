@@ -90,7 +90,7 @@ export const applyDbMutationCommit = <TData, TInput, TContext, TStored, TServerN
   context: TContext
 ): void => {
   if (config.extract) {
-    getDbExtractSink()(getDbMutationExtractResolver()(config.extract, result), 'mutation');
+    getDbExtractSink()(getDbMutationExtractResolver()(config.extract, result), config.extractSource ?? 'mutation');
   }
   applyOptimisticMutationCommit(config, result, input, context);
   (config.onCommit as ((data: TData | null, input: TInput, context: unknown) => void) | undefined)?.(result, input, context);

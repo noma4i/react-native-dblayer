@@ -87,7 +87,7 @@ export const runDbQueryDirect = async <
   const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars as Record<string, unknown> | undefined });
   const data = response.data;
   const selected = (config.select ?? identitySelect<TResponse, TSelected>)(data);
-  getDbExtractSink()(config.extract?.({ data, selected }), 'query');
+  getDbExtractSink()(config.extract?.({ data, selected }), config.extractSource ?? 'query');
   applySingleSync(selected, config.sync);
 
   if (config.read?.model.markFetched) {
@@ -133,7 +133,7 @@ export const runDbInfiniteQueryDirect = async <TResponse, TNode, TVariables = Re
   applyNodePatch(nodes, config.patchNode, resolvedPatchState, pageParam);
 
   if (config.extract) {
-    getDbExtractSink()(config.extract({ data, nodes }), 'query');
+    getDbExtractSink()(config.extract({ data, nodes }), config.extractSource ?? 'query');
   }
 
   const modelFilter = buildModelFilter(resolveRequestFilter(config.filter, config.scope), config.currentUserId?.());

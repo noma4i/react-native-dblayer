@@ -1,4 +1,5 @@
 import type { DbCommandMutationConfig, DbGraphQLDocument } from '../../types';
+import { getDbExtractSink, getDbMutationExtractResolver } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
 import { capitalize } from './mutationConfig';
 import { useCommandMutation } from './useCommandMutation';
@@ -26,6 +27,11 @@ const resolveCommandConfig = <TData, TInput>(
   };
 };
 
+const applyCommandExtract = <TData, TInput>(config: DbCommandMutationConfig<TInput, TData>, result: TData | null): void => {
+  if (!config.extract) return;
+  getDbExtractSink()(getDbMutationExtractResolver()(config.extract, result), config.extractSource ?? 'mutation');
+};
+
 /**
  * Run a command mutation outside React without optimistic writes or invalidation.
  * @param config Same config accepted by `useCommand`; `key` and `logPrefix` are hook-only.
@@ -38,7 +44,9 @@ export const runDbCommandDirect = async <TData, TInput>(config: DbCommandMutatio
     mutation,
     variables: { input: mappedInput }
   });
-  return result.data[resultField] ?? null;
+  const selected = result.data[resultField] ?? null;
+  applyCommandExtract(config, selected);
+  return selected;
 };
 
 /**
@@ -66,6 +74,8 @@ export const useCommand = <TData, TInput>(config: DbCommandMutationConfig<TInput
         mutation,
         variables
       });
-      return result.data[resultField];
+      const selected = result.data[resultField];
+      applyCommandExtract(config, selected ?? null);
+      return selected;
     }
   });

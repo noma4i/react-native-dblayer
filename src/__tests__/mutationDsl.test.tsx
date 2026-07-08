@@ -1105,6 +1105,38 @@ describe('mutation DSL runtime', () => {
     expect(mutationSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ variables: { input: { id: 'missing' } } }));
   });
 
+  it('resolves command extracts through the mutation extract seam with custom sources', async () => {
+    const resolver = jest.fn(() => ({ commands: [{ id: 'command-1' }] }));
+    const sink = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            commandRun: { ok: true }
+          }
+        })
+      }),
+      extract: { sink, mutationResolver: resolver }
+    });
+
+    const extractSpec = { command: true };
+    await expect(
+      runDbCommandDirect<{ ok: boolean }, { id: string }>(
+        {
+          mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunCommandExtract'),
+          resultField: 'commandRun',
+          extract: extractSpec,
+          extractSource: 'commandSync'
+        },
+        { id: 'command-1' }
+      )
+    ).resolves.toEqual({ ok: true });
+
+    expect(resolver).toHaveBeenCalledWith(extractSpec, { ok: true });
+    expect(sink).toHaveBeenCalledWith({ commands: [{ id: 'command-1' }] }, 'commandSync');
+  });
+
   it('applies direct patch mutations before transport and keeps the patch when transport rejects', async () => {
     const model = createTodoModel();
     model.insertStored({ id: 'direct-patch', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
@@ -1296,5 +1328,35 @@ describe('mutation DSL runtime', () => {
     expect(sink).toHaveBeenCalledWith({ users: [{ id: 'u1' }] }, 'mutation');
 
     hook.unmount();
+  });
+
+  it('passes custom mutation extract sources to the extract sink', async () => {
+    const resolver = jest.fn(() => ({ todos: [{ id: 'server-custom-source' }] }));
+    const sink = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            todoCreate: { id: 'server-custom-source', title: 'Custom source', listId: null, done: false, updatedAt: '2026-01-02T00:00:00.000Z' }
+          }
+        })
+      }),
+      extract: { sink, mutationResolver: resolver }
+    });
+
+    const extractSpec = { todo: true };
+    await runDbMutationDirect<Todo, { title: string }>(
+      {
+        mutation: document<Record<string, Todo>, { input: unknown }>('CreateTodoWithCustomExtractSource'),
+        resultField: 'todoCreate',
+        extract: extractSpec,
+        extractSource: 'chatSync'
+      },
+      { title: 'Custom source' }
+    );
+
+    expect(resolver).toHaveBeenCalledWith(extractSpec, expect.objectContaining({ id: 'server-custom-source' }));
+    expect(sink).toHaveBeenCalledWith({ todos: [{ id: 'server-custom-source' }] }, 'chatSync');
   });
 });

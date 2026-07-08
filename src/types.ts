@@ -902,8 +902,10 @@ export type DbRequestSingleConfig<
   map?: (selected: TSelected) => TResult;
   /** Write selected data to a model or custom sync function. */
   sync?: ((selected: TSelected) => void) | SyncConfig;
-  /** Side-load payload passed to the extract sink with source `query`. */
+  /** Side-load payload passed to the extract sink. */
   extract?: (params: { data: TResponse; selected: TSelected }) => unknown;
+  /** Source label passed to the extract sink; defaults to `query`. */
+  extractSource?: string;
   /** Reactive read returned from the model after the query writes. */
   read?: TRead;
   /**
@@ -939,8 +941,10 @@ export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string
   getPageVars?: (pageParam: string) => Record<string, unknown>;
   /** Decorate each node before writing it. */
   patchNode?: (node: TNode, context: DbInfinitePatchContext) => Record<string, unknown> | null | undefined;
-  /** Side-load payload passed to the extract sink with source `query`. */
+  /** Side-load payload passed to the extract sink. */
   extract?: (params: { data: TResponse; nodes: TNode[] }) => unknown;
+  /** Source label passed to the extract sink; defaults to `query`. */
+  extractSource?: string;
   /** Override how each page is written to the collection. */
   resolveSyncContract?: (context: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
   /** Collection binding that stores page nodes and reads them reactively. */
@@ -1068,6 +1072,8 @@ type DbMutationSharedConfig<TData, TInput, TContext> = {
   logPrefix?: string;
   /** Side-load spec resolved through the mutation extract seam. */
   extract?: DbExtractSpec;
+  /** Source label passed to the extract sink; defaults to `mutation`. */
+  extractSource?: string;
   /** Server write-through that runs inside the transaction after the response. */
   onCommit?: (data: TData | null, input: TInput, context: TContext) => void;
   /** Post-commit invalidation hook. */
@@ -1215,6 +1221,10 @@ type DbCommandMutationBase = {
   key?: () => readonly unknown[];
   /** Log tag for command lifecycle messages. */
   logPrefix?: string;
+  /** Side-load spec resolved through the mutation extract seam after the transport response. */
+  extract?: DbExtractSpec;
+  /** Source label passed to the extract sink; defaults to `mutation`. */
+  extractSource?: string;
 };
 
 type DbCommandStaticConfig<TInput, TData> = DbCommandMutationBase & {

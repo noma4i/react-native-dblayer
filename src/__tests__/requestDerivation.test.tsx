@@ -10,6 +10,7 @@ import {
   modelDetailRequest,
   runDbInfiniteQueryDirect,
   runDbQueryDirect,
+  setDbExtractSink,
   stableSerialize,
   useDbInfiniteRequest,
   useDbSingleRequest
@@ -113,6 +114,7 @@ type TodoConnectionResponse = {
 
 describe('request config derivation', () => {
   afterEach(async () => {
+    setDbExtractSink(() => {});
     await flush();
     devClearAllDataAndState();
   });
@@ -220,13 +222,14 @@ describe('request config derivation', () => {
         select: data => data.todo,
         sync: { model, contract: 'direct-selected' },
         extract: ({ selected }) => ({ todos: [selected] }),
+        extractSource: 'selectedQuery',
         map: selected => selected.title
       })
     ).resolves.toBe('Selected');
 
     expect(model.get('todo-selected')?.title).toBe('Selected');
     expect(model.get('todo-ignored')).toBeUndefined();
-    expect(sink).toHaveBeenCalledWith({ todos: [expect.objectContaining({ id: 'todo-selected' })] }, 'query');
+    expect(sink).toHaveBeenCalledWith({ todos: [expect.objectContaining({ id: 'todo-selected' })] }, 'selectedQuery');
   });
 
   it('uses the full response as the direct single request default selection', async () => {
@@ -430,6 +433,40 @@ describe('request config derivation', () => {
     await runDbInfiniteQueryDirect(explicitConfig);
 
     expect(applyServerData).toHaveBeenNthCalledWith(3, expect.any(Array), { mode: 'replace', source: 'explicit', scope: { listId: 'inbox' } });
+  });
+
+  it('passes custom infinite request extract sources to the extract sink', async () => {
+    const sink = jest.fn();
+    const read = {
+      applyServerData: jest.fn(),
+      useData: () => [],
+      shouldSkipInitialFetch: () => false,
+      markFetched: jest.fn()
+    };
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async () => ({
+          data: {
+            todos: {
+              nodes: [{ id: 'todo-extract-source', title: 'Extract source', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: 'cursor-1', endCursor: 'cursor-1' }
+            }
+          }
+        })
+      }),
+      extract: { sink }
+    });
+
+    await runDbInfiniteQueryDirect<TodoConnectionResponse, Todo>({
+      query: document<TodoConnectionResponse>('ExtractSourceTodos'),
+      selectPage: data => data.todos,
+      extract: ({ nodes }) => ({ todos: nodes }),
+      extractSource: 'pagedQuery',
+      read
+    });
+
+    expect(sink).toHaveBeenCalledWith({ todos: [expect.objectContaining({ id: 'todo-extract-source' })] }, 'pagedQuery');
   });
 
   it('passes globalIndex to patchNode across pages and resets it on an initial fetch', async () => {
