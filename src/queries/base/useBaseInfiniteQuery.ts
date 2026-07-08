@@ -71,7 +71,7 @@ const useCollectionFetchStateVersion = <TData, TNode>(config: InfiniteQueryConfi
 export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>): InfiniteQueryResult<TNode> => {
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
-  const isInactive = config.inactive === true;
+  const isInactive = config.enabled === false;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isManualLoadingMore, setIsManualLoadingMore] = useState(false);
   const filter = useMemo(() => buildModelFilter(config.getFilter?.(), config.getCurrentUserId?.()), [config.getCurrentUserId, config.getFilter]);
@@ -93,7 +93,7 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
     queryFn: ({ pageParam }) => config.queryFn({ pageParam }),
     initialPageParam: undefined,
     getNextPageParam: lastPage => getNextCursor(config, lastPage),
-    enabled: config.enabled !== false && !isInactive && !isRestoring && !shouldSkipInitialFetch,
+    enabled: !isInactive && !isRestoring && !shouldSkipInitialFetch,
     staleTime: config.staleTime,
     gcTime: config.gcTime,
     refetchOnMount: config.refetchOnMount
@@ -101,8 +101,8 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
 
   const pages = result.data?.pages ?? (EMPTY_PAGES as TData[]);
   const lastPage = pages.at(-1);
-  const collectionReadInactive = isInactive || readMode === 'none';
-  const collectionData = config.collection.useData(filter, collectionReadInactive);
+  const collectionReadDisabled = isInactive || readMode === 'none';
+  const collectionData = config.collection.useData(filter, collectionReadDisabled);
   const finalData = (readMode === 'none' ? EMPTY_PAGES : collectionData) as TNode[];
   const hasData = finalData.length > 0;
   const fallbackPageInfo = fetchState?.pageInfo;

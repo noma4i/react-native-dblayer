@@ -72,7 +72,7 @@ const applyNodePatch = <TNode>(nodes: TNode[], patchNode: DbRequestInfiniteConfi
 
 /**
  * Run a single request config outside React.
- * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, `inactive`, and `refetchOnMount` are hook-only.
+ * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, and `refetchOnMount` are hook-only.
  * @returns Selected or mapped result, or null when `read` owns the reactive data.
  */
 export const runDbQueryDirect = async <TResponse, TResult = unknown, TSelected = unknown, TVariables = Record<string, unknown>>(

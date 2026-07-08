@@ -86,7 +86,7 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
     throw new Error('createCollectionBinding received both `sortField` and `comparator`. Use one ordering strategy.');
   }
 
-  const readRows = (filter: unknown, inactive: boolean): TStored[] => {
+  const readRows = (filter: unknown, disabled: boolean): TStored[] => {
     const col = model.collection;
     const sortField = readConfig?.sortField;
     const sortDir = readConfig?.sortDirection ?? 'desc';
@@ -94,7 +94,7 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
 
     const { data } = useLiveQuery(
       q => {
-        if (inactive) return undefined;
+        if (disabled) return undefined;
         let query = q.from({ items: col });
         for (const [field, value] of scopeEntries) {
           if (value === null) {
@@ -108,16 +108,16 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
         }
         return query;
       },
-      [inactive, ...scopeEntries.map(([, v]) => v)]
+      [disabled, ...scopeEntries.map(([, v]) => v)]
     );
 
-    if (inactive) return EMPTY as TStored[];
+    if (disabled) return EMPTY as TStored[];
     const rows = (data ?? EMPTY) as TStored[];
     return readConfig?.comparator && rows.length > 1 ? [...rows].sort(readConfig.comparator) : rows;
   };
 
   const readScope = (filter: unknown): Partial<TStored> | undefined => toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap);
-  const isDisabledScopedRead = (argsLength: number, filter: unknown, inactive: boolean): boolean => inactive || Boolean(readConfig?.scopeMap && hasExplicitNullishFilter(argsLength, filter));
+  const isDisabledScopedRead = (argsLength: number, filter: unknown, disabled: boolean): boolean => disabled || Boolean(readConfig?.scopeMap && hasExplicitNullishFilter(argsLength, filter));
 
   return {
     _dbModel: model,
@@ -146,19 +146,19 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
       return model.applyServerData(items, contract);
     },
 
-    useData(filter?: unknown, inactive = false): TRead[] {
-      const disabled = isDisabledScopedRead(arguments.length, filter, inactive);
-      const rows = readRows(filter, disabled);
+    useData(filter?: unknown, disabled = false): TRead[] {
+      const readDisabled = isDisabledScopedRead(arguments.length, filter, disabled);
+      const rows = readRows(filter, readDisabled);
       const overrideRows = readConfig?.useData
         ? readConfig.useData({
           filter,
           scope: readScope(filter),
           rows,
-          inactive: disabled || inactive,
+          disabled: readDisabled || disabled,
           empty: EMPTY as TRead[]
         })
         : undefined;
-      if (disabled) return EMPTY as TRead[];
+      if (readDisabled) return EMPTY as TRead[];
       if (overrideRows) return overrideRows;
       return rows as unknown as TRead[];
     },

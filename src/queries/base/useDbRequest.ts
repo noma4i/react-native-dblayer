@@ -82,14 +82,13 @@ export const useDbSingleRequest = <TResponse, TResult = unknown, TSelected = unk
       queryKey,
       queryFn: () => runDbQueryDirect(configRef.current),
       collection,
-      inactive: config.inactive,
       enabled: config.enabled,
       staleTime: config.staleTime,
       emptyStaleTime: config.emptyStaleTime,
       gcTime: config.gcTime,
       refetchOnMount: config.refetchOnMount
     }),
-    [collection, config.emptyStaleTime, config.enabled, config.gcTime, config.inactive, keySignature, config.query, config.refetchOnMount, config.staleTime]
+    [collection, config.emptyStaleTime, config.enabled, config.gcTime, keySignature, config.query, config.refetchOnMount, config.staleTime]
   );
 
   return useBaseQuery<TResult>(baseConfig);
@@ -124,7 +123,6 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
       queryKey,
       queryFn: ({ pageParam }: { pageParam?: string }) => runDbInfiniteQueryDirect(configRef.current, pageParam, patchStateRef.current),
       extract,
-      inactive: config.inactive,
       ...(config.getCursor ? { getCursor: data => configRef.current.getCursor!(data) } : {}),
       enabled: config.enabled,
       staleTime: config.staleTime,
@@ -144,7 +142,6 @@ export const useDbInfiniteRequest = <TResponse, TNode, TVariables = Record<strin
     config.enabled,
     config.gcTime,
     config.getCursor,
-    config.inactive,
     keySignature,
     config.query,
     config.read,

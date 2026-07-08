@@ -11,6 +11,7 @@ const document = <TData, TVariables = Record<string, unknown>>(name: string): Db
 type HookResult<T> = {
   current: T;
   flush: () => Promise<void>;
+  rerender: () => void;
   unmount: () => void;
 };
 
@@ -47,6 +48,15 @@ const renderQueryHook = <T,>(read: () => T, options?: { queryClient?: QueryClien
     async flush() {
       await act(async () => {
         await flush();
+      });
+    },
+    rerender() {
+      act(() => {
+        renderer.update(
+          <QueryClientProvider client={queryClient}>
+            <Harness />
+          </QueryClientProvider>
+        );
       });
     },
     unmount() {
@@ -394,5 +404,168 @@ describe('request DSL runtime', () => {
     expect(query).toHaveBeenCalledTimes(1);
     second.unmount();
     queryClient.clear();
+  });
+
+  it('marks a single request idle (not initial_loading) while enabled is false, without calling queryFn', async () => {
+    const model = createTodoModel({ id: 'disabled-single' });
+    const query = jest.fn(async () => ({
+      data: { todo: { id: 'todo-1', title: 'Todo', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' } }
+    }));
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({ query }) });
+
+    const hook = renderQueryHook(() =>
+      useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+        query: document<{ todo: Todo }>('DisabledSingleTodo'),
+        key: ['disabled-single'],
+        select: data => data.todo,
+        read: { model, id: 'todo-1' },
+        enabled: false
+      })
+    );
+
+    await hook.flush();
+
+    expect(query).not.toHaveBeenCalled();
+    expect(hook.current.loadingState.phase).toBe('idle');
+    expect(hook.current.loadingState.showSkeleton).toBe(false);
+    expect(hook.current.data).toBeUndefined();
+
+    hook.unmount();
+  });
+
+  it('marks an infinite request idle while enabled is false and blocks the imperative loadMore/refetch fallback paths from calling queryFn', async () => {
+    const model = createTodoModel({ id: 'disabled-infinite' });
+    const binding = createCollectionBinding(model);
+    const query = jest.fn(async () => ({
+      data: {
+        todos: {
+          nodes: [{ id: 'todo-1', title: 'Todo', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }],
+          pageInfo: { hasNextPage: true, hasPreviousPage: false, startCursor: 'cursor-1', endCursor: 'cursor-1' }
+        }
+      }
+    }));
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({ query }) });
+
+    type TodoConnectionResponse = {
+      todos: ConnectionWithNodes & {
+        pageInfo?: PageInfoInput | null;
+      };
+    };
+
+    const hook = renderQueryHook(() =>
+      useDbInfiniteRequest<TodoConnectionResponse, Todo>({
+        query: document<TodoConnectionResponse>('DisabledInfiniteTodos'),
+        key: ['disabled-infinite'],
+        selectPage: data => data.todos,
+        read: binding,
+        enabled: false
+      })
+    );
+
+    await hook.flush();
+
+    expect(query).not.toHaveBeenCalled();
+    expect(hook.current.loadingState.phase).toBe('idle');
+    expect(hook.current.loadingState.showSkeleton).toBe(false);
+    expect(hook.current.data).toEqual([]);
+
+    act(() => {
+      hook.current.loadMore();
+    });
+    await hook.flush();
+    expect(query).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await hook.current.refetch();
+    });
+    await hook.flush();
+    expect(query).not.toHaveBeenCalled();
+
+    hook.unmount();
+  });
+
+  it('starts fetching once enabled flips from false to true on a mounted single request', async () => {
+    const model = createTodoModel({ id: 'flip-enabled-single' });
+    const query = jest.fn(async () => ({
+      data: { todo: { id: 'todo-1', title: 'Flipped', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' } }
+    }));
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({ query }) });
+
+    let enabled = false;
+    const hook = renderQueryHook(() =>
+      useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+        query: document<{ todo: Todo }>('FlipEnabledSingleTodo'),
+        key: ['flip-enabled-single'],
+        select: data => data.todo,
+        sync: { model, contract: 'flip-enabled' },
+        read: { model, id: 'todo-1' },
+        enabled
+      })
+    );
+
+    await hook.flush();
+    expect(query).not.toHaveBeenCalled();
+    expect(hook.current.loadingState.phase).toBe('idle');
+
+    enabled = true;
+    hook.rerender();
+    await hook.flush();
+    await hook.flush();
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(hook.current.data?.title).toBe('Flipped');
+    expect(hook.current.loadingState.phase).toBe('ready');
+
+    hook.unmount();
+  });
+
+  it('skips the freshness-gate computation while enabled is false', async () => {
+    const model = createTodoModel({ id: 'disabled-freshness-skip', staleTime: 1000 });
+    model.markFetched({ id: 'todo-1' }, { empty: false });
+    const getFetchStateSpy = jest.spyOn(model, 'getFetchState');
+    const shouldSkipInitialFetchSpy = jest.spyOn(model, 'shouldSkipInitialFetch');
+    const query = jest.fn(async () => ({
+      data: { todo: { id: 'todo-1', title: 'Cached', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' } }
+    }));
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({ query }) });
+
+    const hook = renderQueryHook(() =>
+      useDbSingleRequest<{ todo: Todo }, Todo, Todo>({
+        query: document<{ todo: Todo }>('DisabledFreshnessSkipTodo'),
+        key: ['disabled-freshness-skip'],
+        select: data => data.todo,
+        read: { model, id: 'todo-1' },
+        enabled: false,
+        staleTime: 1000
+      })
+    );
+
+    await hook.flush();
+
+    expect(getFetchStateSpy).not.toHaveBeenCalled();
+    expect(shouldSkipInitialFetchSpy).not.toHaveBeenCalled();
+
+    hook.unmount();
+  });
+
+  it('suppresses a collection binding read via disabled even with a non-nullish scope object, returning stable EMPTY', async () => {
+    const model = createTodoModel();
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({}) });
+    model.insertStored({ id: 'todo-a', title: 'Alpha', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+
+    const binding = createCollectionBinding(model, { scopeMap: { listId: 'listId' } });
+    // `{ listId: null }` is a defined, non-nullish scope object - it would normally match rows whose listId is null.
+    // `disabled: true` must suppress the read regardless, mirroring useChatThread's `scope: { chatId: chatId ?? null }`.
+    const hook = renderQueryHook(() => binding.useData({ listId: null }, true));
+
+    await hook.flush();
+    const firstRows = hook.current;
+
+    await hook.flush();
+
+    expect(hook.current).toBe(firstRows);
+    expect(hook.current).toEqual([]);
+
+    hook.unmount();
   });
 });

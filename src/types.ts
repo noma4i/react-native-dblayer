@@ -554,8 +554,8 @@ export type CollectionBindingUseDataContext<TStored, TRead = TStored> = {
   scope: Partial<TStored> | undefined;
   /** Rows read from the bound model after scope filtering and ordering. */
   rows: TStored[];
-  /** Whether the owning query has disabled collection reads. */
-  inactive: boolean;
+  /** Whether the owning query has disabled collection reads (derived from `enabled === false`). */
+  disabled: boolean;
   /** Stable empty result for no-data projections. */
   empty: TRead[];
 };
@@ -673,9 +673,12 @@ export type BaseQueryConfig<TData> = {
   queryKey: readonly unknown[];
   /** Function that resolves query data. */
   queryFn: () => Promise<TData>;
-  /** Whether the owning screen is inactive for loading-state purposes. */
-  inactive?: boolean;
-  /** Gate query execution. */
+  /**
+   * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
+   * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
+   * `hasFetchedData` is `false`, and the derived loading phase is `'idle'` (not `'initial_loading'`),
+   * so `showSkeleton` stays `false` while disabled instead of showing a skeleton with no active fetch.
+   */
   enabled?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
@@ -753,9 +756,14 @@ export type InfiniteQueryConfig<TData, TNode> = {
   queryFn: (params: { pageParam?: string }) => Promise<TData>;
   /** Extract nodes and pagination metadata from page data. */
   extract: (data: TData) => ConnectionResult<TNode>;
-  /** Whether the owning screen is inactive for loading-state purposes. */
-  inactive?: boolean;
-  /** Gate query execution. */
+  /**
+   * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
+   * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
+   * `hasFetchedData` is `false`, the derived loading phase is `'idle'` (not `'initial_loading'`, so
+   * `showSkeleton` stays `false` while disabled), and the imperative `loadMore`/`refresh` triggers
+   * early-return instead of calling `queryFn` directly (their fallback branches bypass this `enabled`
+   * gate otherwise).
+   */
   enabled?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
@@ -782,8 +790,8 @@ export type InfiniteQueryConfig<TData, TNode> = {
     _dbScope?: (filter?: unknown) => object | undefined;
     /** Write extracted nodes to the collection. */
     applyServerData: (items: unknown[], contract: SyncContract) => void;
-    /** React hook: read paged data from the collection. */
-    useData: (filter?: unknown, inactive?: boolean) => TNode[];
+    /** React hook: read paged data from the collection. `disabled` suppresses the read (derived from `enabled === false`) independent of the filter's own nullishness. */
+    useData: (filter?: unknown, disabled?: boolean) => TNode[];
     /** React hook: count rows matching the runtime filter. Explicit nullish filters return 0. */
     count?: (filter?: unknown | null) => number;
     /** Freshness gate for the page scope. */
@@ -834,15 +842,13 @@ export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unkn
   /** Reactive read returned from the model after the query writes. */
   read?: BaseQueryCollection;
   /**
-   * Gate query execution.
+   * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
+   * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
+   * `hasFetchedData` is `false`, and the derived loading phase is `'idle'` (not `'initial_loading'`),
+   * so `showSkeleton` stays `false` while disabled instead of showing a skeleton with no active fetch.
    * @default true
    */
   enabled?: boolean;
-  /**
-   * Mark the owning screen inactive for loading-state purposes.
-   * @default false
-   */
-  inactive?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
   /** Freshness window for known-empty DB scopes in milliseconds. */
@@ -864,8 +870,6 @@ export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string
   vars?: TVariables;
   /** Scope values used as default query variables and, when `filter` is omitted, as the read/write filter. */
   scope?: unknown | (() => unknown);
-  /** Whether the owning screen is inactive for loading-state purposes. */
-  inactive?: boolean;
   /** Map a cursor to page-specific variables. */
   getPageVars?: (pageParam: string) => Record<string, unknown>;
   /** Decorate each node before writing it. */
@@ -893,7 +897,12 @@ export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string
    */
   direction?: 'forward' | 'backward';
   /**
-   * Gate query execution.
+   * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
+   * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
+   * `hasFetchedData` is `false`, the derived loading phase is `'idle'` (not `'initial_loading'`, so
+   * `showSkeleton` stays `false` while disabled), and the imperative `loadMore`/`refresh` triggers
+   * early-return instead of calling `queryFn` directly (their fallback branches bypass this `enabled`
+   * gate otherwise).
    * @default true
    */
   enabled?: boolean;

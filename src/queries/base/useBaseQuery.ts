@@ -69,7 +69,7 @@ const useCollectionFetchStateVersion = (collection: BaseQueryConfig<unknown>['co
 export const useBaseQuery = <TData>(config: BaseQueryConfig<TData>): BaseQueryResult<TData> => {
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
-  const isInactive = config.inactive === true;
+  const isInactive = config.enabled === false;
   const freshnessVersion = useCollectionFetchStateVersion(config.collection);
   const hasQueryData = (queryClient.getQueryState(config.queryKey)?.dataUpdatedAt ?? 0) > 0;
   const { fetchState, shouldSkip: shouldSkipInitialFetch } = useMemo(() => {
@@ -85,7 +85,7 @@ export const useBaseQuery = <TData>(config: BaseQueryConfig<TData>): BaseQueryRe
   const result = useQuery<TData, Error>({
     queryKey: config.queryKey,
     queryFn: config.queryFn,
-    enabled: config.enabled !== false && !isInactive && !isRestoring && !shouldSkipInitialFetch,
+    enabled: !isInactive && !isRestoring && !shouldSkipInitialFetch,
     staleTime: config.staleTime,
     gcTime: config.gcTime,
     refetchOnMount: config.refetchOnMount

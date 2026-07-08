@@ -28,10 +28,13 @@ export type ModelDetailRequestConfig<TResponse, TSelected, TResult = TSelected, 
    * @default true
    */
   read?: boolean;
-  /** Gate query execution. Combined with `Boolean(id)`. */
+  /**
+   * Gate query execution, combined with `Boolean(id)`. `false` (or a missing `id`) marks the query
+   * fully inactive: the network request is disabled, the freshness gate is skipped, the collection
+   * read is suppressed, `data` is `undefined`, `hasFetchedData` is `false`, and the derived loading
+   * phase is `'idle'` (not `'initial_loading'`), so `showSkeleton` stays `false` while disabled.
+   */
   enabled?: DetailEnabled;
-  /** Mark the owning screen inactive for loading-state purposes. */
-  inactive?: boolean;
   /** React Query freshness window in milliseconds. */
   staleTime?: number;
   /** Freshness window for known-empty DB scopes in milliseconds. */
@@ -83,7 +86,6 @@ export const modelDetailRequest = <
     ...(config.extract ? { extract: config.extract } : {}),
     ...(readEnabled ? { read: { model, id } } : {}),
     enabled: resolveDetailEnabled(id, config.enabled),
-    inactive: config.inactive,
     staleTime: config.staleTime,
     emptyStaleTime: config.emptyStaleTime,
     gcTime: config.gcTime,
