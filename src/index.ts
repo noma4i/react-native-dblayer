@@ -79,6 +79,7 @@ export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventA
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { readBoolean, readId, readNullableNumber, readNullableString, readNumber, readString, toRequiredStr, toStr } from './utils/normalizeHelpers';
 export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
+export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export {
   createNestedObjectPatcher,
@@ -110,6 +111,7 @@ export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseIn
 export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
 export type { ModelStatusPoller, ModelStatusPollerConfig } from './utils/modelStatusPoller';
+export type { MergeOptimisticMediaOptions } from './utils/optimisticMedia';
 export type {
   NestedObjectPatcher,
   IdArrayPatcher,
