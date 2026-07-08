@@ -1,4 +1,4 @@
-import type { CollectionModel, ModelInstance, ModelRelation } from '../types';
+import type { CollectionModel, ModelInstance, ModelRelation, StoredWriteInput } from '../types';
 
 type StoredRow = { id: string; updatedAt?: string | null };
 type ModelFor<TStored extends StoredRow> = CollectionModel<unknown, TStored>;
@@ -71,7 +71,7 @@ class ModelRelationImpl<TStored extends StoredRow> implements ModelRelation<TSto
     return this.all().map(row => row.id);
   }
 
-  update(patch: Partial<TStored>): number {
+  update(patch: Partial<StoredWriteInput<TStored>>): number {
     const rows = this.getAll();
     let updated = 0;
     for (const row of rows) {
@@ -96,7 +96,7 @@ const createInstance = <TStored extends StoredRow>(model: ModelFor<TStored>, row
   const id = row.id;
   return {
     ...row,
-    update: (patch: Partial<TStored>) => model.patch(id, patch),
+    update: (patch: Partial<StoredWriteInput<TStored>>) => model.patch(id, patch),
     delete: () => model.destroy(id)
   };
 };

@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { configureDb, defineModel, devClearAllDataAndState, hasMany, hasManyThrough, pruneOrphanedRows } from '../index';
-import type { CollectionModel, ModelRelationsConfig, RelatedSurface } from '../types';
+import { configureDb, defineModel, devClearAllDataAndState, hasMany, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
+import type { CollectionModel, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
 type UserRow = { id: string; name: string; updatedAt?: string | null };
@@ -54,7 +54,7 @@ function defineUserModel(id: string): CollectionModel<Partial<UserRow> & { id: s
 function defineUserModel<TRelations extends ModelRelationsConfig>(
   id: string,
   relations: () => TRelations
-): CollectionModel<Partial<UserRow> & { id: string }, UserRow> & RelatedSurface<TRelations>;
+): CollectionModel<Partial<UserRow> & { id: string }, UserRow & RowRelatedSurface<TRelations>> & RelatedSurface<TRelations>;
 function defineUserModel(id: string, relations?: () => ModelRelationsConfig): any {
   const config = {
     id,
@@ -73,7 +73,7 @@ function defineChatModel(id: string): CollectionModel<Partial<ChatRow> & { id: s
 function defineChatModel<TRelations extends ModelRelationsConfig>(
   id: string,
   relations: () => TRelations
-): CollectionModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow> & RelatedSurface<TRelations>;
+): CollectionModel<Partial<ChatRow> & { id: string; userId: string }, ChatRow & RowRelatedSurface<TRelations>> & RelatedSurface<TRelations>;
 function defineChatModel(id: string, relations?: () => ModelRelationsConfig): any {
   const config = {
     id,
@@ -266,6 +266,112 @@ describe('model relations', () => {
     hook.unmount();
   });
 
+  it('exposes row-level related snapshots for find, get, and through relations', async () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-row-message');
+    const chatRelations = () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    });
+    const chatModel = defineChatModel('relation-row-chat', chatRelations);
+    const userRelations = () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' }),
+      messages: hasManyThrough({ through: 'chats', source: 'messages' })
+    });
+    const userModel = defineUserModel('relation-row-user', userRelations);
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    userModel.insertStored({ id: 'user-2', name: 'Grace', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-2', userId: 'user-2', title: 'Two', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', body: 'One', updatedAt: null });
+    messageModel.insertStored({ id: 'message-2', chatId: 'chat-2', body: 'Two', updatedAt: null });
+
+    const findHook = renderHook((id: string) => userModel.find(id), 'user-1');
+    await findHook.flush();
+
+    expect(findHook.current?.related.chats.map(row => row.id)).toEqual(['chat-1']);
+    expect(chatModel.get('chat-1')?.related.messages.map(row => row.id)).toEqual(['message-1']);
+    expect(userModel.get('user-1')?.related.messages.map(row => row.id)).toEqual(['message-1']);
+
+    findHook.unmount();
+  });
+
+  it('keeps row-level related reads as live snapshots without hook subscriptions', () => {
+    installMemoryStorage();
+    const chatModel = defineChatModel('relation-row-snapshot-chat');
+    const userModel = defineUserModel('relation-row-snapshot-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    const row = userModel.get('user-1');
+    expect(row).toBeDefined();
+    expect(row?.related.chats).toEqual([]);
+
+    const related = row!.related;
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+
+    expect(row!.related).toBe(related);
+    expect(row!.related.chats.map(chat => chat.id)).toEqual(['chat-1']);
+  });
+
+  it('keeps row-level related invisible to plain data and restores it after hydration', async () => {
+    installMemoryStorage();
+    const messageModel = defineMessageModel('relation-row-plain-message');
+    const chatRelations = () => ({
+      messages: hasMany(messageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    });
+    const chatModel = defineChatModel('relation-row-plain-chat', chatRelations);
+    const userModel = defineUserModel('relation-row-plain-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+    messageModel.insertStored({ id: 'message-1', chatId: 'chat-1', body: 'One', updatedAt: null });
+
+    const row = userModel.get('user-1')!;
+    expect(row.related.chats.map(chat => chat.id)).toEqual(['chat-1']);
+    expect(Object.keys(row)).not.toContain('related');
+    expect('related' in { ...row }).toBe(false);
+    expect(JSON.stringify(row)).not.toContain('related');
+    expect(stableSerialize(row)).not.toContain('related');
+    expect(pickEqual<UserRow>(row, { id: 'user-1', name: 'Ada', updatedAt: null }, ['id', 'name', 'updatedAt'])).toBe(true);
+
+    await flush();
+
+    const hydratedMessageModel = defineMessageModel('relation-row-plain-message');
+    const hydratedChatRelations = () => ({
+      messages: hasMany(hydratedMessageModel, { foreignKey: 'chatId', dependent: 'destroy' })
+    });
+    const hydratedChatModel = defineChatModel('relation-row-plain-chat', hydratedChatRelations);
+    const hydratedUserModel = defineUserModel('relation-row-plain-user', () => ({
+      chats: hasMany(hydratedChatModel, { foreignKey: 'userId', dependent: 'destroy' })
+    }));
+
+    await Promise.all([hydratedUserModel._collection.stateWhenReady(), hydratedChatModel._collection.stateWhenReady(), hydratedMessageModel._collection.stateWhenReady()]);
+
+    expect(hydratedUserModel.get('user-1')?.related.chats.map(chat => chat.id)).toEqual(['chat-1']);
+    expect(hydratedChatModel.get('chat-1')?.related.messages.map(message => message.id)).toEqual(['message-1']);
+  });
+
+  it('preserves row identity and caches each row related record', () => {
+    installMemoryStorage();
+    const chatModel = defineChatModel('relation-row-identity-chat');
+    const userModel = defineUserModel('relation-row-identity-user', () => ({
+      chats: hasMany(chatModel, { foreignKey: 'userId', dependent: 'destroy' })
+    }));
+
+    userModel.insertStored({ id: 'user-1', name: 'Ada', updatedAt: null });
+    chatModel.insertStored({ id: 'chat-1', userId: 'user-1', title: 'One', updatedAt: null });
+
+    const row = userModel.get('user-1')!;
+    expect(userModel.get('user-1')).toBe(row);
+    expect(userModel.getAll()[0]).toBe(row);
+    expect(userModel.getWhere({ id: 'user-1' })[0]).toBe(row);
+    expect(row.related).toBe(row.related);
+  });
+
   it('throws model-prefixed errors for invalid hasManyThrough names', () => {
     installMemoryStorage();
     const messageModel = defineMessageModel('relation-invalid-message');
@@ -324,8 +430,12 @@ describe('model relations', () => {
       userModel.related.missing;
       // @ts-expect-error through relation returns message rows, not chat rows
       const wrongRows: ChatRow[] = userModel.related.messages.get('user-1');
+      const rowChatRows: ChatRow[] = userModel.get('user-1')!.related.chats;
+      const rowMessageRows: MessageRow[] = userModel.get('user-1')!.related.messages;
       const count: number = userModel.related.chats.count('user-1');
       void wrongRows;
+      void rowChatRows;
+      void rowMessageRows;
       void count;
     }
   });
@@ -354,8 +464,12 @@ describe('model relations', () => {
       userModel.related.missing;
       // @ts-expect-error through relation returns message rows, not chat rows
       const wrongRows: ChatRow[] = userModel.related.messages.get('user-1');
+      const rowChatRows: ChatRow[] = userModel.get('user-1')!.related.chats;
+      const rowMessageRows: MessageRow[] = userModel.get('user-1')!.related.messages;
       const count: number = userModel.related.chats.count('user-1');
       void wrongRows;
+      void rowChatRows;
+      void rowMessageRows;
       void count;
     }
   });
@@ -426,13 +540,13 @@ describe('model relations', () => {
     installMemoryStorage();
     type ARow = { id: string; bId: string; updatedAt?: string | null };
     type BRow = { id: string; aId: string; updatedAt?: string | null };
-    let aModel!: CollectionModel<unknown, ARow>;
-    let bModel!: CollectionModel<unknown, BRow>;
+    let aModel!: any;
+    let bModel!: any;
     const aRelations = jest.fn(() => ({
-      bs: hasMany(bModel, { foreignKey: 'aId', dependent: 'destroy' })
+      bs: hasMany(bModel as CollectionModel<unknown, BRow>, { foreignKey: 'aId', dependent: 'destroy' })
     }));
     const bRelations = jest.fn(() => ({
-      as: hasMany(aModel, { foreignKey: 'bId', dependent: 'destroy' })
+      as: hasMany(aModel as CollectionModel<unknown, ARow>, { foreignKey: 'bId', dependent: 'destroy' })
     }));
 
     aModel = defineModel<ARow, ARow>({
@@ -583,6 +697,13 @@ describe('model relations', () => {
     chatModel.insertStored({ id: 'chat-2', userId: 'user-2', title: 'Two', updatedAt: null });
     plainModel.insertStored({ id: 'plain-1', name: 'Plain', updatedAt: null });
     expect('related' in plainModel).toBe(false);
+    expect('related' in plainModel.get('plain-1')!).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(plainModel.get('plain-1')!, 'related')).toBe(false);
+
+    if (false) {
+      // @ts-expect-error plain rows do not expose row-level relations
+      plainModel.get('plain-1')!.related;
+    }
 
     expect(userModel.destroy('missing')).toBe(false);
     expect(relations).not.toHaveBeenCalled();

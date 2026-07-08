@@ -199,6 +199,10 @@ export type RelatedRecord<TRelations extends ModelRelationsConfig> = {
   [K in keyof TRelations]: RelatedAccessor<ChildStoredOf<TRelations[K], TRelations>>;
 };
 
+export type RowRelatedRecord<TRelations extends ModelRelationsConfig> = {
+  readonly [K in keyof TRelations]: Array<ChildStoredOf<TRelations[K], TRelations>>;
+};
+
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type HasBroadRelationKeys<TRelations> = IsAny<TRelations> extends true ? true : string extends keyof TRelations ? true : false;
 
@@ -207,6 +211,14 @@ export type RelatedSurface<TRelations extends ModelRelationsConfig | undefined> 
     ? { readonly related: never }
     : { readonly related: RelatedRecord<TRelations> }
   : {};
+
+export type RowRelatedSurface<TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig]
+  ? HasBroadRelationKeys<TRelations> extends true
+    ? { readonly related: never }
+    : { readonly related: RowRelatedRecord<TRelations> }
+  : {};
+
+export type StoredWriteInput<TStored> = TStored extends { readonly related: unknown } ? Omit<TStored, 'related'> : TStored;
 
 export interface MergeResult {
   /** Number of rows inserted or updated. */
@@ -321,9 +333,9 @@ export interface FetchStateRemovalListener {
 export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any, any>>;
 export type ModelStoredFromFields<TFields extends ModelFieldSpecs> = InferStoredFields<TFields> extends { id: string; updatedAt?: string | null } ? InferStoredFields<TFields> : never;
 export type ModelBuildStoredInput<TFields extends ModelFieldSpecs> = InferBuildStoredInput<TFields>;
-export interface FieldsCollectionModel<TStored extends { id: string; updatedAt?: string | null }, TBuildInput> extends CollectionModel<unknown, TStored> {
+export interface FieldsCollectionModel<TStored extends { id: string; updatedAt?: string | null }, TBuildInput, TBuildOutput = StoredWriteInput<TStored>> extends CollectionModel<unknown, TStored> {
   /** Build a complete stored row from explicit values plus field factory defaults. */
-  buildStored(partial: TBuildInput): TStored;
+  buildStored(partial: TBuildInput): TBuildOutput;
 }
 
 interface CreateCollectionModelBaseConfig<
@@ -431,7 +443,7 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   /** Snapshot alias for `getFirstWhere`. */
   getFirst(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
   /** Shallow-update one row and return whether it changed. */
-  patch(id: string, updates: Partial<TStored>): boolean;
+  patch(id: string, updates: Partial<StoredWriteInput<TStored>>): boolean;
   /** Delete one row and return whether it existed. */
   destroy(id: string): boolean;
   /** Delete many rows and return the number removed. */
@@ -441,7 +453,7 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   /** Atomically delete `oldId` and insert the normalized server item. */
   replaceRaw(oldId: string, item: TInput): boolean;
   /** Insert an already-normalized stored row. */
-  insertStored(item: TStored): void;
+  insertStored(item: StoredWriteInput<TStored>): void;
   /** Apply server data using a merge or replace sync contract. */
   applyServerData(items: unknown[], contract: SyncContract): MergeResult | ReplaceResult;
   /** Mark a filter scope as fetched now. */
@@ -492,7 +504,7 @@ export interface ModelRelation<T extends { id: string }> {
   /** React hook terminal. Call only from React components or other hooks. */
   ids(): string[];
   /** Patch every matching row and return how many were updated. */
-  update(patch: Partial<T>): number;
+  update(patch: Partial<StoredWriteInput<T>>): number;
   /** Delete every matching row and return how many were removed. */
   delete(): number;
 }
@@ -503,7 +515,7 @@ export type DbKeyModelSource = {
 
 export type ModelInstance<T extends { id: string }> = Readonly<T> & {
   /** Patch this row by id. */
-  update(patch: Partial<T>): boolean;
+  update(patch: Partial<StoredWriteInput<T>>): boolean;
   /** Delete this row by id. */
   delete(): boolean;
 };

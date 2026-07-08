@@ -16,7 +16,9 @@ import type {
   ModelStoredFromFields,
   PersistentMutationTransaction,
   RelatedSurface,
+  RowRelatedSurface,
   ReplaceResult,
+  StoredRowBase,
   SyncContract
 } from '../types';
 import { toQueryValue } from '../utils/typeBoundary';
@@ -27,7 +29,7 @@ import { createReplace } from './createReplace';
 import { clearCollectionFetchState, clearCollectionFetchStates, getCollectionFetchState, registerCollectionFetchStateCache, setCollectionFetchState } from './freshnessStorage';
 import { getDbModelDefaults } from './modelDefaults';
 import { registerModel } from './modelRegistry';
-import { buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues } from './relations';
+import { attachRowRelated, buildRelatedAccessors, getCascadeController, registerCascadeController, relationValues } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { stableSerialize } from './serialize';
 import { runSideloads, withApplyingModel } from './sideload';
@@ -178,7 +180,7 @@ export function createCollectionModel<
   TRelations extends ModelRelationsConfig = any
 >(
   config: CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, TRelations> & { relations: () => TRelations }
-): CollectionModel<TInput, TStored> & TExt & RelatedSurface<TRelations>;
+): CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> & TExt & RelatedSurface<TRelations>;
 /** Create a collection model from a persistent collection and normalizer. */
 export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
   config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'relations'> & { relations?: undefined }
@@ -189,20 +191,53 @@ export function createCollectionModel<
   TRelations extends ModelRelationsConfig = any
 >(
   config: CreateCollectionModelFieldsConfig<TFields, TExt, TRelations> & { relations: () => TRelations }
-): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt & RelatedSurface<TRelations>;
+): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
 export function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
   config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'relations'> & { relations?: undefined }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0 } = config;
-  const normalize = resolveNormalize(config);
+  const normalizeBase = resolveNormalize(config);
+  let attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => row;
+  const normalize = (item: unknown): ({ id: string } & Record<string, unknown>) | null => {
+    const normalized = normalizeBase(item);
+    return normalized ? attachRelatedToRow(normalized as StoredRowBase & Record<string, unknown>) : null;
+  };
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<any>(collectionId, staleTime);
   let resetMergeState = (): void => {};
   let relationCache: ModelRelationsConfig | null = null;
+  let relatedAccessorsCache: unknown;
+  const runtimeCollection = {
+    get id() {
+      return rawCollection.id;
+    },
+    get: (id: string) => {
+      const row = rawCollection.get(id);
+      return row ? attachRelatedToRow(row) : undefined;
+    },
+    has: (id: string) => rawCollection.has(id),
+    insert: (item: StoredRowBase & Record<string, unknown>) => {
+      rawCollection.insert(attachRelatedToRow(item));
+      const row = rawCollection.get(item.id);
+      if (row) attachRelatedToRow(row);
+    },
+    update: (id: string, updater: (draft: StoredRowBase & Record<string, unknown>) => void) => {
+      rawCollection.update(id, updater);
+      const row = rawCollection.get(id);
+      if (row) attachRelatedToRow(row);
+    },
+    delete: (id: string) => rawCollection.delete(id),
+    keys: () => rawCollection.keys(),
+    values: () => rawCollection.values(),
+    get size() {
+      return rawCollection.size;
+    },
+    acceptMutations: rawCollection.acceptMutations
+  };
 
   const merge = createMerge<any, any>({
-    collection: rawCollection,
+    collection: runtimeCollection,
     normalize,
     shouldOverwrite: config.merge?.shouldOverwrite,
     dedupeWindowMs: config.merge?.dedupeWindowMs,
@@ -213,12 +248,12 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   });
 
   const replace = createReplace<any, any>({
-    collection: rawCollection,
+    collection: runtimeCollection,
     normalize,
     shouldOverwrite: config.replace?.shouldOverwrite
   });
 
-  const crud = createPatchCrud<any>({ collection: rawCollection });
+  const crud = createPatchCrud<any>({ collection: runtimeCollection });
 
   const tanstackCollection = rawCollection._collection;
   const acceptMutations = rawCollection.acceptMutations.bind(rawCollection);
@@ -240,13 +275,13 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const getSnapshotWhere = (filter: DbWhere<any>): any[] => {
     const results: any[] = [];
     for (const item of rawCollection.values()) {
-      if (matchesDbWhere(item, filter)) results.push(item);
+      if (matchesDbWhere(item, filter)) results.push(attachRelatedToRow(item));
     }
     return results;
   };
 
   const getSnapshotFirstWhere = (filter?: DbWhere<any>, options?: Pick<DbReadOptions<any>, 'orderBy'>): any | undefined => {
-    const rows = filter ? getSnapshotWhere(filter) : Array.from(rawCollection.values());
+    const rows = filter ? getSnapshotWhere(filter) : attachRelatedToRows(Array.from(rawCollection.values()));
     return applyDbReadOptionsToRows(rows, options)[0];
   };
 
@@ -273,6 +308,39 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const resolveRelations = (): ReturnType<typeof relationValues> => relationValues(resolveRelationMap());
 
   const hasRelations = (): boolean => typeof config.relations === 'function';
+
+  const resolveRelatedAccessors = (): any => {
+    if (!relatedAccessorsCache) {
+      relatedAccessorsCache = buildRelatedAccessors(config.name, resolveRelationMap);
+    }
+    return relatedAccessorsCache;
+  };
+
+  attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => {
+    if (!hasRelations()) return row;
+    return attachRowRelated(config.name, row, resolveRelatedAccessors) as TRow;
+  };
+
+  const attachRelatedToRows = <TRow extends StoredRowBase>(rows: TRow[]): TRow[] => {
+    if (!hasRelations() || rows.length === 0) return rows;
+    for (const row of rows) {
+      attachRelatedToRow(row);
+    }
+    return rows;
+  };
+
+  const attachHydratedRows = (): void => {
+    if (!hasRelations()) return;
+    attachRelatedToRows(Array.from(rawCollection.values()) as Array<StoredRowBase & Record<string, unknown>>);
+  };
+
+  if (hasRelations()) {
+    if (tanstackCollection.isReady()) {
+      attachHydratedRows();
+    } else {
+      void tanstackCollection.stateWhenReady().then(attachHydratedRows, () => {});
+    }
+  }
 
   const clearScope = (): void => {
     const ids: string[] = [];
@@ -376,7 +444,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
           : undefined,
       [id]
     );
-    return data as unknown as any | undefined;
+    return data ? attachRelatedToRow(data as unknown as StoredRowBase & Record<string, unknown>) : undefined;
   };
 
   const useAll = (): any[] => {
@@ -389,7 +457,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       return query;
     });
 
-    return (data ?? EMPTY) as any[];
+    return attachRelatedToRows((data ?? EMPTY) as Array<StoredRowBase & Record<string, unknown>>);
   };
 
   const useWhere = (filter: DbWhere<any>, options?: DbReadOptions<any>): any[] => {
@@ -399,7 +467,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       [signature]
     );
 
-    return (data ?? EMPTY) as any[];
+    return attachRelatedToRows((data ?? EMPTY) as Array<StoredRowBase & Record<string, unknown>>);
   };
 
   const useFirst = (filter?: DbWhere<any>, options?: Pick<DbReadOptions<any>, 'orderBy'>): any | undefined => {
@@ -409,7 +477,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       [signature]
     );
 
-    return data as unknown as any | undefined;
+    return data ? attachRelatedToRow(data as unknown as StoredRowBase & Record<string, unknown>) : undefined;
   };
 
   const useByIds = (ids: string[]): any[] => {
@@ -417,7 +485,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       q => (ids.length > 0 ? q.from({ items: tanstackCollection }).where(({ items }) => inArray(toQueryValue((items as Record<string, unknown>).id), ids)) : undefined),
       [ids]
     );
-    return (data ?? EMPTY) as any[];
+    return attachRelatedToRows((data ?? EMPTY) as Array<StoredRowBase & Record<string, unknown>>);
   };
 
   const useCount = (...args: [DbWhere<any>?]): number => {
@@ -455,6 +523,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const registerModelCascadeController = (model: object): void => {
     registerCascadeController(model, {
       modelName: config.name,
+      attachRowRelated: row => attachRelatedToRow(row),
       destroyManyWithCascade,
       getIdsWhereFieldIn,
       getRelation: name => (hasRelations() ? resolveRelationMap()[name] : undefined)
@@ -462,12 +531,22 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   };
 
   const baseModel: CollectionModel<any, any> = {
-    get: (id: string | undefined | null) => (id ? rawCollection.get(id) : undefined),
-    getAll: () => Array.from(rawCollection.values()),
+    get: (id: string | undefined | null) => {
+      const row = id ? rawCollection.get(id) : undefined;
+      return row ? attachRelatedToRow(row) : undefined;
+    },
+    getAll: () => attachRelatedToRows(Array.from(rawCollection.values())),
     getWhere: filter => getSnapshotWhere(filter),
     getFirstWhere: (filter, options) => getSnapshotFirstWhere(filter, options),
     getFirst: (filter, options) => getSnapshotFirstWhere(filter, options),
-    patch: (id, updates) => crud.patch(id, updates),
+    patch: (id, updates) => {
+      const changed = crud.patch(id, updates);
+      if (changed) {
+        const row = rawCollection.get(id);
+        if (row) attachRelatedToRow(row);
+      }
+      return changed;
+    },
     destroy: id => destroyMany([id]) === 1,
     destroyMany,
     destroyWhere,
@@ -478,13 +557,13 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
         withTransaction(() => {
           runSideloads(config.sideload, [item], { mode: 'merge', source: 'sideload' });
           rawCollection.delete(oldId);
-          rawCollection.insert(normalized as any);
+          runtimeCollection.insert(normalized as any);
         });
       });
       return true;
     },
     insertStored: (item: any) => {
-      rawCollection.insert(item);
+      runtimeCollection.insert(item);
     },
     applyServerData,
     markFetched: freshness.markFetched,
@@ -508,15 +587,11 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const attachRelatedAccessors = <TModel extends object>(model: TModel): TModel => {
     if (!hasRelations()) return model;
 
-    let relatedCache: unknown;
     Object.defineProperty(model, 'related', {
       enumerable: true,
       configurable: false,
       get() {
-        if (!relatedCache) {
-          relatedCache = buildRelatedAccessors(config.name, resolveRelationMap);
-        }
-        return relatedCache;
+        return resolveRelatedAccessors();
       }
     });
     return model;

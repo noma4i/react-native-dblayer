@@ -227,10 +227,27 @@ Models with a `relations` thunk expose local query accessors under `model.relate
 | `use(parentId)` | React hook | Reactive scoped child rows using the model live-query path; `null`/`undefined` returns a stable empty array without a bogus scope. |
 | `count(parentId)` | React hook | Reactive scoped count; `null`/`undefined` returns `0`. For through relations this is `use(parentId).length`. |
 
+Rows returned by read paths on models with relations also expose `row.related.<name>` as a snapshot property getter:
+
+```ts
+const chats = UserModel.find(userId)?.related.chats;
+const messages = ChatModel.get(chatId)?.related.messages;
+const liveMessages = ChatModel.related.messages.use(chatId);
+```
+
+| Form | Use when | Behavior |
+| --- | --- | --- |
+| `row.related.<name>` | You already have a row from `get`, `find`, `where`, `all`, or related reads and need a snapshot of its children. | Calls the same snapshot path as `Model.related.<name>.get(row.id)` at property access time. Children inserted after the row object was obtained are visible on the next property access. |
+| `Model.related.<name>.use(id)` | The child list itself must be reactive. | React hook; call unconditionally from a component or another hook. |
+
+Row-level related values are not hooks and do not subscribe. This keeps `find(id)?.related.<name>` valid: making row-level children reactive would require conditional hook calls after a possibly undefined `find(id)` result. Reactive child reads stay on the model-level accessor.
+
+The row `related` namespace is non-enumerable and lazy. It is absent from `Object.keys`, object spread, `JSON.stringify`, storage persistence, stable serialization, and field iteration. Models without a `relations` thunk leave rows untouched.
+
 `hasManyThrough({ through, source })` is query-only. `through` must name a direct `hasMany` relation on the current
 model, and `source` must name a direct `hasMany` relation on the through-child model. Through accessors first read the
 through rows, collect their ids, then read source rows whose source foreign key is in that id set. Both levels are
-reactive for `use`.
+reactive for `use`; row-level through properties use the same snapshot composition.
 
 Related accessors are local reads only. They do not fetch network data, expose fetch state, or mark freshness scopes.
 Network scoping stays in request configs and collection bindings.

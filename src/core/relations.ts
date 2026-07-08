@@ -10,6 +10,8 @@ import type {
   ModelRelationDefinition,
   ModelRelationsConfig,
   RelatedAccessor,
+  RowRelatedRecord,
+  RowRelatedSurface,
   RelatedRecord,
   RelationModel,
   StoredRowBase,
@@ -26,12 +28,14 @@ type RuntimeHasManyRelation = ModelRelationDefinition & {
 
 export type CascadeController = {
   modelName: string;
+  attachRowRelated: <TRow extends StoredRowBase>(row: TRow) => TRow;
   destroyManyWithCascade: (ids: string[], visitedModelNames: Set<string>) => number;
   getIdsWhereFieldIn: (field: string, values: ReadonlySet<string>) => string[];
   getRelation: (name: string) => ModelRelationConfigValue | undefined;
 };
 
 const cascadeControllers = new WeakMap<object, CascadeController>();
+const rowRelatedRecords = new WeakMap<object, unknown>();
 
 export const registerCascadeController = (model: object, controller: CascadeController): void => {
   cascadeControllers.set(model, controller);
@@ -83,6 +87,19 @@ const assertDirectRelation = (
   throw new Error(`[${modelName}] relation "${relationName}" ${detail}`);
 };
 
+const attachRowsForRelation = <TChildStored extends StoredRowBase>(relation: RuntimeHasManyRelation, rows: readonly TChildStored[]): TChildStored[] => {
+  const output = rows as TChildStored[];
+  if (output.length === 0) return output;
+
+  const controller = getCascadeController(relation.model);
+  if (!controller) return output;
+
+  for (const row of output) {
+    controller.attachRowRelated(row);
+  }
+  return output;
+};
+
 const useRowsByForeignKey = <TChildStored extends StoredRowBase>(
   relation: RuntimeHasManyRelation,
   parentId: string | null | undefined
@@ -96,7 +113,7 @@ const useRowsByForeignKey = <TChildStored extends StoredRowBase>(
     [foreignKey, parentId]
   );
 
-  return useStableArray((parentId == null ? EMPTY : data ?? EMPTY) as unknown as TChildStored[]);
+  return useStableArray(attachRowsForRelation(relation, (parentId == null ? EMPTY : data ?? EMPTY) as unknown as TChildStored[]));
 };
 
 const useCountByForeignKey = (relation: RuntimeHasManyRelation, parentId: string | null | undefined): number => {
@@ -121,7 +138,7 @@ const getRowsByForeignKey = <TChildStored extends StoredRowBase>(
   parentId: string | null | undefined
 ): TChildStored[] => {
   if (parentId == null) return [];
-  return relation.model.getWhere({ [relation.foreignKey]: parentId } as never) as TChildStored[];
+  return attachRowsForRelation(relation, relation.model.getWhere({ [relation.foreignKey]: parentId } as never) as TChildStored[]);
 };
 
 const useRowsByForeignKeySet = <TChildStored extends StoredRowBase>(relation: RuntimeHasManyRelation, parentIds: string[]): TChildStored[] => {
@@ -135,12 +152,12 @@ const useRowsByForeignKeySet = <TChildStored extends StoredRowBase>(relation: Ru
     [foreignKey, parentIdsKey]
   );
 
-  return useStableArray((parentIds.length === 0 ? EMPTY : data ?? EMPTY) as unknown as TChildStored[]);
+  return useStableArray(attachRowsForRelation(relation, (parentIds.length === 0 ? EMPTY : data ?? EMPTY) as unknown as TChildStored[]));
 };
 
 const getRowsByForeignKeySet = <TChildStored extends StoredRowBase>(relation: RuntimeHasManyRelation, parentIds: string[]): TChildStored[] => {
   if (parentIds.length === 0) return [];
-  return relation.model.getWhere({ or: parentIds.map(parentId => ({ [relation.foreignKey]: parentId })) } as never) as TChildStored[];
+  return attachRowsForRelation(relation, relation.model.getWhere({ or: parentIds.map(parentId => ({ [relation.foreignKey]: parentId })) } as never) as TChildStored[]);
 };
 
 const resolveThroughRelations = (
@@ -215,4 +232,53 @@ export const buildRelatedAccessors = <TRelations extends ModelRelationsConfig>(
   }
 
   return related as RelatedRecord<TRelations>;
+};
+
+const buildRowRelatedRecord = <TRow extends StoredRowBase, TRelations extends ModelRelationsConfig>(
+  row: TRow,
+  resolveRelatedAccessors: () => RelatedRecord<TRelations>
+): RowRelatedRecord<TRelations> => {
+  const relatedRecord: Record<string, unknown> = {};
+  const relatedAccessors = resolveRelatedAccessors();
+
+  for (const relationName of Object.keys(relatedAccessors)) {
+    Object.defineProperty(relatedRecord, relationName, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        return (resolveRelatedAccessors() as Record<string, RelatedAccessor<StoredRowBase>>)[relationName]?.get(row.id) ?? [];
+      }
+    });
+  }
+
+  return relatedRecord as RowRelatedRecord<TRelations>;
+};
+
+export const attachRowRelated = <TRow extends StoredRowBase, TRelations extends ModelRelationsConfig>(
+  modelName: string,
+  row: TRow,
+  resolveRelatedAccessors: () => RelatedRecord<TRelations>
+): TRow & RowRelatedSurface<TRelations> => {
+  if (Object.prototype.hasOwnProperty.call(row, 'related')) {
+    return row as TRow & RowRelatedSurface<TRelations>;
+  }
+
+  if (!Object.isExtensible(row)) {
+    throw new Error(`[${modelName}] cannot attach row-level relations to a non-extensible stored row.`);
+  }
+
+  Object.defineProperty(row, 'related', {
+    enumerable: false,
+    configurable: true,
+    get() {
+      let relatedRecord = rowRelatedRecords.get(row) as RowRelatedRecord<TRelations> | undefined;
+      if (!relatedRecord) {
+        relatedRecord = buildRowRelatedRecord(row, resolveRelatedAccessors);
+        rowRelatedRecords.set(row, relatedRecord);
+      }
+      return relatedRecord;
+    }
+  });
+
+  return row as TRow & RowRelatedSurface<TRelations>;
 };

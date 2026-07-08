@@ -10,7 +10,8 @@ import type {
   ModelStoredFromFields,
   PersistentCollection,
   PersistentMutationTransaction,
-  RelatedSurface
+  RelatedSurface,
+  RowRelatedSurface
 } from '../types';
 import { createCollectionModel } from './createCollectionModel';
 import { mmkvCollectionOptions } from './mmkvCollectionOptions';
@@ -126,7 +127,7 @@ export function defineModel<
     id: string;
     relations: () => TRelations;
   }
-): CollectionModel<TInput, TStored> & TExt & RelatedSurface<TRelations>;
+): CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> & TExt & RelatedSurface<TRelations>;
 export function defineModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
   config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'collection'>, 'relations'> & {
     /** Collection id and storage-key prefix; unique per app. */
@@ -144,7 +145,7 @@ export function defineModel<
     id: string;
     relations: () => TRelations;
   }
-): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt & RelatedSurface<TRelations>;
+): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
 export function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
   config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'collection'>, 'relations'> & {
     /** Collection id and storage-key prefix; unique per app. */
