@@ -147,7 +147,7 @@ describe('extract factories', () => {
     expect(() => resolver({ chat: 1 }, {})).toThrow(/sink "chats"/);
   });
 
-  it('applies model sinks, custom sinks, and declaration order', () => {
+  it('applies all model sinks before custom sinks while preserving group declaration order', () => {
     const order: string[] = [];
     const usersModel = {
       applyServerData: jest.fn(() => {
@@ -164,10 +164,14 @@ describe('extract factories', () => {
     const walletSink = jest.fn(() => {
       order.push('walletPatch');
     });
+    const badgeSink = jest.fn(() => {
+      order.push('badgePatch');
+    });
 
     const sink = createExtractSink({
-      users: usersModel,
       walletPatch: walletSink,
+      users: usersModel,
+      badgePatch: badgeSink,
       messages: messagesModel
     });
 
@@ -175,6 +179,7 @@ describe('extract factories', () => {
       {
         users: { id: 'user-1' },
         walletPatch: { balance: 12 },
+        badgePatch: { count: 3 },
         messages: [{ id: 'message-1' }]
       },
       'mutation'
@@ -182,8 +187,75 @@ describe('extract factories', () => {
 
     expect(usersModel.applyServerData).toHaveBeenCalledWith([{ id: 'user-1' }], { mode: 'merge', source: 'mutation', scope: undefined });
     expect(walletSink).toHaveBeenCalledWith([{ balance: 12 }], 'mutation');
+    expect(badgeSink).toHaveBeenCalledWith([{ count: 3 }], 'mutation');
     expect(messagesModel.applyServerData).toHaveBeenCalledWith([{ id: 'message-1' }], { mode: 'merge', source: 'mutation', scope: undefined });
-    expect(order).toEqual(['users', 'walletPatch', 'messages']);
+    expect(order).toEqual(['users', 'messages', 'walletPatch', 'badgePatch']);
+  });
+
+  it('lets custom sinks patch rows inserted by later-declared model sinks from the same payload', () => {
+    configureDb({ storage: inMemoryStorageAdapter(), transport: mockTransport({}) });
+    const model = createTodoModel();
+    const patchLastMessage = jest.fn((payload: unknown[]) => {
+      for (const patch of payload as Array<{ id: string; title: string }>) {
+        model.patch(patch.id, { title: patch.title });
+      }
+    });
+    const sink = createExtractSink({
+      todoLastMessages: patchLastMessage,
+      todos: model
+    });
+
+    sink(
+      {
+        todoLastMessages: { id: 'todo-new', title: 'Patched after insert' },
+        todos: { id: 'todo-new', title: 'Inserted', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+      },
+      'chatSync'
+    );
+
+    expect(patchLastMessage).toHaveBeenCalledTimes(1);
+    expect(model.get('todo-new')?.title).toBe('Patched after insert');
+  });
+
+  it('keeps declaration order for payloads with only model sinks or only custom sinks', () => {
+    const modelOrder: string[] = [];
+    const usersModel = {
+      applyServerData: jest.fn(() => {
+        modelOrder.push('users');
+        return { merged: 1 };
+      })
+    };
+    const messagesModel = {
+      applyServerData: jest.fn(() => {
+        modelOrder.push('messages');
+        return { merged: 1 };
+      })
+    };
+    createExtractSink({
+      users: usersModel,
+      messages: messagesModel
+    })(
+      {
+        users: { id: 'user-1' },
+        messages: { id: 'message-1' }
+      },
+      'query'
+    );
+
+    const customOrder: string[] = [];
+    createExtractSink({
+      walletPatch: () => customOrder.push('walletPatch'),
+      badgePatch: () => customOrder.push('badgePatch')
+    })(
+      {
+        walletPatch: { balance: 12 },
+        badgePatch: { count: 3 }
+      },
+      'query'
+    );
+
+    expect(modelOrder).toEqual(['users', 'messages']);
+    expect(customOrder).toEqual(['walletPatch', 'badgePatch']);
   });
 
   it('exports node lifting and uses it for custom sinks', () => {

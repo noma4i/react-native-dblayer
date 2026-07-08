@@ -169,7 +169,9 @@ const isModelSink = (sink: DbExtractModelSink | DbExtractCustomSink): sink is Db
 
 /**
  * Build an extract sink from a declarative sink table.
- * Sink keys run in declaration order.
+ * Model sinks run first in declaration order, then custom function sinks run in declaration order.
+ * Custom sinks can derive or patch rows inserted by model sinks from the same extract payload, including
+ * when the custom key is declared before the model key.
  *
  * Every sink key's payload runs through `liftExtractNodes` before dispatch, so both branches see an
  * array regardless of whether the resolver produced a single value or an array (including the merged
@@ -182,17 +184,29 @@ export const createExtractSink =
   (extractResult, source) => {
     if (!isRecord(extractResult)) return;
 
-    for (const key of Object.keys(sinkTable)) {
+    const dispatchSink = (key: string): void => {
       const payload = extractResult[key];
-      if (isEmptyExtractValue(payload)) continue;
+      if (isEmptyExtractValue(payload)) return;
 
       const sink = sinkTable[key];
       const nodes = liftExtractNodes(payload);
-      if (nodes.length === 0) continue;
+      if (nodes.length === 0) return;
       if (isModelSink(sink)) {
         sink.applyServerData(castNodes(nodes), mergeSyncContract(source));
       } else {
         sink(nodes, source);
+      }
+    };
+
+    const keys = Object.keys(sinkTable);
+    for (const key of keys) {
+      if (isModelSink(sinkTable[key])) {
+        dispatchSink(key);
+      }
+    }
+    for (const key of keys) {
+      if (!isModelSink(sinkTable[key])) {
+        dispatchSink(key);
       }
     }
   };
