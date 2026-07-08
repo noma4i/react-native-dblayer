@@ -7,6 +7,7 @@ import {
   defineModel,
   devClearAllDataAndState,
   f,
+  pruneExpiredRows,
   pruneOrphanedRows,
   reconcileOptimisticRows,
   resolveStaleTempRows,
@@ -139,6 +140,21 @@ describe('runtime primitives', () => {
 
     expect(destroyMany).toHaveBeenCalledWith(['join-2', 'join-3']);
     expect(model.getAll().map(row => row.id)).toEqual(['join-1']);
+  });
+
+  it('prunes rows older than ttl while keeping boundary and invalid timestamps', () => {
+    installMemoryStorage();
+    const model = createMessageModel('runtime-expired');
+    model.insertStored(message({ id: 'expired', createdAt: '2026-01-01T00:00:00.000Z' }));
+    model.insertStored(message({ id: 'boundary', createdAt: '2026-01-01T00:01:00.000Z' }));
+    model.insertStored(message({ id: 'fresh', createdAt: '2026-01-01T00:01:01.000Z' }));
+    model.insertStored(message({ id: 'invalid', createdAt: 'not-a-date' }));
+    const destroyMany = jest.spyOn(model, 'destroyMany');
+
+    expect(pruneExpiredRows(model, 'createdAt', 60_000, '2026-01-01T00:02:00.000Z')).toBe(1);
+
+    expect(destroyMany).toHaveBeenCalledWith(['expired']);
+    expect(model.getAll().map(row => row.id).sort()).toEqual(['boundary', 'fresh', 'invalid']);
   });
 
   it('trims newest rows per scope while excluding protected rows from the limit', () => {

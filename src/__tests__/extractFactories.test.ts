@@ -3,6 +3,7 @@ import {
   createExtractSink,
   createMutationExtractResolver,
   devClearAllDataAndState,
+  liftExtractNodes,
   runDbMutationDirect,
   setDbExtractSink,
   setDbMutationExtractResolver
@@ -34,7 +35,7 @@ describe('extract factories', () => {
       },
       wallet: {
         sink: 'walletPatch',
-        read: result => result.wallet,
+        read: 'wallet',
         many: false
       },
       message: {
@@ -118,9 +119,20 @@ describe('extract factories', () => {
     );
 
     expect(usersModel.applyServerData).toHaveBeenCalledWith([{ id: 'user-1' }], { mode: 'merge', source: 'mutation', scope: undefined });
-    expect(walletSink).toHaveBeenCalledWith({ balance: 12 }, 'mutation');
+    expect(walletSink).toHaveBeenCalledWith([{ balance: 12 }], 'mutation');
     expect(messagesModel.applyServerData).toHaveBeenCalledWith([{ id: 'message-1' }], { mode: 'merge', source: 'mutation', scope: undefined });
     expect(order).toEqual(['users', 'walletPatch', 'messages']);
+  });
+
+  it('exports node lifting and uses it for custom sinks', () => {
+    const walletSink = jest.fn();
+    const sink = createExtractSink({ walletPatch: walletSink });
+
+    expect(liftExtractNodes([{ id: 'wallet-1' }, null, undefined, { id: 'wallet-2' }])).toEqual([{ id: 'wallet-1' }, { id: 'wallet-2' }]);
+
+    sink({ walletPatch: [{ balance: 12 }, null, { balance: 13 }] }, 'query');
+
+    expect(walletSink).toHaveBeenCalledWith([{ balance: 12 }, { balance: 13 }], 'query');
   });
 
   it('runs resolver and sink through configureDb mutation seams', async () => {

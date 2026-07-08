@@ -92,10 +92,10 @@ value, not the nullable wrapper.
 ### Shapes
 
 Shapes are reusable nested field groups. They can be used through `f.object`, `f.array`, or directly via
-`readShape` inside a custom `normalize`.
+`readShape` / `readShapeOrThrow` inside a custom `normalize`.
 
 ```ts
-import { defineShape, f, readShape } from '@noma4i/react-native-dblayer';
+import { defineShape, f, readShapeOrThrow } from '@noma4i/react-native-dblayer';
 
 const mediaShape = defineShape<{ url?: unknown; coverUrl?: unknown; width?: unknown; height?: unknown }>()({
   url: f.str(),
@@ -120,10 +120,13 @@ export const MessageModel = defineModel<MessageInput, Message>({
   normalize: (m) => ({
     id: m.id,
     body: m.body,
-    media: readShape(mediaShape, m.media) ?? null,
+    media: m.media == null ? null : readShapeOrThrow(mediaShape, m.media, 'MessageModel.media'),
   }),
 });
 ```
+
+`readShape(shape, input)` returns `undefined` for non-object input. `readShapeOrThrow(shape, input, label)` uses the
+same reader and throws `<label>: invalid shape payload` when the payload is unreadable.
 
 ### Row id, guard, and composite ids
 

@@ -10,12 +10,12 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 - [Models](./models.md) — `defineModel` options and the full `CollectionModel` read/write API.
 - [Queries](./queries.md) — `useDbSingleRequest`, `modelDetailRequest`, `useDbInfiniteRequest`,
   `runDbQueryDirect`, their config options, and return shapes.
-- [Stable views and list helpers](./queries.md#stable-view-and-list-hooks) — `useStableItems`, `useOrderedEntities`,
-  `useWindowedLoadMore`.
+- [Stable views and list helpers](./queries.md#stable-view-and-list-hooks) — `useStableItems`, `useStableEntity`,
+  `useOrderedEntities`, `useWindowedLoadMore`.
 - [Mutations](./mutations.md) — `useDbMutation` (default / patch / destroy variants), `useCommand`,
   `runDbCommandDirect`, `runDbMutationDirect`.
 - [Runtime primitives](./runtime-primitives.md) — optimistic subscription reconcile, cleanup helpers,
-  throttled single-flight, nested object patching, and singleton statics.
+  optimistic ordering sequences, throttled single-flight, nested object patching, and singleton statics.
 - [ActiveRecord](./active-record.md) — `query`, `instance`, `useInstance`, `ModelRelation`, `ModelInstance`.
 
 ## Conventions used in these docs

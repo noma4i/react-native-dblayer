@@ -440,22 +440,32 @@ type CollectionReadComparatorConfig<TStored, TRead = TStored> = CollectionReadBa
 export type CollectionReadConfig<TStored, TRead = TStored> = CollectionReadSortFieldConfig<TStored, TRead> | CollectionReadComparatorConfig<TStored, TRead>;
 
 type StableProjectionBaseConfig<TSource, TEntry extends { item: TItem }, TItem> = {
-  /** Stable key for a source value. */
-  getKey: (source: TSource) => string;
   /** Build a projection entry from source data. */
-  buildEntry: (source: TSource) => TEntry | null;
+  buildEntry?: (source: TSource) => TEntry | null;
   /** Shared empty item array returned when no data is present. */
-  emptyItems: TItem[];
+  emptyItems?: TItem[];
 };
 
-export type StableProjectionConfig<TSource, TEntry extends { item: TItem }, TItem> = StableProjectionBaseConfig<TSource, TEntry, TItem> & {
+type StableProjectionKeyConfig<TSource, TEntry extends { item: TItem }, TItem> =
+  | (StableProjectionBaseConfig<TSource, TEntry, TItem> & {
+    /** Stable key for a source value. */
+    getKey: (source: TSource) => string;
+  })
+  | (TSource extends { id: string }
+    ? StableProjectionBaseConfig<TSource, TEntry, TItem> & {
+      /** Omit to use the source item's string `id`. */
+      getKey?: undefined;
+    }
+    : never);
+
+export type StableProjectionConfig<TSource, TEntry extends { item: TItem }, TItem> = StableProjectionKeyConfig<TSource, TEntry, TItem> & {
   /** Compare projection entries for stability. */
   entriesEqual: (prev: TEntry, next: TEntry) => boolean;
   /** Use `renderKeys` only with `useStableItems`; not with custom entry equality. */
   renderKeys?: never;
 };
 
-export type StableProjectionRenderKeysConfig<TSource, TEntry extends { item: TItem }, TItem extends object> = StableProjectionBaseConfig<TSource, TEntry, TItem> & {
+export type StableProjectionRenderKeysConfig<TSource, TEntry extends { item: TItem }, TItem extends object> = StableProjectionKeyConfig<TSource, TEntry, TItem> & {
   /** Item fields that determine rendered equality. */
   renderKeys: Array<keyof TItem>;
   /** Custom entry equality is mutually exclusive with render key equality. */
@@ -465,6 +475,20 @@ export type StableProjectionRenderKeysConfig<TSource, TEntry extends { item: TIt
 export type StableItemsConfig<TSource, TEntry extends { item: TItem }, TItem extends object> =
   | StableProjectionConfig<TSource, TEntry, TItem>
   | StableProjectionRenderKeysConfig<TSource, TEntry, TItem>;
+
+export type StableEntityVolatileKeysConfig<TItem extends object> = {
+  /** Fields ignored when comparing the current entity with the previous one. */
+  volatileKeys: ReadonlyArray<keyof TItem & string>;
+  renderKeys?: never;
+};
+
+export type StableEntityRenderKeysConfig<TItem extends object> = {
+  /** Fields that determine rendered equality. */
+  renderKeys: ReadonlyArray<keyof TItem>;
+  volatileKeys?: never;
+};
+
+export type StableEntityConfig<TItem extends object> = StableEntityVolatileKeysConfig<TItem> | StableEntityRenderKeysConfig<TItem>;
 
 type BaseQueryCollectionFind = {
   /** Model used for a reactive single-row read. */

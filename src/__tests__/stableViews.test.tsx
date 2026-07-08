@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { useMemo } from 'react';
-import { useOrderedEntities, useStableArray, useStableItems, useStableSorted, useWindowedLoadMore } from '../index';
+import { useOrderedEntities, useStableArray, useStableEntity, useStableItems, useStableSorted, useWindowedLoadMore } from '../index';
 
 type HookResult<TProps, TResult> = {
   current: TResult;
@@ -71,7 +71,7 @@ describe('stable view hooks', () => {
       (props: { rows: SourceRow[]; sectionId: string }) =>
         useStableItems<SourceRow, ViewEntry, ViewItem>(props.rows, {
           getKey: row => row.id,
-          buildEntry: row => ({
+          buildEntry: (row: SourceRow) => ({
             sectionId: props.sectionId,
             item: { id: row.id, label: row.title, count: row.count, hiddenLabel: row.hiddenLabel }
           }),
@@ -146,7 +146,7 @@ describe('stable view hooks', () => {
       (props: { rows: SourceRow[] }) =>
         useStableItems(props.rows, {
           getKey: row => row.id,
-          buildEntry: row => ({
+          buildEntry: (row: SourceRow) => ({
             item: { id: row.id, label: row.title, count: row.count, hiddenLabel: row.hiddenLabel }
           }),
           renderKeys: ['id', 'label', 'count'],
@@ -168,6 +168,105 @@ describe('stable view hooks', () => {
     expect(hook.current).not.toBe(firstItems);
     expect(hook.current[0]).not.toBe(firstItem);
     expect(hook.current[0]?.count).toBe(2);
+
+    hook.unmount();
+  });
+
+  it('uses default item projection options and keeps explicit options authoritative', () => {
+    const rows: SourceRow[] = [{ id: '1', title: 'One', count: 1, hiddenLabel: 'a' }];
+
+    const defaultsHook = renderHook((items: SourceRow[]) => useStableItems(items, { renderKeys: ['id', 'title', 'count'] }), rows);
+    const defaultItems = defaultsHook.current;
+    const defaultItem = defaultItems[0]!;
+
+    defaultsHook.rerender([{ id: '1', title: 'One', count: 1, hiddenLabel: 'b' }]);
+
+    expect(defaultsHook.current).toBe(defaultItems);
+    expect(defaultsHook.current[0]).toBe(defaultItem);
+
+    defaultsHook.rerender([{ id: '1', title: 'Changed', count: 1, hiddenLabel: 'b' }]);
+
+    expect(defaultsHook.current).not.toBe(defaultItems);
+    expect(defaultsHook.current[0]?.title).toBe('Changed');
+
+    defaultsHook.unmount();
+
+    const explicitEmpty: ViewItem[] = [];
+    const explicitHook = renderHook(
+      (items: SourceRow[]) =>
+        useStableItems<SourceRow, ViewEntry, ViewItem>(items, {
+          getKey: row => `scope:${row.id}`,
+          buildEntry: row => ({
+            sectionId: 'explicit',
+            item: { id: `view:${row.id}`, label: row.title, count: row.count, hiddenLabel: row.hiddenLabel }
+          }),
+          renderKeys: ['id', 'label', 'count'],
+          emptyItems: explicitEmpty
+        }),
+      rows
+    );
+
+    expect(explicitHook.current[0]?.id).toBe('view:1');
+    explicitHook.rerender([]);
+    expect(explicitHook.current).toBe(explicitEmpty);
+
+    explicitHook.unmount();
+  });
+
+  it('throws when default item keys are requested for sources without string ids', () => {
+    const defaultKeyRequiresStringId = () => {
+      // @ts-expect-error default getKey requires source.id to be a string
+      useStableItems([{ id: 1, label: 'One' }], { renderKeys: ['label'] });
+    };
+    void defaultKeyRequiresStringId;
+
+    expect(() =>
+      renderHook(
+        (items: Array<{ id: string; label: string }>) => useStableItems(items, { renderKeys: ['label'] }),
+        [{ id: 1, label: 'One' }] as unknown as Array<{ id: string; label: string }>
+      )
+    ).toThrow('useStableItems default getKey requires source items with a string id.');
+  });
+
+  it('keeps one entity stable with volatileKeys while rendered fields remain equal', () => {
+    const first = { id: '1', title: 'One', updatedAt: '2026-01-01T00:00:00.000Z' };
+    const hook = renderHook((value: typeof first) => useStableEntity(value, { volatileKeys: ['updatedAt'] }), first);
+    const stable = hook.current;
+
+    hook.rerender({ id: '1', title: 'One', updatedAt: '2026-01-01T00:00:01.000Z' });
+
+    expect(hook.current).toBe(stable);
+
+    hook.rerender({ id: '1', title: 'Changed', updatedAt: '2026-01-01T00:00:02.000Z' });
+
+    expect(hook.current).not.toBe(stable);
+    expect(hook.current?.title).toBe('Changed');
+
+    hook.unmount();
+  });
+
+  it('keeps one entity stable with renderKeys and resets across nullish transitions', () => {
+    type StableUser = { id: string; name: string; presence: string };
+    const hook = renderHook((value: StableUser | null | undefined) => useStableEntity(value, { renderKeys: ['id', 'name'] }), null as StableUser | null | undefined);
+
+    expect(hook.current).toBeNull();
+
+    const first = { id: '1', name: 'Ada', presence: 'offline' };
+    hook.rerender(first);
+    const stable = hook.current;
+
+    hook.rerender({ id: '1', name: 'Ada', presence: 'online' });
+
+    expect(hook.current).toBe(stable);
+
+    hook.rerender(undefined);
+    expect(hook.current).toBeUndefined();
+
+    const appearedAgain = { id: '1', name: 'Ada', presence: 'online' };
+    hook.rerender(appearedAgain);
+
+    expect(hook.current).toBe(appearedAgain);
+    expect(hook.current).not.toBe(stable);
 
     hook.unmount();
   });

@@ -13,7 +13,7 @@ export type DbMutationExtractPresetSelector<TResult = unknown> = (result: TResul
 
 export type DbMutationExtractPresetEntry<TResult = unknown, TSinkKey extends string = string> = {
   /** Default reader used when the mutation extract preset is `true`. */
-  read: (result: TResult) => DbMutationExtractValue;
+  read: string | ((result: TResult) => DbMutationExtractValue);
   /** Output key consumed by the extract sink. */
   sink: TSinkKey;
   /**
@@ -30,7 +30,7 @@ export type DbExtractModelSink = {
   applyServerData: (items: unknown[], contract: SyncContract) => unknown;
 };
 
-export type DbExtractCustomSink = (payload: unknown, source: string) => void;
+export type DbExtractCustomSink = (payload: unknown[], source: string) => void;
 
 export type DbExtractSinkTable = Record<string, DbExtractModelSink | DbExtractCustomSink>;
 
@@ -58,7 +58,7 @@ export const getDbMutationExtractResolver = (): DbMutationExtractResolver => cur
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
-const liftExtractNodes = (value: DbMutationExtractValue): unknown[] => {
+export const liftExtractNodes = (value: DbMutationExtractValue): unknown[] => {
   if (value == null) return [];
   if (Array.isArray(value)) return value.filter(item => item != null);
   return [value];
@@ -86,8 +86,10 @@ const resolvePresetValue = <TResult>(
   entry: DbMutationExtractPresetEntry<TResult>,
   result: TResult
 ): unknown | undefined => {
+  const readValue = (): DbMutationExtractValue => (typeof entry.read === 'string' ? (result as Record<string, unknown> | null | undefined)?.[entry.read] : entry.read(result));
+
   if (preset === true) {
-    return entry.many === false ? entry.read(result) : liftExtractNodes(entry.read(result));
+    return entry.many === false ? readValue() : liftExtractNodes(readValue());
   }
 
   if (typeof preset === 'function') {
@@ -134,12 +136,12 @@ export const createExtractSink =
       if (isEmptyExtractValue(payload)) continue;
 
       const sink = sinkTable[key];
+      const nodes = liftExtractNodes(payload);
+      if (nodes.length === 0) continue;
       if (isModelSink(sink)) {
-        const nodes = liftExtractNodes(payload);
-        if (nodes.length === 0) continue;
         sink.applyServerData(castNodes(nodes), mergeSyncContract(source));
       } else {
-        sink(payload, source);
+        sink(nodes, source);
       }
     }
   };

@@ -1,6 +1,6 @@
 import { eq, isNull } from '@tanstack/db';
 import { useLiveQuery } from '@tanstack/react-db';
-import { isEqual, pick } from 'es-toolkit';
+import { isEqual, omit, pick } from 'es-toolkit';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   BaseQueryCollection,
@@ -8,6 +8,7 @@ import type {
   CollectionModel,
   CollectionReadConfig,
   StableItemsConfig,
+  StableEntityConfig,
   StableProjectionConfig,
   SyncContract
 } from '../../types';
@@ -23,7 +24,7 @@ export function useCollectionRead<TData>(collection: BaseQueryCollection | undef
   return items.length > 0 ? (items as unknown as TData) : undefined;
 }
 
-const EMPTY: readonly unknown[] = [];
+const EMPTY: readonly unknown[] = Object.freeze([]);
 
 const toStoredScopeFilter = <TStored>(filter: unknown, scopeMap?: Record<string, keyof TStored & string>): Partial<TStored> | undefined => {
   const scopeEntries = buildScopeEntries<TStored>(filter, scopeMap);
@@ -183,10 +184,17 @@ export const mergeScopeVars = <TVariables>(vars: TVariables | undefined, scope: 
   return { ...scope, ...vars } as TVariables;
 };
 
+type ResolvedStableProjectionConfig<TSource, TEntry extends { item: TItem }, TItem> = {
+  getKey: (source: TSource) => string;
+  buildEntry: (source: TSource) => TEntry | null;
+  emptyItems: TItem[];
+  entriesEqual: (prev: TEntry, next: TEntry) => boolean;
+};
+
 /** Build stable projected items by reusing unchanged cached entries. */
 export const buildStableItems = <TSource, TEntry extends { item: TItem }, TItem>(
   sources: TSource[],
-  config: StableProjectionConfig<TSource, TEntry, TItem>,
+  config: ResolvedStableProjectionConfig<TSource, TEntry, TItem>,
   previousCache: Map<string, TEntry>
 ): { items: TItem[]; cache: Map<string, TEntry> } => {
   if (!sources.length) {
@@ -229,17 +237,32 @@ export const pickEqual = <T extends object>(prev: T | null | undefined, next: T 
   return isEqual(pick(prev, keys), pick(next, keys));
 };
 
+const defaultStableGetKey = <TSource>(source: TSource): string => {
+  const id = (source as { id?: unknown }).id;
+  if (typeof id !== 'string') {
+    throw new Error('useStableItems default getKey requires source items with a string id.');
+  }
+  return id;
+};
+
+const defaultStableBuildEntry = <TSource, TItem>(source: TSource): { item: TItem } => ({ item: source as unknown as TItem });
+
 const resolveStableItemsConfig = <TSource, TEntry extends { item: TItem }, TItem extends object>(
   config: StableItemsConfig<TSource, TEntry, TItem>
-): StableProjectionConfig<TSource, TEntry, TItem> => {
+): ResolvedStableProjectionConfig<TSource, TEntry, TItem> => {
   if ('entriesEqual' in config && typeof config.entriesEqual === 'function') {
-    return config;
+    return {
+      getKey: config.getKey ?? defaultStableGetKey,
+      buildEntry: config.buildEntry ?? (defaultStableBuildEntry as (source: TSource) => TEntry),
+      emptyItems: config.emptyItems ?? (EMPTY as TItem[]),
+      entriesEqual: config.entriesEqual
+    };
   }
 
   return {
-    getKey: config.getKey,
-    buildEntry: config.buildEntry,
-    emptyItems: config.emptyItems,
+    getKey: config.getKey ?? defaultStableGetKey,
+    buildEntry: config.buildEntry ?? (defaultStableBuildEntry as (source: TSource) => TEntry),
+    emptyItems: config.emptyItems ?? (EMPTY as TItem[]),
     entriesEqual: (prev, next) => pickEqual(prev.item, next.item, config.renderKeys)
   };
 };
@@ -266,6 +289,32 @@ export function useStableItems<TSource, TEntry extends { item: TItem }, TItem ex
     itemsRef.current = nextItems;
     return nextItems;
   }, [sources, config]);
+}
+
+const stableEntityEqual = <TItem extends object>(prev: TItem, next: TItem, config: StableEntityConfig<TItem>): boolean => {
+  if ('renderKeys' in config) {
+    return pickEqual(prev, next, config.renderKeys as Array<keyof TItem>);
+  }
+
+  return isEqual(omit(prev, config.volatileKeys), omit(next, config.volatileKeys));
+};
+
+/** React hook that reuses one entity reference while configured fields remain equal. */
+export function useStableEntity<TItem extends object>(value: TItem | null | undefined, config: StableEntityConfig<TItem>): TItem | null | undefined {
+  const stableRef = useRef<TItem | null | undefined>(value);
+  const previous = stableRef.current;
+
+  if (value == null) {
+    stableRef.current = value;
+    return value;
+  }
+
+  if (previous != null && stableEntityEqual(previous, value, config)) {
+    return previous;
+  }
+
+  stableRef.current = value;
+  return value;
 }
 
 /** React hook that reuses an array instance when its element references did not change. */

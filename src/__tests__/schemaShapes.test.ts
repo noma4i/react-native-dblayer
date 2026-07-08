@@ -1,5 +1,5 @@
 import { f } from '../schema/f';
-import { defineShape, readShape } from '../schema/shape';
+import { defineShape, readShape, readShapeOrThrow } from '../schema/shape';
 
 type MediaInput = {
   url?: unknown;
@@ -87,6 +87,18 @@ describe('schema shapes', () => {
       width: 200,
       height: 100
     });
+  });
+
+  it('throws a labelled error for unreadable shape payloads', () => {
+    expect(readShapeOrThrow(mediaShape, { url: 'https://example.test/image.png' }, 'MediaShape')).toEqual({
+      url: 'https://example.test/image.png',
+      coverUrl: null,
+      width: null,
+      height: null
+    });
+
+    expect(() => readShapeOrThrow(mediaShape, null, 'MediaShape')).toThrow('MediaShape: invalid shape payload');
+    expect(() => readShapeOrThrow(mediaShape, [], 'MediaShape')).toThrow('MediaShape: invalid shape payload');
   });
 
   it('reads object fields with sparse and nullable semantics', () => {

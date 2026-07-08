@@ -154,17 +154,18 @@ two factories for the common declarative shape:
 | Helper | Input | Output |
 | --- | --- | --- |
 | `createMutationExtractResolver(presetTable)` | `{ presetKey: { read, sink, many? } }` | Existing `DbMutationExtractResolver` seam. |
-| `createExtractSink(sinkTable)` | `{ extractKey: Model \| (payload, source) => void }` | Existing `DbExtractSink` seam. |
+| `createExtractSink(sinkTable)` | `{ extractKey: Model \| (payloads, source) => void }` | Existing `DbExtractSink` seam. |
+| `liftExtractNodes(value)` | `unknown \| unknown[] \| null \| undefined` | Public helper used by the sink to drop nullish values and return an array. |
 
 `createMutationExtractResolver` walks the preset table in declaration order. The `result` argument is the mutation
 `resultField` payload, not the full GraphQL response envelope. A mutation `extract` spec can use `true` to call the
-table's default `read(result)`, or a selector function to override it. Resolved nodes are lifted to arrays by
-default; set `many: false` for singleton payloads such as a wallet patch. `null`, `undefined`, and empty arrays are
-dropped; if every preset is empty, the resolver returns `undefined`.
+table's default `read(result)`, a string shorthand such as `read: 'user'`, or a selector function to override it.
+Resolved nodes are lifted to arrays by default; set `many: false` for singleton payloads such as a wallet patch.
+`null`, `undefined`, and empty arrays are dropped; if every preset is empty, the resolver returns `undefined`.
 
 `createExtractSink` walks sink keys in declaration order and applies only non-empty payloads. Model entries receive
-`Model.applyServerData(castNodes(payload), mergeSyncContract(source))`; custom functions receive the raw
-`(payload, source)`. Declaration order is part of the contract, so put dependency sinks first, for example
+`Model.applyServerData(castNodes(payloads), mergeSyncContract(source))`; custom functions receive lifted
+`(payloads, source)` arrays. Declaration order is part of the contract, so put dependency sinks first, for example
 `users` before `messages`.
 
 Example — a query that side-loads its author into `UserModel`, and mutations whose `extract` presets are resolved
@@ -174,14 +175,16 @@ by a table:
 import { configureDb, createExtractSink, createMutationExtractResolver } from '@noma4i/react-native-dblayer';
 
 const mutationResolver = createMutationExtractResolver({
-  user: { sink: 'users', read: (result) => result.user },
+  user: { sink: 'users', read: 'user' },
   message: { sink: 'messages', read: (result) => result.message },
   wallet: { sink: 'walletPatch', read: (result) => result.wallet, many: false },
 });
 
 const sink = createExtractSink({
   users: UserModel,
-  walletPatch: (payload) => applyWalletPatch(payload),
+  walletPatch: (payloads) => {
+    for (const payload of payloads) applyWalletPatch(payload);
+  },
   messages: MessageModel,
 });
 

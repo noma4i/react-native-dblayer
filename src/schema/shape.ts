@@ -31,3 +31,11 @@ export const readShape = <TInput, TFields extends ShapeFields<TInput>>(shape: Db
 
   return output as InferShapeStored<DbShape<TInput, TFields>>;
 };
+
+export const readShapeOrThrow = <TInput, TFields extends ShapeFields<TInput>>(shape: DbShape<TInput, TFields>, input: unknown, label: string): InferShapeStored<DbShape<TInput, TFields>> => {
+  const result = readShape(shape, input);
+  if (result == null) {
+    throw new Error(`${label}: invalid shape payload`);
+  }
+  return result;
+};

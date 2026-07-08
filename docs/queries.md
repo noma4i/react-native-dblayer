@@ -295,6 +295,7 @@ preserve item and array references for list UIs.
 | --- | --- |
 | `buildStableItems(source, config, previousCache)` | Non-React core; reuses prior entry items when `entriesEqual` passes. |
 | `useStableItems(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
+| `useStableEntity(value, config)` | Single-row identity guard; returns the prior entity while configured fields are equal. |
 | `useStableSorted(source, compare, invalidationKey?)` | Sorts without mutating `source`; reuses previous sorted output when source item refs and optional key are unchanged. |
 | `useStableArray(next)` | Bare array identity guard; returns the prior array when element refs are unchanged. |
 | `useOrderedEntities(model, ids)` | Reads `model.byIds(ids)`, returns entities in input id order, drops missing ids, and shares a stable empty array. |
@@ -307,7 +308,17 @@ preserve item and array references for list UIs.
 | `entriesEqual(prev, next)` | Full control; entry shape can include context fields beyond `item`. |
 | `renderKeys: Array<keyof TItem>` | Compares `prev.item` and `next.item` through `pickEqual`; mutually exclusive with `entriesEqual`. |
 
-`emptyItems` is returned for empty source and all-skipped projections. The hook also keeps that empty array stable
-across emissions. For comparator behavior that depends on outside state, pass that state as `invalidationKey`.
-`useOrderedEntities` returns only the ordered item array; use `useEntitiesById` directly when a view also needs random
-lookup by id.
+`getKey` defaults to `item.id` and throws if an item does not have a string `id`. `buildEntry` defaults to
+`item => ({ item })`. `emptyItems` defaults to a shared frozen empty array, and explicit config values always win.
+For comparator behavior that depends on outside state, pass that state as `invalidationKey`. `useOrderedEntities`
+returns only the ordered item array; use `useEntitiesById` directly when a view also needs random lookup by id.
+
+`useStableEntity` accepts either:
+
+| Config path | Contract |
+| --- | --- |
+| `volatileKeys: Array<keyof TItem>` | Deep-compares the entity after omitting volatile fields such as timestamps. |
+| `renderKeys: Array<keyof TItem>` | Compares only fields that affect rendering. |
+
+`null` and `undefined` are returned as-is. Moving from a nullish value to an object always adopts the new object
+identity.

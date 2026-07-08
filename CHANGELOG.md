@@ -2,6 +2,8 @@
 
 ## Pending
 
+- Change custom extract function sinks to receive lifted payload arrays, and export `liftExtractNodes`.
+- Add `useStableEntity`, stable-items defaults, `readShapeOrThrow`, `pruneExpiredRows`, and `createOptimisticSequence`.
 - Add direct query and command executors, plus direct patch optimistic mutation support.
 
 ## 2.2.0 - 2026-07-08

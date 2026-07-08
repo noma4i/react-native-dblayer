@@ -1,4 +1,4 @@
-import { generateTempId, isTempId } from '../index';
+import { createOptimisticSequence, generateTempId, isTempId } from '../index';
 
 describe('generateTempId', () => {
   it('detects generated temp ids and rejects non-temp ids', () => {
@@ -14,5 +14,14 @@ describe('generateTempId', () => {
     expect(isTempId(null)).toBe(false);
     expect(isTempId('')).toBe(false);
     expect(isTempId('temp-')).toBe(true);
+  });
+
+  it('creates independent monotonic optimistic sequences', () => {
+    const first = createOptimisticSequence();
+    const second = createOptimisticSequence();
+
+    expect([first.next(), first.next(), first.next()]).toEqual([0, 1, 2]);
+    expect(second.next()).toBe(0);
+    expect(first.next()).toBe(3);
   });
 });

@@ -36,6 +36,7 @@ export {
   createMutationExtractResolver,
   getDbExtractSink,
   getDbMutationExtractResolver,
+  liftExtractNodes,
   setDbExtractSink,
   setDbMutationExtractResolver
 } from './core/extract';
@@ -45,7 +46,7 @@ export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';
-export { defineShape, readShape } from './schema/shape';
+export { defineShape, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
 export { mergeOptimisticSnapshot, resolveMergedField } from './mutations/base/mergeOptimisticSnapshot';
 export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';
@@ -61,6 +62,7 @@ export {
   useCollectionRead,
   useEntitiesById,
   useOrderedEntities,
+  useStableEntity,
   useStableArray,
   useStableItems,
   useStableSorted,
@@ -68,7 +70,7 @@ export {
 } from './queries/base/shared';
 export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
 export { useDbInfiniteRequest, useDbSingleRequest } from './queries/base/useDbRequest';
-export { generateTempId, isTempId } from './utils/generateTempId';
+export { createOptimisticSequence, generateTempId, isTempId } from './utils/generateTempId';
 export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { readBoolean, readId, readNullableNumber, readNullableString, readNumber, readString, toRequiredStr, toStr } from './utils/normalizeHelpers';
@@ -77,6 +79,7 @@ export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
 export {
   createNestedObjectPatcher,
   createThrottledSingleFlight,
+  pruneExpiredRows,
   pruneOrphanedRows,
   reconcileOptimisticRows,
   resolveStaleTempRows,
@@ -172,6 +175,9 @@ export type {
   ServerSyncContract,
   ServerSyncMode,
   ShouldAcceptIncomingOptions,
+  StableEntityConfig,
+  StableEntityRenderKeysConfig,
+  StableEntityVolatileKeysConfig,
   StableItemsConfig,
   StableProjectionConfig,
   StableProjectionRenderKeysConfig,

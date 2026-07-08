@@ -138,6 +138,8 @@ const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlyS
 
 const destroyManyIfNeeded = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => (ids.length > 0 ? model.destroyMany(ids) : 0);
 
+const toExpiryTimestamp = (value: CreatedAtLike): number => toTimestamp(value);
+
 /** Delete rows whose foreign key no longer points at a live parent id. */
 export const pruneOrphanedRows = <TStored extends RowId, TForeignKey extends Extract<keyof TStored, string>>(
   model: DestroyManyModel<TStored>,
@@ -150,6 +152,27 @@ export const pruneOrphanedRows = <TStored extends RowId, TForeignKey extends Ext
     .filter(row => {
       const foreignId = row[foreignKeyField];
       return (typeof foreignId !== 'string' && typeof foreignId !== 'number') || !liveIds.has(String(foreignId));
+    })
+    .map(row => row.id);
+
+  return destroyManyIfNeeded(model, idsToDestroy);
+};
+
+/** Delete rows whose timestamp field is older than the supplied TTL. Invalid timestamps are kept. */
+export const pruneExpiredRows = <TStored extends RowId, TField extends Extract<keyof TStored, string>>(
+  model: DestroyManyModel<TStored>,
+  field: TField,
+  ttlMs: number,
+  now: CreatedAtLike = Date.now()
+): number => {
+  const nowMs = toExpiryTimestamp(now);
+  if (!Number.isFinite(nowMs)) return 0;
+
+  const idsToDestroy = model
+    .getAll()
+    .filter(row => {
+      const timestamp = toExpiryTimestamp(row[field] as CreatedAtLike);
+      return Number.isFinite(timestamp) && nowMs - timestamp > ttlMs;
     })
     .map(row => row.id);
 
