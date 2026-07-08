@@ -132,6 +132,51 @@ describe('runtime primitives', () => {
     expect(commit).toHaveBeenCalledWith('local-sending', expect.objectContaining({ id: 'server-1' }));
   });
 
+  it('drops an existing-id node by default (onExisting unset) - neither returned nor committed', () => {
+    installMemoryStorage();
+    const model = createMessageModel('runtime-reconcile-existing-drop');
+    model.insertStored(message({ id: 'already-applied', createdAt: '2026-01-01T00:00:00.000Z' }));
+    const commit = jest.fn();
+
+    const unmatched = reconcileOptimisticRows(model, [message({ id: 'already-applied', createdAt: '2026-01-01T00:00:00.000Z' })], {
+      resolveCandidates: { fields: ['chatId', 'userId'] },
+      match: (candidate, node) => candidate.body === node.body,
+      commit
+    });
+
+    expect(unmatched).toEqual([]);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("onExisting: 'return' surfaces a subscription echo of an already-applied row instead of dropping it", () => {
+    installMemoryStorage();
+    const model = createMessageModel('runtime-reconcile-existing-return');
+    model.insertStored(message({ id: 'already-applied', createdAt: '2026-01-01T00:00:00.000Z' }));
+    model.insertStored(message({ id: 'temp-1', createdAt: '2026-01-01T00:00:01.000Z' }));
+    const commit = jest.fn();
+
+    const unmatched = reconcileOptimisticRows(
+      model,
+      [
+        message({ id: 'already-applied', body: 'echoed', createdAt: '2026-01-01T00:00:00.000Z' }),
+        message({ id: 'server-1', createdAt: '2026-01-01T00:00:02.000Z' })
+      ],
+      {
+        resolveCandidates: { fields: ['chatId', 'userId'] },
+        match: (candidate, node) => candidate.body === node.body,
+        createdAtWindowMs: 60_000,
+        commit,
+        onExisting: 'return'
+      }
+    );
+
+    // The existing-id node is returned as-is - no candidate matching attempted, no commit for it.
+    expect(unmatched.map(row => row.id)).toEqual(['already-applied']);
+    // The non-existing node still goes through normal optimistic matching, unaffected by onExisting.
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith('temp-1', expect.objectContaining({ id: 'server-1' }));
+  });
+
   it('prunes orphaned rows with a batched destroyMany call', () => {
     installMemoryStorage();
     const model = defineModel<{ id: string; momentId: string }, { id: string; momentId: string }>({

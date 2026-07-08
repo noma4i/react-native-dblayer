@@ -43,6 +43,19 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
   createdAtWindowMs?: number;
   /** Commit a matched optimistic row to the server node. */
   commit: (tempId: string, node: TNode) => void;
+  /**
+   * How to handle an incoming node whose id already exists in the model.
+   *
+   * - `'drop'` (default): the node is silently skipped - neither returned nor committed. This is the
+   *   original behavior; callers that need to apply an existing-id node as an update have to pre-check
+   *   `model.get(node.id)` themselves before calling this function.
+   * - `'return'`: the node is pushed into the returned array as-is, with no candidate matching attempted
+   *   and no `commit` call - e.g. a subscription echo of a row already applied by its own mutation
+   *   response. The caller decides how to apply it (patch, replace, or ignore).
+   *
+   * @default 'drop'
+   */
+  onExisting?: 'drop' | 'return';
 };
 
 const toTimestamp = (value: CreatedAtLike): number => {
@@ -111,8 +124,10 @@ const findBestOptimisticCandidate = <TStored extends CreatedAtRow, TNode extends
  *
  * @param model Snapshot model used to check existing rows and scoped optimistic candidates.
  * @param nodes Incoming server nodes.
- * @param options Candidate resolution, matching, timestamp window, and commit callback.
- * @returns Server nodes that were not matched or skipped as already present.
+ * @param options Candidate resolution, matching, timestamp window, commit callback, and `onExisting`
+ * policy for nodes whose id already exists in the model.
+ * @returns Server nodes that were not matched, plus (with `onExisting: 'return'`) nodes whose id already
+ * existed in the model.
  */
 export const reconcileOptimisticRows = <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(
   model: SnapshotModel<TStored>,
@@ -122,7 +137,12 @@ export const reconcileOptimisticRows = <TStored extends CreatedAtRow, TNode exte
   const unmatched: TNode[] = [];
 
   for (const node of nodes) {
-    if (model.get(node.id)) continue;
+    if (model.get(node.id)) {
+      if (options.onExisting === 'return') {
+        unmatched.push(node);
+      }
+      continue;
+    }
 
     const candidates =
       typeof options.resolveCandidates === 'function'
