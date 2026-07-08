@@ -587,8 +587,6 @@ export type CollectionBindingUseDataContext<TStored, TRead = TStored> = {
     scope: Partial<TStored> | undefined;
     /** Rows read from the bound model after scope filtering and ordering. */
     rows: TStored[];
-    /** Whether the owning query has disabled collection reads (derived from `enabled === false`). */
-    disabled: boolean;
     /** Stable empty result for no-data projections. */
     empty: TRead[];
 };
@@ -708,10 +706,9 @@ export type BaseQueryConfig<TData, TCollection extends BaseQueryCollection | und
     /** Function that resolves query data. */
     queryFn: () => Promise<TData>;
     /**
-     * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
-     * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
-     * `hasFetchedData` is `false`, and the derived loading phase is `'idle'` (not `'initial_loading'`),
-     * so `showSkeleton` stays `false` while disabled instead of showing a skeleton with no active fetch.
+     * Gate query execution. `false` disables network execution and fetch scheduling, but model reads
+     * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
+     * phase `'idle'` with `showSkeleton === false`.
      */
     enabled?: boolean;
     /** React Query freshness window in milliseconds. */
@@ -790,12 +787,10 @@ export type InfiniteQueryConfig<TData, TNode> = {
     /** Extract nodes and pagination metadata from page data. */
     extract: (data: TData) => ConnectionResult<TNode>;
     /**
-     * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
-     * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
-     * `hasFetchedData` is `false`, the derived loading phase is `'idle'` (not `'initial_loading'`, so
-     * `showSkeleton` stays `false` while disabled), and the imperative `loadMore`/`refresh` triggers
-     * early-return instead of calling `queryFn` directly (their fallback branches bypass this `enabled`
-     * gate otherwise).
+     * Gate query execution. `false` disables network execution and fetch scheduling, while model reads
+     * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
+     * phase `'idle'` with `showSkeleton === false`. Imperative `loadMore`/`refetch` triggers
+     * early-return while disabled instead of calling `queryFn` directly.
      */
     enabled?: boolean;
     /** React Query freshness window in milliseconds. */
@@ -823,8 +818,8 @@ export type InfiniteQueryConfig<TData, TNode> = {
         _dbScope?: (filter?: unknown) => object | undefined;
         /** Write extracted nodes to the collection. */
         applyServerData: (items: unknown[], contract: SyncContract) => void;
-        /** React hook: read paged data from the collection. `disabled` suppresses the read (derived from `enabled === false`) independent of the filter's own nullishness. */
-        useData: (filter?: unknown, disabled?: boolean) => TNode[];
+        /** React hook: read paged data from the collection. */
+        useData: (filter?: unknown) => TNode[];
         /** React hook: count rows matching the runtime filter. Explicit nullish filters return 0. */
         count?: (filter?: unknown | null) => number;
         /** Freshness gate for the page scope. */
@@ -877,10 +872,9 @@ export type DbRequestSingleConfig<TResponse, TResult = unknown, TSelected = unkn
     /** Reactive read returned from the model after the query writes. */
     read?: TRead;
     /**
-     * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
-     * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
-     * `hasFetchedData` is `false`, and the derived loading phase is `'idle'` (not `'initial_loading'`),
-     * so `showSkeleton` stays `false` while disabled instead of showing a skeleton with no active fetch.
+     * Gate query execution. `false` disables network execution and fetch scheduling, but model reads
+     * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
+     * phase `'idle'` with `showSkeleton === false`.
      * @default true
      */
     enabled?: boolean;
@@ -936,12 +930,10 @@ export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string
      */
     direction?: 'forward' | 'backward';
     /**
-     * Gate query execution. `false` marks the query fully inactive: the network request is disabled, the
-     * freshness gate is skipped, the collection read is suppressed, `data` is `undefined`,
-     * `hasFetchedData` is `false`, the derived loading phase is `'idle'` (not `'initial_loading'`, so
-     * `showSkeleton` stays `false` while disabled), and the imperative `loadMore`/`refresh` triggers
-     * early-return instead of calling `queryFn` directly (their fallback branches bypass this `enabled`
-     * gate otherwise).
+     * Gate query execution. `false` disables network execution and fetch scheduling, while model reads
+     * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
+     * phase `'idle'` with `showSkeleton === false`. Imperative `loadMore`/`refetch` triggers
+     * early-return while disabled instead of calling `queryFn` directly.
      * @default true
      */
     enabled?: boolean;

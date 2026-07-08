@@ -29,10 +29,9 @@ export type ModelDetailRequestConfig<TResponse, TSelected, TResult = TSelected, 
      */
     read?: boolean;
     /**
-     * Gate query execution, combined with `Boolean(id)`. `false` (or a missing `id`) marks the query
-     * fully inactive: the network request is disabled, the freshness gate is skipped, the collection
-     * read is suppressed, `data` is `undefined`, `hasFetchedData` is `false`, and the derived loading
-     * phase is `'idle'` (not `'initial_loading'`), so `showSkeleton` stays `false` while disabled.
+     * Gate query execution, combined with `Boolean(id)`. `false` (or a missing `id`) disables network
+     * execution and fetch scheduling, while model reads remain live. Local rows still populate `data`
+     * and produce phase `'ready'`; no local rows produce phase `'idle'` with `showSkeleton === false`.
      */
     enabled?: DetailEnabled;
     /** React Query freshness window in milliseconds. */

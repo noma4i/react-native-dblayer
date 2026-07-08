@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.5.0-beta.2 - 2026-07-08
+
+### Breaking changes vs 2.5.0-beta.1
+
+- Relax `enabled: false` from full data blackout to network-idle semantics: TanStack Query execution, freshness scheduling, `loadMore`, and `refetch` stay disabled, while local collection reads stay live.
+- Remove the collection-binding read-suppression channel added in beta.1: `useData(filter, disabled)` is now `useData(filter)`, and `CollectionBindingUseDataContext.disabled` is removed.
+
+### Migration
+
+- Consumers already on the beta.1 rename surface do not need extra app changes unless they adopted the temporary second `useData` argument or `context.disabled`; drop those beta.1-only usages.
+
 ## 2.5.0-beta.1 - 2026-07-08
 
 ### Breaking changes
