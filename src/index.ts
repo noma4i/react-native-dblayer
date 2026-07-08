@@ -45,6 +45,7 @@ export {
 } from './core/extract';
 export { getDbLogger, setDbLogger } from './core/logger';
 export { getDbQueryClient, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
+export { createDbSubscriptionRuntime } from './core/subscriptionRuntime';
 export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
 export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';
@@ -112,6 +113,7 @@ export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseIn
 export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
 export type { ModelStatusPoller, ModelStatusPollerConfig } from './utils/modelStatusPoller';
+export type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from './core/subscriptionRuntime';
 export type { MergeOptimisticMediaOptions } from './utils/optimisticMedia';
 export type {
   NestedObjectPatcher,
