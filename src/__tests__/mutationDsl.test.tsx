@@ -1142,6 +1142,60 @@ describe('mutation DSL runtime', () => {
     expect(model.get('direct-patch')?.title).toBe('patch');
   });
 
+  it('destroys the local row before transport for a direct destroy mutation', async () => {
+    const model = createTodoModel();
+    model.insertStored({ id: 'direct-destroy', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const mutationSpy = jest.fn(async () => {
+      expect(model.get('direct-destroy')).toBeUndefined();
+      return { data: { noop: null } };
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy })
+    });
+
+    await runDbMutationDirect<null, { id: string }, void, Todo>(
+      {
+        method: 'destroy',
+        mutation: document<Record<string, null>, { input: unknown }>('DirectDestroyTodo'),
+        resultField: 'noop',
+        model,
+        selectId: input => input.id
+      },
+      { id: 'direct-destroy' }
+    );
+
+    expect(mutationSpy).toHaveBeenCalledTimes(1);
+    expect(model.get('direct-destroy')).toBeUndefined();
+  });
+
+  it('does not restore the local row when transport rejects a direct destroy mutation', async () => {
+    const model = createTodoModel();
+    model.insertStored({ id: 'direct-destroy-fail', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const mutationSpy = jest.fn(async () => {
+      throw new Error('network failed');
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy })
+    });
+
+    await expect(
+      runDbMutationDirect<null, { id: string }, void, Todo>(
+        {
+          method: 'destroy',
+          mutation: document<Record<string, null>, { input: unknown }>('DirectDestroyTodoFail'),
+          resultField: 'noop',
+          model,
+          selectId: input => input.id
+        },
+        { id: 'direct-destroy-fail' }
+      )
+    ).rejects.toThrow('network failed');
+
+    expect(model.get('direct-destroy-fail')).toBeUndefined();
+  });
+
   it('passes raw input to hook patch selectors while sending mapped input to transport', async () => {
     const model = createTodoModel();
     model.insertStored({ id: 'hook-patch-map-input', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
