@@ -246,9 +246,19 @@ const doAction = useCommand({
 | `resultField` | `string` | **required** (static form) | Response field to return. |
 | `mapInput` | `(input) => unknown` | identity | Map input → `variables.input`. |
 | `resolve` | `(input) => { mutation, resultField, input? }` | — (resolved form) | Per-input operation instead of static `mutation`/`resultField`. |
+| `track` | `{ start?, success?, error? }` | `—` | Emits analytics-agnostic command events through `configureDb({ trackSink })`. |
+
+Command tracking uses the same sink and resolver rules as mutation tracking:
+
+| Hook | Signature | Ordering |
+| --- | --- | --- |
+| `start` | `(input) => TrackEvent \| null` | Before the transport request. |
+| `success` | `(data, input) => TrackEvent \| null` | After extract handling. |
+| `error` | `(error, input) => TrackEvent \| null` | Before rethrow when the command fails. |
 
 `runDbCommandDirect(config, input)` runs the same static or resolved command config outside React. It ignores
-hook-only `key`/`logPrefix`, sends `variables.input`, and returns `response.data[resultField] ?? null`.
+hook-only `key`, sends `variables.input`, runs command tracking/extract handling, and returns
+`response.data[resultField] ?? null`. `logPrefix` is shared by hook logs and tracking guard logs.
 
 ## Non-React execution
 

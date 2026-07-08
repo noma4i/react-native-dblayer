@@ -649,7 +649,12 @@ describe('mutation DSL runtime', () => {
       const typedCommandConfig: DbCommandMutationConfig<TodoMutationInput, Todo, TodoExtractSpec> = {
         mutation: document<Record<string, Todo>, { input: unknown }>('TypedCommandExtract'),
         resultField: 'todoCreate',
-        extract: { todo: true }
+        extract: { todo: true },
+        track: {
+          start: input => ({ name: 'typed-command-start', payload: { title: input.title } }),
+          success: (data, input) => ({ name: 'typed-command-success', payload: { id: data?.id ?? null, title: input.title } }),
+          error: (error, input) => ({ name: 'typed-command-error', payload: { title: input.title, error: error.message } })
+        }
       };
 
       useDbMutation<Todo, TodoMutationInput, void, Stored, Todo, TodoExtractSpec>(typedExtractConfig);
@@ -1198,6 +1203,198 @@ describe('mutation DSL runtime', () => {
 
     expect(resolver).toHaveBeenCalledWith(extractSpec, { ok: true });
     expect(sink).toHaveBeenCalledWith({ commands: [{ id: 'command-1' }] }, 'commandSync');
+  });
+
+  it('emits command track start and success through the hook path', async () => {
+    const order: string[] = [];
+    const trackSink = jest.fn(event => {
+      order.push(`track:${event.name}`);
+    });
+    const resolver = jest.fn(() => {
+      order.push('extract');
+      return { commands: [{ id: 'hook-command' }] };
+    });
+    const mutationSpy = jest.fn(async () => {
+      order.push('transport');
+      return { data: { commandRun: { ok: true } } };
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy }),
+      trackSink,
+      extract: { sink: jest.fn(), mutationResolver: resolver }
+    });
+
+    const hook = renderQueryHook(() =>
+      useCommand<{ ok: boolean }, { id: string }>({
+        mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunTrackedCommandHook'),
+        resultField: 'commandRun',
+        extract: { command: true },
+        track: {
+          start: input => ({ name: 'command-start', payload: { id: input.id } }),
+          success: (data, input) => ({ name: 'command-success', payload: { id: input.id, ok: data?.ok ?? false } })
+        }
+      })
+    );
+
+    await act(async () => {
+      await expect(hook.current.mutateAsync({ id: 'hook-command' })).resolves.toEqual({ ok: true });
+    });
+
+    expect(order).toEqual(['track:command-start', 'transport', 'extract', 'track:command-success']);
+    expect(trackSink).toHaveBeenNthCalledWith(1, { name: 'command-start', payload: { id: 'hook-command' } });
+    expect(trackSink).toHaveBeenNthCalledWith(2, { name: 'command-success', payload: { id: 'hook-command', ok: true } });
+
+    hook.unmount();
+  });
+
+  it('emits command track start and success through the direct path', async () => {
+    const order: string[] = [];
+    const trackSink = jest.fn(event => {
+      order.push(`track:${event.name}`);
+    });
+    const resolver = jest.fn(() => {
+      order.push('extract');
+      return { commands: [{ id: 'direct-command' }] };
+    });
+    const mutationSpy = jest.fn(async () => {
+      order.push('transport');
+      return { data: { commandRun: { ok: true } } };
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation: mutationSpy }),
+      trackSink,
+      extract: { sink: jest.fn(), mutationResolver: resolver }
+    });
+
+    await expect(
+      runDbCommandDirect<{ ok: boolean }, { id: string }>(
+        {
+          mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunTrackedCommandDirect'),
+          resultField: 'commandRun',
+          extract: { command: true },
+          track: {
+            start: input => ({ name: 'command-direct-start', payload: { id: input.id } }),
+            success: (data, input) => ({ name: 'command-direct-success', payload: { id: input.id, ok: data?.ok ?? false } })
+          }
+        },
+        { id: 'direct-command' }
+      )
+    ).resolves.toEqual({ ok: true });
+
+    expect(order).toEqual(['track:command-direct-start', 'transport', 'extract', 'track:command-direct-success']);
+    expect(trackSink).toHaveBeenNthCalledWith(1, { name: 'command-direct-start', payload: { id: 'direct-command' } });
+    expect(trackSink).toHaveBeenNthCalledWith(2, { name: 'command-direct-success', payload: { id: 'direct-command', ok: true } });
+  });
+
+  it('emits command track error through the hook path before rethrow', async () => {
+    const order: string[] = [];
+    const trackSink = jest.fn(event => {
+      order.push(`track:${event.name}`);
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => {
+          order.push('transport');
+          throw new Error('command hook failed');
+        }
+      }),
+      trackSink
+    });
+
+    const hook = renderQueryHook(() =>
+      useCommand<{ ok: boolean }, { id: string }>({
+        mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunTrackedCommandHookFailure'),
+        resultField: 'commandRun',
+        track: {
+          start: input => ({ name: 'command-hook-start', payload: { id: input.id } }),
+          error: (error, input) => ({ name: 'command-hook-error', payload: { id: input.id, error: error.message } })
+        }
+      })
+    );
+
+    await act(async () => {
+      await expect(hook.current.mutateAsync({ id: 'hook-failure' })).rejects.toThrow('command hook failed');
+    });
+
+    expect(order).toEqual(['track:command-hook-start', 'transport', 'track:command-hook-error']);
+    expect(trackSink).toHaveBeenNthCalledWith(2, { name: 'command-hook-error', payload: { id: 'hook-failure', error: 'command hook failed' } });
+
+    hook.unmount();
+  });
+
+  it('emits command track error through the direct path before rethrow', async () => {
+    const order: string[] = [];
+    const trackSink = jest.fn(event => {
+      order.push(`track:${event.name}`);
+    });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: async () => {
+          order.push('transport');
+          throw new Error('command direct failed');
+        }
+      }),
+      trackSink
+    });
+
+    await expect(
+      runDbCommandDirect<{ ok: boolean }, { id: string }>(
+        {
+          mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunTrackedCommandDirectFailure'),
+          resultField: 'commandRun',
+          track: {
+            start: input => ({ name: 'command-direct-failure-start', payload: { id: input.id } }),
+            error: (error, input) => ({ name: 'command-direct-failure-error', payload: { id: input.id, error: error.message } })
+          }
+        },
+        { id: 'direct-failure' }
+      )
+    ).rejects.toThrow('command direct failed');
+
+    expect(order).toEqual(['track:command-direct-failure-start', 'transport', 'track:command-direct-failure-error']);
+    expect(trackSink).toHaveBeenNthCalledWith(2, { name: 'command-direct-failure-error', payload: { id: 'direct-failure', error: 'command direct failed' } });
+  });
+
+  it('swallows throwing command track resolvers without breaking the command', async () => {
+    const debug = jest.fn();
+    const trackSink = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      logger: { debug, error: jest.fn() },
+      transport: mockTransport({
+        mutation: async () => ({
+          data: {
+            commandRun: { ok: true }
+          }
+        })
+      }),
+      trackSink
+    });
+
+    await expect(
+      runDbCommandDirect<{ ok: boolean }, { id: string }>(
+        {
+          mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('RunCommandThrowingTrackResolver'),
+          resultField: 'commandRun',
+          logPrefix: 'command-track-resolver',
+          track: {
+            start: () => {
+              throw new Error('resolver failed');
+            },
+            success: () => ({ name: 'command-resolver-success' })
+          }
+        },
+        { id: 'resolver-failure' }
+      )
+    ).resolves.toEqual({ ok: true });
+
+    expect(debug).toHaveBeenCalledWith('command-track-resolver', 'track resolver failed', 'start', expect.any(Error));
+    expect(trackSink).toHaveBeenCalledTimes(1);
+    expect(trackSink).toHaveBeenCalledWith({ name: 'command-resolver-success' });
   });
 
   it('applies direct patch mutations before transport and keeps the patch when transport rejects', async () => {

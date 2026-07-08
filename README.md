@@ -193,8 +193,8 @@ function useSendMessage() {
 ```
 
 For simple updates/deletes, declare `method: 'patch' | 'destroy'` with `selectId` (and `selectPatch`) instead of
-`onMutate`. `useCommand` covers fire-and-forget commands. Outside React, use `runDbMutationDirect` and
-`runDbCommandDirect` for the same mutation and command configs.
+`onMutate`. `useCommand` covers fire-and-forget commands, including the same `track` start/success/error sink.
+Outside React, use `runDbMutationDirect` and `runDbCommandDirect` for the same mutation and command configs.
 
 → **Reference:** [Mutations](./docs/mutations.md) — `useDbMutation` variants (custom / patch / destroy), lifecycle,
 `useCommand`, `runDbCommandDirect`, `runDbMutationDirect`.

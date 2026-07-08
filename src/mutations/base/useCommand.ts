@@ -1,6 +1,7 @@
 import type { DbCommandMutationConfig, DbGraphQLDocument } from '../../types';
 import { getDbExtractSink, getDbMutationExtractResolver } from '../../core/extract';
 import { getDbTransport } from '../../core/transport';
+import { emitCommandTrackError, emitCommandTrackStart, emitCommandTrackSuccess } from './commandTracking';
 import { capitalize } from './mutationConfig';
 import { useCommandMutation } from './useCommandMutation';
 
@@ -39,14 +40,22 @@ const applyCommandExtract = <TData, TInput, TExtractSpec>(config: DbCommandMutat
  * @returns Command result field or null when the response field is missing.
  */
 export const runDbCommandDirect = async <TData, TInput, TExtractSpec = unknown>(config: DbCommandMutationConfig<TInput, TData, TExtractSpec>, input: TInput): Promise<TData | null> => {
-  const { mutation, resultField, mappedInput } = resolveCommandConfig(config, input);
-  const result = await getDbTransport().mutation<Record<string, TData>, { input: unknown }>({
-    mutation,
-    variables: { input: mappedInput }
-  });
-  const selected = result.data[resultField] ?? null;
-  applyCommandExtract(config, selected);
-  return selected;
+  emitCommandTrackStart(config, input);
+
+  try {
+    const { mutation, resultField, mappedInput } = resolveCommandConfig(config, input);
+    const result = await getDbTransport().mutation<Record<string, TData>, { input: unknown }>({
+      mutation,
+      variables: { input: mappedInput }
+    });
+    const selected = result.data[resultField] ?? null;
+    applyCommandExtract(config, selected);
+    emitCommandTrackSuccess(config, selected, input);
+    return selected;
+  } catch (error) {
+    emitCommandTrackError(config, error as Error, input);
+    throw error;
+  }
 };
 
 /**
