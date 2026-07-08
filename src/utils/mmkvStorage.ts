@@ -25,18 +25,23 @@ declare const require: <T>(moduleName: string) => T;
 let dbStorage: MmkvStorage | null = null;
 let appStateListenerRegistered = false;
 
+const ensureAppStateListener = (): void => {
+  if (appStateListenerRegistered) {
+    return;
+  }
+  appStateListenerRegistered = true;
+  require<AppStateModule>('react-native').AppState.addEventListener('change', state => {
+    if (state === 'background' || state === 'inactive') {
+      flushPendingWrites();
+    }
+  });
+};
+
 const getDbStorage = (): MmkvStorage => {
   if (dbStorage === null) {
     dbStorage = require<MmkvModule>('react-native-mmkv').createMMKV({ id: 'tanstack-db' });
   }
-  if (!appStateListenerRegistered) {
-    appStateListenerRegistered = true;
-    require<AppStateModule>('react-native').AppState.addEventListener('change', state => {
-      if (state === 'background' || state === 'inactive') {
-        flushPendingWrites();
-      }
-    });
-  }
+  ensureAppStateListener();
   return dbStorage;
 };
 
@@ -85,6 +90,7 @@ const flushPendingWrites = (): void => {
 };
 
 const scheduleFlush = (): void => {
+  ensureAppStateListener();
   const now = Date.now();
   if (firstPendingAt === 0) {
     firstPendingAt = now;
