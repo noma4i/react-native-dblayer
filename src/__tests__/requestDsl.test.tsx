@@ -1,7 +1,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { configureDb, createCollectionBinding, devClearAllDataAndState, setDbExtractSink, useDbInfiniteRequest, useDbSingleRequest } from '../index';
+import { configureDb, createCollectionBinding, devClearAllDataAndState, useDbInfiniteRequest, useDbSingleRequest } from '../index';
+import { setDbExtractSink } from '../core/extract';
 import type { CollectionReadConfig, ConnectionWithNodes, DbGraphQLDocument, PageInfoInput } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 

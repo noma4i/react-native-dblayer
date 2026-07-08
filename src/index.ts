@@ -1,62 +1,29 @@
-export { createCollectionModel } from './core/createCollectionModel';
 export { configureDb } from './configure';
-export { createMerge } from './core/createMerge';
-export { deriveDbKey } from './core/deriveDbKey';
-export { createPatchCrud } from './core/createPatchCrud';
-export { createPersistentCollection, defineModel } from './core/createPersistentCollection';
-export { createReplace } from './core/createReplace';
+export { defineModel } from './core/createPersistentCollection';
 export { belongsTo, hasMany, hasOne, hasManyThrough } from './core/relations';
 export { computeLoadingState, computePhase } from './queries/base/loadingState';
-export { clearModelRegistry, getRegisteredModel, registerModel } from './core/modelRegistry';
+export { pruneStaleFetchStates } from './core/freshnessStorage';
 export {
-  DEFAULT_FETCH_STATE_MAX_AGE_MS,
-  clearAllFreshnessMetadata,
-  clearCollectionFetchState,
-  clearCollectionFetchStates,
-  getCollectionFetchState,
-  getCollectionFetchStateVersion,
-  listCollectionFetchScopes,
-  pruneStaleFetchStates,
-  registerCollectionFetchStateCache,
-  setCollectionFetchState,
-  subscribeCollectionFetchState
-} from './core/freshnessStorage';
-export { isIncomingNewer, shallowEqual, shouldAcceptIncoming } from './core/invariants';
-export { mmkvCollectionOptions } from './core/mmkvCollectionOptions';
-export {
-  acceptPersistentCollectionMutations,
   clearAllCollections,
   devClearAllDataAndState,
-  isInManagedMutationBatch,
-  registerModelRuntimeReset,
-  registerPersistentCollectionMutationAcceptor,
-  resetAllModelsState,
-  runInManagedMutationBatch
+  resetAllModelsState
 } from './core/registry';
 export { stableSerialize } from './core/serialize';
 export {
   createExtractSink,
   createMutationExtractResolver,
-  getDbExtractSink,
-  getDbMutationExtractResolver,
-  liftExtractNodes,
-  setDbExtractSink,
-  setDbMutationExtractResolver
+  liftExtractNodes
 } from './core/extract';
-export { getDbLogger, setDbLogger } from './core/logger';
-export { getDbQueryClient, invalidateDbRequests, invalidateModel, refetchDbRequests, resetDbQueryRuntime } from './core/queryClient';
+export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './core/queryClient';
 export { createDbSubscriptionRuntime } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
-export { getDbStorageAdapter, setDbStorageAdapter } from './core/storage';
-export { getDbTransport, setDbTransport } from './core/transport';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
-export { mergeOptimisticSnapshot, resolveMergedField } from './mutations/base/mergeOptimisticSnapshot';
+export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';
 export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';
 export { runDbCommandDirect, useCommand } from './mutations/base/useCommand';
-export { useCommandMutation } from './mutations/base/useCommandMutation';
 export { useDbMutation } from './mutations/base/useDbMutation';
 export { mergeInitialSyncContract, replaceInitialSyncContract, runDbInfiniteQueryDirect, runDbQueryDirect } from './queries/base/requestRuntime';
 export { modelDetailRequest } from './queries/base/modelDetailRequest';
@@ -64,12 +31,10 @@ export {
   buildStableItems,
   createCollectionBinding,
   pickEqual,
-  useCollectionRead,
   useEntitiesById,
   useJoinedEntities,
   useOrderedEntities,
   useStableEntity,
-  useStableArray,
   useStableItems,
   useStableSorted,
   useWindowedLoadMore
@@ -80,10 +45,10 @@ export { createOptimisticSequence, generateTempId, isTempId } from './utils/gene
 export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
 export { pickDefined, pickPresent } from './utils/pickDefined';
-export { readBoolean, readId, readNullableNumber, readNullableString, readNumber, readString, toRequiredStr, toStr } from './utils/normalizeHelpers';
+export { readId, readNullableNumber, readNullableString, readNumber, toRequiredStr, toStr } from './utils/normalizeHelpers';
 export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
-export { castNode, castNodes, toQueryValue } from './utils/typeBoundary';
+export { castNode, castNodes } from './utils/typeBoundary';
 export {
   createNestedObjectPatcher,
   createIdArrayPatcher,

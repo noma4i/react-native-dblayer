@@ -1,5 +1,5 @@
 import { clearModelRegistry, getRegisteredModel, registerModel } from '../core/modelRegistry';
-import { setDbLogger } from '../index';
+import { setDbLogger } from '../core/logger';
 
 const noop = (): void => {};
 

@@ -1,4 +1,4 @@
-import { shouldAcceptIncoming } from '../index';
+import { shouldAcceptIncoming } from '../core/invariants';
 
 type TestItem = Record<string, unknown> & {
   id: string;

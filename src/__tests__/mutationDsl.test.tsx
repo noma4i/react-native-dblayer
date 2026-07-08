@@ -7,11 +7,10 @@ import {
   mergeOptimisticSnapshot,
   runDbCommandDirect,
   runDbMutationDirect,
-  setDbExtractSink,
-  setDbMutationExtractResolver,
   useCommand,
   useDbMutation
 } from '../index';
+import { setDbExtractSink, setDbMutationExtractResolver } from '../core/extract';
 import type { DbMutationExtractPresetEntry, ExtractSpecOf } from '../index';
 import type { DbCommandMutationConfig, DbGraphQLDocument, DbMutationConfig } from '../types';
 import { createTodoFieldsModel, createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';

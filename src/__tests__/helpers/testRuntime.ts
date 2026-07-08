@@ -1,4 +1,5 @@
-import { defineModel, f, setDbStorageAdapter } from '../../index';
+import { defineModel, f } from '../../index';
+import { setDbStorageAdapter } from '../../core/storage';
 import type { DbTransport, StorageAdapter, TransportResult } from '../../types';
 
 export type TodoInput = {

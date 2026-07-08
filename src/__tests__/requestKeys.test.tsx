@@ -4,16 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   configureDb,
   createCollectionBinding,
-  deriveDbKey,
   devClearAllDataAndState,
   invalidateDbRequests,
   invalidateModel,
-  refetchDbRequests,
   resetDbQueryRuntime,
   stableSerialize,
   useDbInfiniteRequest,
   useDbSingleRequest
 } from '../index';
+import { deriveDbKey } from '../core/deriveDbKey';
+import { refetchDbRequests } from '../core/queryClient';
 import type { ConnectionWithNodes, DbGraphQLDocument, PageInfoInput } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 

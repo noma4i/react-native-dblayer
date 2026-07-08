@@ -1,7 +1,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { useMemo } from 'react';
-import { devClearAllDataAndState, useJoinedEntities, useOrderedEntities, useStableArray, useStableEntity, useStableItems, useStableSorted, useWindowedLoadMore } from '../index';
+import { devClearAllDataAndState, useJoinedEntities, useOrderedEntities, useStableEntity, useStableItems, useStableSorted, useWindowedLoadMore } from '../index';
+import { useStableArray } from '../queries/base/shared';
 import { createTodoModel, installMemoryStorage } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));

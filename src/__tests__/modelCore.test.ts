@@ -1,13 +1,11 @@
 import {
-  DEFAULT_FETCH_STATE_MAX_AGE_MS,
   clearAllCollections,
   computeLoadingState,
   configureDb,
   defineModel,
-  devClearAllDataAndState,
-  getCollectionFetchStateVersion,
-  setCollectionFetchState
+  devClearAllDataAndState
 } from '../index';
+import { DEFAULT_FETCH_STATE_MAX_AGE_MS, getCollectionFetchStateVersion, setCollectionFetchState } from '../core/freshnessStorage';
 import type { InternalSyncContract } from '../types';
 import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';

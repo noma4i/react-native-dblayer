@@ -6,10 +6,9 @@ import {
   devClearAllDataAndState,
   liftExtractNodes,
   replaceSyncContract,
-  runDbMutationDirect,
-  setDbExtractSink,
-  setDbMutationExtractResolver
+  runDbMutationDirect
 } from '../index';
+import { setDbExtractSink, setDbMutationExtractResolver } from '../core/extract';
 import type { DbGraphQLDocument } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 

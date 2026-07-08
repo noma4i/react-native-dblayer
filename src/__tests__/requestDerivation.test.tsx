@@ -4,17 +4,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   configureDb,
   createCollectionBinding,
-  deriveDbKey,
   devClearAllDataAndState,
   mergeInitialSyncContract,
   modelDetailRequest,
   runDbInfiniteQueryDirect,
   runDbQueryDirect,
-  setDbExtractSink,
   stableSerialize,
   useDbInfiniteRequest,
   useDbSingleRequest
 } from '../index';
+import { deriveDbKey } from '../core/deriveDbKey';
+import { setDbExtractSink } from '../core/extract';
 import type { BaseQueryCollection, BaseQueryResult, ConnectionWithNodes, DbGraphQLDocument, DbRequestInfiniteConfig, DbRequestSingleConfig, PageInfoInput } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
 

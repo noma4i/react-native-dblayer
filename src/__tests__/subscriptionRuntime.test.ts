@@ -1,4 +1,5 @@
-import { configureDb, createDbSubscriptionRuntime, setDbLogger } from '../index';
+import { configureDb, createDbSubscriptionRuntime } from '../index';
+import { setDbLogger } from '../core/logger';
 import type { DbGraphQLDocument, DbTransport } from '../types';
 import { mockTransport } from './helpers/testRuntime';
 
