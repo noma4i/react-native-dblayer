@@ -28,5 +28,8 @@ export const readNullableNumber = (value: unknown): number | null | undefined =>
 /** Read a boolean or return undefined for missing or malformed values. */
 export const readBoolean = (value: unknown): boolean | undefined => (typeof value === 'boolean' ? value : undefined);
 
-/** Read an id as a string or return undefined. */
-export const readId = (value: unknown): string | undefined => toStr(value) ?? undefined;
+/** Read an id as a string; string/number pass through, anything else (boolean/object/array/null/undefined) returns undefined. */
+export const readId = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  return toStr(value) ?? undefined;
+};
