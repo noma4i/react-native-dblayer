@@ -1,6 +1,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { belongsTo, configureDb, defineModel, devClearAllDataAndState, f, hasMany, hasOne, hasManyThrough, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
+import { belongsTo, configureDb, defineModel, devClearAllDataAndState, f, hasMany, hasOne, hasManyThrough, mergeSyncContract, pickEqual, pruneOrphanedRows, stableSerialize } from '../index';
+import { createCollectionModel } from '../core/createCollectionModel';
+import { createPersistentCollection } from '../core/createPersistentCollection';
 import type { CollectionModel, InternalSyncContract, ModelRelationsConfig, RelatedSurface, RowRelatedSurface } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -944,6 +946,70 @@ describe('model relations', () => {
     });
   });
 
+  it('announces the definitively written row when a state read-back would miss it', () => {
+    installMemoryStorage();
+
+    const rawParentCollection = createPersistentCollection<PropagationParentRow>({ id: 'propagate-readback-parent-raw' });
+    const rawChildCollection = createPersistentCollection<PropagationChildRow>({ id: 'propagate-readback-child-raw' });
+
+    // On-device (Hermes), a state read-back immediately after insert/update can miss the row still
+    // settling inside the open collection transaction. Simulate that by making the raw collection's
+    // `get` always miss, regardless of what was just written.
+    rawChildCollection.get = () => undefined;
+
+    const parentModel = createCollectionModel<Partial<PropagationParentRow> & { id: string }, PropagationParentRow>({
+      collection: rawParentCollection,
+      name: 'RelationPropagationParentModel:propagate-readback-parent',
+      normalize: input => ({
+        id: input.id,
+        title: input.title ?? input.id,
+        ...(input.preview !== undefined ? { preview: input.preview } : {}),
+        ...(input.lastChildId !== undefined ? { lastChildId: input.lastChildId } : {}),
+        updatedAt: input.updatedAt ?? null
+      }),
+      merge: {},
+      replace: {}
+    });
+
+    const childModel = createCollectionModel<Partial<PropagationChildRow> & { id: string; parentId: string }, PropagationChildRow>({
+      collection: rawChildCollection,
+      name: 'RelationPropagationChildModel:propagate-readback-child',
+      normalize: input => ({
+        id: input.id,
+        parentId: input.parentId,
+        body: input.body ?? input.id,
+        updatedAt: input.updatedAt ?? null
+      }),
+      relations: () => ({
+        parent: belongsTo(parentModel, {
+          foreignKey: 'parentId',
+          propagate: (child: PropagationChildRow) => ({ preview: child.body, lastChildId: child.id, updatedAt: child.updatedAt })
+        })
+      }),
+      merge: {},
+      replace: {}
+    });
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.applyServerData([{ id: 'child-1', parentId: 'parent-1', body: 'Server', updatedAt: '2000-01-03T00:00:00.000Z' }], { mode: 'merge' });
+
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Server',
+      lastChildId: 'child-1',
+      updatedAt: '2000-01-03T00:00:00.000Z'
+    });
+
+    // Update path: same read-back-miss simulation, this time patching an existing child.
+    parentModel.patch('parent-1', { preview: 'Existing', lastChildId: 'child-0', updatedAt: '2000-01-03T00:00:00.000Z' });
+    childModel.applyServerData([{ id: 'child-1', parentId: 'parent-1', body: 'Server Updated', updatedAt: '2000-01-04T00:00:00.000Z' }], { mode: 'merge' });
+
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Server Updated',
+      lastChildId: 'child-1',
+      updatedAt: '2000-01-04T00:00:00.000Z'
+    });
+  });
+
   it('skips parent propagation when the callback returns null', () => {
     installMemoryStorage();
     const parentModel = definePropagationParentModel('propagate-null-parent');
@@ -1030,6 +1096,212 @@ describe('model relations', () => {
 
     parentModel.patch('parent-1', { title: 'Direct Parent Patch', updatedAt: '2000-01-03T00:00:00.000Z' });
     expect(auditModel.get('parent-1')).toMatchObject({ name: 'Direct Parent Patch' });
+  });
+
+  it('propagates server child writes into existing parent rows when the child model sideloads', () => {
+    installMemoryStorage();
+
+    type SideloadTargetRow = { id: string; name: string; updatedAt?: string | null };
+    const sideloadTargetModel = defineModel<Partial<SideloadTargetRow> & { id: string }, SideloadTargetRow>({
+      id: 'propagate-sideload-target',
+      name: 'PropagationSideloadTargetModel',
+      normalize: input => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+      merge: {},
+      replace: {}
+    });
+
+    const parentModel = definePropagationParentModel('propagate-sideload-parent');
+
+    type SideloadChildRow = PropagationChildRow;
+    type SideloadChildInput = Partial<SideloadChildRow> & { id: string; parentId: string; user?: { id: string; name: string } | null };
+    const childModel = defineModel<SideloadChildInput, SideloadChildRow>({
+      id: 'propagate-sideload-child',
+      name: 'PropagationSideloadChildModel',
+      normalize: input => ({
+        id: input.id,
+        parentId: input.parentId,
+        body: input.body ?? input.id,
+        updatedAt: input.updatedAt ?? null
+      }),
+      relations: () => ({
+        parent: belongsTo(parentModel, {
+          foreignKey: 'parentId',
+          propagate: (child: PropagationChildRow) => ({
+            preview: child.body,
+            lastChildId: child.id,
+            updatedAt: child.updatedAt
+          })
+        })
+      }),
+      sideload: [{ model: 'PropagationSideloadTargetModel', pluck: (input: SideloadChildInput) => input.user }],
+      merge: {},
+      replace: {}
+    });
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+
+    childModel.applyServerData(
+      [
+        {
+          id: 'child-1',
+          parentId: 'parent-1',
+          body: 'Server',
+          updatedAt: '2026-07-09T00:00:00.000Z',
+          user: { id: 'user-1', name: 'Ada' }
+        }
+      ],
+      mergeSyncContract('subscription')
+    );
+
+    expect(sideloadTargetModel.get('user-1')).toMatchObject({ id: 'user-1', name: 'Ada' });
+    expect(childModel.get('child-1')).toMatchObject({ id: 'child-1', body: 'Server' });
+    expect(parentModel.get('parent-1')).toMatchObject({
+      preview: 'Server',
+      lastChildId: 'child-1',
+      updatedAt: '2026-07-09T00:00:00.000Z'
+    });
+  });
+
+  it('variant (a): sideload target itself has a mirror registered', () => {
+    installMemoryStorage();
+
+    type SideloadTargetRow = { id: string; name: string; updatedAt?: string | null };
+    type MirrorAuditRow = { id: string; name: string; updatedAt?: string | null };
+    const auditModel = defineModel<Partial<MirrorAuditRow> & { id: string }, MirrorAuditRow>({
+      id: 'propagate-sideload-a-audit',
+      name: 'PropagationSideloadAAuditModel',
+      normalize: input => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+      merge: {},
+      replace: {}
+    });
+    const sideloadTargetModel = defineModel<Partial<SideloadTargetRow> & { id: string }, SideloadTargetRow>({
+      id: 'propagate-sideload-a-target',
+      name: 'PropagationSideloadATargetModel',
+      normalize: input => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+      mirror: [{ model: () => auditModel, project: (row: SideloadTargetRow) => ({ name: row.name, updatedAt: row.updatedAt }) }],
+      merge: {},
+      replace: {}
+    });
+
+    const parentModel = definePropagationParentModel('propagate-sideload-a-parent');
+    type SideloadChildInput = Partial<PropagationChildRow> & { id: string; parentId: string; user?: { id: string; name: string } | null };
+    const childModel = defineModel<SideloadChildInput, PropagationChildRow>({
+      id: 'propagate-sideload-a-child',
+      name: 'PropagationSideloadAChildModel',
+      normalize: input => ({ id: input.id, parentId: input.parentId, body: input.body ?? input.id, updatedAt: input.updatedAt ?? null }),
+      relations: () => ({
+        parent: belongsTo(parentModel, {
+          foreignKey: 'parentId',
+          propagate: (child: PropagationChildRow) => ({ preview: child.body, lastChildId: child.id, updatedAt: child.updatedAt })
+        })
+      }),
+      sideload: [{ model: 'PropagationSideloadATargetModel', pluck: (input: SideloadChildInput) => input.user }],
+      merge: {},
+      replace: {}
+    });
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.applyServerData(
+      [{ id: 'child-1', parentId: 'parent-1', body: 'Server', updatedAt: '2026-07-09T00:00:00.000Z', user: { id: 'user-1', name: 'Ada' } }],
+      mergeSyncContract('subscription')
+    );
+
+    // eslint-disable-next-line no-console
+    console.log('[variant-a]', {
+      target: sideloadTargetModel.get('user-1'),
+      audit: auditModel.get('user-1'),
+      child: childModel.get('child-1'),
+      parent: parentModel.get('parent-1')
+    });
+
+    expect(parentModel.get('parent-1')).toMatchObject({ preview: 'Server', lastChildId: 'child-1' });
+  });
+
+  it('variant (b): two rows in the same applyServerData batch', () => {
+    installMemoryStorage();
+
+    type SideloadTargetRow = { id: string; name: string; updatedAt?: string | null };
+    const sideloadTargetModel = defineModel<Partial<SideloadTargetRow> & { id: string }, SideloadTargetRow>({
+      id: 'propagate-sideload-b-target',
+      name: 'PropagationSideloadBTargetModel',
+      normalize: input => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+      merge: {},
+      replace: {}
+    });
+
+    const parentModel = definePropagationParentModel('propagate-sideload-b-parent');
+    type SideloadChildInput = Partial<PropagationChildRow> & { id: string; parentId: string; user?: { id: string; name: string } | null };
+    const childModel = defineModel<SideloadChildInput, PropagationChildRow>({
+      id: 'propagate-sideload-b-child',
+      name: 'PropagationSideloadBChildModel',
+      normalize: input => ({ id: input.id, parentId: input.parentId, body: input.body ?? input.id, updatedAt: input.updatedAt ?? null }),
+      relations: () => ({
+        parent: belongsTo(parentModel, {
+          foreignKey: 'parentId',
+          propagate: (child: PropagationChildRow) => ({ preview: child.body, lastChildId: child.id, updatedAt: child.updatedAt })
+        })
+      }),
+      sideload: [{ model: 'PropagationSideloadBTargetModel', pluck: (input: SideloadChildInput) => input.user }],
+      merge: {},
+      replace: {}
+    });
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.applyServerData(
+      [
+        { id: 'child-1', parentId: 'parent-1', body: 'First', updatedAt: '2026-07-09T00:00:00.000Z', user: { id: 'user-1', name: 'Ada' } },
+        { id: 'child-2', parentId: 'parent-1', body: 'Second', updatedAt: '2026-07-09T00:00:01.000Z', user: { id: 'user-2', name: 'Grace' } }
+      ],
+      mergeSyncContract('subscription')
+    );
+
+    // eslint-disable-next-line no-console
+    console.log('[variant-b]', { child1: childModel.get('child-1'), child2: childModel.get('child-2'), parent: parentModel.get('parent-1') });
+
+    expect(parentModel.get('parent-1')).toMatchObject({ preview: 'Second', lastChildId: 'child-2' });
+  });
+
+  it('variant (c): child row UPDATE (pre-existing child) instead of insert', () => {
+    installMemoryStorage();
+
+    type SideloadTargetRow = { id: string; name: string; updatedAt?: string | null };
+    const sideloadTargetModel = defineModel<Partial<SideloadTargetRow> & { id: string }, SideloadTargetRow>({
+      id: 'propagate-sideload-c-target',
+      name: 'PropagationSideloadCTargetModel',
+      normalize: input => ({ id: input.id, name: input.name ?? input.id, updatedAt: input.updatedAt ?? null }),
+      merge: {},
+      replace: {}
+    });
+
+    const parentModel = definePropagationParentModel('propagate-sideload-c-parent');
+    type SideloadChildInput = Partial<PropagationChildRow> & { id: string; parentId: string; user?: { id: string; name: string } | null };
+    const childModel = defineModel<SideloadChildInput, PropagationChildRow>({
+      id: 'propagate-sideload-c-child',
+      name: 'PropagationSideloadCChildModel',
+      normalize: input => ({ id: input.id, parentId: input.parentId, body: input.body ?? input.id, updatedAt: input.updatedAt ?? null }),
+      relations: () => ({
+        parent: belongsTo(parentModel, {
+          foreignKey: 'parentId',
+          propagate: (child: PropagationChildRow) => ({ preview: child.body, lastChildId: child.id, updatedAt: child.updatedAt })
+        })
+      }),
+      sideload: [{ model: 'PropagationSideloadCTargetModel', pluck: (input: SideloadChildInput) => input.user }],
+      merge: {},
+      replace: {}
+    });
+
+    parentModel.insertStored({ id: 'parent-1', title: 'Parent', updatedAt: '2000-01-01T00:00:00.000Z' });
+    childModel.insertStored({ id: 'child-1', parentId: 'parent-1', body: 'Original', updatedAt: '2000-01-02T00:00:00.000Z' });
+
+    childModel.applyServerData(
+      [{ id: 'child-1', parentId: 'parent-1', body: 'Updated', updatedAt: '2026-07-09T00:00:00.000Z', user: { id: 'user-1', name: 'Ada' } }],
+      mergeSyncContract('subscription')
+    );
+
+    // eslint-disable-next-line no-console
+    console.log('[variant-c]', { child: childModel.get('child-1'), parent: parentModel.get('parent-1') });
+
+    expect(parentModel.get('parent-1')).toMatchObject({ preview: 'Updated', lastChildId: 'child-1' });
   });
 
   it('throws model-prefixed errors for invalid hasManyThrough names', () => {

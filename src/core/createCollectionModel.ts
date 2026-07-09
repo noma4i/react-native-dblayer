@@ -269,19 +269,19 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     },
     has: (id: string) => rawCollection.has(id),
     insert: (item: StoredRowBase & Record<string, unknown>) => {
-      rawCollection.insert(attachRelatedToRow(item));
-      const row = rawCollection.get(item.id);
-      if (row) {
-        attachRelatedToRow(row);
-        writePropagation.announce(row, 'insert');
-      }
+      const row = attachRelatedToRow(item);
+      rawCollection.insert(row);
+      writePropagation.announce(row, 'insert');
     },
     update: (id: string, updater: (draft: StoredRowBase & Record<string, unknown>) => void) => {
-      rawCollection.update(id, updater);
-      const row = rawCollection.get(id);
-      if (row) {
-        attachRelatedToRow(row);
-        writePropagation.announce(row, 'update');
+      let snapshot: (StoredRowBase & Record<string, unknown>) | undefined;
+      rawCollection.update(id, draft => {
+        updater(draft);
+        snapshot = { ...draft };
+      });
+      if (snapshot) {
+        attachRelatedToRow(snapshot);
+        writePropagation.announce(snapshot, 'update');
       }
     },
     delete: (id: string) => rawCollection.delete(id),

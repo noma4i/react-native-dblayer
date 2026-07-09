@@ -14,6 +14,7 @@ import type {
   RowRelatedSurface
 } from '../types';
 import { createCollectionModel } from './createCollectionModel';
+import { getDbLogger } from './logger';
 import { mmkvCollectionOptions } from './mmkvCollectionOptions';
 import { clearAllCollections, registerPersistentCollectionMutationAcceptor } from './registry';
 
@@ -57,7 +58,8 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
         updater(draft as T);
       });
       return true;
-    } catch {
+    } catch (error) {
+      getDbLogger().error('[persistentCollection]', 'update failed', { id: config.id, key: id, error });
       return false;
     }
   };
@@ -66,7 +68,8 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
     try {
       collection.delete(id);
       return true;
-    } catch {
+    } catch (error) {
+      getDbLogger().error('[persistentCollection]', 'delete failed', { id: config.id, key: id, error });
       return false;
     }
   };
