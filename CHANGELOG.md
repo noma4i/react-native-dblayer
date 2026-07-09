@@ -1,5 +1,76 @@
 # Changelog
 
+## 2.5.0 - 2026-07-09
+
+Final stable release of the v2.5 consolidation line; merges 2.5.0-beta.1 through 2.5.0-beta.5 with no code changes on top of beta.5. The v2.5 round moves every generic data-layer mechanism into the package: typed reads and extract, relations with write propagation, a full subscription runtime with ingest primitives, model status polling, and command tracking. Verified end to end in the consuming application (full gate suite plus an on-device live subscription matrix) before this stable cut.
+
+### Upgrade path
+
+- From 2.5.0-beta.5: version bump only; no code or API changes.
+- From 2.4.x or earlier: apply the rename table from the 2.5.0-beta.1 entry below, then read the migration notes here. All beta migration notes are consolidated in this entry.
+
+### Breaking changes vs 2.4.0 (summary)
+
+- Entry points and identity: `executeDbSingleRequest` -> `runDbQueryDirect`, `executeDbInfiniteRequest` -> `runDbInfiniteQueryDirect`, `getFirstWhere` -> `getFirst`, singleton `upsert` -> `upsertCurrent`, `_collection` -> `collection`, strict `readId`.
+- `InfiniteQueryResult` canon: `items`/`refresh`/`fetchNextPage` -> `data`/`refetch`/`loadMore`.
+- Gating canon: config `inactive` removed; single `enabled` knob. `enabled: false` means network-idle (phase `idle`, no fetching, `loadMore`/`refetch` guarded) while local collection reads stay live.
+- Removed types: `FetchStatePageInfo`, `NormalizedPageInfo`, `DisplayState`, `DisplayStateInput`, `ServerSyncContract`, `ServerSyncMode`.
+- 47 runtime exports pruned from the public barrel (full list in the 2.5.0-beta.1 entry).
+- `useData(filter, disabled)` -> `useData(filter)`; the read-suppression channel was removed in beta.2.
+
+### Intentional behavior changes
+
+- `enabled: false` yields phase `idle` instead of an eternal `initial_loading` skeleton.
+- Scope keys are canonicalized: `{}` equals the root scope, `undefined` fields are stripped, object key order is stable.
+- Extract collisions for the same sink key merge into arrays instead of clobbering earlier values.
+- Extract sinks dispatch in a model-first two-pass order.
+- `runDbMutationDirect` applies optimistic destroy behavior (parity with the hook path).
+- Single-request derived keys are salted with variables, so two configs of one model with different vars no longer share a cache entry.
+
+### New API by area
+
+- Schema: `fromKey`, `readFieldsPatch`.
+- Typing: typed collection reads (`BaseQueryCollection` generic inferred from `read.model`), `ExtractSpecOf`, typed sideload `pluck`.
+- Relations: `hasOne`, `belongsTo` write propagation (all child write paths including server writes), model `mirror`.
+- Extract: `extractSource` on request/mutation/command configs, per-payload sink contracts, command-path extract.
+- Subscriptions: `DbTransport.subscribe`, `createDbSubscriptionRuntime` (keyed trailing debounce, backoff resubscribe, dev inspection), `createKeyedBatchBuffer`, `createTombstoneLedger`, `patchWhenPresent`, `waitForRow`.
+- Polling: `createModelStatusPoller` with refcounted attach, poll budget, `onSessionStop(id, reason)` and `isSessionTerminal(id)`.
+- Commands: one execute choke point (`useCommand` routes through `runDbCommandDirect`) plus command `track` config sharing the tracking core with query/mutation paths.
+- Misc: `mergeOptimisticMedia`, `useJoinedEntities`, `computePhase`, `replaceInitialSyncContract`.
+
+### Migration notes
+
+- Subscription runtime envelope contract: the runtime unwraps every transport result BY ENTRY KEY before calling `onData`. `onData(payload)` receives the value of the subscription root field, not the `{ data }` envelope. Reading `payload.<rootField>` again is the most common adoption mistake and fails silently (the handler early-returns on `undefined`). `runtime.dispatch(key, payload)` takes the same unwrapped shape, so test fixtures must not wrap payloads either.
+- `enabled` inversion: former `inactive: true` sites become `enabled: false`; former `enabled: false` sites that relied on an eternal skeleton now render the `idle` phase and should gate UI on `computePhase` output instead.
+- `InfiniteQueryResult` renames are mechanical; the single-request hook result is a TanStack `UseQueryResult` passthrough and did not change.
+- `belongsTo` propagation replaces hand-rolled parent-preview sync: register a `propagate` callback on the child relation and delete manual writers; it fires on local writes, server writes, and reconcile paths, with a newer-than gate in the callback.
+
+### Defect fixes (consolidated from the betas)
+
+- Extract collision merge (`appendExtractValue` no longer clobbers on sink-key collision).
+- Direct-mutation `destroy` parity with the hook path.
+- `reconcileOptimisticRows` `onExisting: 'drop' | 'return'` (subscription echo of an optimistic row no longer requires app-side loops).
+- Unconditional read hooks in `count()` bindings (Rules-of-Hooks hazard removed).
+- Invalid mutation presets throw instead of being silently ignored.
+- Vars-salted single-request derived keys.
+- Write-propagation announce no longer depends on a state read-back inside an open collection transaction, so `belongsTo` propagate and model `mirror` fire reliably for server-ingested writes (beta.5).
+
+## 2.5.0-beta.5 - 2026-07-09
+
+- Fix write-propagation announce to use the definitively written row instead of a state read-back inside the open collection transaction: on device (Hermes) the read-back could miss a fresh insert, silently skipping `belongsTo` propagate and model `mirror` for server-ingested writes (reproduced on-device; not reproducible in jest). Updates now announce the post-update snapshot.
+- Log previously-silent collection `update`/`delete` failures through the configured db logger instead of swallowing them.
+- Align TanStack DB dev dependencies with the consuming app (`@tanstack/db` 0.6.14) so the suite tests the runtime actually shipped.
+
+## 2.5.0-beta.4 - 2026-07-09
+
+- Add `ModelStatusPollerConfig.onSessionStop?: (id, reason: 'terminal' | 'budget') => void`: fired once per poll-session end (terminal status reached or attempt budget exhausted), not on detach and not on budget reset.
+- Add `ModelStatusPoller.isSessionTerminal(id)` for snapshot reads of a session's terminal state.
+
+## 2.5.0-beta.3 - 2026-07-09
+
+- Consolidate command execution: `useCommand.mutationFn` now routes through `runDbCommandDirect`, giving hook and direct command paths one execute choke point.
+- Add command `track` config (`start` / `success` / `error`) on the command mutation base, sharing the `emitConfiguredTrackEvent` core with query/mutation tracking (no per-path tracking copies).
+
 ## 2.5.0-beta.2 - 2026-07-08
 
 ### Breaking changes vs 2.5.0-beta.1
