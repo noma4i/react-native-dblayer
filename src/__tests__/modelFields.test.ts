@@ -335,7 +335,11 @@ describe('fields-based model definitions', () => {
     expect(model.normalize({ id: 'row-1', payload: { title: 'Ready' } })).toEqual({ id: 'row-1', title: 'Ready' });
     expect(model.normalize({ id: 'row-2', payload: { title: 'Complete' } }, { requireComplete: true })).toEqual({ id: 'row-2', title: 'Complete' });
     expect(model.normalize({ id: 'row-3', payload: { title: 1 as unknown as string } }, { requireComplete: true })).toBeNull();
+    expect(model.buildStored({ id: 'row-4', title: 'Draft' })).toEqual({ id: 'row-4', title: 'Draft' });
     expect(model.getAll()).toEqual([]);
+
+    const hasNoStoredSymbolKeys: Extract<keyof ReturnType<typeof model.getAll>[number], symbol> extends never ? true : false = true;
+    expect(hasNoStoredSymbolKeys).toBe(true);
 
     if (false) {
       // @ts-expect-error branded fields reject inputs outside their raw contract

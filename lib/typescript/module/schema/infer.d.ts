@@ -6,18 +6,19 @@ type Simplify<T> = {
 } & {};
 export type AnyFieldSpec = FieldSpec<any, any, any, any>;
 export type AnyFields = Record<string, AnyFieldSpec>;
+type FieldKeys<TFields extends AnyFields> = Extract<keyof TFields, string>;
 type FieldValue<TField> = TField extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
 type FieldSpecMode<TField> = TField extends FieldSpec<any, any, infer TMode, any> ? TMode : never;
 type FieldSpecHasDefault<TField> = TField extends FieldSpec<any, any, any, infer THasDefault> ? THasDefault : false;
 type RequiredKeys<TFields extends AnyFields> = {
-    [K in keyof TFields]: FieldSpecMode<TFields[K]> extends 'required' | 'nullable' ? K : never;
-}[keyof TFields];
+    [K in FieldKeys<TFields>]: FieldSpecMode<TFields[K]> extends 'required' | 'nullable' ? K : never;
+}[FieldKeys<TFields>];
 type OptionalKeys<TFields extends AnyFields> = {
-    [K in keyof TFields]: FieldSpecMode<TFields[K]> extends 'optional' | 'optionalNullable' ? K : never;
-}[keyof TFields];
+    [K in FieldKeys<TFields>]: FieldSpecMode<TFields[K]> extends 'optional' | 'optionalNullable' ? K : never;
+}[FieldKeys<TFields>];
 type RequiredKeysWithoutDefaults<TFields extends AnyFields> = {
-    [K in keyof TFields]: FieldSpecMode<TFields[K]> extends 'required' ? (FieldSpecHasDefault<TFields[K]> extends true ? never : K) : never;
-}[keyof TFields];
+    [K in FieldKeys<TFields>]: FieldSpecMode<TFields[K]> extends 'required' ? (FieldSpecHasDefault<TFields[K]> extends true ? never : K) : never;
+}[FieldKeys<TFields>];
 type RequiredFieldValue<TField> = FieldSpecMode<TField> extends 'nullable' ? FieldValue<TField> | null : FieldValue<TField>;
 type OptionalFieldValue<TField> = FieldSpecMode<TField> extends 'optionalNullable' ? FieldValue<TField> | null : FieldValue<TField>;
 export type FieldModeValue<TValue, TMode extends FieldMode> = TMode extends 'nullable' ? TValue | null : TMode extends 'optionalNullable' ? TValue | null : TValue;

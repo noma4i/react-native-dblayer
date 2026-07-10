@@ -482,20 +482,7 @@ export type ModelMirrorConfig<
   project: (row: TSourceStored) => Partial<TTargetStored> | null;
 };
 
-export type ModelExtension<TModel, TExtension extends object = Record<string, unknown>> = {
-  /** Stable extension name used in collision errors. */
-  name: string;
-  /** Build one model extension from the unextended base model DSL. */
-  extend: (model: TModel) => TExtension;
-};
-
-type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never;
-
-export type ModelExtensionSurface<TExtensions extends readonly ModelExtension<any, object>[]> = [TExtensions[number]] extends [never]
-  ? {}
-  : UnionToIntersection<TExtensions[number] extends ModelExtension<any, infer TExtension> ? TExtension : never>;
-
-export type NormalizedModelBase<
+type NormalizedModelStaticsBase<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
   TRelations extends ModelRelationsConfig | undefined
@@ -503,7 +490,7 @@ export type NormalizedModelBase<
   ? CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>>
   : CollectionModel<TInput, TStored>;
 
-export type FieldsModelBase<
+type FieldsModelStaticsBase<
   TFields extends ModelFieldSpecs,
   TRelations extends ModelRelationsConfig | undefined
 > = [TRelations] extends [ModelRelationsConfig]
@@ -526,8 +513,6 @@ interface CreateCollectionModelBaseConfig<
   name: string;
   /** Persistent collection backing the model. */
   collection: PersistentCollection<TStored>;
-  /** Named class-level model extensions composed from the base model DSL. */
-  extensions?: ReadonlyArray<ModelExtension<TModel, Partial<TExt>>>;
   /** Extra class-level model methods composed from the base model DSL. */
   statics?: (model: TModel) => Partial<TExt>;
   /**
@@ -573,7 +558,7 @@ export interface CreateCollectionModelNormalizeConfig<
     TStored,
     TExt,
     TRelations,
-    NormalizedModelBase<TInput, TStored, TRelations>
+    NormalizedModelStaticsBase<TInput, TStored, TRelations>
   > {
   /** Map an input to a stored row patch; return null to drop it. */
   normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
@@ -592,7 +577,7 @@ export interface CreateCollectionModelFieldsConfig<
     ModelStoredFromFields<TFields>,
     TExt,
     TRelations,
-    FieldsModelBase<TFields, TRelations>
+    FieldsModelStaticsBase<TFields, TRelations>
   > {
   /** Declarative field specs used to generate the model normalizer. */
   fields: TFields;

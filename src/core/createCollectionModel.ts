@@ -733,39 +733,20 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     return model;
   };
 
-  const extensionEntries: Array<{ owner: string; values: Record<string, unknown> }> = [];
-  for (const extension of config.extensions ?? []) {
-    const extend = extension.extend as (model: typeof modelBase) => Record<string, unknown>;
-    extensionEntries.push({ owner: `extension "${extension.name}"`, values: extend(modelBase) });
-  }
   const statics = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
-  if (statics) {
-    extensionEntries.push({ owner: 'statics', values: statics });
-  }
-
-  if (extensionEntries.length === 0) {
+  if (!statics) {
     const model = attachRelatedAccessors(modelBase);
     registerModel(config.name, model);
     return model;
   }
 
-  const extensions: Record<string, unknown> = {};
-  const extensionOwners = new Map<string, string>();
-  for (const { owner, values } of extensionEntries) {
-    for (const key of Object.keys(values)) {
-      if (key in modelBase) {
-        throw new Error(`[${config.name}] ${owner} cannot override base model key "${key}".`);
-      }
-      const previousOwner = extensionOwners.get(key);
-      if (previousOwner) {
-        throw new Error(`[${config.name}] ${owner} cannot override extension key "${key}" from ${previousOwner}.`);
-      }
-      extensionOwners.set(key, owner);
-      extensions[key] = values[key];
+  for (const key of Object.keys(statics)) {
+    if (key in modelBase) {
+      throw new Error(`[${config.name}] statics cannot override base model key "${key}".`);
     }
   }
 
-  const model = { ...modelBase, ...extensions };
+  const model = { ...modelBase, ...statics };
   const modelWithRelated = attachRelatedAccessors(model);
   registerModelCascadeController(modelWithRelated);
   registerModel(config.name, modelWithRelated);

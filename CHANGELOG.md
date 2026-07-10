@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.1-beta.7 - 2026-07-10
+
+- Remove the experimental model extension composition API; `statics` is the single class-level model surface.
+- Prevent `defineFields` input branding from leaking symbol keys into stored rows and `buildStored` inputs.
+- Preserve relation-aware statics and side-effect-free `Model.normalize` for fields and custom-normalize models.
+
 ## 2.5.1-beta.6 - 2026-07-10
 
 - Add type-only `defineFields<TInput>()` branding so fields models retain their raw normalization input contract.

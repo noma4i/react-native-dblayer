@@ -65,8 +65,7 @@ export const MessageModel = defineModel<MessageInput, Message>({
 | `rowId` | `(input) => string \| null \| undefined` | `input.id` via `toStr` | Custom row id resolver for fields models. `null`, `undefined`, or `''` drops the row. |
 | `guard` | `(input) => boolean` | `—` | Return `false` to drop an input before field reads. |
 | `sideload` | `SideloadSpec[]` | `—` | Sync nested payloads into registry-named target models before writing this model. |
-| `extensions` | `ModelExtension[]` | `—` | Named model extensions composed from the unextended base model. Duplicate and base API keys throw. |
-| `statics` | `(model) => Partial<TExt>` | `—` | One-off class-level extension composed after named extensions with the same collision checks. |
+| `statics` | `(model) => Partial<TExt>` | `—` | Class-level model API inferred from one factory. Base API key collisions throw. |
 | `relations` | `() => ModelRelationsConfig` | `—` | Lazy model relations used by explicit cascade destroy paths. |
 | `normalize` | `(input: TInput) => (Partial<TStored> & { id: string }) \| null` | escape hatch | Custom mapper for irreducibly custom rows. Return `null` to drop it. |
 | `staleTime` | `number` (ms) | `0` | How long a fetched scope stays fresh. `0` = always stale. Drives `shouldSkipInitialFetch`. |
@@ -79,34 +78,26 @@ export const MessageModel = defineModel<MessageInput, Message>({
 The stored type must extend `{ id: string; updatedAt?: string | null }`. `updatedAt` (ISO) enables the newer-wins
 gate; omit it and every incoming write is accepted.
 
-### Model extensions and statics
+### Model statics
 
-Use `defineModelExtension(name, extend)` when model behavior should live in a separately composed module, such as
-ordering, named scopes, ingestion, or maintenance. Extension factories and `statics` receive the unextended base model;
-they cannot depend on declaration order. Their returned keys are merged onto the model, and collisions with the base
-API or another extension throw during model construction.
-On models with relations, the base model keeps the same lazy `row.related` row surface as the final model.
-`defineModel` infers the intersection of all extension results and the optional `statics` result, so consumers do not
-need a duplicate final-surface type. External extension modules can type their model parameter with
-`FieldsModelBase<TFields, TRelations>` or `NormalizedModelBase<TInput, TStored, TRelations>`.
+Use one `statics` factory for class-level model behavior such as ordering, named scopes, ingestion, or maintenance.
+The factory receives the base model and retains typed lazy `row.related` access on models with relations. `defineModel`
+infers the returned surface, and keys that collide with the base API throw during model construction.
 
 ```ts
-const orderingExtension = defineModelExtension('ordering', model => ({
-  ordering: {
-    newest: () => model.getFirst(undefined, { orderBy: { field: 'createdAt', direction: 'desc' } }),
-  },
-}));
-
-const MessageModel = defineModel<MessageInput, Message, MessageModelStatics>({
+const MessageModel = defineModel({
   name: 'MessageModel',
   id: 'messages',
   normalize: normalizeMessage,
-  extensions: [orderingExtension],
+  statics: model => ({
+    ordering: {
+      newest: () => model.getFirst(undefined, { orderBy: { field: 'createdAt', direction: 'desc' } }),
+    },
+  }),
 });
 ```
 
-Use `statics` for small one-off accessors. Keep reusable application policy in app-owned extensions rather than adding
-domain behavior to the library.
+Keep application policy in the consuming application rather than adding domain behavior to the library.
 
 ### Field builders
 

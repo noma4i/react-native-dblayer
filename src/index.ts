@@ -1,6 +1,5 @@
 export { configureDb } from './configure';
 export { defineModel } from './core/createPersistentCollection';
-export { defineModelExtension } from './core/modelExtension';
 export { belongsTo, hasMany, hasOne, hasManyThrough } from './core/relations';
 export { computeLoadingState, computePhase } from './queries/base/loadingState';
 export { pruneStaleFetchStates } from './core/freshnessStorage';
@@ -155,13 +154,9 @@ export type {
   MergeResult,
   ModelBuildStoredInput,
   ModelFieldsInput,
-  FieldsModelBase,
-  ModelExtension,
-  ModelExtensionSurface,
   ModelFieldSpecs,
   ModelMirrorConfig,
   ModelMirrorTarget,
-  NormalizedModelBase,
   ModelRelationConfigValue,
   ModelRelationDefinition,
   ModelRelationsConfig,

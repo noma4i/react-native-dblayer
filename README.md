@@ -123,22 +123,16 @@ export const SimilarMomentModel = defineModel({
 });
 ```
 
-Compose class-level behavior with named model extensions. Extensions and statics share one collision-checked model
-surface, while every factory receives the same unextended base DSL:
-Relation-aware models retain their typed lazy `row.related` surface inside these factories.
-The final model surface is inferred from every named extension plus `statics`; no duplicate extension interface is
-required. External modules can use `FieldsModelBase` or `NormalizedModelBase` to type their factory input.
+Compose class-level behavior through one `statics` factory. The factory receives the base model DSL, including typed
+lazy `row.related` access on relation-aware models. The final model surface is inferred from the returned object, and
+keys that collide with the base model API throw during model construction.
 
 ```ts
-const currentExtension = defineModelExtension('current', model => ({
-  currentId: () => model.getFirst()?.id,
-}));
-
 export const CurrentUserModel = defineModel({
   name: 'CurrentUserModel',
   id: 'current-user',
   fields: userFields,
-  extensions: [currentExtension],
+  statics: model => ({ currentId: () => model.getFirst()?.id }),
 });
 ```
 

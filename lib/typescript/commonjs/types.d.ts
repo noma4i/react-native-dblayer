@@ -444,19 +444,11 @@ export type ModelMirrorConfig<TSourceStored extends {
      */
     project: (row: TSourceStored) => Partial<TTargetStored> | null;
 };
-export type ModelExtension<TModel, TExtension extends object = Record<string, unknown>> = {
-    /** Stable extension name used in collision errors. */
-    name: string;
-    /** Build one model extension from the unextended base model DSL. */
-    extend: (model: TModel) => TExtension;
-};
-type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never;
-export type ModelExtensionSurface<TExtensions extends readonly ModelExtension<any, object>[]> = [TExtensions[number]] extends [never] ? {} : UnionToIntersection<TExtensions[number] extends ModelExtension<any, infer TExtension> ? TExtension : never>;
-export type NormalizedModelBase<TInput, TStored extends {
+type NormalizedModelStaticsBase<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
 }, TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig] ? CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> : CollectionModel<TInput, TStored>;
-export type FieldsModelBase<TFields extends ModelFieldSpecs, TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig] ? FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>, ModelFieldsInput<TFields>> : FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>, StoredWriteInput<ModelStoredFromFields<TFields>>, ModelFieldsInput<TFields>>;
+type FieldsModelStaticsBase<TFields extends ModelFieldSpecs, TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig] ? FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>, ModelFieldsInput<TFields>> : FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>, StoredWriteInput<ModelStoredFromFields<TFields>>, ModelFieldsInput<TFields>>;
 interface CreateCollectionModelBaseConfig<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
@@ -465,8 +457,6 @@ interface CreateCollectionModelBaseConfig<TInput, TStored extends {
     name: string;
     /** Persistent collection backing the model. */
     collection: PersistentCollection<TStored>;
-    /** Named class-level model extensions composed from the base model DSL. */
-    extensions?: ReadonlyArray<ModelExtension<TModel, Partial<TExt>>>;
     /** Extra class-level model methods composed from the base model DSL. */
     statics?: (model: TModel) => Partial<TExt>;
     /**
@@ -511,7 +501,7 @@ interface CreateCollectionModelBaseConfig<TInput, TStored extends {
 export interface CreateCollectionModelNormalizeConfig<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt, TRelations, NormalizedModelBase<TInput, TStored, TRelations>> {
+}, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt, TRelations, NormalizedModelStaticsBase<TInput, TStored, TRelations>> {
     /** Map an input to a stored row patch; return null to drop it. */
     normalize: (item: TInput) => (Partial<TStored> & {
         id: string;
@@ -520,7 +510,7 @@ export interface CreateCollectionModelNormalizeConfig<TInput, TStored extends {
     rowId?: never;
     guard?: never;
 }
-export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<ModelFieldsConfigInput<TFields>, ModelStoredFromFields<TFields>, TExt, TRelations, FieldsModelBase<TFields, TRelations>> {
+export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<ModelFieldsConfigInput<TFields>, ModelStoredFromFields<TFields>, TExt, TRelations, FieldsModelStaticsBase<TFields, TRelations>> {
     /** Declarative field specs used to generate the model normalizer. */
     fields: TFields;
     /** Optional row id resolver; defaults to `input.id`. */
