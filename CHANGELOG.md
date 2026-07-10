@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.1-beta.6 - 2026-07-10
+
+- Add type-only `defineFields<TInput>()` branding so fields models retain their raw normalization input contract.
+- Expose side-effect-free `Model.normalize`, including opt-in complete-field validation for declarative fields models.
+
 ## 2.5.1-beta.5 - 2026-07-10
 
 - Remove obsolete beta-only naming from the maintained release history; the public API remains unchanged from beta.4.

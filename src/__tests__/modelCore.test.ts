@@ -50,6 +50,20 @@ describe('collection model core DSL', () => {
     expect(model.collection.state.get('1')?.title).toBe('One');
   });
 
+  it('exposes custom normalization without writing model state', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    expect(model.normalize({ id: 'normalized', title: 'Normalized', done: true })).toEqual({
+      id: 'normalized',
+      title: 'Normalized',
+      listId: null,
+      done: true,
+      updatedAt: null
+    });
+    expect(model.get('normalized')).toBeUndefined();
+  });
+
   it('adds statics that compose the base model DSL', () => {
     installMemoryStorage();
     const model = defineModel<TodoInput, Todo, { currentId: () => string | undefined }>({

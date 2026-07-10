@@ -19,6 +19,7 @@ export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './co
 export { createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { f } from './schema/f';
+export { defineFields } from './schema/fields';
 export { compositeId } from './schema/schema';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
@@ -78,6 +79,7 @@ export type {
 } from './core/extract';
 export type { SideloadSpec } from './core/sideload';
 export type { FieldDefault, FieldMode, FieldSpec } from './schema/fieldSpec';
+export type { DefinedFields, InferFieldsInput } from './schema/fields';
 export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
 export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
@@ -152,6 +154,7 @@ export type {
   LoadingState,
   MergeResult,
   ModelBuildStoredInput,
+  ModelFieldsInput,
   FieldsModelBase,
   ModelExtension,
   ModelExtensionSurface,

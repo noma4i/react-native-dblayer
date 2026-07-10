@@ -1,4 +1,4 @@
-import { configureDb, defineModel, devClearAllDataAndState } from '../index';
+import { configureDb, defineFields, defineModel, devClearAllDataAndState } from '../index';
 import { getRegisteredModel } from '../core/modelRegistry';
 import { clearModelRegistry } from '../core/modelRegistry';
 import { f } from '../schema/f';
@@ -317,6 +317,30 @@ describe('fields-based model definitions', () => {
       meta: { label: 'given' },
       coverUrl: 'given-cover'
     });
+  });
+
+  it('normalizes branded inputs without writes and optionally requires complete fields', () => {
+    installMemoryStorage();
+    type RawInput = { id: string; payload: { title: string }; note?: string };
+    const fields = defineFields<RawInput>()({
+      title: f.str().from<RawInput>(input => input.payload.title),
+      note: f.str().optional()
+    });
+    const model = defineModel({
+      id: 'fields-public-normalize',
+      name: 'FieldsPublicNormalizeModel',
+      fields
+    });
+
+    expect(model.normalize({ id: 'row-1', payload: { title: 'Ready' } })).toEqual({ id: 'row-1', title: 'Ready' });
+    expect(model.normalize({ id: 'row-2', payload: { title: 'Complete' } }, { requireComplete: true })).toEqual({ id: 'row-2', title: 'Complete' });
+    expect(model.normalize({ id: 'row-3', payload: { title: 1 as unknown as string } }, { requireComplete: true })).toBeNull();
+    expect(model.getAll()).toEqual([]);
+
+    if (false) {
+      // @ts-expect-error branded fields reject inputs outside their raw contract
+      model.normalize({ id: 'invalid' });
+    }
   });
 
   it('builds required nested shape zero-state rows from empty defaults', () => {

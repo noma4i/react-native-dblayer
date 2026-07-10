@@ -4,6 +4,7 @@ import type { DocumentNode } from 'graphql';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { SideloadSpec } from './core/sideload';
 import type { FieldSpec } from './schema/fieldSpec';
+import type { InferFieldsInput } from './schema/fields';
 import type { InferBuildStoredInput, InferStoredFields } from './schema/infer';
 
 export type PersistentMutationTransaction = {
@@ -442,7 +443,18 @@ export interface FetchStateRemovalListener {
 export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any, any>>;
 export type ModelStoredFromFields<TFields extends ModelFieldSpecs> = InferStoredFields<TFields> extends { id: string; updatedAt?: string | null } ? InferStoredFields<TFields> : never;
 export type ModelBuildStoredInput<TFields extends ModelFieldSpecs> = InferBuildStoredInput<TFields>;
-export interface FieldsCollectionModel<TStored extends { id: string; updatedAt?: string | null }, TBuildInput, TBuildOutput = StoredWriteInput<TStored>> extends CollectionModel<unknown, TStored> {
+export type ModelFieldsInput<TFields extends ModelFieldSpecs> = InferFieldsInput<TFields>;
+type ModelFieldsConfigInput<TFields extends ModelFieldSpecs> = InferFieldsInput<TFields, ModelBuildStoredInput<TFields>>;
+export interface FieldsCollectionModel<
+  TStored extends { id: string; updatedAt?: string | null },
+  TBuildInput,
+  TBuildOutput = StoredWriteInput<TStored>,
+  TInput = unknown
+> extends CollectionModel<TInput, TStored> {
+  /** Normalize one input into a sparse stored-row patch without writing model state. */
+  normalize(item: TInput): (Partial<StoredWriteInput<TStored>> & { id: string }) | null;
+  /** Normalize and require every non-optional field without writing model state. */
+  normalize(item: TInput, options: { requireComplete: true }): TBuildOutput | null;
   /** Build a complete stored row from explicit values plus field factory defaults. */
   buildStored(partial: TBuildInput): TBuildOutput;
 }
@@ -498,9 +510,10 @@ export type FieldsModelBase<
   ? FieldsCollectionModel<
       ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>,
       ModelBuildStoredInput<TFields>,
-      ModelStoredFromFields<TFields>
+      ModelStoredFromFields<TFields>,
+      ModelFieldsInput<TFields>
     >
-  : FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>>;
+  : FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>, StoredWriteInput<ModelStoredFromFields<TFields>>, ModelFieldsInput<TFields>>;
 
 interface CreateCollectionModelBaseConfig<
   TInput,
@@ -575,7 +588,7 @@ export interface CreateCollectionModelFieldsConfig<
   TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
 >
   extends CreateCollectionModelBaseConfig<
-    ModelBuildStoredInput<TFields>,
+    ModelFieldsConfigInput<TFields>,
     ModelStoredFromFields<TFields>,
     TExt,
     TRelations,
@@ -584,9 +597,9 @@ export interface CreateCollectionModelFieldsConfig<
   /** Declarative field specs used to generate the model normalizer. */
   fields: TFields;
   /** Optional row id resolver; defaults to `input.id`. */
-  rowId?: (input: unknown) => string | null | undefined;
+  rowId?: (input: ModelFieldsConfigInput<TFields>) => string | null | undefined;
   /** Return false to drop an incoming row before normalization. */
-  guard?: (input: unknown) => boolean;
+  guard?: (input: ModelFieldsConfigInput<TFields>) => boolean;
   normalize?: never;
 }
 
@@ -611,6 +624,8 @@ export interface DbReadOptions<T> {
 }
 
 export interface CollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }> {
+  /** Normalize one input into a sparse stored-row patch without writing model state. */
+  normalize(item: TInput): (Partial<StoredWriteInput<TStored>> & { id: string }) | null;
   /** Snapshot read by id; safe outside React. */
   get(id: string | undefined | null): TStored | undefined;
   /** Snapshot read of every row; safe outside React. */

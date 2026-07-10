@@ -12,6 +12,7 @@ import type {
   InternalSyncContract,
   MergeResult,
   ModelBuildStoredInput,
+  ModelFieldsInput,
   ModelFieldSpecs,
   ModelRelationsConfig,
   ModelStoredFromFields,
@@ -20,6 +21,7 @@ import type {
   RowRelatedSurface,
   ReplaceResult,
   StoredRowBase,
+  StoredWriteInput,
   SyncContract
 } from '../types';
 import { toQueryValue } from '../utils/typeBoundary';
@@ -167,7 +169,7 @@ const resolveNormalize = (config: RuntimeModelConfig): ((item: unknown) => ({ id
     fields: config.fields,
     rowId: config.rowId,
     guard: config.guard
-  }).normalize;
+  }).normalize as (item: unknown) => ({ id: string } & Record<string, unknown>) | null;
 };
 
 const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
@@ -177,6 +179,14 @@ const hasFactoryDefault = (field: ModelFieldSpecs[string]): boolean => hasOwn(fi
 const resolveFactoryDefault = (field: ModelFieldSpecs[string]): unknown => {
   const value = field.factoryDefault;
   return typeof value === 'function' ? (value as () => unknown)() : value;
+};
+
+const hasCompleteFields = (fields: ModelFieldSpecs, normalized: Record<string, unknown>): boolean => {
+  for (const key of Object.keys(fields)) {
+    const field = fields[key]!;
+    if ((field.mode === 'required' || field.mode === 'nullable') && !hasOwn(normalized, key)) return false;
+  }
+  return true;
 };
 
 const createStoredRowBuilder =
@@ -240,7 +250,14 @@ export function createCollectionModel<
   TRelations extends ModelRelationsConfig = any
 >(
   config: CreateCollectionModelFieldsConfig<TFields, TExt, TRelations> & { relations: () => TRelations }
-): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
+): FieldsCollectionModel<
+  ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>,
+  ModelBuildStoredInput<TFields>,
+  ModelStoredFromFields<TFields>,
+  ModelFieldsInput<TFields>
+> &
+  TExt &
+  RelatedSurface<TRelations>;
 /**
  * Create a fields-schema model with generated normalize/buildStored helpers.
  *
@@ -249,7 +266,13 @@ export function createCollectionModel<
  */
 export function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
   config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'relations'> & { relations?: undefined }
-): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
+): FieldsCollectionModel<
+  ModelStoredFromFields<TFields>,
+  ModelBuildStoredInput<TFields>,
+  StoredWriteInput<ModelStoredFromFields<TFields>>,
+  ModelFieldsInput<TFields>
+> &
+  TExt;
 export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0, emptyStaleTime = 0 } = config;
   const normalizeBase = resolveNormalize(config);
@@ -638,6 +661,12 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   };
 
   const baseModel: CollectionModel<any, any> = {
+    normalize: (item: unknown, options?: { requireComplete?: boolean }) => {
+      const normalized = normalize(item);
+      if (!normalized) return null;
+      if (options?.requireComplete && hasFieldsConfig(config) && !hasCompleteFields(config.fields, normalized)) return null;
+      return normalized;
+    },
     get: (id: string | undefined | null) => {
       const row = id ? rawCollection.get(id) : undefined;
       return row ? attachRelatedToRow(row) : undefined;

@@ -1,4 +1,4 @@
-import type { CollectionModel, CreateCollectionModelFieldsConfig, CreateCollectionModelNormalizeConfig, FieldsModelBase, FieldsCollectionModel, ModelBuildStoredInput, ModelExtension, ModelExtensionSurface, ModelFieldSpecs, ModelRelationsConfig, ModelStoredFromFields, NormalizedModelBase, PersistentCollection, RelatedSurface, RowRelatedSurface } from '../types';
+import type { CollectionModel, CreateCollectionModelFieldsConfig, CreateCollectionModelNormalizeConfig, FieldsModelBase, FieldsCollectionModel, ModelBuildStoredInput, ModelExtension, ModelExtensionSurface, ModelFieldSpecs, ModelFieldsInput, ModelRelationsConfig, ModelStoredFromFields, NormalizedModelBase, PersistentCollection, RelatedSurface, RowRelatedSurface, StoredWriteInput } from '../types';
 /**
  * Create a persistent TanStack DB collection backed by the configured storage adapter.
  * @param config Collection id used as the storage key prefix.
@@ -49,12 +49,12 @@ export declare function defineModel<TFields extends ModelFieldSpecs, TRelations 
     id: string;
     fields: TFields;
     relations: () => TRelations;
-}, FieldsModelBase<TFields, TRelations>, TExtensions, TStatics>): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & ModelExtensionSurface<TExtensions> & TStatics & RelatedSurface<TRelations>;
+}, FieldsModelBase<TFields, TRelations>, TExtensions, TStatics>): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>, ModelFieldsInput<TFields>> & ModelExtensionSurface<TExtensions> & TStatics & RelatedSurface<TRelations>;
 export declare function defineModel<TFields extends ModelFieldSpecs, const TExtensions extends readonly ModelExtension<any, object>[], TStatics extends Record<string, unknown> = {}>(config: InferredModelExtensionsConfig<Omit<CreateCollectionModelFieldsConfig<TFields, {}, undefined>, 'collection' | 'fields' | 'relations'> & {
     id: string;
     fields: TFields;
     relations?: undefined;
-}, FieldsModelBase<TFields, undefined>, TExtensions, TStatics>): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & ModelExtensionSurface<TExtensions> & TStatics;
+}, FieldsModelBase<TFields, undefined>, TExtensions, TStatics>): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>, StoredWriteInput<ModelStoredFromFields<TFields>>, ModelFieldsInput<TFields>> & ModelExtensionSurface<TExtensions> & TStatics;
 export declare function defineModel<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
@@ -78,12 +78,12 @@ export declare function defineModel<TFields extends ModelFieldSpecs, TExt extend
     id: string;
     relations: () => TRelations;
     extensions?: undefined;
-}): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
+}): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>, ModelFieldsInput<TFields>> & TExt & RelatedSurface<TRelations>;
 export declare function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(config: Omit<Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'collection'>, 'relations'>, 'extensions'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;
     extensions?: undefined;
-}): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
+}): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>, StoredWriteInput<ModelStoredFromFields<TFields>>, ModelFieldsInput<TFields>> & TExt;
 export {};
 //# sourceMappingURL=createPersistentCollection.d.ts.map

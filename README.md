@@ -75,19 +75,31 @@ the package generates the normalizer, keeps undefined fields sparse, and derives
 model itself.
 
 ```ts
-import { compositeId, defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
+import { compositeId, defineFields, defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
+
+type RawUser = {
+  id: string;
+  uuid: string;
+  fullName: string;
+  age: number | null;
+  coverUrl?: string;
+  roles?: string[];
+  country?: { name?: string };
+};
+
+const userFields = defineFields<RawUser>()({
+  uuid: f.str(),
+  fullName: f.str(),
+  age: f.num().nullable(),
+  coverUrl: f.str().nullDefault(),
+  roles: f.array(f.str()).default(() => []),
+  countryName: f.custom<string, RawUser>(user => user.country?.name).nullable()
+});
 
 export const UserModel = defineModel({
   name: 'UserModel',
   id: 'users',
-  fields: {
-    uuid: f.str(),
-    fullName: f.str(),
-    age: f.num().nullable(),
-    coverUrl: f.str().nullDefault(),
-    roles: f.array(f.str()).default(() => []),
-    countryName: f.custom((u) => (u as { country?: { name?: string } }).country?.name).nullable(),
-  },
+  fields: userFields
 });
 
 export type UserData = ModelStored<typeof UserModel>;
@@ -136,6 +148,10 @@ escape hatch.
 Fields models also expose `buildStored(partial)` for optimistic rows. Explicit keys win, `.default(value | () => value)`
 fills factory-time defaults, nullable fields become `null`, and optional fields are omitted. `.default` does not affect
 normalization; `.nullDefault()` remains the read-time missing-to-null modifier.
+
+Every model exposes pure `normalize(input)` for inspecting the canonical sparse stored patch without writing. Fields
+models also accept `{ requireComplete: true }` to return a complete stored row only when every non-optional field is
+readable.
 
 → **Reference:** [Models](./docs/models.md) — `defineModel` options and the full `CollectionModel` read/write API.
 

@@ -8,28 +8,42 @@ The recommended API is the declarative `fields` form. It generates the model nor
 (`undefined` means "do not write this key"), and lets you derive row types from the model.
 
 ```ts
-import { defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
+import { defineFields, defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
+
+type RawUser = {
+  id: string;
+  uuid: string;
+  fullName: string;
+  age: number | null;
+  coverUrl?: string;
+  country?: { name?: string };
+};
+
+const userFields = defineFields<RawUser>()({
+  uuid: f.str(),
+  fullName: f.str(),
+  age: f.num().nullable(),
+  coverUrl: f.str().nullDefault(),
+  countryName: f.custom<string, RawUser>(user => user.country?.name).nullable()
+});
 
 export const UserModel = defineModel({
   name: 'UserModel',
   id: 'users',
-  fields: {
-    uuid: f.str(),
-    fullName: f.str(),
-    age: f.num().nullable(),
-    coverUrl: f.str().nullDefault(),
-    countryName: f.custom((u) => (u as { country?: { name?: string } }).country?.name).nullable(),
-    updatedAt: f.str().nullable().optional(),
-  },
+  fields: userFields
 });
 
 export type UserData = ModelStored<typeof UserModel>;
 export type UserInput = ModelInput<typeof UserModel>;
 ```
 
-Returns a `CollectionModel<unknown, UserData>`. Raw server payloads can be passed directly to `applyServerData`;
-field readers are defensive and skip malformed values. `UserInput` is a sparse write shape:
+Returns a fields model whose `normalize` input is `RawUser`. Raw server payloads can be passed directly to
+`applyServerData`; field readers are defensive and skip malformed values. `UserInput` is a sparse write shape:
 `Partial<UserData> & { id: string }`.
+
+Wrap a field map with `defineFields<TInput>()` when the model should retain a concrete raw input type. This types
+`normalize`, `rowId`, `guard`, and field-model consumers without adding runtime metadata. Plain field maps remain
+valid and expose an `unknown` normalization input.
 
 The custom `normalize` form remains supported as an escape hatch:
 
@@ -452,6 +466,8 @@ const latestMessage = MessageModel.first(
 
 | Method | Signature | Returns | Notes |
 | --- | --- | --- | --- |
+| `normalize` | `(input)` | `Partial<TStored> & { id: string } \| null` | Pure canonical normalization; no write, sideload, mirror, or freshness effects. |
+| `normalize` | `(input, { requireComplete: true })` | `TStored \| null` | Fields models only. Rejects rows missing any non-optional field. |
 | `buildStored` | `(partial)` | `TStored` | Fields models only. Pure stored-row factory; no normalize pass or write. |
 | `applyServerData` | `(items, contract: SyncContract)` | `MergeResult \| ReplaceResult` | The main sync path. |
 | `patch` | `(id, updates: Partial<TStored>)` | `boolean` | Shallow-update. `false` if absent or the gate rejects. |
