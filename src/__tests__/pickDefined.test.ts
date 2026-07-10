@@ -50,7 +50,9 @@ describe('patch pickers', () => {
   it('types keys and result shape', () => {
     const input: PatchInput = {};
     const patch = pickDefined(input, ['name', 'filterDistance'] as const);
+    const presentPatch = pickPresent(input, ['name', 'filterDistance'] as const);
     type _PatchShape = Expect<Equal<typeof patch, Partial<Pick<PatchInput, 'name' | 'filterDistance'>>>>;
+    type _PresentPatchShape = Expect<Equal<typeof presentPatch, { name?: string; filterDistance?: number }>>;
 
     if (false) {
       // @ts-expect-error keys must exist on the source object
@@ -60,5 +62,6 @@ describe('patch pickers', () => {
     }
 
     expect(patch).toEqual({});
+    expect(presentPatch).toEqual({});
   });
 });
