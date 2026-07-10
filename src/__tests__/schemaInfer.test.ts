@@ -1,5 +1,6 @@
 import { f } from '../schema/f';
 import type { FieldSpec } from '../schema/fieldSpec';
+import type { InferFieldsInput } from '../schema/fields';
 import type { InferInput, InferShapeStored, InferSparseInput, InferStored } from '../schema/infer';
 import { createSchema } from '../schema/schema';
 import { defineShape } from '../schema/shape';
@@ -131,6 +132,7 @@ type _ShapeStored = Expect<
     }
   >
 >;
+type _ShapeFieldsInput = Expect<Equal<InferFieldsInput<typeof mediaShape.fields>, MediaInput>>;
 type _ModelConstraintAssignable = Expect<Stored extends ModelConstraint ? true : false>;
 
 describe('schema inference', () => {

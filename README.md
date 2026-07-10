@@ -75,7 +75,7 @@ the package generates the normalizer, keeps undefined fields sparse, and derives
 model itself.
 
 ```ts
-import { compositeId, defineFields, defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
+import { compositeId, defineModel, defineShape, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
 
 type RawUser = {
   id: string;
@@ -87,7 +87,7 @@ type RawUser = {
   country?: { name?: string };
 };
 
-const userFields = defineFields<RawUser>()({
+const UserSchema = defineShape<RawUser>()({
   uuid: f.str(),
   fullName: f.str(),
   age: f.num().nullable(),
@@ -99,7 +99,7 @@ const userFields = defineFields<RawUser>()({
 export const UserModel = defineModel({
   name: 'UserModel',
   id: 'users',
-  fields: userFields
+  fields: UserSchema.fields
 });
 
 export type UserData = ModelStored<typeof UserModel>;
@@ -131,13 +131,15 @@ keys that collide with the base model API throw during model construction.
 export const CurrentUserModel = defineModel({
   name: 'CurrentUserModel',
   id: 'current-user',
-  fields: userFields,
+  fields: UserSchema.fields,
   statics: model => ({ currentId: () => model.getFirst()?.id }),
 });
 ```
 
-For irreducibly custom mappings, keep using `normalize`; shapes can still be reused with `readShape` inside that
-escape hatch.
+`defineShape<TInput>()` can also define nested values for `f.object` and `f.array`. Its `fields` retain the raw input
+type when passed to `defineModel`, so one declaration can serve both model normalization and shape projection.
+`defineFields<TInput>()` remains available for model-only field maps. For irreducibly custom mappings, keep using
+`normalize`; shapes can still be reused with `readShape` inside that escape hatch.
 
 Fields models also expose `buildStored(partial)` for optimistic rows. Explicit keys win, `.default(value | () => value)`
 fills factory-time defaults, nullable fields become `null`, and optional fields are omitted. `.default` does not affect

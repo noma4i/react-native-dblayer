@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.1-beta.8 - 2026-07-10
+
+- Let `defineShape<TInput>()(...).fields` retain the raw input type when used as model fields.
+- Keep the shape field brand type-only so runtime keys and stored/build types remain unchanged.
+
 ## 2.5.1-beta.7 - 2026-07-10
 
 - Remove the experimental model extension composition API; `statics` is the single class-level model surface.

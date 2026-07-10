@@ -8,7 +8,7 @@ The recommended API is the declarative `fields` form. It generates the model nor
 (`undefined` means "do not write this key"), and lets you derive row types from the model.
 
 ```ts
-import { defineFields, defineModel, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
+import { defineModel, defineShape, f, type ModelInput, type ModelStored } from '@noma4i/react-native-dblayer';
 
 type RawUser = {
   id: string;
@@ -19,7 +19,7 @@ type RawUser = {
   country?: { name?: string };
 };
 
-const userFields = defineFields<RawUser>()({
+const UserSchema = defineShape<RawUser>()({
   uuid: f.str(),
   fullName: f.str(),
   age: f.num().nullable(),
@@ -30,7 +30,7 @@ const userFields = defineFields<RawUser>()({
 export const UserModel = defineModel({
   name: 'UserModel',
   id: 'users',
-  fields: userFields
+  fields: UserSchema.fields
 });
 
 export type UserData = ModelStored<typeof UserModel>;
@@ -41,9 +41,10 @@ Returns a fields model whose `normalize` input is `RawUser`. Raw server payloads
 `applyServerData`; field readers are defensive and skip malformed values. `UserInput` is a sparse write shape:
 `Partial<UserData> & { id: string }`.
 
-Wrap a field map with `defineFields<TInput>()` when the model should retain a concrete raw input type. This types
-`normalize`, `rowId`, `guard`, and field-model consumers without adding runtime metadata. Plain field maps remain
-valid and expose an `unknown` normalization input.
+Use `defineShape<TInput>()` when one declaration should serve as both model fields and a reusable object shape.
+`Schema.fields` retains the concrete raw input type for `normalize`, `rowId`, `guard`, and field-model consumers
+without adding runtime metadata. `defineFields<TInput>()` remains available for model-only field maps. Plain field
+maps remain valid and expose an `unknown` normalization input.
 
 The custom `normalize` form remains supported as an escape hatch:
 
@@ -131,8 +132,8 @@ value, not the nullable wrapper.
 
 ### Shapes
 
-Shapes are reusable nested field groups. They can be used through `f.object`, `f.array`, or directly via
-`readShape` / `readShapeOrThrow` inside a custom `normalize`.
+Shapes are reusable field groups. They can provide `Schema.fields` to `defineModel`, be nested through `f.object`
+or `f.array`, or be read directly through `readShape` / `readShapeOrThrow`.
 
 ```ts
 import { defineShape, f, readShapeOrThrow } from '@noma4i/react-native-dblayer';
@@ -144,14 +145,18 @@ const mediaShape = defineShape<{ url?: unknown; coverUrl?: unknown; width?: unkn
   height: f.num().nullDefault(),
 });
 
+type MomentInput = { id: string; title?: unknown; media?: unknown; attachments?: unknown };
+
+const MomentSchema = defineShape<MomentInput>()({
+  title: f.str(),
+  media: f.object(mediaShape).nullable(),
+  attachments: f.array(mediaShape).optional(),
+});
+
 export const MomentModel = defineModel({
   name: 'MomentModel',
   id: 'moments',
-  fields: {
-    title: f.str(),
-    media: f.object(mediaShape).nullable(),
-    attachments: f.array(mediaShape).optional(),
-  },
+  fields: MomentSchema.fields,
 });
 
 export const MessageModel = defineModel<MessageInput, Message>({

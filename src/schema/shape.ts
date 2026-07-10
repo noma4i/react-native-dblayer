@@ -1,6 +1,7 @@
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { fieldSpecSparseRead } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
+import type { DefinedFields } from './fields';
 import type { InferShapeStored, InferStoredFields } from './infer';
 
 type ShapeFields<TInput> = Record<string, FieldSpec<TInput, any, any, any>>;
@@ -12,15 +13,15 @@ export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
 export type AnyDbShape = DbShape<any, ShapeFields<any>>;
 
 /**
- * Define a reusable nested field group for object and array fields.
+ * Define a reusable field group for model fields, object fields, and array items.
  *
  * @param fields Field specs keyed by stored nested-object properties.
- * @returns Shape metadata consumable by `f.object`, `f.array`, and shape readers.
+ * @returns Shape metadata whose type-only branded `fields` retain `TInput` when passed to `defineModel`.
  */
 export const defineShape =
   <TInput = unknown>() =>
-  <TFields extends ShapeFields<TInput>>(fields: TFields): DbShape<TInput, TFields> => ({
-    fields
+  <TFields extends ShapeFields<TInput>>(fields: TFields): DbShape<TInput, DefinedFields<TInput, TFields>> => ({
+    fields: fields as DefinedFields<TInput, TFields>
   });
 
 /**

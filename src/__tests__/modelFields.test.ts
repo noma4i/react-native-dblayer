@@ -347,6 +347,32 @@ describe('fields-based model definitions', () => {
     }
   });
 
+  it('uses a reusable shape as a branded model fields source', () => {
+    installMemoryStorage();
+    type RawInput = { id: string; payload: { title: string }; note?: string };
+    const schema = defineShape<RawInput>()({
+      title: f.str().from<RawInput>(input => input.payload.title),
+      note: f.str().optional()
+    });
+    const model = defineModel({
+      id: 'shape-fields-public-normalize',
+      name: 'ShapeFieldsPublicNormalizeModel',
+      fields: schema.fields
+    });
+
+    expect(Object.keys(schema.fields)).toEqual(['title', 'note']);
+    expect(model.normalize({ id: 'row-1', payload: { title: 'Ready' } }, { requireComplete: true })).toEqual({ id: 'row-1', title: 'Ready' });
+    expect(model.getAll()).toEqual([]);
+
+    const hasNoStoredSymbolKeys: Extract<keyof ReturnType<typeof model.getAll>[number], symbol> extends never ? true : false = true;
+    expect(hasNoStoredSymbolKeys).toBe(true);
+
+    if (false) {
+      // @ts-expect-error shape fields retain their declared raw input contract
+      model.normalize({ id: 'invalid' });
+    }
+  });
+
   it('builds required nested shape zero-state rows from empty defaults', () => {
     installMemoryStorage();
     const model = defineModel({
