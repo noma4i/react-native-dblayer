@@ -1,17 +1,21 @@
 # Changelog
 
+## 2.5.1-beta.5 - 2026-07-10
+
+- Remove obsolete beta-only naming from the maintained release history; the public API remains unchanged from beta.4.
+
 ## 2.5.1-beta.4 - 2026-07-10
 
-- Replace the experimental concern terminology from beta.2-beta.3 with `ModelExtension`, `defineModelExtension`, and `defineModel({ extensions })`; the beta-only old names are removed without aliases.
+- Finalize the experimental beta.2-beta.3 composition API as `ModelExtension`, `defineModelExtension`, and `defineModel({ extensions })`; the beta-only old names are removed without aliases.
 - Infer the final model surface from named extensions and `statics`, and export `FieldsModelBase` and `NormalizedModelBase` for separately defined extension modules.
 
 ## 2.5.1-beta.3 - 2026-07-10
 
-- Preserve relation-aware row types inside model concern and static factories, including lazy `row.related` access on normalized and fields-schema models.
+- Preserve relation-aware row types inside experimental model composition and static factories, including lazy `row.related` access on normalized and fields-schema models.
 
 ## 2.5.1-beta.2 - 2026-07-10
 
-- Add named model concerns through `defineModelConcern` and `defineModel({ concerns })`, with collision protection across the base model, concerns, and statics.
+- Add experimental named model composition with collision protection across the base model, composed capabilities, and statics.
 - Add model-owned `Model.invalidate(scope?)` while retaining the free `invalidateModel(model, scope?)` helper for infrastructure compatibility.
 
 ## 2.5.1-beta.1 - 2026-07-10
