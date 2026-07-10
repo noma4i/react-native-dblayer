@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.1-beta.2 - 2026-07-10
+
+- Add named model concerns through `defineModelConcern` and `defineModel({ concerns })`, with collision protection across the base model, concerns, and statics.
+- Add model-owned `Model.invalidate(scope?)` while retaining the free `invalidateModel(model, scope?)` helper for infrastructure compatibility.
+
 ## 2.5.1-beta.1 - 2026-07-10
 
 - Narrow `pickPresent` output values to `NonNullable<T>` so the public type matches its existing runtime contract of dropping both null and undefined.
