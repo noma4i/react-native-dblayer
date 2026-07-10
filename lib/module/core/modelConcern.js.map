@@ -1,1 +1,0 @@
-{"version":3,"names":["defineModelConcern","name","extend"],"sourceRoot":"../../../src","sources":["core/modelConcern.ts"],"mappings":";;AAEA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA;AACA,OAAO,MAAMA,kBAAkB,GAAGA,CAChCC,IAAY,EACZC,MAAqC,MACC;EAAED,IAAI;EAAEC;AAAO,CAAC,CAAC","ignoreList":[]}

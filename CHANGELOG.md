@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.1-beta.4 - 2026-07-10
+
+- Replace the experimental concern terminology from beta.2-beta.3 with `ModelExtension`, `defineModelExtension`, and `defineModel({ extensions })`; the beta-only old names are removed without aliases.
+- Infer the final model surface from named extensions and `statics`, and export `FieldsModelBase` and `NormalizedModelBase` for separately defined extension modules.
+
 ## 2.5.1-beta.3 - 2026-07-10
 
 - Preserve relation-aware row types inside model concern and static factories, including lazy `row.related` access on normalized and fields-schema models.
