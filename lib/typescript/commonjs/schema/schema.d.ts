@@ -8,12 +8,13 @@ export type DbSchema<TInput, TFields extends SchemaFields<TInput>> = {
     }) | null;
 };
 /**
- * Build a row-id resolver by joining normalized selector outputs with `:`.
+ * Build a row-id resolver by joining normalized own-key reads or selector outputs with `:`.
  *
- * @param selectors Functions that read id parts from an input object.
- * @returns A resolver that returns `null` when any selector fails or yields an empty id part.
+ * @param parts Own-property keys or functions that read id parts from an input object.
+ * @returns A resolver that returns `null` when any key/selector is unreadable or yields an empty part.
  */
-export declare const compositeId: <TInput>(...selectors: Array<(input: TInput) => unknown>) => ((input: TInput) => string | null);
+export declare function compositeId(...keys: string[]): (input: unknown) => string | null;
+export declare function compositeId<TInput>(...selectors: Array<(input: TInput) => unknown>): (input: TInput) => string | null;
 export declare const createSchema: <TInput, TFields extends SchemaFields<TInput>>(config: {
     fields: TFields;
     rowId?: (input: TInput) => string | null | undefined;

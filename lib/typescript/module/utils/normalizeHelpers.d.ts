@@ -1,5 +1,7 @@
 /** Narrow a value to a non-null object. Arrays also satisfy this check - callers that need to exclude them do so themselves. */
 export declare const isRecord: (value: unknown) => value is Record<string, unknown>;
+/** Narrow a value to a non-null, non-array record. */
+export declare const isNonArrayRecord: (value: unknown) => value is Record<string, unknown>;
 /** Convert a value to string while preserving null and undefined. */
 export declare const toStr: (v: unknown) => string | null | undefined;
 /** Convert a value to a required string. */

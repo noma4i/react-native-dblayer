@@ -6,6 +6,7 @@ import type { DbMutationConfig } from '../../types';
  * @returns Mutation result field or null.
  */
 export declare const executeDbMutationRequest: <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, mappedInput: unknown) => Promise<TData | null>;
+export declare const readMutationTempId: (input: unknown) => string | null;
 /**
  * Apply extract side-loads and commit callback for a DB mutation result.
  * @param config Mutation config containing extract and commit callbacks.
@@ -15,6 +16,13 @@ export declare const executeDbMutationRequest: <TData, TInput, TContext, TStored
  * @returns void
  */
 export declare const applyDbMutationCommit: <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, result: TData | null, input: TInput, context: TContext) => void;
+type DbMutationLifecycleOptions<TData, TContext> = {
+    context: TContext;
+    beforeRequest?: () => TContext;
+    commit: (result: TData | null, context: TContext) => void | Promise<void>;
+    rollback?: (error: Error, context: TContext) => void;
+};
+export declare const executeDbMutationLifecycle: <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, input: TInput, mappedInput: unknown, options: DbMutationLifecycleOptions<TData, TContext>) => Promise<TData | null>;
 /**
  * Run a DB mutation config outside React without optimistic transaction handling.
  * Patch configs apply `selectPatch` and destroy configs remove the local row via `selectId` before the
@@ -22,8 +30,9 @@ export declare const applyDbMutationCommit: <TData, TInput, TContext, TStored, T
  * permanent regardless of the transport outcome, same asymmetry as the `useDbMutation` hook path.
  * @param config Same config accepted by `useDbMutation`.
  * @param input Caller input.
- * @param context Optional context passed to `onCommit`.
+ * @param context Optional context merged into optimistic row metadata for `onCommit` and `onError`.
  * @returns Mutation result field or null.
  */
 export declare const runDbMutationDirect: <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown, TExtractSpec = unknown>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, input: TInput, context?: TContext) => Promise<TData | null>;
+export {};
 //# sourceMappingURL=executeDbMutation.d.ts.map

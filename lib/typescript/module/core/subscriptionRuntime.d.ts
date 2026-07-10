@@ -1,3 +1,4 @@
+import type { ResultOf, TypedDocumentNode, VariablesOf } from '@graphql-typed-document-node/core';
 import type { DbGraphQLDocument } from '../types';
 /**
  * Static subscription registration consumed by `createDbSubscriptionRuntime`.
@@ -21,6 +22,20 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
     /** Handler invoked with a validated payload after debounce, if configured. */
     onData: (payload: TPayload) => void;
 };
+type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<any, any>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<DbSubscriptionEntry<ResultOf<TDocument>[TKey]>, 'key' | 'query' | 'vars'> & {
+    key: TKey;
+    query: TDocument;
+    vars?: VariablesOf<TDocument>;
+};
+/**
+ * Define a subscription entry whose key, variables, payload handler, and debounce key resolver are
+ * inferred from a typed GraphQL document. The returned entry is erased only at the runtime registry
+ * boundary so heterogeneous subscription documents can share one array without losing authoring checks.
+ *
+ * @param entry Typed subscription document, root-field key, variables, debounce, and payload handler.
+ * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
+ */
+export declare const defineDbSubscriptionEntry: <TDocument extends TypedDocumentNode<any, any>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(entry: TypedDbSubscriptionEntry<TDocument, TKey>) => DbSubscriptionEntry;
 /** Runtime inspection row for a registered subscription entry. */
 export type DbSubscriptionRuntimeInspectRow = {
     /** Registry key for the subscription entry. */
@@ -80,4 +95,5 @@ export type DbSubscriptionRuntime = {
  * @returns Runtime controller for activation, manual dispatch, inspection, and teardown.
  */
 export declare const createDbSubscriptionRuntime: <TPayload = unknown>(entries: readonly DbSubscriptionEntry<TPayload>[]) => DbSubscriptionRuntime;
+export {};
 //# sourceMappingURL=subscriptionRuntime.d.ts.map

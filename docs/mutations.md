@@ -147,7 +147,7 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | `extractSource` | `string` | `'mutation'` | Source label passed to the extract sink. |
 | `onCommit` | `(data, input, context) => void` | `—` | Server write-through. Runs in the tx, after the response, before commit. |
 | `invalidate` | `(data, input) => void` | `—` | After commit — invalidate dependent queries. |
-| `onError` | `(error, input, context) => void` | `—` | On failure, before rollback rethrows. |
+| `onError` | `(error, input, context) => void` | `-` | On hook failure, after rollback and before the original error is rethrown. Direct execution has no rollback. |
 | `track` | `{ start?, success?, error? }` | `—` | Emits analytics-agnostic events through `configureDb({ trackSink })`. |
 
 ### `track`

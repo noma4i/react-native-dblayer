@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.5.1-beta.0 - 2026-07-10
+
+- Add `defineDbSubscriptionEntry` so typed GraphQL documents infer subscription root keys, variables, handler payloads, and debounce keys at the package boundary.
+- Add `ModelStatusPoller.subscribe(id, listener)` for terminal snapshot observation without polling refs, including notifications on terminal stop, budget reset, and terminal session removal.
+- Share mutation lifecycle execution between hook and direct paths. Direct mutations now run tracking start/error, `onError`, and post-success invalidation while retaining their documented non-transactional, no-insert, no-rollback behavior.
+- Add own-property string-key `compositeId` overloads while preserving selector-based ids.
+- Consolidate exact internal temp-id and non-array record readers without widening the public utility surface.
+
 ## 2.5.0 - 2026-07-09
 
 Final stable release of the v2.5 consolidation line; merges 2.5.0-beta.1 through 2.5.0-beta.5 with no code changes on top of beta.5. The v2.5 round moves every generic data-layer mechanism into the package: typed reads and extract, relations with write propagation, a full subscription runtime with ingest primitives, model status polling, and command tracking. Verified end to end in the consuming application (full gate suite plus an on-device live subscription matrix) before this stable cut.

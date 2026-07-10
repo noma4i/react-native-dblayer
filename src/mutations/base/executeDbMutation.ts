@@ -187,7 +187,7 @@ export const executeDbMutationLifecycle = async <TData, TInput, TContext, TStore
  * permanent regardless of the transport outcome, same asymmetry as the `useDbMutation` hook path.
  * @param config Same config accepted by `useDbMutation`.
  * @param input Caller input.
- * @param context Optional context passed to `onCommit`.
+ * @param context Optional context merged into optimistic row metadata for `onCommit` and `onError`.
  * @returns Mutation result field or null.
  */
 export const runDbMutationDirect = async <TData, TInput, TContext = void, TStored = unknown, TServerNode = unknown, TExtractSpec = unknown>(

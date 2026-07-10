@@ -1038,7 +1038,7 @@ type DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpe
     onCommit?: (data: TData | null, input: TInput, context: TContext) => void;
     /** Post-commit invalidation hook. */
     invalidate?: (data: TData | null, input: TInput) => void;
-    /** Failure hook called before rollback rethrows. */
+    /** Failure hook called after hook-path rollback and before the original error is rethrown. */
     onError?: (error: Error, input: TInput, context: TContext) => void;
     /** Declarative analytics-agnostic mutation tracking. */
     track?: {

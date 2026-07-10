@@ -14,8 +14,10 @@ export type ModelStatusPollerConfig<TResult> = {
     maxAttempts: number;
 };
 export type ModelStatusPoller = {
-    /** Attach one listener to an id; the returned detach decrements the refcount and stops the last listener. */
+    /** Attach one polling consumer to an id; the returned detach decrements the refcount and stops the last consumer. */
     attach: (id: string) => () => void;
+    /** Subscribe to terminal snapshot changes without attaching a polling consumer or starting a fetch. */
+    subscribe: (id: string, listener: () => void) => () => void;
     /** Run an immediate status fetch outside the interval. `resetBudget` clears terminal state and attempts. */
     refresh: (id: string, options?: {
         resetBudget?: boolean;
@@ -33,7 +35,7 @@ export type ModelStatusPoller = {
  * from scheduled interval ticks.
  *
  * @param config Status fetch/apply/terminal callbacks plus interval and attempt budget.
- * @returns Refcounted attach, immediate refresh, and polling-state helpers.
+ * @returns Refcounted attach, terminal subscription, immediate refresh, and polling-state helpers.
  */
 export declare const createModelStatusPoller: <TResult>(config: ModelStatusPollerConfig<TResult>) => ModelStatusPoller;
 export {};

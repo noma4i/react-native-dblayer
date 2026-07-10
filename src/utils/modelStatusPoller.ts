@@ -46,7 +46,7 @@ export type ModelStatusPoller = {
  * from scheduled interval ticks.
  *
  * @param config Status fetch/apply/terminal callbacks plus interval and attempt budget.
- * @returns Refcounted attach, immediate refresh, and polling-state helpers.
+ * @returns Refcounted attach, terminal subscription, immediate refresh, and polling-state helpers.
  */
 export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig<TResult>): ModelStatusPoller => {
   const sessions = new Map<string, PollerSession>();
