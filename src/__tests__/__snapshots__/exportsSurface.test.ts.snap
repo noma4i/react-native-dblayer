@@ -28,7 +28,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "createUniqueIds",
   "defineDbSubscriptionEntry",
   "defineModel",
-  "defineModelConcern",
+  "defineModelExtension",
   "defineShape",
   "devClearAllDataAndState",
   "f",

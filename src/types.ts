@@ -470,14 +470,20 @@ export type ModelMirrorConfig<
   project: (row: TSourceStored) => Partial<TTargetStored> | null;
 };
 
-export type ModelConcern<TModel, TExtension extends object = Record<string, unknown>> = {
-  /** Stable concern name used in collision errors. */
+export type ModelExtension<TModel, TExtension extends object = Record<string, unknown>> = {
+  /** Stable extension name used in collision errors. */
   name: string;
-  /** Build one cohesive model extension from the unextended base model DSL. */
+  /** Build one model extension from the unextended base model DSL. */
   extend: (model: TModel) => TExtension;
 };
 
-type RelationAwareCollectionModel<
+type UnionToIntersection<T> = (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never;
+
+export type ModelExtensionSurface<TExtensions extends readonly ModelExtension<any, object>[]> = [TExtensions[number]] extends [never]
+  ? {}
+  : UnionToIntersection<TExtensions[number] extends ModelExtension<any, infer TExtension> ? TExtension : never>;
+
+export type NormalizedModelBase<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
   TRelations extends ModelRelationsConfig | undefined
@@ -485,7 +491,7 @@ type RelationAwareCollectionModel<
   ? CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>>
   : CollectionModel<TInput, TStored>;
 
-type RelationAwareFieldsCollectionModel<
+export type FieldsModelBase<
   TFields extends ModelFieldSpecs,
   TRelations extends ModelRelationsConfig | undefined
 > = [TRelations] extends [ModelRelationsConfig]
@@ -507,8 +513,8 @@ interface CreateCollectionModelBaseConfig<
   name: string;
   /** Persistent collection backing the model. */
   collection: PersistentCollection<TStored>;
-  /** Cohesive class-level model extensions composed from the base model DSL. */
-  concerns?: ReadonlyArray<ModelConcern<TModel, Partial<TExt>>>;
+  /** Named class-level model extensions composed from the base model DSL. */
+  extensions?: ReadonlyArray<ModelExtension<TModel, Partial<TExt>>>;
   /** Extra class-level model methods composed from the base model DSL. */
   statics?: (model: TModel) => Partial<TExt>;
   /**
@@ -554,7 +560,7 @@ export interface CreateCollectionModelNormalizeConfig<
     TStored,
     TExt,
     TRelations,
-    RelationAwareCollectionModel<TInput, TStored, TRelations>
+    NormalizedModelBase<TInput, TStored, TRelations>
   > {
   /** Map an input to a stored row patch; return null to drop it. */
   normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
@@ -573,7 +579,7 @@ export interface CreateCollectionModelFieldsConfig<
     ModelStoredFromFields<TFields>,
     TExt,
     TRelations,
-    RelationAwareFieldsCollectionModel<TFields, TRelations>
+    FieldsModelBase<TFields, TRelations>
   > {
   /** Declarative field specs used to generate the model normalizer. */
   fields: TFields;

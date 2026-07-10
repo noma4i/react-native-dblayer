@@ -111,12 +111,14 @@ export const SimilarMomentModel = defineModel({
 });
 ```
 
-Compose cohesive class-level behavior with named concerns. Concern and static extensions share one collision-checked
-model surface, while every factory receives the same unextended base DSL:
+Compose class-level behavior with named model extensions. Extensions and statics share one collision-checked model
+surface, while every factory receives the same unextended base DSL:
 Relation-aware models retain their typed lazy `row.related` surface inside these factories.
+The final model surface is inferred from every named extension plus `statics`; no duplicate extension interface is
+required. External modules can use `FieldsModelBase` or `NormalizedModelBase` to type their factory input.
 
 ```ts
-const currentConcern = defineModelConcern('current', model => ({
+const currentExtension = defineModelExtension('current', model => ({
   currentId: () => model.getFirst()?.id,
 }));
 
@@ -124,7 +126,7 @@ export const CurrentUserModel = defineModel({
   name: 'CurrentUserModel',
   id: 'current-user',
   fields: userFields,
-  concerns: [currentConcern],
+  extensions: [currentExtension],
 });
 ```
 

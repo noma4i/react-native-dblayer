@@ -4,11 +4,12 @@ import {
   computeLoadingState,
   configureDb,
   defineModel,
-  defineModelConcern,
-  devClearAllDataAndState
+  defineModelExtension,
+  devClearAllDataAndState,
+  f
 } from '../index';
 import { DEFAULT_FETCH_STATE_MAX_AGE_MS, getCollectionFetchStateVersion, setCollectionFetchState } from '../core/freshnessStorage';
-import type { CollectionModel, InternalSyncContract, RowRelatedSurface } from '../types';
+import type { CollectionModel, FieldsModelBase, InternalSyncContract, RowRelatedSurface } from '../types';
 import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -103,32 +104,53 @@ describe('collection model core DSL', () => {
     model.clearScope();
   });
 
-  it('composes named concerns with statics from the same base model', () => {
+  it('infers named extensions and statics from the same base model', () => {
     installMemoryStorage();
-    const currentConcern = defineModelConcern('current', (baseModel: ReturnType<typeof createTodoModel>) => ({
+    const currentExtension = defineModelExtension('current', (baseModel: ReturnType<typeof createTodoModel>) => ({
       currentId: () => baseModel.getFirst()?.id
     }));
-    const model = defineModel<TodoInput, Todo, { currentId: () => string | undefined; label: string }>({
-      id: 'concern-model',
-      name: 'ConcernModel',
-      normalize: input => ({
+    const model = defineModel({
+      id: 'extension-model',
+      name: 'ExtensionModel',
+      normalize: (input: TodoInput): Todo => ({
         id: input.id,
         title: input.title,
         listId: input.listId ?? null,
         done: input.done ?? false,
         updatedAt: input.updatedAt ?? null
       }),
-      concerns: [currentConcern],
+      extensions: [currentExtension],
       statics: () => ({ label: 'todos' })
     });
 
-    model.insertStored({ id: 'concern-row', title: 'Concern', listId: null, done: false, updatedAt: earlier });
+    model.insertStored({ id: 'extension-row', title: 'Extension', listId: null, done: false, updatedAt: earlier });
 
-    expect(model.currentId()).toBe('concern-row');
+    expect(model.currentId()).toBe('extension-row');
     expect(model.label).toBe('todos');
   });
 
-  it('preserves relation-aware rows inside concern factories', () => {
+  it('infers fields-model extension surfaces without a manual statics type', () => {
+    installMemoryStorage();
+    const fields = {
+      title: f.str(),
+      updatedAt: f.str().nullDefault()
+    };
+    const currentExtension = defineModelExtension('current', (baseModel: FieldsModelBase<typeof fields, undefined>) => ({
+      currentTitle: () => baseModel.getFirst()?.title
+    }));
+    const model = defineModel({
+      id: 'fields-extension-model',
+      name: 'FieldsExtensionModel',
+      fields,
+      extensions: [currentExtension]
+    });
+
+    model.insertStored(model.buildStored({ id: 'fields-row', title: 'Fields' }));
+
+    expect(model.currentTitle()).toBe('Fields');
+  });
+
+  it('preserves relation-aware rows inside extension factories', () => {
     installMemoryStorage();
     const userModel = createTodoModel();
     type MembershipInput = { id: string; userId: string; updatedAt?: string | null };
@@ -136,18 +158,18 @@ describe('collection model core DSL', () => {
     const relations = () => ({ user: belongsTo(userModel, { foreignKey: 'userId' }) });
     type MembershipRelations = ReturnType<typeof relations>;
     type MembershipRow = Membership & RowRelatedSurface<MembershipRelations>;
-    const currentUserConcern = defineModelConcern(
+    const currentUserExtension = defineModelExtension(
       'currentUser',
       (baseModel: CollectionModel<MembershipInput, MembershipRow>) => ({
         currentUserTitle: () => baseModel.getFirst()?.related.user?.title
       })
     );
-    const model = defineModel<MembershipInput, Membership, { currentUserTitle: () => string | undefined }, MembershipRelations>({
-      id: 'relation-aware-concern-model',
-      name: 'RelationAwareConcernModel',
-      normalize: input => ({ id: input.id, userId: input.userId, updatedAt: input.updatedAt ?? null }),
+    const model = defineModel({
+      id: 'relation-aware-extension-model',
+      name: 'RelationAwareExtensionModel',
+      normalize: (input: MembershipInput): Membership => ({ id: input.id, userId: input.userId, updatedAt: input.updatedAt ?? null }),
       relations,
-      concerns: [currentUserConcern]
+      extensions: [currentUserExtension]
     });
 
     userModel.insertStored({ id: 'user-1', title: 'Owner', listId: null, done: false, updatedAt: earlier });
@@ -156,11 +178,11 @@ describe('collection model core DSL', () => {
     expect(model.currentUserTitle()).toBe('Owner');
   });
 
-  it('rejects concern collisions with base and extension keys', () => {
+  it('rejects extension collisions with base and extension keys', () => {
     installMemoryStorage();
-    const first = defineModelConcern('first', () => ({ shared: 'first' }));
-    const second = defineModelConcern('second', () => ({ shared: 'second' }));
-    const baseCollision = defineModelConcern('base', () => ({ getFirst: () => undefined }));
+    const first = defineModelExtension('first', () => ({ shared: 'first' }));
+    const second = defineModelExtension('second', () => ({ shared: 'second' }));
+    const baseCollision = defineModelExtension('base', () => ({ getFirst: () => undefined }));
     const normalize = (input: TodoInput): Todo => ({
       id: input.id,
       title: input.title,
@@ -170,22 +192,22 @@ describe('collection model core DSL', () => {
     });
 
     expect(() =>
-      defineModel<TodoInput, Todo, { shared: string }>({
-        id: 'concern-extension-collision',
-        name: 'ConcernExtensionCollisionModel',
+      defineModel({
+        id: 'extension-collision',
+        name: 'ExtensionCollisionModel',
         normalize,
-        concerns: [first, second]
+        extensions: [first, second]
       })
-    ).toThrow('[ConcernExtensionCollisionModel] concern "second" cannot override extension key "shared" from concern "first".');
+    ).toThrow('[ExtensionCollisionModel] extension "second" cannot override extension key "shared" from extension "first".');
 
     expect(() =>
-      defineModel<TodoInput, Todo, { getFirst: () => undefined }>({
-        id: 'concern-base-collision',
-        name: 'ConcernBaseCollisionModel',
+      defineModel({
+        id: 'extension-base-collision',
+        name: 'ExtensionBaseCollisionModel',
         normalize,
-        concerns: [baseCollision]
+        extensions: [baseCollision]
       })
-    ).toThrow('[ConcernBaseCollisionModel] concern "base" cannot override base model key "getFirst".');
+    ).toThrow('[ExtensionBaseCollisionModel] extension "base" cannot override base model key "getFirst".');
   });
 
   it('throws when statics collide with base model keys', () => {

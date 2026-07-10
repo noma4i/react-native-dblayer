@@ -705,9 +705,9 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   };
 
   const extensionEntries: Array<{ owner: string; values: Record<string, unknown> }> = [];
-  for (const concern of config.concerns ?? []) {
-    const extend = concern.extend as (model: typeof modelBase) => Record<string, unknown>;
-    extensionEntries.push({ owner: `concern "${concern.name}"`, values: extend(modelBase) });
+  for (const extension of config.extensions ?? []) {
+    const extend = extension.extend as (model: typeof modelBase) => Record<string, unknown>;
+    extensionEntries.push({ owner: `extension "${extension.name}"`, values: extend(modelBase) });
   }
   const statics = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
   if (statics) {

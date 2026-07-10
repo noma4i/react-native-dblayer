@@ -3,11 +3,15 @@ import type {
   CollectionModel,
   CreateCollectionModelFieldsConfig,
   CreateCollectionModelNormalizeConfig,
+  FieldsModelBase,
   FieldsCollectionModel,
   ModelBuildStoredInput,
+  ModelExtension,
+  ModelExtensionSurface,
   ModelFieldSpecs,
   ModelRelationsConfig,
   ModelStoredFromFields,
+  NormalizedModelBase,
   PersistentCollection,
   PersistentMutationTransaction,
   RelatedSurface,
@@ -107,6 +111,16 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
   };
 };
 
+type InferredModelExtensionsConfig<
+  TConfig,
+  TModel,
+  TExtensions extends readonly ModelExtension<any, object>[],
+  TStatics extends Record<string, unknown>
+> = Omit<TConfig, 'extensions' | 'statics'> & {
+  extensions: TExtensions & ReadonlyArray<ModelExtension<TModel, object>>;
+  statics?: (model: TModel) => TStatics;
+};
+
 /**
  * Define a persistent, reactive model with a normalizer.
  * @param config Model id, name, normalizer, freshness, merge, replace, and sort options.
@@ -122,20 +136,93 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
 export function defineModel<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
+  TRelations extends ModelRelationsConfig,
+  const TExtensions extends readonly ModelExtension<any, object>[],
+  TStatics extends Record<string, unknown> = {}
+>(
+  config: InferredModelExtensionsConfig<
+    Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, {}, TRelations>, 'collection' | 'normalize'> & {
+      id: string;
+      normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
+      relations: () => TRelations;
+    },
+    NormalizedModelBase<TInput, TStored, TRelations>,
+    TExtensions,
+    TStatics
+  >
+): CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> & ModelExtensionSurface<TExtensions> & TStatics & RelatedSurface<TRelations>;
+export function defineModel<
+  TInput,
+  TStored extends { id: string; updatedAt?: string | null },
+  const TExtensions extends readonly ModelExtension<any, object>[],
+  TStatics extends Record<string, unknown> = {}
+>(
+  config: InferredModelExtensionsConfig<
+    Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, {}, undefined>, 'collection' | 'normalize' | 'relations'> & {
+      id: string;
+      normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
+      relations?: undefined;
+    },
+    NormalizedModelBase<TInput, TStored, undefined>,
+    TExtensions,
+    TStatics
+  >
+): CollectionModel<TInput, TStored> & ModelExtensionSurface<TExtensions> & TStatics;
+export function defineModel<
+  TFields extends ModelFieldSpecs,
+  TRelations extends ModelRelationsConfig,
+  const TExtensions extends readonly ModelExtension<any, object>[],
+  TStatics extends Record<string, unknown> = {}
+>(
+  config: InferredModelExtensionsConfig<
+    Omit<CreateCollectionModelFieldsConfig<TFields, {}, TRelations>, 'collection' | 'fields'> & {
+      id: string;
+      fields: TFields;
+      relations: () => TRelations;
+    },
+    FieldsModelBase<TFields, TRelations>,
+    TExtensions,
+    TStatics
+  >
+): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> &
+  ModelExtensionSurface<TExtensions> &
+  TStatics &
+  RelatedSurface<TRelations>;
+export function defineModel<
+  TFields extends ModelFieldSpecs,
+  const TExtensions extends readonly ModelExtension<any, object>[],
+  TStatics extends Record<string, unknown> = {}
+>(
+  config: InferredModelExtensionsConfig<
+    Omit<CreateCollectionModelFieldsConfig<TFields, {}, undefined>, 'collection' | 'fields' | 'relations'> & {
+      id: string;
+      fields: TFields;
+      relations?: undefined;
+    },
+    FieldsModelBase<TFields, undefined>,
+    TExtensions,
+    TStatics
+  >
+): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & ModelExtensionSurface<TExtensions> & TStatics;
+export function defineModel<
+  TInput,
+  TStored extends { id: string; updatedAt?: string | null },
   TExt extends Record<string, unknown> = {},
   TRelations extends ModelRelationsConfig = any
 >(
-  config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, TRelations>, 'collection'> & {
+  config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, TRelations>, 'collection'>, 'extensions'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations: () => TRelations;
+    extensions?: undefined;
   }
 ): CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> & TExt & RelatedSurface<TRelations>;
 export function defineModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
-  config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, undefined>, 'collection'>, 'relations'> & {
+  config: Omit<Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, undefined>, 'collection'>, 'relations'>, 'extensions'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;
+    extensions?: undefined;
   }
 ): CollectionModel<TInput, TStored> & TExt;
 export function defineModel<
@@ -143,17 +230,19 @@ export function defineModel<
   TExt extends Record<string, unknown> = {},
   TRelations extends ModelRelationsConfig = any
 >(
-  config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt, TRelations>, 'collection'> & {
+  config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt, TRelations>, 'collection'>, 'extensions'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations: () => TRelations;
+    extensions?: undefined;
   }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
 export function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
-  config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'collection'>, 'relations'> & {
+  config: Omit<Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'collection'>, 'relations'>, 'extensions'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;
+    extensions?: undefined;
   }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function defineModel(
