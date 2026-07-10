@@ -145,7 +145,11 @@ const createFreshnessTracker = <TStored>(modelName: string, collectionId: string
   return { getFetchState, markFetched, touch, clearFetchState, isStale, shouldSkipInitialFetch, clear, reset };
 };
 
-type RuntimeModelConfig = CreateCollectionModelNormalizeConfig<any, any, any, any> | CreateCollectionModelFieldsConfig<any, any, any>;
+type RuntimeModelConfig =
+  | CreateCollectionModelNormalizeConfig<any, any, any, any>
+  | CreateCollectionModelNormalizeConfig<any, any, any, undefined>
+  | CreateCollectionModelFieldsConfig<any, any, any>
+  | CreateCollectionModelFieldsConfig<any, any, undefined>;
 
 const hasFieldsConfig = (config: RuntimeModelConfig): config is CreateCollectionModelFieldsConfig<ModelFieldSpecs, Record<string, unknown>> => 'fields' in config;
 
@@ -222,7 +226,7 @@ export function createCollectionModel<
  * @returns A reactive collection model extended with supplied statics.
  */
 export function createCollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
-  config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'relations'> & { relations?: undefined }
+  config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, undefined>, 'relations'> & { relations?: undefined }
 ): CollectionModel<TInput, TStored> & TExt;
 /**
  * Create a fields-schema model with relation accessors and generated normalize/buildStored helpers.
@@ -244,7 +248,7 @@ export function createCollectionModel<
  * @returns A reactive fields collection model extended with supplied statics.
  */
 export function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
-  config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'relations'> & { relations?: undefined }
+  config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'relations'> & { relations?: undefined }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0, emptyStaleTime = 0 } = config;

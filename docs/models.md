@@ -71,6 +71,7 @@ Use `defineModelConcern(name, extend)` when a model behavior is cohesive enough 
 ordering, named scopes, ingestion, or maintenance. Concern factories and `statics` receive the unextended base model;
 they cannot depend on declaration order. Their returned keys are merged onto the model, and collisions with the base
 API or another extension throw during model construction.
+On models with relations, the base model keeps the same lazy `row.related` row surface as the final model.
 
 ```ts
 const orderingConcern = defineModelConcern('ordering', model => ({

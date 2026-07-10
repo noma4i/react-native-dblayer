@@ -113,6 +113,7 @@ export const SimilarMomentModel = defineModel({
 
 Compose cohesive class-level behavior with named concerns. Concern and static extensions share one collision-checked
 model surface, while every factory receives the same unextended base DSL:
+Relation-aware models retain their typed lazy `row.related` surface inside these factories.
 
 ```ts
 const currentConcern = defineModelConcern('current', model => ({

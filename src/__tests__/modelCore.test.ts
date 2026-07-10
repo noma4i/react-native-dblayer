@@ -1,4 +1,5 @@
 import {
+  belongsTo,
   clearAllCollections,
   computeLoadingState,
   configureDb,
@@ -7,7 +8,7 @@ import {
   devClearAllDataAndState
 } from '../index';
 import { DEFAULT_FETCH_STATE_MAX_AGE_MS, getCollectionFetchStateVersion, setCollectionFetchState } from '../core/freshnessStorage';
-import type { InternalSyncContract } from '../types';
+import type { CollectionModel, InternalSyncContract, RowRelatedSurface } from '../types';
 import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
 
@@ -125,6 +126,34 @@ describe('collection model core DSL', () => {
 
     expect(model.currentId()).toBe('concern-row');
     expect(model.label).toBe('todos');
+  });
+
+  it('preserves relation-aware rows inside concern factories', () => {
+    installMemoryStorage();
+    const userModel = createTodoModel();
+    type MembershipInput = { id: string; userId: string; updatedAt?: string | null };
+    type Membership = { id: string; userId: string; updatedAt: string | null };
+    const relations = () => ({ user: belongsTo(userModel, { foreignKey: 'userId' }) });
+    type MembershipRelations = ReturnType<typeof relations>;
+    type MembershipRow = Membership & RowRelatedSurface<MembershipRelations>;
+    const currentUserConcern = defineModelConcern(
+      'currentUser',
+      (baseModel: CollectionModel<MembershipInput, MembershipRow>) => ({
+        currentUserTitle: () => baseModel.getFirst()?.related.user?.title
+      })
+    );
+    const model = defineModel<MembershipInput, Membership, { currentUserTitle: () => string | undefined }, MembershipRelations>({
+      id: 'relation-aware-concern-model',
+      name: 'RelationAwareConcernModel',
+      normalize: input => ({ id: input.id, userId: input.userId, updatedAt: input.updatedAt ?? null }),
+      relations,
+      concerns: [currentUserConcern]
+    });
+
+    userModel.insertStored({ id: 'user-1', title: 'Owner', listId: null, done: false, updatedAt: earlier });
+    model.insertStored({ id: 'membership-1', userId: 'user-1', updatedAt: earlier });
+
+    expect(model.currentUserTitle()).toBe('Owner');
   });
 
   it('rejects concern collisions with base and extension keys', () => {

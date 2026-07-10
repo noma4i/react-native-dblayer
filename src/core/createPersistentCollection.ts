@@ -132,7 +132,7 @@ export function defineModel<
   }
 ): CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> & TExt & RelatedSurface<TRelations>;
 export function defineModel<TInput, TStored extends { id: string; updatedAt?: string | null }, TExt extends Record<string, unknown> = {}>(
-  config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'collection'>, 'relations'> & {
+  config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, undefined>, 'collection'>, 'relations'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;
@@ -150,14 +150,19 @@ export function defineModel<
   }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
 export function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(
-  config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'collection'>, 'relations'> & {
+  config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'collection'>, 'relations'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;
   }
 ): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 export function defineModel(
-  config: (Omit<CreateCollectionModelNormalizeConfig<any, any, any>, 'collection'> | Omit<CreateCollectionModelFieldsConfig<any, any>, 'collection'>) & {
+  config: (
+    | Omit<CreateCollectionModelNormalizeConfig<any, any, any, any>, 'collection'>
+    | Omit<CreateCollectionModelNormalizeConfig<any, any, any, undefined>, 'collection'>
+    | Omit<CreateCollectionModelFieldsConfig<any, any, any>, 'collection'>
+    | Omit<CreateCollectionModelFieldsConfig<any, any, undefined>, 'collection'>
+  ) & {
     id: string;
   }
 ): any {
