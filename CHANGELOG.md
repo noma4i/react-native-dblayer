@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.1-beta.1 - 2026-07-10
+
+- Narrow `pickPresent` output values to `NonNullable<T>` so the public type matches its existing runtime contract of dropping both null and undefined.
+
 ## 2.5.1-beta.0 - 2026-07-10
 
 - Add `defineDbSubscriptionEntry` so typed GraphQL documents infer subscription root keys, variables, handler payloads, and debounce keys at the package boundary.
