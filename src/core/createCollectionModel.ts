@@ -48,6 +48,7 @@ import { getDbLogger } from './logger';
 import { getDbModelDefaults } from './modelDefaults';
 import { createMirrorPropagator } from './modelMirror';
 import { registerModel } from './modelRegistry';
+import { invalidateModel } from './queryClient';
 import { attachRowRelated, buildRelatedAccessors, getCascadeController, propagateBelongsToParents, registerCascadeController, relationValues, touchBelongsToParents } from './relations';
 import { isInManagedMutationBatch, registerModelRuntimeReset } from './registry';
 import { isModelApplying, runSideloads, withApplyingModel } from './sideload';
@@ -671,6 +672,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     markFetched: freshness.markFetched,
     getFetchState: freshness.getFetchState,
     clearFetchState: freshness.clearFetchState,
+    invalidate: scope => invalidateModel(modelBase, scope),
     shouldSkipInitialFetch,
     clearScope,
     find: useFind,
@@ -698,16 +700,35 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     return model;
   };
 
-  const extensions = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
-  if (!extensions) {
+  const extensionEntries: Array<{ owner: string; values: Record<string, unknown> }> = [];
+  for (const concern of config.concerns ?? []) {
+    const extend = concern.extend as (model: typeof modelBase) => Record<string, unknown>;
+    extensionEntries.push({ owner: `concern "${concern.name}"`, values: extend(modelBase) });
+  }
+  const statics = (config.statics as ((model: typeof modelBase) => Record<string, unknown>) | undefined)?.(modelBase);
+  if (statics) {
+    extensionEntries.push({ owner: 'statics', values: statics });
+  }
+
+  if (extensionEntries.length === 0) {
     const model = attachRelatedAccessors(modelBase);
     registerModel(config.name, model);
     return model;
   }
 
-  for (const key of Object.keys(extensions)) {
-    if (key in modelBase) {
-      throw new Error(`[${config.name}] statics cannot override base model key "${key}".`);
+  const extensions: Record<string, unknown> = {};
+  const extensionOwners = new Map<string, string>();
+  for (const { owner, values } of extensionEntries) {
+    for (const key of Object.keys(values)) {
+      if (key in modelBase) {
+        throw new Error(`[${config.name}] ${owner} cannot override base model key "${key}".`);
+      }
+      const previousOwner = extensionOwners.get(key);
+      if (previousOwner) {
+        throw new Error(`[${config.name}] ${owner} cannot override extension key "${key}" from ${previousOwner}.`);
+      }
+      extensionOwners.set(key, owner);
+      extensions[key] = values[key];
     }
   }
 

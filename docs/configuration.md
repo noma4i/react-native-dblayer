@@ -40,15 +40,17 @@ package freshness policy.
 ```ts
 import {
   invalidateDbRequests,
-  invalidateModel,
   resetDbQueryRuntime,
 } from '@noma4i/react-native-dblayer';
 
-invalidateModel(UserModel);                     // clear model freshness + invalidate model queries
-invalidateModel(UserModel, { id });             // scoped model invalidation
+UserModel.invalidate();                          // clear model freshness + invalidate model queries
+UserModel.invalidate({ id });                    // scoped model invalidation
 await invalidateDbRequests(['custom', 'key']);   // React Query invalidation for explicit keys
 await resetDbQueryRuntime();                     // cancelQueries(), then clear()
 ```
+
+The free `invalidateModel(model, scope?)` helper remains available for infrastructure that receives models as values;
+application code should prefer the model-owned `Model.invalidate(scope?)` form.
 
 The configured client is only for imperative APIs. Query hooks keep using `useQueryClient()` from
 `QueryClientProvider`.

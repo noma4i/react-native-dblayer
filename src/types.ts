@@ -470,6 +470,13 @@ export type ModelMirrorConfig<
   project: (row: TSourceStored) => Partial<TTargetStored> | null;
 };
 
+export type ModelConcern<TModel, TExtension extends object = Record<string, unknown>> = {
+  /** Stable concern name used in collision errors. */
+  name: string;
+  /** Build one cohesive model extension from the unextended base model DSL. */
+  extend: (model: TModel) => TExtension;
+};
+
 interface CreateCollectionModelBaseConfig<
   TInput,
   TStored extends { id: string; updatedAt?: string | null },
@@ -481,8 +488,10 @@ interface CreateCollectionModelBaseConfig<
   name: string;
   /** Persistent collection backing the model. */
   collection: PersistentCollection<TStored>;
+  /** Cohesive class-level model extensions composed from the base model DSL. */
+  concerns?: ReadonlyArray<ModelConcern<TModel, Partial<TExt>>>;
   /** Extra class-level model methods composed from the base model DSL. */
-  statics?: (model: TModel) => TExt;
+  statics?: (model: TModel) => Partial<TExt>;
   /**
    * Freshness window in milliseconds.
    * @default 0
@@ -599,6 +608,8 @@ export interface CollectionModel<TInput, TStored extends { id: string; updatedAt
   getFetchState(filter?: Partial<TStored>): CollectionFetchState | null;
   /** Clear freshness metadata for a filter scope. */
   clearFetchState(filter?: Partial<TStored>): void;
+  /** Clear model freshness and invalidate its derived request key. */
+  invalidate(scope?: Partial<TStored>): void;
   /** Return true when the scope has data or opted-in known-empty freshness and is not stale. */
   shouldSkipInitialFetch(filter?: Partial<TStored>, maxAgeMs?: number, emptyMaxAgeMs?: number): boolean;
   /** Internal maintenance delete that skips cascade and freshness clearing. */

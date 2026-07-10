@@ -172,14 +172,14 @@ describe('request keys and imperative query runtime', () => {
     model.markFetched({ listId: 'inbox' }, { empty: false });
     model.markFetched({ listId: 'archive' }, { empty: false });
 
-    invalidateModel(model, { listId: 'inbox' });
+    model.invalidate({ listId: 'inbox' });
 
     expect(model.getFetchState({ listId: 'inbox' })).toBeNull();
     expect(model.getFetchState({ listId: 'archive' })).toMatchObject({ empty: false });
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: deriveDbKey(model, { listId: 'inbox' }) });
     expect(logger.debug).toHaveBeenCalledWith('db', 'freshness:clear', expect.objectContaining({ scope: { listId: 'inbox' } }));
 
-    invalidateModel(model);
+    model.invalidate();
 
     expect(model.getFetchState({ listId: 'archive' })).toBeNull();
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: deriveDbKey(model) });
@@ -233,7 +233,7 @@ describe('request keys and imperative query runtime', () => {
     expect(query).not.toHaveBeenCalled();
 
     act(() => {
-      invalidateModel(model, { id: 'todo-1' });
+      model.invalidate({ id: 'todo-1' });
     });
     await hook.flush();
     await hook.flush();

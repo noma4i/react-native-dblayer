@@ -3,6 +3,7 @@ import {
   computeLoadingState,
   configureDb,
   defineModel,
+  defineModelConcern,
   devClearAllDataAndState
 } from '../index';
 import { DEFAULT_FETCH_STATE_MAX_AGE_MS, getCollectionFetchStateVersion, setCollectionFetchState } from '../core/freshnessStorage';
@@ -99,6 +100,63 @@ describe('collection model core DSL', () => {
     expect(allRows.map(row => row.id)).toEqual(['typed']);
     expect(model.getFirst()?.title).toBe('Typed');
     model.clearScope();
+  });
+
+  it('composes named concerns with statics from the same base model', () => {
+    installMemoryStorage();
+    const currentConcern = defineModelConcern('current', (baseModel: ReturnType<typeof createTodoModel>) => ({
+      currentId: () => baseModel.getFirst()?.id
+    }));
+    const model = defineModel<TodoInput, Todo, { currentId: () => string | undefined; label: string }>({
+      id: 'concern-model',
+      name: 'ConcernModel',
+      normalize: input => ({
+        id: input.id,
+        title: input.title,
+        listId: input.listId ?? null,
+        done: input.done ?? false,
+        updatedAt: input.updatedAt ?? null
+      }),
+      concerns: [currentConcern],
+      statics: () => ({ label: 'todos' })
+    });
+
+    model.insertStored({ id: 'concern-row', title: 'Concern', listId: null, done: false, updatedAt: earlier });
+
+    expect(model.currentId()).toBe('concern-row');
+    expect(model.label).toBe('todos');
+  });
+
+  it('rejects concern collisions with base and extension keys', () => {
+    installMemoryStorage();
+    const first = defineModelConcern('first', () => ({ shared: 'first' }));
+    const second = defineModelConcern('second', () => ({ shared: 'second' }));
+    const baseCollision = defineModelConcern('base', () => ({ getFirst: () => undefined }));
+    const normalize = (input: TodoInput): Todo => ({
+      id: input.id,
+      title: input.title,
+      listId: input.listId ?? null,
+      done: input.done ?? false,
+      updatedAt: input.updatedAt ?? null
+    });
+
+    expect(() =>
+      defineModel<TodoInput, Todo, { shared: string }>({
+        id: 'concern-extension-collision',
+        name: 'ConcernExtensionCollisionModel',
+        normalize,
+        concerns: [first, second]
+      })
+    ).toThrow('[ConcernExtensionCollisionModel] concern "second" cannot override extension key "shared" from concern "first".');
+
+    expect(() =>
+      defineModel<TodoInput, Todo, { getFirst: () => undefined }>({
+        id: 'concern-base-collision',
+        name: 'ConcernBaseCollisionModel',
+        normalize,
+        concerns: [baseCollision]
+      })
+    ).toThrow('[ConcernBaseCollisionModel] concern "base" cannot override base model key "getFirst".');
   });
 
   it('throws when statics collide with base model keys', () => {

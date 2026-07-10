@@ -1,5 +1,6 @@
 export { configureDb } from './configure';
 export { defineModel } from './core/createPersistentCollection';
+export { defineModelConcern } from './core/modelConcern';
 export { belongsTo, hasMany, hasOne, hasManyThrough } from './core/relations';
 export { computeLoadingState, computePhase } from './queries/base/loadingState';
 export { pruneStaleFetchStates } from './core/freshnessStorage';
@@ -151,6 +152,7 @@ export type {
   LoadingState,
   MergeResult,
   ModelBuildStoredInput,
+  ModelConcern,
   ModelFieldSpecs,
   ModelMirrorConfig,
   ModelMirrorTarget,

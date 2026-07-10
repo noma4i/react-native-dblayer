@@ -111,6 +111,22 @@ export const SimilarMomentModel = defineModel({
 });
 ```
 
+Compose cohesive class-level behavior with named concerns. Concern and static extensions share one collision-checked
+model surface, while every factory receives the same unextended base DSL:
+
+```ts
+const currentConcern = defineModelConcern('current', model => ({
+  currentId: () => model.getFirst()?.id,
+}));
+
+export const CurrentUserModel = defineModel({
+  name: 'CurrentUserModel',
+  id: 'current-user',
+  fields: userFields,
+  concerns: [currentConcern],
+});
+```
+
 For irreducibly custom mappings, keep using `normalize`; shapes can still be reused with `readShape` inside that
 escape hatch.
 
