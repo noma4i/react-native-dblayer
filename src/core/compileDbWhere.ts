@@ -1,5 +1,6 @@
 import { and, eq, isNull, not, or } from '@tanstack/db';
 import type { DbReadOptions, DbWhere } from '../types';
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { toQueryValue } from '../utils/typeBoundary';
 import { stableSerialize } from './serialize';
 
@@ -112,8 +113,6 @@ export const normalizeDbCondition = <TStored>(condition?: Partial<TStored>): Par
 /** Sentinel scope key shared by every fetch-state read/write for an empty or missing filter. */
 export const ROOT_SCOPE_KEY = '__root__';
 
-const isPlainScopeObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
 /**
  * Derive the freshness scope key for a filter/scope value.
  *
@@ -127,7 +126,7 @@ const isPlainScopeObject = (value: unknown): value is Record<string, unknown> =>
  * normalizes to nothing (empty, or every value is `undefined`) both collapse to `ROOT_SCOPE_KEY`.
  */
 export const buildScopeKey = (input: unknown): string => {
-  if (!isPlainScopeObject(input)) return ROOT_SCOPE_KEY;
+  if (!isNonArrayRecord(input)) return ROOT_SCOPE_KEY;
   const normalized = normalizeDbCondition(input);
   return normalized ? stableSerialize(normalized) : ROOT_SCOPE_KEY;
 };

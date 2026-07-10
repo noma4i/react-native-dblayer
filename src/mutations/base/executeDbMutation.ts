@@ -4,7 +4,7 @@ import { getDbTransport } from '../../core/transport';
 import { isRecord } from '../../utils/normalizeHelpers';
 import { mergeSyncContract } from '../../utils/serverSync';
 import { mergeOptimisticSnapshot } from './mergeOptimisticSnapshot';
-import { emitMutationTrackSuccess } from './mutationTracking';
+import { emitMutationTrackError, emitMutationTrackStart, emitMutationTrackSuccess } from './mutationTracking';
 
 /**
  * Execute only the network request portion of a DB mutation config.
@@ -29,7 +29,7 @@ const readOptimisticTempId = (context: unknown): string | null => {
   return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
 };
 
-const readInputTempId = (input: unknown): string | null => {
+export const readMutationTempId = (input: unknown): string | null => {
   if (!isRecord(input)) return null;
   const tempId = input.tempId;
   return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
@@ -104,7 +104,7 @@ const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode,
 ): TContext | ({ tempId: string | null; optimisticRow: TStored | null } & Record<string, unknown>) | undefined => {
   if (!config.optimistic) return context;
 
-  const tempId = readOptimisticTempId(context) ?? (config.optimistic.selectTempId ? (config.optimistic.selectTempId(input) ?? null) : readInputTempId(input));
+  const tempId = readOptimisticTempId(context) ?? (config.optimistic.selectTempId ? (config.optimistic.selectTempId(input) ?? null) : readMutationTempId(input));
   const optimisticContext = {
     tempId,
     optimisticRow: tempId ? (config.optimistic.model.get(tempId) ?? null) : null
@@ -145,6 +145,41 @@ const applyDirectPatchOrDestroyOptimisticMutation = <TData, TInput, TContext, TS
   }
 };
 
+type DbMutationLifecycleOptions<TData, TContext> = {
+  context: TContext;
+  beforeRequest?: () => TContext;
+  commit: (result: TData | null, context: TContext) => void | Promise<void>;
+  rollback?: (error: Error, context: TContext) => void;
+};
+
+export const executeDbMutationLifecycle = async <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(
+  config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>,
+  input: TInput,
+  mappedInput: unknown,
+  options: DbMutationLifecycleOptions<TData, TContext>
+): Promise<TData | null> => {
+  let context = options.context;
+  let result: TData | null = null;
+
+  try {
+    emitMutationTrackStart(config, input);
+    if (options.beforeRequest) {
+      context = options.beforeRequest();
+    }
+    result = await executeDbMutationRequest(config, mappedInput);
+    await options.commit(result, context);
+  } catch (error) {
+    const mutationError = error as Error;
+    options.rollback?.(mutationError, context);
+    (config.onError as ((error: Error, input: TInput, context: TContext) => void) | undefined)?.(mutationError, input, context);
+    emitMutationTrackError(config, mutationError, input);
+    throw error;
+  }
+
+  config.invalidate?.(result, input);
+  return result;
+};
+
 /**
  * Run a DB mutation config outside React without optimistic transaction handling.
  * Patch configs apply `selectPatch` and destroy configs remove the local row via `selectId` before the
@@ -161,8 +196,15 @@ export const runDbMutationDirect = async <TData, TInput, TContext = void, TStore
   context?: TContext
 ): Promise<TData | null> => {
   const mappedInput = config.mapInput ? config.mapInput(input) : input;
-  applyDirectPatchOrDestroyOptimisticMutation(config, input);
-  const result = await executeDbMutationRequest(config, mappedInput);
-  applyDbMutationCommit(config, result, input, buildDirectCommitContext(config, input, context) as TContext);
-  return result;
+  const directContext = buildDirectCommitContext(config, input, context) as TContext;
+  return executeDbMutationLifecycle(config, input, mappedInput, {
+    context: directContext,
+    beforeRequest: () => {
+      applyDirectPatchOrDestroyOptimisticMutation(config, input);
+      return directContext;
+    },
+    commit: (result, commitContext) => {
+      applyDbMutationCommit(config, result, input, commitContext);
+    }
+  });
 };

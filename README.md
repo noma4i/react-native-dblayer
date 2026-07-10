@@ -100,7 +100,7 @@ Use `rowId`, `guard`, `compositeId`, and `sideload` for common model-level sync 
 export const SimilarMomentModel = defineModel({
   name: 'SimilarMomentModel',
   id: 'similar-moments',
-  rowId: compositeId((row) => (row as any).momentId, (row) => (row as any).similarMomentId),
+  rowId: compositeId('momentId', 'similarMomentId'),
   guard: (row) => (row as { hidden?: boolean }).hidden !== true,
   fields: {
     momentId: f.id(),

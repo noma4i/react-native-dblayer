@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { fieldSpecSparseRead } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
 import type { InferShapeStored, InferStoredFields } from './infer';
@@ -9,8 +10,6 @@ export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
 };
 
 export type AnyDbShape = DbShape<any, ShapeFields<any>>;
-
-const isReadableObject = (input: unknown): input is Record<string, unknown> => typeof input === 'object' && input !== null && !Array.isArray(input);
 
 /**
  * Define a reusable nested field group for object and array fields.
@@ -35,7 +34,7 @@ export const defineShape =
  * @returns The normalized shape object, or `undefined` when the payload is not an object.
  */
 export const readShape = <TInput, TFields extends ShapeFields<TInput>>(shape: DbShape<TInput, TFields>, input: unknown): InferShapeStored<DbShape<TInput, TFields>> | undefined => {
-  if (!isReadableObject(input)) return undefined;
+  if (!isNonArrayRecord(input)) return undefined;
 
   const output: Record<string, unknown> = {};
 

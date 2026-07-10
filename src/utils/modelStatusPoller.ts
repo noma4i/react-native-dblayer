@@ -26,8 +26,10 @@ export type ModelStatusPollerConfig<TResult> = {
 };
 
 export type ModelStatusPoller = {
-  /** Attach one listener to an id; the returned detach decrements the refcount and stops the last listener. */
+  /** Attach one polling consumer to an id; the returned detach decrements the refcount and stops the last consumer. */
   attach: (id: string) => () => void;
+  /** Subscribe to terminal snapshot changes without attaching a polling consumer or starting a fetch. */
+  subscribe: (id: string, listener: () => void) => () => void;
   /** Run an immediate status fetch outside the interval. `resetBudget` clears terminal state and attempts. */
   refresh: (id: string, options?: { resetBudget?: boolean }) => Promise<void>;
   /** Return whether an id currently has an active polling interval. */
@@ -48,6 +50,7 @@ export type ModelStatusPoller = {
  */
 export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig<TResult>): ModelStatusPoller => {
   const sessions = new Map<string, PollerSession>();
+  const terminalSubscribers = new Map<string, Set<() => void>>();
 
   const getOrCreateSession = (id: string): PollerSession => {
     const existing = sessions.get(id);
@@ -83,11 +86,25 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     }
   };
 
+  const emitTerminalChange = (id: string): void => {
+    const subscribers = terminalSubscribers.get(id);
+    if (!subscribers) return;
+
+    for (const subscriber of subscribers) {
+      try {
+        subscriber();
+      } catch (error) {
+        getDbLogger().error('ModelStatusPoller', 'terminal subscriber failed', { id, error });
+      }
+    }
+  };
+
   const markSessionStopped = (id: string, session: PollerSession, reason: ModelStatusPollerStopReason): void => {
     if (sessions.get(id) !== session) return;
     if (session.terminal) return;
     session.terminal = true;
     stopSession(id, session, false);
+    emitTerminalChange(id);
     emitSessionStop(id, reason);
   };
 
@@ -138,15 +155,37 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
         detached = true;
         session.refs = Math.max(0, session.refs - 1);
         if (session.refs === 0) {
+          const wasTerminal = session.terminal;
           stopSession(id, session, true);
+          if (wasTerminal) {
+            emitTerminalChange(id);
+          }
+        }
+      };
+    },
+    subscribe(id, listener) {
+      const subscribers = terminalSubscribers.get(id) ?? new Set<() => void>();
+      subscribers.add(listener);
+      terminalSubscribers.set(id, subscribers);
+
+      return () => {
+        const currentSubscribers = terminalSubscribers.get(id);
+        if (!currentSubscribers) return;
+        currentSubscribers.delete(listener);
+        if (currentSubscribers.size === 0) {
+          terminalSubscribers.delete(id);
         }
       };
     },
     async refresh(id, options) {
       const session = getOrCreateSession(id);
       if (options?.resetBudget) {
+        const wasTerminal = session.terminal;
         session.attempts = 0;
         session.terminal = false;
+        if (wasTerminal) {
+          emitTerminalChange(id);
+        }
       }
       await tickSession(id, session);
       ensurePolling(id, session);

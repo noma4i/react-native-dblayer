@@ -15,7 +15,7 @@ export {
   liftExtractNodes
 } from './core/extract';
 export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './core/queryClient';
-export { createDbSubscriptionRuntime } from './core/subscriptionRuntime';
+export { createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';

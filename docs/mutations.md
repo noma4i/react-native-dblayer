@@ -264,10 +264,11 @@ hook-only `key`, sends `variables.input`, runs command tracking/extract handling
 
 `runDbMutationDirect(config, input, context?)` runs the request plus extract/commit logic outside React. It does not
 run optimistic insertion; for optimistic configs it reads `input.tempId`/`selectTempId(input)` or `context.tempId`
-and adds `{ tempId, optimisticRow: model.get(tempId) ?? null }` before commit. Patch configs run `selectPatch`
-before the transport call and do not roll back that patch if the request throws. Destroy configs resolve
-`selectId(input)` and destroy the local row before the transport call the same way, and do not restore it if
-the request throws:
+and adds `{ tempId, optimisticRow: model.get(tempId) ?? null }` before the request. The direct path shares
+`track.start/success/error`, `onError`, commit, and post-success `invalidate` ordering with `useDbMutation`. It does not
+run hook-only single-flight, transactions, `onMutate`, optimistic insertion, or rollback. Patch configs run
+`selectPatch` before transport and keep that patch on failure. Destroy configs likewise remove the local row before
+transport and do not restore it on failure:
 
 ```ts
 import { runDbCommandDirect, runDbMutationDirect } from '@noma4i/react-native-dblayer';

@@ -14,7 +14,7 @@ import type {
   StableProjectionConfig,
   SyncContract
 } from '../../types';
-import { readId } from '../../utils/normalizeHelpers';
+import { isNonArrayRecord, readId } from '../../utils/normalizeHelpers';
 import { useMapById } from './mapById';
 
 /**
@@ -201,8 +201,6 @@ export const buildModelFilter = (filter: unknown, currentUserId: string | undefi
   return filter;
 };
 
-const isPlainScopeRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
 /** Resolve a request scope value, including lazy scopes. */
 export const resolveRequestScope = (scope: unknown | (() => unknown) | undefined): unknown => (typeof scope === 'function' ? (scope as () => unknown)() : scope);
 
@@ -214,9 +212,9 @@ export const resolveRequestFilter = (filter: (() => unknown) | undefined, scope:
 
 /** Merge derived scope variables with explicit variables; explicit variables win on conflicts. */
 export const mergeScopeVars = <TVariables>(vars: TVariables | undefined, scope: unknown): TVariables | undefined => {
-  if (!isPlainScopeRecord(scope)) return vars;
+  if (!isNonArrayRecord(scope)) return vars;
   if (vars === undefined) return scope as TVariables;
-  if (!isPlainScopeRecord(vars)) return vars;
+  if (!isNonArrayRecord(vars)) return vars;
   return { ...scope, ...vars } as TVariables;
 };
 

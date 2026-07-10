@@ -180,6 +180,16 @@ describe('schema normalize', () => {
     expect(readId({ momentId: '', similarMomentId: 'similar' })).toBeNull();
   });
 
+  it('builds composite ids from own-property keys on unknown payloads', () => {
+    const readId = compositeId('momentId', 'similarMomentId');
+
+    expect(readId({ momentId: 'moment', similarMomentId: 7 })).toBe('moment:7');
+    expect(readId({ momentId: 'moment' })).toBeNull();
+    expect(readId({ momentId: 'moment', similarMomentId: '' })).toBeNull();
+    expect(readId(null)).toBeNull();
+    expect(readId(Object.create({ momentId: 'moment', similarMomentId: 'similar' }) as object)).toBeNull();
+  });
+
   it('outputs exactly the keys with defined field values', () => {
     const result = fixtureSchema.normalize({
       id: 'keys',

@@ -91,6 +91,88 @@ describe('model status poller', () => {
     expect(onSessionStop).toHaveBeenCalledTimes(1);
   });
 
+  it('subscribes to terminal snapshot changes without attaching polling consumers', async () => {
+    const fetch = jest.fn(async () => ({ terminal: true }));
+    const poller = createModelStatusPoller<{ terminal: boolean }>({
+      fetch,
+      apply: jest.fn(),
+      isTerminal: result => result.terminal,
+      intervalMs: 1000,
+      maxAttempts: 5
+    });
+    const first = jest.fn();
+    const second = jest.fn();
+    const other = jest.fn();
+    const unsubscribeFirst = poller.subscribe('item-subscribed', first);
+    poller.subscribe('item-subscribed', second);
+    poller.subscribe('item-other', other);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(poller.isPolling('item-subscribed')).toBe(false);
+
+    const detach = poller.attach('item-subscribed');
+    await flush();
+
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(other).not.toHaveBeenCalled();
+
+    unsubscribeFirst();
+    detach();
+
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(2);
+    expect(poller.isSessionTerminal('item-subscribed')).toBe(false);
+  });
+
+  it('notifies when resetBudget clears a terminal snapshot', async () => {
+    const fetch = jest.fn().mockResolvedValueOnce({ terminal: true }).mockResolvedValueOnce({ terminal: false });
+    const poller = createModelStatusPoller<{ terminal: boolean }>({
+      fetch,
+      apply: jest.fn(),
+      isTerminal: result => result.terminal,
+      intervalMs: 1000,
+      maxAttempts: 5
+    });
+    const subscriber = jest.fn();
+    poller.subscribe('item-reset', subscriber);
+    poller.attach('item-reset');
+    await flush();
+
+    expect(subscriber).toHaveBeenCalledTimes(1);
+    expect(poller.isSessionTerminal('item-reset')).toBe(true);
+
+    await poller.refresh('item-reset', { resetBudget: true });
+
+    expect(subscriber).toHaveBeenCalledTimes(2);
+    expect(poller.isSessionTerminal('item-reset')).toBe(false);
+  });
+
+  it('contains throwing terminal subscribers', async () => {
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    configureDb({ transport: mockTransport({}), logger });
+    const poller = createModelStatusPoller<{ terminal: boolean }>({
+      fetch: jest.fn(async () => ({ terminal: true })),
+      apply: jest.fn(),
+      isTerminal: result => result.terminal,
+      intervalMs: 1000,
+      maxAttempts: 5
+    });
+    poller.subscribe('item-subscriber-error', () => {
+      throw new Error('subscriber failed');
+    });
+
+    poller.attach('item-subscriber-error');
+    await flush();
+
+    expect(poller.isSessionTerminal('item-subscriber-error')).toBe(true);
+    expect(logger.error).toHaveBeenCalledWith(
+      'ModelStatusPoller',
+      'terminal subscriber failed',
+      expect.objectContaining({ id: 'item-subscriber-error', error: expect.any(Error) })
+    );
+  });
+
   it('stops when the attempt budget is exhausted', async () => {
     const fetch = jest.fn(async () => ({ terminal: false }));
     const onSessionStop = jest.fn();

@@ -520,6 +520,115 @@ describe('mutation DSL runtime', () => {
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
+  it('runs the shared direct mutation lifecycle around a pre-created optimistic row', async () => {
+    const model = createTodoFieldsModel();
+    type Stored = ReturnType<typeof model.getAll>[number];
+    const existing = model.buildStored({ id: 'temp-direct-lifecycle', title: 'Existing upload' });
+    model.insertStored(existing);
+    const order: string[] = [];
+    const buildStored = jest.fn(() => model.buildStored({ id: 'unexpected', title: 'Unexpected' }));
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      trackSink: event => {
+        order.push(`track:${event.name}`);
+      },
+      transport: mockTransport({
+        mutation: async () => {
+          order.push('transport');
+          return {
+            data: {
+              todoCreate: { id: 'server-direct-lifecycle', title: 'Server upload', listId: null, done: false, updatedAt: '2026-01-05T00:00:00.000Z' }
+            }
+          };
+        }
+      })
+    });
+
+    await runDbMutationDirect<Todo, TodoMutationInput, { tempId: string | null; optimisticRow?: Stored | null }, Stored, Todo>(
+      {
+        mutation: document<Record<string, Todo>, { input: unknown }>('CreateTodoDirectLifecycle'),
+        resultField: 'todoCreate',
+        optimistic: {
+          model,
+          tempIdPrefix: 'todo',
+          buildStored,
+          selectServerNode: data => data
+        },
+        onCommit: (_data: Todo | null, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow?: Stored | null }) => {
+          expect(context.tempId).toBe('temp-direct-lifecycle');
+          expect(context.optimisticRow).toEqual(expect.objectContaining({ id: 'temp-direct-lifecycle', title: 'Existing upload' }));
+          order.push('onCommit');
+        },
+        invalidate: () => {
+          order.push('invalidate');
+        },
+        track: {
+          start: () => ({ name: 'direct-start' }),
+          success: () => ({ name: 'direct-success' })
+        }
+      },
+      { title: 'Existing upload', tempId: 'temp-direct-lifecycle' }
+    );
+
+    expect(buildStored).not.toHaveBeenCalled();
+    expect(order).toEqual(['track:direct-start', 'transport', 'onCommit', 'track:direct-success', 'invalidate']);
+    expect(model.get('temp-direct-lifecycle')).toBeUndefined();
+    expect(model.get('server-direct-lifecycle')?.title).toBe('Server upload');
+  });
+
+  it('runs direct onError and track error with existing optimistic context without rollback', async () => {
+    const model = createTodoFieldsModel();
+    type Stored = ReturnType<typeof model.getAll>[number];
+    const existing = model.buildStored({ id: 'temp-direct-failure', title: 'Retained upload' });
+    model.insertStored(existing);
+    const order: string[] = [];
+    const buildStored = jest.fn(() => model.buildStored({ id: 'unexpected', title: 'Unexpected' }));
+    const invalidate = jest.fn();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      trackSink: event => {
+        order.push(`track:${event.name}`);
+      },
+      transport: mockTransport({
+        mutation: async () => {
+          order.push('transport');
+          throw new Error('direct lifecycle failed');
+        }
+      })
+    });
+
+    await expect(
+      runDbMutationDirect<Todo, TodoMutationInput, { tempId: string | null; optimisticRow?: Stored | null }, Stored, Todo>(
+        {
+          mutation: document<Record<string, Todo>, { input: unknown }>('CreateTodoDirectLifecycleFailure'),
+          resultField: 'todoCreate',
+          optimistic: {
+            model,
+            tempIdPrefix: 'todo',
+            buildStored,
+            selectServerNode: data => data
+          },
+          onError: (_error: Error, _input: TodoMutationInput, context: { tempId: string | null; optimisticRow?: Stored | null }) => {
+            expect(context.tempId).toBe('temp-direct-failure');
+            expect(context.optimisticRow).toEqual(expect.objectContaining({ id: 'temp-direct-failure', title: 'Retained upload' }));
+            order.push('onError');
+          },
+          invalidate,
+          track: {
+            start: () => ({ name: 'direct-start' }),
+            error: () => ({ name: 'direct-error' })
+          }
+        },
+        { title: 'Retained upload', tempId: 'temp-direct-failure' }
+      )
+    ).rejects.toThrow('direct lifecycle failed');
+
+    expect(buildStored).not.toHaveBeenCalled();
+    expect(order).toEqual(['track:direct-start', 'transport', 'onError', 'track:direct-error']);
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(model.get('temp-direct-failure')?.title).toBe('Retained upload');
+  });
+
   it('runs manual commit side effects after the declarative optimistic commit and keeps extract handling', async () => {
     const model = createTodoFieldsModel();
     type Stored = ReturnType<typeof model.getAll>[number];

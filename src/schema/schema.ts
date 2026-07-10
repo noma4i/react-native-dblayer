@@ -1,5 +1,5 @@
 import { toStr } from '../utils/normalizeHelpers';
-import { readObjectField } from './fieldSpec';
+import { readObjectField, readSourceKey } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
 import type { InferStoredFields } from './infer';
 
@@ -20,33 +20,35 @@ const normalizeId = (value: unknown): string | null => {
 const isNormalizableInput = (input: unknown): boolean => typeof input === 'object' && input !== null;
 
 /**
- * Build a row-id resolver by joining normalized selector outputs with `:`.
+ * Build a row-id resolver by joining normalized own-key reads or selector outputs with `:`.
  *
- * @param selectors Functions that read id parts from an input object.
- * @returns A resolver that returns `null` when any selector fails or yields an empty id part.
+ * @param parts Own-property keys or functions that read id parts from an input object.
+ * @returns A resolver that returns `null` when any key/selector is unreadable or yields an empty part.
  */
-export const compositeId =
-  <TInput>(...selectors: Array<(input: TInput) => unknown>): ((input: TInput) => string | null) =>
-  input => {
-    if (!selectors.length) return null;
+export function compositeId(...keys: string[]): (input: unknown) => string | null;
+export function compositeId<TInput>(...selectors: Array<(input: TInput) => unknown>): (input: TInput) => string | null;
+export function compositeId<TInput>(...parts: Array<string | ((input: TInput) => unknown)>): (input: TInput) => string | null {
+  return input => {
+    if (!parts.length) return null;
 
-    const parts: string[] = [];
+    const normalizedParts: string[] = [];
 
-    for (const selector of selectors) {
+    for (const partReader of parts) {
       let value: unknown;
       try {
-        value = selector(input);
+        value = typeof partReader === 'string' ? readSourceKey(input, partReader) : partReader(input);
       } catch {
         return null;
       }
 
       const part = normalizeId(value);
       if (part === null) return null;
-      parts.push(part);
+      normalizedParts.push(part);
     }
 
-    return parts.join(':');
+    return normalizedParts.join(':');
   };
+}
 
 export const createSchema = <TInput, TFields extends SchemaFields<TInput>>(config: {
   fields: TFields;

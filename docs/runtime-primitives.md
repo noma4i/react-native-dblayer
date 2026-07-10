@@ -39,13 +39,19 @@ Creates an imperative subscription dispatcher for transport-level GraphQL subscr
 
 | Surface | Signature essentials | Behavior |
 | --- | --- | --- |
-| `start()` | `() => void` | Subscribes every entry through `configureDb({ transport: { subscribe } })`. |
+| `setActive(active)` | `(active: boolean) => void` | Subscribes or unsubscribes every entry through the configured transport. |
+| `isActive()` | `() => boolean` | Returns the runtime-wide active flag. |
 | `stop()` | `() => void` | Unsubscribes active subscriptions and clears runtime state. |
 | `dispatch(key, payload)` | `(key: string, payload: unknown) => void` | Manually routes a payload through the matching entry for tests or external transports. |
 | `inspect()` | `() => DbSubscriptionRuntimeInspectRow[]` | Returns runtime status rows for diagnostics. |
 
-Entries provide `{ key, query, variables?, read, onData }`. `read(payload)` extracts the domain payload, and
-`onData(value)` performs app-level model writes. Transport errors are logged and contained.
+Entries provide `{ key, query, vars?, debounce?, onData }`. The runtime unwraps transport response data by `key`,
+validates a record payload, applies optional keyed trailing debounce, and calls `onData(payload)`. Transport errors
+are logged, unsubscribed, and retried with bounded exponential backoff.
+
+Use `defineDbSubscriptionEntry({ key, query, vars, debounce, onData })` with a typed GraphQL document. It constrains
+`key` to a result root field, infers `vars` from the document variables, and types `onData`/`debounce.keyOf` from the
+selected root payload while still returning an entry that can join a heterogeneous runtime registry.
 
 ### `createKeyedBatchBuffer(config)`
 
@@ -101,12 +107,14 @@ callback. Callback errors are logged and do not break polling.
 | Method | Signature essentials | Behavior |
 | --- | --- | --- |
 | `attach` | `(id) => detach` | Starts or refs a session; the returned detach decrements refs and removes the last detached session. |
+| `subscribe` | `(id, listener) => unsubscribe` | Observes terminal snapshot changes without adding refs or starting polling. |
 | `refresh` | `(id, { resetBudget? }) => Promise<void>` | Runs an immediate fetch; `resetBudget` clears attempts and terminal state before fetching. |
 | `isPolling` | `(id) => boolean` | True while an attached non-terminal session has an active interval. |
 | `isSessionTerminal` | `(id) => boolean` | True while a retained session has stopped on a terminal payload or budget; detached/unknown ids return false. |
 
-The returned controller avoids overlapping fetches per id. Fetch errors consume attempts, are logged, and never throw
-from scheduled ticks.
+Subscribers are notified when terminal/budget stop changes the snapshot to true, when `resetBudget` clears it, and
+when last detach removes a terminal session. Subscriber errors are logged and contained. The returned controller
+avoids overlapping fetches per id. Fetch errors consume attempts, are logged, and never throw from scheduled ticks.
 
 ## `mergeOptimisticMedia(optimistic, server)`
 

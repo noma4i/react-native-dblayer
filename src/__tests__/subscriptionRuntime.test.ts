@@ -1,4 +1,5 @@
-import { configureDb, createDbSubscriptionRuntime } from '../index';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { configureDb, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from '../index';
 import { setDbLogger } from '../core/logger';
 import type { DbGraphQLDocument, DbTransport } from '../types';
 import { mockTransport } from './helpers/testRuntime';
@@ -8,6 +9,39 @@ type TestPayload = {
   chatId?: string;
   value?: number;
 };
+
+const typecheckSubscriptionEntry = (
+  typedDocument: TypedDocumentNode<{ messageCreated: TestPayload; unreadCount: number }, { chatId: string }>
+) => {
+  defineDbSubscriptionEntry({
+    key: 'messageCreated',
+    query: typedDocument,
+    vars: { chatId: 'chat-1' },
+    debounce: { ms: 10, keyOf: payload => payload.id },
+    onData: payload => {
+      const id: string = payload.id;
+      return id;
+    }
+  });
+
+  defineDbSubscriptionEntry({
+    // @ts-expect-error Root key must exist in the typed document result.
+    key: 'messageDeleted',
+    query: typedDocument,
+    vars: { chatId: 'chat-1' },
+    onData: () => {}
+  });
+
+  defineDbSubscriptionEntry({
+    key: 'messageCreated',
+    query: typedDocument,
+    // @ts-expect-error Variables must match the typed document variables.
+    vars: { conversationId: 'chat-1' },
+    onData: () => {}
+  });
+};
+
+void typecheckSubscriptionEntry;
 
 type SubscribeRecord = {
   options: { query: DbGraphQLDocument; variables?: Record<string, unknown> };

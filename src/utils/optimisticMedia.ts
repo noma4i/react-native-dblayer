@@ -1,3 +1,5 @@
+import { isNonArrayRecord } from './normalizeHelpers';
+
 type MediaRecord = Record<string, unknown>;
 
 export type MergeOptimisticMediaOptions<TMedia extends MediaRecord = MediaRecord> = {
@@ -11,8 +13,6 @@ export type MergeOptimisticMediaOptions<TMedia extends MediaRecord = MediaRecord
 };
 
 const DEFAULT_DIMENSION_KEYS = ['width', 'height'] as const;
-
-const isRecord = (value: unknown): value is MediaRecord => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isPositiveFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 
@@ -39,9 +39,9 @@ export function mergeOptimisticMedia(optimistic: unknown, server: unknown, optio
  * @returns Server media with generic optimistic continuity fields applied, or the original server value.
  */
 export function mergeOptimisticMedia(optimistic: unknown, server: unknown, options: MergeOptimisticMediaOptions = {}): unknown {
-  if (!isRecord(server)) return server;
+  if (!isNonArrayRecord(server)) return server;
 
-  const optimisticRecord = isRecord(optimistic) ? optimistic : undefined;
+  const optimisticRecord = isNonArrayRecord(optimistic) ? optimistic : undefined;
   const output: MediaRecord = { ...server };
   const dimensionKeys = options.dimensionKeys ?? DEFAULT_DIMENSION_KEYS;
 

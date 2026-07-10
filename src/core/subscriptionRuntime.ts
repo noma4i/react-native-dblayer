@@ -1,6 +1,8 @@
+import type { ResultOf, TypedDocumentNode, VariablesOf } from '@graphql-typed-document-node/core';
 import { getDbLogger } from './logger';
 import { getDbTransport } from './transport';
 import type { DbGraphQLDocument } from '../types';
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
 const GLOBAL_DEBOUNCE_KEY = '__global__';
@@ -29,6 +31,30 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
   /** Handler invoked with a validated payload after debounce, if configured. */
   onData: (payload: TPayload) => void;
 };
+
+type TypedDbSubscriptionEntry<
+  TDocument extends TypedDocumentNode<any, any>,
+  TKey extends Extract<keyof ResultOf<TDocument>, string>
+> = Omit<DbSubscriptionEntry<ResultOf<TDocument>[TKey]>, 'key' | 'query' | 'vars'> & {
+  key: TKey;
+  query: TDocument;
+  vars?: VariablesOf<TDocument>;
+};
+
+/**
+ * Define a subscription entry whose key, variables, payload handler, and debounce key resolver are
+ * inferred from a typed GraphQL document. The returned entry is erased only at the runtime registry
+ * boundary so heterogeneous subscription documents can share one array without losing authoring checks.
+ *
+ * @param entry Typed subscription document, root-field key, variables, debounce, and payload handler.
+ * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
+ */
+export const defineDbSubscriptionEntry = <
+  TDocument extends TypedDocumentNode<any, any>,
+  TKey extends Extract<keyof ResultOf<TDocument>, string>
+>(
+  entry: TypedDbSubscriptionEntry<TDocument, TKey>
+): DbSubscriptionEntry => entry as unknown as DbSubscriptionEntry;
 
 /** Runtime inspection row for a registered subscription entry. */
 export type DbSubscriptionRuntimeInspectRow = {
@@ -102,8 +128,6 @@ type EntryState = {
   errorCount: number;
 };
 
-const isRecordPayload = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
 const nextRetryDelay = (attempts: number): number => Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempts), MAX_RETRY_DELAY_MS);
 
 const clearDebounceBuckets = (state: EntryState): void => {
@@ -151,7 +175,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   };
 
   const handlePayload = (state: EntryState, payload: unknown): void => {
-    if (!isRecordPayload(payload)) {
+    if (!isNonArrayRecord(payload)) {
       getDbLogger().debug(LOG_PREFIX, 'payload skipped', { key: state.entry.key });
       return;
     }
@@ -183,7 +207,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   };
 
   const handleTransportNext = (state: EntryState, data: unknown): void => {
-    if (!isRecordPayload(data)) {
+    if (!isNonArrayRecord(data)) {
       getDbLogger().debug(LOG_PREFIX, 'response skipped', { key: state.entry.key });
       return;
     }

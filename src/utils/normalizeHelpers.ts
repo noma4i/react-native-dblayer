@@ -1,6 +1,9 @@
 /** Narrow a value to a non-null object. Arrays also satisfy this check - callers that need to exclude them do so themselves. */
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
+/** Narrow a value to a non-null, non-array record. */
+export const isNonArrayRecord = (value: unknown): value is Record<string, unknown> => isRecord(value) && !Array.isArray(value);
+
 /** Convert a value to string while preserving null and undefined. */
 export const toStr = (v: unknown): string | null | undefined => (v != null ? String(v) : (v as null | undefined));
 

@@ -34,6 +34,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `configureDb` | Configure transport, storage, logger, query client, extract, tracking. | `configureDb(options)` |
 | `createCollectionBinding` | Bind a model to scoped infinite-query reads/writes. | `createCollectionBinding(model, options?)` |
 | `createDbSubscriptionRuntime` | Create imperative subscription dispatcher. | `createDbSubscriptionRuntime(entries)` |
+| `defineDbSubscriptionEntry` | Type a subscription entry from its GraphQL document and root key. | `defineDbSubscriptionEntry(entry)` |
 | `createExtractSink` | Build extract sink from model/custom table. | `createExtractSink(sinkTable)` |
 | `createIdArrayPatcher` | Create immutable id-array patch helpers. | `createIdArrayPatcher()` |
 | `createKeyedArrayPatcher` | Create immutable keyed sub-row array patch helpers. | `createKeyedArrayPatcher(shape,{ key })` |

@@ -1,4 +1,5 @@
 import type { CollectionFetchScopeRecord, CollectionFetchState, FetchStateRemovalListener } from '../types';
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { ROOT_SCOPE_KEY } from './compileDbWhere';
 import { getDbStorageAdapter } from './storage';
 
@@ -74,8 +75,6 @@ const parseFetchState = (raw: string | null): CollectionFetchState | null => {
   }
 };
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
-
 const parsePersistedFetchState = (raw: string | null): PersistedCollectionFetchState | null => {
   const state = parseFetchState(raw);
   if (!state || !raw) return state;
@@ -84,7 +83,7 @@ const parsePersistedFetchState = (raw: string | null): PersistedCollectionFetchS
     const parsed = JSON.parse(raw) as Partial<PersistedCollectionFetchState>;
     return {
       ...state,
-      ...(isPlainRecord(parsed._freshnessFilter) ? { _freshnessFilter: parsed._freshnessFilter } : {})
+      ...(isNonArrayRecord(parsed._freshnessFilter) ? { _freshnessFilter: parsed._freshnessFilter } : {})
     };
   } catch {
     return state;
@@ -95,7 +94,7 @@ const parseScopeFromKey = (scopeKey: string | undefined): Record<string, unknown
   if (!scopeKey) return undefined;
   try {
     const parsed = JSON.parse(scopeKey) as unknown;
-    return isPlainRecord(parsed) ? parsed : undefined;
+    return isNonArrayRecord(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

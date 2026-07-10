@@ -161,7 +161,7 @@ import { compositeId, defineModel, f } from '@noma4i/react-native-dblayer';
 export const SimilarMomentModel = defineModel({
   name: 'SimilarMomentModel',
   id: 'similar-moments',
-  rowId: compositeId((row) => (row as any).momentId, (row) => (row as any).similarMomentId),
+  rowId: compositeId('momentId', 'similarMomentId'),
   guard: (row) => (row as { hidden?: boolean }).hidden !== true,
   fields: {
     momentId: f.id(),
@@ -170,6 +170,9 @@ export const SimilarMomentModel = defineModel({
   },
 });
 ```
+
+The string-key overload reads own properties from unknown payloads and returns `null` for missing or empty parts.
+Use selector functions when an id part requires nested access or transformation.
 
 ### Sideload nested payloads
 
