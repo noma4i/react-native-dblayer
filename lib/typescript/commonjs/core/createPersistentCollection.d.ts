@@ -32,7 +32,7 @@ export declare function defineModel<TInput, TStored extends {
 export declare function defineModel<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TExt extends Record<string, unknown> = {}>(config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'collection'>, 'relations'> & {
+}, TExt extends Record<string, unknown> = {}>(config: Omit<Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, undefined>, 'collection'>, 'relations'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;
@@ -42,7 +42,7 @@ export declare function defineModel<TFields extends ModelFieldSpecs, TExt extend
     id: string;
     relations: () => TRelations;
 }): FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> & TExt & RelatedSurface<TRelations>;
-export declare function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'collection'>, 'relations'> & {
+export declare function defineModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(config: Omit<Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'collection'>, 'relations'> & {
     /** Collection id and storage-key prefix; unique per app. */
     id: string;
     relations?: undefined;

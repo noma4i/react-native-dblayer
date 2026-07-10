@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.1-beta.3 - 2026-07-10
+
+- Preserve relation-aware row types inside model concern and static factories, including lazy `row.related` access on normalized and fields-schema models.
+
 ## 2.5.1-beta.2 - 2026-07-10
 
 - Add named model concerns through `defineModelConcern` and `defineModel({ concerns })`, with collision protection across the base model, concerns, and statics.

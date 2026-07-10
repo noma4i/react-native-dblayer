@@ -439,10 +439,15 @@ export type ModelConcern<TModel, TExtension extends object = Record<string, unkn
     /** Build one cohesive model extension from the unextended base model DSL. */
     extend: (model: TModel) => TExtension;
 };
+type RelationAwareCollectionModel<TInput, TStored extends {
+    id: string;
+    updatedAt?: string | null;
+}, TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig] ? CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>> : CollectionModel<TInput, TStored>;
+type RelationAwareFieldsCollectionModel<TFields extends ModelFieldSpecs, TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig] ? FieldsCollectionModel<ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>, ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>> : FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>>;
 interface CreateCollectionModelBaseConfig<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined, TModel extends CollectionModel<TInput, TStored> = CollectionModel<TInput, TStored>> {
+}, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined, TModel extends object = CollectionModel<TInput, TStored>> {
     /** Unique model name used as a runtime-registry key and log tag. */
     name: string;
     /** Persistent collection backing the model. */
@@ -493,7 +498,7 @@ interface CreateCollectionModelBaseConfig<TInput, TStored extends {
 export interface CreateCollectionModelNormalizeConfig<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt, TRelations> {
+}, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<TInput, TStored, TExt, TRelations, RelationAwareCollectionModel<TInput, TStored, TRelations>> {
     /** Map an input to a stored row patch; return null to drop it. */
     normalize: (item: TInput) => (Partial<TStored> & {
         id: string;
@@ -502,7 +507,7 @@ export interface CreateCollectionModelNormalizeConfig<TInput, TStored extends {
     rowId?: never;
     guard?: never;
 }
-export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>, TExt, TRelations, FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>>> {
+export interface CreateCollectionModelFieldsConfig<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}, TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined> extends CreateCollectionModelBaseConfig<ModelBuildStoredInput<TFields>, ModelStoredFromFields<TFields>, TExt, TRelations, RelationAwareFieldsCollectionModel<TFields, TRelations>> {
     /** Declarative field specs used to generate the model normalizer. */
     fields: TFields;
     /** Optional row id resolver; defaults to `input.id`. */

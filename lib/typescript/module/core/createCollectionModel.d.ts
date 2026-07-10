@@ -20,7 +20,7 @@ export declare function createCollectionModel<TInput, TStored extends {
 export declare function createCollectionModel<TInput, TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TExt extends Record<string, unknown> = {}>(config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt>, 'relations'> & {
+}, TExt extends Record<string, unknown> = {}>(config: Omit<CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, undefined>, 'relations'> & {
     relations?: undefined;
 }): CollectionModel<TInput, TStored> & TExt;
 /**
@@ -38,7 +38,7 @@ export declare function createCollectionModel<TFields extends ModelFieldSpecs, T
  * @param config Collection id, fields schema, optional rowId/guard/statics/freshness settings, and sideloads.
  * @returns A reactive fields collection model extended with supplied statics.
  */
-export declare function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt>, 'relations'> & {
+export declare function createCollectionModel<TFields extends ModelFieldSpecs, TExt extends Record<string, unknown> = {}>(config: Omit<CreateCollectionModelFieldsConfig<TFields, TExt, undefined>, 'relations'> & {
     relations?: undefined;
 }): FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>> & TExt;
 //# sourceMappingURL=createCollectionModel.d.ts.map
