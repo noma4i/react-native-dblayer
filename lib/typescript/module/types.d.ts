@@ -1,4 +1,4 @@
-import type { Collection, StorageEventApi } from '@tanstack/db';
+import type { Collection, CollectionLike, StorageEventApi } from '@tanstack/db';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -134,7 +134,7 @@ export type RelationModel<TStored extends StoredRowBase> = {
     count(filter?: DbWhere<any> | null): number;
     destroyMany(ids: string[]): number;
     destroyWhere(filter: Partial<any>): number;
-    collection: Collection<TStored, string>;
+    collection: CollectionLike<TStored, string>;
 };
 export type BelongsToModel<TStored extends StoredRowBase> = {
     get(id: string | undefined | null): TStored | undefined;

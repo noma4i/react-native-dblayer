@@ -1,4 +1,5 @@
 import { count as dbCount, eq, inArray } from '@tanstack/db';
+import type { Collection, CollectionLike } from '@tanstack/db';
 import { useLiveQuery } from '@tanstack/react-db';
 import { useMemo } from 'react';
 import type {
@@ -26,6 +27,9 @@ import { pickDefined } from '../utils/pickDefined';
 import { toQueryValue } from '../utils/typeBoundary';
 
 const EMPTY: readonly never[] = Object.freeze([]);
+
+const relationCollectionForQuery = (collection: CollectionLike<StoredRowBase, string>): Collection<StoredRowBase, string> =>
+  collection as unknown as Collection<StoredRowBase, string>;
 
 type RuntimeHasManyRelation = ModelRelationDefinition & {
   model: RelationModel<StoredRowBase>;
@@ -205,7 +209,7 @@ const useRowsByForeignKey = <TChildStored extends StoredRowBase>(
     q =>
       parentId == null
         ? undefined
-        : q.from({ items: relation.model.collection }).where(({ items }) => eq(toQueryValue((items as Record<string, unknown>)[foreignKey]), parentId)),
+        : q.from({ items: relationCollectionForQuery(relation.model.collection) }).where(({ items }) => eq(toQueryValue((items as Record<string, unknown>)[foreignKey]), parentId)),
     [foreignKey, parentId]
   );
 
@@ -219,7 +223,7 @@ const useCountByForeignKey = (relation: RuntimeHasManyRelation, parentId: string
       parentId == null
         ? undefined
         : q
-            .from({ items: relation.model.collection })
+            .from({ items: relationCollectionForQuery(relation.model.collection) })
             .where(({ items }) => eq(toQueryValue((items as Record<string, unknown>)[foreignKey]), parentId))
             .groupBy(() => 1)
             .select(({ items }: { items: unknown }) => ({ total: dbCount(toQueryValue((items as Record<string, unknown>).id)) })),
@@ -250,7 +254,7 @@ const useRowsByForeignKeySet = <TChildStored extends StoredRowBase>(relation: Ru
     q =>
       parentIds.length === 0
         ? undefined
-        : q.from({ items: relation.model.collection }).where(({ items }) => inArray(toQueryValue((items as Record<string, unknown>)[foreignKey]), parentIds)),
+        : q.from({ items: relationCollectionForQuery(relation.model.collection) }).where(({ items }) => inArray(toQueryValue((items as Record<string, unknown>)[foreignKey]), parentIds)),
     [foreignKey, parentIdsKey]
   );
 
@@ -281,7 +285,7 @@ const useChildRowById = (context: RelatedAccessorsContext, childId: string | nul
       childId == null
         ? undefined
         : q
-            .from({ items: context.collection })
+            .from({ items: relationCollectionForQuery(context.collection) })
             .where(({ items }) => eq(toQueryValue((items as Record<string, unknown>).id), childId))
             .findOne(),
     [childId]

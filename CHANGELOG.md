@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.1-beta.9 - 2026-07-12
+
+- Keep relation model collection contracts read-only, so consumers can enable `strictFunctionTypes` without widening rows or using `any`.
+- No runtime API or migration change: relation queries continue to use the model's concrete TanStack DB collection.
+
 ## 2.5.1-beta.8 - 2026-07-10
 
 - Let `defineShape<TInput>()(...).fields` retain the raw input type when used as model fields.
