@@ -17,15 +17,14 @@ export type DbMutationExtractPresetEntry<TResult = unknown, TSinkKey extends str
     many?: boolean;
 };
 export type DbMutationExtractPresetTable<TResult = unknown, TSinkKey extends string = string> = Record<string, DbMutationExtractPresetEntry<TResult, TSinkKey>>;
-type ExtractPresetResult<TEntry> = TEntry extends DbMutationExtractPresetEntry<infer TResult, any> ? TResult : never;
 /**
  * Derive the legal mutation extract config shape from a mutation extract preset table.
  *
- * The resulting spec accepts only declared preset keys. Each key supports `true` or a selector whose
- * result parameter matches that preset entry's `TResult`.
+ * The resulting spec accepts only declared preset keys. Each key supports `true` or a selector
+ * receiving the mutation result (`TData`), which varies per mutation rather than per preset entry.
  */
-export type ExtractSpecOf<TTable extends Record<string, DbMutationExtractPresetEntry<any, string>>> = {
-    [K in keyof TTable]?: boolean | DbMutationExtractPresetSelector<ExtractPresetResult<TTable[K]>>;
+export type ExtractSpecOf<TTable extends Record<string, DbMutationExtractPresetEntry<any, string>>, TData = unknown> = {
+    [K in keyof TTable]?: boolean | DbMutationExtractPresetSelector<TData>;
 };
 export type DbExtractModelSink = {
     /** Apply server payloads with the resolved sync contract. */
@@ -52,7 +51,8 @@ export declare const getDbMutationExtractResolver: () => DbMutationExtractResolv
 export declare const liftExtractNodes: (value: DbMutationExtractValue) => unknown[];
 /**
  * Build a mutation extract resolver from a declarative preset table.
- * Boolean presets use the table reader; selector presets override the reader.
+ * Boolean presets use the table reader; selector presets override the reader. Spec keys outside the
+ * preset table throw immediately, while `false`/`null`/`undefined` values for known keys remain skips.
  */
 export declare const createMutationExtractResolver: <TResult = unknown, TSinkKey extends string = string>(presetTable: DbMutationExtractPresetTable<TResult, TSinkKey>) => DbMutationExtractResolver;
 /**

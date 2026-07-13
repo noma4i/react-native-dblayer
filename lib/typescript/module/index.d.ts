@@ -7,10 +7,10 @@ export { clearAllCollections, devClearAllDataAndState, resetAllModelsState } fro
 export { stableSerialize } from './core/serialize';
 export { createExtractSink, createMutationExtractResolver, liftExtractNodes } from './core/extract';
 export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './core/queryClient';
-export { createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
+export { isIncomingNewer } from './core/invariants';
+export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { f } from './schema/f';
-export { defineFields } from './schema/fields';
 export { compositeId } from './schema/schema';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';
@@ -27,7 +27,7 @@ export { createOptimisticSequence, generateTempId, isTempId } from './utils/gene
 export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
 export { pickDefined, pickPresent } from './utils/pickDefined';
-export { readId, readNullableNumber, readNullableString, readNumber, toRequiredStr, toStr } from './utils/normalizeHelpers';
+export { readId, readNullableNumber, readNullableString, readNumber, toStr } from './utils/normalizeHelpers';
 export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { castNode, castNodes } from './utils/typeBoundary';
@@ -41,7 +41,7 @@ export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseIn
 export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
 export type { ModelStatusPoller, ModelStatusPollerConfig } from './utils/modelStatusPoller';
-export type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from './core/subscriptionRuntime';
+export type { DbSubscriptionEffectsChannel, DbSubscriptionEffectsTable, DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from './core/subscriptionRuntime';
 export type { MergeOptimisticMediaOptions } from './utils/optimisticMedia';
 export type { NestedObjectPatcher, IdArrayPatcher, KeyedArrayPatcher, ReconcileOptimisticRowsOptions, ReconcileScopeFields, ResolveStaleTempRowsOptions, RowProtect, ThrottledSingleFlightOptions } from './utils/runtimePrimitives';
 export type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, BaseMutationContext, BelongsToAccessor, BelongsToModel, BelongsToRelation, CollectionFetchState, CollectionFetchScopeRecord, CollectionModel, CollectionReadConfig, ComputePhaseInput, ConnectionResult, ConnectionWithEdges, ConnectionWithNodes, CreateCollectionModelConfig, CreateMergeConfig, CreatePatchCrudConfig, CreateReplaceConfig, DbCollection, DbCommandConfig, DbCommandMutationConfig, DbCondition, DbExtractSpec, DbGraphQLDocument, DbInfinitePatchContext, DbLogger, DbModelDefaults, DbMutationOperation, DbMutationConfig, DbMutationOptimisticConfig, DbMutationPreserveOnCommitConfig, DbOptimisticMutationContext, DbQueryOperation, DbReadOptions, DbRequestInfiniteConfig, DbRequestSingleConfig, DbTrackEvent, DbTrackSink, DbTransport, DbWhere, FetchStateRemovalListener, FieldsCollectionModel, HasManyDependent, HasManyOptions, HasManyRelation, HasOneAccessor, HasOneRelation, HasManyThroughRelation, InfiniteQueryConfig, InfiniteQueryResult, InfiniteSyncContractResolverContext, IncomingRecord, LoadingPhase, LoadingState, MergeResult, ModelBuildStoredInput, ModelFieldsInput, ModelFieldSpecs, ModelMirrorConfig, ModelMirrorTarget, ModelRelationConfigValue, ModelRelationDefinition, ModelRelationsConfig, PageInfo, PageInfoInput, PaginationState, PatchCrud, PersistentCollection, PersistentMutationTransaction, RelationModel, RelatedAccessor, RelatedRecord, RelatedSurface, RowRelatedRecord, RowRelatedSurface, ReplaceResult, ShouldAcceptIncomingOptions, StableEntityConfig, StableEntityRenderKeysConfig, StableEntityVolatileKeysConfig, StableItemsConfig, StableProjectionConfig, StableProjectionRenderKeysConfig, StoredWriteInput, StoredRowBase, StorageAdapter, StringFieldKey, SyncConfig, SyncContract, TransportResult } from './types';

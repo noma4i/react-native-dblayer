@@ -143,7 +143,7 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | `key` | `() => readonly unknown[]` | `() => [resultField]` | Key factory (also single-flight de-dupe). The default is input-independent. |
 | `logPrefix` | `string` | capitalized `resultField` | Log tag for `debug`/`error`. |
 | `mapInput` | `(input) => unknown` | identity | Transform caller input → the mutation's `variables.input`. |
-| `extract` | `DbExtractSpec` (`unknown`) | `—` | Side-load spec → `createMutationExtractResolver`/custom resolver → sink (source `'mutation'`). |
+| `extract` | `ExtractSpecOf<typeof presetTable, TData>` (default resolver seam: `unknown`) | `—` | Side-load spec → `createMutationExtractResolver`/custom resolver → sink (source `'mutation'`). |
 | `extractSource` | `string` | `'mutation'` | Source label passed to the extract sink. |
 | `onCommit` | `(data, input, context) => void` | `—` | Server write-through. Runs in the tx, after the response, before commit. |
 | `invalidate` | `(data, input) => void` | `—` | After commit — invalidate dependent queries. |
@@ -212,9 +212,10 @@ const send = useDbMutation({
 });
 ```
 
-For each preset key, `true` uses the table reader and a function overrides the reader. The resolver drops empty
-results and array-lifts nodes by default, so `{ message: true }` can emit `{ messages: [node] }` when the table maps
-`message` to the `messages` sink key. Use `many: false` in the table for singleton payloads.
+For each preset key, `true` uses the table reader and a function overrides the reader. Spec keys absent from the preset
+table throw immediately; for known keys, `false`, `null`, and `undefined` are legal skip markers. The resolver drops
+empty results and array-lifts nodes by default, so `{ message: true }` can emit `{ messages: [node] }` when the table
+maps `message` to the `messages` sink key. Use `many: false` in the table for singleton payloads.
 
 ## `useCommand(config)`
 

@@ -35,6 +35,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `createCollectionBinding` | Bind a model to scoped infinite-query reads/writes. | `createCollectionBinding(model, options?)` |
 | `createDbSubscriptionRuntime` | Create imperative subscription dispatcher. | `createDbSubscriptionRuntime(entries)` |
 | `defineDbSubscriptionEntry` | Type a subscription entry from its GraphQL document and root key. | `defineDbSubscriptionEntry(entry)` |
+| `createDbSubscriptionEffects` | Create injectable UI-effects channel for subscription entries. | `createDbSubscriptionEffects(noopEffects)` |
 | `createExtractSink` | Build extract sink from model/custom table. | `createExtractSink(sinkTable)` |
 | `createIdArrayPatcher` | Create immutable id-array patch helpers. | `createIdArrayPatcher()` |
 | `createKeyedArrayPatcher` | Create immutable keyed sub-row array patch helpers. | `createKeyedArrayPatcher(shape,{ key })` |
@@ -57,6 +58,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `hasOne` | Define one-to-one relation. | `hasOne(model,{ foreignKey })` |
 | `invalidateDbRequests` | Invalidate explicit React Query key. | `invalidateDbRequests(key, options?)` |
 | `invalidateModel` | Clear model freshness and invalidate model query keys. | `invalidateModel(model, scope?)` |
+| `isIncomingNewer` | Compare updatedAt timestamps (incoming newer-or-equal wins). | `isIncomingNewer(existing, incoming)` |
 | `isTempId` | Check optimistic temp id. | `isTempId(id)` |
 | `liftExtractNodes` | Normalize extract payload to array. | `liftExtractNodes(value)` |
 | `mergeInitialSyncContract` | Initial-page merge sync contract resolver. | `mergeInitialSyncContract(ctx)` |
@@ -94,7 +96,6 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `runDbQueryDirect` | Run single query outside React. | `runDbQueryDirect(config)` |
 | `singletonStatics` | Build singleton model statics. | `singletonStatics(model, recordId, defaults)` |
 | `stableSerialize` | Stable serialize scope objects. | `stableSerialize(value)` |
-| `toRequiredStr` | Coerce required string. | `toRequiredStr(value)` |
 | `toStr` | Coerce nullable string. | `toStr(value)` |
 | `trimRowsPerScope` | Trim rows per scope with protection. | `trimRowsPerScope(model, field, max, compare, protect?)` |
 | `useCommand` | Run command mutation hook. | `useCommand(config)` |

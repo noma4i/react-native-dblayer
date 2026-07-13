@@ -43,8 +43,7 @@ Returns a fields model whose `normalize` input is `RawUser`. Raw server payloads
 
 Use `defineShape<TInput>()` when one declaration should serve as both model fields and a reusable object shape.
 `Schema.fields` retains the concrete raw input type for `normalize`, `rowId`, `guard`, and field-model consumers
-without adding runtime metadata. `defineFields<TInput>()` remains available for model-only field maps. Plain field
-maps remain valid and expose an `unknown` normalization input.
+without adding runtime metadata. Plain field maps remain valid and expose an `unknown` normalization input.
 
 The custom `normalize` form remains supported as an escape hatch:
 

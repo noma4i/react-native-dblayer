@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.0.0 - Unreleased
+## 3.0.0 - 2026-07-13
 
 - BREAKING: `createMutationExtractResolver` now throws on extract spec keys that are not declared in the preset table (config mistakes fail fast instead of being silently ignored).
 - BREAKING: `ExtractSpecOf<TTable, TData>` selectors are now typed by the mutation result `TData` instead of the preset entry result, so consumers can derive their full typed extract spec from the preset table.

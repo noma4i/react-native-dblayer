@@ -53,6 +53,13 @@ Use `defineDbSubscriptionEntry({ key, query, vars, debounce, onData })` with a t
 `key` to a result root field, infers `vars` from the document variables, and types `onData`/`debounce.keyOf` from the
 selected root payload while still returning an entry that can join a heterogeneous runtime registry.
 
+### `createDbSubscriptionEffects`
+
+Creates an injectable UI-effects channel for subscription entries. It returns `{ effects, configure(overrides), reset() }`;
+the `effects` table and every wrapper keep stable identity while forwarding to the currently configured effect.
+Entries capture `channel.effects` when they are built, then the effect owner calls `configure` on mount and `reset` on
+teardown without rebinding entries.
+
 ### `createKeyedBatchBuffer(config)`
 
 Buffers items by key with one trailing timer per bucket.
