@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.0 - 2026-07-14
+
+- BREAKING: mutation and command transport dedupe is now opt-in through `dedupe.key(input)`; identical calls are independent by default, preventing legitimate repeated sends from being silently coalesced.
+- Add `maxPages` to `useDbInfiniteRequest`, forwarding TanStack Query's bounded page-window option.
+
 ## 3.0.1 - 2026-07-13
 
 - Fix `createDbSubscriptionEffects` generic constraint: effect tables declared as interfaces (no string index signature) are accepted via a self-referential `Record<keyof TEffects, ...>` constraint.

@@ -407,6 +407,49 @@ describe('request DSL runtime', () => {
     queryClient.clear();
   });
 
+  it('passes maxPages through the infinite request path', async () => {
+    const model = createTodoModel({ id: 'infinite-max-pages' });
+    const binding = createCollectionBinding(model);
+    const queryClient = createQueryClient();
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async () => ({
+          data: {
+            todos: {
+              nodes: [],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null }
+            }
+          }
+        })
+      })
+    });
+
+    type TodoConnectionResponse = {
+      todos: ConnectionWithNodes & {
+        pageInfo?: PageInfoInput | null;
+      };
+    };
+
+    const hook = renderQueryHook(
+      () =>
+        useDbInfiniteRequest({
+          query: document<TodoConnectionResponse>('InfiniteMaxPages'),
+          key: ['infinite-max-pages'],
+          selectPage: data => data.todos,
+          read: binding,
+          maxPages: 3
+        }),
+      { queryClient }
+    );
+
+    await hook.flush();
+
+    expect(queryClient.getQueryCache().find({ queryKey: ['infinite-max-pages'], exact: true })?.options.maxPages).toBe(3);
+
+    hook.unmount();
+  });
+
   it('keeps single-request local data ready while enabled is false without calling queryFn', async () => {
     const model = createTodoModel({ id: 'disabled-single' });
     const query = jest.fn(async () => ({

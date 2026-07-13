@@ -90,9 +90,8 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown,
       const mappedInput = config.mapInput ? config.mapInput(input) : input;
       const mutationKey = resolveMutationKey(config);
       const logPrefix = resolveMutationLogPrefix(config);
-      const singleFlightSignature = createSingleFlightSignature('db-mutation', mutationKey, mappedInput);
 
-      return runSingleFlight(singleFlightSignature, async () => {
+      const executeMutation = async (): Promise<TData | null> => {
         // Shared log tag to keep mutation logs grouped by feature hook.
         getDbLogger().debug(logPrefix, 'mutationFn start');
 
@@ -136,7 +135,14 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown,
             void tx.isPersisted.promise.catch(() => undefined);
           }
         });
-      });
+      };
+
+      const dedupeKey = config.dedupe?.key(input);
+      if (dedupeKey == null) {
+        return executeMutation();
+      }
+
+      return runSingleFlight(createSingleFlightSignature('db-mutation', mutationKey, dedupeKey), executeMutation);
     },
     onError: error => {
       getDbLogger().error(resolveMutationLogPrefix(config), 'onError', error);

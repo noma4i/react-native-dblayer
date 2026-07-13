@@ -1,6 +1,6 @@
 import type { DbCommandConfig } from '../../types';
 /**
- * React hook primitive for command-style mutations with single-flight dedupe.
+ * React hook primitive for command-style mutations with opt-in single-flight dedupe.
  * @param config Command mutation function, key, logging, and lifecycle callbacks.
  * @returns React Query mutation result.
  */

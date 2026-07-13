@@ -140,7 +140,8 @@ remove.mutate({ id: messageId }); // optimistic delete, restored on error
 | --- | --- | --- | --- |
 | `mutation` | `TypedDocumentNode<Record<string, TData>, { input }> \| DocumentNode` | **required** | The GraphQL mutation. |
 | `resultField` | `string` | **required** | Field of `response.data` holding the result (e.g. `'sendMessage'`). |
-| `key` | `() => readonly unknown[]` | `() => [resultField]` | Key factory (also single-flight de-dupe). The default is input-independent. |
+| `key` | `() => readonly unknown[]` | `() => [resultField]` | React Query mutation key. The default is input-independent. |
+| `dedupe` | `{ key: (input) => string \| null }` | `none` | Opt-in transport dedupe. Matching non-null keys share one in-flight transport promise; omit it to send every call independently. |
 | `logPrefix` | `string` | capitalized `resultField` | Log tag for `debug`/`error`. |
 | `mapInput` | `(input) => unknown` | identity | Transform caller input → the mutation's `variables.input`. |
 | `extract` | `ExtractSpecOf<typeof presetTable, TData>` (default resolver seam: `unknown`) | `—` | Side-load spec → `createMutationExtractResolver`/custom resolver → sink (source `'mutation'`). |
@@ -241,7 +242,8 @@ const doAction = useCommand({
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `key` | `() => readonly unknown[]` | `() => [resultField]` for static commands | Command key (single-flight). Resolved and low-level command defaults use `['command']`. |
+| `key` | `() => readonly unknown[]` | `() => [resultField]` for static commands | React Query command key. Resolved and low-level command defaults use `['command']`. |
+| `dedupe` | `{ key: (input) => string \| null }` | `none` | Opt-in transport dedupe. Matching non-null keys share one in-flight transport promise; omit it to send every call independently. |
 | `logPrefix` | `string` | capitalized `resultField` for static commands | Log tag. Resolved and low-level command defaults use `Command`. |
 | `mutation` | document | **required** (static form) | The mutation. |
 | `resultField` | `string` | **required** (static form) | Response field to return. |

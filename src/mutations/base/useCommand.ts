@@ -75,6 +75,6 @@ export const useCommand = <TData, TInput, TExtractSpec = unknown>(config: DbComm
   useCommandMutation<TData | null, TInput>({
     key: config.key ?? (() => [staticResultField(config) ?? 'command']),
     logPrefix: config.logPrefix ?? (staticResultField(config) ? capitalize(staticResultField(config)!) : undefined),
-    singleFlightInput: input => resolveCommandConfig(config, input).mappedInput,
+    dedupe: config.dedupe,
     mutationFn: (input: TInput) => runDbCommandDirect(config, input)
   });

@@ -202,6 +202,7 @@ function Feed() {
 | `currentUserId` | `() => string \| undefined` | `—` | Scope-key input. |
 | `direction` | `'forward' \| 'backward'` | `'forward'` | Pagination direction. |
 | `enabled` / `staleTime` / `emptyStaleTime` / `gcTime` / `refetchOnMount` | | `true` / see freshness table / TanStack Query | As above. |
+| `maxPages` | `number` | `none` | Bounded page window retained by TanStack `useInfiniteQuery`. |
 
 Infinite requests derive omitted keys from `createCollectionBinding(model, { scopeMap })` and the runtime
 `filter`/`currentUserId` scope. Pass an explicit `key` for non-model-backed reads.

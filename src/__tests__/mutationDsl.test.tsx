@@ -151,6 +151,119 @@ describe('mutation DSL runtime', () => {
     hook.unmount();
   });
 
+  it('runs identical concurrent mutations independently by default', async () => {
+    const transportResult = deferred<{ data: Record<string, Todo> }>();
+    const mutation = jest.fn(() => transportResult.promise);
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, { title: string }>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('IndependentConcurrentMutations'),
+        resultField: 'todoCreate',
+        key: () => ['independent-concurrent-mutations']
+      })
+    );
+
+    const first = hook.current.mutateAsync({ title: 'Same payload' });
+    const second = hook.current.mutateAsync({ title: 'Same payload' });
+    await hook.flush();
+
+    expect(mutation).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      transportResult.resolve({
+        data: {
+          todoCreate: { id: 'server-independent', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+        }
+      });
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        { id: 'server-independent', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'server-independent', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+      ]);
+    });
+
+    hook.unmount();
+  });
+
+  it('dedupes identical concurrent mutations when dedupe.key returns a value', async () => {
+    const transportResult = deferred<{ data: Record<string, Todo> }>();
+    const mutation = jest.fn(() => transportResult.promise);
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, { title: string }>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('DedupedConcurrentMutations'),
+        resultField: 'todoCreate',
+        key: () => ['deduped-concurrent-mutations'],
+        dedupe: { key: input => input.title }
+      })
+    );
+
+    const first = hook.current.mutateAsync({ title: 'Same payload' });
+    const second = hook.current.mutateAsync({ title: 'Same payload' });
+    await hook.flush();
+
+    expect(mutation).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      transportResult.resolve({
+        data: {
+          todoCreate: { id: 'server-deduped', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+        }
+      });
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        { id: 'server-deduped', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'server-deduped', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+      ]);
+    });
+
+    hook.unmount();
+  });
+
+  it('runs identical concurrent mutations independently when dedupe.key returns null', async () => {
+    const transportResult = deferred<{ data: Record<string, Todo> }>();
+    const mutation = jest.fn(() => transportResult.promise);
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<Todo, { title: string }>({
+        mutation: document<Record<string, Todo>, { input: unknown }>('NullDedupeConcurrentMutations'),
+        resultField: 'todoCreate',
+        key: () => ['null-dedupe-concurrent-mutations'],
+        dedupe: { key: () => null }
+      })
+    );
+
+    const first = hook.current.mutateAsync({ title: 'Same payload' });
+    const second = hook.current.mutateAsync({ title: 'Same payload' });
+    await hook.flush();
+
+    expect(mutation).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      transportResult.resolve({
+        data: {
+          todoCreate: { id: 'server-null-key', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+        }
+      });
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        { id: 'server-null-key', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' },
+        { id: 'server-null-key', title: 'Same payload', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' }
+      ]);
+    });
+
+    hook.unmount();
+  });
+
   it('commits optimistic rows into server rows on a successful mutation', async () => {
     const model = createTodoModel();
     const transportResult = deferred<{ data: Record<string, Todo> }>();
@@ -1248,6 +1361,75 @@ describe('mutation DSL runtime', () => {
     expect(mutationSpy).toHaveBeenCalledWith(expect.objectContaining({ variables: { input: { id: 'command-1' } } }));
 
     hook.unmount();
+  });
+
+  it('applies command transport dedupe only when configured', async () => {
+    const defaultResult = deferred<{ data: Record<string, { ok: boolean }> }>();
+    const dedupedResult = deferred<{ data: Record<string, { ok: boolean }> }>();
+    const nullKeyResult = deferred<{ data: Record<string, { ok: boolean }> }>();
+    const mutation = jest
+      .fn()
+      .mockImplementationOnce(() => defaultResult.promise)
+      .mockImplementationOnce(() => defaultResult.promise)
+      .mockImplementationOnce(() => dedupedResult.promise)
+      .mockImplementationOnce(() => nullKeyResult.promise)
+      .mockImplementationOnce(() => nullKeyResult.promise);
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({ mutation })
+    });
+
+    const defaultHook = renderQueryHook(() =>
+      useCommand<{ ok: boolean }, { id: string }>({
+        mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('IndependentCommand'),
+        resultField: 'commandRun',
+        key: () => ['independent-command']
+      })
+    );
+    const dedupedHook = renderQueryHook(() =>
+      useCommand<{ ok: boolean }, { id: string }>({
+        mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('DedupedCommand'),
+        resultField: 'commandRun',
+        key: () => ['deduped-command'],
+        dedupe: { key: input => input.id }
+      })
+    );
+    const nullKeyHook = renderQueryHook(() =>
+      useCommand<{ ok: boolean }, { id: string }>({
+        mutation: document<Record<string, { ok: boolean }>, { input: unknown }>('NullKeyCommand'),
+        resultField: 'commandRun',
+        key: () => ['null-key-command'],
+        dedupe: { key: () => null }
+      })
+    );
+
+    const defaultCalls = [defaultHook.current.mutateAsync({ id: 'command' }), defaultHook.current.mutateAsync({ id: 'command' })];
+    await defaultHook.flush();
+    expect(mutation).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      defaultResult.resolve({ data: { commandRun: { ok: true } } });
+      await expect(Promise.all(defaultCalls)).resolves.toEqual([{ ok: true }, { ok: true }]);
+    });
+
+    const dedupedCalls = [dedupedHook.current.mutateAsync({ id: 'command' }), dedupedHook.current.mutateAsync({ id: 'command' })];
+    await dedupedHook.flush();
+    expect(mutation).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      dedupedResult.resolve({ data: { commandRun: { ok: true } } });
+      await expect(Promise.all(dedupedCalls)).resolves.toEqual([{ ok: true }, { ok: true }]);
+    });
+
+    const nullKeyCalls = [nullKeyHook.current.mutateAsync({ id: 'command' }), nullKeyHook.current.mutateAsync({ id: 'command' })];
+    await nullKeyHook.flush();
+    expect(mutation).toHaveBeenCalledTimes(5);
+    await act(async () => {
+      nullKeyResult.resolve({ data: { commandRun: { ok: true } } });
+      await expect(Promise.all(nullKeyCalls)).resolves.toEqual([{ ok: true }, { ok: true }]);
+    });
+
+    defaultHook.unmount();
+    dedupedHook.unmount();
+    nullKeyHook.unmount();
   });
 
   it('runs command mutations directly and returns null when resultField is missing', async () => {

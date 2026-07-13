@@ -75,7 +75,8 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
     enabled: !isInactive && !isRestoring && !shouldSkipInitialFetch,
     staleTime: config.staleTime,
     gcTime: config.gcTime,
-    refetchOnMount: config.refetchOnMount
+    refetchOnMount: config.refetchOnMount,
+    ...(config.maxPages !== undefined ? { maxPages: config.maxPages } : {})
   });
 
   const pages = result.data?.pages ?? (EMPTY_PAGES as TData[]);

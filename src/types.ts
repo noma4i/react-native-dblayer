@@ -916,6 +916,8 @@ export type InfiniteQueryConfig<TData, TNode> = {
   gcTime?: number;
   /** React Query remount refetch behavior. */
   refetchOnMount?: boolean;
+  /** Bounded page window retained by TanStack `useInfiniteQuery`. */
+  maxPages?: number;
   /** Pagination direction. */
   direction?: 'forward' | 'backward';
   /** Read the next cursor from page data. */
@@ -1064,6 +1066,8 @@ export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string
   gcTime?: number;
   /** React Query remount refetch behavior. */
   refetchOnMount?: boolean;
+  /** Bounded page window retained by TanStack `useInfiniteQuery`. */
+  maxPages?: number;
 };
 
 /** UI loading-state phase. */
@@ -1147,8 +1151,15 @@ type DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpe
   resultField: string;
   /** Transform caller input into `variables.input`. */
   mapInput?: (input: TInput) => unknown;
-  /** Key factory used for React Query and single-flight dedupe. */
+  /** Key factory used for React Query. */
   key?: () => readonly unknown[];
+  /**
+   * Opt-in transport dedupe. When provided, concurrent mutation calls whose `key(input)` serialize to
+   * the same non-null string share one in-flight transport promise. Omitted (default) - every call is
+   * an independent transport: identical payloads are NOT deduped (v4 behavior change; v3 deduped by
+   * mutationKey + mapped input, which silently swallowed legitimate identical sends).
+   */
+  dedupe?: { key: (input: TInput) => string | null };
   /** Log tag for mutation lifecycle messages. */
   logPrefix?: string;
   /** Side-load spec resolved through the mutation extract seam. */
@@ -1291,14 +1302,14 @@ export type BaseMutationContext<TStored = unknown> = {
 };
 
 export type DbCommandConfig<TData, TInput> = {
-  /** Command key factory used for React Query and single-flight dedupe. */
+  /** Command key factory used for React Query. */
   key?: () => readonly unknown[];
   /** Log tag for command lifecycle messages. */
   logPrefix?: string;
   /** Execute the command with caller input. */
   mutationFn: (input: TInput) => Promise<TData>;
-  /** Optional projection used as the single-flight key. */
-  singleFlightInput?: (input: TInput) => unknown;
+  /** Opt-in transport dedupe for concurrent commands with the same non-null key. */
+  dedupe?: { key: (input: TInput) => string | null };
   /** Success callback. */
   onSuccess?: (data: TData, input: TInput) => void;
   /** Error callback. */
@@ -1308,10 +1319,12 @@ export type DbCommandConfig<TData, TInput> = {
 };
 
 type DbCommandMutationBase<TInput, TData, TExtractSpec = DbExtractSpec> = {
-  /** Command key factory used for React Query and single-flight dedupe. */
+  /** Command key factory used for React Query. */
   key?: () => readonly unknown[];
   /** Log tag for command lifecycle messages. */
   logPrefix?: string;
+  /** Opt-in transport dedupe for concurrent commands with the same non-null key. */
+  dedupe?: { key: (input: TInput) => string | null };
   /** Side-load spec resolved through the mutation extract seam after the transport response. */
   extract?: TExtractSpec;
   /** Source label passed to the extract sink; defaults to `mutation`. */
