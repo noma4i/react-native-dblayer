@@ -15,7 +15,7 @@ export {
   liftExtractNodes
 } from './core/extract';
 export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './core/queryClient';
-export { createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
+export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { f } from './schema/f';
 export { compositeId } from './schema/schema';
@@ -82,7 +82,7 @@ export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseIn
 export type { DbShape } from './schema/shape';
 export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
 export type { ModelStatusPoller, ModelStatusPollerConfig } from './utils/modelStatusPoller';
-export type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from './core/subscriptionRuntime';
+export type { DbSubscriptionEffectsChannel, DbSubscriptionEffectsTable, DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from './core/subscriptionRuntime';
 export type { MergeOptimisticMediaOptions } from './utils/optimisticMedia';
 export type {
   NestedObjectPatcher,

@@ -14,6 +14,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "computePhase",
   "configureDb",
   "createCollectionBinding",
+  "createDbSubscriptionEffects",
   "createDbSubscriptionRuntime",
   "createExtractSink",
   "createIdArrayPatcher",

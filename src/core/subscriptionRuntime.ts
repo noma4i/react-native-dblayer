@@ -56,6 +56,55 @@ export const defineDbSubscriptionEntry = <
   entry: TypedDbSubscriptionEntry<TDocument, TKey>
 ): DbSubscriptionEntry => entry as unknown as DbSubscriptionEntry;
 
+/** Function table of UI effects invoked by subscription entries. */
+export type DbSubscriptionEffectsTable = Record<string, (...args: any[]) => void>;
+
+/** Effects channel returned by `createDbSubscriptionEffects`. */
+export type DbSubscriptionEffectsChannel<TEffects extends DbSubscriptionEffectsTable> = {
+  /**
+   * Stable wrapper table with the same keys as the noop table. Each wrapper forwards to the currently
+   * configured effect. The table and every wrapper keep one identity for the channel's lifetime, so
+   * subscription entries can capture them at build time and never rebind.
+   */
+  effects: TEffects;
+  /** Replace active effects; keys omitted from `overrides` fall back to the noop implementation. */
+  configure: (overrides: Partial<TEffects>) => void;
+  /** Restore every effect to its noop implementation. */
+  reset: () => void;
+};
+
+/**
+ * Create an injectable effects channel for subscription entries.
+ *
+ * Entries call `channel.effects.onX(...)` where a UI reaction is needed; the app injects real
+ * implementations with `configure` when its effect owner mounts and calls `reset` on teardown.
+ *
+ * @param noopEffects Complete effect table with no-op implementations; defines the channel's keys.
+ * @returns Stable `effects` table plus `configure`/`reset` controls.
+ */
+export const createDbSubscriptionEffects = <TEffects extends DbSubscriptionEffectsTable>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
+  let activeEffects: TEffects = noopEffects;
+
+  const effects = Object.fromEntries(
+    Object.keys(noopEffects).map(key => [
+      key,
+      (...args: unknown[]) => {
+        (activeEffects[key] as (...forwarded: unknown[]) => void)(...args);
+      }
+    ])
+  ) as TEffects;
+
+  return {
+    effects,
+    configure: overrides => {
+      activeEffects = { ...noopEffects, ...overrides } as TEffects;
+    },
+    reset: () => {
+      activeEffects = noopEffects;
+    }
+  };
+};
+
 /** Runtime inspection row for a registered subscription entry. */
 export type DbSubscriptionRuntimeInspectRow = {
   /** Registry key for the subscription entry. */

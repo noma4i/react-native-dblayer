@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from '../index';
+import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from '../index';
 import { setDbLogger } from '../core/logger';
 import type { DbGraphQLDocument, DbTransport } from '../types';
 import { mockTransport } from './helpers/testRuntime';
@@ -260,5 +260,72 @@ describe('subscription runtime', () => {
 
     expect(() => runtime.setActive(true)).toThrow('react-native-dblayer: transport.subscribe is required before activating subscription runtime');
     expect(runtime.isActive()).toBe(false);
+  });
+});
+
+describe('subscription effects', () => {
+  it('calls the noop effect before configuration', () => {
+    const noopOnX = jest.fn();
+    const channel = createDbSubscriptionEffects({ onX: noopOnX });
+
+    expect(() => channel.effects.onX('before')).not.toThrow();
+    expect(noopOnX).toHaveBeenCalledWith('before');
+  });
+
+  it('forwards configured effect arguments without changes', () => {
+    const noopOnX = jest.fn();
+    const configuredOnX = jest.fn();
+    const channel = createDbSubscriptionEffects({ onX: noopOnX });
+
+    channel.configure({ onX: configuredOnX });
+    channel.effects.onX('message', 7, { id: 'event-1' });
+
+    expect(configuredOnX).toHaveBeenCalledWith('message', 7, { id: 'event-1' });
+    expect(noopOnX).not.toHaveBeenCalled();
+  });
+
+  it('keeps omitted configured keys on their noop effects', () => {
+    const noopOnX = jest.fn();
+    const noopOnY = jest.fn();
+    const configuredOnX = jest.fn();
+    const channel = createDbSubscriptionEffects({ onX: noopOnX, onY: noopOnY });
+
+    channel.configure({ onX: configuredOnX });
+    channel.effects.onY('unchanged');
+
+    expect(noopOnY).toHaveBeenCalledWith('unchanged');
+    expect(configuredOnX).not.toHaveBeenCalled();
+  });
+
+  it('restores every noop effect after reset', () => {
+    const noopOnX = jest.fn();
+    const noopOnY = jest.fn();
+    const configuredOnX = jest.fn();
+    const configuredOnY = jest.fn();
+    const channel = createDbSubscriptionEffects({ onX: noopOnX, onY: noopOnY });
+
+    channel.configure({ onX: configuredOnX, onY: configuredOnY });
+    channel.reset();
+    channel.effects.onX('reset-x');
+    channel.effects.onY('reset-y');
+
+    expect(noopOnX).toHaveBeenCalledWith('reset-x');
+    expect(noopOnY).toHaveBeenCalledWith('reset-y');
+    expect(configuredOnX).not.toHaveBeenCalled();
+    expect(configuredOnY).not.toHaveBeenCalled();
+  });
+
+  it('keeps the effects table and wrappers stable across configuration changes', () => {
+    const channel = createDbSubscriptionEffects({ onX: jest.fn() });
+    const effects = channel.effects;
+    const onX = channel.effects.onX;
+
+    channel.configure({ onX: jest.fn() });
+    expect(channel.effects).toBe(effects);
+    expect(channel.effects.onX).toBe(onX);
+
+    channel.reset();
+    expect(channel.effects).toBe(effects);
+    expect(channel.effects.onX).toBe(onX);
   });
 });
