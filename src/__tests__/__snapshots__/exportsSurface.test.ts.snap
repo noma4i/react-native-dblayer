@@ -75,7 +75,6 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "runDbQueryDirect",
   "singletonStatics",
   "stableSerialize",
-  "toRequiredStr",
   "toStr",
   "trimRowsPerScope",
   "useCommand",

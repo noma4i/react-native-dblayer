@@ -7,9 +7,6 @@ export const isNonArrayRecord = (value: unknown): value is Record<string, unknow
 /** Convert a value to string while preserving null and undefined. */
 export const toStr = (v: unknown): string | null | undefined => (v != null ? String(v) : (v as null | undefined));
 
-/** Convert a value to a required string. */
-export const toRequiredStr = (value: unknown): string => String(value);
-
 /** Read a string or return undefined for missing or malformed values. */
 export const readString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
 
@@ -31,8 +28,9 @@ export const readNullableNumber = (value: unknown): number | null | undefined =>
 /** Read a boolean or return undefined for missing or malformed values. */
 export const readBoolean = (value: unknown): boolean | undefined => (typeof value === 'boolean' ? value : undefined);
 
-/** Read an id as a string; string/number pass through, anything else (boolean/object/array/null/undefined) returns undefined. */
+/** Read an id as a string; non-empty string/number pass through, anything else (empty string/boolean/object/array/null/undefined) returns undefined. */
 export const readId = (value: unknown): string | undefined => {
   if (typeof value !== 'string' && typeof value !== 'number') return undefined;
-  return toStr(value) ?? undefined;
+  const id = String(value);
+  return id === '' ? undefined : id;
 };

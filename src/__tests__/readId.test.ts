@@ -9,6 +9,11 @@ describe('readId canon', () => {
     expect(readId(0)).toBe('0');
   });
 
+  it('rejects an empty string id', () => {
+    expect(readId('')).toBeUndefined();
+    expect(f.id().read({ id: '' }, 'id')).toBeUndefined();
+  });
+
   it('rejects non-string/number input instead of stringifying it', () => {
     expect(readId(true)).toBeUndefined();
     expect(readId(false)).toBeUndefined();

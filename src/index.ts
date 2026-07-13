@@ -45,7 +45,7 @@ export { createOptimisticSequence, generateTempId, isTempId } from './utils/gene
 export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
 export { pickDefined, pickPresent } from './utils/pickDefined';
-export { readId, readNullableNumber, readNullableString, readNumber, toRequiredStr, toStr } from './utils/normalizeHelpers';
+export { readId, readNullableNumber, readNullableString, readNumber, toStr } from './utils/normalizeHelpers';
 export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { castNode, castNodes } from './utils/typeBoundary';

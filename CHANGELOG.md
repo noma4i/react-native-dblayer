@@ -5,6 +5,8 @@
 - BREAKING: `createMutationExtractResolver` now throws on extract spec keys that are not declared in the preset table (config mistakes fail fast instead of being silently ignored).
 - BREAKING: `ExtractSpecOf<TTable, TData>` selectors are now typed by the mutation result `TData` instead of the preset entry result, so consumers can derive their full typed extract spec from the preset table.
 - BREAKING: remove `defineFields`; `defineShape<TInput>()(...).fields` is the single branding path for model field maps (`DefinedFields`/`InferFieldsInput` types remain exported).
+- BREAKING: `readId` (and therefore `f.id()`) now rejects empty-string ids, matching the documented "empty values are skipped" contract.
+- BREAKING: remove `toRequiredStr`; it stringified `null`/`undefined` into `"null"`/`"undefined"`. Use guaranteed-string values directly or `toStr` for nullish-preserving conversion.
 
 ## 2.5.1-beta.9 - 2026-07-12
 
