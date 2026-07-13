@@ -3,5 +3,5 @@ import type { CreateMergeConfig, MergeResult } from '../types';
 export declare function createMerge<TInput, TOutput extends {
     id: string;
     updatedAt?: string | null;
-}>(config: CreateMergeConfig<TInput, TOutput>): (items: TInput[]) => MergeResult;
+}>(config: CreateMergeConfig<TInput, TOutput>): (items: TInput[], protectAfterSeq?: number) => MergeResult;
 //# sourceMappingURL=createMerge.d.ts.map

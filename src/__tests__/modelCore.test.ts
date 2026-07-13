@@ -432,6 +432,101 @@ describe('collection model core DSL', () => {
 
     expect(model.destroy('tracked')).toBe(true);
     expect(model.getRowWriteSeq('tracked')).toBeUndefined();
+    expect(model.getRowDeleteSeq('tracked')).toBe(model.getCollectionWriteSeq());
+  });
+
+  it('keeps a row destroyed after a replace request began out of the server response', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'destroyed-during-request', title: 'Local', listId: 'a', done: false, updatedAt: earlier });
+    const queryStartSeq = model.getCollectionWriteSeq();
+    expect(model.destroy('destroyed-during-request')).toBe(true);
+
+    expect(
+      model.applyServerData([{ id: 'destroyed-during-request', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
+        mode: 'replace',
+        protectAfterSeq: queryStartSeq
+      })
+    ).toEqual({ merged: 1, deleted: 0 });
+    expect(model.get('destroyed-during-request')).toBeUndefined();
+  });
+
+  it('keeps a row destroyed after a merge request began out of the server response', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'merge-destroyed-during-request', title: 'Local', listId: 'a', done: false, updatedAt: earlier });
+    const queryStartSeq = model.getCollectionWriteSeq();
+    expect(model.destroy('merge-destroyed-during-request')).toBe(true);
+
+    expect(
+      model.applyServerData([{ id: 'merge-destroyed-during-request', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
+        mode: 'merge',
+        protectAfterSeq: queryStartSeq
+      })
+    ).toEqual({ merged: 0 });
+    expect(model.get('merge-destroyed-during-request')).toBeUndefined();
+  });
+
+  it('accepts server rows deleted before the replace or merge request began', async () => {
+    installMemoryStorage();
+    const replaceModel = createTodoModel();
+    replaceModel.insertStored({ id: 'replace-authoritative', title: 'Local', listId: 'a', done: false, updatedAt: earlier });
+    expect(replaceModel.destroy('replace-authoritative')).toBe(true);
+    const replaceStartSeq = replaceModel.getCollectionWriteSeq();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    replaceModel.applyServerData([{ id: 'replace-authoritative', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
+      mode: 'replace',
+      protectAfterSeq: replaceStartSeq
+    });
+    expect(replaceModel.get('replace-authoritative')?.title).toBe('Server');
+
+    const mergeModel = createTodoModel();
+    mergeModel.insertStored({ id: 'merge-authoritative', title: 'Local', listId: 'a', done: false, updatedAt: earlier });
+    expect(mergeModel.destroy('merge-authoritative')).toBe(true);
+    const mergeStartSeq = mergeModel.getCollectionWriteSeq();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    mergeModel.applyServerData([{ id: 'merge-authoritative', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
+      mode: 'merge',
+      protectAfterSeq: mergeStartSeq
+    });
+    expect(mergeModel.get('merge-authoritative')?.title).toBe('Server');
+  });
+
+  it('clears a delete tombstone when a local insert writes the same id again', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'reinserted', title: 'Original', listId: 'a', done: false, updatedAt: earlier });
+    const queryStartSeq = model.getCollectionWriteSeq();
+    expect(model.destroy('reinserted')).toBe(true);
+    expect(model.getRowDeleteSeq('reinserted')).toBeDefined();
+
+    model.insertStored({ id: 'reinserted', title: 'Reinserted', listId: 'a', done: false, updatedAt: later });
+    expect(model.getRowDeleteSeq('reinserted')).toBeUndefined();
+
+    model.applyServerData([{ id: 'reinserted', title: 'Server', listId: 'a', done: false, updatedAt: '2026-01-03T00:00:00.000Z' }], {
+      mode: 'replace',
+      protectAfterSeq: queryStartSeq
+    });
+    expect(model.get('reinserted')?.title).toBe('Server');
+  });
+
+  it('preserves pre-watermark replace insertion behavior when no watermark is supplied', async () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'legacy-insert', title: 'Local', listId: 'a', done: false, updatedAt: earlier });
+    expect(model.destroy('legacy-insert')).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(
+      model.applyServerData([{ id: 'legacy-insert', title: 'Server', listId: 'a', done: false, updatedAt: later }], { mode: 'replace' })
+    ).toEqual({ merged: 1, deleted: 0 });
+    expect(model.get('legacy-insert')?.title).toBe('Server');
   });
 
   it('keeps replace pruning unchanged without a write watermark', () => {

@@ -10,8 +10,13 @@ export function createReplace<TInput, TOutput extends { id: string }>(
     const normalized = items.map(item => config.normalize(item)).filter((item): item is TOutput => item !== null);
 
     const newIds = new Set<string>();
+    let resurrectionProtectedCount = 0;
     for (const item of normalized) {
       newIds.add(item.id);
+      if (protectAfterSeq !== undefined && (config.getRowDeleteSeq?.(item.id) ?? 0) > protectAfterSeq) {
+        resurrectionProtectedCount++;
+        continue;
+      }
       if (config.collection.has(item.id)) {
         const existing = config.collection.get(item.id);
         if (existing) {
@@ -53,8 +58,8 @@ export function createReplace<TInput, TOutput extends { id: string }>(
       toDelete.push(idStr);
     }
 
-    if (protectedCount > 0) {
-      getDbLogger().debug('db', 'replace:protected', { protectedCount, protectAfterSeq });
+    if (protectedCount > 0 || resurrectionProtectedCount > 0) {
+      getDbLogger().debug('db', 'replace:protected', { protectedCount, resurrectionProtectedCount, protectAfterSeq });
     }
 
     for (const id of toDelete) {

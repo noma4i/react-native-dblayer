@@ -17,9 +17,12 @@ const fnv1a = (items: Array<Record<string, unknown> & { id: string }>): number =
 const upsertIfNewer = <T extends { id: string; updatedAt?: string | null }>(
   collection: DbCollection<T>,
   item: Partial<T> & { id: string },
-  shouldOverwrite?: (existing: T, incoming: Partial<T> & { id: string }) => boolean
+  shouldOverwrite?: (existing: T, incoming: Partial<T> & { id: string }) => boolean,
+  protectAfterSeq?: number,
+  getRowDeleteSeq?: (id: string) => number | undefined
 ): boolean => {
   const key = String(item.id);
+  if (protectAfterSeq !== undefined && (getRowDeleteSeq?.(key) ?? 0) > protectAfterSeq) return false;
   if (!collection.has(key)) {
     collection.insert(item as T);
     return true;
@@ -45,7 +48,7 @@ const upsertIfNewer = <T extends { id: string; updatedAt?: string | null }>(
 };
 
 /** Create a merge writer that upserts incoming rows when they are accepted by the freshness gate. */
-export function createMerge<TInput, TOutput extends { id: string; updatedAt?: string | null }>(config: CreateMergeConfig<TInput, TOutput>): (items: TInput[]) => MergeResult {
+export function createMerge<TInput, TOutput extends { id: string; updatedAt?: string | null }>(config: CreateMergeConfig<TInput, TOutput>): (items: TInput[], protectAfterSeq?: number) => MergeResult {
   let lastMergeTimestamp = 0;
   let lastMergeKey = 0;
   const reset = (): void => {
@@ -55,7 +58,7 @@ export function createMerge<TInput, TOutput extends { id: string; updatedAt?: st
 
   config.registerReset?.(reset);
 
-  return (items: TInput[]): MergeResult => {
+  return (items: TInput[], protectAfterSeq?: number): MergeResult => {
     if (!items.length) return { merged: 0 };
 
     const normalized = items.map(item => config.normalize(item)).filter((item): item is Partial<TOutput> & { id: string } => item !== null);
@@ -74,7 +77,7 @@ export function createMerge<TInput, TOutput extends { id: string; updatedAt?: st
     let mergedCount = 0;
 
     for (const item of normalized) {
-      if (upsertIfNewer(config.collection, item, config.shouldOverwrite)) {
+      if (upsertIfNewer(config.collection, item, config.shouldOverwrite, protectAfterSeq, config.getRowDeleteSeq)) {
         mergedCount++;
       }
     }

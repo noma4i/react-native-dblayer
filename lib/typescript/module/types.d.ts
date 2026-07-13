@@ -284,6 +284,8 @@ export interface CreateMergeConfig<TInput, TOutput extends {
     shouldOverwrite?: (existing: TOutput, incoming: Partial<TOutput> & {
         id: string;
     }) => boolean;
+    /** Return the latest in-memory delete sequence for one row, if it is still tombstoned. */
+    getRowDeleteSeq?: (id: string) => number | undefined;
     /**
      * Skip an identical merge batch within this window.
      * @default 0
@@ -324,6 +326,8 @@ export interface CreateReplaceConfig<TInput, TOutput extends {
     }) => boolean;
     /** Return the latest in-memory write sequence for a stored row. */
     getRowWriteSeq?: (id: string) => number | undefined;
+    /** Return the latest in-memory delete sequence for a stored row, if it is still tombstoned. */
+    getRowDeleteSeq?: (id: string) => number | undefined;
 }
 export interface CreatePatchCrudConfig<T extends {
     id: string;
@@ -577,6 +581,8 @@ export interface CollectionModel<TInput, TStored extends {
     getCollectionWriteSeq(): number;
     /** Return the latest in-memory write sequence for one row, if it is still tracked. */
     getRowWriteSeq(id: string): number | undefined;
+    /** Return the latest in-memory delete sequence for one row, if it is still tombstoned. */
+    getRowDeleteSeq(id: string): number | undefined;
     /** Apply server data using a merge or replace sync contract. */
     applyServerData(items: unknown[], contract: SyncContract): MergeResult | ReplaceResult;
     /** Mark a filter scope as fetched now. */

@@ -219,6 +219,15 @@ describe('request DSL runtime', () => {
     await hook.flush();
 
     expect(hook.current.map(item => item.id)).toEqual(['todo-a', 'todo-b', 'todo-c']);
+    const firstSortedRows = hook.current;
+
+    hook.rerender();
+    expect(hook.current).toBe(firstSortedRows);
+
+    model.insertStored({ id: 'todo-d', title: 'Delta', listId: 'group-2', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    await hook.flush();
+    expect(hook.current).not.toBe(firstSortedRows);
+    expect(hook.current.map(item => item.id)).toEqual(['todo-a', 'todo-b', 'todo-d', 'todo-c']);
 
     const invalidConfig = { sortField: 'title', comparator: () => 0 } as unknown as CollectionReadConfig<Todo>;
     expect(() => createCollectionBinding(model, invalidConfig)).toThrow('createCollectionBinding received both `sortField` and `comparator`');

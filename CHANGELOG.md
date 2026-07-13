@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.2.0 - 2026-07-14
+
+- Delete-tombstone watermark - rows destroyed during an in-flight request window are no longer resurrected by replace/merge inserts; merge contracts carry protectAfterSeq; comparator binding reads memoize sort output.
+
 ## 4.1.0 - 2026-07-14
 
 - Replace write-seq watermark - concurrent writers during an in-flight request window are no longer pruned by initial replace. No consumer migration is required.

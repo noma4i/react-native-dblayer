@@ -426,6 +426,79 @@ describe('request config derivation', () => {
     expect(model.get('during-request')?.title).toBe('During');
   });
 
+  it('keeps a row destroyed during a merge-initial request out of the server response', async () => {
+    const model = createTodoModel({ id: 'merge-tombstone-request' });
+    const binding = createCollectionBinding(model);
+    const applyServerData = jest.spyOn(model, 'applyServerData');
+    let resolveTransport!: (result: { data: TodoConnectionResponse }) => void;
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: () =>
+          new Promise<{ data: TodoConnectionResponse }>(resolve => {
+            resolveTransport = resolve;
+          })
+      })
+    });
+
+    model.insertStored({ id: 'destroyed-during-request', title: 'Local', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const request = runDbInfiniteQueryDirect<TodoConnectionResponse, Todo>({
+      query: document<TodoConnectionResponse>('MergeTombstoneTodos'),
+      selectPage: data => data.todos,
+      resolveSyncContract: mergeInitialSyncContract,
+      read: binding
+    });
+    expect(model.destroy('destroyed-during-request')).toBe(true);
+    expect(model.getRowDeleteSeq('destroyed-during-request')).toBeGreaterThan(model.getCollectionWriteSeq() - 1);
+
+    resolveTransport({
+      data: {
+        todos: {
+          nodes: [{ id: 'destroyed-during-request', title: 'Server', listId: 'inbox', done: false, updatedAt: '2026-01-02T00:00:00.000Z' }],
+          pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null }
+        }
+      }
+    });
+    await request;
+
+    expect(applyServerData).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ mode: 'merge', protectAfterSeq: 1 }));
+    expect(model.getRowDeleteSeq('destroyed-during-request')).toBeGreaterThan(0);
+    expect(model.get('destroyed-during-request')).toBeUndefined();
+  });
+
+  it('passes a single-request write watermark to object sync contracts', async () => {
+    const model = createTodoModel({ id: 'single-tombstone-request' });
+    const applyServerData = jest.spyOn(model, 'applyServerData');
+    let resolveTransport!: (result: { data: { todo: Todo } }) => void;
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: () =>
+          new Promise<{ data: { todo: Todo } }>(resolve => {
+            resolveTransport = resolve;
+          })
+      })
+    });
+
+    model.insertStored({ id: 'single-destroyed', title: 'Local', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const request = runDbQueryDirect<{ todo: Todo }, unknown, Todo>({
+      query: document<{ todo: Todo }>('SingleTombstoneTodo'),
+      select: data => data.todo,
+      sync: { model, contract: 'single' }
+    });
+    expect(model.destroy('single-destroyed')).toBe(true);
+    expect(model.getRowDeleteSeq('single-destroyed')).toBeGreaterThan(model.getCollectionWriteSeq() - 1);
+
+    resolveTransport({
+      data: { todo: { id: 'single-destroyed', title: 'Server', listId: 'inbox', done: false, updatedAt: '2026-01-02T00:00:00.000Z' } }
+    });
+    await request;
+
+    expect(applyServerData).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ mode: 'merge', protectAfterSeq: 1 }));
+    expect(model.getRowDeleteSeq('single-destroyed')).toBeGreaterThan(0);
+    expect(model.get('single-destroyed')).toBeUndefined();
+  });
+
   it('exports a merge-initial infinite sync resolver while explicit configs still win', async () => {
     const applyServerData = jest.fn();
     const read = {

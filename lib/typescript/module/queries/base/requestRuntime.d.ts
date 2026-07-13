@@ -8,7 +8,7 @@ type InfiniteRequestPatchState = {
  * Pass this explicitly via `resolveSyncContract` when a request's initial page should not clear rows
  * already present in the scope (e.g. a paginated thread read alongside other writers into the same scope).
  */
-export declare const mergeInitialSyncContract: <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
+export declare const mergeInitialSyncContract: <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
 /**
  * Default infinite-request resolver: replace the target scope on the initial page, then merge every
  * subsequently loaded page into it. `runDbInfiniteQueryDirect`/`useDbInfiniteRequest` use this whenever

@@ -1291,6 +1291,48 @@ describe('mutation DSL runtime', () => {
     hook.unmount();
   });
 
+  it('characterizes rollback after a concurrent write to an optimistically patched row', async () => {
+    const model = createTodoModel();
+    const transportResult = deferred<{ data: Record<string, Todo> }>();
+    model.insertStored({ id: 'transaction-race', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        mutation: () => transportResult.promise
+      })
+    });
+
+    const hook = renderQueryHook(() =>
+      useDbMutation<null, { id: string; title: string }, void, Todo>({
+        method: 'patch',
+        mutation: document<Record<string, null>, { input: unknown }>('TransactionRollbackRace'),
+        resultField: 'noop',
+        key: () => ['transaction-rollback-race'],
+        logPrefix: 'transaction-rollback-race',
+        model,
+        selectId: input => input.id,
+        selectPatch: input => ({ title: input.title, updatedAt: '2026-01-02T00:00:00.000Z' })
+      })
+    );
+
+    const request = hook.current.mutateAsync({ id: 'transaction-race', title: 'Optimistic' });
+    await hook.flush();
+    expect(model.get('transaction-race')?.title).toBe('Optimistic');
+
+    expect(model.patch('transaction-race', { title: 'Concurrent', updatedAt: '2026-01-03T00:00:00.000Z' })).toBe(true);
+
+    await act(async () => {
+      transportResult.reject(new Error('network failed'));
+      await expect(request).rejects.toThrow('network failed');
+    });
+    await hook.flush();
+
+    // TanStack DB rollback removes the optimistic patch and preserves the external concurrent patch.
+    expect(model.get('transaction-race')?.title).toBe('Concurrent');
+
+    hook.unmount();
+  });
+
   it('applies patch and destroy optimistic mutation variants', async () => {
     const model = createTodoModel();
     model.insertStored({ id: 'patch-me', title: 'Original', listId: null, done: false, updatedAt: '2026-01-01T00:00:00.000Z' });

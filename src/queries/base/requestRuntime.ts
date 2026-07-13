@@ -17,8 +17,8 @@ const infinitePatchStates = new WeakMap<DbRequestInfiniteConfig<unknown, unknown
  * Pass this explicitly via `resolveSyncContract` when a request's initial page should not clear rows
  * already present in the scope (e.g. a paginated thread read alongside other writers into the same scope).
  */
-export const mergeInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
-  mergeSyncContract(pageParam === undefined ? 'initial' : 'loadMore', scope);
+export const mergeInitialSyncContract = <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
+  mergeSyncContract(pageParam === undefined ? 'initial' : 'loadMore', scope, protectAfterSeq);
 
 /**
  * Default infinite-request resolver: replace the target scope on the initial page, then merge every
@@ -27,9 +27,9 @@ export const mergeInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSy
  * default resolution (e.g. composing it with other resolver logic).
  */
 export const replaceInitialSyncContract = <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
-  pageParam === undefined ? replaceSyncContract('initial', scope, protectAfterSeq) : mergeSyncContract('loadMore', scope);
+  pageParam === undefined ? replaceSyncContract('initial', scope, protectAfterSeq) : mergeSyncContract('loadMore', scope, protectAfterSeq);
 
-const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleConfig<unknown, unknown, TSelected>['sync']): void => {
+const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleConfig<unknown, unknown, TSelected>['sync'], protectAfterSeq?: number): void => {
   if (!sync || selected == null) return;
 
   if (typeof sync === 'function') {
@@ -40,7 +40,7 @@ const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleCo
   const selectedItems = Array.isArray(selected) ? selected : [selected];
   if (selectedItems.length === 0) return;
 
-  sync.model.applyServerData(selectedItems, mergeSyncContract(sync.contract));
+  sync.model.applyServerData(selectedItems, mergeSyncContract(sync.contract, undefined, protectAfterSeq));
 };
 
 const isEmptySelectedPayload = (selected: unknown): boolean => selected == null || (Array.isArray(selected) && selected.length === 0);
@@ -84,11 +84,12 @@ export const runDbQueryDirect = async <
 >(
   config: DbRequestSingleConfig<TResponse, TResult, TSelected, TVariables, TRead>
 ): Promise<DbRequestSingleData<TResult, TSelected, TRead>> => {
+  const queryStartSeq = typeof config.sync === 'object' ? config.sync.model.getCollectionWriteSeq?.() : undefined;
   const response = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables: config.vars as Record<string, unknown> | undefined });
   const data = response.data;
   const selected = (config.select ?? identitySelect<TResponse, TSelected>)(data);
   getDbExtractSink()(config.extract?.({ data, selected }), config.extractSource ?? 'query');
-  applySingleSync(selected, config.sync);
+  applySingleSync(selected, config.sync, queryStartSeq);
 
   if (config.read?.model.markFetched) {
     if ('id' in config.read) {

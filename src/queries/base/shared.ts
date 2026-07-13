@@ -90,6 +90,8 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
   }
 
   const isExplicitNullishScopedRead = (argsLength: number, filter: unknown): boolean => Boolean(readConfig?.scopeMap && hasExplicitNullishFilter(argsLength, filter));
+  let lastSortSource: TStored[] | null = null;
+  let lastSortOutput: TStored[] | null = null;
 
   const readRows = (filter: unknown, emptyScopedRead: boolean): TStored[] => {
     const col = model.collection;
@@ -118,7 +120,12 @@ export const createCollectionBinding = <TStored extends { id: string }, TRead = 
 
     if (emptyScopedRead) return EMPTY as TStored[];
     const rows = (data ?? EMPTY) as TStored[];
-    return readConfig?.comparator && rows.length > 1 ? [...rows].sort(readConfig.comparator) : rows;
+    if (!readConfig?.comparator || rows.length <= 1) return rows;
+    if (rows === lastSortSource && lastSortOutput) return lastSortOutput;
+    const sorted = [...rows].sort(readConfig.comparator);
+    lastSortSource = rows;
+    lastSortOutput = sorted;
+    return sorted;
   };
 
   const readScope = (filter: unknown): Partial<TStored> | undefined => toStoredScopeFilter<TStored>(filter, readConfig?.scopeMap);
