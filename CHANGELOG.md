@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.1 - 2026-07-13
+
+- Fix `createDbSubscriptionEffects` generic constraint: effect tables declared as interfaces (no string index signature) are accepted via a self-referential `Record<keyof TEffects, ...>` constraint.
+
 ## 3.0.0 - 2026-07-13
 
 - BREAKING: `createMutationExtractResolver` now throws on extract spec keys that are not declared in the preset table (config mistakes fail fast instead of being silently ignored).
