@@ -695,7 +695,7 @@ describe('mutation DSL runtime', () => {
         todo: { sink: 'todos', read: result => result.todo },
         currentUser: { sink: 'users', read: 'currentUser' }
       };
-      type TodoExtractSpec = ExtractSpecOf<typeof extractPresetTable>;
+      type TodoExtractSpec = ExtractSpecOf<typeof extractPresetTable, TodoMutationResult>;
       type TodoSelector = Exclude<TodoExtractSpec['todo'], boolean | undefined>;
       type _TodoSelectorResult = Expect<Equal<Parameters<TodoSelector>[0], TodoMutationResult>>;
       const validTrueExtract: TodoExtractSpec = { todo: true };

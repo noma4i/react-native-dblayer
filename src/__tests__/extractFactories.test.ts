@@ -8,6 +8,7 @@ import {
   replaceSyncContract,
   runDbMutationDirect
 } from '../index';
+import type { ExtractSpecOf } from '../index';
 import { setDbExtractSink, setDbMutationExtractResolver } from '../core/extract';
 import type { DbGraphQLDocument } from '../types';
 import { createTodoModel, inMemoryStorageAdapter, mockTransport, type Todo } from './helpers/testRuntime';
@@ -55,8 +56,7 @@ describe('extract factories', () => {
           user: true,
           wallet: true,
           message: (result: { extraMessages?: unknown[] }) => result.extraMessages,
-          moment: true,
-          skipped: true
+          moment: true
         },
         {
           user: { id: 'user-1' },
@@ -84,6 +84,33 @@ describe('extract factories', () => {
     expect(resolver(undefined, { user: { id: 'user-1' } })).toBeUndefined();
     expect(resolver({ user: true }, null)).toBeUndefined();
     expect(resolver({ user: true }, { user: null })).toBeUndefined();
+  });
+
+  it('throws when an extract spec contains an unknown key', () => {
+    const resolver = createMutationExtractResolver<{ chat?: { id: string } }>({
+      chat: { sink: 'chats', read: 'chat', many: false }
+    });
+
+    expect(() => resolver({ unknownPreset: true }, { chat: { id: 'chat-1' } })).toThrow(/unknownPreset/);
+  });
+
+  it('throws for an unknown extract spec key before checking a null result', () => {
+    const resolver = createMutationExtractResolver<{ chat?: { id: string } }>({
+      chat: { sink: 'chats', read: 'chat', many: false }
+    });
+
+    expect(() => resolver({ unknownPreset: true }, null)).toThrow(/unknownPreset/);
+  });
+
+  it('types extract selectors from the mutation result', () => {
+    const table = {
+      chat: { sink: 'chats', read: 'chat', many: false }
+    };
+    const spec: ExtractSpecOf<typeof table, { chat: { id: string } }> = {
+      chat: result => result.chat
+    };
+
+    expect(typeof spec.chat).toBe('function');
   });
 
   it('merges every existing/incoming shape combination additively when two presets share a sink key', () => {

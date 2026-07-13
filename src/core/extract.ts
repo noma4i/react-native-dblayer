@@ -26,16 +26,14 @@ export type DbMutationExtractPresetEntry<TResult = unknown, TSinkKey extends str
 
 export type DbMutationExtractPresetTable<TResult = unknown, TSinkKey extends string = string> = Record<string, DbMutationExtractPresetEntry<TResult, TSinkKey>>;
 
-type ExtractPresetResult<TEntry> = TEntry extends DbMutationExtractPresetEntry<infer TResult, any> ? TResult : never;
-
 /**
  * Derive the legal mutation extract config shape from a mutation extract preset table.
  *
- * The resulting spec accepts only declared preset keys. Each key supports `true` or a selector whose
- * result parameter matches that preset entry's `TResult`.
+ * The resulting spec accepts only declared preset keys. Each key supports `true` or a selector
+ * receiving the mutation result (`TData`), which varies per mutation rather than per preset entry.
  */
-export type ExtractSpecOf<TTable extends Record<string, DbMutationExtractPresetEntry<any, string>>> = {
-  [K in keyof TTable]?: boolean | DbMutationExtractPresetSelector<ExtractPresetResult<TTable[K]>>;
+export type ExtractSpecOf<TTable extends Record<string, DbMutationExtractPresetEntry<any, string>>, TData = unknown> = {
+  [K in keyof TTable]?: boolean | DbMutationExtractPresetSelector<TData>;
 };
 
 export type DbExtractModelSink = {
@@ -161,12 +159,21 @@ const resolvePresetValue = <TResult>(
 
 /**
  * Build a mutation extract resolver from a declarative preset table.
- * Boolean presets use the table reader; selector presets override the reader.
+ * Boolean presets use the table reader; selector presets override the reader. Spec keys outside the
+ * preset table throw immediately, while `false`/`null`/`undefined` values for known keys remain skips.
  */
 export const createMutationExtractResolver =
   <TResult = unknown, TSinkKey extends string = string>(presetTable: DbMutationExtractPresetTable<TResult, TSinkKey>): DbMutationExtractResolver =>
   (extractSpec, result) => {
-    if (!isRecord(extractSpec) || result == null) return undefined;
+    if (!isRecord(extractSpec)) return undefined;
+
+    for (const specKey of Object.keys(extractSpec)) {
+      if (!(specKey in presetTable)) {
+        throw new Error(`Unknown mutation extract preset "${specKey}": no entry in the preset table.`);
+      }
+    }
+
+    if (result == null) return undefined;
 
     const output: Record<string, unknown> = {};
     for (const presetKey of Object.keys(presetTable)) {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.0 - Unreleased
+
+- BREAKING: `createMutationExtractResolver` now throws on extract spec keys that are not declared in the preset table (config mistakes fail fast instead of being silently ignored).
+- BREAKING: `ExtractSpecOf<TTable, TData>` selectors are now typed by the mutation result `TData` instead of the preset entry result, so consumers can derive their full typed extract spec from the preset table.
+
 ## 2.5.1-beta.9 - 2026-07-12
 
 - Keep relation model collection contracts read-only, so consumers can enable `strictFunctionTypes` without widening rows or using `any`.
