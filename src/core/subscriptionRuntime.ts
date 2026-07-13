@@ -60,7 +60,7 @@ export const defineDbSubscriptionEntry = <
 export type DbSubscriptionEffectsTable = Record<string, (...args: any[]) => void>;
 
 /** Effects channel returned by `createDbSubscriptionEffects`. */
-export type DbSubscriptionEffectsChannel<TEffects extends DbSubscriptionEffectsTable> = {
+export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: any[]) => void>> = {
   /**
    * Stable wrapper table with the same keys as the noop table. Each wrapper forwards to the currently
    * configured effect. The table and every wrapper keep one identity for the channel's lifetime, so
@@ -82,14 +82,14 @@ export type DbSubscriptionEffectsChannel<TEffects extends DbSubscriptionEffectsT
  * @param noopEffects Complete effect table with no-op implementations; defines the channel's keys.
  * @returns Stable `effects` table plus `configure`/`reset` controls.
  */
-export const createDbSubscriptionEffects = <TEffects extends DbSubscriptionEffectsTable>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
+export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffects, (...args: any[]) => void>>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
   let activeEffects: TEffects = noopEffects;
 
   const effects = Object.fromEntries(
     Object.keys(noopEffects).map(key => [
       key,
       (...args: unknown[]) => {
-        (activeEffects[key] as (...forwarded: unknown[]) => void)(...args);
+        (activeEffects[key as keyof TEffects] as (...forwarded: unknown[]) => void)(...args);
       }
     ])
   ) as TEffects;

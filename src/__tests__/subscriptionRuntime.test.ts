@@ -264,6 +264,18 @@ describe('subscription runtime', () => {
 });
 
 describe('subscription effects', () => {
+  it('accepts an interface-typed effects table without an index signature', () => {
+    interface DemoEffects {
+      onPing: (value: number) => void;
+      onNote: (a: string, b: boolean) => void;
+    }
+    const ping = jest.fn();
+    const channel = createDbSubscriptionEffects<DemoEffects>({ onPing: () => {}, onNote: () => {} });
+    channel.configure({ onPing: ping });
+    channel.effects.onPing(7);
+    expect(ping).toHaveBeenCalledWith(7);
+  });
+
   it('calls the noop effect before configuration', () => {
     const noopOnX = jest.fn();
     const channel = createDbSubscriptionEffects({ onX: noopOnX });
