@@ -636,4 +636,43 @@ describe('request config derivation', () => {
       expect.objectContaining({ id: 'load-2', title: '3:load 2' })
     ]);
   });
+
+  it('shares direct patch state across equivalent fresh config objects', async () => {
+    const seen: number[] = [];
+    const query = document<TodoConnectionResponse>('FreshConfigPatchState');
+    const read = {
+      applyServerData: jest.fn(),
+      useData: () => [],
+      shouldSkipInitialFetch: () => false,
+      markFetched: jest.fn()
+    };
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: async operation => ({
+          data: {
+            todos: {
+              nodes: [{ id: `todo-${(operation as { variables?: { after?: string } }).variables?.after ?? 'initial'}`, title: 'Node', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' }],
+              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null }
+            }
+          }
+        })
+      })
+    });
+
+    const createConfig = (): DbRequestInfiniteConfig<TodoConnectionResponse, Todo> => ({
+      query,
+      selectPage: data => data.todos,
+      patchNode: (_node, context) => {
+        seen.push(context.globalIndex);
+        return null;
+      },
+      read
+    });
+
+    await runDbInfiniteQueryDirect(createConfig());
+    await runDbInfiniteQueryDirect(createConfig(), 'cursor-1');
+
+    expect(seen).toEqual([0, 1]);
+  });
 });
