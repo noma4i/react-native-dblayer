@@ -34,6 +34,7 @@ type DeferredCollectionPersistenceConfig<T extends object, TKey extends string |
 declare const require: <T>(moduleName: string) => T;
 
 const FLUSH_DEBOUNCE_MS = 300;
+const FLUSH_MAX_WAIT_MS = 1000;
 
 const encodeStorageKey = (key: string | number): string => (typeof key === 'number' ? `n:${key}` : `s:${key}`);
 
@@ -167,6 +168,7 @@ export const deferredCollectionPersistence = <T extends object, TKey extends str
   const sync = createStorageSync<T, TKey>(config.storageKey, config.storage, config.storageEventApi, parser, lastKnownData);
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let dirty = false;
+  let firstDirtyAt = 0;
 
   const saveToStorage = (): void => {
     try {
@@ -184,15 +186,23 @@ export const deferredCollectionPersistence = <T extends object, TKey extends str
       clearTimeout(flushTimer);
       flushTimer = null;
     }
+    firstDirtyAt = 0;
     if (!dirty) return;
     dirty = false;
     saveToStorage();
   };
 
   const markDirty = (): void => {
+    const now = Date.now();
+    if (!dirty) firstDirtyAt = now;
     dirty = true;
+    const elapsed = now - firstDirtyAt;
+    if (elapsed >= FLUSH_MAX_WAIT_MS) {
+      flush();
+      return;
+    }
     if (flushTimer !== null) clearTimeout(flushTimer);
-    flushTimer = setTimeout(flush, FLUSH_DEBOUNCE_MS);
+    flushTimer = setTimeout(flush, Math.min(FLUSH_DEBOUNCE_MS, FLUSH_MAX_WAIT_MS - elapsed));
   };
 
   require<AppStateModule>('react-native').AppState.addEventListener('change', state => {

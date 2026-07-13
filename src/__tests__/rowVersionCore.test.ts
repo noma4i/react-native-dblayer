@@ -31,6 +31,26 @@ describe('row version core', () => {
     expect(core.snapshot()).toBe(2);
   });
 
+  it('keeps the delete mark counter consistent across repeated deletes and later writes', () => {
+    const core = createRowVersionCore({ maxDeleteMarks: 2 });
+    core.noteDelete('first');
+    core.noteDelete('first');
+    core.noteDelete('second');
+    core.noteDelete('third');
+
+    expect(core.getDeleteSeq('first')).toBeUndefined();
+    expect(core.getDeleteSeq('second')).toBeDefined();
+    expect(core.getDeleteSeq('third')).toBeDefined();
+
+    const writeAfterDelete = createRowVersionCore({ maxDeleteMarks: 1 });
+    writeAfterDelete.noteDelete('first');
+    writeAfterDelete.noteWrite('first');
+    writeAfterDelete.noteDelete('second');
+
+    expect(writeAfterDelete.getWriteSeq('first')).toBeDefined();
+    expect(writeAfterDelete.getDeleteSeq('second')).toBeDefined();
+  });
+
   it('reports delete marks within their configured TTL', () => {
     jest.spyOn(Date, 'now').mockReturnValue(1_000);
     const core = createRowVersionCore();

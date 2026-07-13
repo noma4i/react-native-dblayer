@@ -99,6 +99,22 @@ describe('deferred collection persistence', () => {
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
+  it('flushes no later than the max wait during continuous commits', () => {
+    const storage = createStorage();
+    const collection = createPersistentRows(storage);
+
+    for (let index = 0; index <= 10; index++) {
+      const row = { id: `row-${index}`, value: String(index) };
+      collection.utils.acceptMutations({
+        mutations: [{ type: 'insert', key: row.id, modified: row, collection } as never]
+      });
+      if (index < 10) jest.advanceTimersByTime(100);
+    }
+
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(storage.setItem.mock.calls[0]![1])['s:row-9'].data).toEqual({ id: 'row-9', value: '9' });
+  });
+
   it('hydrates the serialized snapshot into a new collection', async () => {
     const storage = createStorage();
     const firstCollection = createPersistentRows(storage);
