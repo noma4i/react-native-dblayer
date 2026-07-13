@@ -7,7 +7,9 @@ import {
   devClearAllDataAndState,
   f
 } from '../index';
+import { createPersistentCollection } from '../core/createPersistentCollection';
 import { DEFAULT_FETCH_STATE_MAX_AGE_MS, getCollectionFetchStateVersion, setCollectionFetchState } from '../core/freshnessStorage';
+import { setDbLogger } from '../core/logger';
 import type { InternalSyncContract } from '../types';
 import type { Todo, TodoInput } from './helpers/testRuntime';
 import { createTodoModel, installMemoryStorage, mockTransport } from './helpers/testRuntime';
@@ -271,6 +273,63 @@ describe('collection model core DSL', () => {
     model.applyServerData([{ id: 'row-1', a: 'updated', b: { body: 'new field' }, updatedAt: later }], { mode });
 
     expect(model.get('row-1')?.b).toEqual({ body: 'new field' });
+  });
+
+  it.each([
+    ['update', true],
+    ['update', false],
+    ['delete', true],
+    ['delete', false]
+  ] as const)('%s write failures are observable when __DEV__ is %s', (operation, isDev) => {
+    installMemoryStorage();
+    const collection = createPersistentCollection<{ id: string; title: string }>({ id: `write-failure-${operation}-${isDev}` });
+    const failure = new Error(`${operation} failed`);
+    const error = jest.fn();
+    const originalDevDescriptor = Object.getOwnPropertyDescriptor(globalThis, '__DEV__');
+    Object.defineProperty(globalThis, '__DEV__', { configurable: true, value: isDev, writable: true });
+    setDbLogger({ debug: jest.fn(), error });
+    collection.insert({ id: 'row-1', title: 'Before' });
+
+    try {
+      if (operation === 'update') {
+        jest.spyOn(collection._collection, 'update').mockImplementation(() => {
+          throw failure;
+        });
+      } else {
+        jest.spyOn(collection._collection, 'delete').mockImplementation(() => {
+          throw failure;
+        });
+      }
+
+      const write = () => {
+        if (operation === 'update') {
+          collection.update('row-1', draft => {
+            draft.title = 'After';
+          });
+          return;
+        }
+
+        collection.delete('row-1');
+      };
+
+      if (isDev) {
+        expect(write).toThrow(failure);
+      } else {
+        expect(write).not.toThrow();
+      }
+      expect(error).toHaveBeenCalledWith('[persistentCollection]', `${operation} failed`, {
+        id: `write-failure-${operation}-${isDev}`,
+        key: 'row-1',
+        error: failure
+      });
+    } finally {
+      if (originalDevDescriptor) {
+        Object.defineProperty(globalThis, '__DEV__', originalDevDescriptor);
+      } else {
+        delete (globalThis as { __DEV__?: boolean }).__DEV__;
+      }
+      setDbLogger({ debug: () => {}, error: () => {} });
+    }
   });
 
   it('applies configureDb merge defaults unless the model specifies its own value', () => {

@@ -6,6 +6,9 @@ import type { SideloadSpec } from './core/sideload';
 import type { FieldSpec } from './schema/fieldSpec';
 import type { InferFieldsInput } from './schema/fields';
 import type { InferBuildStoredInput, InferStoredFields } from './schema/infer';
+declare global {
+    const __DEV__: boolean;
+}
 export type PersistentMutationTransaction = {
     /** Raw TanStack DB mutation records accepted by persistent collections. */
     mutations: Array<unknown>;

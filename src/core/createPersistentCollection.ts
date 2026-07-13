@@ -20,6 +20,16 @@ import { getDbLogger } from './logger';
 import { mmkvCollectionOptions } from './mmkvCollectionOptions';
 import { clearAllCollections, registerPersistentCollectionMutationAcceptor } from './registry';
 
+const isDevBuild = (): boolean => typeof __DEV__ !== 'undefined' && __DEV__;
+
+const reportWriteFailure = (operation: 'update' | 'delete', collectionId: string, key: string, error: unknown): void => {
+  getDbLogger().error('[persistentCollection]', `${operation} failed`, { id: collectionId, key, error });
+
+  // A swallowed write failure is how a schema field silently stops reaching stored rows.
+  // Fail loudly while developing; keep production resilient.
+  if (isDevBuild()) throw error;
+};
+
 /**
  * Create a persistent TanStack DB collection backed by the configured storage adapter.
  * @param config Collection id used as the storage key prefix.
@@ -61,7 +71,7 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
       });
       return true;
     } catch (error) {
-      getDbLogger().error('[persistentCollection]', 'update failed', { id: config.id, key: id, error });
+      reportWriteFailure('update', config.id, id, error);
       return false;
     }
   };
@@ -71,7 +81,7 @@ export const createPersistentCollection = <T extends { id: string }>(config: { i
       collection.delete(id);
       return true;
     } catch (error) {
-      getDbLogger().error('[persistentCollection]', 'delete failed', { id: config.id, key: id, error });
+      reportWriteFailure('delete', config.id, id, error);
       return false;
     }
   };
