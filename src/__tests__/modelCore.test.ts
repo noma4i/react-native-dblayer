@@ -252,6 +252,27 @@ describe('collection model core DSL', () => {
     ).toEqual({ merged: 0 });
   });
 
+  it.each(['merge', 'replace'] as const)('stores a newly introduced field when %s updates an existing row', mode => {
+    installMemoryStorage();
+    type EvolvingInput = { id: string; a: string; b?: { body: string }; updatedAt: string };
+    type EvolvingRow = { id: string; a: string; b?: { body: string }; updatedAt: string };
+    const model = defineModel<EvolvingInput, EvolvingRow>({
+      id: `evolving-fields-${mode}`,
+      name: `EvolvingFieldsModel:${mode}`,
+      normalize: input => ({
+        id: input.id,
+        a: input.a,
+        ...(input.b === undefined ? {} : { b: input.b }),
+        updatedAt: input.updatedAt
+      })
+    });
+
+    model.applyServerData([{ id: 'row-1', a: 'initial', updatedAt: earlier }], { mode });
+    model.applyServerData([{ id: 'row-1', a: 'updated', b: { body: 'new field' }, updatedAt: later }], { mode });
+
+    expect(model.get('row-1')?.b).toEqual({ body: 'new field' });
+  });
+
   it('applies configureDb merge defaults unless the model specifies its own value', () => {
     installMemoryStorage();
     configureDb({

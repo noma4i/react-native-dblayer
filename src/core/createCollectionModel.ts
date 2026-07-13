@@ -301,16 +301,15 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       rawCollection.insert(row);
       writePropagation.announce(row, 'insert');
     },
+    // Never read the TanStack change-proxy draft: it breaks for keys absent from the original row.
     update: (id: string, updater: (draft: StoredRowBase & Record<string, unknown>) => void) => {
-      let snapshot: (StoredRowBase & Record<string, unknown>) | undefined;
-      rawCollection.update(id, draft => {
-        updater(draft);
-        snapshot = { ...draft };
-      });
-      if (snapshot) {
-        attachRelatedToRow(snapshot);
-        writePropagation.announce(snapshot, 'update');
-      }
+      rawCollection.update(id, updater);
+
+      const row = rawCollection.get(id);
+      if (!row) return;
+
+      attachRelatedToRow(row);
+      writePropagation.announce(row, 'update');
     },
     delete: (id: string) => rawCollection.delete(id),
     keys: () => rawCollection.keys(),
