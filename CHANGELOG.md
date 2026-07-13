@@ -1,13 +1,31 @@
 # Changelog
 
-## Unreleased
+## 5.0.0 - 2026-07-14
 
-- Migration: `protectAfterSeq` is renamed to `snapshotSeq` in merge and replace sync contracts. The snapshot is captured before transport and arbitrates all local writes through one row-version core.
-- Propagation now remains transitive across distinct models and stops only when a model repeats in the active chain; explicit mirror suppression remains unchanged.
-- Mutation lifecycle is phased: transport failures roll back optimistic state, while apply and persistence failures retain server-confirmed state and surface the failure without rollback. `runDbMutationDirect` keeps its existing patch/destroy no-rollback asymmetry.
-- Deferred collection serialization now coalesces whole-collection storage writes while retaining immediate per-commit sync confirmation and in-memory snapshots. Manual CompassRelationModel-style scoped replace calls through `applyServerData` outside query runtime do not receive a snapshot token and remain without watermark protection; extract plumbing is a candidate for the next change-set.
-- Merge dedupe hashes each batch's ordered `(id, updatedAt)` tuples and length rather than full payload content. Batches with the same ids and timestamps but different content inside the dedupe window now dedupe by design because the server contract advances `updatedAt` for content changes.
-- Models can opt into `merge.resurrectionTtlMs` to suppress no-snapshot subscription echoes shortly after a local delete. The default is off, preserving legitimate same-id recreation; existing manual MessageModel ledger logic is a future migration candidate.
+### Breaking changes and migration
+
+- BREAKING: `SyncContract.protectAfterSeq` is renamed to `snapshotSeq`. Replace and merge contracts created through the package resolvers receive the snapshot token automatically; contracts built only through resolvers are unaffected by the rename.
+
+### Row version arbitration
+
+- Add one row-version core for write and delete arbitration. Snapshot tokens and both-direction watermarks preserve concurrent writes and prevent resurrection of concurrent deletes without pruning either side of a concurrent update.
+- Merge dedupe now keys batches by ordered `(id, updatedAt)` tuples instead of full-payload serialization.
+- Add opt-in `merge.resurrectionTtlMs` for non-snapshot merges. It is disabled by default so legitimate same-id recreation remains allowed.
+
+### Mutation and propagation lifecycle
+
+- Split mutation execution into transport, apply, and persist phases. A transport failure rolls back optimistic state; a post-transport apply or persistence failure keeps server-confirmed truth and reports the failure without rollback.
+- Make write propagation transitive with a visited-set cycle guard. Propagation is no longer globally suppressed after one hop.
+- `runDbMutationDirect` patch and destroy continue to have no rollback. This documented asymmetry is unchanged.
+
+### Persistence and query state
+
+- Add deferred collection persistence: whole collections serialize once per flush window with a 300 ms debounce, 1000 ms maximum wait, and background flush. This replaces the string-level write-back buffer.
+- Infinite query patch state is now keyed by query key.
+
+### Known limitations
+
+- Manual scoped replace through `applyServerData` outside query runtime, including extract paths, has no snapshot token.
 
 ## 4.2.0 - 2026-07-14
 
