@@ -461,7 +461,7 @@ describe('request config derivation', () => {
     });
     await request;
 
-    expect(applyServerData).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ mode: 'merge', protectAfterSeq: 1 }));
+    expect(applyServerData).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ mode: 'merge', snapshotSeq: 1 }));
     expect(model.getRowDeleteSeq('destroyed-during-request')).toBeGreaterThan(0);
     expect(model.get('destroyed-during-request')).toBeUndefined();
   });
@@ -494,7 +494,7 @@ describe('request config derivation', () => {
     });
     await request;
 
-    expect(applyServerData).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ mode: 'merge', protectAfterSeq: 1 }));
+    expect(applyServerData).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ mode: 'merge', snapshotSeq: 1 }));
     expect(model.getRowDeleteSeq('single-destroyed')).toBeGreaterThan(0);
     expect(model.get('single-destroyed')).toBeUndefined();
   });

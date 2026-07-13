@@ -118,14 +118,24 @@ export const useDbMutation = <TData, TInput, TContext = void, TStored = unknown,
           commit: async (result, context) => {
             // Server write-through (extract presets + onCommit + tracking) runs in the same
             // transaction, after the network response, before tx.commit().
+            let applyError: Error | null = null;
             if (config.extract || config.onCommit || config.optimistic || config.track?.success) {
               tx.mutate(() => {
-                runInManagedMutationBatch(() => {
-                  applyDbMutationCommit(config, result, input, context);
-                });
+                try {
+                  runInManagedMutationBatch(() => {
+                    applyDbMutationCommit(config, result, input, context);
+                  });
+                } catch (error) {
+                  applyError = error as Error;
+                }
               });
             }
+            // A persistence failure follows a successful server mutation: never roll back server truth.
             await tx.commit();
+            if (applyError) {
+              getDbLogger().error(logPrefix, 'commit-phase apply failed; optimistic state kept', applyError);
+              throw applyError;
+            }
           },
           rollback: () => {
             tx.rollback();

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Migration: `protectAfterSeq` is renamed to `snapshotSeq` in merge and replace sync contracts. The snapshot is captured before transport and arbitrates all local writes through one row-version core.
+- Propagation now remains transitive across distinct models and stops only when a model repeats in the active chain; explicit mirror suppression remains unchanged.
+- Mutation lifecycle is phased: transport failures roll back optimistic state, while apply and persistence failures retain server-confirmed state and surface the failure without rollback. `runDbMutationDirect` keeps its existing patch/destroy no-rollback asymmetry.
+- Deferred collection serialization is not enabled yet. TanStack DB's required versioned storage sync and transaction-confirmation protocol is private to `localStorageCollectionOptions`; the existing MMKV write-back buffer remains in place until that protocol has a supported extension point.
+
 ## 4.2.0 - 2026-07-14
 
 - Delete-tombstone watermark - rows destroyed during an in-flight request window are no longer resurrected by replace/merge inserts; merge contracts carry protectAfterSeq; comparator binding reads memoize sort output.

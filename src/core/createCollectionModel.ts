@@ -38,6 +38,7 @@ import {
 import { createMerge } from './createMerge';
 import { createPatchCrud } from './createPatchCrud';
 import { createReplace } from './createReplace';
+import { createRowVersionCore } from './rowVersionCore';
 import {
   clearCollectionFetchState,
   clearCollectionFetchStates,
@@ -277,30 +278,14 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const { collection: rawCollection, staleTime = 0, emptyStaleTime = 0 } = config;
   const normalizeBase = resolveNormalize(config);
   let attachRelatedToRow = <TRow extends StoredRowBase>(row: TRow): TRow => row;
-  const writePropagation = createWritePropagation<StoredRowBase & Record<string, unknown>>();
+  const writePropagation = createWritePropagation<StoredRowBase & Record<string, unknown>>(config.name);
   const normalize = (item: unknown): ({ id: string } & Record<string, unknown>) | null => {
     const normalized = normalizeBase(item);
     return normalized ? attachRelatedToRow(normalized as StoredRowBase & Record<string, unknown>) : null;
   };
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<any>(config.name, collectionId, staleTime, emptyStaleTime);
-  let writeSeq = 0;
-  const rowWriteSeqById = new Map<string, number>();
-  const rowDeleteSeqById = new Map<string, number>();
-  const recordWrite = (id: string): void => {
-    writeSeq += 1;
-    rowWriteSeqById.set(id, writeSeq);
-    rowDeleteSeqById.delete(id);
-  };
-  const recordDelete = (id: string): void => {
-    writeSeq += 1;
-    rowDeleteSeqById.set(id, writeSeq);
-    while (rowDeleteSeqById.size > 10_000) {
-      const oldestId = rowDeleteSeqById.keys().next().value;
-      if (oldestId === undefined) break;
-      rowDeleteSeqById.delete(oldestId);
-    }
-  };
+  const versionCore = createRowVersionCore();
   let resetMergeState = (): void => {};
   let relationCache: ModelRelationsConfig | null = null;
   let relatedAccessorsCache: unknown;
@@ -316,7 +301,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     insert: (item: StoredRowBase & Record<string, unknown>) => {
       const row = attachRelatedToRow(item);
       rawCollection.insert(row);
-      recordWrite(row.id);
+      versionCore.noteWrite(row.id);
       writePropagation.announce(row, 'insert');
     },
     // Never read the TanStack change-proxy draft: it breaks for keys absent from the original row.
@@ -327,15 +312,14 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       if (!row) return;
 
       attachRelatedToRow(row);
-      recordWrite(id);
+      versionCore.noteWrite(id);
       writePropagation.announce(row, 'update');
     },
     delete: (id: string) => {
       const existed = rawCollection.has(id);
       const deleted = rawCollection.delete(id);
-      rowWriteSeqById.delete(id);
       if (existed && deleted !== false) {
-        recordDelete(id);
+        versionCore.noteDelete(id);
       }
       return deleted;
     },
@@ -351,7 +335,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     collection: runtimeCollection,
     normalize,
     shouldOverwrite: config.merge?.shouldOverwrite,
-    getRowDeleteSeq: id => rowDeleteSeqById.get(id),
+    versionCore,
     dedupeWindowMs: config.merge?.dedupeWindowMs,
     resolveDedupeWindowMs: () => getDbModelDefaults().merge?.dedupeWindowMs,
     registerReset: reset => {
@@ -363,8 +347,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     collection: runtimeCollection,
     normalize,
     shouldOverwrite: config.replace?.shouldOverwrite,
-    getRowWriteSeq: id => rowWriteSeqById.get(id),
-    getRowDeleteSeq: id => rowDeleteSeqById.get(id)
+    versionCore
   });
 
   const crud = createPatchCrud<any>({ collection: runtimeCollection });
@@ -570,9 +553,9 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
         runSideloads(config.sideload, items, contract);
         if (internalContract.mode === 'replace') {
           const scopeFilter = internalContract._scopeFilter as ((item: any) => boolean) | undefined;
-          result = replace(items, scopeFilter, internalContract.protectAfterSeq);
+          result = replace(items, scopeFilter, internalContract.snapshotSeq);
         } else {
-          result = merge(items, internalContract.protectAfterSeq);
+          result = merge(items, internalContract.snapshotSeq);
         }
       });
     });
@@ -665,8 +648,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   registerModelRuntimeReset(config.name, () => {
     freshness.reset();
     resetMergeState();
-    rowWriteSeqById.clear();
-    rowDeleteSeqById.clear();
+    versionCore.reset();
     clearRowWaitersForCollection(tanstackCollection);
   });
 
@@ -732,9 +714,9 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     insertStored: (item: any) => {
       runtimeCollection.insert(item);
     },
-    getCollectionWriteSeq: () => writeSeq,
-    getRowWriteSeq: (id: string) => rowWriteSeqById.get(id),
-    getRowDeleteSeq: (id: string) => rowDeleteSeqById.get(id),
+    getCollectionWriteSeq: versionCore.currentSeq,
+    getRowWriteSeq: versionCore.getWriteSeq,
+    getRowDeleteSeq: versionCore.getDeleteSeq,
     applyServerData,
     markFetched: freshness.markFetched,
     getFetchState: freshness.getFetchState,

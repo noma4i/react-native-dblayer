@@ -154,6 +154,7 @@ export const executeDbMutationLifecycle = async <TData, TInput, TContext, TStore
 ): Promise<TData | null> => {
   let context = options.context;
   let result: TData | null = null;
+  let transportCompleted = false;
 
   try {
     emitMutationTrackStart(config, input);
@@ -161,10 +162,13 @@ export const executeDbMutationLifecycle = async <TData, TInput, TContext, TStore
       context = options.beforeRequest();
     }
     result = await executeDbMutationRequest(config, mappedInput);
+    transportCompleted = true;
     await options.commit(result, context);
   } catch (error) {
     const mutationError = error as Error;
-    options.rollback?.(mutationError, context);
+    if (!transportCompleted) {
+      options.rollback?.(mutationError, context);
+    }
     (config.onError as ((error: Error, input: TInput, context: TContext) => void) | undefined)?.(mutationError, input, context);
     emitMutationTrackError(config, mutationError, input);
     throw error;

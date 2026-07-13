@@ -5,15 +5,15 @@ import { getDbLogger } from './logger';
 /** Create a replace writer that upserts incoming rows and deletes rows missing from the incoming set. */
 export function createReplace<TInput, TOutput extends { id: string }>(
   config: CreateReplaceConfig<TInput, TOutput>
-): (items: TInput[], scopeFilter?: (item: TOutput) => boolean, protectAfterSeq?: number) => ReplaceResult {
-  return (items: TInput[], scopeFilter?: (item: TOutput) => boolean, protectAfterSeq?: number): ReplaceResult => {
+): (items: TInput[], scopeFilter?: (item: TOutput) => boolean, snapshotSeq?: number) => ReplaceResult {
+  return (items: TInput[], scopeFilter?: (item: TOutput) => boolean, snapshotSeq?: number): ReplaceResult => {
     const normalized = items.map(item => config.normalize(item)).filter((item): item is TOutput => item !== null);
 
     const newIds = new Set<string>();
     let resurrectionProtectedCount = 0;
     for (const item of normalized) {
       newIds.add(item.id);
-      if (protectAfterSeq !== undefined && (config.getRowDeleteSeq?.(item.id) ?? 0) > protectAfterSeq) {
+      if (snapshotSeq !== undefined && config.versionCore.wasDeletedAfter(item.id, snapshotSeq)) {
         resurrectionProtectedCount++;
         continue;
       }
@@ -51,7 +51,7 @@ export function createReplace<TInput, TOutput extends { id: string }>(
         const existing = config.collection.get(idStr);
         if (existing && !scopeFilter(existing)) continue;
       }
-      if (protectAfterSeq !== undefined && (config.getRowWriteSeq?.(idStr) ?? 0) > protectAfterSeq) {
+      if (snapshotSeq !== undefined && config.versionCore.wasWrittenAfter(idStr, snapshotSeq)) {
         protectedCount++;
         continue;
       }
@@ -59,7 +59,7 @@ export function createReplace<TInput, TOutput extends { id: string }>(
     }
 
     if (protectedCount > 0 || resurrectionProtectedCount > 0) {
-      getDbLogger().debug('db', 'replace:protected', { protectedCount, resurrectionProtectedCount, protectAfterSeq });
+      getDbLogger().debug('db', 'replace:protected', { protectedCount, resurrectionProtectedCount, snapshotSeq });
     }
 
     for (const id of toDelete) {

@@ -323,6 +323,19 @@ export interface MergeResult {
   merged: number;
 }
 
+/** Collection-local version ledger used to arbitrate local and server writes. */
+export interface RowVersionCore {
+  currentSeq(): number;
+  noteWrite(id: string): void;
+  noteDelete(id: string): void;
+  snapshot(): number;
+  wasWrittenAfter(id: string, snapshotSeq: number): boolean;
+  wasDeletedAfter(id: string, snapshotSeq: number): boolean;
+  getWriteSeq(id: string): number | undefined;
+  getDeleteSeq(id: string): number | undefined;
+  reset(): void;
+}
+
 export interface CreateMergeConfig<TInput, TOutput extends { id: string; updatedAt?: string | null }> {
   /** Target collection. */
   collection: DbCollection<TOutput>;
@@ -330,8 +343,8 @@ export interface CreateMergeConfig<TInput, TOutput extends { id: string; updated
   normalize: (item: TInput) => (Partial<TOutput> & { id: string }) | null;
   /** Force-accept a merge the timestamp gate would reject. */
   shouldOverwrite?: (existing: TOutput, incoming: Partial<TOutput> & { id: string }) => boolean;
-  /** Return the latest in-memory delete sequence for one row, if it is still tombstoned. */
-  getRowDeleteSeq?: (id: string) => number | undefined;
+  /** Version ledger shared with local writes and replace sync. */
+  versionCore: RowVersionCore;
   /**
    * Skip an identical merge batch within this window.
    * @default 0
@@ -367,10 +380,8 @@ export interface CreateReplaceConfig<TInput, TOutput extends { id: string }> {
   normalize: (item: TInput) => (Partial<TOutput> & { id: string }) | null;
   /** Force-accept a replace write the timestamp gate would reject. */
   shouldOverwrite?: (existing: TOutput, incoming: Partial<TOutput> & { id: string }) => boolean;
-  /** Return the latest in-memory write sequence for a stored row. */
-  getRowWriteSeq?: (id: string) => number | undefined;
-  /** Return the latest in-memory delete sequence for a stored row, if it is still tombstoned. */
-  getRowDeleteSeq?: (id: string) => number | undefined;
+  /** Version ledger shared with local writes and merge sync. */
+  versionCore: RowVersionCore;
 }
 
 export interface CreatePatchCrudConfig<T extends { id: string }> {
@@ -410,8 +421,8 @@ export interface SyncContract<TScope = unknown> {
   source?: string;
   /** Optional opaque scope tag for scoped writes. */
   scope?: TScope;
-  /** Protect rows written after this in-memory sequence from replace pruning. */
-  protectAfterSeq?: number;
+  /** Collection version captured before the server transport starts. */
+  snapshotSeq?: number;
 }
 
 /**
@@ -908,8 +919,8 @@ export type InfiniteSyncContractResolverContext<TNode> = {
   nodes: TNode[];
   /** Scope computed from filter and current user id. */
   scope: unknown;
-  /** In-memory collection write sequence captured before transport starts. */
-  protectAfterSeq?: number;
+  /** Collection version captured before transport starts. */
+  snapshotSeq?: number;
 };
 
 export type InfiniteQueryConfig<TData, TNode> = {

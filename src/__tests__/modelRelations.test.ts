@@ -1081,7 +1081,7 @@ describe('model relations', () => {
     });
   });
 
-  it('does not re-enter propagation from parent writes produced by child propagation', () => {
+  it('propagates parent writes produced by child propagation while preventing cycles', () => {
     installMemoryStorage();
     const auditModel = defineMirrorTargetModel('propagate-reentry-audit');
     const parentModel = definePropagationParentModel('propagate-reentry-parent', auditModel);
@@ -1092,7 +1092,7 @@ describe('model relations', () => {
     childModel.insertStored({ id: 'child-1', parentId: 'parent-1', body: 'Preview', updatedAt: '2000-01-02T00:00:00.000Z' });
 
     expect(parentModel.get('parent-1')).toMatchObject({ preview: 'Preview' });
-    expect(auditModel.get('parent-1')).toBeUndefined();
+    expect(auditModel.get('parent-1')).toMatchObject({ name: 'Parent' });
 
     parentModel.patch('parent-1', { title: 'Direct Parent Patch', updatedAt: '2000-01-03T00:00:00.000Z' });
     expect(auditModel.get('parent-1')).toMatchObject({ name: 'Direct Parent Patch' });

@@ -406,7 +406,7 @@ describe('collection model core DSL', () => {
     expect(model.getAll().map(item => item.id)).toEqual(['c1']);
   });
 
-  it('protects rows written after a replace watermark while pruning earlier rows', () => {
+  it('protects rows written after a replace snapshot while pruning earlier rows', () => {
     installMemoryStorage();
     const model = createTodoModel();
 
@@ -417,7 +417,7 @@ describe('collection model core DSL', () => {
     model.insertStored({ id: 'inserted-after', title: 'Inserted', listId: 'a', done: false, updatedAt: later });
     expect(model.patch('updated-after', { title: 'Updated', updatedAt: later })).toBe(true);
 
-    expect(model.applyServerData([], { mode: 'replace', protectAfterSeq: queryStartSeq })).toEqual({ merged: 0, deleted: 1 });
+    expect(model.applyServerData([], { mode: 'replace', snapshotSeq: queryStartSeq })).toEqual({ merged: 0, deleted: 1 });
     expect(model.get('before')).toBeUndefined();
     expect(model.get('inserted-after')?.title).toBe('Inserted');
     expect(model.get('updated-after')?.title).toBe('Updated');
@@ -446,7 +446,7 @@ describe('collection model core DSL', () => {
     expect(
       model.applyServerData([{ id: 'destroyed-during-request', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
         mode: 'replace',
-        protectAfterSeq: queryStartSeq
+        snapshotSeq: queryStartSeq
       })
     ).toEqual({ merged: 1, deleted: 0 });
     expect(model.get('destroyed-during-request')).toBeUndefined();
@@ -463,7 +463,7 @@ describe('collection model core DSL', () => {
     expect(
       model.applyServerData([{ id: 'merge-destroyed-during-request', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
         mode: 'merge',
-        protectAfterSeq: queryStartSeq
+        snapshotSeq: queryStartSeq
       })
     ).toEqual({ merged: 0 });
     expect(model.get('merge-destroyed-during-request')).toBeUndefined();
@@ -479,7 +479,7 @@ describe('collection model core DSL', () => {
 
     replaceModel.applyServerData([{ id: 'replace-authoritative', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
       mode: 'replace',
-      protectAfterSeq: replaceStartSeq
+      snapshotSeq: replaceStartSeq
     });
     expect(replaceModel.get('replace-authoritative')?.title).toBe('Server');
 
@@ -491,7 +491,7 @@ describe('collection model core DSL', () => {
 
     mergeModel.applyServerData([{ id: 'merge-authoritative', title: 'Server', listId: 'a', done: false, updatedAt: later }], {
       mode: 'merge',
-      protectAfterSeq: mergeStartSeq
+      snapshotSeq: mergeStartSeq
     });
     expect(mergeModel.get('merge-authoritative')?.title).toBe('Server');
   });
@@ -510,7 +510,7 @@ describe('collection model core DSL', () => {
 
     model.applyServerData([{ id: 'reinserted', title: 'Server', listId: 'a', done: false, updatedAt: '2026-01-03T00:00:00.000Z' }], {
       mode: 'replace',
-      protectAfterSeq: queryStartSeq
+      snapshotSeq: queryStartSeq
     });
     expect(model.get('reinserted')?.title).toBe('Server');
   });

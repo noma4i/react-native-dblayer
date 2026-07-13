@@ -8,14 +8,14 @@ type InfiniteRequestPatchState = {
  * Pass this explicitly via `resolveSyncContract` when a request's initial page should not clear rows
  * already present in the scope (e.g. a paginated thread read alongside other writers into the same scope).
  */
-export declare const mergeInitialSyncContract: <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
+export declare const mergeInitialSyncContract: <TNode>({ pageParam, scope, snapshotSeq }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
 /**
  * Default infinite-request resolver: replace the target scope on the initial page, then merge every
  * subsequently loaded page into it. `runDbInfiniteQueryDirect`/`useDbInfiniteRequest` use this whenever
  * a config omits `resolveSyncContract` - pass it explicitly only where a call site needs to name the
  * default resolution (e.g. composing it with other resolver logic).
  */
-export declare const replaceInitialSyncContract: <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
+export declare const replaceInitialSyncContract: <TNode>({ pageParam, scope, snapshotSeq }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
 /**
  * Run a single request config outside React.
  * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, and `refetchOnMount` are hook-only.
