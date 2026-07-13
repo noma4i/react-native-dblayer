@@ -23,12 +23,6 @@ export const executeDbMutationRequest = async <TData, TInput, TContext, TStored,
   return (response.data[config.resultField] ?? null) as TData | null;
 };
 
-const readOptimisticTempId = (context: unknown): string | null => {
-  if (typeof context !== 'object' || context === null) return null;
-  const tempId = (context as { tempId?: unknown }).tempId;
-  return typeof tempId === 'string' && tempId.length > 0 ? tempId : null;
-};
-
 export const readMutationTempId = (input: unknown): string | null => {
   if (!isRecord(input)) return null;
   const tempId = input.tempId;
@@ -67,7 +61,7 @@ const applyOptimisticMutationCommit = <TData, TInput, TContext, TStored, TServer
   if (node == null) return;
   const preservedNode = applyPreserveOnCommit(config, node, context);
 
-  const tempId = readOptimisticTempId(context);
+  const tempId = readMutationTempId(context);
   if (tempId) {
     config.optimistic.model.replaceRaw(tempId, preservedNode);
   } else {
@@ -104,7 +98,7 @@ const buildDirectCommitContext = <TData, TInput, TContext, TStored, TServerNode,
 ): TContext | ({ tempId: string | null; optimisticRow: TStored | null } & Record<string, unknown>) | undefined => {
   if (!config.optimistic) return context;
 
-  const tempId = readOptimisticTempId(context) ?? (config.optimistic.selectTempId ? (config.optimistic.selectTempId(input) ?? null) : readMutationTempId(input));
+  const tempId = readMutationTempId(context) ?? (config.optimistic.selectTempId ? (config.optimistic.selectTempId(input) ?? null) : readMutationTempId(input));
   const optimisticContext = {
     tempId,
     optimisticRow: tempId ? (config.optimistic.model.get(tempId) ?? null) : null

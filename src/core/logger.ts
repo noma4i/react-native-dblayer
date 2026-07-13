@@ -1,4 +1,5 @@
 import type { DbLogger } from '../types';
+import { createConfiguredSlot } from './configuredSlot';
 
 export type { DbLogger };
 
@@ -9,12 +10,12 @@ const defaultDbLogger: DbLogger = {
   error: noop
 };
 
-let currentDbLogger: DbLogger = defaultDbLogger;
+const currentDbLogger = createConfiguredSlot(defaultDbLogger);
 
 /** Set the logger used by request and mutation runtimes. */
 export const setDbLogger = (logger: DbLogger): void => {
-  currentDbLogger = logger;
+  currentDbLogger.set(logger);
 };
 
 /** Get the currently configured logger. */
-export const getDbLogger = (): DbLogger => currentDbLogger;
+export const getDbLogger = (): DbLogger => currentDbLogger.get();

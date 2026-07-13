@@ -15,6 +15,7 @@ export {
   liftExtractNodes
 } from './core/extract';
 export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './core/queryClient';
+export { isIncomingNewer } from './core/invariants';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { f } from './schema/f';

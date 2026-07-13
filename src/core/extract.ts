@@ -1,4 +1,5 @@
 import type { SyncContract } from '../types';
+import { createConfiguredSlot } from './configuredSlot';
 import { isRecord } from '../utils/normalizeHelpers';
 import { mergeSyncContract } from '../utils/serverSync';
 import { castNodes } from '../utils/typeBoundary';
@@ -50,24 +51,24 @@ export type DbExtractSinkTable = Record<string, DbExtractModelSink | DbExtractCu
 const defaultDbExtractSink: DbExtractSink = () => {};
 const defaultDbMutationExtractResolver: DbMutationExtractResolver = extractSpec => extractSpec;
 
-let currentDbExtractSink: DbExtractSink = defaultDbExtractSink;
-let currentDbMutationExtractResolver: DbMutationExtractResolver = defaultDbMutationExtractResolver;
+const currentDbExtractSink = createConfiguredSlot(defaultDbExtractSink);
+const currentDbMutationExtractResolver = createConfiguredSlot(defaultDbMutationExtractResolver);
 
 /** Set the sink used for query and mutation side-load payloads. */
 export const setDbExtractSink = (sink: DbExtractSink): void => {
-  currentDbExtractSink = sink;
+  currentDbExtractSink.set(sink);
 };
 
 /** Get the currently configured extract sink. */
-export const getDbExtractSink = (): DbExtractSink => currentDbExtractSink;
+export const getDbExtractSink = (): DbExtractSink => currentDbExtractSink.get();
 
 /** Set the resolver used to turn mutation extract specs into payloads. */
 export const setDbMutationExtractResolver = (resolver: DbMutationExtractResolver): void => {
-  currentDbMutationExtractResolver = resolver;
+  currentDbMutationExtractResolver.set(resolver);
 };
 
 /** Get the currently configured mutation extract resolver. */
-export const getDbMutationExtractResolver = (): DbMutationExtractResolver => currentDbMutationExtractResolver;
+export const getDbMutationExtractResolver = (): DbMutationExtractResolver => currentDbMutationExtractResolver.get();
 
 /**
  * Normalize a mutation extract value into a compact array of non-null nodes.

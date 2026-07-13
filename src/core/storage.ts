@@ -1,4 +1,5 @@
 import type { StorageAdapter } from '../types';
+import { createConfiguredSlot } from './configuredSlot';
 
 export type { StorageAdapter };
 
@@ -25,12 +26,12 @@ const defaultStorageAdapter: StorageAdapter = {
   }
 };
 
-let currentStorageAdapter: StorageAdapter = defaultStorageAdapter;
+const currentStorageAdapter = createConfiguredSlot(defaultStorageAdapter);
 
 /** Set the synchronous storage adapter used by persistent collections. */
 export const setDbStorageAdapter = (adapter: StorageAdapter): void => {
-  currentStorageAdapter = adapter;
+  currentStorageAdapter.set(adapter);
 };
 
 /** Get the currently configured storage adapter. */
-export const getDbStorageAdapter = (): StorageAdapter => currentStorageAdapter;
+export const getDbStorageAdapter = (): StorageAdapter => currentStorageAdapter.get();

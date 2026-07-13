@@ -1,22 +1,24 @@
 import { getDbLogger } from './logger';
+import { createConfiguredSlot } from './configuredSlot';
 import type { DbTrackEvent, DbTrackSink } from '../types';
 
-let currentDbTrackSink: DbTrackSink | undefined;
+const currentDbTrackSink = createConfiguredSlot<DbTrackSink | undefined>(undefined);
 
 /** Set the sink used by declarative mutation and command tracking. */
 export const setDbTrackSink = (sink: DbTrackSink | undefined): void => {
-  currentDbTrackSink = sink;
+  currentDbTrackSink.set(sink);
 };
 
 /** Return true when declarative mutation and command tracking has an active sink. */
-export const hasDbTrackSink = (): boolean => currentDbTrackSink !== undefined;
+export const hasDbTrackSink = (): boolean => currentDbTrackSink.get() !== undefined;
 
 /** Emit a track event if a sink is configured. */
 export const emitDbTrackEvent = (event: DbTrackEvent, logPrefix: string, phase: string): void => {
-  if (!currentDbTrackSink) return;
+  const sink = currentDbTrackSink.get();
+  if (!sink) return;
 
   try {
-    currentDbTrackSink(event);
+    sink(event);
   } catch (error) {
     getDbLogger().debug(logPrefix, 'track sink failed', phase, error);
   }
@@ -29,7 +31,7 @@ export const emitConfiguredTrackEvent = <TArgs extends unknown[]>(
   logPrefix: string,
   phase: string
 ): void => {
-  if (!currentDbTrackSink) return;
+  if (!currentDbTrackSink.get()) return;
   if (!resolve) return;
 
   try {

@@ -1,20 +1,15 @@
 import { useIsRestoring, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useMemo } from 'react';
 import { buildScopeKey, ROOT_SCOPE_KEY } from '../../core/compileDbWhere';
-import { getCollectionFetchStateVersion, subscribeCollectionFetchState } from '../../core/freshnessStorage';
-import { getDbLogger } from '../../core/logger';
 import type { BaseQueryCollection, BaseQueryConfig, BaseQueryResult, CollectionFetchState, DbRequestSingleData } from '../../types';
+import { logFreshnessSkip, useCollectionFetchStateVersion } from './freshnessGate';
+import type { FreshnessGateDecision } from './freshnessGate';
 import { computeLoadingState, computePhase } from './loadingState';
 import { useCollectionRead } from './shared';
 
 type CollectionScope = {
   filter?: { id?: string | null };
   scopeKey: string;
-};
-
-type FreshnessGateDecision = {
-  fetchState: CollectionFetchState | null;
-  shouldSkip: boolean;
 };
 
 const resolveCollectionId = (collection: BaseQueryCollection | undefined): string | undefined => collection?.model.collection.id;
@@ -29,16 +24,6 @@ const resolveFetchState = (collection: BaseQueryConfig<unknown>['collection']): 
   if (!collection) return null;
   if ('id' in collection) return collection.model.getFetchState?.(resolveCollectionScope(collection).filter) ?? null;
   return collection.model.getFetchState?.() ?? null;
-};
-
-const logFreshnessSkip = (collection: BaseQueryConfig<unknown>['collection'], scopeKey: string, fetchState: CollectionFetchState | null): void => {
-  if (!collection || !fetchState) return;
-  getDbLogger().debug('db', 'freshness:skip', {
-    model: resolveCollectionId(collection),
-    scopeKey,
-    ageMs: Date.now() - fetchState.touchedAt,
-    empty: fetchState.empty
-  });
 };
 
 const resolveSkipInitialFetch = (collection: BaseQueryConfig<unknown>['collection'], staleTime?: number, emptyStaleTime?: number): boolean => {
@@ -59,13 +44,6 @@ const resolveFreshnessGateDecision = (collection: BaseQueryConfig<unknown>['coll
   shouldSkip: resolveSkipInitialFetch(collection, staleTime, emptyStaleTime)
 });
 
-const useCollectionFetchStateVersion = (collection: BaseQueryConfig<unknown>['collection']): number => {
-  const collectionId = resolveCollectionId(collection);
-  const subscribe = useCallback((listener: () => void) => (collectionId ? subscribeCollectionFetchState(collectionId, listener) : () => {}), [collectionId]);
-  const getSnapshot = useCallback(() => (collectionId ? getCollectionFetchStateVersion(collectionId) : 0), [collectionId]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-};
-
 type BaseQueryResolvedData<TData, TCollection extends BaseQueryCollection | undefined> = DbRequestSingleData<TData, TData, TCollection>;
 
 export const useBaseQuery = <TData, TCollection extends BaseQueryCollection | undefined = undefined>(
@@ -74,7 +52,7 @@ export const useBaseQuery = <TData, TCollection extends BaseQueryCollection | un
   const queryClient = useQueryClient();
   const isRestoring = useIsRestoring();
   const isInactive = config.enabled === false;
-  const freshnessVersion = useCollectionFetchStateVersion(config.collection);
+  const freshnessVersion = useCollectionFetchStateVersion(resolveCollectionId(config.collection));
   const hasQueryData = (queryClient.getQueryState(config.queryKey)?.dataUpdatedAt ?? 0) > 0;
   const { fetchState, shouldSkip: shouldSkipInitialFetch } = useMemo(() => {
     if (isInactive) {
@@ -86,7 +64,7 @@ export const useBaseQuery = <TData, TCollection extends BaseQueryCollection | un
     const decision = resolveFreshnessGateDecision(config.collection, config.staleTime, config.emptyStaleTime);
     const shouldSkip = decision.shouldSkip && !hasQueryData;
     if (shouldSkip) {
-      logFreshnessSkip(config.collection, resolveCollectionScope(config.collection).scopeKey, decision.fetchState);
+      logFreshnessSkip(resolveCollectionId(config.collection), resolveCollectionScope(config.collection).scopeKey, decision.fetchState);
     }
     return { fetchState: decision.fetchState, shouldSkip };
   }, [config.collection, config.emptyStaleTime, config.staleTime, freshnessVersion, hasQueryData, isInactive]);

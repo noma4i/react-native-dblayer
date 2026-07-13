@@ -8,6 +8,8 @@
 - BREAKING: `readId` (and therefore `f.id()`) now rejects empty-string ids, matching the documented "empty values are skipped" contract.
 - BREAKING: remove `toRequiredStr`; it stringified `null`/`undefined` into `"null"`/`"undefined"`. Use guaranteed-string values directly or `toStr` for nullish-preserving conversion.
 - Add `createDbSubscriptionEffects`: an injectable effects channel for subscription entries with a stable wrapper table and `configure`/`reset` controls, replacing hand-rolled app-side noop/active indirection.
+- Export `isIncomingNewer`, the canonical updatedAt comparator used by merge invariants.
+- Internal: consolidate mutable runtime seams (logger/transport/storage/query client/model defaults/extract/tracking) onto one configured-slot helper, dedupe the base-query freshness gate, and unify mutation temp-id reading. No public API change.
 
 ## 2.5.1-beta.9 - 2026-07-12
 

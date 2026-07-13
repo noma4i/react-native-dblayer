@@ -1,3 +1,4 @@
+import { isIncomingNewer } from '../index';
 import { shouldAcceptIncoming } from '../core/invariants';
 
 type TestItem = Record<string, unknown> & {
@@ -8,6 +9,15 @@ type TestItem = Record<string, unknown> & {
 };
 
 describe('core invariants', () => {
+  it('exports the canonical incoming timestamp comparator', () => {
+    expect(isIncomingNewer(null, undefined)).toBe(true);
+    expect(isIncomingNewer('2026-04-09T00:00:10.000Z', null)).toBe(false);
+    expect(isIncomingNewer(null, '2026-04-09T00:00:10.000Z')).toBe(true);
+    expect(isIncomingNewer('2026-04-09T00:00:10.000Z', '2026-04-09T00:00:11.000Z')).toBe(true);
+    expect(isIncomingNewer('2026-04-09T00:00:10.000Z', '2026-04-09T00:00:09.000Z')).toBe(false);
+    expect(isIncomingNewer('2026-04-09T00:00:10.000Z', '2026-04-09T00:00:10.000Z')).toBe(true);
+  });
+
   it('accepts newer and equal timestamps and rejects older timestamps by default', () => {
     const existing: TestItem = { id: '1', updatedAt: '2026-04-09T00:00:10.000Z', body: 'old' };
 

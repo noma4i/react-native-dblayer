@@ -1,19 +1,14 @@
 import { type InfiniteData, useInfiniteQuery, useIsRestoring, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { buildScopeKey } from '../../core/compileDbWhere';
-import { getCollectionFetchStateVersion, subscribeCollectionFetchState } from '../../core/freshnessStorage';
-import { getDbLogger } from '../../core/logger';
-import type { CollectionFetchState, InfiniteQueryConfig, InfiniteQueryResult, PageInfo } from '../../types';
+import type { InfiniteQueryConfig, InfiniteQueryResult, PageInfo } from '../../types';
+import { logFreshnessSkip, useCollectionFetchStateVersion } from './freshnessGate';
+import type { FreshnessGateDecision } from './freshnessGate';
 import { computeLoadingState, computePhase } from './loadingState';
 import { buildModelFilter } from './shared';
 
 const LOAD_MORE_THROTTLE_MS = 800;
 const EMPTY_PAGES: unknown[] = [];
-
-type FreshnessGateDecision = {
-  fetchState: CollectionFetchState | null;
-  shouldSkip: boolean;
-};
 
 const getPageInfo = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>, page: TData | undefined): PageInfo | undefined => {
   if (!page) return undefined;
@@ -42,31 +37,10 @@ const trimInfiniteDataToFirstPage = <TData>(data: InfiniteData<TData> | undefine
 
 const resolveStoredScope = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>, filter: unknown): unknown => config.collection._dbScope?.(filter) ?? filter;
 
-const logFreshnessSkip = <TData, TNode>(
-  config: InfiniteQueryConfig<TData, TNode>,
-  filter: unknown,
-  fetchState: CollectionFetchState | null
-): void => {
-  if (!fetchState) return;
-  getDbLogger().debug('db', 'freshness:skip', {
-    model: config.collection._dbModel?.collection.id,
-    scopeKey: buildScopeKey(resolveStoredScope(config, filter)),
-    ageMs: Date.now() - fetchState.touchedAt,
-    empty: fetchState.empty
-  });
-};
-
 const resolveFreshnessGateDecision = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>, filter: unknown): FreshnessGateDecision => ({
   fetchState: config.collection.getFetchState?.(filter) ?? null,
   shouldSkip: config.collection.shouldSkipInitialFetch(filter, config.staleTime, config.emptyStaleTime)
 });
-
-const useCollectionFetchStateVersion = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>): number => {
-  const collectionId = config.collection._dbModel?.collection.id;
-  const subscribe = useCallback((listener: () => void) => (collectionId ? subscribeCollectionFetchState(collectionId, listener) : () => {}), [collectionId]);
-  const getSnapshot = useCallback(() => (collectionId ? getCollectionFetchStateVersion(collectionId) : 0), [collectionId]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-};
 
 export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<TData, TNode>): InfiniteQueryResult<TNode> => {
   const queryClient = useQueryClient();
@@ -75,7 +49,7 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isManualLoadingMore, setIsManualLoadingMore] = useState(false);
   const filter = useMemo(() => buildModelFilter(config.getFilter?.(), config.getCurrentUserId?.()), [config.getCurrentUserId, config.getFilter]);
-  const freshnessVersion = useCollectionFetchStateVersion(config);
+  const freshnessVersion = useCollectionFetchStateVersion(config.collection._dbModel?.collection.id);
   const hasQueryData = (queryClient.getQueryState(config.queryKey)?.dataUpdatedAt ?? 0) > 0;
   const { fetchState, shouldSkip: shouldSkipInitialFetch } = useMemo(() => {
     if (isInactive) {
@@ -87,7 +61,7 @@ export const useBaseInfiniteQuery = <TData, TNode>(config: InfiniteQueryConfig<T
     const decision = resolveFreshnessGateDecision(config, filter);
     const shouldSkip = decision.shouldSkip && !hasQueryData;
     if (shouldSkip) {
-      logFreshnessSkip(config, filter, decision.fetchState);
+      logFreshnessSkip(config.collection._dbModel?.collection.id, buildScopeKey(resolveStoredScope(config, filter)), decision.fetchState);
     }
     return { fetchState: decision.fetchState, shouldSkip };
   }, [config, filter, freshnessVersion, hasQueryData, isInactive]);

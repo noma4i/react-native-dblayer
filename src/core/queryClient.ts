@@ -1,13 +1,14 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { createConfiguredSlot } from './configuredSlot';
 import { deriveDbKey } from './deriveDbKey';
 import { clearCollectionFetchStates } from './freshnessStorage';
 import { getDbLogger } from './logger';
 import type { CollectionModel } from '../types';
 
-let dbQueryClient: QueryClient | null = null;
+const dbQueryClient = createConfiguredSlot<QueryClient | null>(null);
 
 export const setDbQueryClient = (queryClient: QueryClient | null | undefined): void => {
-  dbQueryClient = queryClient ?? null;
+  dbQueryClient.set(queryClient ?? null);
 };
 
 /**
@@ -15,7 +16,7 @@ export const setDbQueryClient = (queryClient: QueryClient | null | undefined): v
  *
  * @returns The current QueryClient, or `null` when not configured.
  */
-export const getDbQueryClient = (): QueryClient | null => dbQueryClient;
+export const getDbQueryClient = (): QueryClient | null => dbQueryClient.get();
 
 const withDbQueryClient = (operation: string): QueryClient | null => {
   const queryClient = getDbQueryClient();
