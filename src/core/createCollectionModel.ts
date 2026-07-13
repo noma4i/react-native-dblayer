@@ -337,6 +337,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     shouldOverwrite: config.merge?.shouldOverwrite,
     versionCore,
     dedupeWindowMs: config.merge?.dedupeWindowMs,
+    resurrectionTtlMs: config.merge?.resurrectionTtlMs,
     resolveDedupeWindowMs: () => getDbModelDefaults().merge?.dedupeWindowMs,
     registerReset: reset => {
       resetMergeState = reset;

@@ -5,7 +5,9 @@
 - Migration: `protectAfterSeq` is renamed to `snapshotSeq` in merge and replace sync contracts. The snapshot is captured before transport and arbitrates all local writes through one row-version core.
 - Propagation now remains transitive across distinct models and stops only when a model repeats in the active chain; explicit mirror suppression remains unchanged.
 - Mutation lifecycle is phased: transport failures roll back optimistic state, while apply and persistence failures retain server-confirmed state and surface the failure without rollback. `runDbMutationDirect` keeps its existing patch/destroy no-rollback asymmetry.
-- Deferred collection serialization is not enabled yet. TanStack DB's required versioned storage sync and transaction-confirmation protocol is private to `localStorageCollectionOptions`; the existing MMKV write-back buffer remains in place until that protocol has a supported extension point.
+- Deferred collection serialization now coalesces whole-collection storage writes while retaining immediate per-commit sync confirmation and in-memory snapshots. Manual CompassRelationModel-style scoped replace calls through `applyServerData` outside query runtime do not receive a snapshot token and remain without watermark protection; extract plumbing is a candidate for the next change-set.
+- Merge dedupe hashes each batch's ordered `(id, updatedAt)` tuples and length rather than full payload content. Batches with the same ids and timestamps but different content inside the dedupe window now dedupe by design because the server contract advances `updatedAt` for content changes.
+- Models can opt into `merge.resurrectionTtlMs` to suppress no-snapshot subscription echoes shortly after a local delete. The default is off, preserving legitimate same-id recreation; existing manual MessageModel ledger logic is a future migration candidate.
 
 ## 4.2.0 - 2026-07-14
 

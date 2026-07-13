@@ -30,4 +30,16 @@ describe('row version core', () => {
     expect(core.getDeleteSeq('second')).toBeUndefined();
     expect(core.snapshot()).toBe(2);
   });
+
+  it('reports delete marks within their configured TTL', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    const core = createRowVersionCore();
+    core.noteDelete('row');
+
+    jest.spyOn(Date, 'now').mockReturnValue(1_999);
+    expect(core.wasDeletedWithin('row', 1_000)).toBe(true);
+
+    jest.spyOn(Date, 'now').mockReturnValue(2_000);
+    expect(core.wasDeletedWithin('row', 1_000)).toBe(false);
+  });
 });

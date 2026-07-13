@@ -252,6 +252,30 @@ describe('collection model core DSL', () => {
         mode: 'merge'
       })
     ).toEqual({ merged: 0 });
+    expect(
+      model.applyServerData([{ id: '2', title: 'Changed content', listId: 'a', updatedAt: later }], {
+        mode: 'merge'
+      })
+    ).toEqual({ merged: 0 });
+    expect(model.get('2')?.title).toBe('Dedupe');
+  });
+
+  it('suppresses no-snapshot merge resurrection only when the model opts into a TTL', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    const protectedModel = createTodoModel({ resurrectionTtlMs: 1_000 });
+    protectedModel.applyServerData([{ id: 'protected', title: 'Before', listId: 'a', updatedAt: later }], { mode: 'merge' });
+    protectedModel.destroy('protected');
+
+    expect(protectedModel.applyServerData([{ id: 'protected', title: 'Echo', listId: 'a', updatedAt: later }], { mode: 'merge' })).toEqual({ merged: 0 });
+    expect(protectedModel.get('protected')).toBeUndefined();
+
+    jest.spyOn(Date, 'now').mockReturnValue(2_000);
+    expect(protectedModel.applyServerData([{ id: 'protected', title: 'Recreated', listId: 'a', updatedAt: later }], { mode: 'merge' })).toEqual({ merged: 1 });
+
+    const defaultModel = createTodoModel();
+    defaultModel.applyServerData([{ id: 'default', title: 'Before', listId: 'a', updatedAt: later }], { mode: 'merge' });
+    defaultModel.destroy('default');
+    expect(defaultModel.applyServerData([{ id: 'default', title: 'Allowed', listId: 'a', updatedAt: later }], { mode: 'merge' })).toEqual({ merged: 1 });
   });
 
   it.each(['merge', 'replace'] as const)('stores a newly introduced field when %s updates an existing row', mode => {

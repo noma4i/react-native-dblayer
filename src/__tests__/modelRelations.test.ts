@@ -592,7 +592,7 @@ describe('model relations', () => {
     expect(stableSerialize(row)).not.toContain('related');
     expect(pickEqual<UserRow>(row, { id: 'user-1', name: 'Ada', updatedAt: null }, ['id', 'name', 'updatedAt'])).toBe(true);
 
-    await flush();
+    await new Promise(resolve => setTimeout(resolve, 350));
 
     const hydratedMessageModel = defineMessageModel('relation-row-plain-message');
     const hydratedChatRelations = () => ({

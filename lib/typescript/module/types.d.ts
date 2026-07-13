@@ -278,6 +278,7 @@ export interface RowVersionCore {
     snapshot(): number;
     wasWrittenAfter(id: string, snapshotSeq: number): boolean;
     wasDeletedAfter(id: string, snapshotSeq: number): boolean;
+    wasDeletedWithin(id: string, ttlMs: number): boolean;
     getWriteSeq(id: string): number | undefined;
     getDeleteSeq(id: string): number | undefined;
     reset(): void;
@@ -303,6 +304,8 @@ export interface CreateMergeConfig<TInput, TOutput extends {
      * @default 0
      */
     dedupeWindowMs?: number;
+    /** Suppress same-id merge resurrection briefly after a local delete when no snapshot is available. */
+    resurrectionTtlMs?: number;
     /** Resolve the default dedupe window when no model-level value is configured. */
     resolveDedupeWindowMs?: () => number | undefined;
     /** Register a runtime reset callback for dedupe state. */
@@ -496,6 +499,8 @@ interface CreateCollectionModelBaseConfig<TInput, TStored extends {
          * @default 0
          */
         dedupeWindowMs?: number;
+        /** Suppress same-id merge resurrection briefly after a local delete when no snapshot is available. */
+        resurrectionTtlMs?: number;
         /** Force-accept a merge the timestamp gate would reject. */
         shouldOverwrite?: (existing: TStored, incoming: Partial<TStored> & {
             id: string;

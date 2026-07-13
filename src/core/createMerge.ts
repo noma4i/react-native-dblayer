@@ -1,11 +1,15 @@
 import type { CreateMergeConfig, DbCollection, MergeResult } from '../types';
 import { shouldAcceptIncoming } from './invariants';
-import { stableSerialize } from './serialize';
 
-const fnv1a = (items: Array<Record<string, unknown> & { id: string }>): number => {
+const fnv1a = (items: Array<{ id: string; updatedAt?: string | null }>): number => {
   let hash = 2166136261;
+  const length = String(items.length);
+  for (let i = 0; i < length.length; i++) {
+    hash ^= length.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
   for (let i = 0; i < items.length; i++) {
-    const s = `${stableSerialize(items[i])}|${i}`;
+    const s = `${items[i]!.id}|${items[i]!.updatedAt ?? ''}|${i}`;
     for (let j = 0; j < s.length; j++) {
       hash ^= s.charCodeAt(j);
       hash = Math.imul(hash, 16777619);
@@ -19,10 +23,12 @@ const upsertIfNewer = <T extends { id: string; updatedAt?: string | null }>(
   item: Partial<T> & { id: string },
   shouldOverwrite?: (existing: T, incoming: Partial<T> & { id: string }) => boolean,
   snapshotSeq?: number,
-  versionCore?: CreateMergeConfig<unknown, T>['versionCore']
+  versionCore?: CreateMergeConfig<unknown, T>['versionCore'],
+  resurrectionTtlMs?: number
 ): boolean => {
   const key = String(item.id);
   if (snapshotSeq !== undefined && versionCore?.wasDeletedAfter(key, snapshotSeq)) return false;
+  if (snapshotSeq === undefined && resurrectionTtlMs !== undefined && versionCore?.wasDeletedWithin(key, resurrectionTtlMs)) return false;
   if (!collection.has(key)) {
     collection.insert(item as T);
     return true;
@@ -66,7 +72,7 @@ export function createMerge<TInput, TOutput extends { id: string; updatedAt?: st
 
     if (dedupeWindowMs > 0) {
       const now = Date.now();
-      const key = fnv1a(normalized as Array<Record<string, unknown> & { id: string }>);
+      const key = fnv1a(normalized);
       if (now - lastMergeTimestamp < dedupeWindowMs && key === lastMergeKey) {
         return { merged: 0 };
       }
@@ -77,7 +83,7 @@ export function createMerge<TInput, TOutput extends { id: string; updatedAt?: st
     let mergedCount = 0;
 
     for (const item of normalized) {
-      if (upsertIfNewer(config.collection, item, config.shouldOverwrite, snapshotSeq, config.versionCore)) {
+      if (upsertIfNewer(config.collection, item, config.shouldOverwrite, snapshotSeq, config.versionCore, config.resurrectionTtlMs)) {
         mergedCount++;
       }
     }

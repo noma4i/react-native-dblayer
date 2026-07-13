@@ -73,7 +73,7 @@ export const mockTransport = (handlers: {
       }))
 });
 
-export const createTodoModel = (options?: { id?: string; staleTime?: number; emptyStaleTime?: number; dedupeWindowMs?: number }) => {
+export const createTodoModel = (options?: { id?: string; staleTime?: number; emptyStaleTime?: number; dedupeWindowMs?: number; resurrectionTtlMs?: number }) => {
   const id = options?.id ?? `test-todos-${modelCounter++}`;
   const model = defineModel<TodoInput, Todo>({
     id,
@@ -88,7 +88,8 @@ export const createTodoModel = (options?: { id?: string; staleTime?: number; emp
       updatedAt: input.updatedAt ?? null
     }),
     merge: {
-      dedupeWindowMs: options?.dedupeWindowMs
+      dedupeWindowMs: options?.dedupeWindowMs,
+      resurrectionTtlMs: options?.resurrectionTtlMs
     },
     replace: {},
     defaultSort: { field: 'id', direction: 'asc' }
@@ -97,7 +98,7 @@ export const createTodoModel = (options?: { id?: string; staleTime?: number; emp
   return model;
 };
 
-export const createTodoFieldsModel = (options?: { id?: string; staleTime?: number; emptyStaleTime?: number; dedupeWindowMs?: number }) => {
+export const createTodoFieldsModel = (options?: { id?: string; staleTime?: number; emptyStaleTime?: number; dedupeWindowMs?: number; resurrectionTtlMs?: number }) => {
   const id = options?.id ?? `test-field-todos-${modelCounter++}`;
   const model = defineModel({
     id,
@@ -111,7 +112,8 @@ export const createTodoFieldsModel = (options?: { id?: string; staleTime?: numbe
       updatedAt: f.str().nullable()
     },
     merge: {
-      dedupeWindowMs: options?.dedupeWindowMs
+      dedupeWindowMs: options?.dedupeWindowMs,
+      resurrectionTtlMs: options?.resurrectionTtlMs
     },
     replace: {},
     defaultSort: { field: 'id', direction: 'asc' }

@@ -1,5 +1,6 @@
-import { BasicIndex, localStorageCollectionOptions } from '@tanstack/db';
+import { BasicIndex } from '@tanstack/db';
 import type { CollectionConfig, LocalStorageCollectionUtils } from '@tanstack/db';
+import { deferredCollectionPersistence } from './deferredCollectionPersistence';
 import { getDbStorageAdapter } from './storage';
 
 /** Build TanStack DB local-storage collection options backed by the configured storage adapter. */
@@ -8,7 +9,7 @@ export const mmkvCollectionOptions = <T extends object, TKey extends string | nu
   getKey: (item: T) => TKey;
 }): CollectionConfig<T, TKey, never, LocalStorageCollectionUtils> & { id: string; utils: LocalStorageCollectionUtils; schema?: never } => {
   const storage = getDbStorageAdapter();
-  return localStorageCollectionOptions({
+  return deferredCollectionPersistence({
     id: config.id,
     storageKey: `tanstack-db-${config.id}`,
     storage,
