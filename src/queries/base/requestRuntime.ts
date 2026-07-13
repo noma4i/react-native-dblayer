@@ -26,8 +26,8 @@ export const mergeInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSy
  * a config omits `resolveSyncContract` - pass it explicitly only where a call site needs to name the
  * default resolution (e.g. composing it with other resolver logic).
  */
-export const replaceInitialSyncContract = <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
-  pageParam === undefined ? replaceSyncContract('initial', scope) : mergeSyncContract('loadMore', scope);
+export const replaceInitialSyncContract = <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>): SyncContract =>
+  pageParam === undefined ? replaceSyncContract('initial', scope, protectAfterSeq) : mergeSyncContract('loadMore', scope);
 
 const applySingleSync = <TSelected>(selected: TSelected, sync: DbRequestSingleConfig<unknown, unknown, TSelected>['sync']): void => {
   if (!sync || selected == null) return;
@@ -126,6 +126,7 @@ export const runDbInfiniteQueryDirect = async <TResponse, TNode, TVariables = Re
     variables = { ...variables, ...pageVars };
   }
 
+  const queryStartSeq = config.read._dbModel?.getCollectionWriteSeq?.();
   const result = await getDbTransport().query<TResponse, Record<string, unknown>>({ query: config.query, variables });
   const data = result.data;
   const page = extractPage(data);
@@ -137,7 +138,7 @@ export const runDbInfiniteQueryDirect = async <TResponse, TNode, TVariables = Re
   }
 
   const modelFilter = buildModelFilter(resolveRequestFilter(config.filter, config.scope), config.currentUserId?.());
-  const contract = (config.resolveSyncContract ?? replaceInitialSyncContract)({ pageParam, nodes, scope: modelFilter });
+  const contract = (config.resolveSyncContract ?? replaceInitialSyncContract)({ pageParam, nodes, scope: modelFilter, protectAfterSeq: queryStartSeq });
   config.read.applyServerData(nodes, contract);
   config.read.markFetched?.(modelFilter, { empty: nodes.length === 0, pageInfo: page.pageInfo });
 

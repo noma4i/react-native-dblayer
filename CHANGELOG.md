@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.1.0 - 2026-07-14
+
+- Replace write-seq watermark - concurrent writers during an in-flight request window are no longer pruned by initial replace. No consumer migration is required.
+
 ## 4.0.0 - 2026-07-14
 
 - BREAKING: mutation and command transport dedupe is now opt-in through `dedupe.key(input)`; identical calls are independent by default, preventing legitimate repeated sends from being silently coalesced.

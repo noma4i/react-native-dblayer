@@ -15,7 +15,7 @@ export declare const mergeInitialSyncContract: <TNode>({ pageParam, scope }: Inf
  * a config omits `resolveSyncContract` - pass it explicitly only where a call site needs to name the
  * default resolution (e.g. composing it with other resolver logic).
  */
-export declare const replaceInitialSyncContract: <TNode>({ pageParam, scope }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
+export declare const replaceInitialSyncContract: <TNode>({ pageParam, scope, protectAfterSeq }: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
 /**
  * Run a single request config outside React.
  * @param config Same config accepted by `useDbSingleRequest`; `key`, `enabled`, `staleTime`, `gcTime`, and `refetchOnMount` are hook-only.

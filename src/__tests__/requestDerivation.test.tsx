@@ -390,6 +390,42 @@ describe('request config derivation', () => {
     expect(applyServerData).toHaveBeenNthCalledWith(2, expect.any(Array), { mode: 'merge', source: 'loadMore', scope: { listId: 'inbox' } });
   });
 
+  it('protects concurrent writes during a default initial replace request', async () => {
+    const model = createTodoModel({ id: 'replace-watermark-request' });
+    const binding = createCollectionBinding(model);
+    let resolveTransport!: (result: { data: TodoConnectionResponse }) => void;
+    configureDb({
+      storage: inMemoryStorageAdapter(),
+      transport: mockTransport({
+        query: () =>
+          new Promise<{ data: TodoConnectionResponse }>(resolve => {
+            resolveTransport = resolve;
+          })
+      })
+    });
+
+    model.insertStored({ id: 'before-request', title: 'Before', listId: 'inbox', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
+    const request = runDbInfiniteQueryDirect<TodoConnectionResponse, Todo>({
+      query: document<TodoConnectionResponse>('ReplaceWatermarkTodos'),
+      selectPage: data => data.todos,
+      read: binding
+    });
+    model.insertStored({ id: 'during-request', title: 'During', listId: 'inbox', done: false, updatedAt: '2026-01-02T00:00:00.000Z' });
+
+    resolveTransport({
+      data: {
+        todos: {
+          nodes: [],
+          pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null }
+        }
+      }
+    });
+    await request;
+
+    expect(model.get('before-request')).toBeUndefined();
+    expect(model.get('during-request')?.title).toBe('During');
+  });
+
   it('exports a merge-initial infinite sync resolver while explicit configs still win', async () => {
     const applyServerData = jest.fn();
     const read = {

@@ -8,8 +8,9 @@ export const mergeSyncContract = <TScope = undefined>(source: string, scope?: TS
 });
 
 /** Build a replace sync contract for server data writes. */
-export const replaceSyncContract = <TScope = undefined>(source: string, scope?: TScope): SyncContract<TScope> => ({
+export const replaceSyncContract = <TScope = undefined>(source: string, scope?: TScope, protectAfterSeq?: number): SyncContract<TScope> => ({
   mode: 'replace',
   source,
-  scope
+  scope,
+  ...(protectAfterSeq === undefined ? {} : { protectAfterSeq })
 });

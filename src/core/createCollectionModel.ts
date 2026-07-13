@@ -284,6 +284,12 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   };
   const collectionId = typeof rawCollection.id === 'string' && rawCollection.id.length > 0 ? rawCollection.id : null;
   const freshness = createFreshnessTracker<any>(config.name, collectionId, staleTime, emptyStaleTime);
+  let writeSeq = 0;
+  const rowWriteSeqById = new Map<string, number>();
+  const recordWrite = (id: string): void => {
+    writeSeq += 1;
+    rowWriteSeqById.set(id, writeSeq);
+  };
   let resetMergeState = (): void => {};
   let relationCache: ModelRelationsConfig | null = null;
   let relatedAccessorsCache: unknown;
@@ -299,6 +305,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     insert: (item: StoredRowBase & Record<string, unknown>) => {
       const row = attachRelatedToRow(item);
       rawCollection.insert(row);
+      recordWrite(row.id);
       writePropagation.announce(row, 'insert');
     },
     // Never read the TanStack change-proxy draft: it breaks for keys absent from the original row.
@@ -309,9 +316,14 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
       if (!row) return;
 
       attachRelatedToRow(row);
+      recordWrite(id);
       writePropagation.announce(row, 'update');
     },
-    delete: (id: string) => rawCollection.delete(id),
+    delete: (id: string) => {
+      const deleted = rawCollection.delete(id);
+      rowWriteSeqById.delete(id);
+      return deleted;
+    },
     keys: () => rawCollection.keys(),
     values: () => rawCollection.values(),
     get size() {
@@ -334,7 +346,8 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
   const replace = createReplace<any, any>({
     collection: runtimeCollection,
     normalize,
-    shouldOverwrite: config.replace?.shouldOverwrite
+    shouldOverwrite: config.replace?.shouldOverwrite,
+    getRowWriteSeq: id => rowWriteSeqById.get(id)
   });
 
   const crud = createPatchCrud<any>({ collection: runtimeCollection });
@@ -450,7 +463,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     for (const id of rawCollection.keys()) ids.push(String(id));
     withTransaction(() => {
       for (const id of ids) {
-        rawCollection.delete(id);
+        runtimeCollection.delete(id);
       }
     });
     freshness.clear();
@@ -477,7 +490,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     withTransaction(() => {
       for (const id of ids) {
         if (!rawCollection.has(id)) continue;
-        rawCollection.delete(id);
+        runtimeCollection.delete(id);
         deleted += 1;
       }
     });
@@ -540,7 +553,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
         runSideloads(config.sideload, items, contract);
         if (internalContract.mode === 'replace') {
           const scopeFilter = internalContract._scopeFilter as ((item: any) => boolean) | undefined;
-          result = replace(items, scopeFilter);
+          result = replace(items, scopeFilter, internalContract.protectAfterSeq);
         } else {
           result = merge(items);
         }
@@ -692,7 +705,7 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
         withApplyingModel(config.name, () => {
           runSideloads(config.sideload, [item], { mode: 'merge', source: 'sideload' });
         });
-        rawCollection.delete(oldId);
+        runtimeCollection.delete(oldId);
         runtimeCollection.insert(normalized as any);
       });
       return true;
@@ -700,6 +713,8 @@ export function createCollectionModel(config: RuntimeModelConfig): any {
     insertStored: (item: any) => {
       runtimeCollection.insert(item);
     },
+    getCollectionWriteSeq: () => writeSeq,
+    getRowWriteSeq: (id: string) => rowWriteSeqById.get(id),
     applyServerData,
     markFetched: freshness.markFetched,
     getFetchState: freshness.getFetchState,

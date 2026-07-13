@@ -322,6 +322,8 @@ export interface CreateReplaceConfig<TInput, TOutput extends {
     shouldOverwrite?: (existing: TOutput, incoming: Partial<TOutput> & {
         id: string;
     }) => boolean;
+    /** Return the latest in-memory write sequence for a stored row. */
+    getRowWriteSeq?: (id: string) => number | undefined;
 }
 export interface CreatePatchCrudConfig<T extends {
     id: string;
@@ -362,6 +364,8 @@ export interface SyncContract<TScope = unknown> {
     source?: string;
     /** Optional opaque scope tag for scoped writes. */
     scope?: TScope;
+    /** Protect rows written after this in-memory sequence from replace pruning. */
+    protectAfterSeq?: number;
 }
 /**
  * Package-internal widening of `SyncContract` carrying the scoped-replace predicate and freshness
@@ -569,6 +573,10 @@ export interface CollectionModel<TInput, TStored extends {
     replaceRaw(oldId: string, item: TInput): boolean;
     /** Insert an already-normalized stored row. */
     insertStored(item: StoredWriteInput<TStored>): void;
+    /** Return the current in-memory collection write sequence for request runtime contracts. */
+    getCollectionWriteSeq(): number;
+    /** Return the latest in-memory write sequence for one row, if it is still tracked. */
+    getRowWriteSeq(id: string): number | undefined;
     /** Apply server data using a merge or replace sync contract. */
     applyServerData(items: unknown[], contract: SyncContract): MergeResult | ReplaceResult;
     /** Mark a filter scope as fetched now. */
@@ -604,6 +612,8 @@ export type DbKeyModelSource = {
     collection: {
         readonly id: string;
     };
+    /** Return the current in-memory collection write sequence for request runtime contracts. */
+    getCollectionWriteSeq?: () => number;
 };
 export type CollectionBindingUseDataContext<TStored, TRead = TStored> = {
     /** Original runtime filter passed to the binding. */
@@ -801,6 +811,8 @@ export type InfiniteSyncContractResolverContext<TNode> = {
     nodes: TNode[];
     /** Scope computed from filter and current user id. */
     scope: unknown;
+    /** In-memory collection write sequence captured before transport starts. */
+    protectAfterSeq?: number;
 };
 export type InfiniteQueryConfig<TData, TNode> = {
     /** React Query cache key. */

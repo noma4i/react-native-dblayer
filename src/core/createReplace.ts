@@ -1,11 +1,12 @@
 import type { CreateReplaceConfig, ReplaceResult } from '../types';
 import { shouldAcceptIncoming } from './invariants';
+import { getDbLogger } from './logger';
 
 /** Create a replace writer that upserts incoming rows and deletes rows missing from the incoming set. */
 export function createReplace<TInput, TOutput extends { id: string }>(
   config: CreateReplaceConfig<TInput, TOutput>
-): (items: TInput[], scopeFilter?: (item: TOutput) => boolean) => ReplaceResult {
-  return (items: TInput[], scopeFilter?: (item: TOutput) => boolean): ReplaceResult => {
+): (items: TInput[], scopeFilter?: (item: TOutput) => boolean, protectAfterSeq?: number) => ReplaceResult {
+  return (items: TInput[], scopeFilter?: (item: TOutput) => boolean, protectAfterSeq?: number): ReplaceResult => {
     const normalized = items.map(item => config.normalize(item)).filter((item): item is TOutput => item !== null);
 
     const newIds = new Set<string>();
@@ -37,6 +38,7 @@ export function createReplace<TInput, TOutput extends { id: string }>(
     }
 
     const toDelete: string[] = [];
+    let protectedCount = 0;
     for (const id of config.collection.keys()) {
       const idStr = String(id);
       if (newIds.has(idStr)) continue;
@@ -44,7 +46,15 @@ export function createReplace<TInput, TOutput extends { id: string }>(
         const existing = config.collection.get(idStr);
         if (existing && !scopeFilter(existing)) continue;
       }
+      if (protectAfterSeq !== undefined && (config.getRowWriteSeq?.(idStr) ?? 0) > protectAfterSeq) {
+        protectedCount++;
+        continue;
+      }
       toDelete.push(idStr);
+    }
+
+    if (protectedCount > 0) {
+      getDbLogger().debug('db', 'replace:protected', { protectedCount, protectAfterSeq });
     }
 
     for (const id of toDelete) {

@@ -406,6 +406,44 @@ describe('collection model core DSL', () => {
     expect(model.getAll().map(item => item.id)).toEqual(['c1']);
   });
 
+  it('protects rows written after a replace watermark while pruning earlier rows', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'before', title: 'Before', listId: 'a', done: false, updatedAt: earlier });
+    model.insertStored({ id: 'updated-after', title: 'Original', listId: 'a', done: false, updatedAt: earlier });
+    const queryStartSeq = model.getCollectionWriteSeq();
+
+    model.insertStored({ id: 'inserted-after', title: 'Inserted', listId: 'a', done: false, updatedAt: later });
+    expect(model.patch('updated-after', { title: 'Updated', updatedAt: later })).toBe(true);
+
+    expect(model.applyServerData([], { mode: 'replace', protectAfterSeq: queryStartSeq })).toEqual({ merged: 0, deleted: 1 });
+    expect(model.get('before')).toBeUndefined();
+    expect(model.get('inserted-after')?.title).toBe('Inserted');
+    expect(model.get('updated-after')?.title).toBe('Updated');
+  });
+
+  it('cleans a destroyed row write sequence', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'tracked', title: 'Tracked', listId: 'a', done: false, updatedAt: earlier });
+    expect(model.getRowWriteSeq('tracked')).toBe(model.getCollectionWriteSeq());
+
+    expect(model.destroy('tracked')).toBe(true);
+    expect(model.getRowWriteSeq('tracked')).toBeUndefined();
+  });
+
+  it('keeps replace pruning unchanged without a write watermark', () => {
+    installMemoryStorage();
+    const model = createTodoModel();
+
+    model.insertStored({ id: 'pruned', title: 'Pruned', listId: 'a', done: false, updatedAt: earlier });
+
+    expect(model.applyServerData([], { mode: 'replace' })).toEqual({ merged: 0, deleted: 1 });
+    expect(model.get('pruned')).toBeUndefined();
+  });
+
   it('supports patch, destroy, bulk destroy, raw replacement, and clear scope', () => {
     installMemoryStorage();
     const model = createTodoModel();
