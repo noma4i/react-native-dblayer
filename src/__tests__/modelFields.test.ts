@@ -1,8 +1,7 @@
-import { configureDb, defineFields, defineModel, devClearAllDataAndState } from '../index';
+import { configureDb, defineModel, defineShape, devClearAllDataAndState } from '../index';
 import { getRegisteredModel } from '../core/modelRegistry';
 import { clearModelRegistry } from '../core/modelRegistry';
 import { f } from '../schema/f';
-import { defineShape } from '../schema/shape';
 import type { ModelInput, ModelStored } from '../schema/infer';
 import type { CollectionModel } from '../types';
 import { installMemoryStorage, mockTransport } from './helpers/testRuntime';
@@ -322,10 +321,10 @@ describe('fields-based model definitions', () => {
   it('normalizes branded inputs without writes and optionally requires complete fields', () => {
     installMemoryStorage();
     type RawInput = { id: string; payload: { title: string }; note?: string };
-    const fields = defineFields<RawInput>()({
+    const fields = defineShape<RawInput>()({
       title: f.str().from<RawInput>(input => input.payload.title),
       note: f.str().optional()
-    });
+    }).fields;
     const model = defineModel({
       id: 'fields-public-normalize',
       name: 'FieldsPublicNormalizeModel',

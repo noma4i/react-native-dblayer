@@ -18,7 +18,6 @@ export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './co
 export { createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 export { f } from './schema/f';
-export { defineFields } from './schema/fields';
 export { compositeId } from './schema/schema';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { runDbMutationDirect } from './mutations/base/executeDbMutation';

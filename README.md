@@ -138,8 +138,9 @@ export const CurrentUserModel = defineModel({
 
 `defineShape<TInput>()` can also define nested values for `f.object` and `f.array`. Its `fields` retain the raw input
 type when passed to `defineModel`, so one declaration can serve both model normalization and shape projection.
-`defineFields<TInput>()` remains available for model-only field maps. For irreducibly custom mappings, keep using
-`normalize`; shapes can still be reused with `readShape` inside that escape hatch.
+For model-only field maps, use `defineShape<TInput>()(...).fields`; this is the single branding path for model
+normalization and shape projection. For irreducibly custom mappings, keep using `normalize`; shapes can still be
+reused with `readShape` inside that escape hatch.
 
 Fields models also expose `buildStored(partial)` for optimistic rows. Explicit keys win, `.default(value | () => value)`
 fills factory-time defaults, nullable fields become `null`, and optional fields are omitted. `.default` does not affect
