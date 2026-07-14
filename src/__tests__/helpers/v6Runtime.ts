@@ -1,14 +1,22 @@
 import { createEntityClock, createEntityState } from '../../core/planes/entityState';
 import { createOperationState } from '../../core/planes/operationState';
 import { createScopeIndex, type Coverage } from '../../core/planes/scopeIndex';
+import type { StoragePlane } from '../../core/planes/storagePlane';
 
 type RuntimeOptions = { current?: string[]; sharedRow?: boolean };
 
 export const createV6TestRuntime = (options: RuntimeOptions = {}) => {
   let now = 0;
-  const state = createEntityState<{ id: string; updatedAt?: string }>(createEntityClock(), () => now++);
-  const scope = createScopeIndex();
-  const operations = createOperationState();
+  const values = new Map<string, string>();
+  const storage: StoragePlane = {
+    get: key => values.get(key),
+    set: entries => { for (const entry of entries) entry.value === null ? values.delete(entry.key) : values.set(entry.key, entry.value); },
+    keys: prefix => [...values.keys()].filter(key => key.startsWith(prefix))
+  };
+  const prefix = () => 'dbl:test:';
+  const state = createEntityState<{ id: string; updatedAt?: string }>({ modelId: 'row', clock: createEntityClock(), now: () => now++, storage, prefix });
+  const scope = createScopeIndex({ modelId: 'row', storage, prefix });
+  const operations = createOperationState({ storage, prefix, now: () => now++ });
   const current = options.current ?? [];
   let destroyed = false;
   let batchCount = 0;
@@ -17,11 +25,11 @@ export const createV6TestRuntime = (options: RuntimeOptions = {}) => {
   let counter = 0;
   let error: Error | null = null;
   for (const id of current) state.upsert({ id });
-  scope.reconcile('scope', 'complete', current);
+  scope.reconcile('scope', 'complete', current.map(id => ({ id })));
   if (options.sharedRow) state.upsert({ id: 'shared' });
 
   const reconcile = (coverage: Coverage, ids: string[]) => {
-    scope.reconcile('scope', coverage, ids);
+    scope.reconcile('scope', coverage, ids.map(id => ({ id })));
   };
 
   return {
