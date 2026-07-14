@@ -79,6 +79,17 @@ describe('v6 invariant 13: query pipeline', () => {
     expect(view.value().data?.map((row: any) => row.id)).toEqual(Array.from({ length: 40 }, (_, index) => String(index + 1)));
   });
 
+  it('maps a cursor before passing it to the configured variable', async () => {
+    const { client, calls, items } = setup([{ items: page(1, 1, true, '2') }, { items: page(2, 1, false, null) }]);
+    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, cursorVar: 'afterSequence', mapCursor: Number });
+    const view = renderQuery(client, () => query.use({ list: 'numeric-cursor' }));
+    await waitFor(() => view.value().data?.length === 1);
+    act(() => view.value().loadMore());
+    await waitFor(() => view.value().data?.length === 2 && !view.value().hasNextPage);
+    expect(calls[1].afterSequence).toBe(2);
+    expect(typeof calls[1].afterSequence).toBe('number');
+  });
+
   it('detaches missing complete-scope rows without destroying entities', async () => {
     const { items } = setup([{ items: [{ id: '1', name: 'one' }, { id: '2', name: 'two' }, { id: '3', name: 'three' }] }, { items: [{ id: '1', name: 'one' }, { id: '2', name: 'two' }] }]);
     const scopeValue = { list: 'complete' };

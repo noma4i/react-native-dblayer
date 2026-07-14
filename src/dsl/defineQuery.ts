@@ -54,6 +54,8 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
   /** GraphQL variable carrying the page cursor; defaults to 'after' ('before' when backward). */
   cursorVar?: string;
   getCursor?: (page: ConnectionLike) => string | null;
+  /** Transform the raw string cursor before it is substituted into the cursor variable (e.g. Number for numeric cursors). */
+  mapCursor?: (cursor: string) => unknown;
 };
 
 type PageMeta = { endCursor: string | null; hasNextPage: boolean; count: number };
@@ -117,7 +119,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
 
   const runFetch = async (scope: TScope, cursor: string | null): Promise<PageMeta> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
-    const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: cursor } : {}) };
+    const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {}) };
     const data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
     return applyResponse(scope, data);
   };

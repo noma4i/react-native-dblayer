@@ -21,7 +21,7 @@ export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubsc
 export { useStableItems as useStableProjection, useStableEntity, useStableSorted, useJoinedEntities, useOrderedEntities, pickEqual } from './queries/base/shared';
 export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
 export { computeLoadingState } from './queries/base/loadingState';
-export type { LoadingState, DbTransport, DbWhere } from './types';
+export type { LoadingState, DbTransport, DbWhere, StableProjectionConfig } from './types';
 export type { ModelInput, ModelStored } from './schema/infer';
 export type { InferShapeStored } from './schema/infer';
 export { generateTempId, isTempId } from './utils/generateTempId';

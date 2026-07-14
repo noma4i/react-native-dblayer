@@ -69,6 +69,8 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
     /** GraphQL variable carrying the page cursor; defaults to 'after' ('before' when backward). */
     cursorVar?: string;
     getCursor?: (page: ConnectionLike) => string | null;
+    /** Transform the raw string cursor before it is substituted into the cursor variable (e.g. Number for numeric cursors). */
+    mapCursor?: (cursor: string) => unknown;
 };
 /** Define a query that compiles GraphQL responses into one apply-pipeline transaction. */
 export declare const defineQuery: <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => {
