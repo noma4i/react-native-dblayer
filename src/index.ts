@@ -1,4 +1,4 @@
-export { configureDb, getDbQueryClient } from './dsl/configure';
+export { configureDb, flushPersistence, getDbQueryClient } from './dsl/configure';
 export { getDbTransport, setDbTransport } from './core/transport';
 export type { DbDefaults } from './dsl/configure';
 export { resetRuntime, registerReset } from './core/reset';

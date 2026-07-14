@@ -1,4 +1,5 @@
 import type { CommitBatch, CommitBus } from './commitBus';
+import type { CheckpointScheduler } from './checkpoint';
 import type { JournalOp, JournalRecord } from './journal';
 import { createJournal } from './journal';
 import type { StoragePlane } from '../planes/storagePlane';
@@ -6,7 +7,7 @@ import type { StoragePlane } from '../planes/storagePlane';
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
  * commit bus can notify per-(model, id, field) subscribers; `persistEntries` contributes the
- * model's dirty state to the transaction's single durable storage batch.
+ * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
 export type ApplyTarget = {
   upsert(rows: unknown[]): Array<{ id: string; changedFields: string[] | null }>;
@@ -18,9 +19,13 @@ export type ApplyTarget = {
 };
 
 export type ApplyRuntime = {
-  /** Apply one plan: journal pending -> in-memory apply -> single durable batch -> one commit publish. */
+  /** Apply one plan: WAL journal record -> in-memory apply -> journal commit mark -> one publish. */
   apply(ops: JournalOp[]): CommitBatch;
-  /** Replay incomplete epochs on startup (torn-write recovery); returns replayed epoch count. */
+  /**
+   * Startup recovery: idempotently re-apply journal records not yet covered by each model's
+   * persisted applied-epoch marker (survives torn checkpoint batches - the marker sits AFTER its
+   * snapshot in the flush order); returns replayed record count.
+   */
   replay(): number;
   currentEpoch(): number;
 };
@@ -68,23 +73,34 @@ const applyOperations = (ops: JournalOp[], setFreshness: (key: string, value: un
   return batch;
 };
 
+const touchedModelsOf = (ops: JournalOp[]): string[] => [...new Set(ops.filter(op => op.kind !== 'freshness').map(op => (op as { model: string }).model))];
+
 export const createApplyRuntime = (options: {
   storage: StoragePlane;
   prefix: () => string;
   bus: CommitBus;
+  checkpoint?: CheckpointScheduler;
   setFreshness?: (key: string, value: unknown) => void;
 }): ApplyRuntime => {
-  const { storage, prefix, bus } = options;
+  const { storage, prefix, bus, checkpoint } = options;
   const setFreshness = options.setFreshness ?? (() => undefined);
   const journal = createJournal(storage, prefix);
   let epoch = journal.lastEpoch();
 
-  const persistTouched = (ops: JournalOp[], record: JournalRecord): void => {
-    const touchedModels = new Set(ops.filter(op => op.kind !== 'freshness').map(op => (op as { model: string }).model));
+  const persistImmediate = (ops: JournalOp[], record: JournalRecord): void => {
     const entries: Array<{ key: string; value: string | null }> = [];
-    for (const model of touchedModels) entries.push(...getApplyTarget(model).persistEntries());
+    for (const model of touchedModelsOf(ops)) {
+      entries.push(...getApplyTarget(model).persistEntries());
+      entries.push({ key: `${prefix()}applied:${model}`, value: String(record.epoch) });
+    }
     entries.push(...journal.committedEntry(record));
     storage.set(entries);
+  };
+
+  const persistedAppliedEpoch = (model: string): number => {
+    const raw = storage.get(`${prefix()}applied:${model}`);
+    const value = raw == null ? 0 : Number(raw);
+    return Number.isFinite(value) ? value : 0;
   };
 
   return {
@@ -93,17 +109,37 @@ export const createApplyRuntime = (options: {
       const record: JournalRecord = { epoch, planHash: JSON.stringify(ops), status: 'pending', ops };
       journal.writePending(record);
       const batch = applyOperations(ops, setFreshness);
-      persistTouched(ops, record);
+      if (checkpoint) {
+        storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
+        checkpoint.notePlan(touchedModelsOf(ops), epoch);
+      } else {
+        persistImmediate(ops, record);
+      }
       bus.publish(batch);
       return batch;
     },
     replay: () => {
       let replayed = 0;
-      for (const record of journal.pending()) {
-        const batch = applyOperations(record.ops, setFreshness);
-        persistTouched(record.ops, record);
-        bus.publish(batch);
+      const appliedCache = new Map<string, number>();
+      const appliedFor = (model: string): number => {
+        const cached = appliedCache.get(model);
+        if (cached !== undefined) return cached;
+        const value = persistedAppliedEpoch(model);
+        appliedCache.set(model, value);
+        return value;
+      };
+      for (const record of journal.allRecords()) {
+        const ops = record.ops.filter(op => op.kind === 'freshness' || appliedFor((op as { model: string }).model) < record.epoch);
         epoch = Math.max(epoch, record.epoch);
+        if (ops.length === 0) continue;
+        const batch = applyOperations(ops, setFreshness);
+        if (checkpoint) {
+          storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
+          checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
+        } else {
+          persistImmediate(ops, record);
+        }
+        bus.publish(batch);
         replayed += 1;
       }
       return replayed;
