@@ -36,6 +36,7 @@ describe('journalled transactions', () => {
         observedStatuses.push(JSON.parse(storage.get('dbl:test:journal:1')!).status);
         return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null }));
       },
+      patch: () => null,
       destroy: ids => ids,
       counter: () => false,
       scope: () => {},
@@ -56,6 +57,7 @@ describe('journalled transactions', () => {
     let applied = 0;
     const unregister = registerApplyTarget('m', {
       upsert: rows => { applied += 1; return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null })); },
+      patch: () => null,
       destroy: ids => ids,
       counter: () => false,
       scope: () => {},

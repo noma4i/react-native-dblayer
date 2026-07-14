@@ -3,6 +3,7 @@ import type { StoragePlane } from '../planes/storagePlane';
 
 export type JournalOp =
   | { kind: 'upsert'; model: string; rows: unknown[] }
+  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown> }
   | { kind: 'destroy'; model: string; ids: string[] }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'freshness'; key: string; value: unknown }

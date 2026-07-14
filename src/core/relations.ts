@@ -1,32 +1,195 @@
+import type { JournalOp } from './apply/journal';
+
+/** Structural reference to a defined model; relation thunks resolve it after both models exist. */
 export type ModelRef<TStored> = {
+  modelId: string;
   get(id: string | null | undefined): TStored | undefined;
+  getWhere(where: Record<string, unknown>): TStored[];
 };
 
-export type RelationDecl =
-  | { kind: 'belongsTo'; model: ModelRef<unknown>; foreignKey: string; touch?: (child: unknown, parent: unknown) => Record<string, unknown> | null; counterCache?: { field: string; filter?: (child: unknown) => boolean } }
-  | { kind: 'hasMany'; model: ModelRef<unknown>; foreignKey: string; dependent?: 'destroy' }
-  | { kind: 'hasOne'; model: ModelRef<unknown>; foreignKey: string; comparator?: (left: unknown, right: unknown) => number };
+type StoredRow = Record<string, unknown>;
+type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
 
-/** Declare an inverse parent relation and optional derived parent updates. */
+export type RelationDecl =
+  | { kind: 'belongsTo'; model: ModelRef<StoredRow>; foreignKey: string; touch?: TouchFn; counterCache?: { field: string; filter?: (child: StoredRow) => boolean } }
+  | { kind: 'hasMany'; model: ModelRef<StoredRow>; foreignKey: string; dependent?: 'destroy' }
+  | { kind: 'hasOne'; model: ModelRef<StoredRow>; foreignKey: string; comparator?: (left: StoredRow, right: StoredRow) => number };
+
+/** Declare an inverse parent relation with optional derived parent updates (values from event data). */
 export const belongsTo = <TChild, TParent>(
   model: ModelRef<TParent>,
   options: { foreignKey: keyof TChild & string; touch?: (child: TChild, parent: TParent) => Partial<TParent> | null; counterCache?: { field: keyof TParent & string; filter?: (child: TChild) => boolean } }
 ): RelationDecl => ({
   kind: 'belongsTo',
-  model: model as ModelRef<unknown>,
+  model: model as ModelRef<StoredRow>,
   foreignKey: options.foreignKey,
-  touch: options.touch as ((child: unknown, parent: unknown) => Record<string, unknown> | null) | undefined,
-  counterCache: options.counterCache as { field: string; filter?: (child: unknown) => boolean } | undefined
+  touch: options.touch as TouchFn | undefined,
+  counterCache: options.counterCache as { field: string; filter?: (child: StoredRow) => boolean } | undefined
 });
 
 /** Declare a direct child relation whose cascade authority is explicit destroy only. */
 export const hasMany = <TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }
-): RelationDecl => ({ kind: 'hasMany', model: model as ModelRef<unknown>, foreignKey: options.foreignKey, dependent: options.dependent });
+): RelationDecl => ({ kind: 'hasMany', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, dependent: options.dependent });
 
 /** Declare a query-only single child relation. */
 export const hasOne = <TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; comparator?: (left: TChild, right: TChild) => number }
-): RelationDecl => ({ kind: 'hasOne', model: model as ModelRef<unknown>, foreignKey: options.foreignKey, comparator: options.comparator as ((left: unknown, right: unknown) => number) | undefined });
+): RelationDecl => ({ kind: 'hasOne', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, comparator: options.comparator as ((left: StoredRow, right: StoredRow) => number) | undefined });
+
+/**
+ * Model-side capabilities the plan expander needs. Registered once per defineModel; the registry
+ * survives resetRuntime the same way apply targets do - models keep working after the kill-switch.
+ */
+export type RelationHost = {
+  relations(): Record<string, RelationDecl>;
+  has(id: string): boolean;
+  read(id: string): StoredRow | undefined;
+  normalize(input: unknown): StoredRow | null;
+};
+
+const hosts = new Map<string, RelationHost>();
+
+export const registerRelationHost = (modelId: string, host: RelationHost): (() => void) => {
+  hosts.set(modelId, host);
+  return () => hosts.delete(modelId);
+};
+
+type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
+type CounterRef = { model: string; id: string; field: string };
+
+/**
+ * Expand an EVENT plan with declared relation side effects (the Rails-callbacks analog):
+ * counterCache increments for first-seen children, touch projections onto parents (emitted as
+ * 'patch' ops in stored format, folded per parent so several children in one plan compose), and
+ * dependent destroy cascades. Snapshot plans (query pages / entity refreshes) must NOT be expanded
+ * - server snapshots already carry derived state, so defineModel routes them through the verbatim
+ * apply path. A parent upserted by the same plan is authoritative: its accumulated touch is
+ * cancelled and counter ops against it are filtered out.
+ */
+export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
+  const queue: JournalOp[] = [...ops];
+  const out: JournalOp[] = [];
+  const authoritative = new Set<string>();
+  const counted = new Map<string, CounterRef>();
+  const destroyed = new Set<string>();
+  const touched = new Set<string>();
+  const touchViews = new Map<string, TouchEntry>();
+
+  const parentIdOf = (row: StoredRow, foreignKey: string): string | null => {
+    const value = row[foreignKey];
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  };
+
+  const countKeyOf = (modelId: string, childId: string, counter: CounterRef): string => `${modelId}:${childId}:${counter.model}:${counter.field}`;
+
+  const accumulateTouch = (relation: Extract<RelationDecl, { kind: 'belongsTo' }>, child: StoredRow, parentId: string): void => {
+    const parentKey = `${relation.model.modelId}:${parentId}`;
+    if (!relation.touch || authoritative.has(parentKey) || touched.has(parentKey)) return;
+    let entry = touchViews.get(parentKey);
+    if (!entry) {
+      const parent = relation.model.get(parentId);
+      if (!parent) return;
+      entry = { model: relation.model.modelId, id: parentId, view: { ...parent }, patch: {} };
+      touchViews.set(parentKey, entry);
+    }
+    const patch = relation.touch(child, entry.view);
+    if (patch) {
+      Object.assign(entry.view, patch);
+      Object.assign(entry.patch, patch);
+    }
+  };
+
+  const upsertEffects = (modelId: string, host: RelationHost, row: StoredRow): void => {
+    const childId = String(row.id);
+    for (const relation of Object.values(host.relations())) {
+      if (relation.kind !== 'belongsTo') continue;
+      const parentId = parentIdOf(row, relation.foreignKey);
+      if (!parentId) continue;
+      if (relation.counterCache && !host.has(childId) && (relation.counterCache.filter?.(row) ?? true)) {
+        const counter: CounterRef = { model: relation.model.modelId, id: parentId, field: relation.counterCache.field };
+        const countKey = countKeyOf(modelId, childId, counter);
+        if (!counted.has(countKey)) {
+          counted.set(countKey, counter);
+          queue.push({ kind: 'counter', model: counter.model, id: counter.id, field: counter.field, delta: 1 });
+        }
+      }
+      accumulateTouch(relation, row, parentId);
+    }
+  };
+
+  const patchEffects = (modelId: string, id: string, patch: StoredRow): void => {
+    const host = hosts.get(modelId);
+    if (!host) return;
+    const current = host.read(id);
+    if (!current) return;
+    const merged = { ...current, ...patch, id };
+    for (const relation of Object.values(host.relations())) {
+      if (relation.kind !== 'belongsTo') continue;
+      const parentId = parentIdOf(merged, relation.foreignKey);
+      if (parentId) accumulateTouch(relation, merged, parentId);
+    }
+  };
+
+  const destroyEffects = (modelId: string, id: string): void => {
+    const destroyKey = `${modelId}:${id}`;
+    if (destroyed.has(destroyKey)) return;
+    destroyed.add(destroyKey);
+    const host = hosts.get(modelId);
+    if (!host) return;
+    const row = host.read(id);
+    for (const relation of Object.values(host.relations())) {
+      if (relation.kind === 'belongsTo' && relation.counterCache) {
+        const parentId = row ? parentIdOf(row, relation.foreignKey) : null;
+        const counter: CounterRef | null = parentId ? { model: relation.model.modelId, id: parentId, field: relation.counterCache.field } : null;
+        const pendingKey = counter ? countKeyOf(modelId, id, counter) : null;
+        const pending = pendingKey ? counted.get(pendingKey) : undefined;
+        if (pending && pendingKey) {
+          counted.delete(pendingKey);
+          queue.push({ kind: 'counter', model: pending.model, id: pending.id, field: pending.field, delta: -1 });
+        } else if (row && counter && (relation.counterCache.filter?.(row) ?? true)) {
+          queue.push({ kind: 'counter', model: counter.model, id: counter.id, field: counter.field, delta: -1 });
+        }
+      }
+      if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
+        const ids = relation.model
+          .getWhere({ [relation.foreignKey]: id })
+          .map(child => String(child.id))
+          .filter(childId => !destroyed.has(`${relation.model.modelId}:${childId}`));
+        if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
+      }
+    }
+  };
+
+  while (queue.length > 0 || touchViews.size > 0) {
+    while (queue.length > 0) {
+      const op = queue.shift() as JournalOp;
+      out.push(op);
+      if (op.kind === 'upsert') {
+        const host = hosts.get(op.model);
+        for (const raw of op.rows) {
+          const row = host?.normalize(raw);
+          if (!host || !row) continue;
+          upsertEffects(op.model, host, row);
+          const key = `${op.model}:${String(row.id)}`;
+          authoritative.add(key);
+          touchViews.delete(key);
+        }
+      }
+      if (op.kind === 'patch') patchEffects(op.model, op.id, op.patch);
+      if (op.kind === 'destroy') for (const id of op.ids) destroyEffects(op.model, id);
+    }
+    const flush = [...touchViews.values()];
+    touchViews.clear();
+    for (const entry of flush) {
+      const key = `${entry.model}:${entry.id}`;
+      if (touched.has(key) || Object.keys(entry.patch).length === 0) continue;
+      touched.add(key);
+      queue.push({ kind: 'patch', model: entry.model, id: entry.id, patch: entry.patch });
+    }
+  }
+
+  return out.filter(op => !(op.kind === 'counter' && authoritative.has(`${op.model}:${op.id}`)));
+};

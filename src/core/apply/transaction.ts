@@ -10,6 +10,7 @@ import type { StoragePlane } from '../planes/storagePlane';
  */
 export type ApplyTarget = {
   upsert(rows: unknown[]): Array<{ id: string; changedFields: string[] | null }>;
+  patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[]): string[];
   counter(id: string, field: string, delta: number): boolean;
   scope(scopeKey: string, next: unknown): void;
@@ -48,6 +49,10 @@ const applyOperations = (ops: JournalOp[], setFreshness: (key: string, value: un
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
       for (const change of target.upsert(op.rows)) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+    }
+    if (op.kind === 'patch') {
+      const change = target.patch(op.id, op.patch);
+      if (change) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
     }
     if (op.kind === 'destroy') {
       for (const id of target.destroy(op.ids)) batch.rows.push({ model: op.model, id, fields: null });
