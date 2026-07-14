@@ -1,14 +1,17 @@
-import { useSyncExternalStore } from 'react';
 import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { matchesDbWhere } from '../core/compileDbWhere';
-import { createApplyRuntime, registerApplyTarget } from '../core/apply/transaction';
+import type { Dependency } from '../core/apply/commitBus';
+import { registerApplyTarget } from '../core/apply/transaction';
+import type { JournalOp } from '../core/apply/journal';
 import { createEntityClock, createEntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { registerReset } from '../core/reset';
 import { stableSerialize } from '../core/serialize';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
-import { getStoragePrefix, getCommitBus, getDbRuntimeConfig } from './configure';
+import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
+import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
+import { useRef, useState } from 'react';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
@@ -68,6 +71,8 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
 
 const keyForScope = (scopeValue: unknown): string => stableSerialize(scopeValue);
 
+const EMPTY_ROWS: any[] = [];
+
 const sortRows = <TStored>(rows: TStored[], options?: DbReadOptions<TStored>): TStored[] => {
   if (!options?.orderBy) return rows;
   const { field, direction } = options.orderBy;
@@ -88,26 +93,15 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
   return undefined;
 };
 
-/** Define a v6 model backed by EntityState and the journalled apply pipeline. */
+/** Define a v6 model backed by EntityState and the shared journalled apply pipeline. */
 export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
   config: ModelConfig<TFields, TScopes, TExt>
 ): ModelCore<any> & { scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
   const runtime = getDbRuntimeConfig();
-  let tick = 0;
-  const bus = getCommitBus();
-  const notify = (): void => { tick += 1; };
-  const subscribe = (listener: () => void): (() => void) => {
-    const subscription = bus.subscribe(() => {
-      tick += 1;
-      listener();
-    }, [{ kind: 'model', model: config.id }]);
-    return subscription.unsubscribe;
-  };
-  const snapshot = (): number => tick;
   const prefix = getStoragePrefix;
   const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix });
   const scopeIndex = createScopeIndex({ modelId: config.id, storage: runtime.storage, prefix });
-  const apply = createApplyRuntime({ storage: runtime.storage, prefix, bus });
+
   const normalize = (input: unknown, complete = false): any => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
     const id = config.rowId?.(input) ?? (typeof input === 'object' && input !== null ? (input as Record<string, unknown>).id : undefined);
@@ -119,6 +113,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     }
     return output;
   };
+
   const writeRows = (rows: unknown[]): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
@@ -130,54 +125,99 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     }
     return changes;
   };
-  const writeDestroy = (ids: string[]): string[] => {
-    for (const id of ids) entityState.destroy(id);
-    return ids;
-  };
-  const unregisterTarget = registerApplyTarget(config.id, {
+
+  const applyTarget = {
     upsert: writeRows,
-    destroy: writeDestroy,
-    counter: (id, field, delta) => {
+    destroy: (ids: string[]): string[] => {
+      for (const id of ids) entityState.destroy(id);
+      return ids;
+    },
+    counter: (id: string, field: string, delta: number): boolean => {
       const row = entityState.read(id);
       if (!row) return false;
       entityState.upsert({ ...row, [field]: ((row[field] as number | undefined) ?? 0) + delta });
       return true;
     },
-    scope: (hash, next) => {
-      scopeIndex.write(hash, next as ScopeIndexValue);
+    scope: (scopeKey: string, next: unknown): void => {
+      scopeIndex.write(scopeKey, next as ScopeIndexValue);
     },
     persistEntries: () => [...entityState.persistEntries(), ...scopeIndex.persistEntries()]
-  });
-  const applyOps = (ops: Parameters<typeof apply.apply>[0]): void => { apply.apply(ops); };
-  const rowsForScope = (scopeValue: unknown): any[] => scopeIndex.read(keyForScope(scopeValue)).entries.map(entry => entityState.read(entry.id)).filter(Boolean);
-  const useSnapshot = (): void => {
-    useSyncExternalStore(subscribe, snapshot, snapshot);
   };
-  const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, {
+  registerApplyTarget(config.id, applyTarget);
+
+  const applyOps = (ops: JournalOp[]): void => {
+    getApplyRuntime().apply(ops);
+  };
+
+  const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {
+    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
+    const value = scopeIndex.read(keyForScope(scopeValue));
+    const rows = value.entries.map(entry => entityState.read(entry.id)).filter(Boolean);
+    if (!spec?.sort || spec.sort === 'server-order') return rows;
+    if ('comparator' in spec.sort) return [...rows].sort(spec.sort.comparator);
+    const { field, dir } = spec.sort;
+    return sortRows(rows, { orderBy: { field, direction: dir } });
+  };
+
+  const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: config.id, id, ...(fields ? { fields } : {}) });
+  const modelDep: Dependency = { kind: 'model', model: config.id };
+  const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: config.id, scopeKey });
+  const memberDeps = (scopeKey: string, rows: Array<{ id: string }>): Dependency[] => [scopeDep(scopeKey), ...rows.map(row => rowDep(row.id))];
+
+  const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => ({
     use: (scopeValue: unknown) => {
-      useSnapshot();
-      return scopeValue == null ? [] : rowsForScope(scopeValue);
+      const rows = useLiveRead(
+        () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
+        scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
+        arraysShallowEqual
+      );
+      return rows;
     },
     useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
-      useSnapshot();
-      const rows = scopeValue == null ? [] : rowsForScope(scopeValue);
       const pageSize = options?.pageSize ?? runtime.defaults?.pageSize ?? 20;
-      return { rows: rows.slice(0, pageSize), totalCount: rows.length, hasMore: rows.length > pageSize, loadMore: () => {}, refresh: async () => {} };
+      const [windowSize, setWindowSize] = useState(pageSize);
+      const rows = useLiveRead(
+        () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
+        scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
+        arraysShallowEqual
+      );
+      const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
+      if (windowRef.current.source !== rows || windowRef.current.size !== windowSize) {
+        windowRef.current = { source: rows, size: windowSize, window: rows.slice(0, windowSize) };
+      }
+      return {
+        rows: windowRef.current.window,
+        totalCount: rows.length,
+        hasMore: rows.length > windowSize,
+        loadMore: () => setWindowSize(current => current + pageSize),
+        refresh: async () => {}
+      };
     },
-    useCount: (scopeValue: unknown) => {
-      useSnapshot();
-      return scopeValue == null ? 0 : rowsForScope(scopeValue).length;
+    useCount: (scopeValue: unknown) =>
+      useLiveRead(
+        () => (scopeValue == null ? 0 : scopeIndex.read(keyForScope(scopeValue)).entries.length),
+        scopeValue == null ? [modelDep] : [scopeDep(keyForScope(scopeValue))]
+      ),
+    invalidate: (_scopeValue?: unknown) => {
+      // Network re-fetch wiring arrives with defineQuery; local state stays authoritative here.
     },
-    invalidate: (_scopeValue?: unknown) => notify(),
-    read: rowsForScope,
+    read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
     __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
-      const hash = keyForScope(scopeValue);
-      const { next } = scopeIndex.reconcile(hash, coverage, rows.map(row => ({ id: row.id })));
-      applyOps([{ kind: 'upsert', model: config.id, rows }, { kind: 'scope', model: config.id, scopeKey: hash, next }]);
+      const scopeKey = keyForScope(scopeValue);
+      const { next } = scopeIndex.reconcile(scopeKey, coverage, rows.map(row => ({ id: row.id })));
+      applyOps([
+        { kind: 'upsert', model: config.id, rows },
+        { kind: 'scope', model: config.id, scopeKey, next }
+      ]);
     }
-  }])) as { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
+  });
+
+  const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
+    [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>;
+  };
+
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
-    get: id => id == null ? undefined : entityState.read(id),
+    get: id => (id == null ? undefined : entityState.read(id)),
     getWhere: (where, options) => sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options),
     patch: (id, patch) => {
       const current = entityState.read(id);
@@ -186,46 +226,68 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     destroy: id => applyOps([{ kind: 'destroy', model: config.id, ids: [id] }]),
     destroyMany: ids => applyOps([{ kind: 'destroy', model: config.id, ids }]),
     insertStored: row => applyOps([{ kind: 'upsert', model: config.id, rows: [row] }]),
-    replaceRaw: (oldId, next) => applyOps([{ kind: 'destroy', model: config.id, ids: [oldId] }, { kind: 'upsert', model: config.id, rows: [next] }]),
+    replaceRaw: (oldId, next) =>
+      applyOps([
+        { kind: 'destroy', model: config.id, ids: [oldId] },
+        { kind: 'upsert', model: config.id, rows: [next] }
+      ]),
     buildStored: input => normalize(input, true),
     normalize: input => normalize(input),
-    invalidate: () => notify(),
+    invalidate: () => {
+      // Network invalidation wiring arrives with defineQuery.
+    },
     gc: () => 0,
     use: {
-      row: id => {
-        useSnapshot();
-        return id == null ? undefined : entityState.read(id);
+      row: (id, options) => {
+        const select = options?.select as ReadonlyArray<string> | undefined;
+        return useLiveRead(
+          () => (id == null ? undefined : entityState.read(id)),
+          id == null ? [] : [rowDep(id, select)]
+        );
       },
-      field: (id, field) => {
-        useSnapshot();
-        return id == null ? undefined : entityState.read(id)?.[field];
-      },
-      first: (where, options) => {
-        useSnapshot();
-        return sortRows(entityState.values().filter(row => where == null || matchesDbWhere(row, where)), options)[0];
-      },
-      where: (where, options) => {
-        useSnapshot();
-        return where == null ? [] : sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options);
-      },
-      byIds: ids => {
-        useSnapshot();
-        return ids.map(id => entityState.read(id)).filter(Boolean);
-      },
-      count: where => {
-        useSnapshot();
-        return where == null ? entityState.values().length : entityState.values().filter(row => matchesDbWhere(row, where)).length;
-      }
+      field: (id, field) =>
+        useLiveRead(
+          () => (id == null ? undefined : entityState.read(id)?.[field]),
+          id == null ? [] : [rowDep(id, [String(field)])]
+        ),
+      first: (where, options) =>
+        useLiveRead(
+          () => sortRows(entityState.values().filter(row => where == null || matchesDbWhere(row, where)), options)[0],
+          [modelDep]
+        ),
+      where: (where, options) =>
+        useLiveRead(
+          () => (where == null ? EMPTY_ROWS : sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options)),
+          where == null ? [] : [modelDep],
+          arraysShallowEqual
+        ),
+      byIds: ids =>
+        useLiveRead(
+          () => ids.map(id => entityState.read(id)).filter(Boolean),
+          ids.map(id => rowDep(id)),
+          arraysShallowEqual
+        ),
+      count: where =>
+        useLiveRead(
+          () => (where == null ? entityState.values().length : entityState.values().filter(row => matchesDbWhere(row, where)).length),
+          [modelDep]
+        )
     },
     scopes: scopeHandles,
-    registerReset: fn => { registerReset(fn); },
+    registerReset: fn => {
+      registerReset(fn);
+    },
     __applyRows: rows => applyOps([{ kind: 'upsert', model: config.id, rows }])
   };
+
+  entityState.hydrate();
+  scopeIndex.hydrate();
+
   registerReset(() => {
     entityState.reset();
     scopeIndex.reset();
-    unregisterTarget();
-    notify();
+    // The apply target stays registered: a model must keep working after the kill-switch.
   });
+
   return Object.assign(model, config.statics?.(model));
 };

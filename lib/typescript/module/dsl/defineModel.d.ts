@@ -69,7 +69,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     };
     statics?: (model: ModelCore<any>) => TExt;
 };
-/** Define a v6 model backed by EntityState and the journalled apply pipeline. */
+/** Define a v6 model backed by EntityState and the shared journalled apply pipeline. */
 export declare const defineModel: <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => ModelCore<any> & {
     scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>; };
 } & TExt;

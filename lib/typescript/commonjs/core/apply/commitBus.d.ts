@@ -36,6 +36,7 @@ export type CommitSubscription = {
 export declare const createCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<Dependency>) => CommitSubscription;
     publish: (batch: CommitBatch) => void;
+    publishAll: () => void;
     subscriberCount: () => number;
 };
 export type CommitBus = ReturnType<typeof createCommitBus>;
