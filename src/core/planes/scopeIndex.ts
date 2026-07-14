@@ -19,9 +19,10 @@ export type ScopeIndex = {
    *   absent from the response are DETACHED (returned in detachedIds; entity rows untouched).
    * - 'page': incoming rows upsert into membership (existing keep their order, new append in
    *   server order); nothing is detached.
+   *   With opts.resetOrder (a first-page refetch) incoming rows become the new head order and previous members keep relative order after them.
    * - 'delta': same merge semantics as 'page' (single-row/subscription-driven updates).
    */
-  reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[]): ReconcileResult;
+  reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult;
   detach(key: string, ids: string[]): ScopeIndexValue;
   trim(key: string, maxRows: number): string[];
   keys(): string[];
@@ -48,7 +49,7 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
     write: (key, next) => {
       commit(key, next);
     },
-    reconcile: (key, coverage, incoming) => {
+    reconcile: (key, coverage, incoming, opts) => {
       const previous = scopes.get(key) ?? empty();
       const generation = previous.generation + 1;
 
@@ -57,6 +58,17 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
         const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id)).map(entry => entry.id);
         const entries = incoming.map((row, order) => ({ id: row.id, order, seq: generation, edge: row.edge }));
         return { next: commit(key, { generation, coverage, entries }), detachedIds };
+      }
+
+      if (coverage === 'page' && opts?.resetOrder) {
+        const previousById = new Map(previous.entries.map(entry => [entry.id, entry] as const));
+        const incomingIds = new Set(incoming.map(row => row.id));
+        const head = incoming.map((row, order) => ({ id: row.id, order, seq: generation, edge: row.edge ?? previousById.get(row.id)?.edge }));
+        const tail = previous.entries
+          .filter(entry => !incomingIds.has(entry.id))
+          .sort((a, b) => a.order - b.order)
+          .map((entry, index) => ({ ...entry, order: incoming.length + index }));
+        return { next: commit(key, { generation, coverage: previous.coverage === 'complete' ? 'complete' : coverage, entries: [...head, ...tail] }), detachedIds: [] };
       }
 
       const byId = new Map(previous.entries.map(entry => [entry.id, entry] as const));

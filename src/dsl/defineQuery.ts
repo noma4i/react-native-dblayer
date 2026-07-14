@@ -99,7 +99,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     return { endCursor: cursor, hasNextPage, count };
   };
 
-  const applyResponse = (scope: TScope, data: TResponse): PageMeta => {
+  const applyResponse = (scope: TScope, data: TResponse, resetOrder: boolean): PageMeta => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
     const mapped = config.map ? config.map(selected) : selected;
     const pairs = nodePairsOf(mapped);
@@ -107,7 +107,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     const ops: JournalOp[] = [];
     if (isScopeDestination(config.into)) {
       const scopeRows = pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) }));
-      ops.push(...(config.into.__planApply?.(scope, scopeRows, coverage) ?? []));
+      ops.push(...(config.into.__planApply?.(scope, scopeRows, coverage, { resetOrder }) ?? []));
     } else {
       ops.push(...(config.into.__planRows?.(nodes as TStored[]) ?? []));
     }
@@ -122,7 +122,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {}) };
     const data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
-    return applyResponse(scope, data);
+    return applyResponse(scope, data, cursor == null);
   };
 
   const fetch = async (scope: TScope): Promise<void> => {

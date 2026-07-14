@@ -20,11 +20,15 @@ export type ScopeHandle<TStored extends {
     useCount(scopeValue: TScope | null | undefined): number;
     invalidate(scopeValue?: TScope): void;
     read(scopeValue: TScope): TStored[];
-    __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage): void;
+    __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: {
+        resetOrder?: boolean;
+    }): void;
     __planApply?(scopeValue: TScope, rows: Array<{
         row: TStored;
         edge?: Record<string, unknown>;
-    }>, coverage: Coverage): JournalOp[];
+    }>, coverage: Coverage, opts?: {
+        resetOrder?: boolean;
+    }): JournalOp[];
 };
 type ModelCore<TStored extends {
     id: string;

@@ -28,9 +28,12 @@ export type ScopeIndex = {
      *   absent from the response are DETACHED (returned in detachedIds; entity rows untouched).
      * - 'page': incoming rows upsert into membership (existing keep their order, new append in
      *   server order); nothing is detached.
+     *   With opts.resetOrder (a first-page refetch) incoming rows become the new head order and previous members keep relative order after them.
      * - 'delta': same merge semantics as 'page' (single-row/subscription-driven updates).
      */
-    reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[]): ReconcileResult;
+    reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: {
+        resetOrder?: boolean;
+    }): ReconcileResult;
     detach(key: string, ids: string[]): ScopeIndexValue;
     trim(key: string, maxRows: number): string[];
     keys(): string[];

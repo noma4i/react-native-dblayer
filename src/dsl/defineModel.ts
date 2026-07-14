@@ -30,8 +30,8 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   useCount(scopeValue: TScope | null | undefined): number;
   invalidate(scopeValue?: TScope): void;
   read(scopeValue: TScope): TStored[];
-  __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage): void;
-  __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[];
+  __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: { resetOrder?: boolean }): void;
+  __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[];
 };
 
 type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
@@ -300,10 +300,10 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const memberDeps = (scopeKey: string, rows: Array<{ id: string }>): Dependency[] => [scopeDep(scopeKey), ...rows.map(row => rowDep(row.id))];
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
-    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[] => {
+    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const scopeKey = keyForScope(scopeValue);
-      const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })));
+      const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })), opts);
       return [
         { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) },
         { kind: 'scope', model: config.id, scopeKey, next }
@@ -348,8 +348,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         invalidateModel(config.id, scopeValue);
       },
       read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
-      __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
-        applySnapshot(planApply(scopeValue, rows.map(row => ({ row })), coverage));
+      __apply: (scopeValue: unknown, rows: any[], coverage: Coverage, opts?: { resetOrder?: boolean }) => {
+        applySnapshot(planApply(scopeValue, rows.map(row => ({ row })), coverage, opts));
       },
       __planApply: planApply
     };
