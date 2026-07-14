@@ -1,7 +1,7 @@
 import { f } from '../schema/f';
 import { readId } from '../utils/normalizeHelpers';
 
-describe('readId canon', () => {
+describe('readId standard', () => {
   it('passes strings and numbers through as strings', () => {
     expect(readId('abc')).toBe('abc');
     expect(readId('42')).toBe('42');
@@ -24,7 +24,7 @@ describe('readId canon', () => {
     expect(readId(undefined)).toBeUndefined();
   });
 
-  it('keeps f.id() behavior unchanged for legit inputs now that it shares the canon reader', () => {
+  it('keeps f.id() behavior unchanged for legit inputs now that it shares the standard reader', () => {
     const spec = f.id();
 
     expect(spec.read({ id: 'server-1' }, 'id')).toBe('server-1');

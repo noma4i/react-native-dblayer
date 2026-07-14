@@ -17,8 +17,10 @@ export interface DbDefaults {
 
 type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; track?: DbTrackSink; defaults?: DbDefaults };
 let runtimeConfig: RuntimeConfig | null = null;
-let accountId = 'anon';
 const commitBus = createCommitBus();
+
+/** Single static namespace for every persisted key; the library has no account split. */
+const STORAGE_PREFIX = 'dbl:';
 
 /** Configure v6 runtime seams and defaults. */
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
@@ -28,15 +30,11 @@ export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?
   if (options.track) setDbTrackSink(options.track);
 };
 
-export const setAccountPartition = (nextAccountId: string | null): void => {
-  accountId = nextAccountId ?? 'anon';
-};
-
 export const getDbRuntimeConfig = (): RuntimeConfig => {
   if (!runtimeConfig) throw new Error('configureDb must be called before using dblayer');
   return runtimeConfig;
 };
 
-export const getAccountPartitionPrefix = (): string => `dbl:${accountId}:`;
+export const getStoragePrefix = (): string => STORAGE_PREFIX;
 
 export const getCommitBus = () => commitBus;

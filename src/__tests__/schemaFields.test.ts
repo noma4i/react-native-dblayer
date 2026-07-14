@@ -109,17 +109,17 @@ describe('schema field builders', () => {
   });
 
   it('lets field defaults apply when fromKey cannot read a source key', () => {
-    const spec = f.str().fromKey('name').default('Anonymous');
+    const spec = f.str().fromKey('name').default('Guest');
 
     expect(spec.read(null, 'name')).toBeUndefined();
-    expect(spec.factoryDefault).toBe('Anonymous');
+    expect(spec.factoryDefault).toBe('Guest');
   });
 
   it('preserves the field mode and default type chain when fromKey is applied', () => {
-    const spec: FieldSpec<{ profile?: unknown }, string, 'nullable', true> = f.str().nullable().default('Anonymous').fromKey<{ profile?: unknown }>('name', input => input.profile);
+    const spec: FieldSpec<{ profile?: unknown }, string, 'nullable', true> = f.str().nullable().default('Guest').fromKey<{ profile?: unknown }>('name', input => input.profile);
 
     expect(spec.mode).toBe('nullable');
-    expect(spec.factoryDefault).toBe('Anonymous');
+    expect(spec.factoryDefault).toBe('Guest');
     expect(spec.read({ profile: { name: null } }, 'ignored')).toBeNull();
   });
 

@@ -22,7 +22,7 @@ export type OperationState = {
   hasCommitted(idempotencyKey: string): boolean;
   pending(): OperationRecord[];
   prune(): number;
-  /** Monotonic keyed sequence (e.g. per-chat optimistic ordering floor); floor raises the base. */
+  /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
   nextSequence(key: string, floor: number): number;
   persistEntries(): Array<{ key: string; value: string | null }>;
   hydrate(): void;

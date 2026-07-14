@@ -7,7 +7,7 @@ import { createScopeIndex, type ScopeIndexValue } from '../core/planes/scopeInde
 import { registerReset } from '../core/reset';
 import { stableSerialize } from '../core/serialize';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
-import { getAccountPartitionPrefix, getCommitBus, getDbRuntimeConfig } from './configure';
+import { getStoragePrefix, getCommitBus, getDbRuntimeConfig } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
@@ -104,7 +104,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return subscription.unsubscribe;
   };
   const snapshot = (): number => tick;
-  const prefix = getAccountPartitionPrefix;
+  const prefix = getStoragePrefix;
   const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix });
   const scopeIndex = createScopeIndex({ modelId: config.id, storage: runtime.storage, prefix });
   const apply = createApplyRuntime({ storage: runtime.storage, prefix, bus });

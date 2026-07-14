@@ -1,6 +1,6 @@
-export { configureDb, setAccountPartition } from './dsl/configure';
+export { configureDb } from './dsl/configure';
 export type { DbDefaults } from './dsl/configure';
-export { resetRuntime } from './core/reset';
+export { resetRuntime, registerReset } from './core/reset';
 export { mmkvStoragePlane } from './core/planes/storagePlane';
 export type { StoragePlane } from './core/planes/storagePlane';
 export { defineModel } from './dsl/defineModel';

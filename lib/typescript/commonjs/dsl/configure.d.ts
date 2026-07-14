@@ -27,9 +27,8 @@ type RuntimeConfig = {
 export declare const configureDb: (options: Omit<RuntimeConfig, "storage"> & {
     storage?: StoragePlane;
 }) => void;
-export declare const setAccountPartition: (nextAccountId: string | null) => void;
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
-export declare const getAccountPartitionPrefix: () => string;
+export declare const getStoragePrefix: () => string;
 export declare const getCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>) => import("../core/apply/commitBus").CommitSubscription;
     publish: (batch: import("../core/apply/commitBus").CommitBatch) => void;
