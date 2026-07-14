@@ -16,6 +16,8 @@ export type OperationState = {
     get(operationId: string): OperationRecord | undefined;
     /** True when an idempotency key already committed - callers must skip re-applying. */
     hasCommitted(idempotencyKey: string): boolean;
+    /** True while an idempotency key has a pending operation - blocks double-taps. */
+    hasPending(idempotencyKey: string): boolean;
     pending(): OperationRecord[];
     prune(): number;
     /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */

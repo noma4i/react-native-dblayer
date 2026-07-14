@@ -30,5 +30,10 @@ export declare const createCheckpointScheduler: (options: {
     getTarget(model: string): CheckpointTarget;
     delayMs: number;
     maxPendingPlans: number;
+    /** Extra storage entries appended to every flush batch (e.g. the operation ledger). */
+    extraEntries?: () => Array<{
+        key: string;
+        value: string | null;
+    }>;
 }) => CheckpointScheduler;
 //# sourceMappingURL=checkpoint.d.ts.map

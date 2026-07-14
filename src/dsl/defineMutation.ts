@@ -66,7 +66,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     const dedupeKey = config.dedupe?.key(input);
     if (dedupeKey != null) {
       if (operations.hasCommitted(dedupeKey)) return null;
-      if (operations.pending().some(operation => operation.idempotencyKey === dedupeKey)) return null;
+      if (operations.hasPending(dedupeKey)) return null;
     }
     const optimistic = config.optimistic;
     const tracked = optimistic != null || dedupeKey != null;

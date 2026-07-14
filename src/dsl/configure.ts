@@ -68,7 +68,12 @@ export const getApplyRuntime = (): ApplyRuntime => {
       prefix: getStoragePrefix,
       getTarget: getApplyTarget,
       delayMs: defaults?.persistence?.checkpointDelayMs ?? 500,
-      maxPendingPlans: defaults?.persistence?.maxPendingPlans ?? 25
+      maxPendingPlans: defaults?.persistence?.maxPendingPlans ?? 25,
+      extraEntries: () => {
+        const operations = getOperationState();
+        operations.prune();
+        return operations.persistEntries();
+      }
     });
     applyRuntime = createApplyRuntime({ storage, prefix: getStoragePrefix, bus: commitBus, checkpoint: checkpointScheduler });
   }

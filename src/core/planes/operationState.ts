@@ -20,6 +20,8 @@ export type OperationState = {
   get(operationId: string): OperationRecord | undefined;
   /** True when an idempotency key already committed - callers must skip re-applying. */
   hasCommitted(idempotencyKey: string): boolean;
+  /** True while an idempotency key has a pending operation - blocks double-taps. */
+  hasPending(idempotencyKey: string): boolean;
   pending(): OperationRecord[];
   prune(): number;
   /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
@@ -33,18 +35,38 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const { storage, prefix, now } = options;
   const operations = new Map<string, OperationRecord>();
   const sequences = new Map<string, number>();
+  const committedKeys = new Set<string>();
+  const pendingKeys = new Set<string>();
+  const indexOperation = (record: OperationRecord): void => {
+    if (!record.idempotencyKey) return;
+    if (record.status === 'pending') pendingKeys.add(record.idempotencyKey);
+    else pendingKeys.delete(record.idempotencyKey);
+    if (record.status === 'committed') committedKeys.add(record.idempotencyKey);
+  };
+  const rebuildIndexes = (): void => {
+    committedKeys.clear();
+    pendingKeys.clear();
+    for (const record of operations.values()) indexOperation(record);
+  };
   const opsKey = () => `${prefix()}ops`;
   const seqKey = () => `${prefix()}seq`;
 
   return {
-    begin: operation => operations.set(operation.operationId, { ...operation, status: 'pending' }),
+    begin: operation => {
+      const record: OperationRecord = { ...operation, status: 'pending' };
+      operations.set(operation.operationId, record);
+      indexOperation(record);
+    },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
       if (!operation) return;
-      operations.set(operationId, { ...operation, status });
+      const record: OperationRecord = { ...operation, status };
+      operations.set(operationId, record);
+      indexOperation(record);
     },
     get: operationId => operations.get(operationId),
-    hasCommitted: idempotencyKey => [...operations.values()].some(operation => operation.idempotencyKey === idempotencyKey && operation.status === 'committed'),
+    hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),
+    hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
     prune: () => {
       const cutoff = now() - CLOSED_TTL_MS;
@@ -55,6 +77,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
           pruned += 1;
         }
       }
+      if (pruned > 0) rebuildIndexes();
       return pruned;
     },
     nextSequence: (key, floor) => {
@@ -85,10 +108,13 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
           storage.set([{ key: seqKey(), value: null }]);
         }
       }
+      rebuildIndexes();
     },
     reset: () => {
       operations.clear();
       sequences.clear();
+      committedKeys.clear();
+      pendingKeys.clear();
     }
   };
 };

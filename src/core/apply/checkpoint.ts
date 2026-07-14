@@ -28,6 +28,8 @@ export const createCheckpointScheduler = (options: {
   getTarget(model: string): CheckpointTarget;
   delayMs: number;
   maxPendingPlans: number;
+  /** Extra storage entries appended to every flush batch (e.g. the operation ledger). */
+  extraEntries?: () => Array<{ key: string; value: string | null }>;
 }): CheckpointScheduler => {
   const dirty = new Map<string, number>();
   let latestEpoch = 0;
@@ -50,6 +52,7 @@ export const createCheckpointScheduler = (options: {
       markers.push({ key: `${options.prefix()}applied:${model}`, value: String(epoch) });
     }
     entries.push(...markers);
+    entries.push(...(options.extraEntries?.() ?? []));
     entries.push({ key: `${options.prefix()}meta`, value: JSON.stringify({ lastCheckpointEpoch: checkpointEpoch }) });
     dirty.clear();
     options.storage.set(entries);
