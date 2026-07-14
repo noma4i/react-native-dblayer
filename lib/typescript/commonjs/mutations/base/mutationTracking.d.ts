@@ -1,5 +1,0 @@
-import type { DbMutationConfig } from '../../types';
-export declare const emitMutationTrackStart: <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, input: TInput) => void;
-export declare const emitMutationTrackSuccess: <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, result: TData | null, input: TInput, context: unknown) => void;
-export declare const emitMutationTrackError: <TData, TInput, TContext, TStored, TServerNode, TExtractSpec>(config: DbMutationConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>, error: Error, input: TInput) => void;
-//# sourceMappingURL=mutationTracking.d.ts.map
