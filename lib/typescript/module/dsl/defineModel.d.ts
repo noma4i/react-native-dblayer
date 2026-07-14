@@ -15,7 +15,6 @@ export type ScopeHandle<TStored extends {
         totalCount: number;
         hasMore: boolean;
         loadMore: () => void;
-        refresh: () => Promise<void>;
     };
     useCount(scopeValue: TScope | null | undefined): number;
     invalidate(scopeValue?: TScope): void;

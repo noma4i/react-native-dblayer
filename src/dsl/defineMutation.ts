@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
-import { expandPlan } from '../core/relations';
+import { expandPlan, hasDependentCascade } from '../core/relations';
 import { generateTempId } from '../utils/generateTempId';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
@@ -91,6 +91,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       previous = optimistic.model.get(id);
       optimistic.model.patch(id, optimistic.selectPatch(input) as Record<string, unknown>);
     } else if (optimistic && optimistic.method === 'destroy') {
+      if (hasDependentCascade(optimistic.model.modelId)) {
+        throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
+      }
       const id = optimistic.selectId(input);
       previous = optimistic.model.get(id);
       optimistic.model.destroy(id);
@@ -144,7 +147,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     } catch (error) {
       if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) optimistic.model.destroy(insertedTempId);
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && previous && typeof previous === 'object') {
-        optimistic.model.patch(optimistic.selectId(input), previous as Record<string, unknown>);
+        const previousRecord = previous as Record<string, unknown>;
+        const restore: Record<string, unknown> = { ...previousRecord };
+        for (const key of Object.keys(optimistic.selectPatch(input) as Record<string, unknown>)) {
+          if (!(key in previousRecord)) restore[key] = undefined;
+        }
+        optimistic.model.patch(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && previous && typeof previous === 'object') {
         optimistic.model.insertStored(previous as { id: string });

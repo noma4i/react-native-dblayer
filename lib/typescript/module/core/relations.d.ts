@@ -67,6 +67,8 @@ export type RelationHost = {
     detachForDestroy(id: string): MembershipDelta[];
 };
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
+/** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
+export declare const hasDependentCascade: (modelId: string) => boolean;
 /**
  * Expand an EVENT plan with declared relation side effects (the Rails-callbacks analog):
  * counterCache increments for first-seen children, touch projections onto parents (emitted as

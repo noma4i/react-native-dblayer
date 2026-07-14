@@ -64,6 +64,13 @@ export const registerRelationHost = (modelId: string, host: RelationHost): (() =
   return () => hosts.delete(modelId);
 };
 
+/** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
+export const hasDependentCascade = (modelId: string): boolean => {
+  const host = hosts.get(modelId);
+  if (!host) return false;
+  return Object.values(host.relations()).some(relation => relation.kind === 'hasMany' && relation.dependent === 'destroy');
+};
+
 type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
 type CounterRef = { model: string; id: string; field: string };
 

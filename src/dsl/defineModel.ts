@@ -25,7 +25,6 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
     totalCount: number;
     hasMore: boolean;
     loadMore: () => void;
-    refresh: () => Promise<void>;
   };
   useCount(scopeValue: TScope | null | undefined): number;
   invalidate(scopeValue?: TScope): void;
@@ -337,14 +336,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           rows: windowRef.current.window,
           totalCount: rows.length,
           hasMore: rows.length > windowSize,
-          loadMore: () => setWindowSize(current => current + pageSize),
-          refresh: async () => {}
+          loadMore: () => setWindowSize(current => current + pageSize)
         };
       },
       useCount: (scopeValue: unknown) =>
         useLiveRead(
           () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeValue)).entries.length),
-          scopeValue == null ? [modelDep] : [scopeDep(keyForScope(scopeValue))]
+          scopeValue == null ? [] : [scopeDep(keyForScope(scopeValue))]
         ),
       invalidate: (scopeValue?: unknown) => {
         invalidateModel(config.id, scopeValue);
