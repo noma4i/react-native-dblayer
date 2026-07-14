@@ -29,6 +29,7 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   invalidate(scopeValue?: TScope): void;
   read(scopeValue: TScope): TStored[];
   __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage): void;
+  __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[];
 };
 
 type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
@@ -56,6 +57,7 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
   registerReset(fn: () => void): void;
   __applyRows?(rows: TStored[]): void;
+  __planRows?(rows: TStored[]): JournalOp[];
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -195,57 +197,65 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: config.id, scopeKey });
   const memberDeps = (scopeKey: string, rows: Array<{ id: string }>): Dependency[] => [scopeDep(scopeKey), ...rows.map(row => rowDep(row.id))];
 
-  const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => ({
-    use: (scopeValue: unknown) => {
-      const rows = useLiveRead(
-        () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-        scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
-        arraysShallowEqual
-      );
-      return rows;
-    },
-    useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
-      const pageSize = options?.pageSize ?? runtime.defaults?.pageSize ?? 20;
-      const [windowSize, setWindowSize] = useState(pageSize);
-      const rows = useLiveRead(
-        () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-        scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
-        arraysShallowEqual
-      );
-      const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
-      if (windowRef.current.source !== rows || windowRef.current.size !== windowSize) {
-        windowRef.current = { source: rows, size: windowSize, window: rows.slice(0, windowSize) };
-      }
-      return {
-        rows: windowRef.current.window,
-        totalCount: rows.length,
-        hasMore: rows.length > windowSize,
-        loadMore: () => setWindowSize(current => current + pageSize),
-        refresh: async () => {}
-      };
-    },
-    useCount: (scopeValue: unknown) =>
-      useLiveRead(
-        () => (scopeValue == null ? 0 : scopeIndex.read(keyForScope(scopeValue)).entries.length),
-        scopeValue == null ? [modelDep] : [scopeDep(keyForScope(scopeValue))]
-      ),
-    invalidate: (_scopeValue?: unknown) => {
-      // Network re-fetch wiring arrives with defineQuery; local state stays authoritative here.
-    },
-    read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
-    __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
+  const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
+    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[] => {
       const scopeKey = keyForScope(scopeValue);
-      const { next } = scopeIndex.reconcile(scopeKey, coverage, rows.map(row => ({ id: row.id })));
-      applySnapshot([
-        { kind: 'upsert', model: config.id, rows },
+      const { next } = scopeIndex.reconcile(scopeKey, coverage, rows.map(({ row, edge }) => ({ id: row.id, edge })));
+      return [
+        { kind: 'upsert', model: config.id, rows: rows.map(({ row }) => row) },
         { kind: 'scope', model: config.id, scopeKey, next }
-      ]);
-    }
-  });
+      ];
+    };
+    return {
+      use: (scopeValue: unknown) => {
+        const rows = useLiveRead(
+          () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
+          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
+          arraysShallowEqual
+        );
+        return rows;
+      },
+      useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
+        const pageSize = options?.pageSize ?? runtime.defaults?.pageSize ?? 20;
+        const [windowSize, setWindowSize] = useState(pageSize);
+        const rows = useLiveRead(
+          () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
+          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
+          arraysShallowEqual
+        );
+        const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
+        if (windowRef.current.source !== rows || windowRef.current.size !== windowSize) {
+          windowRef.current = { source: rows, size: windowSize, window: rows.slice(0, windowSize) };
+        }
+        return {
+          rows: windowRef.current.window,
+          totalCount: rows.length,
+          hasMore: rows.length > windowSize,
+          loadMore: () => setWindowSize(current => current + pageSize),
+          refresh: async () => {}
+        };
+      },
+      useCount: (scopeValue: unknown) =>
+        useLiveRead(
+          () => (scopeValue == null ? 0 : scopeIndex.read(keyForScope(scopeValue)).entries.length),
+          scopeValue == null ? [modelDep] : [scopeDep(keyForScope(scopeValue))]
+        ),
+      invalidate: (_scopeValue?: unknown) => {
+        // Network re-fetch wiring arrives with defineQuery; local state stays authoritative here.
+      },
+      read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
+      __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
+        applySnapshot(planApply(scopeValue, rows.map(row => ({ row })), coverage));
+      },
+      __planApply: planApply
+    };
+  };
 
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
     [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>;
   };
+
+  const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows }];
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
@@ -340,7 +350,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     registerReset: fn => {
       registerReset(fn);
     },
-    __applyRows: rows => applySnapshot([{ kind: 'upsert', model: config.id, rows }])
+    __applyRows: rows => applySnapshot(planRows(rows)),
+    __planRows: planRows
   };
 
   entityState.hydrate();
