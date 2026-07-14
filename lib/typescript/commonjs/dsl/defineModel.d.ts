@@ -58,6 +58,7 @@ type ModelCore<TStored extends {
     registerReset(fn: () => void): void;
     __applyRows?(rows: TStored[]): void;
     __planRows?(rows: TStored[]): JournalOp[];
+    __planReplace?(oldId: string, next: unknown): JournalOp[];
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     id: string;

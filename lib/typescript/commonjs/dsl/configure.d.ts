@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { DbLogger, DbTrackSink, DbTransport } from '../types';
 import { type StoragePlane } from '../core/planes/storagePlane';
 import { type ApplyRuntime } from '../core/apply/transaction';
+import { type OperationState } from '../core/planes/operationState';
 export interface DbDefaults {
     staleTime?: number;
     emptyStaleTime?: number;
@@ -41,5 +42,7 @@ export declare const getCommitBus: () => {
  * and commit bus, so one plan touching several models applies and persists as one transaction.
  */
 export declare const getApplyRuntime: () => ApplyRuntime;
+/** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
+export declare const getOperationState: () => OperationState;
 export {};
 //# sourceMappingURL=configure.d.ts.map

@@ -1,38 +1,72 @@
 import type { DbGraphQLDocument } from '../types';
+import type { JournalOp } from '../core/apply/journal';
+import type { ExtractSink } from './defineQuery';
 type MutationModel = {
-    get(id: string): unknown;
+    modelId: string;
+    get(id: string | null | undefined): unknown;
+    normalize(input: unknown): {
+        id: string;
+    };
     insertStored(row: {
         id: string;
     }): void;
     patch(id: string, patch: Record<string, unknown>): void;
     destroy(id: string): void;
-    replaceRaw(oldId: string, next: unknown): void;
+    __planReplace?(oldId: string, next: unknown): JournalOp[];
 };
 export type OptimisticCtx = {
     tempId: string | null;
 };
+type InsertOptimistic<TData, TInput, TStored, TNode> = {
+    model: MutationModel;
+    tempIdPrefix?: string;
+    build: (input: TInput, ctx: OptimisticCtx) => TStored;
+    selectServerNode: (data: TData) => TNode | null | undefined;
+    /** Client-only fields (visual state, local uris) carried from the optimistic row onto the committed server row. */
+    preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
+};
+type PatchOptimistic<TInput, TStored> = {
+    method: 'patch';
+    model: MutationModel;
+    selectId: (input: TInput) => string;
+    selectPatch: (input: TInput) => Partial<TStored>;
+};
+type DestroyOptimistic<TInput> = {
+    method: 'destroy';
+    model: MutationModel;
+    selectId: (input: TInput) => string;
+};
 export type MutationConfig<TData, TInput, TStored, TNode> = {
     document: DbGraphQLDocument<TData, any>;
+    /** Response field owning the mutation payload; a null payload is treated as failure and rolls back. */
     result: string;
     mapInput?: (input: TInput) => Record<string, unknown>;
-    optimistic?: {
-        model: MutationModel;
-        tempIdPrefix?: string;
-        build: (input: TInput, ctx: OptimisticCtx) => TStored;
-        selectServerNode: (data: TData) => TNode | null | undefined;
-        preserveOnCommit?: ReadonlyArray<keyof TStored>;
-    } | {
-        method: 'patch';
-        model: MutationModel;
-        selectId: (input: TInput) => string;
-        selectPatch: (input: TInput) => Partial<TStored>;
-    } | {
-        method: 'destroy';
-        model: MutationModel;
-        selectId: (input: TInput) => string;
+    optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
+    /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
+    extract?: (ctx: {
+        data: TData;
+    }) => ExtractSink[];
+    /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps. */
+    dedupe?: {
+        key: (input: TInput) => string;
     };
+    onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
+    onCommit?: (data: TData, ctx: OptimisticCtx & {
+        input: TInput;
+    }) => void;
+    onError?: (error: Error, ctx: OptimisticCtx & {
+        input: TInput;
+    }) => void;
+    invalidate?: (ctx: {
+        input: TInput;
+        data: TData;
+    }) => void;
+    track?: (ctx: {
+        input: TInput;
+        data: TData;
+    }) => void;
 };
-/** Define hook and imperative mutation paths with identical transport execution. */
+/** Define hook and imperative mutation paths with one lifecycle: optimistic -> transport -> single-transaction commit or rollback. */
 export declare const defineMutation: <TData, TInput, TStored extends {
     id: string;
 }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
