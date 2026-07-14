@@ -1,4 +1,4 @@
-import { getCommitBus, getDbRuntimeConfig, getStoragePrefix } from '../dsl/configure';
+import { getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix } from '../dsl/configure';
 
 const resetters = new Set<() => void | Promise<void>>();
 
@@ -17,5 +17,6 @@ export const resetRuntime = async (): Promise<void> => {
   const { storage } = getDbRuntimeConfig();
   storage.set(storage.keys(getStoragePrefix()).map(key => ({ key, value: null })));
   for (const reset of resetters) await reset();
+  getOperationState().reset();
   getCommitBus().publishAll();
 };

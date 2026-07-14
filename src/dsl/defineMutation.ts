@@ -1,66 +1,144 @@
 import { useCallback, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
-import { getDbRuntimeConfig } from './configure';
+import type { JournalOp } from '../core/apply/journal';
+import { expandPlan } from '../core/relations';
+import { generateTempId } from '../utils/generateTempId';
+import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
+import type { ExtractSink } from './defineQuery';
 
 type MutationModel = {
-  get(id: string): unknown;
+  modelId: string;
+  get(id: string | null | undefined): unknown;
+  normalize(input: unknown): { id: string };
   insertStored(row: { id: string }): void;
   patch(id: string, patch: Record<string, unknown>): void;
   destroy(id: string): void;
-  replaceRaw(oldId: string, next: unknown): void;
+  __planReplace?(oldId: string, next: unknown): JournalOp[];
 };
 
 export type OptimisticCtx = { tempId: string | null };
 
+type InsertOptimistic<TData, TInput, TStored, TNode> = {
+  model: MutationModel;
+  tempIdPrefix?: string;
+  build: (input: TInput, ctx: OptimisticCtx) => TStored;
+  selectServerNode: (data: TData) => TNode | null | undefined;
+  /** Client-only fields (visual state, local uris) carried from the optimistic row onto the committed server row. */
+  preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
+};
+type PatchOptimistic<TInput, TStored> = { method: 'patch'; model: MutationModel; selectId: (input: TInput) => string; selectPatch: (input: TInput) => Partial<TStored> };
+type DestroyOptimistic<TInput> = { method: 'destroy'; model: MutationModel; selectId: (input: TInput) => string };
+
 export type MutationConfig<TData, TInput, TStored, TNode> = {
   document: DbGraphQLDocument<TData, any>;
+  /** Response field owning the mutation payload; a null payload is treated as failure and rolls back. */
   result: string;
   mapInput?: (input: TInput) => Record<string, unknown>;
-  optimistic?:
-    | { model: MutationModel; tempIdPrefix?: string; build: (input: TInput, ctx: OptimisticCtx) => TStored; selectServerNode: (data: TData) => TNode | null | undefined; preserveOnCommit?: ReadonlyArray<keyof TStored> }
-    | { method: 'patch'; model: MutationModel; selectId: (input: TInput) => string; selectPatch: (input: TInput) => Partial<TStored> }
-    | { method: 'destroy'; model: MutationModel; selectId: (input: TInput) => string };
+  optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
+  /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
+  extract?: (ctx: { data: TData }) => ExtractSink[];
+  /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps. */
+  dedupe?: { key: (input: TInput) => string };
+  onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
+  onCommit?: (data: TData, ctx: OptimisticCtx & { input: TInput }) => void;
+  onError?: (error: Error, ctx: OptimisticCtx & { input: TInput }) => void;
+  invalidate?: (ctx: { input: TInput; data: TData }) => void;
+  track?: (ctx: { input: TInput; data: TData }) => void;
 };
 
-let nextTempSequence = 0;
-const tempId = (prefix: string): string => `${prefix}:${++nextTempSequence}`;
+const isMethodOptimistic = <TData, TInput, TStored, TNode>(
+  value: NonNullable<MutationConfig<TData, TInput, TStored, TNode>['optimistic']>
+): value is PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput> => 'method' in value;
 
-const isMethodOptimistic = (value: unknown): value is { method: 'patch' | 'destroy'; model: MutationModel; selectId: (input: unknown) => string; selectPatch?: (input: unknown) => Record<string, unknown> } =>
-  typeof value === 'object' && value !== null && 'method' in value;
-
-/** Define hook and imperative mutation paths with identical transport execution. */
+/** Define hook and imperative mutation paths with one lifecycle: optimistic -> transport -> single-transaction commit or rollback. */
 export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
   const run = async (input: TInput): Promise<TData | null> => {
-    const optimistic = config.optimistic as any;
-    let insertedId: string | null = null;
+    const operations = getOperationState();
+    const dedupeKey = config.dedupe?.key(input);
+    if (dedupeKey != null) {
+      if (operations.hasCommitted(dedupeKey)) return null;
+      if (operations.pending().some(operation => operation.idempotencyKey === dedupeKey)) return null;
+    }
+    const optimistic = config.optimistic;
+    const tracked = optimistic != null || dedupeKey != null;
+    const operationId = generateTempId('op');
+    let tempId: string | null = null;
     let previous: unknown = null;
+
     if (optimistic && !isMethodOptimistic(optimistic)) {
-      insertedId = tempId(optimistic.tempIdPrefix ?? 'temp');
-      const row = optimistic.build(input, { tempId: insertedId });
-      optimistic.model.insertStored({ ...row, id: insertedId });
-    } else if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch') {
+      const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
+      tempId = newTempId;
+      const row = optimistic.build(input, { tempId: newTempId });
+      optimistic.model.insertStored({ ...(row as Record<string, unknown>), id: newTempId });
+    } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
       previous = optimistic.model.get(id);
-      optimistic.model.patch(id, optimistic.selectPatch!(input) as Record<string, unknown>);
-    } else if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy') {
+      optimistic.model.patch(id, optimistic.selectPatch(input) as Record<string, unknown>);
+    } else if (optimistic && optimistic.method === 'destroy') {
       const id = optimistic.selectId(input);
       previous = optimistic.model.get(id);
       optimistic.model.destroy(id);
     }
+    if (tracked) {
+      operations.begin({
+        operationId,
+        model: optimistic?.model.modelId ?? '',
+        tempIds: tempId ? [tempId] : [],
+        intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
+        idempotencyKey: dedupeKey,
+        createdAt: Date.now()
+      });
+    }
+    config.onMutate?.(input, { tempId });
+
     try {
-      const data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input) ?? input } })).data;
-      if (optimistic && !isMethodOptimistic(optimistic)) {
+      const data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input) ?? input } })).data as TData;
+      const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
+      if (payload == null) throw new Error(`${config.result} returned no data`);
+
+      const ops: JournalOp[] = [];
+      if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
         const node = optimistic.selectServerNode(data);
-        if (node != null && insertedId) optimistic.model.replaceRaw(insertedId, node);
+        if (node != null) {
+          ops.push(...(optimistic.model.__planReplace?.(tempId, node) ?? []));
+          if (optimistic.preserveOnCommit?.length) {
+            const current = optimistic.model.get(tempId) as Record<string, unknown> | undefined;
+            if (current) {
+              const preserved: Record<string, unknown> = {};
+              for (const field of optimistic.preserveOnCommit) {
+                if (current[field] !== undefined) preserved[field] = current[field];
+              }
+              if (Object.keys(preserved).length > 0) {
+                ops.push({ kind: 'patch', model: optimistic.model.modelId, id: optimistic.model.normalize(node).id, patch: preserved });
+              }
+            }
+          }
+        }
       }
+      for (const sink of config.extract?.({ data }) ?? []) {
+        ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
+      }
+      if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
+
+      if (tracked) operations.close(operationId, 'committed');
+      config.onCommit?.(data, { tempId, input });
+      config.invalidate?.({ input, data });
+      config.track?.({ input, data });
       return data;
     } catch (error) {
-      if (optimistic && !isMethodOptimistic(optimistic) && insertedId) optimistic.model.destroy(insertedId);
-      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && previous && typeof previous === 'object') optimistic.model.patch(optimistic.selectId(input), previous as Record<string, unknown>);
-      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && previous && typeof previous === 'object') optimistic.model.insertStored(previous as { id: string });
+      if (optimistic && !isMethodOptimistic(optimistic) && tempId) optimistic.model.destroy(tempId);
+      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && previous && typeof previous === 'object') {
+        optimistic.model.patch(optimistic.selectId(input), previous as Record<string, unknown>);
+      }
+      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && previous && typeof previous === 'object') {
+        optimistic.model.insertStored(previous as { id: string });
+      }
+      if (tracked) operations.close(operationId, 'rolledback');
+      config.onError?.(error as Error, { tempId, input });
       throw error;
     }
   };
+
   return {
     run,
     use: () => {
@@ -78,7 +156,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           setPending(false);
         }
       }, []);
-      return { mutate: (input: TInput) => { void mutateAsync(input); }, mutateAsync, isPending, error };
+      return {
+        mutate: (input: TInput) => {
+          void mutateAsync(input);
+        },
+        mutateAsync,
+        isPending,
+        error
+      };
     }
   };
 };

@@ -58,6 +58,7 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   registerReset(fn: () => void): void;
   __applyRows?(rows: TStored[]): void;
   __planRows?(rows: TStored[]): JournalOp[];
+  __planReplace?(oldId: string, next: unknown): JournalOp[];
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -257,6 +258,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows }];
 
+  const planReplace = (oldId: string, next: unknown): JournalOp[] => [
+    { kind: 'destroy', model: config.id, ids: [oldId] },
+    { kind: 'upsert', model: config.id, rows: [next] }
+  ];
+
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
     get: id => (id == null ? undefined : entityState.read(id)),
@@ -265,11 +271,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),
     insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
-    replaceRaw: (oldId, next) =>
-      applyEvent([
-        { kind: 'destroy', model: config.id, ids: [oldId] },
-        { kind: 'upsert', model: config.id, rows: [next] }
-      ]),
+    replaceRaw: (oldId, next) => applyEvent(planReplace(oldId, next)),
     buildStored: input => normalize(input, true),
     normalize: input => normalize(input),
     invalidate: () => {
@@ -351,7 +353,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       registerReset(fn);
     },
     __applyRows: rows => applySnapshot(planRows(rows)),
-    __planRows: planRows
+    __planRows: planRows,
+    __planReplace: planReplace
   };
 
   entityState.hydrate();

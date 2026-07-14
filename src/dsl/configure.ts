@@ -6,6 +6,7 @@ import { setDbTrackSink } from '../core/tracking';
 import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createApplyRuntime, type ApplyRuntime } from '../core/apply/transaction';
+import { createOperationState, type OperationState } from '../core/planes/operationState';
 
 export interface DbDefaults {
   staleTime?: number;
@@ -19,6 +20,7 @@ export interface DbDefaults {
 type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; track?: DbTrackSink; defaults?: DbDefaults };
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
+let operationState: OperationState | null = null;
 const commitBus = createCommitBus();
 
 /** Single flat key namespace for everything the library persists. */
@@ -28,6 +30,7 @@ const STORAGE_PREFIX = 'dbl:';
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
   runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane() };
   applyRuntime = null;
+  operationState = null;
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
   if (options.track) setDbTrackSink(options.track);
@@ -52,4 +55,14 @@ export const getApplyRuntime = (): ApplyRuntime => {
     applyRuntime = createApplyRuntime({ storage, prefix: getStoragePrefix, bus: commitBus });
   }
   return applyRuntime;
+};
+
+/** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
+export const getOperationState = (): OperationState => {
+  if (!operationState) {
+    const { storage } = getDbRuntimeConfig();
+    operationState = createOperationState({ storage, prefix: getStoragePrefix, now: () => Date.now() });
+    operationState.hydrate();
+  }
+  return operationState;
 };
