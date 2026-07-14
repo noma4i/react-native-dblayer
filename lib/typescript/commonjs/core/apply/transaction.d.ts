@@ -11,6 +11,10 @@ export type ApplyTarget = {
         id: string;
         changedFields: string[] | null;
     }>;
+    patch(id: string, patch: Record<string, unknown>): {
+        id: string;
+        changedFields: string[] | null;
+    } | null;
     destroy(ids: string[]): string[];
     counter(id: string, field: string, delta: number): boolean;
     scope(scopeKey: string, next: unknown): void;

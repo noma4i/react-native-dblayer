@@ -5,6 +5,7 @@ import { registerApplyTarget } from '../core/apply/transaction';
 import type { JournalOp } from '../core/apply/journal';
 import { createEntityClock, createEntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
+import { expandPlan, registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { stableSerialize } from '../core/serialize';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
@@ -31,6 +32,7 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
 };
 
 type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
+  modelId: string;
   get(id: string | null | undefined): TStored | undefined;
   getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   patch(id: string, patch: Partial<TStored>): void;
@@ -49,6 +51,7 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
     where(where: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored[];
     byIds(ids: string[]): TStored[];
     count(where?: DbWhere<TStored> | null): number;
+    related(id: string | null | undefined, relation: string): unknown;
   };
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
   registerReset(fn: () => void): void;
@@ -61,7 +64,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   fields: TFields;
   rowId?: (input: unknown) => string;
   guard?: (input: unknown) => boolean;
-  relations?: () => Record<string, unknown>;
+  relations?: () => Record<string, RelationDecl>;
   sideload?: unknown[];
   scopes?: TScopes;
   merge?: { shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean; dedupeWindowMs?: number };
@@ -114,6 +117,22 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return output;
   };
 
+  let relationCache: Record<string, RelationDecl> | null = null;
+  const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
+
+  registerRelationHost(config.id, {
+    relations: resolvedRelations,
+    has: id => entityState.read(id) !== undefined,
+    read: id => entityState.read(id),
+    normalize: input => {
+      try {
+        return normalize(input);
+      } catch {
+        return null;
+      }
+    }
+  });
+
   const writeRows = (rows: unknown[]): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
@@ -128,6 +147,12 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const applyTarget = {
     upsert: writeRows,
+    patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {
+      const current = entityState.read(id);
+      if (!current) return null;
+      const result = entityState.upsert({ ...current, ...patch, id });
+      return { id, changedFields: result.changedFields };
+    },
     destroy: (ids: string[]): string[] => {
       for (const id of ids) entityState.destroy(id);
       return ids;
@@ -145,8 +170,14 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   };
   registerApplyTarget(config.id, applyTarget);
 
-  const applyOps = (ops: JournalOp[]): void => {
+  /** Snapshot writes (query pages / entity refreshes) apply verbatim - server state is derived already. */
+  const applySnapshot = (ops: JournalOp[]): void => {
     getApplyRuntime().apply(ops);
+  };
+
+  /** Imperative/domain writes are events: expand declared relation side effects into the same plan. */
+  const applyEvent = (ops: JournalOp[]): void => {
+    getApplyRuntime().apply(expandPlan(ops));
   };
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {
@@ -205,7 +236,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
       const scopeKey = keyForScope(scopeValue);
       const { next } = scopeIndex.reconcile(scopeKey, coverage, rows.map(row => ({ id: row.id })));
-      applyOps([
+      applySnapshot([
         { kind: 'upsert', model: config.id, rows },
         { kind: 'scope', model: config.id, scopeKey, next }
       ]);
@@ -217,17 +248,15 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   };
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
+    modelId: config.id,
     get: id => (id == null ? undefined : entityState.read(id)),
     getWhere: (where, options) => sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options),
-    patch: (id, patch) => {
-      const current = entityState.read(id);
-      if (current) applyOps([{ kind: 'upsert', model: config.id, rows: [{ ...current, ...patch, id }] }]);
-    },
-    destroy: id => applyOps([{ kind: 'destroy', model: config.id, ids: [id] }]),
-    destroyMany: ids => applyOps([{ kind: 'destroy', model: config.id, ids }]),
-    insertStored: row => applyOps([{ kind: 'upsert', model: config.id, rows: [row] }]),
+    patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id, patch: patch as Record<string, unknown> }]),
+    destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
+    destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),
+    insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
     replaceRaw: (oldId, next) =>
-      applyOps([
+      applyEvent([
         { kind: 'destroy', model: config.id, ids: [oldId] },
         { kind: 'upsert', model: config.id, rows: [next] }
       ]),
@@ -271,13 +300,47 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         useLiveRead(
           () => (where == null ? entityState.values().length : entityState.values().filter(row => matchesDbWhere(row, where)).length),
           [modelDep]
-        )
+        ),
+      related: (id, relationName) => {
+        const relation = resolvedRelations()[relationName];
+        if (!relation) throw new Error(`${config.name} has no relation ${relationName}`);
+        let compute: () => unknown;
+        let deps: Dependency[];
+        let isEqual: (a: unknown, b: unknown) => boolean = Object.is;
+        if (relation.kind === 'belongsTo') {
+          const parentIdOf = (): string | null => {
+            const child = id == null ? undefined : entityState.read(id);
+            const value = child?.[relation.foreignKey];
+            return typeof value === 'string' && value.length > 0 ? value : null;
+          };
+          compute = () => {
+            const parentId = parentIdOf();
+            return parentId ? relation.model.get(parentId) : undefined;
+          };
+          const parentId = parentIdOf();
+          deps = id == null ? [] : [rowDep(id, [relation.foreignKey]), ...(parentId ? [{ kind: 'row' as const, model: relation.model.modelId, id: parentId }] : [])];
+        } else if (relation.kind === 'hasMany') {
+          compute = () => (id == null ? EMPTY_ROWS : relation.model.getWhere({ [relation.foreignKey]: id }));
+          deps = id == null ? [] : [{ kind: 'model', model: relation.model.modelId }];
+          isEqual = (a, b) => arraysShallowEqual(a as unknown[], b as unknown[]);
+        } else {
+          const comparator = relation.comparator;
+          compute = () => {
+            if (id == null) return undefined;
+            const rows = relation.model.getWhere({ [relation.foreignKey]: id });
+            if (rows.length === 0) return undefined;
+            return comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0];
+          };
+          deps = id == null ? [] : [{ kind: 'model', model: relation.model.modelId }];
+        }
+        return useLiveRead(compute, deps, isEqual);
+      }
     },
     scopes: scopeHandles,
     registerReset: fn => {
       registerReset(fn);
     },
-    __applyRows: rows => applyOps([{ kind: 'upsert', model: config.id, rows }])
+    __applyRows: rows => applySnapshot([{ kind: 'upsert', model: config.id, rows }])
   };
 
   entityState.hydrate();

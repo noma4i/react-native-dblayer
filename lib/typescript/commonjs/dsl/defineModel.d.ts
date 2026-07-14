@@ -1,4 +1,5 @@
 import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
+import { type RelationDecl } from '../core/relations';
 import type { Coverage, ScopeSpec } from './scope';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 export type ScopeHandle<TStored extends {
@@ -23,6 +24,7 @@ type ModelCore<TStored extends {
     id: string;
     updatedAt?: string | null;
 }> = {
+    modelId: string;
     get(id: string | null | undefined): TStored | undefined;
     getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
     patch(id: string, patch: Partial<TStored>): void;
@@ -45,6 +47,7 @@ type ModelCore<TStored extends {
         where(where: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored[];
         byIds(ids: string[]): TStored[];
         count(where?: DbWhere<TStored> | null): number;
+        related(id: string | null | undefined, relation: string): unknown;
     };
     scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
     registerReset(fn: () => void): void;
@@ -56,7 +59,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     fields: TFields;
     rowId?: (input: unknown) => string;
     guard?: (input: unknown) => boolean;
-    relations?: () => Record<string, unknown>;
+    relations?: () => Record<string, RelationDecl>;
     sideload?: unknown[];
     scopes?: TScopes;
     merge?: {

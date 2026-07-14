@@ -5,6 +5,11 @@ export type JournalOp = {
     model: string;
     rows: unknown[];
 } | {
+    kind: 'patch';
+    model: string;
+    id: string;
+    patch: Record<string, unknown>;
+} | {
     kind: 'destroy';
     model: string;
     ids: string[];
