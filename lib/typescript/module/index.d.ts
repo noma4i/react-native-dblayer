@@ -1,7 +1,7 @@
 export { configureDb, flushPersistence, getDbQueryClient } from './dsl/configure';
 export { getDbTransport, setDbTransport } from './core/transport';
 export type { DbDefaults } from './dsl/configure';
-export { resetRuntime, registerReset } from './core/reset';
+export { resetRuntime, resetRuntimeSync, registerReset } from './core/reset';
 export { mmkvStoragePlane } from './core/planes/storagePlane';
 export type { StoragePlane } from './core/planes/storagePlane';
 export { defineModel } from './dsl/defineModel';
@@ -14,6 +14,7 @@ export { f } from './schema/f';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { defineQuery } from './dsl/defineQuery';
 export type { QueryResult, ExtractSink } from './dsl/defineQuery';
+export type { MutateCallbacks } from './dsl/defineMutation';
 export { defineMutation } from './dsl/defineMutation';
 export { defineIngest } from './dsl/defineIngest';
 export type { IngestDecl } from './dsl/defineIngest';

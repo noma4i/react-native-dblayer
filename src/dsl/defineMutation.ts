@@ -18,6 +18,13 @@ type MutationModel = {
 
 export type OptimisticCtx = { tempId: string | null };
 
+export type MutateCallbacks<TData> = {
+  /** Receives null when the call was skipped by dedupe (already committed / pending). */
+  onSuccess?: (data: TData | null) => void;
+  onError?: (error: Error) => void;
+  onSettled?: () => void;
+};
+
 type InsertOptimistic<TData, TInput, TStored, TNode> = {
   model: MutationModel;
   tempIdPrefix?: string;
@@ -153,26 +160,29 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     use: () => {
       const [isPending, setPending] = useState(false);
       const [error, setError] = useState<Error | null>(null);
-      const mutateAsync = useCallback(async (input: TInput) => {
+      /** Rejects on failure (RQ semantics) while still reflecting the error in hook state; resolves null on dedupe skip. */
+      const mutateAsync = useCallback(async (input: TInput): Promise<TData | null> => {
         setPending(true);
         setError(null);
         try {
           return await run(input);
         } catch (nextError) {
           setError(nextError as Error);
-          return null;
+          throw nextError;
         } finally {
           setPending(false);
         }
       }, []);
-      return {
-        mutate: (input: TInput) => {
-          void mutateAsync(input);
+      const mutate = useCallback(
+        (input: TInput, callbacks?: MutateCallbacks<TData>) => {
+          mutateAsync(input)
+            .then(data => callbacks?.onSuccess?.(data))
+            .catch(nextError => callbacks?.onError?.(nextError as Error))
+            .finally(() => callbacks?.onSettled?.());
         },
-        mutateAsync,
-        isPending,
-        error
-      };
+        [mutateAsync]
+      );
+      return { mutate, mutateAsync, isPending, error };
     }
   };
 };

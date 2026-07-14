@@ -17,6 +17,12 @@ type MutationModel = {
 export type OptimisticCtx = {
     tempId: string | null;
 };
+export type MutateCallbacks<TData> = {
+    /** Receives null when the call was skipped by dedupe (already committed / pending). */
+    onSuccess?: (data: TData | null) => void;
+    onError?: (error: Error) => void;
+    onSettled?: () => void;
+};
 type InsertOptimistic<TData, TInput, TStored, TNode> = {
     model: MutationModel;
     tempIdPrefix?: string;
@@ -74,7 +80,7 @@ export declare const defineMutation: <TData, TInput, TStored extends {
 }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
     run: (input: TInput) => Promise<TData | null>;
     use: () => {
-        mutate: (input: TInput) => void;
+        mutate: (input: TInput, callbacks?: MutateCallbacks<TData>) => void;
         mutateAsync: (input: TInput) => Promise<TData | null>;
         isPending: boolean;
         error: Error | null;
