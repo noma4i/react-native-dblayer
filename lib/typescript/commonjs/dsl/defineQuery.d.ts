@@ -35,7 +35,7 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
 /** Define a query that compiles selected GraphQL data into a model or scope apply operation. */
 export declare const defineQuery: <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => {
     fetch: (scope: TScope) => Promise<void>;
-    invalidate: (_scope?: TScope) => void;
+    invalidate: (scope?: TScope) => void;
     use: (scope: TScope) => QueryResult<TStored>;
 };
 export {};
