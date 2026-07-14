@@ -11,7 +11,7 @@ export type JournalOp = {
 } | {
     kind: 'scope';
     model: string;
-    scopeHash: string;
+    scopeKey: string;
     next: ScopeIndexValue;
 } | {
     kind: 'freshness';
@@ -30,9 +30,14 @@ export type JournalRecord = {
     status: 'pending' | 'committed';
     ops: JournalOp[];
 };
-export declare const createJournal: (storage: StoragePlane, prefix: string) => {
+export declare const createJournal: (storage: StoragePlane, prefix: () => string) => {
     writePending: (record: JournalRecord) => void;
-    markCommitted: (record: JournalRecord) => void;
+    /** Storage entries marking the record committed + pruning old committed records past the cap. */
+    committedEntry: (record: JournalRecord) => Array<{
+        key: string;
+        value: string | null;
+    }>;
     pending: () => JournalRecord[];
+    lastEpoch: () => number;
 };
 //# sourceMappingURL=journal.d.ts.map

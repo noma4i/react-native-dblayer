@@ -1,1 +1,0 @@
-{"version":3,"names":["captureApplyState","entityClock","scopeGeneration","exports"],"sourceRoot":"../../../../src","sources":["core/apply/capture.ts"],"mappings":";;;;;;AAEA;AACO,MAAMA,iBAAiB,GAAGA,CAACC,WAAmB,EAAEC,eAAuB,MAAe;EAAED,WAAW;EAAEC;AAAgB,CAAC,CAAC;AAACC,OAAA,CAAAH,iBAAA,GAAAA,iBAAA","ignoreList":[]}

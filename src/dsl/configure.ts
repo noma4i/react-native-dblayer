@@ -4,6 +4,7 @@ import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane
 import { setDbLogger } from '../core/logger';
 import { setDbTrackSink } from '../core/tracking';
 import { setDbTransport } from '../core/transport';
+import { createCommitBus } from '../core/apply/commitBus';
 
 export interface DbDefaults {
   staleTime?: number;
@@ -17,6 +18,7 @@ export interface DbDefaults {
 type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; track?: DbTrackSink; defaults?: DbDefaults };
 let runtimeConfig: RuntimeConfig | null = null;
 let accountId = 'anon';
+const commitBus = createCommitBus();
 
 /** Configure v6 runtime seams and defaults. */
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
@@ -36,3 +38,5 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
 };
 
 export const getAccountPartitionPrefix = (): string => `dbl:${accountId}:`;
+
+export const getCommitBus = () => commitBus;

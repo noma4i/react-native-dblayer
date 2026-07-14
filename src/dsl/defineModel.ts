@@ -7,7 +7,7 @@ import { createScopeIndex, type ScopeIndexValue } from '../core/planes/scopeInde
 import { registerReset } from '../core/reset';
 import { stableSerialize } from '../core/serialize';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
-import { getAccountPartitionPrefix, getDbRuntimeConfig } from './configure';
+import { getAccountPartitionPrefix, getCommitBus, getDbRuntimeConfig } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
@@ -94,19 +94,20 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 ): ModelCore<any> & { scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
   const runtime = getDbRuntimeConfig();
   let tick = 0;
-  const listeners = new Set<() => void>();
-  const notify = (): void => {
-    tick += 1;
-    for (const listener of listeners) listener();
-  };
+  const bus = getCommitBus();
+  const notify = (): void => { tick += 1; };
   const subscribe = (listener: () => void): (() => void) => {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
+    const subscription = bus.subscribe(() => {
+      tick += 1;
+      listener();
+    }, [{ kind: 'model', model: config.id }]);
+    return subscription.unsubscribe;
   };
   const snapshot = (): number => tick;
-  const entityState = createEntityState<any>(createEntityClock(), () => 0);
-  const scopeIndex = createScopeIndex();
-  const apply = createApplyRuntime(runtime.storage, getAccountPartitionPrefix());
+  const prefix = getAccountPartitionPrefix;
+  const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix });
+  const scopeIndex = createScopeIndex({ modelId: config.id, storage: runtime.storage, prefix });
+  const apply = createApplyRuntime({ storage: runtime.storage, prefix, bus });
   const normalize = (input: unknown, complete = false): any => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
     const id = config.rowId?.(input) ?? (typeof input === 'object' && input !== null ? (input as Record<string, unknown>).id : undefined);
@@ -118,33 +119,36 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     }
     return output;
   };
-  const writeRows = (rows: unknown[]): void => {
+  const writeRows = (rows: unknown[]): Array<{ id: string; changedFields: string[] | null }> => {
+    const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       const incoming = normalize(value);
       const current = entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
-      entityState.upsert({ ...current, ...incoming });
+      const result = entityState.upsert({ ...current, ...incoming });
+      changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
-    notify();
+    return changes;
   };
-  const writeDestroy = (ids: string[]): void => {
+  const writeDestroy = (ids: string[]): string[] => {
     for (const id of ids) entityState.destroy(id);
-    notify();
+    return ids;
   };
   const unregisterTarget = registerApplyTarget(config.id, {
     upsert: writeRows,
     destroy: writeDestroy,
     counter: (id, field, delta) => {
       const row = entityState.read(id);
-      if (row) entityState.upsert({ ...row, [field]: ((row[field] as number | undefined) ?? 0) + delta });
-      notify();
+      if (!row) return false;
+      entityState.upsert({ ...row, [field]: ((row[field] as number | undefined) ?? 0) + delta });
+      return true;
     },
     scope: (hash, next) => {
       scopeIndex.write(hash, next as ScopeIndexValue);
-      notify();
-    }
+    },
+    persistEntries: () => [...entityState.persistEntries(), ...scopeIndex.persistEntries()]
   });
-  const applyOps = (ops: Parameters<typeof apply.apply>[0]): void => apply.apply(ops);
+  const applyOps = (ops: Parameters<typeof apply.apply>[0]): void => { apply.apply(ops); };
   const rowsForScope = (scopeValue: unknown): any[] => scopeIndex.read(keyForScope(scopeValue)).entries.map(entry => entityState.read(entry.id)).filter(Boolean);
   const useSnapshot = (): void => {
     useSyncExternalStore(subscribe, snapshot, snapshot);
@@ -168,12 +172,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     read: rowsForScope,
     __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
       const hash = keyForScope(scopeValue);
-      const previous = scopeIndex.read(hash);
-      const existing = new Set(previous.entries.map(entry => entry.id));
-      const entries = coverage === 'complete'
-        ? rows.map((row, order) => ({ id: row.id, order, seq: previous.generation + 1 }))
-        : [...previous.entries, ...rows.filter(row => !existing.has(row.id)).map((row, order) => ({ id: row.id, order: previous.entries.length + order, seq: previous.generation + 1 }))];
-      applyOps([{ kind: 'upsert', model: config.id, rows }, { kind: 'scope', model: config.id, scopeHash: hash, next: { generation: previous.generation + 1, coverage, entries } }]);
+      const { next } = scopeIndex.reconcile(hash, coverage, rows.map(row => ({ id: row.id })));
+      applyOps([{ kind: 'upsert', model: config.id, rows }, { kind: 'scope', model: config.id, scopeKey: hash, next }]);
     }
   }])) as { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {

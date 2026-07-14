@@ -1,13 +1,42 @@
-export type CommitChange = {
+export type RowChange = {
     model: string;
-    ids: string[];
-    scopeKeys: string[];
-    fields: string[];
+    id: string;
+    fields: string[] | null;
 };
-export type CommitListener = (changes: CommitChange[]) => void;
-/** Emits exactly one semantic notification after an applied plan commits. */
+export type ScopeChange = {
+    model: string;
+    scopeKey: string;
+};
+export type CommitBatch = {
+    rows: RowChange[];
+    scopes: ScopeChange[];
+};
+export type Dependency = {
+    kind: 'row';
+    model: string;
+    id: string;
+    fields?: ReadonlyArray<string>;
+} | {
+    kind: 'scope';
+    model: string;
+    scopeKey: string;
+} | {
+    kind: 'model';
+    model: string;
+};
+export type CommitSubscription = {
+    setDeps(deps: ReadonlyArray<Dependency>): void;
+    unsubscribe(): void;
+};
+/**
+ * Semantic commit bus: one batched publish per applied plan; each subscriber declares a dependency
+ * set (per-row, per-field, per-scope, or whole-model) and is notified at most once per batch,
+ * only when the batch intersects its dependencies.
+ */
 export declare const createCommitBus: () => {
-    subscribe: (listener: CommitListener) => () => boolean;
-    publish: (changes: CommitChange[]) => void;
+    subscribe: (notify: () => void, deps?: ReadonlyArray<Dependency>) => CommitSubscription;
+    publish: (batch: CommitBatch) => void;
+    subscriberCount: () => number;
 };
+export type CommitBus = ReturnType<typeof createCommitBus>;
 //# sourceMappingURL=commitBus.d.ts.map

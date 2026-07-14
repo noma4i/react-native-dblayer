@@ -1,3 +1,4 @@
+import type { StoragePlane } from './storagePlane';
 export type OperationStatus = 'pending' | 'committed' | 'rolledback';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
 export type OperationRecord = {
@@ -12,8 +13,23 @@ export type OperationRecord = {
 export type OperationState = {
     begin(operation: Omit<OperationRecord, 'status'>): void;
     close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
+    get(operationId: string): OperationRecord | undefined;
+    /** True when an idempotency key already committed - callers must skip re-applying. */
+    hasCommitted(idempotencyKey: string): boolean;
     pending(): OperationRecord[];
+    prune(): number;
+    /** Monotonic keyed sequence (e.g. per-chat optimistic ordering floor); floor raises the base. */
+    nextSequence(key: string, floor: number): number;
+    persistEntries(): Array<{
+        key: string;
+        value: string | null;
+    }>;
+    hydrate(): void;
     reset(): void;
 };
-export declare const createOperationState: () => OperationState;
+export declare const createOperationState: (options: {
+    storage: StoragePlane;
+    prefix: () => string;
+    now: () => number;
+}) => OperationState;
 //# sourceMappingURL=operationState.d.ts.map
