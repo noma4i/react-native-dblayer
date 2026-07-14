@@ -25,6 +25,8 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
   selectServerNode: (data: TData) => TNode | null | undefined;
   /** Client-only fields (visual state, local uris) carried from the optimistic row onto the committed server row. */
   preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
+  /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
+  existingTempId?: (input: TInput) => string | null;
 };
 type PatchOptimistic<TInput, TStored> = { method: 'patch'; model: MutationModel; selectId: (input: TInput) => string; selectPatch: (input: TInput) => Partial<TStored> };
 type DestroyOptimistic<TInput> = { method: 'destroy'; model: MutationModel; selectId: (input: TInput) => string };
@@ -37,8 +39,8 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
   optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
   /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
   extract?: (ctx: { data: TData }) => ExtractSink[];
-  /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps. */
-  dedupe?: { key: (input: TInput) => string };
+  /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps; null skips dedupe. */
+  dedupe?: { key: (input: TInput) => string | null };
   onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
   onCommit?: (data: TData, ctx: OptimisticCtx & { input: TInput }) => void;
   onError?: (error: Error, ctx: OptimisticCtx & { input: TInput }) => void;
@@ -63,13 +65,20 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     const tracked = optimistic != null || dedupeKey != null;
     const operationId = generateTempId('op');
     let tempId: string | null = null;
+    let insertedTempId: string | null = null;
     let previous: unknown = null;
 
     if (optimistic && !isMethodOptimistic(optimistic)) {
-      const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
-      tempId = newTempId;
-      const row = optimistic.build(input, { tempId: newTempId });
-      optimistic.model.insertStored({ ...(row as Record<string, unknown>), id: newTempId });
+      const reuseId = optimistic.existingTempId?.(input) ?? null;
+      if (reuseId != null && optimistic.model.get(reuseId) !== undefined) {
+        tempId = reuseId;
+      } else {
+        const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
+        tempId = newTempId;
+        insertedTempId = newTempId;
+        const row = optimistic.build(input, { tempId: newTempId });
+        optimistic.model.insertStored({ ...(row as Record<string, unknown>), id: newTempId });
+      }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
       previous = optimistic.model.get(id);
@@ -85,7 +94,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         model: optimistic?.model.modelId ?? '',
         tempIds: tempId ? [tempId] : [],
         intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
-        idempotencyKey: dedupeKey,
+        idempotencyKey: dedupeKey ?? undefined,
         createdAt: Date.now()
       });
     }
@@ -126,7 +135,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       config.track?.({ input, data });
       return data;
     } catch (error) {
-      if (optimistic && !isMethodOptimistic(optimistic) && tempId) optimistic.model.destroy(tempId);
+      if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) optimistic.model.destroy(insertedTempId);
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && previous && typeof previous === 'object') {
         optimistic.model.patch(optimistic.selectId(input), previous as Record<string, unknown>);
       }

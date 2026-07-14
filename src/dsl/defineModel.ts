@@ -1,5 +1,5 @@
 import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
-import { matchesDbWhere } from '../core/compileDbWhere';
+import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import type { JournalOp } from '../core/apply/journal';
@@ -7,7 +7,6 @@ import { createEntityClock, createEntityState } from '../core/planes/entityState
 import { createScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { expandPlan, registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
-import { stableSerialize } from '../core/serialize';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix } from './configure';
@@ -76,7 +75,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   statics?: (model: ModelCore<any>) => TExt;
 };
 
-const keyForScope = (scopeValue: unknown): string => stableSerialize(scopeValue);
+const keyForScope = (scopeValue: unknown): string => buildScopeKey(scopeValue);
 
 const EMPTY_ROWS: any[] = [];
 
@@ -368,5 +367,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     // The apply target stays registered: a model must keep working after the kill-switch.
   });
 
-  return Object.assign(model, config.statics?.(model));
+  const statics = config.statics?.(model);
+  if (statics) {
+    for (const key of Object.keys(statics)) {
+      if (key in model) throw new Error(`${config.name} statics collide with base model key ${key}`);
+    }
+  }
+  return Object.assign(model, statics);
 };

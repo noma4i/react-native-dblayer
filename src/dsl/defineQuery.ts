@@ -3,7 +3,7 @@ import type { DocumentNode, OperationDefinitionNode } from 'graphql';
 import type { DbGraphQLDocument, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import type { JournalOp } from '../core/apply/journal';
-import { stableSerialize } from '../core/serialize';
+import { buildScopeKey } from '../core/compileDbWhere';
 import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import type { ScopeHandle } from './defineModel';
 import type { Coverage } from './scope';
@@ -83,7 +83,7 @@ const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> =>
 /** Define a query that compiles GraphQL responses into one apply-pipeline transaction. */
 export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => {
   const keyName = operationKey(config.document, config.key);
-  const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, stableSerialize(scope)];
+  const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
 
   const pageMetaOf = (connection: ConnectionLike | null): PageMeta => {
@@ -159,7 +159,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   ): QueryResult<TStored> => {
     const hasData = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
     const phase = computePhase({
-      isInactive: !flags.enabled,
+      isInactive: !flags.enabled && !hasData,
       isRestoring: false,
       isSyncReady: true,
       isFetching: flags.isFetching,

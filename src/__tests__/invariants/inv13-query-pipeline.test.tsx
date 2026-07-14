@@ -8,7 +8,7 @@ import { defineQuery } from '../../dsl/defineQuery';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
 import type { StoragePlane } from '../../core/planes/storagePlane';
-import { stableSerialize } from '../../core/serialize';
+import { buildScopeKey } from '../../core/compileDbWhere';
 
 const document = parse('query ItemsList { items { id name } }');
 
@@ -147,7 +147,7 @@ describe('v6 invariant 13: query pipeline', () => {
     await waitFor(() => calls.length === 2);
     const spy = jest.spyOn(client, 'invalidateQueries');
     query.invalidate({ scope: 'a' });
-    expect(spy).toHaveBeenLastCalledWith({ queryKey: ['dbl', 'ItemsList', stableSerialize({ scope: 'a' })] });
+    expect(spy).toHaveBeenLastCalledWith({ queryKey: ['dbl', 'ItemsList', buildScopeKey({ scope: 'a' })] });
     query.invalidate();
     expect(spy).toHaveBeenLastCalledWith({ queryKey: ['dbl', 'ItemsList'] });
     spy.mockRestore();
@@ -161,7 +161,7 @@ describe('v6 invariant 13: query pipeline', () => {
     const emptyQuery = defineQuery<any, any, any, any>({ document, page: data => data.items, into: empty.items.scopes.list, staleTime: Infinity, emptyStaleTime: 0 });
     const firstEmpty = renderQuery(empty.client, () => emptyQuery.use(emptyScope));
     await waitFor(() => empty.calls.length === 1);
-    const emptyCached = empty.client.getQueryCache().find({ queryKey: ['dbl', 'ItemsList', stableSerialize(emptyScope)] });
+    const emptyCached = empty.client.getQueryCache().find({ queryKey: ['dbl', 'ItemsList', buildScopeKey(emptyScope)] });
     await waitFor(() => emptyCached?.state.data !== undefined);
     const emptyOptions = emptyCached!.options as { staleTime: unknown };
     expect(typeof emptyOptions.staleTime).toBe('function');
@@ -172,7 +172,7 @@ describe('v6 invariant 13: query pipeline', () => {
     const filledQuery = defineQuery<any, any, any, any>({ document, page: data => data.items, into: filled.items.scopes.list, staleTime: Infinity, emptyStaleTime: 0 });
     const firstFilled = renderQuery(filled.client, () => filledQuery.use(filledScope));
     await waitFor(() => filled.calls.length === 1);
-    const filledCached = filled.client.getQueryCache().find({ queryKey: ['dbl', 'ItemsList', stableSerialize(filledScope)] });
+    const filledCached = filled.client.getQueryCache().find({ queryKey: ['dbl', 'ItemsList', buildScopeKey(filledScope)] });
     await waitFor(() => filledCached?.state.data !== undefined);
     const filledOptions = filledCached!.options as { staleTime: unknown };
     expect(typeof filledOptions.staleTime).toBe('function');
