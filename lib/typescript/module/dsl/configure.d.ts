@@ -56,6 +56,13 @@ export declare const getApplyRuntime: () => ApplyRuntime;
  * must call this on background/inactive and before logout teardown.
  */
 export declare const flushPersistence: () => void;
+/**
+ * Idempotently re-apply journal records not yet covered by each model's persisted applied-epoch
+ * marker. The host app must call this ONCE at startup, after configureDb and after every model
+ * module has been imported (apply targets registered) - records touching unregistered models throw.
+ * Returns the number of replayed records.
+ */
+export declare const replayJournal: () => number;
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
 export declare const cancelPersistence: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */

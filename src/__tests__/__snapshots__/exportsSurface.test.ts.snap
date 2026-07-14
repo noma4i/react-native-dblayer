@@ -49,6 +49,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "readShapeOrThrow",
   "reconcileOptimisticRows",
   "registerReset",
+  "replayJournal",
   "resetRuntime",
   "resetRuntimeSync",
   "resolveStaleTempRows",
