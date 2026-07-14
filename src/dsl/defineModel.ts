@@ -6,6 +6,7 @@ import type { JournalOp } from '../core/apply/journal';
 import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
+import { getDbLogger } from '../core/logger';
 import { expandPlan, registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
@@ -131,6 +132,17 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return output;
   };
 
+  /** Plan-build validation: raw rows stay in the op (normalize is shape-sensitive); invalid rows drop here. */
+  const isPlanRow = (value: unknown): boolean => {
+    try {
+      normalize(value);
+      return true;
+    } catch (error) {
+      getDbLogger().error(`[${config.name}] plan row rejected`, { error });
+      return false;
+    }
+  };
+
   let relationCache: Record<string, RelationDecl> | null = null;
   const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
 
@@ -219,7 +231,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const writeRows = (rows: unknown[], origin?: 'event' | 'snapshot'): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
-      const incoming = normalize(value);
+      let incoming: any;
+      try {
+        incoming = normalize(value);
+      } catch (error) {
+        getDbLogger().error(`[${config.name}] apply row rejected`, { error });
+        continue;
+      }
       if (origin !== 'event' && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
@@ -283,7 +301,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[] => {
-      const liveRows = rows.filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
+      const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const scopeKey = keyForScope(scopeValue);
       const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })));
       return [
@@ -341,7 +359,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>;
   };
 
-  const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows }];
+  const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows: rows.filter(isPlanRow) }];
 
   const planReplace = (oldId: string, next: unknown): JournalOp[] => [
     { kind: 'destroy', model: config.id, ids: [oldId] },
