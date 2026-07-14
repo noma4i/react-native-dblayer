@@ -30,6 +30,8 @@ export declare const configureDb: (options: Omit<RuntimeConfig, "storage"> & {
     storage?: StoragePlane;
 }) => void;
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
+/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
+export declare const getDbQueryClient: () => QueryClient | undefined;
 export declare const getStoragePrefix: () => string;
 export declare const getCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>) => import("../core/apply/commitBus").CommitSubscription;

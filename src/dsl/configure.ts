@@ -41,6 +41,9 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
   return runtimeConfig;
 };
 
+/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
+export const getDbQueryClient = (): QueryClient | undefined => runtimeConfig?.queryClient;
+
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
 
 export const getCommitBus = () => commitBus;
