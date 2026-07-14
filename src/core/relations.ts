@@ -42,12 +42,17 @@ export const hasOne = <TParent, TChild>(
 /**
  * Model-side capabilities the plan expander needs. Registered once per defineModel; the registry
  * survives resetRuntime the same way apply targets do - models keep working after the kill-switch.
+ * Membership hooks derive declarative scope membership from ScopeSpec.by so event rows join and
+ * leave their scopes in the SAME plan (same-tick visibility for optimistic/ingest rows).
  */
 export type RelationHost = {
   relations(): Record<string, RelationDecl>;
   has(id: string): boolean;
   read(id: string): StoredRow | undefined;
   normalize(input: unknown): StoredRow | null;
+  membershipForUpsert(row: StoredRow): JournalOp[];
+  membershipForPatch(id: string, patch: StoredRow): JournalOp[];
+  detachForDestroy(id: string): JournalOp[];
 };
 
 const hosts = new Map<string, RelationHost>();
@@ -63,11 +68,12 @@ type CounterRef = { model: string; id: string; field: string };
 /**
  * Expand an EVENT plan with declared relation side effects (the Rails-callbacks analog):
  * counterCache increments for first-seen children, touch projections onto parents (emitted as
- * 'patch' ops in stored format, folded per parent so several children in one plan compose), and
- * dependent destroy cascades. Snapshot plans (query pages / entity refreshes) must NOT be expanded
- * - server snapshots already carry derived state, so defineModel routes them through the verbatim
- * apply path. A parent upserted by the same plan is authoritative: its accumulated touch is
- * cancelled and counter ops against it are filtered out.
+ * 'patch' ops in stored format, folded per parent so several children in one plan compose),
+ * dependent destroy cascades, and declarative scope membership from ScopeSpec.by. Snapshot plans
+ * (query pages / entity refreshes) must NOT be expanded - server snapshots already carry derived
+ * state, so defineModel routes them through the verbatim apply path. A parent upserted by the same
+ * plan is authoritative: its accumulated touch is cancelled and counter ops against it are
+ * filtered out.
  */
 export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   const queue: JournalOp[] = [...ops];
@@ -173,13 +179,22 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
           const row = host?.normalize(raw);
           if (!host || !row) continue;
           upsertEffects(op.model, host, row);
+          out.push(...host.membershipForUpsert(row));
           const key = `${op.model}:${String(row.id)}`;
           authoritative.add(key);
           touchViews.delete(key);
         }
       }
-      if (op.kind === 'patch') patchEffects(op.model, op.id, op.patch);
-      if (op.kind === 'destroy') for (const id of op.ids) destroyEffects(op.model, id);
+      if (op.kind === 'patch') {
+        patchEffects(op.model, op.id, op.patch);
+        out.push(...(hosts.get(op.model)?.membershipForPatch(op.id, op.patch) ?? []));
+      }
+      if (op.kind === 'destroy') {
+        for (const id of op.ids) {
+          out.push(...(hosts.get(op.model)?.detachForDestroy(id) ?? []));
+          destroyEffects(op.model, id);
+        }
+      }
     }
     const flush = [...touchViews.values()];
     touchViews.clear();

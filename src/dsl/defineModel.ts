@@ -123,6 +123,72 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   let relationCache: Record<string, RelationDecl> | null = null;
   const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
 
+  const membershipScopes = Object.entries(config.scopes ?? {}).filter(
+    (entry): entry is [string, ScopeSpec<any> & { by: Record<string, string> }] => Boolean((entry[1] as ScopeSpec<any>).by)
+  );
+
+  const scopeValueFromRow = (by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null => {
+    const value: Record<string, unknown> = {};
+    for (const [scopeField, rowField] of Object.entries(by)) {
+      const fieldValue = row[rowField];
+      if (fieldValue === undefined || fieldValue === null) return null;
+      value[scopeField] = fieldValue;
+    }
+    return value;
+  };
+
+  const isScopeMember = (scopeKey: string, id: string): boolean => scopeIndex.read(scopeKey).entries.some(entry => entry.id === id);
+
+  const membershipAppend = (scopeKey: string, id: string): JournalOp => {
+    const { next } = scopeIndex.reconcile(scopeKey, 'delta', [{ id }]);
+    return { kind: 'scope', model: config.id, scopeKey, next };
+  };
+
+  const membershipDetach = (scopeKey: string, id: string): JournalOp => ({ kind: 'scope', model: config.id, scopeKey, next: scopeIndex.detach(scopeKey, [id]) });
+
+  /** Declarative membership: an event row joins/leaves its `by` scopes inside the SAME plan. */
+  const membershipForUpsert = (row: Record<string, unknown>): JournalOp[] => {
+    const id = String(row.id);
+    const before = entityState.read(id);
+    const merged = { ...before, ...row, id };
+    const ops: JournalOp[] = [];
+    for (const [, spec] of membershipScopes) {
+      const beforeValue = before ? scopeValueFromRow(spec.by, before) : null;
+      const afterValue = scopeValueFromRow(spec.by, merged);
+      const beforeKey = beforeValue ? keyForScope(beforeValue) : null;
+      const afterKey = afterValue ? keyForScope(afterValue) : null;
+      if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) ops.push(membershipDetach(beforeKey, id));
+      if (afterKey && !isScopeMember(afterKey, id)) ops.push(membershipAppend(afterKey, id));
+    }
+    return ops;
+  };
+
+  const membershipForPatch = (id: string, patch: Record<string, unknown>): JournalOp[] => {
+    const current = entityState.read(id);
+    if (!current) return [];
+    return membershipForUpsert({ ...patch, id });
+  };
+
+  const detachForDestroy = (id: string): JournalOp[] => {
+    const row = entityState.read(id);
+    const ops: JournalOp[] = [];
+    const seenKeys = new Set<string>();
+    for (const [, spec] of membershipScopes) {
+      const value = row ? scopeValueFromRow(spec.by, row) : null;
+      const key = value ? keyForScope(value) : null;
+      if (key && !seenKeys.has(key) && isScopeMember(key, id)) {
+        seenKeys.add(key);
+        ops.push(membershipDetach(key, id));
+      }
+    }
+    for (const key of scopeIndex.keys()) {
+      if (seenKeys.has(key) || !isScopeMember(key, id)) continue;
+      seenKeys.add(key);
+      ops.push(membershipDetach(key, id));
+    }
+    return ops;
+  };
+
   registerRelationHost(config.id, {
     relations: resolvedRelations,
     has: id => entityState.read(id) !== undefined,
@@ -133,7 +199,10 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       } catch {
         return null;
       }
-    }
+    },
+    membershipForUpsert,
+    membershipForPatch,
+    detachForDestroy
   });
 
   const writeRows = (rows: unknown[]): Array<{ id: string; changedFields: string[] | null }> => {
