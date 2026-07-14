@@ -25,6 +25,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "defineQuery",
   "defineShape",
   "f",
+  "flushPersistence",
   "generateTempId",
   "getDbQueryClient",
   "getDbTransport",

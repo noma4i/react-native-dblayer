@@ -11,6 +11,11 @@ export interface DbDefaults {
     merge?: {
         dedupeWindowMs?: number;
     };
+    /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
+    persistence?: {
+        checkpointDelayMs?: number;
+        maxPendingPlans?: number;
+    };
     onSyncError?: (error: Error, ctx: {
         source: string;
         model?: string;
@@ -30,8 +35,6 @@ export declare const configureDb: (options: Omit<RuntimeConfig, "storage"> & {
     storage?: StoragePlane;
 }) => void;
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
-/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
-export declare const getDbQueryClient: () => QueryClient | undefined;
 export declare const getStoragePrefix: () => string;
 export declare const getCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>) => import("../core/apply/commitBus").CommitSubscription;
@@ -39,11 +42,22 @@ export declare const getCommitBus: () => {
     publishAll: () => void;
     subscriberCount: () => number;
 };
+/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
+export declare const getDbQueryClient: () => QueryClient | undefined;
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter
  * and commit bus, so one plan touching several models applies and persists as one transaction.
+ * Persistence is WAL + checkpoint: plans write only their journal record; model snapshots flush
+ * through the checkpoint scheduler off the hot path.
  */
 export declare const getApplyRuntime: () => ApplyRuntime;
+/**
+ * Force a checkpoint flush NOW - pending model snapshots hit storage in one batch. The host app
+ * must call this on background/inactive and before logout teardown.
+ */
+export declare const flushPersistence: () => void;
+/** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
+export declare const cancelPersistence: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
 export declare const getOperationState: () => OperationState;
 export {};

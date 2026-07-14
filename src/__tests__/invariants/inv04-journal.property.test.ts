@@ -18,17 +18,21 @@ describe('v6 invariant 04: journal replay', () => {
 });
 
 describe('journalled transactions', () => {
-  const createStorage = (): StoragePlane => {
+  const createStorage = (batches: Array<Array<{ key: string; value: string | null }>> = []): StoragePlane => {
     const values = new Map<string, string>();
     return {
       get: key => values.get(key),
-      set: entries => { for (const entry of entries) entry.value === null ? values.delete(entry.key) : values.set(entry.key, entry.value); },
+      set: entries => {
+        batches.push(entries);
+        for (const entry of entries) entry.value === null ? values.delete(entry.key) : values.set(entry.key, entry.value);
+      },
       keys: prefix => [...values.keys()].filter(key => key.startsWith(prefix))
     };
   };
 
   it('writes pending before applying and commits at the next epoch', () => {
-    const storage = createStorage();
+    const batches: Array<Array<{ key: string; value: string | null }>> = [];
+    const storage = createStorage(batches);
     const prefix = () => 'dbl:test:';
     const observedStatuses: string[] = [];
     const unregister = registerApplyTarget('m', {
@@ -46,6 +50,10 @@ describe('journalled transactions', () => {
     runtime.apply([{ kind: 'upsert', model: 'm', rows: [{ id: '1' }] }]);
     expect(observedStatuses).toEqual(['pending']);
     expect(JSON.parse(storage.get('dbl:test:journal:1')!).status).toBe('committed');
+    expect(batches.map(entries => entries.map(entry => entry.key))).toEqual([
+      ['dbl:test:journal:1'],
+      ['dbl:test:applied:m', 'dbl:test:journal:1']
+    ]);
     expect(runtime.currentEpoch()).toBe(1);
     unregister();
   });
@@ -68,6 +76,7 @@ describe('journalled transactions', () => {
     expect(runtime.replay()).toBe(0);
     expect(applied).toBe(1);
     expect(JSON.parse(storage.get('dbl:test:journal:1')!).status).toBe('committed');
+    expect(storage.get('dbl:test:applied:m')).toBe('1');
     unregister();
   });
 

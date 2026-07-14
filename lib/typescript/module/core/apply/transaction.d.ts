@@ -1,10 +1,11 @@
 import type { CommitBatch, CommitBus } from './commitBus';
+import type { CheckpointScheduler } from './checkpoint';
 import type { JournalOp } from './journal';
 import type { StoragePlane } from '../planes/storagePlane';
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
  * commit bus can notify per-(model, id, field) subscribers; `persistEntries` contributes the
- * model's dirty state to the transaction's single durable storage batch.
+ * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
 export type ApplyTarget = {
     upsert(rows: unknown[]): Array<{
@@ -24,9 +25,13 @@ export type ApplyTarget = {
     }>;
 };
 export type ApplyRuntime = {
-    /** Apply one plan: journal pending -> in-memory apply -> single durable batch -> one commit publish. */
+    /** Apply one plan: WAL journal record -> in-memory apply -> journal commit mark -> one publish. */
     apply(ops: JournalOp[]): CommitBatch;
-    /** Replay incomplete epochs on startup (torn-write recovery); returns replayed epoch count. */
+    /**
+     * Startup recovery: idempotently re-apply journal records not yet covered by each model's
+     * persisted applied-epoch marker (survives torn checkpoint batches - the marker sits AFTER its
+     * snapshot in the flush order); returns replayed record count.
+     */
     replay(): number;
     currentEpoch(): number;
 };
@@ -37,6 +42,7 @@ export declare const createApplyRuntime: (options: {
     storage: StoragePlane;
     prefix: () => string;
     bus: CommitBus;
+    checkpoint?: CheckpointScheduler;
     setFreshness?: (key: string, value: unknown) => void;
 }) => ApplyRuntime;
 //# sourceMappingURL=transaction.d.ts.map

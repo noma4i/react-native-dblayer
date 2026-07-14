@@ -76,9 +76,11 @@ describe('perf 01: counted work', () => {
 
     messages.insertStored(message('message-1'));
 
-    // WAL: exactly two batches per plan - pending journal record first (write-ahead), then data + committed record.
+    // WAL: exactly two journal-only batches per plan - pending first, then committed.
     expect(counters.setBatches).toBe(2);
     expect(journalRecordCount(plane)).toBe(beforeJournal + 1);
+    expect(plane.keys('dbl:rows:')).toHaveLength(0);
+    expect(plane.keys('dbl:scope:')).toHaveLength(0);
     expect(tracker.count()).toBe(1);
     tracker.unsubscribe();
   });
@@ -91,9 +93,11 @@ describe('perf 01: counted work', () => {
 
     messages.scopes.thread.__apply?.({ chatId: 'c1' }, rows, 'page');
 
-    // WAL: exactly two batches per plan - pending journal record first (write-ahead), then data + committed record.
+    // WAL: exactly two journal-only batches per plan - pending first, then committed.
     expect(counters.setBatches).toBe(2);
     expect(journalRecordCount(plane)).toBe(beforeJournal + 1);
+    expect(plane.keys('dbl:rows:')).toHaveLength(0);
+    expect(plane.keys('dbl:scope:')).toHaveLength(0);
   });
 
   it('C. does not notify a row reader or row dependency for an idempotent repeat', () => {

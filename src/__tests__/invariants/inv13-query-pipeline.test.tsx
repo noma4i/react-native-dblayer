@@ -2,7 +2,7 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { parse } from 'graphql';
 import TestRenderer, { act } from 'react-test-renderer';
-import { getApplyRuntime, configureDb } from '../../dsl/configure';
+import { flushPersistence, getApplyRuntime, configureDb } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
 import { defineQuery } from '../../dsl/defineQuery';
 import { scope } from '../../dsl/scope';
@@ -118,6 +118,7 @@ describe('v6 invariant 13: query pipeline', () => {
     const { storage, items } = setup([{ items: { edges: [{ node: { id: '1', name: 'one' }, sequenceNumber: 9 }], pageInfo: { hasNextPage: false, endCursor: null } } }]);
     const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, edge: source => ({ seq: (source as any).sequenceNumber }) });
     await query.fetch({ list: 'edge' });
+    flushPersistence();
     const scopeKey = storage.keys('dbl:scope:items:')[0]!;
     expect(JSON.parse(storage.get(scopeKey)!).entries[0].edge).toEqual({ seq: 9 });
   });

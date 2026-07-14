@@ -2,7 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { buildScopeKey } from '../../core/compileDbWhere';
 import { belongsTo, hasMany } from '../../core/relations';
-import { getApplyRuntime, configureDb } from '../../dsl/configure';
+import { flushPersistence, getApplyRuntime, configureDb } from '../../dsl/configure';
 import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
@@ -159,6 +159,7 @@ describe('v6 invariant 17: automatic scope membership', () => {
     messages.destroy('message-1');
 
     expect(messages.scopes.thread.read({ chatId: 'c1' })).toEqual([]);
+    flushPersistence();
     const scopeValue = JSON.parse(storage.get(`dbl:scope:auto-membership-messages:${buildScopeKey({ chatId: 'c1' })}`)!);
     expect(scopeValue.entries).toEqual([]);
   });
@@ -171,6 +172,7 @@ describe('v6 invariant 17: automatic scope membership', () => {
     chats.destroy('c1');
 
     expect(messages.get('message-1')).toBeUndefined();
+    flushPersistence();
     const scopeValue = JSON.parse(storage.get(`dbl:scope:auto-membership-messages:${buildScopeKey({ chatId: 'c1' })}`)!);
     expect(scopeValue.entries).toEqual([]);
   });

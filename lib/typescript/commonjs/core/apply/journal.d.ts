@@ -38,10 +38,11 @@ export type JournalRecord = {
 export declare const createJournal: (storage: StoragePlane, prefix: () => string) => {
     writePending: (record: JournalRecord) => void;
     /** Storage entries marking the record committed + pruning old committed records past the cap. */
-    committedEntry: (record: JournalRecord) => Array<{
+    committedEntry: (record: JournalRecord, pruneBeforeEpoch?: number) => Array<{
         key: string;
         value: string | null;
     }>;
+    allRecords: () => JournalRecord[];
     pending: () => JournalRecord[];
     lastEpoch: () => number;
 };
