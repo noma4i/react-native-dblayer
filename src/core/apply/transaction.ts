@@ -15,6 +15,7 @@ export type ApplyTarget = {
   destroy(ids: string[]): string[];
   counter(id: string, field: string, delta: number): boolean;
   scope(scopeKey: string, next: unknown): void;
+  scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown> }>; detach: string[] }): void;
   persistEntries(): Array<{ key: string; value: string | null }>;
 };
 
@@ -69,6 +70,10 @@ const applyOperations = (ops: JournalOp[], setFreshness: (key: string, value: un
       target.scope(op.scopeKey, op.next);
       batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
     }
+    if (op.kind === 'scope-delta') {
+      target.scopeDelta(op.scopeKey, { append: op.append, detach: op.detach });
+      batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
+    }
   }
   return batch;
 };
@@ -106,7 +111,7 @@ export const createApplyRuntime = (options: {
   return {
     apply: ops => {
       epoch += 1;
-      const record: JournalRecord = { epoch, planHash: JSON.stringify(ops), status: 'pending', ops };
+      const record: JournalRecord = { epoch, status: 'pending', ops };
       journal.writePending(record);
       const batch = applyOperations(ops, setFreshness);
       if (checkpoint) {

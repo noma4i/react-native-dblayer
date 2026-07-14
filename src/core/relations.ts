@@ -15,6 +15,8 @@ export type RelationDecl =
   | { kind: 'hasMany'; model: ModelRef<StoredRow>; foreignKey: string; dependent?: 'destroy' }
   | { kind: 'hasOne'; model: ModelRef<StoredRow>; foreignKey: string; comparator?: (left: StoredRow, right: StoredRow) => number };
 
+export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: string[] };
+
 /** Declare an inverse parent relation with optional derived parent updates (values from event data). */
 export const belongsTo = <TChild, TParent>(
   model: ModelRef<TParent>,
@@ -50,9 +52,9 @@ export type RelationHost = {
   has(id: string): boolean;
   read(id: string): StoredRow | undefined;
   normalize(input: unknown): StoredRow | null;
-  membershipForUpsert(row: StoredRow): JournalOp[];
-  membershipForPatch(id: string, patch: StoredRow): JournalOp[];
-  detachForDestroy(id: string): JournalOp[];
+  membershipForUpsert(row: StoredRow): MembershipDelta[];
+  membershipForPatch(id: string, patch: StoredRow): MembershipDelta[];
+  detachForDestroy(id: string): MembershipDelta[];
 };
 
 const hosts = new Map<string, RelationHost>();
@@ -83,6 +85,25 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   const destroyed = new Set<string>();
   const touched = new Set<string>();
   const touchViews = new Map<string, TouchEntry>();
+  const membership = new Map<string, { model: string; scopeKey: string; append: Set<string>; detach: Set<string> }>();
+  const accumulateMembership = (model: string, deltas: MembershipDelta[]): void => {
+    for (const delta of deltas) {
+      const key = `${model}:${delta.scopeKey}`;
+      let entry = membership.get(key);
+      if (!entry) {
+        entry = { model, scopeKey: delta.scopeKey, append: new Set(), detach: new Set() };
+        membership.set(key, entry);
+      }
+      for (const id of delta.append ?? []) {
+        entry.append.add(id);
+        entry.detach.delete(id);
+      }
+      for (const id of delta.detach ?? []) {
+        entry.detach.add(id);
+        entry.append.delete(id);
+      }
+    }
+  };
 
   const parentIdOf = (row: StoredRow, foreignKey: string): string | null => {
     const value = row[foreignKey];
@@ -179,7 +200,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
           const row = host?.normalize(raw);
           if (!host || !row) continue;
           upsertEffects(op.model, host, row);
-          out.push(...host.membershipForUpsert(row));
+          accumulateMembership(op.model, host.membershipForUpsert(row));
           const key = `${op.model}:${String(row.id)}`;
           authoritative.add(key);
           touchViews.delete(key);
@@ -187,11 +208,11 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
       }
       if (op.kind === 'patch') {
         patchEffects(op.model, op.id, op.patch);
-        out.push(...(hosts.get(op.model)?.membershipForPatch(op.id, op.patch) ?? []));
+        accumulateMembership(op.model, hosts.get(op.model)?.membershipForPatch(op.id, op.patch) ?? []);
       }
       if (op.kind === 'destroy') {
         for (const id of op.ids) {
-          out.push(...(hosts.get(op.model)?.detachForDestroy(id) ?? []));
+          accumulateMembership(op.model, hosts.get(op.model)?.detachForDestroy(id) ?? []);
           destroyEffects(op.model, id);
         }
       }
@@ -204,6 +225,11 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
       touched.add(key);
       queue.push({ kind: 'patch', model: entry.model, id: entry.id, patch: entry.patch });
     }
+  }
+
+  for (const entry of membership.values()) {
+    if (entry.append.size === 0 && entry.detach.size === 0) continue;
+    out.push({ kind: 'scope-delta', model: entry.model, scopeKey: entry.scopeKey, append: [...entry.append].map(id => ({ id })), detach: [...entry.detach] });
   }
 
   return out.filter(op => !(op.kind === 'counter' && authoritative.has(`${op.model}:${op.id}`)));

@@ -7,7 +7,7 @@ import { createEntityClock, createEntityState, type EntityState } from '../core/
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
-import { expandPlan, registerRelationHost, type RelationDecl } from '../core/relations';
+import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
@@ -162,54 +162,47 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.read(scopeKey).entries.some(entry => entry.id === id);
 
-  const membershipAppend = (scopeKey: string, id: string): JournalOp => {
-    const { next } = planes().scopeIndex.reconcile(scopeKey, 'delta', [{ id }]);
-    return { kind: 'scope', model: config.id, scopeKey, next };
-  };
-
-  const membershipDetach = (scopeKey: string, id: string): JournalOp => ({ kind: 'scope', model: config.id, scopeKey, next: planes().scopeIndex.detach(scopeKey, [id]) });
-
   /** Declarative membership: an event row joins/leaves its `by` scopes inside the SAME plan. */
-  const membershipForUpsert = (row: Record<string, unknown>): JournalOp[] => {
+  const membershipForUpsert = (row: Record<string, unknown>): MembershipDelta[] => {
     const id = String(row.id);
     const before = planes().entityState.read(id);
     const merged = { ...before, ...row, id };
-    const ops: JournalOp[] = [];
+    const deltas: MembershipDelta[] = [];
     for (const [, spec] of membershipScopes) {
       const beforeValue = before ? scopeValueFromRow(spec.by, before) : null;
       const afterValue = scopeValueFromRow(spec.by, merged);
       const beforeKey = beforeValue ? keyForScope(beforeValue) : null;
       const afterKey = afterValue ? keyForScope(afterValue) : null;
-      if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) ops.push(membershipDetach(beforeKey, id));
-      if (afterKey && !isScopeMember(afterKey, id)) ops.push(membershipAppend(afterKey, id));
+      if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) deltas.push({ scopeKey: beforeKey, detach: [id] });
+      if (afterKey && !isScopeMember(afterKey, id)) deltas.push({ scopeKey: afterKey, append: [id] });
     }
-    return ops;
+    return deltas;
   };
 
-  const membershipForPatch = (id: string, patch: Record<string, unknown>): JournalOp[] => {
+  const membershipForPatch = (id: string, patch: Record<string, unknown>): MembershipDelta[] => {
     const current = planes().entityState.read(id);
     if (!current) return [];
     return membershipForUpsert({ ...patch, id });
   };
 
-  const detachForDestroy = (id: string): JournalOp[] => {
+  const detachForDestroy = (id: string): MembershipDelta[] => {
     const row = planes().entityState.read(id);
-    const ops: JournalOp[] = [];
+    const deltas: MembershipDelta[] = [];
     const seenKeys = new Set<string>();
     for (const [, spec] of membershipScopes) {
       const value = row ? scopeValueFromRow(spec.by, row) : null;
       const key = value ? keyForScope(value) : null;
       if (key && !seenKeys.has(key) && isScopeMember(key, id)) {
         seenKeys.add(key);
-        ops.push(membershipDetach(key, id));
+        deltas.push({ scopeKey: key, detach: [id] });
       }
     }
     for (const key of planes().scopeIndex.keys()) {
       if (seenKeys.has(key) || !isScopeMember(key, id)) continue;
       seenKeys.add(key);
-      ops.push(membershipDetach(key, id));
+      deltas.push({ scopeKey: key, detach: [id] });
     }
-    return ops;
+    return deltas;
   };
 
   registerRelationHost(config.id, {
@@ -258,8 +251,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       return { id, changedFields: result.changedFields };
     },
     destroy: (ids: string[]): string[] => {
-      for (const id of ids) planes().entityState.destroy(id);
-      return ids;
+      const removed: string[] = [];
+      for (const id of ids) {
+        const existed = planes().entityState.read(id) !== undefined;
+        planes().entityState.destroy(id);
+        if (existed) removed.push(id);
+      }
+      return removed;
     },
     counter: (id: string, field: string, delta: number): boolean => {
       const row = planes().entityState.read(id);
@@ -269,6 +267,10 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     },
     scope: (scopeKey: string, next: unknown): void => {
       planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
+    },
+    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown> }>; detach: string[] }): void => {
+      if (delta.detach.length > 0) planes().scopeIndex.detach(scopeKey, delta.detach);
+      if (delta.append.length > 0) planes().scopeIndex.reconcile(scopeKey, 'delta', delta.append);
     },
     persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()]
   };

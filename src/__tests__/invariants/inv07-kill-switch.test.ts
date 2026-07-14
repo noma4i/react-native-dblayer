@@ -35,7 +35,7 @@ describe('v6 invariant 07: kill switch', () => {
     scope.reconcile('all', 'complete', [{ id: 'a' }]);
     operations.begin({ operationId: 'op', model: 'first', tempIds: [], intent: 'insert', createdAt: 0 });
     storage.set([...first.persistEntries(), ...second.persistEntries(), ...scope.persistEntries(), ...operations.persistEntries()]);
-    createJournal(storage, prefix).writePending({ epoch: 1, planHash: 'test', status: 'pending', ops: [] });
+    createJournal(storage, prefix).writePending({ epoch: 1, status: 'pending', ops: [] });
     const unregister = [registerReset(() => first.reset()), registerReset(() => second.reset()), registerReset(() => scope.reset()), registerReset(() => operations.reset())];
 
     await resetRuntime();

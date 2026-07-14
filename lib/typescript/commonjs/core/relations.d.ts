@@ -27,6 +27,11 @@ export type RelationDecl = {
     foreignKey: string;
     comparator?: (left: StoredRow, right: StoredRow) => number;
 };
+export type MembershipDelta = {
+    scopeKey: string;
+    append?: string[];
+    detach?: string[];
+};
 /** Declare an inverse parent relation with optional derived parent updates (values from event data). */
 export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, options: {
     foreignKey: keyof TChild & string;
@@ -57,9 +62,9 @@ export type RelationHost = {
     has(id: string): boolean;
     read(id: string): StoredRow | undefined;
     normalize(input: unknown): StoredRow | null;
-    membershipForUpsert(row: StoredRow): JournalOp[];
-    membershipForPatch(id: string, patch: StoredRow): JournalOp[];
-    detachForDestroy(id: string): JournalOp[];
+    membershipForUpsert(row: StoredRow): MembershipDelta[];
+    membershipForPatch(id: string, patch: StoredRow): MembershipDelta[];
+    detachForDestroy(id: string): MembershipDelta[];
 };
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
 /**

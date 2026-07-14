@@ -20,6 +20,15 @@ export type JournalOp = {
     scopeKey: string;
     next: ScopeIndexValue;
 } | {
+    kind: 'scope-delta';
+    model: string;
+    scopeKey: string;
+    append: Array<{
+        id: string;
+        edge?: Record<string, unknown>;
+    }>;
+    detach: string[];
+} | {
     kind: 'freshness';
     key: string;
     value: unknown;
@@ -32,7 +41,6 @@ export type JournalOp = {
 };
 export type JournalRecord = {
     epoch: number;
-    planHash: string;
     status: 'pending' | 'committed';
     ops: JournalOp[];
 };

@@ -121,7 +121,7 @@ describe('v6 invariant 17: automatic scope membership', () => {
 
     const record = journalRecords(storage).at(-1)!;
     expect(record.ops.some(op => op.kind === 'upsert' && op.model === 'auto-membership-messages')).toBe(true);
-    expect(record.ops.some(op => op.kind === 'scope' && op.model === 'auto-membership-messages')).toBe(true);
+    expect(record.ops.some(op => op.kind === 'scope-delta' && op.model === 'auto-membership-messages')).toBe(true);
   });
 
   it('D. replaces a temporary row with one scope rerender', () => {

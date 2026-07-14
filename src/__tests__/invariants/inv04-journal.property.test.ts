@@ -44,6 +44,7 @@ describe('journalled transactions', () => {
       destroy: ids => ids,
       counter: () => false,
       scope: () => {},
+      scopeDelta: () => {},
       persistEntries: () => []
     });
     const runtime = createApplyRuntime({ storage, prefix, bus: createCommitBus() });
@@ -61,7 +62,7 @@ describe('journalled transactions', () => {
   it('replays a pending record exactly once and marks it committed', () => {
     const storage = createStorage();
     const prefix = () => 'dbl:test:';
-    createJournal(storage, prefix).writePending({ epoch: 1, planHash: 'plan', status: 'pending', ops: [{ kind: 'upsert', model: 'm', rows: [{ id: '1' }] }] });
+    createJournal(storage, prefix).writePending({ epoch: 1, status: 'pending', ops: [{ kind: 'upsert', model: 'm', rows: [{ id: '1' }] }] });
     let applied = 0;
     const unregister = registerApplyTarget('m', {
       upsert: rows => { applied += 1; return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null })); },
@@ -69,6 +70,7 @@ describe('journalled transactions', () => {
       destroy: ids => ids,
       counter: () => false,
       scope: () => {},
+      scopeDelta: () => {},
       persistEntries: () => []
     });
     const runtime = createApplyRuntime({ storage, prefix, bus: createCommitBus() });

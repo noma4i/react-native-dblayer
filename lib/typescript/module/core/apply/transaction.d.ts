@@ -19,6 +19,13 @@ export type ApplyTarget = {
     destroy(ids: string[]): string[];
     counter(id: string, field: string, delta: number): boolean;
     scope(scopeKey: string, next: unknown): void;
+    scopeDelta(scopeKey: string, delta: {
+        append: Array<{
+            id: string;
+            edge?: Record<string, unknown>;
+        }>;
+        detach: string[];
+    }): void;
     persistEntries(): Array<{
         key: string;
         value: string | null;
