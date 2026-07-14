@@ -46,6 +46,9 @@ export const createCommitBus = () => {
         if (subscriber.deps.some(dep => depMatches(dep, batch))) subscriber.notify();
       }
     },
+    publishAll: (): void => {
+      for (const subscriber of [...subscribers]) subscriber.notify();
+    },
     subscriberCount: () => subscribers.size
   };
 };
