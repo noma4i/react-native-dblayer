@@ -31,7 +31,7 @@ export declare const createCollectionBinding: <TStored extends {
 }, TRead = TStored>(model: CollectionModel<unknown, TStored>, readConfig?: CollectionReadConfig<TStored, TRead>) => {
     _dbModel: CollectionModel<unknown, TStored>;
     _dbScope: (filter?: unknown) => Partial<TStored> | undefined;
-    applyServerData: (items: unknown[], contract: SyncContract) => import("../..").MergeResult | import("../..").ReplaceResult;
+    applyServerData: (items: unknown[], contract: SyncContract) => import("../../types").MergeResult | import("../../types").ReplaceResult;
     useData(filter?: unknown): TRead[];
     count(filter?: unknown | null): number;
     shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;

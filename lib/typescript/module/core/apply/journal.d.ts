@@ -1,0 +1,38 @@
+import type { ScopeIndexValue } from '../planes/scopeIndex';
+import type { StoragePlane } from '../planes/storagePlane';
+export type JournalOp = {
+    kind: 'upsert';
+    model: string;
+    rows: unknown[];
+} | {
+    kind: 'destroy';
+    model: string;
+    ids: string[];
+} | {
+    kind: 'scope';
+    model: string;
+    scopeHash: string;
+    next: ScopeIndexValue;
+} | {
+    kind: 'freshness';
+    key: string;
+    value: unknown;
+} | {
+    kind: 'counter';
+    model: string;
+    id: string;
+    field: string;
+    delta: number;
+};
+export type JournalRecord = {
+    epoch: number;
+    planHash: string;
+    status: 'pending' | 'committed';
+    ops: JournalOp[];
+};
+export declare const createJournal: (storage: StoragePlane, prefix: string) => {
+    writePending: (record: JournalRecord) => void;
+    markCommitted: (record: JournalRecord) => void;
+    pending: () => JournalRecord[];
+};
+//# sourceMappingURL=journal.d.ts.map

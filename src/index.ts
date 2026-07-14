@@ -1,190 +1,33 @@
-export { configureDb } from './configure';
-export { defineModel } from './core/createPersistentCollection';
-export { belongsTo, hasMany, hasOne, hasManyThrough } from './core/relations';
-export { computeLoadingState, computePhase } from './queries/base/loadingState';
-export { pruneStaleFetchStates } from './core/freshnessStorage';
-export {
-  clearAllCollections,
-  devClearAllDataAndState,
-  resetAllModelsState
-} from './core/registry';
-export { stableSerialize } from './core/serialize';
-export {
-  createExtractSink,
-  createMutationExtractResolver,
-  liftExtractNodes
-} from './core/extract';
-export { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from './core/queryClient';
-export { isIncomingNewer } from './core/invariants';
-export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
-export { patchWhenPresent, waitForRow } from './core/rowWaiters';
-export { f } from './schema/f';
+export { configureDb, setAccountPartition } from './dsl/configure';
+export type { DbDefaults } from './dsl/configure';
+export { resetRuntime } from './core/reset';
+export { mmkvStoragePlane } from './core/planes/storagePlane';
+export type { StoragePlane } from './core/planes/storagePlane';
+export { defineModel } from './dsl/defineModel';
+export type { ScopeHandle } from './dsl/defineModel';
+export { scope } from './dsl/scope';
+export type { ScopeSpec, Coverage } from './dsl/scope';
+export { belongsTo, hasMany, hasOne } from './core/relations';
 export { compositeId } from './schema/schema';
+export { f } from './schema/f';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
-export { runDbMutationDirect } from './mutations/base/executeDbMutation';
-export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';
-export type { MergeOptimisticFieldMerger, MergeOptimisticSnapshotOptions } from './mutations/base/mergeOptimisticSnapshot';
-export { runDbCommandDirect, useCommand } from './mutations/base/useCommand';
-export { useDbMutation } from './mutations/base/useDbMutation';
-export { mergeInitialSyncContract, replaceInitialSyncContract, runDbInfiniteQueryDirect, runDbQueryDirect } from './queries/base/requestRuntime';
-export { modelDetailRequest } from './queries/base/modelDetailRequest';
-export {
-  buildStableItems,
-  createCollectionBinding,
-  pickEqual,
-  useEntitiesById,
-  useJoinedEntities,
-  useOrderedEntities,
-  useStableEntity,
-  useStableItems,
-  useStableSorted,
-  useWindowedLoadMore
-} from './queries/base/shared';
+export { defineQuery } from './dsl/defineQuery';
+export type { QueryResult } from './dsl/defineQuery';
+export { defineMutation } from './dsl/defineMutation';
+export { defineIngest } from './dsl/defineIngest';
+export type { IngestDecl } from './dsl/defineIngest';
+export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
+export { useStableItems as useStableProjection, useStableEntity, useStableSorted, useJoinedEntities, useOrderedEntities, pickEqual } from './queries/base/shared';
 export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
-export { useDbInfiniteRequest, useDbSingleRequest } from './queries/base/useDbRequest';
-export { createOptimisticSequence, generateTempId, isTempId } from './utils/generateTempId';
-export { createModelStatusPoller } from './utils/modelStatusPoller';
-export { clearDbStorage, getDbStorageKeys, mmkvStorageAdapter, mmkvStorageEventApi, removeDbStorageKey } from './utils/mmkvStorage';
-export { pickDefined, pickPresent } from './utils/pickDefined';
-export { readId, readNullableNumber, readNullableString, readNumber, toStr } from './utils/normalizeHelpers';
-export { mergeSyncContract, replaceSyncContract } from './utils/serverSync';
-export { mergeOptimisticMedia } from './utils/optimisticMedia';
+export { computeLoadingState } from './queries/base/loadingState';
+export type { LoadingState, DbTransport, DbWhere } from './types';
+export type { ModelInput, ModelStored } from './schema/infer';
+export { generateTempId, isTempId } from './utils/generateTempId';
 export { castNode, castNodes } from './utils/typeBoundary';
-export {
-  createNestedObjectPatcher,
-  createIdArrayPatcher,
-  createKeyedBatchBuffer,
-  createTombstoneLedger,
-  createKeyedArrayPatcher,
-  createThrottledSingleFlight,
-  pruneExpiredRows,
-  pruneOrphanedRows,
-  reconcileOptimisticRows,
-  resolveStaleTempRows,
-  singletonStatics,
-  trimRowsPerScope
-} from './utils/runtimePrimitives';
-export type { ConfigureDbOptions } from './configure';
-export type {
-  DbExtractCustomSink,
-  DbExtractModelSink,
-  DbExtractSink,
-  DbExtractSinkTable,
-  DbMutationExtractPresetEntry,
-  DbMutationExtractPresetSelector,
-  DbMutationExtractPresetTable,
-  DbMutationExtractResolver,
-  ExtractSpecOf
-} from './core/extract';
-export type { SideloadSpec } from './core/sideload';
-export type { FieldDefault, FieldMode, FieldSpec } from './schema/fieldSpec';
-export type { DefinedFields, InferFieldsInput } from './schema/fields';
-export type { InferBuildStoredInput, InferInput, InferShapeStored, InferSparseInput, InferStored, InferStoredFields, ModelInput, ModelStored } from './schema/infer';
-export type { DbShape } from './schema/shape';
-export type { ModelDetailRequestConfig } from './queries/base/modelDetailRequest';
-export type { ModelStatusPoller, ModelStatusPollerConfig } from './utils/modelStatusPoller';
-export type { DbSubscriptionEffectsChannel, DbSubscriptionEffectsTable, DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from './core/subscriptionRuntime';
-export type { MergeOptimisticMediaOptions } from './utils/optimisticMedia';
-export type {
-  NestedObjectPatcher,
-  IdArrayPatcher,
-  KeyedArrayPatcher,
-  ReconcileOptimisticRowsOptions,
-  ReconcileScopeFields,
-  ResolveStaleTempRowsOptions,
-  RowProtect,
-  ThrottledSingleFlightOptions
-} from './utils/runtimePrimitives';
-export type {
-  BaseQueryCollection,
-  BaseQueryConfig,
-  BaseQueryResult,
-  BaseMutationContext,
-  BelongsToAccessor,
-  BelongsToModel,
-  BelongsToRelation,
-  CollectionFetchState,
-  CollectionFetchScopeRecord,
-  CollectionModel,
-  CollectionReadConfig,
-  ComputePhaseInput,
-  ConnectionResult,
-  ConnectionWithEdges,
-  ConnectionWithNodes,
-  CreateCollectionModelConfig,
-  CreateMergeConfig,
-  CreatePatchCrudConfig,
-  CreateReplaceConfig,
-  DbCollection,
-  DbCommandConfig,
-  DbCommandMutationConfig,
-  DbCondition,
-  DbExtractSpec,
-  DbGraphQLDocument,
-  DbInfinitePatchContext,
-  DbLogger,
-  DbModelDefaults,
-  DbMutationOperation,
-  DbMutationConfig,
-  DbMutationOptimisticConfig,
-  DbMutationPreserveOnCommitConfig,
-  DbOptimisticMutationContext,
-  DbQueryOperation,
-  DbReadOptions,
-  DbRequestInfiniteConfig,
-  DbRequestSingleConfig,
-  DbTrackEvent,
-  DbTrackSink,
-  DbTransport,
-  DbWhere,
-  FetchStateRemovalListener,
-  FieldsCollectionModel,
-  HasManyDependent,
-  HasManyOptions,
-  HasManyRelation,
-  HasOneAccessor,
-  HasOneRelation,
-  HasManyThroughRelation,
-  InfiniteQueryConfig,
-  InfiniteQueryResult,
-  InfiniteSyncContractResolverContext,
-  IncomingRecord,
-  LoadingPhase,
-  LoadingState,
-  MergeResult,
-  ModelBuildStoredInput,
-  ModelFieldsInput,
-  ModelFieldSpecs,
-  ModelMirrorConfig,
-  ModelMirrorTarget,
-  ModelRelationConfigValue,
-  ModelRelationDefinition,
-  ModelRelationsConfig,
-  PageInfo,
-  PageInfoInput,
-  PaginationState,
-  PatchCrud,
-  PersistentCollection,
-  PersistentMutationTransaction,
-  RelationModel,
-  RelatedAccessor,
-  RelatedRecord,
-  RelatedSurface,
-  RowRelatedRecord,
-  RowRelatedSurface,
-  ReplaceResult,
-  ShouldAcceptIncomingOptions,
-  StableEntityConfig,
-  StableEntityRenderKeysConfig,
-  StableEntityVolatileKeysConfig,
-  StableItemsConfig,
-  StableProjectionConfig,
-  StableProjectionRenderKeysConfig,
-  StoredWriteInput,
-  StoredRowBase,
-  StorageAdapter,
-  StringFieldKey,
-  SyncConfig,
-  SyncContract,
-  TransportResult
-} from './types';
+export { toStr } from './utils/normalizeHelpers';
+export { pickDefined, pickPresent } from './utils/pickDefined';
+export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';
+export { mergeOptimisticMedia } from './utils/optimisticMedia';
+export { createModelStatusPoller } from './utils/modelStatusPoller';
+export { createThrottledSingleFlight, createKeyedBatchBuffer, createKeyedArrayPatcher, createNestedObjectPatcher, singletonStatics } from './utils/runtimePrimitives';
+export { patchWhenPresent, waitForRow } from './core/rowWaiters';
