@@ -212,6 +212,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       const current = entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
       const result = entityState.upsert({ ...current, ...incoming });
+      if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
     return changes;
@@ -223,6 +224,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       const current = entityState.read(id);
       if (!current) return null;
       const result = entityState.upsert({ ...current, ...patch, id });
+      if (result.changedFields !== null && result.changedFields.length === 0) return null;
       return { id, changedFields: result.changedFields };
     },
     destroy: (ids: string[]): string[] => {
