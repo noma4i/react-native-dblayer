@@ -172,7 +172,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   while (queue.length > 0 || touchViews.size > 0) {
     while (queue.length > 0) {
       const op = queue.shift() as JournalOp;
-      out.push(op);
+      out.push(op.kind === 'upsert' ? { ...op, origin: 'event' } : op);
       if (op.kind === 'upsert') {
         const host = hosts.get(op.model);
         for (const raw of op.rows) {

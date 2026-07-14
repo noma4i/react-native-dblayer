@@ -8,7 +8,7 @@ import type { StoragePlane } from '../planes/storagePlane';
  * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
 export type ApplyTarget = {
-    upsert(rows: unknown[]): Array<{
+    upsert(rows: unknown[], origin?: 'event' | 'snapshot'): Array<{
         id: string;
         changedFields: string[] | null;
     }>;

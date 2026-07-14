@@ -214,10 +214,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     detachForDestroy
   });
 
-  const writeRows = (rows: unknown[]): Array<{ id: string; changedFields: string[] | null }> => {
+  const writeRows = (rows: unknown[], origin?: 'event' | 'snapshot'): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       const incoming = normalize(value);
+      if (origin !== 'event' && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
       const result = planes().entityState.upsert({ ...current, ...incoming });
@@ -280,10 +281,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[] => {
+      const liveRows = rows.filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const scopeKey = keyForScope(scopeValue);
-      const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, rows.map(({ row, edge }) => ({ id: row.id, edge })));
+      const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })));
       return [
-        { kind: 'upsert', model: config.id, rows: rows.map(({ row }) => row) },
+        { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) },
         { kind: 'scope', model: config.id, scopeKey, next }
       ];
     };

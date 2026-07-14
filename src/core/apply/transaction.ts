@@ -10,7 +10,7 @@ import type { StoragePlane } from '../planes/storagePlane';
  * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
 export type ApplyTarget = {
-  upsert(rows: unknown[]): Array<{ id: string; changedFields: string[] | null }>;
+  upsert(rows: unknown[], origin?: 'event' | 'snapshot'): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[]): string[];
   counter(id: string, field: string, delta: number): boolean;
@@ -53,7 +53,7 @@ const applyOperations = (ops: JournalOp[], setFreshness: (key: string, value: un
     }
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
-      for (const change of target.upsert(op.rows)) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+      for (const change of target.upsert(op.rows, op.origin)) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
     }
     if (op.kind === 'patch') {
       const change = target.patch(op.id, op.patch);
