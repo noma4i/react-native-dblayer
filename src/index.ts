@@ -20,7 +20,7 @@ export type { IngestDecl } from './dsl/defineIngest';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
 export { useStableItems as useStableProjection, useStableEntity, useStableSorted, useJoinedEntities, useOrderedEntities, pickEqual } from './queries/base/shared';
 export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
-export { computeLoadingState } from './queries/base/loadingState';
+export { computeLoadingState, computePhase } from './queries/base/loadingState';
 export type { LoadingState, DbTransport, DbWhere, StableProjectionConfig } from './types';
 export type { ModelInput, ModelStored } from './schema/infer';
 export type { InferShapeStored } from './schema/infer';
