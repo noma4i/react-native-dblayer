@@ -2,6 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { parse } from 'graphql';
 import { belongsTo } from '../../core/relations';
+import { resetRuntimeSync } from '../../core/reset';
 import { getApplyRuntime, getOperationState, configureDb } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
 import { defineMutation } from '../../dsl/defineMutation';
@@ -36,7 +37,12 @@ const deferred = <T,>(): Deferred<T> => {
 };
 
 const renderMutation = <TInput, TData>(mutation: {
-  use: () => { mutate(input: TInput): void; mutateAsync(input: TInput): Promise<TData | null>; isPending: boolean; error: Error | null };
+  use: () => {
+    mutate(input: TInput, callbacks?: { onSuccess?: (data: TData | null) => void; onError?: (error: Error) => void; onSettled?: () => void }): void;
+    mutateAsync(input: TInput): Promise<TData | null>;
+    isPending: boolean;
+    error: Error | null;
+  };
 }) => {
   let value: ReturnType<typeof mutation.use>;
   const Reader = () => {
@@ -155,7 +161,7 @@ describe('v6 invariant 14: mutation lifecycle', () => {
       onError: (error: Error, ctx: { tempId: string | null }) => errors.push({ message: error.message, tempId: ctx.tempId })
     });
     const view = renderMutation(mutation);
-    await act(async () => { await view.value().mutateAsync({ text: 'rollback' }); });
+    await act(async () => { await expect(view.value().mutateAsync({ text: 'rollback' })).rejects.toThrow('insert failed'); });
     expect(messages.getWhere({})).toEqual([]);
     expect(errors).toHaveLength(1);
     expect(isTempId(errors[0].tempId)).toBe(true);
@@ -289,5 +295,73 @@ describe('v6 invariant 14: mutation lifecycle', () => {
     expect(chats.get('chat-1')?.unreadCount).toBe(0);
     await mutation.run({ text: 'counter' });
     expect(chats.get('chat-1')?.unreadCount).toBe(1);
+  });
+
+  it('calls hook mutation callbacks without an unhandled rejection', async () => {
+    const { messages } = setup(async () => server('callback-success'));
+    const mutation = send(messages);
+    const view = renderMutation(mutation);
+    const success = jest.fn();
+    const error = jest.fn();
+    const settled = jest.fn();
+
+    await new Promise<void>(resolve => {
+      act(() => {
+        view.value().mutate(
+          { text: 'callback-success' },
+          {
+            onSuccess: data => {
+              success(data);
+            },
+            onError: error,
+            onSettled: () => {
+              settled();
+              resolve();
+            }
+          }
+        );
+      });
+    });
+    expect(success).toHaveBeenCalledWith(server('callback-success').data);
+    expect(error).not.toHaveBeenCalled();
+    expect(settled).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    const failed = setup(async () => { throw new Error('callback failed'); });
+    const failedMutation = send(failed.messages);
+    const failedView = renderMutation(failedMutation);
+    const failedSuccess = jest.fn();
+    const failedError = jest.fn();
+    const failedSettled = jest.fn();
+    await new Promise<void>(resolve => {
+      act(() => {
+        failedView.value().mutate(
+          { text: 'callback-failure' },
+          {
+            onSuccess: failedSuccess,
+            onError: nextError => {
+              failedError(nextError);
+            },
+            onSettled: () => {
+              failedSettled();
+              resolve();
+            }
+          }
+        );
+      });
+    });
+    expect(failedSuccess).not.toHaveBeenCalled();
+    expect(failedError).toHaveBeenCalledWith(expect.objectContaining({ message: 'callback failed' }));
+    expect(failedSettled).toHaveBeenCalledTimes(1);
+    failedView.unmount();
+  });
+
+  it('resets models synchronously and permits a fresh insert', () => {
+    const { messages, message } = setup(async () => server());
+    messages.insertStored(message('before-reset'));
+    resetRuntimeSync();
+    expect(messages.get('before-reset')).toBeUndefined();
+    messages.insertStored(message('after-reset'));
+    expect(messages.get('after-reset')).toMatchObject({ id: 'after-reset', text: 'before' });
   });
 });
