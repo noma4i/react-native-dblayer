@@ -24,6 +24,8 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
     selectServerNode: (data: TData) => TNode | null | undefined;
     /** Client-only fields (visual state, local uris) carried from the optimistic row onto the committed server row. */
     preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
+    /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
+    existingTempId?: (input: TInput) => string | null;
 };
 type PatchOptimistic<TInput, TStored> = {
     method: 'patch';
@@ -46,9 +48,9 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
     extract?: (ctx: {
         data: TData;
     }) => ExtractSink[];
-    /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps. */
+    /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps; null skips dedupe. */
     dedupe?: {
-        key: (input: TInput) => string;
+        key: (input: TInput) => string | null;
     };
     onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
     onCommit?: (data: TData, ctx: OptimisticCtx & {
