@@ -21,8 +21,9 @@ export declare const ROOT_SCOPE_KEY = "__root__";
  * slightly differently (raw truthy-check vs `undefined`-stripping normalization), which could split a
  * single logical scope across two different stored keys.
  *
- * Non-plain-object input (`null`, `undefined`, an array, or a primitive) and a plain object that
- * normalizes to nothing (empty, or every value is `undefined`) both collapse to `ROOT_SCOPE_KEY`.
+ * `null`/`undefined` and a plain object that normalizes to nothing (empty, or every value is
+ * `undefined`) collapse to `ROOT_SCOPE_KEY`. Any other non-record input (string, number, boolean,
+ * array) serializes to its own distinct key so primitive scopes never collide.
  */
 export declare const buildScopeKey: (input: unknown) => string;
 export declare const createDbWhereSignature: <TStored>(where: DbWhere<TStored> | undefined, options?: DbReadOptions<TStored>) => string;

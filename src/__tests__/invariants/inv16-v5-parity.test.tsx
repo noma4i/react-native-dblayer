@@ -139,6 +139,25 @@ describe('v6 invariant 16: v5 parity', () => {
     expect(model.scopes.list.read({ b: 1 })).toEqual([{ id: 'row-1', name: 'visible' }]);
   });
 
+  it('primitive scope values get distinct keys', () => {
+    expect(buildScopeKey('u1')).not.toBe(ROOT_SCOPE_KEY);
+    expect(buildScopeKey('u1')).not.toBe(buildScopeKey('u2'));
+    expect(buildScopeKey(7)).not.toBe(buildScopeKey('7'));
+    expect(buildScopeKey(['a'])).not.toBe(ROOT_SCOPE_KEY);
+  });
+
+  it('nullish and empty-object scopes stay on the root key', () => {
+    expect(buildScopeKey(undefined)).toBe(ROOT_SCOPE_KEY);
+    expect(buildScopeKey(null)).toBe(ROOT_SCOPE_KEY);
+    expect(buildScopeKey({})).toBe(ROOT_SCOPE_KEY);
+    expect(buildScopeKey({ a: undefined })).toBe(ROOT_SCOPE_KEY);
+  });
+
+  it('record scopes keep their existing canonical keys', () => {
+    expect(buildScopeKey({ chatId: '1' })).toBe(buildScopeKey({ chatId: '1' }));
+    expect(buildScopeKey({ b: 1, a: 2 })).toBe(buildScopeKey({ a: 2, b: 1 }));
+  });
+
   it('D. reuses an existing temporary row across a failed retry and commit', async () => {
     const outcomes: Array<Promise<{ data: unknown }>> = [
       Promise.reject(new Error('network failed')),
