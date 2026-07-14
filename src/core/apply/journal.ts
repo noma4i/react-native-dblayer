@@ -1,9 +1,10 @@
+import type { ScopeIndexValue } from '../planes/scopeIndex';
 import type { StoragePlane } from '../planes/storagePlane';
 
 export type JournalOp =
   | { kind: 'upsert'; model: string; rows: unknown[] }
   | { kind: 'destroy'; model: string; ids: string[] }
-  | { kind: 'scope'; model: string; scopeHash: string; next: unknown }
+  | { kind: 'scope'; model: string; scopeHash: string; next: ScopeIndexValue }
   | { kind: 'freshness'; key: string; value: unknown }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };
 

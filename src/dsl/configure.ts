@@ -1,6 +1,9 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { DbLogger, DbTrackSink, DbTransport } from '../types';
 import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane';
+import { setDbLogger } from '../core/logger';
+import { setDbTrackSink } from '../core/tracking';
+import { setDbTransport } from '../core/transport';
 
 export interface DbDefaults {
   staleTime?: number;
@@ -18,6 +21,9 @@ let accountId = 'anon';
 /** Configure v6 runtime seams and defaults. */
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
   runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane() };
+  setDbTransport(options.transport);
+  if (options.logger) setDbLogger(options.logger);
+  if (options.track) setDbTrackSink(options.track);
 };
 
 export const setAccountPartition = (nextAccountId: string | null): void => {

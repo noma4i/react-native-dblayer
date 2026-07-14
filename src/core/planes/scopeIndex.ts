@@ -6,6 +6,7 @@ export type ScopeIndexValue = { generation: number; coverage: Coverage; entries:
 
 export type ScopeIndex = {
   read(key: string): ScopeIndexValue;
+  write(key: string, next: ScopeIndexValue): void;
   reconcile(key: string, coverage: Coverage, ids: string[]): ScopeIndexValue;
   reset(): void;
 };
@@ -16,6 +17,9 @@ export const createScopeIndex = (): ScopeIndex => {
 
   return {
     read: key => scopes.get(key) ?? empty(),
+    write: (key, next) => {
+      scopes.set(key, next);
+    },
     reconcile: (key, coverage, ids) => {
       const previous = scopes.get(key) ?? empty();
       const entries = coverage === 'complete'
