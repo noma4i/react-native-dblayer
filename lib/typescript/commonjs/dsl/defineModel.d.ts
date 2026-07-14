@@ -1,4 +1,5 @@
 import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
+import type { JournalOp } from '../core/apply/journal';
 import { type RelationDecl } from '../core/relations';
 import type { Coverage, ScopeSpec } from './scope';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
@@ -19,6 +20,10 @@ export type ScopeHandle<TStored extends {
     invalidate(scopeValue?: TScope): void;
     read(scopeValue: TScope): TStored[];
     __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage): void;
+    __planApply?(scopeValue: TScope, rows: Array<{
+        row: TStored;
+        edge?: Record<string, unknown>;
+    }>, coverage: Coverage): JournalOp[];
 };
 type ModelCore<TStored extends {
     id: string;
@@ -52,6 +57,7 @@ type ModelCore<TStored extends {
     scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
     registerReset(fn: () => void): void;
     __applyRows?(rows: TStored[]): void;
+    __planRows?(rows: TStored[]): JournalOp[];
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     id: string;

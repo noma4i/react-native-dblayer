@@ -12,7 +12,7 @@ export { compositeId } from './schema/schema';
 export { f } from './schema/f';
 export { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from './schema/shape';
 export { defineQuery } from './dsl/defineQuery';
-export type { QueryResult } from './dsl/defineQuery';
+export type { QueryResult, ExtractSink } from './dsl/defineQuery';
 export { defineMutation } from './dsl/defineMutation';
 export { defineIngest } from './dsl/defineIngest';
 export type { IngestDecl } from './dsl/defineIngest';
