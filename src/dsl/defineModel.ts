@@ -3,8 +3,8 @@ import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import type { JournalOp } from '../core/apply/journal';
-import { createEntityClock, createEntityState } from '../core/planes/entityState';
-import { createScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
+import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
+import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { expandPlan, registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
@@ -103,10 +103,19 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
 export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
   config: ModelConfig<TFields, TScopes, TExt>
 ): ModelCore<any> & { scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
-  const runtime = getDbRuntimeConfig();
-  const prefix = getStoragePrefix;
-  const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix });
-  const scopeIndex = createScopeIndex({ modelId: config.id, storage: runtime.storage, prefix });
+  type ModelPlanes = { entityState: EntityState<any>; scopeIndex: ScopeIndex };
+  let planesRef: ModelPlanes | null = null;
+  /** Planes are created and hydrated on first touch, so models can be defined before configureDb. */
+  const planes = (): ModelPlanes => {
+    if (planesRef) return planesRef;
+    const runtime = getDbRuntimeConfig();
+    const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix: getStoragePrefix });
+    const scopeIndex = createScopeIndex({ modelId: config.id, storage: runtime.storage, prefix: getStoragePrefix });
+    entityState.hydrate();
+    scopeIndex.hydrate();
+    planesRef = { entityState, scopeIndex };
+    return planesRef;
+  };
 
   const normalize = (input: unknown, complete = false): any => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
@@ -137,19 +146,19 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return value;
   };
 
-  const isScopeMember = (scopeKey: string, id: string): boolean => scopeIndex.read(scopeKey).entries.some(entry => entry.id === id);
+  const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.read(scopeKey).entries.some(entry => entry.id === id);
 
   const membershipAppend = (scopeKey: string, id: string): JournalOp => {
-    const { next } = scopeIndex.reconcile(scopeKey, 'delta', [{ id }]);
+    const { next } = planes().scopeIndex.reconcile(scopeKey, 'delta', [{ id }]);
     return { kind: 'scope', model: config.id, scopeKey, next };
   };
 
-  const membershipDetach = (scopeKey: string, id: string): JournalOp => ({ kind: 'scope', model: config.id, scopeKey, next: scopeIndex.detach(scopeKey, [id]) });
+  const membershipDetach = (scopeKey: string, id: string): JournalOp => ({ kind: 'scope', model: config.id, scopeKey, next: planes().scopeIndex.detach(scopeKey, [id]) });
 
   /** Declarative membership: an event row joins/leaves its `by` scopes inside the SAME plan. */
   const membershipForUpsert = (row: Record<string, unknown>): JournalOp[] => {
     const id = String(row.id);
-    const before = entityState.read(id);
+    const before = planes().entityState.read(id);
     const merged = { ...before, ...row, id };
     const ops: JournalOp[] = [];
     for (const [, spec] of membershipScopes) {
@@ -164,13 +173,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   };
 
   const membershipForPatch = (id: string, patch: Record<string, unknown>): JournalOp[] => {
-    const current = entityState.read(id);
+    const current = planes().entityState.read(id);
     if (!current) return [];
     return membershipForUpsert({ ...patch, id });
   };
 
   const detachForDestroy = (id: string): JournalOp[] => {
-    const row = entityState.read(id);
+    const row = planes().entityState.read(id);
     const ops: JournalOp[] = [];
     const seenKeys = new Set<string>();
     for (const [, spec] of membershipScopes) {
@@ -181,7 +190,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         ops.push(membershipDetach(key, id));
       }
     }
-    for (const key of scopeIndex.keys()) {
+    for (const key of planes().scopeIndex.keys()) {
       if (seenKeys.has(key) || !isScopeMember(key, id)) continue;
       seenKeys.add(key);
       ops.push(membershipDetach(key, id));
@@ -191,8 +200,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   registerRelationHost(config.id, {
     relations: resolvedRelations,
-    has: id => entityState.read(id) !== undefined,
-    read: id => entityState.read(id),
+    has: id => planes().entityState.read(id) !== undefined,
+    read: id => planes().entityState.read(id),
     normalize: input => {
       try {
         return normalize(input);
@@ -209,9 +218,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       const incoming = normalize(value);
-      const current = entityState.read(incoming.id);
+      const current = planes().entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
-      const result = entityState.upsert({ ...current, ...incoming });
+      const result = planes().entityState.upsert({ ...current, ...incoming });
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
@@ -221,26 +230,26 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const applyTarget = {
     upsert: writeRows,
     patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {
-      const current = entityState.read(id);
+      const current = planes().entityState.read(id);
       if (!current) return null;
-      const result = entityState.upsert({ ...current, ...patch, id });
+      const result = planes().entityState.upsert({ ...current, ...patch, id });
       if (result.changedFields !== null && result.changedFields.length === 0) return null;
       return { id, changedFields: result.changedFields };
     },
     destroy: (ids: string[]): string[] => {
-      for (const id of ids) entityState.destroy(id);
+      for (const id of ids) planes().entityState.destroy(id);
       return ids;
     },
     counter: (id: string, field: string, delta: number): boolean => {
-      const row = entityState.read(id);
+      const row = planes().entityState.read(id);
       if (!row) return false;
-      entityState.upsert({ ...row, [field]: ((row[field] as number | undefined) ?? 0) + delta });
+      planes().entityState.upsert({ ...row, [field]: ((row[field] as number | undefined) ?? 0) + delta });
       return true;
     },
     scope: (scopeKey: string, next: unknown): void => {
-      scopeIndex.write(scopeKey, next as ScopeIndexValue);
+      planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
     },
-    persistEntries: () => [...entityState.persistEntries(), ...scopeIndex.persistEntries()]
+    persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()]
   };
   registerApplyTarget(config.id, applyTarget);
 
@@ -256,8 +265,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
-    const value = scopeIndex.read(keyForScope(scopeValue));
-    const rows = value.entries.map(entry => entityState.read(entry.id)).filter(Boolean);
+    const value = planes().scopeIndex.read(keyForScope(scopeValue));
+    const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter(Boolean);
     if (!spec?.sort || spec.sort === 'server-order') return rows;
     if ('comparator' in spec.sort) return [...rows].sort(spec.sort.comparator);
     const { field, dir } = spec.sort;
@@ -272,7 +281,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage): JournalOp[] => {
       const scopeKey = keyForScope(scopeValue);
-      const { next } = scopeIndex.reconcile(scopeKey, coverage, rows.map(({ row, edge }) => ({ id: row.id, edge })));
+      const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, rows.map(({ row, edge }) => ({ id: row.id, edge })));
       return [
         { kind: 'upsert', model: config.id, rows: rows.map(({ row }) => row) },
         { kind: 'scope', model: config.id, scopeKey, next }
@@ -282,17 +291,17 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       use: (scopeValue: unknown) => {
         const rows = useLiveRead(
           () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
+          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), planes().scopeIndex.read(keyForScope(scopeValue)).entries),
           arraysShallowEqual
         );
         return rows;
       },
       useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
-        const pageSize = options?.pageSize ?? runtime.defaults?.pageSize ?? 20;
+        const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
         const [windowSize, setWindowSize] = useState(pageSize);
         const rows = useLiveRead(
           () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), scopeIndex.read(keyForScope(scopeValue)).entries),
+          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), planes().scopeIndex.read(keyForScope(scopeValue)).entries),
           arraysShallowEqual
         );
         const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
@@ -309,7 +318,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       },
       useCount: (scopeValue: unknown) =>
         useLiveRead(
-          () => (scopeValue == null ? 0 : scopeIndex.read(keyForScope(scopeValue)).entries.length),
+          () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeValue)).entries.length),
           scopeValue == null ? [modelDep] : [scopeDep(keyForScope(scopeValue))]
         ),
       invalidate: (_scopeValue?: unknown) => {
@@ -336,9 +345,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
-    get: id => (id == null ? undefined : entityState.read(id)),
-    getWhere: (where, options) => sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options),
-    getAll: () => entityState.values(),
+    get: id => (id == null ? undefined : planes().entityState.read(id)),
+    getWhere: (where, options) => sortRows(planes().entityState.values().filter(row => matchesDbWhere(row, where)), options),
+    getAll: () => planes().entityState.values(),
     patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id, patch: patch as Record<string, unknown> }]),
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),
@@ -354,35 +363,35 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       row: (id, options) => {
         const select = options?.select as ReadonlyArray<string> | undefined;
         return useLiveRead(
-          () => (id == null ? undefined : entityState.read(id)),
+          () => (id == null ? undefined : planes().entityState.read(id)),
           id == null ? [] : [rowDep(id, select)]
         );
       },
       field: (id, field) =>
         useLiveRead(
-          () => (id == null ? undefined : entityState.read(id)?.[field]),
+          () => (id == null ? undefined : planes().entityState.read(id)?.[field]),
           id == null ? [] : [rowDep(id, [String(field)])]
         ),
       first: (where, options) =>
         useLiveRead(
-          () => sortRows(entityState.values().filter(row => where == null || matchesDbWhere(row, where)), options)[0],
+          () => sortRows(planes().entityState.values().filter(row => where == null || matchesDbWhere(row, where)), options)[0],
           [modelDep]
         ),
       where: (where, options) =>
         useLiveRead(
-          () => (where == null ? EMPTY_ROWS : sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options)),
+          () => (where == null ? EMPTY_ROWS : sortRows(planes().entityState.values().filter(row => matchesDbWhere(row, where)), options)),
           where == null ? [] : [modelDep],
           arraysShallowEqual
         ),
       byIds: ids =>
         useLiveRead(
-          () => ids.map(id => entityState.read(id)).filter(Boolean),
+          () => ids.map(id => planes().entityState.read(id)).filter(Boolean),
           ids.map(id => rowDep(id)),
           arraysShallowEqual
         ),
       count: where =>
         useLiveRead(
-          () => (where == null ? entityState.values().length : entityState.values().filter(row => matchesDbWhere(row, where)).length),
+          () => (where == null ? planes().entityState.values().length : planes().entityState.values().filter(row => matchesDbWhere(row, where)).length),
           [modelDep]
         ),
       related: (id, relationName) => {
@@ -393,7 +402,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         let isEqual: (a: unknown, b: unknown) => boolean = Object.is;
         if (relation.kind === 'belongsTo') {
           const parentIdOf = (): string | null => {
-            const child = id == null ? undefined : entityState.read(id);
+            const child = id == null ? undefined : planes().entityState.read(id);
             const value = child?.[relation.foreignKey];
             return typeof value === 'string' && value.length > 0 ? value : null;
           };
@@ -429,12 +438,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     __planReplace: planReplace
   };
 
-  entityState.hydrate();
-  scopeIndex.hydrate();
-
   registerReset(() => {
-    entityState.reset();
-    scopeIndex.reset();
+    planesRef?.entityState.reset();
+    planesRef?.scopeIndex.reset();
     // The apply target stays registered: a model must keep working after the kill-switch.
   });
 
