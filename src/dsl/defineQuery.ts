@@ -4,6 +4,7 @@ import type { DbGraphQLDocument, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
+import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import type { ScopeHandle } from './defineModel';
 import type { Coverage } from './scope';
@@ -134,6 +135,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     if (!client) return;
     void client.invalidateQueries({ queryKey: scope === undefined ? ['dbl', keyName] : queryKeyOf(scope) });
   };
+  const destinationModelId = (config.into as { modelId?: string }).modelId;
+  if (destinationModelId) registerModelInvalidation(destinationModelId, scope => invalidate(scope as TScope | undefined));
 
   const isEmptyMeta = (data: unknown): boolean => {
     if (data == null) return true;

@@ -6,6 +6,7 @@ export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Re
 export type ScopeHandle<TStored extends {
     id: string;
 }, TScope> = {
+    modelId: string;
     use(scopeValue: TScope | null | undefined): TStored[];
     useWindow(scopeValue: TScope | null | undefined, opts?: {
         pageSize?: number;

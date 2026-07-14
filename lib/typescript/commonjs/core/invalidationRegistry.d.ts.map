@@ -1,0 +1,1 @@
+{"version":3,"file":"invalidationRegistry.d.ts","sourceRoot":"","sources":["../../../../src/core/invalidationRegistry.ts"],"names":[],"mappings":"AAAA,KAAK,YAAY,GAAG,CAAC,KAAK,CAAC,EAAE,OAAO,KAAK,IAAI,CAAC;AAI9C;;;GAGG;AACH,eAAO,MAAM,yBAAyB,GAAI,SAAS,MAAM,EAAE,YAAY,YAAY,KAAG,CAAC,MAAM,IAAI,CAQhG,CAAC;AAEF,sEAAsE;AACtE,eAAO,MAAM,eAAe,GAAI,SAAS,MAAM,EAAE,QAAQ,OAAO,KAAG,IAElE,CAAC"}

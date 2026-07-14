@@ -5,6 +5,7 @@ import { registerApplyTarget } from '../core/apply/transaction';
 import type { JournalOp } from '../core/apply/journal';
 import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
+import { invalidateModel } from '../core/invalidationRegistry';
 import { expandPlan, registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
@@ -16,6 +17,7 @@ import { useRef, useState } from 'react';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
 export type ScopeHandle<TStored extends { id: string }, TScope> = {
+  modelId: string;
   use(scopeValue: TScope | null | undefined): TStored[];
   useWindow(scopeValue: TScope | null | undefined, opts?: { pageSize?: number }): {
     rows: TStored[];
@@ -290,6 +292,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       ];
     };
     return {
+      modelId: config.id,
       use: (scopeValue: unknown) => {
         const rows = useLiveRead(
           () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
@@ -323,8 +326,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeValue)).entries.length),
           scopeValue == null ? [modelDep] : [scopeDep(keyForScope(scopeValue))]
         ),
-      invalidate: (_scopeValue?: unknown) => {
-        // Network re-fetch wiring arrives with defineQuery; local state stays authoritative here.
+      invalidate: (scopeValue?: unknown) => {
+        invalidateModel(config.id, scopeValue);
       },
       read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
       __apply: (scopeValue: unknown, rows: any[], coverage: Coverage) => {
@@ -357,8 +360,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     replaceRaw: (oldId, next) => applyEvent(planReplace(oldId, next)),
     buildStored: input => normalize(input, true),
     normalize: input => normalize(input),
-    invalidate: () => {
-      // Network invalidation wiring arrives with defineQuery.
+    invalidate: scope => {
+      invalidateModel(config.id, scope);
     },
     gc: () => 0,
     use: {
