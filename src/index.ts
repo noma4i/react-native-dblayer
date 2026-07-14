@@ -31,6 +31,6 @@ export { pickDefined, pickPresent } from './utils/pickDefined';
 export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { createModelStatusPoller } from './utils/modelStatusPoller';
-export { createThrottledSingleFlight, createKeyedBatchBuffer, createKeyedArrayPatcher, createNestedObjectPatcher, singletonStatics } from './utils/runtimePrimitives';
+export { createThrottledSingleFlight, createKeyedBatchBuffer, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, singletonStatics } from './utils/runtimePrimitives';
 export { reconcileOptimisticRows, pruneOrphanedRows, pruneExpiredRows, trimRowsPerScope, resolveStaleTempRows } from './utils/runtimePrimitives';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
