@@ -43,14 +43,20 @@ export const patchWhenPresent = <TStored extends { id: string }>(
     return;
   }
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let active = true;
   const subscription = getCommitBus().subscribe(() => {
+    if (!active) return;
     const row = model.get(id);
     if (!row) return;
+    active = false;
     if (timer) clearTimeout(timer);
     subscription.unsubscribe();
     model.patch(id, resolvePatch(row, patch));
   }, [rowDepOf(model, id)]);
-  timer = setTimeout(() => subscription.unsubscribe(), options.ttlMs);
+  timer = setTimeout(() => {
+    active = false;
+    subscription.unsubscribe();
+  }, options.ttlMs);
 };
 
 /** Resolve with the row once it exists, or with `undefined` on timeout/abort. */
