@@ -32,6 +32,8 @@ type ModelCore<TStored extends {
     modelId: string;
     get(id: string | null | undefined): TStored | undefined;
     getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
+    /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
+    getAll(): TStored[];
     patch(id: string, patch: Partial<TStored>): void;
     destroy(id: string): void;
     destroyMany(ids: string[]): void;
@@ -67,7 +69,6 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     rowId?: (input: unknown) => string;
     guard?: (input: unknown) => boolean;
     relations?: () => Record<string, RelationDecl>;
-    sideload?: unknown[];
     scopes?: TScopes;
     merge?: {
         shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;

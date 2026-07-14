@@ -15,8 +15,7 @@ type SnapshotModel<TStored extends RowId> = {
 
 type DestroyManyModel<TStored extends RowId> = {
   getAll(): TStored[];
-  destroyMany(ids: string[]): number;
-  _deleteManyWithoutFreshness?: (ids: string[]) => number;
+  destroyMany(ids: string[]): void;
 };
 
 type PatchModel<TStored extends RowId> = {
@@ -25,8 +24,8 @@ type PatchModel<TStored extends RowId> = {
 };
 
 type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
-  find(id: string): TStored | undefined;
   insertStored(item: TStored): void;
+  use: { row(id: string | null | undefined): TStored | undefined };
 };
 
 export type ReconcileScopeFields<TStored extends RowId, TNode extends RowId> =
@@ -164,11 +163,16 @@ export const reconcileOptimisticRows = <TStored extends CreatedAtRow, TNode exte
 
 const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
 
-const destroyManyIfNeeded = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => (ids.length > 0 ? model.destroyMany(ids) : 0);
+const destroyManyIfNeeded = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => {
+  if (ids.length === 0) return 0;
+  model.destroyMany(ids);
+  return ids.length;
+};
 
 const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => {
   if (ids.length === 0) return 0;
-  return model._deleteManyWithoutFreshness?.(ids) ?? model.destroyMany(ids);
+  model.destroyMany(ids);
+  return ids.length;
 };
 
 const toExpiryTimestamp = (value: CreatedAtLike): number => toTimestamp(value);
@@ -497,56 +501,6 @@ export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TIt
   };
 };
 
-export type TombstoneLedgerConfig = {
-  /** Maximum age for an in-memory tombstone. */
-  ttlMs: number;
-};
-
-export type TombstoneLedger = {
-  /** Mark an id as tombstoned in memory. */
-  mark(id: string): void;
-  /** Return true while the id has a non-expired in-memory tombstone. */
-  has(id: string): boolean;
-  /** Drop every in-memory tombstone. */
-  clear(): void;
-};
-
-/**
- * Create a memory-only tombstone ledger.
- *
- * Expired entries are pruned lazily on `mark` and `has`; no interval or persistence is used by design.
- *
- * @param config Tombstone TTL in milliseconds.
- * @returns In-memory mark, lookup, and clear operations.
- */
-export const createTombstoneLedger = (config: TombstoneLedgerConfig): TombstoneLedger => {
-  const tombstones = new Map<string, number>();
-
-  const pruneExpired = (now: number): void => {
-    for (const [id, markedAt] of tombstones.entries()) {
-      if (now - markedAt > config.ttlMs) {
-        tombstones.delete(id);
-      }
-    }
-  };
-
-  return {
-    mark(id) {
-      const now = Date.now();
-      pruneExpired(now);
-      tombstones.set(id, now);
-    },
-    has(id) {
-      const now = Date.now();
-      pruneExpired(now);
-      return tombstones.has(id);
-    },
-    clear() {
-      tombstones.clear();
-    }
-  };
-};
-
 export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (
   id: string,
   ...args: TArgs
@@ -668,7 +622,7 @@ export const singletonStatics = <TStored extends RowId>(model: SingletonModel<TS
     recordId,
     defaults,
     current: (): TStored | undefined => model.get(recordId),
-    useCurrent: (): TStored => model.find(recordId) ?? defaults,
+    useCurrent: (): TStored => model.use.row(recordId) ?? defaults,
     upsertCurrent: upsert,
     patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min = 0): boolean => {
       if (delta === 0) return false;
@@ -677,7 +631,8 @@ export const singletonStatics = <TStored extends RowId>(model: SingletonModel<TS
 
       const value = current[field];
       const currentValue = typeof value === 'number' ? value : 0;
-      return model.patch(recordId, { [field]: Math.max(min, currentValue + delta) } as Partial<TStored>) !== false;
+      model.patch(recordId, { [field]: Math.max(min, currentValue + delta) } as Partial<TStored>);
+      return true;
     }
   };
 };

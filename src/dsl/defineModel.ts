@@ -36,6 +36,8 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   modelId: string;
   get(id: string | null | undefined): TStored | undefined;
   getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
+  /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
+  getAll(): TStored[];
   patch(id: string, patch: Partial<TStored>): void;
   destroy(id: string): void;
   destroyMany(ids: string[]): void;
@@ -68,7 +70,6 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   rowId?: (input: unknown) => string;
   guard?: (input: unknown) => boolean;
   relations?: () => Record<string, RelationDecl>;
-  sideload?: unknown[];
   scopes?: TScopes;
   merge?: { shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean; dedupeWindowMs?: number };
   retention?: { orphanGc?: 'manual' | 'eager' | 'off'; keep?: (row: unknown) => boolean };
@@ -267,6 +268,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     modelId: config.id,
     get: id => (id == null ? undefined : entityState.read(id)),
     getWhere: (where, options) => sortRows(entityState.values().filter(row => matchesDbWhere(row, where)), options),
+    getAll: () => entityState.values(),
     patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id, patch: patch as Record<string, unknown> }]),
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),

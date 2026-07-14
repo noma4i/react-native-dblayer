@@ -30,5 +30,6 @@ export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapsho
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { createThrottledSingleFlight, createKeyedBatchBuffer, createKeyedArrayPatcher, createNestedObjectPatcher, singletonStatics } from './utils/runtimePrimitives';
+export { reconcileOptimisticRows, pruneOrphanedRows, pruneExpiredRows, trimRowsPerScope, resolveStaleTempRows } from './utils/runtimePrimitives';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
 //# sourceMappingURL=index.d.ts.map

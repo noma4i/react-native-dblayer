@@ -13,16 +13,17 @@ type SnapshotModel<TStored extends RowId> = {
 };
 type DestroyManyModel<TStored extends RowId> = {
     getAll(): TStored[];
-    destroyMany(ids: string[]): number;
-    _deleteManyWithoutFreshness?: (ids: string[]) => number;
+    destroyMany(ids: string[]): void;
 };
 type PatchModel<TStored extends RowId> = {
     get(id: string): TStored | undefined;
     patch(id: string, updates: Partial<TStored>): boolean | void;
 };
 type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
-    find(id: string): TStored | undefined;
     insertStored(item: TStored): void;
+    use: {
+        row(id: string | null | undefined): TStored | undefined;
+    };
 };
 export type ReconcileScopeFields<TStored extends RowId, TNode extends RowId> = {
     fields: ReadonlyArray<Extract<keyof TStored & keyof TNode, string>>;
@@ -161,27 +162,6 @@ export type KeyedBatchBuffer<TItem> = {
  * @returns Runtime buffer controls for pushing, flushing, and clearing pending items.
  */
 export declare const createKeyedBatchBuffer: <TItem>(config: KeyedBatchBufferConfig<TItem>) => KeyedBatchBuffer<TItem>;
-export type TombstoneLedgerConfig = {
-    /** Maximum age for an in-memory tombstone. */
-    ttlMs: number;
-};
-export type TombstoneLedger = {
-    /** Mark an id as tombstoned in memory. */
-    mark(id: string): void;
-    /** Return true while the id has a non-expired in-memory tombstone. */
-    has(id: string): boolean;
-    /** Drop every in-memory tombstone. */
-    clear(): void;
-};
-/**
- * Create a memory-only tombstone ledger.
- *
- * Expired entries are pruned lazily on `mark` and `has`; no interval or persistence is used by design.
- *
- * @param config Tombstone TTL in milliseconds.
- * @returns In-memory mark, lookup, and clear operations.
- */
-export declare const createTombstoneLedger: (config: TombstoneLedgerConfig) => TombstoneLedger;
 export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (id: string, ...args: TArgs) => boolean;
 export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
     /** Replace an existing sub-row with the same key, then append the normalized sub-row. */

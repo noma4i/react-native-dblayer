@@ -1,20 +1,11 @@
-import type { Collection, CollectionLike, StorageEventApi } from '@tanstack/db';
+import type { StorageEventApi } from '@tanstack/db';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
-import type { UseQueryResult } from '@tanstack/react-query';
-import type { SideloadSpec } from './core/sideload';
 import type { FieldSpec } from './schema/fieldSpec';
-import type { InferFieldsInput } from './schema/fields';
-import type { InferBuildStoredInput, InferStoredFields } from './schema/infer';
 
 declare global {
   const __DEV__: boolean;
 }
-
-export type PersistentMutationTransaction = {
-  /** Raw TanStack DB mutation records accepted by persistent collections. */
-  mutations: Array<unknown>;
-};
 
 export type StorageAdapter = {
   /** Read a persisted value synchronously. */
@@ -48,26 +39,26 @@ export type DbTrackEvent = {
 export type DbTrackSink = (event: DbTrackEvent) => void;
 
 /** Domain-defined extract payload or preset. */
-export type DbExtractSpec = unknown;
+type DbExtractSpec = unknown;
 
 /** GraphQL document accepted by the transport adapter. */
 export type DbGraphQLDocument<TData = unknown, TVariables = Record<string, unknown>> = TypedDocumentNode<TData, TVariables> | DocumentNode;
 
-export type DbQueryOperation<TData = unknown, TVariables = Record<string, unknown>> = {
+type DbQueryOperation<TData = unknown, TVariables = Record<string, unknown>> = {
   /** GraphQL query document to execute. */
   query: DbGraphQLDocument<TData, TVariables>;
   /** Query variables passed to the transport. */
   variables?: TVariables;
 } & Record<string, unknown>;
 
-export type DbMutationOperation<TData = unknown, TVariables = Record<string, unknown>> = {
+type DbMutationOperation<TData = unknown, TVariables = Record<string, unknown>> = {
   /** GraphQL mutation document to execute. */
   mutation: DbGraphQLDocument<TData, TVariables>;
   /** Mutation variables passed to the transport. */
   variables?: TVariables;
 } & Record<string, unknown>;
 
-export type TransportResult<TData> = {
+type TransportResult<TData> = {
   /** Operation response data returned by the transport. */
   data: TData;
 };
@@ -94,270 +85,9 @@ export type DbTransport = {
   ) => () => void;
 };
 
-export interface DbCollection<T> {
-  /** Optional collection id used as a storage key prefix. */
-  readonly id?: string;
-  /** Snapshot read by id. */
-  get(id: string): T | undefined;
-  /** Snapshot existence check by id. */
-  has(id: string): boolean;
-  /** Insert or replace an item. */
-  insert(item: T): void;
-  /** Update an item through a draft callback. */
-  update(id: string, updater: (draft: T) => void): void;
-  /** Delete an item by id. */
-  delete(id: string): void | boolean;
-  /** Snapshot iterator of ids. */
-  keys(): IterableIterator<string>;
-  /** Snapshot iterator of rows. */
-  values(): IterableIterator<T>;
-  /** Snapshot collection size when available. */
-  size?: number;
-  /** Commit a persisted TanStack DB transaction. */
-  acceptMutations?: (transaction: PersistentMutationTransaction) => void;
-}
-
-export type PersistentCollection<T extends { id: string }> = DbCollection<T> & {
-  /** Required collection id used as a storage key prefix. */
-  readonly id: string;
-  /** Backing TanStack DB collection. */
-  readonly _collection: Collection<T, string>;
-  /** Commit a persisted TanStack DB transaction. */
-  acceptMutations: (transaction: PersistentMutationTransaction) => void;
-};
-
 export type StoredRowBase = { id: string; updatedAt?: string | null };
 
-export type StringFieldKey<TStored extends StoredRowBase> = {
-  [K in keyof TStored & string]: TStored[K] extends string ? K : never;
-}[keyof TStored & string];
-
-export type HasManyDependent = 'destroy';
-
-export type HasManyOptions<TChildStored extends StoredRowBase, TForeignKey extends StringFieldKey<TChildStored>> = {
-  /** Child row field that stores the parent id. */
-  foreignKey: TForeignKey;
-  /** Dependent action for child rows. Omit for query-only relations. */
-  dependent?: HasManyDependent;
-};
-
-export type RelationModel<TStored extends StoredRowBase> = {
-  getAll(): TStored[];
-  getWhere(filter: DbWhere<any>): TStored[];
-  where(filter: DbWhere<any>, options?: DbReadOptions<any>): TStored[];
-  count(filter?: DbWhere<any> | null): number;
-  destroyMany(ids: string[]): number;
-  destroyWhere(filter: Partial<any>): number;
-  collection: CollectionLike<TStored, string>;
-};
-
-export type BelongsToModel<TStored extends StoredRowBase> = {
-  get(id: string | undefined | null): TStored | undefined;
-  find(id: string | undefined | null): TStored | undefined;
-  patch(id: string, updates: Partial<any>): boolean;
-  collection: Collection<TStored, string>;
-};
-
-export type ModelRelationDefinition = {
-  /** Relation kind. */
-  kind: 'hasMany';
-  /** Runtime child model reference. */
-  model: unknown;
-  /** Child row field that stores the parent id. */
-  foreignKey: string;
-  /** Dependent action for child rows. Omitted for query-only relations. */
-  dependent?: HasManyDependent;
-};
-
-export type HasManyRelation<
-  TChildStored extends StoredRowBase,
-  TForeignKey extends string,
-  TChildModel = RelationModel<TChildStored>
-> = ModelRelationDefinition & {
-  /** Child model. */
-  model: TChildModel & RelationModel<TChildStored>;
-  /** Child row field that stores the parent id. */
-  foreignKey: TForeignKey;
-};
-
-export type HasOneRelation<
-  TChildStored extends StoredRowBase,
-  TForeignKey extends string,
-  TChildModel = RelationModel<TChildStored>
-> = {
-  /** Relation kind. */
-  kind: 'hasOne';
-  /** Child model. */
-  model: TChildModel & RelationModel<TChildStored>;
-  /** Child row field that stores the parent id. */
-  foreignKey: TForeignKey;
-  /** Required comparator; the first sorted child is returned. */
-  comparator: (a: TChildStored, b: TChildStored) => number;
-};
-
-export type BelongsToRelation<
-  TParentStored extends StoredRowBase,
-  TForeignKey extends string,
-  TChildStored extends StoredRowBase = StoredRowBase,
-  TParentModel = BelongsToModel<TParentStored>
-> = {
-  /** Relation kind. */
-  kind: 'belongsTo';
-  /** Parent model. */
-  model: TParentModel & BelongsToModel<TParentStored>;
-  /** Field on this child row that stores the parent id. */
-  foreignKey: TForeignKey;
-  /** Whether local child writes should bump the parent timestamp. */
-  touch: boolean;
-  /**
-   * Project child writes into the existing parent row.
-   *
-   * Runs for every child insert/patch/replaceRaw/applyServerData write. Missing parents are skipped
-   * silently because parent/child arrival ordering is not guaranteed. Returning `null` skips the parent
-   * patch; callback-owned gating should handle child ordering and staleness. Undefined-valued patch
-   * keys are dropped. Child destroy does not trigger propagation.
-   */
-  propagate?: (child: TChildStored, parent: TParentStored) => Partial<TParentStored> | null;
-};
-
-export type HasManyThroughRelation<TThrough extends string = string, TSource extends string = string> = {
-  /** Relation kind. */
-  kind: 'hasManyThrough';
-  /** Direct hasMany relation name on this model. */
-  through: TThrough;
-  /** Direct hasMany relation name on the through-child model. */
-  source: TSource;
-};
-
-export type ModelRelationConfigValue = ModelRelationDefinition | HasOneRelation<any, string, any> | BelongsToRelation<any, string, any, any> | HasManyThroughRelation;
-
-export type ModelRelationsConfig = Record<string, ModelRelationConfigValue>;
-
-export type RelatedAccessor<TChildStored extends StoredRowBase> = {
-  /** Snapshot read of child rows for a parent id. Nullish parent returns an empty array. */
-  get(parentId: string | null | undefined): TChildStored[];
-  /** React hook: reactive child rows for a parent id. Nullish parent returns a stable empty array. */
-  use(parentId: string | null | undefined): TChildStored[];
-  /** React hook: reactive child count for a parent id. Nullish parent returns zero. */
-  count(parentId: string | null | undefined): number;
-};
-
-export type BelongsToAccessor<TParentStored extends StoredRowBase> = {
-  /** Snapshot read of the parent row for a child id. Nullish child returns undefined. */
-  get(childId: string | null | undefined): TParentStored | undefined;
-  /** React hook: reactive parent row for a child id. Nullish child returns undefined. */
-  use(childId: string | null | undefined): TParentStored | undefined;
-};
-
-export type HasOneAccessor<TChildStored extends StoredRowBase> = {
-  /** Snapshot read of the comparator-first child row for a parent id. Nullish parent returns undefined. */
-  get(parentId: string | null | undefined): TChildStored | undefined;
-  /** React hook: reactive comparator-first child row for a parent id. Nullish parent returns undefined. */
-  use(parentId: string | null | undefined): TChildStored | undefined;
-};
-
-type RelatedSourceRecord<TModel> = TModel extends { readonly related: infer TRelated } ? TRelated : never;
-
-type RelatedSourceChild<
-  TRelations extends ModelRelationsConfig,
-  TThrough extends string,
-  TSource extends string
-> = TThrough extends keyof TRelations
-  ? TRelations[TThrough] extends { kind: 'hasMany'; model: infer TThroughModel }
-    ? TSource extends keyof RelatedSourceRecord<TThroughModel>
-      ? RelatedSourceRecord<TThroughModel>[TSource] extends RelatedAccessor<infer TSourceStored>
-        ? TSourceStored
-        : never
-      : never
-    : never
-  : never;
-
-export type ChildStoredOf<
-  TRelation,
-  TRelations extends ModelRelationsConfig
-> = TRelation extends { kind: 'belongsTo'; model: BelongsToModel<infer TParentStored> }
-  ? TParentStored
-  : TRelation extends { kind: 'hasOne'; model: RelationModel<infer TChildStored> }
-  ? TChildStored
-  : TRelation extends { kind: 'hasMany'; model: RelationModel<infer TChildStored> }
-  ? TChildStored
-  : TRelation extends HasManyThroughRelation<infer TThrough, infer TSource>
-    ? RelatedSourceChild<TRelations, TThrough, TSource>
-    : never;
-
-export type RelatedRecord<TRelations extends ModelRelationsConfig> = {
-  [K in keyof TRelations]: TRelations[K] extends { kind: 'belongsTo' }
-    ? BelongsToAccessor<ChildStoredOf<TRelations[K], TRelations>>
-    : TRelations[K] extends { kind: 'hasOne' }
-      ? HasOneAccessor<ChildStoredOf<TRelations[K], TRelations>>
-    : RelatedAccessor<ChildStoredOf<TRelations[K], TRelations>>;
-};
-
-export type RowRelatedRecord<TRelations extends ModelRelationsConfig> = {
-  readonly [K in keyof TRelations]: TRelations[K] extends { kind: 'belongsTo' }
-    ? ChildStoredOf<TRelations[K], TRelations> | undefined
-    : TRelations[K] extends { kind: 'hasOne' }
-      ? ChildStoredOf<TRelations[K], TRelations> | undefined
-    : Array<ChildStoredOf<TRelations[K], TRelations>>;
-};
-
-type IsAny<T> = 0 extends 1 & T ? true : false;
-type HasBroadRelationKeys<TRelations> = IsAny<TRelations> extends true ? true : string extends keyof TRelations ? true : false;
-
-export type RelatedSurface<TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig]
-  ? HasBroadRelationKeys<TRelations> extends true
-    ? { readonly related: never }
-    : { readonly related: RelatedRecord<TRelations> }
-  : {};
-
-export type RowRelatedSurface<TRelations extends ModelRelationsConfig | undefined> = [TRelations] extends [ModelRelationsConfig]
-  ? HasBroadRelationKeys<TRelations> extends true
-    ? { readonly related: never }
-    : { readonly related: RowRelatedRecord<TRelations> }
-  : {};
-
 export type StoredWriteInput<TStored> = TStored extends { readonly related: unknown } ? Omit<TStored, 'related'> : TStored;
-
-export interface MergeResult {
-  /** Number of rows inserted or updated. */
-  merged: number;
-}
-
-/** Collection-local version ledger used to arbitrate local and server writes. */
-export interface RowVersionCore {
-  currentSeq(): number;
-  noteWrite(id: string): void;
-  noteDelete(id: string): void;
-  snapshot(): number;
-  wasWrittenAfter(id: string, snapshotSeq: number): boolean;
-  wasDeletedAfter(id: string, snapshotSeq: number): boolean;
-  wasDeletedWithin(id: string, ttlMs: number): boolean;
-  getWriteSeq(id: string): number | undefined;
-  getDeleteSeq(id: string): number | undefined;
-  reset(): void;
-}
-
-export interface CreateMergeConfig<TInput, TOutput extends { id: string; updatedAt?: string | null }> {
-  /** Target collection. */
-  collection: DbCollection<TOutput>;
-  /** Convert input into a stored row patch; return null to drop it. */
-  normalize: (item: TInput) => (Partial<TOutput> & { id: string }) | null;
-  /** Force-accept a merge the timestamp gate would reject. */
-  shouldOverwrite?: (existing: TOutput, incoming: Partial<TOutput> & { id: string }) => boolean;
-  /** Version ledger shared with local writes and replace sync. */
-  versionCore: RowVersionCore;
-  /**
-   * Skip an identical merge batch within this window.
-   * @default 0
-   */
-  dedupeWindowMs?: number;
-  /** Suppress same-id merge resurrection briefly after a local delete when no snapshot is available. */
-  resurrectionTtlMs?: number;
-  /** Resolve the default dedupe window when no model-level value is configured. */
-  resolveDedupeWindowMs?: () => number | undefined;
-  /** Register a runtime reset callback for dedupe state. */
-  registerReset?: (reset: () => void) => void;
-}
 
 export type DbModelDefaults = {
   merge?: {
@@ -369,27 +99,14 @@ export type DbModelDefaults = {
   };
 };
 
-export interface ReplaceResult {
-  /** Number of rows inserted or updated. */
-  merged: number;
-  /** Number of existing rows removed. */
-  deleted: number;
-}
-
-export interface CreateReplaceConfig<TInput, TOutput extends { id: string }> {
-  /** Target collection. */
-  collection: DbCollection<TOutput>;
-  /** Convert input into a stored row patch; return null to drop it. */
-  normalize: (item: TInput) => (Partial<TOutput> & { id: string }) | null;
-  /** Force-accept a replace write the timestamp gate would reject. */
-  shouldOverwrite?: (existing: TOutput, incoming: Partial<TOutput> & { id: string }) => boolean;
-  /** Version ledger shared with local writes and merge sync. */
-  versionCore: RowVersionCore;
-}
-
 export interface CreatePatchCrudConfig<T extends { id: string }> {
   /** Target collection. */
-  collection: DbCollection<T>;
+  collection: {
+    get(id: string): T | undefined;
+    has(id: string): boolean;
+    update(id: string, updater: (draft: T) => void): void;
+    delete(id: string): void | boolean;
+  };
 }
 
 export interface PatchCrud<T extends { id: string }> {
@@ -428,21 +145,6 @@ export interface SyncContract<TScope = unknown> {
   snapshotSeq?: number;
 }
 
-/**
- * Package-internal widening of `SyncContract` carrying the scoped-replace predicate and freshness
- * scope that `createCollectionBinding`'s `applyServerData` wrapper computes before forwarding to a
- * model's `applyServerData` implementation. Never part of the public surface - callers only ever
- * construct or receive a plain `SyncContract`.
- * Only package internals and package tests (`src/__tests__`) may construct this type directly; app
- * code always goes through `mergeSyncContract`/`replaceSyncContract`.
- */
-export interface InternalSyncContract<TScope = unknown> extends SyncContract<TScope> {
-  /** Scoped replace predicate; required when replacing with `scope`. */
-  _scopeFilter?: (item: unknown) => boolean;
-  /** Freshness scope recorded after the write. */
-  _freshnessFilter?: Record<string, unknown>;
-}
-
 export type CollectionFetchState = {
   /** Millisecond timestamp when the scope was marked fetched. */
   touchedAt: number;
@@ -467,29 +169,13 @@ export interface FetchStateRemovalListener {
 }
 
 export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any, any>>;
-export type ModelStoredFromFields<TFields extends ModelFieldSpecs> = InferStoredFields<TFields> extends { id: string; updatedAt?: string | null } ? InferStoredFields<TFields> : never;
-export type ModelBuildStoredInput<TFields extends ModelFieldSpecs> = InferBuildStoredInput<TFields>;
-export type ModelFieldsInput<TFields extends ModelFieldSpecs> = InferFieldsInput<TFields>;
-type ModelFieldsConfigInput<TFields extends ModelFieldSpecs> = InferFieldsInput<TFields, ModelBuildStoredInput<TFields>>;
-export interface FieldsCollectionModel<
-  TStored extends { id: string; updatedAt?: string | null },
-  TBuildInput,
-  TBuildOutput = StoredWriteInput<TStored>,
-  TInput = unknown
-> extends CollectionModel<TInput, TStored> {
-  /** Normalize one input into a sparse stored-row patch without writing model state. */
-  normalize(item: TInput): (Partial<StoredWriteInput<TStored>> & { id: string }) | null;
-  /** Normalize and require every non-optional field without writing model state. */
-  normalize(item: TInput, options: { requireComplete: true }): TBuildOutput | null;
-  /** Build a complete stored row from explicit values plus field factory defaults. */
-  buildStored(partial: TBuildInput): TBuildOutput;
-}
-
-export type ModelMirrorTarget<TStored extends { id: string; updatedAt?: string | null }> = Pick<CollectionModel<unknown, TStored>, 'get' | 'patch' | 'insertStored' | 'collection'> & {
-  /** Optional fields-model row builder used before inserting a missing mirrored target row. */
+export type ModelMirrorTarget<TStored extends { id: string; updatedAt?: string | null }> = {
+  get(id: string | undefined | null): TStored | undefined;
+  patch(id: string, updates: Partial<TStored>): void;
+  insertStored(item: TStored): void;
+  collection: { readonly id: string };
   buildStored?: (partial: any) => StoredWriteInput<TStored>;
 };
-
 export type ModelMirrorConfig<
   TSourceStored extends { id: string; updatedAt?: string | null },
   TTargetStored extends { id: string; updatedAt?: string | null }
@@ -508,125 +194,8 @@ export type ModelMirrorConfig<
   project: (row: TSourceStored) => Partial<TTargetStored> | null;
 };
 
-type NormalizedModelStaticsBase<
-  TInput,
-  TStored extends { id: string; updatedAt?: string | null },
-  TRelations extends ModelRelationsConfig | undefined
-> = [TRelations] extends [ModelRelationsConfig]
-  ? CollectionModel<TInput, TStored & RowRelatedSurface<TRelations>>
-  : CollectionModel<TInput, TStored>;
-
-type FieldsModelStaticsBase<
-  TFields extends ModelFieldSpecs,
-  TRelations extends ModelRelationsConfig | undefined
-> = [TRelations] extends [ModelRelationsConfig]
-  ? FieldsCollectionModel<
-      ModelStoredFromFields<TFields> & RowRelatedSurface<TRelations>,
-      ModelBuildStoredInput<TFields>,
-      ModelStoredFromFields<TFields>,
-      ModelFieldsInput<TFields>
-    >
-  : FieldsCollectionModel<ModelStoredFromFields<TFields>, ModelBuildStoredInput<TFields>, StoredWriteInput<ModelStoredFromFields<TFields>>, ModelFieldsInput<TFields>>;
-
-interface CreateCollectionModelBaseConfig<
-  TInput,
-  TStored extends { id: string; updatedAt?: string | null },
-  TExt extends Record<string, unknown> = {},
-  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined,
-  TModel extends object = CollectionModel<TInput, TStored>
-> {
-  /** Unique model name used as a runtime-registry key and log tag. */
-  name: string;
-  /** Persistent collection backing the model. */
-  collection: PersistentCollection<TStored>;
-  /** Extra class-level model methods composed from the base model DSL. */
-  statics?: (model: TModel) => Partial<TExt>;
-  /**
-   * Freshness window in milliseconds.
-   * @default 0
-   */
-  staleTime?: number;
-  /**
-   * Freshness window for known-empty scopes in milliseconds.
-   * @default 0
-   */
-  emptyStaleTime?: number;
-  merge?: {
-    /**
-     * Skip an identical merge batch within this window.
-     * @default 0
-     */
-    dedupeWindowMs?: number;
-    /** Suppress same-id merge resurrection briefly after a local delete when no snapshot is available. */
-    resurrectionTtlMs?: number;
-    /** Force-accept a merge the timestamp gate would reject. */
-    shouldOverwrite?: (existing: TStored, incoming: Partial<TStored> & { id: string }) => boolean;
-  };
-  replace?: {
-    /** Force-accept a replace write the timestamp gate would reject. */
-    shouldOverwrite?: (existing: TStored, incoming: Partial<TStored> & { id: string }) => boolean;
-  };
-  /** Sort applied by the reactive `all()` hook. */
-  defaultSort?: { field: keyof TStored & string; direction: 'asc' | 'desc' };
-  /** Nested payloads to sync before writing this model. */
-  sideload?: SideloadSpec<TInput>[];
-  /** Lazy relation declarations. Lazy resolution avoids circular model import timing. */
-  relations?: () => TRelations;
-  /** Same-id target model mirrors that receive projected writes from this model. */
-  mirror?: Array<ModelMirrorConfig<TStored, any>>;
-}
-
-export interface CreateCollectionModelNormalizeConfig<
-  TInput,
-  TStored extends { id: string; updatedAt?: string | null },
-  TExt extends Record<string, unknown> = {},
-  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
-> extends CreateCollectionModelBaseConfig<
-    TInput,
-    TStored,
-    TExt,
-    TRelations,
-    NormalizedModelStaticsBase<TInput, TStored, TRelations>
-  > {
-  /** Map an input to a stored row patch; return null to drop it. */
-  normalize: (item: TInput) => (Partial<TStored> & { id: string }) | null;
-  fields?: never;
-  rowId?: never;
-  guard?: never;
-}
-
-export interface CreateCollectionModelFieldsConfig<
-  TFields extends ModelFieldSpecs,
-  TExt extends Record<string, unknown> = {},
-  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
->
-  extends CreateCollectionModelBaseConfig<
-    ModelFieldsConfigInput<TFields>,
-    ModelStoredFromFields<TFields>,
-    TExt,
-    TRelations,
-    FieldsModelStaticsBase<TFields, TRelations>
-  > {
-  /** Declarative field specs used to generate the model normalizer. */
-  fields: TFields;
-  /** Optional row id resolver; defaults to `input.id`. */
-  rowId?: (input: ModelFieldsConfigInput<TFields>) => string | null | undefined;
-  /** Return false to drop an incoming row before normalization. */
-  guard?: (input: ModelFieldsConfigInput<TFields>) => boolean;
-  normalize?: never;
-}
-
-export type CreateCollectionModelConfig<
-  TInput,
-  TStored extends { id: string; updatedAt?: string | null },
-  TExt extends Record<string, unknown> = {},
-  TRelations extends ModelRelationsConfig | undefined = ModelRelationsConfig | undefined
-> = CreateCollectionModelNormalizeConfig<TInput, TStored, TExt, TRelations>;
-
-export type DbCondition<T> = Partial<T>;
-
 export type DbWhere<T> =
-  | DbCondition<T>
+  | Partial<T>
   | { and: Array<DbWhere<T>> }
   | { or: Array<DbWhere<T>> }
   | { not: DbWhere<T> };
@@ -635,108 +204,6 @@ export interface DbReadOptions<T> {
   orderBy?: { field: keyof T & string; direction: 'asc' | 'desc' };
   limit?: number;
 }
-
-export interface CollectionModel<TInput, TStored extends { id: string; updatedAt?: string | null }> {
-  /** Normalize one input into a sparse stored-row patch without writing model state. */
-  normalize(item: TInput): (Partial<StoredWriteInput<TStored>> & { id: string }) | null;
-  /** Snapshot read by id; safe outside React. */
-  get(id: string | undefined | null): TStored | undefined;
-  /** Snapshot read of every row; safe outside React. */
-  getAll(): TStored[];
-  /** Snapshot read of rows matching a typed predicate. */
-  getWhere(filter: DbWhere<TStored>): TStored[];
-  /** Snapshot read of the first row matching a typed predicate. */
-  getFirst(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
-  /** Shallow-update one row and return whether it changed. */
-  patch(id: string, updates: Partial<StoredWriteInput<TStored>>): boolean;
-  /** Delete one row and return whether it existed. */
-  destroy(id: string): boolean;
-  /** Delete many rows and return the number removed. */
-  destroyMany(ids: string[]): number;
-  /** Delete rows matching a non-empty filter and return the number removed. */
-  destroyWhere(filter: Partial<TStored>): number;
-  /** Atomically delete `oldId` and insert the normalized server item. */
-  replaceRaw(oldId: string, item: TInput): boolean;
-  /** Insert an already-normalized stored row. */
-  insertStored(item: StoredWriteInput<TStored>): void;
-  /** Return the current in-memory collection write sequence for request runtime contracts. */
-  getCollectionWriteSeq(): number;
-  /** Return the latest in-memory write sequence for one row, if it is still tracked. */
-  getRowWriteSeq(id: string): number | undefined;
-  /** Return the latest in-memory delete sequence for one row, if it is still tombstoned. */
-  getRowDeleteSeq(id: string): number | undefined;
-  /** Apply server data using a merge or replace sync contract. */
-  applyServerData(items: unknown[], contract: SyncContract): MergeResult | ReplaceResult;
-  /** Mark a filter scope as fetched now. */
-  markFetched(filter?: Partial<TStored>, state?: Omit<CollectionFetchState, 'touchedAt'>): void;
-  /** Snapshot read of freshness metadata for a filter scope. */
-  getFetchState(filter?: Partial<TStored>): CollectionFetchState | null;
-  /** Clear freshness metadata for a filter scope. */
-  clearFetchState(filter?: Partial<TStored>): void;
-  /** Clear model freshness and invalidate its derived request key. */
-  invalidate(scope?: Partial<TStored>): void;
-  /** Return true when the scope has data or opted-in known-empty freshness and is not stale. */
-  shouldSkipInitialFetch(filter?: Partial<TStored>, maxAgeMs?: number, emptyMaxAgeMs?: number): boolean;
-  /** Internal maintenance delete that skips cascade and freshness clearing. */
-  _deleteManyWithoutFreshness?(ids: string[]): number;
-  /** Delete every row and clear freshness metadata. */
-  clearScope(): void;
-  /** React hook: read one row by id and re-render on change. */
-  find(id: string | undefined | null): TStored | undefined;
-  /** React hook: read all rows and re-render on change. */
-  all(): TStored[];
-  /** React hook: read rows matching a typed predicate. */
-  where(filter: DbWhere<TStored>, options?: DbReadOptions<TStored>): TStored[];
-  /** React hook: read rows matching the supplied ids. */
-  byIds(ids: string[]): TStored[];
-  /** React hook: read the first row matching a typed predicate. */
-  first(filter?: DbWhere<TStored>, options?: Pick<DbReadOptions<TStored>, 'orderBy'>): TStored | undefined;
-  /** React hook: count rows, optionally filtered by a typed predicate. Explicit nullish filters return 0. */
-  count(filter?: DbWhere<TStored> | null): number;
-  /** Public backing TanStack DB collection for live-query joins. */
-  collection: Collection<TStored, string>;
-}
-
-export type DbKeyModelSource = {
-  collection: { readonly id: string };
-  /** Return the current in-memory collection write sequence for request runtime contracts. */
-  getCollectionWriteSeq?: () => number;
-};
-
-export type CollectionBindingUseDataContext<TStored, TRead = TStored> = {
-  /** Original runtime filter passed to the binding. */
-  filter: unknown;
-  /** Stored-row scope derived through `scopeMap`. */
-  scope: Partial<TStored> | undefined;
-  /** Rows read from the bound model after scope filtering and ordering. */
-  rows: TStored[];
-  /** Stable empty result for no-data projections. */
-  empty: TRead[];
-};
-
-type CollectionReadBaseConfig<TStored, TRead = TStored> = {
-  /** Map scope keys to stored row fields. */
-  scopeMap?: Record<string, keyof TStored & string>;
-  /** Override the bound read hook while retaining model writes, freshness, and scope plumbing. */
-  useData?: (context: CollectionBindingUseDataContext<TStored, TRead>) => TRead[];
-};
-
-type CollectionReadSortFieldConfig<TStored, TRead = TStored> = CollectionReadBaseConfig<TStored, TRead> & {
-  /** Optional field used to sort read results. */
-  sortField?: keyof TStored & string;
-  /** Sort direction for `sortField`. */
-  sortDirection?: 'asc' | 'desc';
-  comparator?: never;
-};
-
-type CollectionReadComparatorConfig<TStored, TRead = TStored> = CollectionReadBaseConfig<TStored, TRead> & {
-  sortField?: never;
-  sortDirection?: never;
-  /** Optional comparator used to sort read results. Mutually exclusive with `sortField`. */
-  comparator?: (left: TStored, right: TStored) => number;
-};
-
-export type CollectionReadConfig<TStored, TRead = TStored> = CollectionReadSortFieldConfig<TStored, TRead> | CollectionReadComparatorConfig<TStored, TRead>;
 
 type StableProjectionBaseConfig<TSource, TEntry extends { item: TItem }, TItem> = {
   /** Build a projection entry from source data. */
@@ -764,7 +231,7 @@ export type StableProjectionConfig<TSource, TEntry extends { item: TItem }, TIte
   renderKeys?: never;
 };
 
-export type StableProjectionRenderKeysConfig<TSource, TEntry extends { item: TItem }, TItem extends object> = StableProjectionKeyConfig<TSource, TEntry, TItem> & {
+type StableProjectionRenderKeysConfig<TSource, TEntry extends { item: TItem }, TItem extends object> = StableProjectionKeyConfig<TSource, TEntry, TItem> & {
   /** Item fields that determine rendered equality. */
   renderKeys: Array<keyof TItem>;
   /** Custom entry equality is mutually exclusive with render key equality. */
@@ -775,99 +242,19 @@ export type StableItemsConfig<TSource, TEntry extends { item: TItem }, TItem ext
   | StableProjectionConfig<TSource, TEntry, TItem>
   | StableProjectionRenderKeysConfig<TSource, TEntry, TItem>;
 
-export type StableEntityVolatileKeysConfig<TItem extends object> = {
+type StableEntityVolatileKeysConfig<TItem extends object> = {
   /** Fields ignored when comparing the current entity with the previous one. */
   volatileKeys: ReadonlyArray<keyof TItem & string>;
   renderKeys?: never;
 };
 
-export type StableEntityRenderKeysConfig<TItem extends object> = {
+type StableEntityRenderKeysConfig<TItem extends object> = {
   /** Fields that determine rendered equality. */
   renderKeys: ReadonlyArray<keyof TItem>;
   volatileKeys?: never;
 };
 
 export type StableEntityConfig<TItem extends object> = StableEntityVolatileKeysConfig<TItem> | StableEntityRenderKeysConfig<TItem>;
-
-type BaseQueryCollectionFind<TStored = unknown> = {
-  /** Model used for a reactive single-row read. */
-  model: DbKeyModelSource & {
-    /** React hook: read one row by id. */
-    find: (id: string | undefined | null) => TStored | undefined;
-    /** Freshness gate for the row scope. */
-    shouldSkipInitialFetch?: (filter?: any, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
-    /** Snapshot freshness state for the row scope. */
-    getFetchState?: (filter?: any) => CollectionFetchState | null;
-    /** Mark the row scope as fetched. */
-    markFetched?: (filter?: any, state?: Omit<CollectionFetchState, 'touchedAt'>) => void;
-  };
-  /** Row id to read reactively. */
-  id: string | undefined | null;
-};
-
-type BaseQueryCollectionAll<TStored = unknown> = {
-  /** Model used for a reactive all-rows read. */
-  model: DbKeyModelSource & {
-    /** React hook: read all rows. */
-    all: () => TStored[];
-    /** Freshness gate for the root scope. */
-    shouldSkipInitialFetch?: (filter?: undefined, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
-    /** Snapshot freshness state for the root scope. */
-    getFetchState?: () => CollectionFetchState | null;
-    /** Mark the root scope as fetched. */
-    markFetched?: (filter?: undefined, state?: Omit<CollectionFetchState, 'touchedAt'>) => void;
-  };
-};
-
-/**
- * Reactive read config attached to a base query.
- *
- * @template TStored Stored row type returned by the model read hooks. Omit it for the staged-adoption
- * escape hatch: untyped collections still read as `unknown`.
- */
-export type BaseQueryCollection<TStored = unknown> = BaseQueryCollectionFind<TStored> | BaseQueryCollectionAll<TStored>;
-
-type BaseQueryCollectionReadData<TCollection> = TCollection extends BaseQueryCollectionFind<infer TStored>
-  ? TStored | null
-  : TCollection extends BaseQueryCollectionAll<infer TStored>
-    ? TStored[]
-    : unknown;
-
-type IsUnknown<T> = unknown extends T ? ([T] extends [unknown] ? true : false) : false;
-
-/** Data shape produced by a typed base-query collection read. */
-export type BaseQueryCollectionData<TCollection extends BaseQueryCollection | undefined> =
-  NonNullable<TCollection> extends BaseQueryCollection ? BaseQueryCollectionReadData<NonNullable<TCollection>> : unknown;
-
-/** Default single-request result data after applying explicit result, model read, or selected payload inference. */
-export type DbRequestSingleData<TResult, TSelected, TRead extends BaseQueryCollection | undefined> = IsUnknown<TResult> extends true
-  ? NonNullable<TRead> extends BaseQueryCollection
-    ? BaseQueryCollectionData<TRead>
-    : TSelected
-  : TResult;
-
-export type BaseQueryConfig<TData, TCollection extends BaseQueryCollection | undefined = BaseQueryCollection | undefined> = {
-  /** React Query cache key. */
-  queryKey: readonly unknown[];
-  /** Function that resolves query data. */
-  queryFn: () => Promise<TData>;
-  /**
-   * Gate query execution. `false` disables network execution and fetch scheduling, but model reads
-   * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
-   * phase `'idle'` with `showSkeleton === false`.
-   */
-  enabled?: boolean;
-  /** React Query freshness window in milliseconds. */
-  staleTime?: number;
-  /** Freshness window for known-empty DB scopes in milliseconds. */
-  emptyStaleTime?: number;
-  /** React Query cache garbage-collection window in milliseconds. */
-  gcTime?: number;
-  /** React Query remount refetch behavior. */
-  refetchOnMount?: boolean;
-  /** Optional model read used to derive displayed data and freshness. */
-  collection?: TCollection;
-};
 
 export type PageInfo = {
   /** Whether another page is available after the current page. */
@@ -880,7 +267,7 @@ export type PageInfo = {
   endCursor?: string | null;
 };
 
-export type PageInfoInput = {
+type PageInfoInput = {
   /** Optional raw next-page flag from a connection. */
   hasNextPage?: boolean | null;
   /** Optional raw previous-page flag from a connection. */
@@ -906,202 +293,6 @@ export type ConnectionWithEdges = {
   edges?: Array<{ node?: unknown } | null | undefined> | null;
   /** Connection pagination metadata. */
   pageInfo?: PageInfoInput | null;
-};
-
-export type PaginationState = {
-  /** Last known pagination metadata. */
-  pageInfo?: PageInfo;
-  /** Whether another page is available. */
-  hasNextPage: boolean;
-  /** Whether a next-page request is in flight. */
-  isFetchingNextPage: boolean;
-};
-
-export type InfiniteSyncContractResolverContext<TNode> = {
-  /** Cursor used for the page being written. */
-  pageParam?: string;
-  /** Nodes extracted from the page. */
-  nodes: TNode[];
-  /** Scope computed from filter and current user id. */
-  scope: unknown;
-  /** Collection version captured before transport starts. */
-  snapshotSeq?: number;
-};
-
-export type InfiniteQueryConfig<TData, TNode> = {
-  /** React Query cache key. */
-  queryKey: readonly unknown[];
-  /** Function that resolves one page of query data. */
-  queryFn: (params: { pageParam?: string }) => Promise<TData>;
-  /** Extract nodes and pagination metadata from page data. */
-  extract: (data: TData) => ConnectionResult<TNode>;
-  /**
-   * Gate query execution. `false` disables network execution and fetch scheduling, while model reads
-   * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
-   * phase `'idle'` with `showSkeleton === false`. Imperative `loadMore`/`refetch` triggers
-   * early-return while disabled instead of calling `queryFn` directly.
-   */
-  enabled?: boolean;
-  /** React Query freshness window in milliseconds. */
-  staleTime?: number;
-  /** Freshness window for known-empty DB scopes in milliseconds. */
-  emptyStaleTime?: number;
-  /** React Query cache garbage-collection window in milliseconds. */
-  gcTime?: number;
-  /** React Query remount refetch behavior. */
-  refetchOnMount?: boolean;
-  /** Bounded page window retained by TanStack `useInfiniteQuery`. */
-  maxPages?: number;
-  /** Pagination direction. */
-  direction?: 'forward' | 'backward';
-  /** Read the next cursor from page data. */
-  getCursor?: (data: TData) => string | number | null | undefined;
-  /** Build a scope filter for reads and writes. */
-  getFilter?: () => unknown;
-  /** Provide current-user scope input. */
-  getCurrentUserId?: () => string | undefined;
-  /** Override how each page is written to the collection. */
-  resolveSyncContract?: (context: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
-  collection: {
-    /** Model used for derived query keys. */
-    _dbModel?: DbKeyModelSource;
-    /** Map the runtime filter to the same stored scope used by freshness metadata. */
-    _dbScope?: (filter?: unknown) => object | undefined;
-    /** Write extracted nodes to the collection. */
-    applyServerData: (items: unknown[], contract: SyncContract) => void;
-    /** React hook: read paged data from the collection. */
-    useData: (filter?: unknown) => TNode[];
-    /** React hook: count rows matching the runtime filter. Explicit nullish filters return 0. */
-    count?: (filter?: unknown | null) => number;
-    /** Freshness gate for the page scope. */
-    shouldSkipInitialFetch: (filter?: unknown, maxAgeMs?: number, emptyMaxAgeMs?: number) => boolean;
-    /** Snapshot freshness state for the page scope. */
-    getFetchState?: (filter?: unknown) => CollectionFetchState | null;
-    /** Mark the page scope as fetched. */
-    markFetched?: (filter?: unknown, state?: Omit<CollectionFetchState, 'touchedAt'>) => void;
-  };
-  /** Whether the query should return reactive data or leave reads to another hook. */
-  readMode?: 'data' | 'none';
-};
-
-export type SyncConfig = {
-  /** Model that receives selected query payloads. */
-  model: DbKeyModelSource & {
-    /** Write selected payloads using the configured sync contract. */
-    applyServerData: (items: unknown[], contract: SyncContract) => unknown;
-  };
-  /** Source label used for the merge sync contract. */
-  contract: string;
-};
-
-export type DbInfinitePatchContext = {
-  /** Node index within the page. */
-  index: number;
-  /** Node index across the current request lifecycle; resets on initial-page fetches. */
-  globalIndex: number;
-  /** Cursor used for the page being patched. */
-  pageParam?: string;
-};
-
-export type DbRequestSingleConfig<
-  TResponse,
-  TResult = unknown,
-  TSelected = unknown,
-  TVariables = Record<string, unknown>,
-  TRead extends BaseQueryCollection | undefined = BaseQueryCollection | undefined
-> = {
-  /** GraphQL query document. */
-  query: DbGraphQLDocument<TResponse, TVariables>;
-  /** React Query cache key. Derived from a model-backed read or sync when omitted. */
-  key?: readonly unknown[];
-  /** Pick the payload from response data. Defaults to the full response data. */
-  select?: (data: TResponse) => TSelected;
-  /** Query variables. */
-  vars?: TVariables;
-  /** Transform the selected payload before returning it when no `read` is configured. */
-  map?: (selected: TSelected) => TResult;
-  /** Write selected data to a model or custom sync function. */
-  sync?: ((selected: TSelected) => void) | SyncConfig;
-  /** Side-load payload passed to the extract sink. */
-  extract?: (params: { data: TResponse; selected: TSelected }) => unknown;
-  /** Source label passed to the extract sink; defaults to `query`. */
-  extractSource?: string;
-  /** Reactive read returned from the model after the query writes. */
-  read?: TRead;
-  /**
-   * Gate query execution. `false` disables network execution and fetch scheduling, but model reads
-   * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
-   * phase `'idle'` with `showSkeleton === false`.
-   * @default true
-   */
-  enabled?: boolean;
-  /** React Query freshness window in milliseconds. */
-  staleTime?: number;
-  /** Freshness window for known-empty DB scopes in milliseconds. */
-  emptyStaleTime?: number;
-  /** React Query cache garbage-collection window in milliseconds. */
-  gcTime?: number;
-  /** React Query remount refetch behavior. */
-  refetchOnMount?: boolean;
-};
-
-export type DbRequestInfiniteConfig<TResponse, TNode, TVariables = Record<string, unknown>> = {
-  /** Paginated GraphQL query document. */
-  query: DbGraphQLDocument<TResponse, TVariables>;
-  /** React Query cache key. Derived from the collection binding and scope when omitted. */
-  key?: readonly unknown[];
-  /** Pick a connection with `nodes` or `edges` from response data. */
-  selectPage: (data: TResponse) => ConnectionWithNodes | ConnectionWithEdges | null | undefined;
-  /** Base query variables. */
-  vars?: TVariables;
-  /** Scope values used as default query variables and, when `filter` is omitted, as the read/write filter. */
-  scope?: unknown | (() => unknown);
-  /** Map a cursor to page-specific variables. */
-  getPageVars?: (pageParam: string) => Record<string, unknown>;
-  /** Decorate each node before writing it. */
-  patchNode?: (node: TNode, context: DbInfinitePatchContext) => Record<string, unknown> | null | undefined;
-  /** Side-load payload passed to the extract sink. */
-  extract?: (params: { data: TResponse; nodes: TNode[] }) => unknown;
-  /** Source label passed to the extract sink; defaults to `query`. */
-  extractSource?: string;
-  /** Override how each page is written to the collection. */
-  resolveSyncContract?: (context: InfiniteSyncContractResolverContext<TNode>) => SyncContract;
-  /** Collection binding that stores page nodes and reads them reactively. */
-  read: InfiniteQueryConfig<TResponse, TNode>['collection'];
-  /**
-   * Whether this hook returns reactive data.
-   * @default 'data'
-   */
-  readMode?: InfiniteQueryConfig<TResponse, TNode>['readMode'];
-  /** Read the next cursor from page data. */
-  getCursor?: (data: TResponse) => string | number | null | undefined;
-  /** Build a scope filter for reads and writes. */
-  filter?: () => unknown;
-  /** Provide current-user scope input. */
-  currentUserId?: () => string | undefined;
-  /**
-   * Pagination direction.
-   * @default 'forward'
-   */
-  direction?: 'forward' | 'backward';
-  /**
-   * Gate query execution. `false` disables network execution and fetch scheduling, while model reads
-   * remain live. Local rows still populate `data` and produce phase `'ready'`; no local rows produce
-   * phase `'idle'` with `showSkeleton === false`. Imperative `loadMore`/`refetch` triggers
-   * early-return while disabled instead of calling `queryFn` directly.
-   * @default true
-   */
-  enabled?: boolean;
-  /** React Query freshness window in milliseconds. */
-  staleTime?: number;
-  /** Freshness window for known-empty DB scopes in milliseconds. */
-  emptyStaleTime?: number;
-  /** React Query cache garbage-collection window in milliseconds. */
-  gcTime?: number;
-  /** React Query remount refetch behavior. */
-  refetchOnMount?: boolean;
-  /** Bounded page window retained by TanStack `useInfiniteQuery`. */
-  maxPages?: number;
 };
 
 /** UI loading-state phase. */
@@ -1150,34 +341,6 @@ export type ComputePhaseInput = {
   hasFetchedData: boolean;
 };
 
-/** React Query result plus the derived loading-state machine. */
-export type BaseQueryResult<TData> = UseQueryResult<TData, Error> & { loadingState: LoadingState };
-
-/**
- * Infinite query result with pagination and refresh helpers.
- *
- * Mirrors `BaseQueryResult`/TanStack's `UseQueryResult` surface (`data`, `refetch`) so single-request
- * and infinite hooks read the same way; `loadMore` is the domain-named pagination trigger. There is no
- * separate `items`/`refresh`/`fetchNextPage` alias set - `data`/`refetch`/`loadMore` are the only names,
- * and `fetchNextPage` was never actually lower-level than `loadMore` (same throttled function).
- */
-export type InfiniteQueryResult<TNode> = {
-  /** Accumulated reactive nodes. */
-  data: TNode[];
-  /** Derived UI loading-state machine. */
-  loadingState: LoadingState;
-  /** Whether another page is available. */
-  hasNextPage: boolean;
-  /** Whether a next-page request is in flight. */
-  isFetchingNextPage: boolean;
-  /** Whether a background refresh is in flight. */
-  isBackgroundFetching: boolean;
-  /** Re-run the query from the first page. */
-  refetch: () => Promise<void>;
-  /** Load the next page when available. */
-  loadMore: () => void;
-};
-
 type DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpec> = {
   /** GraphQL mutation document. */
   mutation: DbGraphQLDocument<Record<string, TData>, { input: unknown }>;
@@ -1217,7 +380,7 @@ type DbMutationSharedConfig<TData, TInput, TContext, TExtractSpec = DbExtractSpe
   };
 };
 
-export type DbOptimisticMutationContext<TStored = unknown> = {
+type DbOptimisticMutationContext<TStored = unknown> = {
   /** Optimistic row id generated by the preset, or an existing retry temp id. */
   tempId: string | null;
   /** Stored optimistic row inserted by the preset or read from an existing retry temp id. */
@@ -1226,14 +389,14 @@ export type DbOptimisticMutationContext<TStored = unknown> = {
 
 type DbMutationContextWithOptimistic<TContext, TStored> = [TContext] extends [void] ? DbOptimisticMutationContext<TStored> : TContext & DbOptimisticMutationContext<TStored>;
 
-export type DbMutationPreserveOnCommitConfig<TStored, TServerNode> =
+type DbMutationPreserveOnCommitConfig<TStored, TServerNode> =
   | ((serverNode: TServerNode, context: DbOptimisticMutationContext<TStored>) => TServerNode)
   | {
       fields: Array<keyof (TStored & TServerNode)>;
       mergers?: Partial<Record<keyof (TStored & TServerNode), (optimisticValue: unknown, serverValue: unknown) => unknown>>;
     };
 
-export type DbMutationOptimisticConfig<TData, TInput, TStored, TServerNode = unknown> = {
+type DbMutationOptimisticConfig<TData, TInput, TStored, TServerNode = unknown> = {
   /** Model receiving the optimistic row and the committed server node. */
   model: {
     get: (id: string | undefined | null) => TStored | undefined;
@@ -1329,11 +492,6 @@ export type DbMutationConfig<TData, TInput, TContext = void, TStored = unknown, 
   | DbMutationOptimisticDefaultConfig<TData, TInput, TContext, TStored, TServerNode, TExtractSpec>
   | DbMutationDestroyConfig<TData, TInput, TContext, TExtractSpec>
   | DbMutationPatchConfig<TData, TInput, TContext, TStored, TExtractSpec>;
-
-export type BaseMutationContext<TStored = unknown> = {
-  /** Previous row snapshot captured for rollback. */
-  previous?: TStored;
-};
 
 export type DbCommandConfig<TData, TInput> = {
   /** Command key factory used for React Query. */
