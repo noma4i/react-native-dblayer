@@ -1,4 +1,5 @@
 export { configureDb } from './dsl/configure';
+export { getDbTransport, setDbTransport } from './core/transport';
 export type { DbDefaults } from './dsl/configure';
 export { resetRuntime, registerReset } from './core/reset';
 export { mmkvStoragePlane } from './core/planes/storagePlane';
