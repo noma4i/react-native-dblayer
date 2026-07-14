@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { DbLogger, DbTrackSink, DbTransport } from '../types';
+import type { DbLogger, DbTransport } from '../types';
 import { type StoragePlane } from '../core/planes/storagePlane';
 import { type ApplyRuntime } from '../core/apply/transaction';
 import { type OperationState } from '../core/planes/operationState';
@@ -8,9 +8,6 @@ export interface DbDefaults {
     emptyStaleTime?: number;
     gcTime?: number;
     pageSize?: number;
-    merge?: {
-        dedupeWindowMs?: number;
-    };
     /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
     persistence?: {
         checkpointDelayMs?: number;
@@ -27,7 +24,6 @@ type RuntimeConfig = {
     storage: StoragePlane;
     queryClient?: QueryClient;
     logger?: DbLogger;
-    track?: DbTrackSink;
     defaults?: DbDefaults;
 };
 /** Configure v6 runtime seams and defaults. */

@@ -1,5 +1,3 @@
-import type { StorageEventApi } from '@tanstack/db';
-
 type MmkvStorage = {
   getString: (key: string) => string | undefined;
   set: (key: string, value: string) => void;
@@ -45,10 +43,4 @@ export const getDbStorageKeys = (): string[] => getDbStorage().getAllKeys();
 /** Remove one DB storage key. */
 export const removeDbStorageKey = (key: string): void => {
   getDbStorage().remove(key);
-};
-
-/** Inert storage event API for MMKV, which has no cross-tab events. */
-export const mmkvStorageEventApi: StorageEventApi = {
-  addEventListener: (): void => {},
-  removeEventListener: (): void => {}
 };

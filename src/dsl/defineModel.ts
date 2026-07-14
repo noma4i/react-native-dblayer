@@ -47,7 +47,6 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   buildStored(input: unknown): TStored;
   normalize(input: unknown): Partial<TStored> & { id: string };
   invalidate(scope?: unknown): void;
-  gc(): number;
   use: {
     row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored> }): TStored | undefined;
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
@@ -72,8 +71,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   guard?: (input: unknown) => boolean;
   relations?: () => Record<string, RelationDecl>;
   scopes?: TScopes;
-  merge?: { shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean; dedupeWindowMs?: number };
-  retention?: { orphanGc?: 'manual' | 'eager' | 'off'; keep?: (row: unknown) => boolean };
+  merge?: { shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean };
   statics?: (model: ModelCore<any>) => TExt;
 };
 
@@ -381,7 +379,6 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     invalidate: scope => {
       invalidateModel(config.id, scope);
     },
-    gc: () => 0,
     use: {
       row: (id, options) => {
         const select = options?.select as ReadonlyArray<string> | undefined;

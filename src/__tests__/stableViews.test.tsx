@@ -1,8 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { useMemo } from 'react';
 import { configureDb, defineModel, f, useJoinedEntities, useOrderedEntities, useStableEntity, useStableSorted, type StoragePlane } from '../index';
-import { useStableArray, useStableItems } from '../queries/base/shared';
+import { useStableItems } from '../queries/base/shared';
 import { mockTransport } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -336,41 +335,6 @@ describe('stable view hooks', () => {
 
     expect(hook.current).not.toBe(changed);
     expect(hook.current.map(item => item.id)).toEqual(['low', 'high']);
-
-    hook.unmount();
-  });
-
-  it('reuses array identity when the next array contains the same element references', () => {
-    const first = { id: '1' };
-    const second = { id: '2' };
-
-    const hook = renderHook((items: Array<{ id: string }>) => useStableArray(items), [first, second]);
-    const firstArray = hook.current;
-
-    hook.rerender([first, second]);
-
-    expect(hook.current).toBe(firstArray);
-
-    hook.rerender([first, { id: '2' }]);
-
-    expect(hook.current).not.toBe(firstArray);
-
-    hook.unmount();
-  });
-
-  it('can be composed with memoized source projections', () => {
-    const hook = renderHook(
-      (rows: SourceRow[]) => {
-        const ids = useMemo(() => rows.map(row => row.id), [rows]);
-        return useStableArray(ids);
-      },
-      [{ id: '1', title: 'One', count: 1, hiddenLabel: 'a' }]
-    );
-    const firstIds = hook.current;
-
-    hook.rerender([{ id: '1', title: 'One', count: 1, hiddenLabel: 'b' }]);
-
-    expect(hook.current).toBe(firstIds);
 
     hook.unmount();
   });

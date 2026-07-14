@@ -28,8 +28,6 @@ export declare function useStableItems<TSource, TEntry extends {
 }, TItem extends object>(sources: TSource[], config: StableItemsConfig<TSource, TEntry, TItem>): TItem[];
 /** React hook that reuses one entity reference while configured fields remain equal. */
 export declare function useStableEntity<TItem extends object>(value: TItem | null | undefined, config: StableEntityConfig<TItem>): TItem | null | undefined;
-/** React hook that reuses an array instance when its element references did not change. */
-export declare const useStableArray: <TItems extends readonly unknown[]>(next: TItems) => TItems;
 /** React hook that memoizes sorted output and reuses it for element-identical input arrays. */
 export declare const useStableSorted: <T>(source: T[], compare: (left: T, right: T) => number, invalidationKey?: unknown) => T[];
 /** React hook that reads rows by id and returns them keyed by id. */

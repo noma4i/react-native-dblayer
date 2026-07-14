@@ -139,18 +139,6 @@ export function useStableEntity<TItem extends object>(value: TItem | null | unde
   return value;
 }
 
-/** React hook that reuses an array instance when its element references did not change. */
-export const useStableArray = <TItems extends readonly unknown[]>(next: TItems): TItems => {
-  const stableRef = useRef<TItems | null>(null);
-  const previous = stableRef.current;
-  if (previous && sameItems(previous, next)) {
-    return previous;
-  }
-
-  stableRef.current = next;
-  return next;
-};
-
 /** React hook that memoizes sorted output and reuses it for element-identical input arrays. */
 export const useStableSorted = <T>(source: T[], compare: (left: T, right: T) => number, invalidationKey?: unknown): T[] => {
   const sortRef = useRef<{ source: T[]; invalidationKey: unknown; output: T[] } | null>(null);

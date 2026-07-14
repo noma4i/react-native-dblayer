@@ -1,1 +1,0 @@
-{"version":3,"file":"createPatchCrud.d.ts","sourceRoot":"","sources":["../../../../src/core/createPatchCrud.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,qBAAqB,EAAE,SAAS,EAAE,MAAM,UAAU,CAAC;AAGjE,yDAAyD;AACzD,wBAAgB,eAAe,CAAC,CAAC,SAAS;IAAE,EAAE,EAAE,MAAM,CAAC;IAAC,SAAS,CAAC,EAAE,MAAM,GAAG,IAAI,CAAA;CAAE,EAAE,MAAM,EAAE,qBAAqB,CAAC,CAAC,CAAC,GAAG,SAAS,CAAC,CAAC,CAAC,CA+BnI"}

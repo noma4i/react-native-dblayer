@@ -1,8 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { DbLogger, DbTrackSink, DbTransport } from '../types';
+import type { DbLogger, DbTransport } from '../types';
 import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
-import { setDbTrackSink } from '../core/tracking';
 import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler, type CheckpointScheduler } from '../core/apply/checkpoint';
@@ -14,13 +13,12 @@ export interface DbDefaults {
   emptyStaleTime?: number;
   gcTime?: number;
   pageSize?: number;
-  merge?: { dedupeWindowMs?: number };
   /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
   persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
   onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown }) => void;
 }
 
-type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; track?: DbTrackSink; defaults?: DbDefaults };
+type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; defaults?: DbDefaults };
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
@@ -39,7 +37,6 @@ export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?
   checkpointScheduler = null;
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
-  if (options.track) setDbTrackSink(options.track);
 };
 
 export const getDbRuntimeConfig = (): RuntimeConfig => {

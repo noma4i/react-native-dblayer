@@ -48,7 +48,6 @@ type ModelCore<TStored extends {
         id: string;
     };
     invalidate(scope?: unknown): void;
-    gc(): number;
     use: {
         row(id: string | null | undefined, opts?: {
             select?: ReadonlyArray<keyof TStored>;
@@ -76,11 +75,6 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     scopes?: TScopes;
     merge?: {
         shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
-        dedupeWindowMs?: number;
-    };
-    retention?: {
-        orphanGc?: 'manual' | 'eager' | 'off';
-        keep?: (row: unknown) => boolean;
     };
     statics?: (model: ModelCore<any>) => TExt;
 };

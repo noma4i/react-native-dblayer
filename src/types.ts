@@ -1,4 +1,3 @@
-import type { StorageEventApi } from '@tanstack/db';
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
 import type { FieldSpec } from './schema/fieldSpec';
@@ -18,8 +17,6 @@ export type StorageAdapter = {
   getAllKeys(): string[];
   /** Clear every key owned by the adapter. */
   clear(): void;
-  /** Cross-context change events; a no-op implementation is valid on React Native. */
-  eventApi: StorageEventApi;
 };
 
 export type DbLogger = {
@@ -28,18 +25,6 @@ export type DbLogger = {
   /** Errors observed by request and mutation runtimes. */
   error: (...args: unknown[]) => void;
 };
-
-export type DbTrackEvent = {
-  /** Analytics-agnostic event name. */
-  name: string;
-  /** Optional structured event payload. */
-  payload?: Record<string, unknown>;
-};
-
-export type DbTrackSink = (event: DbTrackEvent) => void;
-
-/** Domain-defined extract payload or preset. */
-type DbExtractSpec = unknown;
 
 /** GraphQL document accepted by the transport adapter. */
 export type DbGraphQLDocument<TData = unknown, TVariables = Record<string, unknown>> = TypedDocumentNode<TData, TVariables> | DocumentNode;
@@ -85,96 +70,7 @@ export type DbTransport = {
   ) => () => void;
 };
 
-export type StoredRowBase = { id: string; updatedAt?: string | null };
-
-export type StoredWriteInput<TStored> = TStored extends { readonly related: unknown } ? Omit<TStored, 'related'> : TStored;
-
-export type DbModelDefaults = {
-  merge?: {
-    /**
-     * Skip an identical merge batch within this window.
-     * @default 0
-     */
-    dedupeWindowMs?: number;
-  };
-};
-
-export interface CreatePatchCrudConfig<T extends { id: string }> {
-  /** Target collection. */
-  collection: {
-    get(id: string): T | undefined;
-    has(id: string): boolean;
-    update(id: string, updater: (draft: T) => void): void;
-    delete(id: string): void | boolean;
-  };
-}
-
-export interface PatchCrud<T extends { id: string }> {
-  /** Shallow-update a row by id. */
-  patch(id: string, updates: Partial<T>): boolean;
-  /** Delete a row by id. */
-  destroy(id: string): boolean;
-}
-
-export type IncomingRecord = Record<string, unknown> & { updatedAt?: string | null };
-
-export interface ShouldAcceptIncomingOptions<TExisting extends IncomingRecord, TIncoming extends IncomingRecord> {
-  /** Timestamp comparison strategy. */
-  timestampMode?: 'incoming-newer' | 'when-both-present';
-  /** Equality strategy used before accepting an incoming row. */
-  equalityMode?: 'full' | 'defined-fields';
-  /** Force-accept an incoming row. */
-  shouldOverwrite?: (existing: TExisting, incoming: TIncoming) => boolean;
-}
-
-export type CollectionFetchState = {
-  /** Millisecond timestamp when the scope was marked fetched. */
-  touchedAt: number;
-  /** Whether the fetched scope was known empty. */
-  empty: boolean;
-  /** Last known pagination state for the fetched scope. */
-  pageInfo?: PageInfo;
-};
-
-export type CollectionFetchScopeRecord = {
-  /** Storage key suffix for the fetch-state scope; undefined is the root scope. */
-  scopeKey?: string;
-  /** Stored-row filter persisted with scoped fetch-state metadata. */
-  scope?: Record<string, unknown>;
-  /** Snapshot freshness state for this scope. */
-  state: CollectionFetchState;
-};
-
-export interface FetchStateRemovalListener {
-  /** Called when a freshness scope is removed. */
-  (scopeKey?: string): void;
-}
-
 export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any, any>>;
-export type ModelMirrorTarget<TStored extends { id: string; updatedAt?: string | null }> = {
-  get(id: string | undefined | null): TStored | undefined;
-  patch(id: string, updates: Partial<TStored>): void;
-  insertStored(item: TStored): void;
-  collection: { readonly id: string };
-  buildStored?: (partial: any) => StoredWriteInput<TStored>;
-};
-export type ModelMirrorConfig<
-  TSourceStored extends { id: string; updatedAt?: string | null },
-  TTargetStored extends { id: string; updatedAt?: string | null }
-> = {
-  /** Lazy target model resolver; lazy resolution avoids circular model import timing. */
-  model: () => ModelMirrorTarget<TTargetStored>;
-  /**
-   * Project a source row into same-id target writes.
-   *
-   * Mirrors run for local insert/patch/replaceRaw writes. This differs from relation touch, which remains
-   * local-only because server payloads already carry their own
-   * `updatedAt`; mirror targets never receive the source model's server payload. Returning `null` skips
-   * the target write. Undefined-valued projection keys are dropped before patch/insert, and writes made
-   * by a mirror do not re-enter write propagation.
-   */
-  project: (row: TSourceStored) => Partial<TTargetStored> | null;
-};
 
 export type DbWhere<T> =
   | Partial<T>
@@ -238,45 +134,6 @@ type StableEntityRenderKeysConfig<TItem extends object> = {
 
 export type StableEntityConfig<TItem extends object> = StableEntityVolatileKeysConfig<TItem> | StableEntityRenderKeysConfig<TItem>;
 
-export type PageInfo = {
-  /** Whether another page is available after the current page. */
-  hasNextPage: boolean;
-  /** Whether another page is available before the current page. */
-  hasPreviousPage: boolean;
-  /** Cursor of the first item in the page. */
-  startCursor?: string | null;
-  /** Cursor of the last item in the page. */
-  endCursor?: string | null;
-};
-
-type PageInfoInput = {
-  /** Optional raw next-page flag from a connection. */
-  hasNextPage?: boolean | null;
-  /** Optional raw previous-page flag from a connection. */
-  hasPreviousPage?: boolean | null;
-  /** Optional raw start cursor from a connection. */
-  startCursor?: string | null;
-  /** Optional raw end cursor from a connection. */
-  endCursor?: string | null;
-};
-
-/** Normalized nodes and pagination metadata from a connection. */
-export type ConnectionResult<TNode> = { nodes: TNode[]; pageInfo: PageInfo };
-
-export type ConnectionWithNodes = {
-  /** Connection nodes. */
-  nodes?: Array<unknown> | null;
-  /** Connection pagination metadata. */
-  pageInfo?: PageInfoInput | null;
-};
-
-export type ConnectionWithEdges = {
-  /** Connection edges containing nodes. */
-  edges?: Array<{ node?: unknown } | null | undefined> | null;
-  /** Connection pagination metadata. */
-  pageInfo?: PageInfoInput | null;
-};
-
 /** UI loading-state phase. */
 export type LoadingPhase = 'idle' | 'hydrating' | 'initial_loading' | 'ready' | 'refreshing' | 'loading_more' | 'error';
 
@@ -322,74 +179,3 @@ export type ComputePhaseInput = {
   /** Whether network data has been fetched at least once. */
   hasFetchedData: boolean;
 };
-
-export type DbCommandConfig<TData, TInput> = {
-  /** Command key factory used for React Query. */
-  key?: () => readonly unknown[];
-  /** Log tag for command lifecycle messages. */
-  logPrefix?: string;
-  /** Execute the command with caller input. */
-  mutationFn: (input: TInput) => Promise<TData>;
-  /** Opt-in transport dedupe for concurrent commands with the same non-null key. */
-  dedupe?: { key: (input: TInput) => string | null };
-  /** Success callback. */
-  onSuccess?: (data: TData, input: TInput) => void;
-  /** Error callback. */
-  onError?: (error: unknown, input: TInput) => void;
-  /** Settled callback. */
-  onSettled?: () => void;
-};
-
-type DbCommandMutationBase<TInput, TData, TExtractSpec = DbExtractSpec> = {
-  /** Command key factory used for React Query. */
-  key?: () => readonly unknown[];
-  /** Log tag for command lifecycle messages. */
-  logPrefix?: string;
-  /** Opt-in transport dedupe for concurrent commands with the same non-null key. */
-  dedupe?: { key: (input: TInput) => string | null };
-  /** Side-load spec resolved through the mutation extract seam after the transport response. */
-  extract?: TExtractSpec;
-  /** Source label passed to the extract sink; defaults to `mutation`. */
-  extractSource?: string;
-  /** Declarative analytics-agnostic command tracking. */
-  track?: {
-    /** Event emitted before the transport request. */
-    start?: (input: TInput) => DbTrackEvent | null | undefined;
-    /** Event emitted after extract handling. */
-    success?: (data: TData | null, input: TInput) => DbTrackEvent | null | undefined;
-    /** Event emitted before rethrow when the command fails. */
-    error?: (error: Error, input: TInput) => DbTrackEvent | null | undefined;
-  };
-};
-
-type DbCommandStaticConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TInput, TData, TExtractSpec> & {
-  /** Static GraphQL mutation document. */
-  mutation: DbGraphQLDocument<Record<string, TData>, { input: unknown }>;
-  /** Response data field returned by the command. */
-  resultField: string;
-  /** Transform caller input into `variables.input`. */
-  mapInput?: (input: TInput) => unknown;
-  resolve?: never;
-};
-
-type DbCommandResolvedConfig<TInput, TData, TExtractSpec = DbExtractSpec> = DbCommandMutationBase<TInput, TData, TExtractSpec> & {
-  mutation?: never;
-  resultField?: never;
-  mapInput?: never;
-  /** Resolve the operation per input instead of using static fields. */
-  resolve: (input: TInput) => {
-    /** GraphQL mutation document for this input. */
-    mutation: DbGraphQLDocument<Record<string, TData>, { input: unknown }>;
-    /** Response data field returned by this operation. */
-    resultField: string;
-    /** Optional already-mapped input for `variables.input`. */
-    input?: unknown;
-  };
-};
-
-/**
- * Fire-and-forget GraphQL command config, either static or resolved per input.
- *
- * `TExtractSpec` narrows the command `extract` property and defaults to the untyped extract seam.
- */
-export type DbCommandMutationConfig<TInput, TData = unknown, TExtractSpec = DbExtractSpec> = DbCommandStaticConfig<TInput, TData, TExtractSpec> | DbCommandResolvedConfig<TInput, TData, TExtractSpec>;
