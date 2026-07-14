@@ -32,6 +32,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "getDbTransport",
   "hasMany",
   "hasOne",
+  "isIncomingNewer",
   "isTempId",
   "mergeOptimisticMedia",
   "mergeOptimisticSnapshot",

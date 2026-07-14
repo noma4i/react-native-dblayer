@@ -25,6 +25,7 @@ export type { LoadingState, DbTransport, DbWhere, StableProjectionConfig } from 
 export type { ModelInput, ModelStored } from './schema/infer';
 export type { InferShapeStored } from './schema/infer';
 export { generateTempId, isTempId } from './utils/generateTempId';
+export { isIncomingNewer } from './core/invariants';
 export { castNode, castNodes } from './utils/typeBoundary';
 export { toStr } from './utils/normalizeHelpers';
 export { pickDefined, pickPresent } from './utils/pickDefined';
