@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { DbGraphQLDocument, LoadingState } from '../types';
 import { computeLoadingState } from '../queries/base/loadingState';
 import type { ScopeHandle } from './defineModel';
 import type { Coverage } from './scope';
 import { getDbRuntimeConfig } from './configure';
+import { stableSerialize } from '../core/serialize';
 
 type ConnectionLike = { nodes?: unknown[]; edges?: Array<{ node?: unknown }> };
 
@@ -52,31 +53,26 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   };
   return {
     fetch,
-    invalidate: (_scope?: TScope) => {},
+    invalidate: (scope?: TScope) => {
+      getDbRuntimeConfig().queryClient?.invalidateQueries({ queryKey: ['dblayer', config.document, scope === undefined ? undefined : stableSerialize(scope)] });
+    },
     use: (scope: TScope): QueryResult<TStored> => {
-      const [error, setError] = useState<Error | null>(null);
-      const [isFetching, setFetching] = useState(false);
-      const run = useCallback(async () => {
-        setFetching(true);
-        setError(null);
-        try {
-          await fetch(scope);
-        } catch (nextError) {
-          setError(nextError as Error);
-        } finally {
-          setFetching(false);
-        }
-      }, [scope]);
-      useEffect(() => { void run(); }, [run]);
+      const request = useQuery({
+        queryKey: ['dblayer', config.document, stableSerialize(scope)],
+        queryFn: () => fetch(scope),
+        enabled: config.enabled?.(scope) ?? true,
+        staleTime: getDbRuntimeConfig().defaults?.staleTime,
+        gcTime: getDbRuntimeConfig().defaults?.gcTime
+      });
       const rows = '__apply' in config.into && typeof config.into.__apply === 'function' ? config.into.use(scope) : undefined;
       return {
         data: rows,
-        loadingState: computeLoadingState(isFetching ? 'initial_loading' : error ? 'error' : 'ready', Array.isArray(rows) && rows.length > 0),
-        error,
+        loadingState: computeLoadingState(request.isFetching ? 'initial_loading' : request.error ? 'error' : 'ready', Array.isArray(rows) && rows.length > 0),
+        error: request.error as Error | null,
         hasNextPage: false,
         isFetchingNextPage: false,
-        loadMore: () => { void run(); },
-        refetch: run
+        loadMore: () => { void request.refetch(); },
+        refetch: async () => { await request.refetch(); }
       };
     }
   };

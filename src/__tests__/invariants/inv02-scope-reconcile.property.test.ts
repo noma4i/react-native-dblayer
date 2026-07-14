@@ -11,7 +11,7 @@ describe('v6 invariant 02: scope reconcile', () => {
         (coverage, current, incoming) => {
           const runtime = createV6TestRuntime({ current });
           runtime.reconcile(coverage, incoming);
-          expect(runtime.scopeIds()).toEqual(coverage === 'complete' ? incoming : current);
+          expect(runtime.scopeIds()).toEqual(coverage === 'complete' ? incoming : [...current, ...incoming.filter(id => !current.includes(id))]);
           expect(runtime.destroyedIds()).toEqual([]);
         }
       )

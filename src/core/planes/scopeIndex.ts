@@ -22,9 +22,10 @@ export const createScopeIndex = (): ScopeIndex => {
     },
     reconcile: (key, coverage, ids) => {
       const previous = scopes.get(key) ?? empty();
+      const existing = new Set(previous.entries.map(entry => entry.id));
       const entries = coverage === 'complete'
         ? ids.map((id, order) => ({ id, order, seq: previous.generation + 1 }))
-        : previous.entries;
+        : [...previous.entries, ...ids.filter(id => !existing.has(id)).map((id, order) => ({ id, order: previous.entries.length + order, seq: previous.generation + 1 }))];
       const next = { generation: previous.generation + 1, coverage, entries };
       scopes.set(key, next);
       return next;
