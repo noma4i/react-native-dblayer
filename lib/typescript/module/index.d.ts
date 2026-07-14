@@ -23,6 +23,7 @@ export { EMPTY_IDS, createUniqueIds } from './queries/base/uniqueIds';
 export { computeLoadingState } from './queries/base/loadingState';
 export type { LoadingState, DbTransport, DbWhere } from './types';
 export type { ModelInput, ModelStored } from './schema/infer';
+export type { InferShapeStored } from './schema/infer';
 export { generateTempId, isTempId } from './utils/generateTempId';
 export { castNode, castNodes } from './utils/typeBoundary';
 export { toStr } from './utils/normalizeHelpers';
