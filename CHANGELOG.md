@@ -1,5 +1,80 @@
 # Changelog
 
+## 6.0.1 - 2026-07-15
+
+### Persistence and journal safety
+
+- Retain dirty row snapshots when a checkpoint storage batch throws; the next flush persists them instead of silently losing the rows.
+- Counter journal operations record the absolute post-value and replay by setting it, so replays are idempotent under torn checkpoints.
+- Idle checkpoints omit the unchanged sequences entry.
+
+### Apply pipeline
+
+- Compute relation effects against a plan-local overlay, so multi-operation plans touching one row produce consistent cascades.
+- Make an identical upsert a true no-op: row identity, dirty state, and the commit bus stay untouched.
+
+### Invalidation and hooks
+
+- Partial-scope invalidation reaches every registered scope whose value is a superset of the partial; exact keys and no-argument full fan-out keep working.
+- `useLiveRead` rechecks its snapshot after subscribing, closing the render-to-effect gap where a commit could be missed.
+- Scope windows reset when the scope key changes.
+- Mutation hooks always call the latest definition run; the stale first-render closure is gone.
+
+### Known limitations
+
+- Tombstones written for never-seen ids stay by design: they are the out-of-order delete guard (TTL-bounded), now documented at the write site.
+
+## 6.0.0 - 2026-07-15
+
+### Breaking changes and migration
+
+- BREAKING: the v5 collection runtime is replaced by a three-plane store: EntityState (rows), ScopeIndex (scope memberships), and OperationState (mutation ledger). All writes flow through one journalled apply pipeline that expands relations, applies the planes, journals the operations, and publishes a single commit-bus batch.
+- BREAKING: persistence moves from whole-collection snapshots to a write-ahead journal with per-row checkpoint entries and applied-epoch markers. v5 storage keys are not migrated; call `purgeForeignStorageKeys()` once at boot, after `replayJournal()`, to drop them from the MMKV instance.
+- BREAKING: search is ephemeral. `useSearch` runs as a plain query with `gcTime: 0` and writes nothing into model planes, so repeated searches no longer accumulate persisted rows.
+- Scope keys are namespaced by scope name. Two scopes of one model sharing a value shape no longer share membership, and empty-value scopes no longer collapse into one key.
+
+### Apply pipeline and journal
+
+- Journal every plan (ingest, replace, mutation) as row, scope, and counter operations before checkpoint flush; journal records prune only after a successful flush, and boot replay is idempotent.
+- Split apply origins: event-origin ingest is tombstone-gated, so a stale websocket replay cannot resurrect a deleted row; only an explicit replace passes the gate.
+- Persist dirty rows per-row at checkpoint instead of serializing entire collections on the JS thread.
+
+### Lifecycle and reachability
+
+- Fence the runtime generation across configure/reset: in-flight queries and mutations that resolve after a reset can no longer write previous-session rows into the next session.
+- Reconcile hydrated pending operations at boot: they close as rolled back and their temp rows are removed - no immortal pending records, no permanently blocked dedupe keys.
+- Add reachability GC: `collectGarbage()` evicts rows unreachable from live scopes, prunes dead-parent scope keys, and publishes evictions on the commit bus; scope retention bounds persisted membership.
+- Add membership reverse indexes: scope membership checks and destroy detach use direct lookups instead of scanning every scope key.
+
+### Query and mutation DSL
+
+- `defineModel` / `defineQuery` / `defineMutation` are module-level definitions with model-owned statics; per-call data flows through scope and vars, not render closures.
+- `defineQuery(...).use(scope, { enabled })` adds a per-call gate so UI enablement stays out of persisted scope keys.
+- `DbReadOptions.limit` bounds sorted scope reads.
+- Post-commit mutation callbacks are isolated; a callback throw no longer flips a committed operation to rolled back.
+
+### Test coverage
+
+- Contract suites pin the apply pipeline, tombstone gating, lifecycle fencing, and scope namespacing; invariant suites assert closed-form storage budgets, steady-state fixpoints, lifecycle pairing, and seeded property sequences. 52 suites, 325 tests at this tag.
+
+### Known limitations
+
+- The host app must schedule `collectGarbage()`; the library does not run it on its own.
+- Reactive `use.where` / `use.first` / `use.count` and scope resorts recompute per relevant commit; index-backed reads are planned for 6.1.
+- Boot hydration parses all retained rows and scopes; volume is bounded by GC retention, and lazy hydration is planned for 6.1.
+
+## 6.0.0-beta.3 - 2026-07-15
+
+- Full-pass round R1: lazy model planes, tombstone gate on ingest, persisted operation ledger, `replayJournal`, model invalidation registry, plan row validation, page refetch order, primitive scope keys, journal hot path (scope deltas, no plan hash), mutation guards, and removal of dead v5 code.
+
+## 6.0.0-beta.2 - 2026-07-14
+
+- Integration round: transport/queryClient accessors, `mapCursor`, mutate callbacks, `resetRuntimeSync`, checkpoint persistence, shape/type exports.
+
+## 6.0.0-beta.1 - 2026-07-14
+
+- v6 core: three-plane runtime, journalled apply pipeline, relations taxonomy, automatic scope membership, performance specs.
+
 ## 5.0.0 - 2026-07-14
 
 ### Breaking changes and migration
