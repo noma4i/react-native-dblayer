@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
 import { expandPlan, hasDependentCascade } from '../core/relations';
@@ -193,6 +193,8 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
   return {
     run,
     use: () => {
+      const runRef = useRef(run);
+      runRef.current = run;
       const [isPending, setPending] = useState(false);
       const [error, setError] = useState<Error | null>(null);
       /** Rejects on failure (RQ semantics) while still reflecting the error in hook state; resolves null on dedupe skip. */
@@ -200,7 +202,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         setPending(true);
         setError(null);
         try {
-          return await run(input);
+          return await runRef.current(input);
         } catch (nextError) {
           setError(nextError as Error);
           throw nextError;

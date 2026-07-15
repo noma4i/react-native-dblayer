@@ -1,3 +1,5 @@
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
 import { hasMany } from '../../core/relations';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
@@ -21,6 +23,36 @@ const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDo
  * C9: Failed optimistic destroys restore scope membership and server order.
  */
 describe('defineMutation contracts', () => {
+  it('uses the latest definition run after a hook rebind', async () => {
+    const calls: string[] = [];
+    const makeMutation = (name: string) =>
+      defineMutation<{ save: { id: string } }, { id: string }, { id: string }, { id: string }>({
+        document,
+        result: 'save',
+        mapInput: input => ({ ...input, name })
+      });
+    configureDb({
+      storage: createMemoryStorage().storage,
+      transport: {
+        query: async <TData>() => ({ data: {} as TData }),
+        mutation: async <TData>(request: any) => {
+          calls.push(request.variables.input.name);
+          return { data: { save: { id: request.variables.input.name } } as TData };
+        }
+      }
+    });
+    let hook: ReturnType<ReturnType<typeof makeMutation>['use']>;
+    const Reader = ({ name }: { name: string }) => {
+      hook = makeMutation(name).use();
+      return null;
+    };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(React.createElement(Reader, { name: 'first' })); });
+    act(() => { renderer.update(React.createElement(Reader, { name: 'second' })); });
+    await act(async () => { await hook!.mutateAsync({ id: 'row' }); });
+    expect(calls).toEqual(['second']);
+    renderer.unmount();
+  });
   it('C1: optimistic destroy with dependent cascades rejects before any write or transport call', async () => {
     const mutation = jest.fn(async <TData>() => ({ data: {} as TData })) as unknown as jest.MockedFunction<DbTransport['mutation']>;
     createContractScenario({ transport: { mutation } });
