@@ -71,4 +71,22 @@ describe('Relations contracts', () => {
     expect(Parent.get('parent')).toBeUndefined();
     expect(Child.get('child')).toBeUndefined();
   });
+
+  it('C5: a same-plan parent reassignment prevents a stale dependent cascade', () => {
+    createContractScenario();
+    const Child = defineModel({ id: 'ReassignedChildContract', name: 'ReassignedChildContract', fields: { parentId: f.id() } });
+    const Parent = defineModel({ id: 'ReassignedParentContract', name: 'ReassignedParentContract', fields: {}, relations: () => ({ children: hasMany(Child, { foreignKey: 'parentId', dependent: 'destroy' }) }) });
+    Parent.insertStored({ id: 'a' });
+    Parent.insertStored({ id: 'b' });
+    Child.insertStored({ id: 'child', parentId: 'a' });
+
+    const expanded = expandPlan([
+      { kind: 'patch', model: Child.modelId, id: 'child', patch: { parentId: 'b' } },
+      { kind: 'destroy', model: Parent.modelId, ids: ['a'] }
+    ]);
+
+    expect(expanded.some(op => op.kind === 'destroy' && op.model === Child.modelId && op.ids.includes('child'))).toBe(false);
+    getApplyRuntime().apply(expanded);
+    expect(Child.get('child')).toEqual({ id: 'child', parentId: 'b' });
+  });
 });

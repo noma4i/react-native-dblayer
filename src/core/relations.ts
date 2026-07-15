@@ -212,9 +212,13 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
         }
       }
       if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
-        const overlayChildren = [...(overlay.get(relation.model.modelId)?.values() ?? [])]
+        const overlayRows = overlay.get(relation.model.modelId);
+        const liveChildren = relation.model
+          .getWhere({ [relation.foreignKey]: id })
+          .filter(child => !overlayRows?.has(String(child.id)));
+        const overlayChildren = [...(overlayRows?.values() ?? [])]
           .filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
-        const ids = [...relation.model.getWhere({ [relation.foreignKey]: id }), ...overlayChildren]
+        const ids = [...liveChildren, ...overlayChildren]
           .map(child => String(child.id))
           .filter((childId, index, all) => all.indexOf(childId) === index)
           .filter(childId => !destroyed.has(`${relation.model.modelId}:${childId}`));
