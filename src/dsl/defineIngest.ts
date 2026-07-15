@@ -34,7 +34,9 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
     const rows = declaration.upsert == null ? [] : Array.isArray(declaration.upsert) ? declaration.upsert : [declaration.upsert];
     const ids = declaration.destroy == null ? [] : Array.isArray(declaration.destroy) ? declaration.destroy : [declaration.destroy];
     const ops: JournalOp[] = [];
-    if (rows.length > 0) ops.push(...(model.__planRows?.(rows) ?? []));
+    if (rows.length > 0) {
+      ops.push(...(model.__planRows?.(rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)) ?? []));
+    }
     if (ids.length > 0) ops.push({ kind: 'destroy', model: model.modelId, ids });
     for (const sink of declaration.extract ?? []) {
       ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));

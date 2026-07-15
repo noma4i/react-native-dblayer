@@ -1,3 +1,6 @@
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
+import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
@@ -6,10 +9,11 @@ import { createMemoryStorage } from '../helpers/memoryStorage';
 
 /*
  * C1: Models defined before configuration lazily hydrate when their runtime is configured.
- * C2: Snapshot writes never resurrect tombstoned rows, while explicit events may recreate them.
+ * C2: Snapshot and event writes never resurrect tombstoned rows, while replace writes may.
  * C3: Guards reject invalid snapshot, scope, and event rows without corrupting valid rows.
  * C4: Normalization and merge gates preserve the model's configured data contract.
  * C5: Declarative by-membership re-parents rows between scope handles in one event plan.
+ * C6: Bounded reads apply limit after the requested sort order.
  */
 describe('defineModel contracts', () => {
   it('C1: a model defined before configuration hydrates persisted rows after configuration', () => {
@@ -22,7 +26,7 @@ describe('defineModel contracts', () => {
     expect(Model.get('live')).toEqual({ id: 'live', title: 'written' });
   });
 
-  it('C2: snapshot upsert to a tombstoned id is dropped while an explicit event recreates it', () => {
+  it('C2: snapshot and event upserts to a tombstoned id are dropped while a replace upsert applies', () => {
     createContractScenario();
     const Model = defineModel({ id: 'TombstoneContract', name: 'TombstoneContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
     Model.insertStored({ id: 'row', title: 'first' });
@@ -33,8 +37,11 @@ describe('defineModel contracts', () => {
     expect(Model.get('row')).toBeUndefined();
     expect(Model.scopes.all.read({})).toEqual([]);
 
-    Model.insertStored({ id: 'row', title: 'event' });
-    expect(Model.get('row')).toEqual({ id: 'row', title: 'event' });
+    defineIngest(Model, { updated: payload => ({ upsert: payload }) }).apply('updated', { id: 'row', title: 'event' });
+    expect(Model.get('row')).toBeUndefined();
+
+    Model.replaceRaw('row', { id: 'row', title: 'replacement' });
+    expect(Model.get('row')).toEqual({ id: 'row', title: 'replacement' });
   });
 
   it('C3: guard-rejected rows are dropped while valid snapshot rows continue through the plan', () => {
@@ -83,5 +90,29 @@ describe('defineModel contracts', () => {
 
     expect(Model.scopes.thread.read({ chatId: 'one' })).toEqual([]);
     expect(Model.scopes.thread.read({ chatId: 'two' }).map(row => row.id)).toEqual(['row']);
+  });
+
+  it('C6: getWhere and use.where apply limit after orderBy', () => {
+    createContractScenario();
+    const Model = defineModel({ id: 'LimitContract', name: 'LimitContract', fields: { rank: f.num() } });
+    Model.insertStored({ id: 'one', rank: 1 });
+    Model.insertStored({ id: 'three', rank: 3 });
+    Model.insertStored({ id: 'two', rank: 2 });
+    let rows: Array<{ id: string; rank: number }> = [];
+    const Harness = () => {
+      rows = Model.use.where({}, { orderBy: { field: 'rank', direction: 'desc' }, limit: 2 });
+      return null;
+    };
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(Harness));
+    });
+
+    expect(Model.getWhere({}, { orderBy: { field: 'rank', direction: 'desc' }, limit: 2 }).map(row => row.id)).toEqual(['three', 'two']);
+    expect(rows.map(row => row.id)).toEqual(['three', 'two']);
+    act(() => {
+      renderer.unmount();
+    });
   });
 });

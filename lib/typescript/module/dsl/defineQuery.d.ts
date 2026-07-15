@@ -74,7 +74,9 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
 };
 /** Define a query that compiles GraphQL responses into one apply-pipeline transaction. */
 export declare const defineQuery: <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => {
-    use: (scope: TScope) => QueryResult<TStored>;
+    use: (scope: TScope, options?: {
+        enabled?: boolean;
+    }) => QueryResult<TStored>;
     fetch: (scope: TScope) => Promise<void>;
     invalidate: (scope?: TScope) => void;
 };

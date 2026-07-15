@@ -4,7 +4,7 @@ export type JournalOp = {
     kind: 'upsert';
     model: string;
     rows: unknown[];
-    origin?: 'event' | 'snapshot';
+    origin?: 'event' | 'replace';
 } | {
     kind: 'patch';
     model: string;

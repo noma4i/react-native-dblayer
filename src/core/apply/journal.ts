@@ -2,7 +2,7 @@ import type { ScopeIndexValue } from '../planes/scopeIndex';
 import type { StoragePlane } from '../planes/storagePlane';
 
 export type JournalOp =
-  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event' | 'snapshot' }
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event' | 'replace' }
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown> }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }

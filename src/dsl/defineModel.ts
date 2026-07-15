@@ -82,15 +82,17 @@ const keyForScope = (scopeValue: unknown): string => buildScopeKey(scopeValue);
 const EMPTY_ROWS: any[] = [];
 
 const sortRows = <TStored>(rows: TStored[], options?: DbReadOptions<TStored>): TStored[] => {
-  if (!options?.orderBy) return rows;
-  const { field, direction } = options.orderBy;
-  return [...rows].sort((left, right) => {
-    const a = left[field];
-    const b = right[field];
-    if (a === b) return 0;
-    const result = a == null ? -1 : b == null ? 1 : a < b ? -1 : 1;
-    return direction === 'asc' ? result : -result;
-  });
+  const ordered = options?.orderBy
+    ? [...rows].sort((left, right) => {
+        const { field, direction } = options.orderBy!;
+        const a = left[field];
+        const b = right[field];
+        if (a === b) return 0;
+        const result = a == null ? -1 : b == null ? 1 : a < b ? -1 : 1;
+        return direction === 'asc' ? result : -result;
+      })
+    : rows;
+  return options?.limit === undefined ? ordered : ordered.slice(0, Math.max(0, options.limit));
 };
 
 const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: string, complete: boolean): unknown => {
@@ -203,7 +205,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     detachForDestroy
   });
 
-  const writeRows = (rows: unknown[], origin?: 'event' | 'snapshot'): Array<{ id: string; changedFields: string[] | null }> => {
+  const writeRows = (rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       let incoming: any;
@@ -213,7 +215,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         getDbLogger().error(`[${config.name}] apply row rejected`, { error });
         continue;
       }
-      if (origin !== 'event' && planes().entityState.isTombstoned(incoming.id)) continue;
+      if (origin !== 'replace' && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
       const result = planes().entityState.upsert({ ...current, ...incoming });
@@ -387,7 +389,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const planReplace = (oldId: string, next: unknown): JournalOp[] => [
     { kind: 'destroy', model: config.id, ids: [oldId] },
-    { kind: 'upsert', model: config.id, rows: [next] }
+    { kind: 'upsert', model: config.id, rows: [next], origin: 'replace' }
   ];
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {

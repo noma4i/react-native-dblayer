@@ -12,6 +12,7 @@ import { createContractScenario } from '../helpers/contractScenario';
  * C4: Auto-membership is visible in the same transaction as an event write.
  * C5: Storage keys outside the namespace are purged only by explicit startup housekeeping.
  * C6: Covered pending journal records become committed during replay.
+ * C7: Legacy event journal records still respect tombstones during replay.
  */
 describe('Apply pipeline contracts', () => {
   it('C1: replay restores an uncheckpointed journal plan after a module restart', async () => {
@@ -135,5 +136,17 @@ describe('Apply pipeline contracts', () => {
     expect(replayJournal()).toBe(0);
     expect(JSON.parse(scenario.storage.get('dbl:journal:1')!) as JournalRecord).toMatchObject({ status: 'committed' });
     expect(replayJournal()).toBe(0);
+  });
+
+  it('C7: a replayed legacy event-origin upsert cannot resurrect a tombstoned row', () => {
+    const scenario = createContractScenario({ persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } });
+    const Model = defineModel({ id: 'LegacyEventOriginContract', name: 'LegacyEventOriginContract', fields: { title: f.str() } });
+    Model.destroy('row');
+    scenario.storage.set([
+      { key: 'dbl:journal:2', value: JSON.stringify({ epoch: 2, status: 'committed', ops: [{ kind: 'upsert', model: Model.modelId, rows: [{ id: 'row', title: 'stale event' }], origin: 'event' }] }) }
+    ]);
+
+    expect(replayJournal()).toBeGreaterThanOrEqual(0);
+    expect(Model.get('row')).toBeUndefined();
   });
 });

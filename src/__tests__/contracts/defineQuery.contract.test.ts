@@ -1,4 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
+import { QueryClient as QueryClientImpl, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
 import { buildScopeKey } from '../../core/compileDbWhere';
 import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
@@ -19,6 +22,7 @@ const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDo
  * C4: Page and complete coverage compile their membership semantics correctly.
  * C5: Extract sinks share the primary query transaction epoch.
  * C6: A query response from a pre-reset runtime cannot apply into the new runtime.
+ * C7: Per-call enabled gates fetching without changing the scope data path or query key.
  */
 describe('defineQuery contracts', () => {
   it('C1: ingest invalidation refetch-invalidates a model-destination query', () => {
@@ -112,5 +116,47 @@ describe('defineQuery contracts', () => {
     expect(Model.getAll()).toEqual([]);
     expect(scenario.storage.keys('dbl:journal:')).toEqual([]);
     expect(getApplyRuntime().currentEpoch()).toBe(0);
+  });
+
+  it('C7: per-call enabled preserves local scope rows and reuses the real scope query key', async () => {
+    let calls = 0;
+    const client = new QueryClientImpl({ defaultOptions: { queries: { retry: false } } });
+    createContractScenario({
+      queryClient: client,
+      transport: {
+        query: async <TData>() => {
+          calls += 1;
+          return { data: { items: [{ id: 'remote', title: 'remote' }] } as TData };
+        }
+      }
+    });
+    const Model = defineModel({ id: 'PerCallEnabledContract', name: 'PerCallEnabledContract', fields: { title: f.str() }, scopes: { feed: scope({ sort: 'server-order' }) } });
+    const scopeValue = { chatId: 'chat-1' };
+    Model.scopes.feed.__apply?.(scopeValue, [{ id: 'local', title: 'local' }], 'complete');
+    const query = defineQuery({ document, key: 'perCallEnabled', select: data => (data as { items: unknown[] }).items, into: Model.scopes.feed });
+    let result!: ReturnType<typeof query.use>;
+    const Reader = ({ enabled }: { enabled: boolean }) => {
+      result = query.use(scopeValue, { enabled });
+      return null;
+    };
+    let renderer!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(QueryClientProvider, { client }, React.createElement(Reader, { enabled: false })));
+    });
+
+    expect(calls).toBe(0);
+    expect((result.data as Array<{ id: string }>).map(row => row.id)).toEqual(['local']);
+    const queryKey = client.getQueryCache().getAll()[0]!.queryKey;
+    expect(queryKey).toEqual(['dbl', 'perCallEnabled', buildScopeKey(scopeValue)]);
+
+    await act(async () => {
+      renderer.update(React.createElement(QueryClientProvider, { client }, React.createElement(Reader, { enabled: true })));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(calls).toBe(1);
+    expect(client.getQueryCache().getAll()[0]!.queryKey).toEqual(queryKey);
+    renderer.unmount();
   });
 });

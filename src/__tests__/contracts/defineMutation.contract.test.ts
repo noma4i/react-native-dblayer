@@ -2,11 +2,12 @@ import { hasMany } from '../../core/relations';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { defineMutation } from '../../dsl/defineMutation';
-import { getApplyRuntime, getOperationState } from '../../dsl/configure';
+import { configureDb, getApplyRuntime, getOperationState } from '../../dsl/configure';
 import { resetRuntimeSync } from '../../core/reset';
 import { f } from '../../schema/f';
 import type { DbGraphQLDocument, DbTransport } from '../../types';
 import { createContractScenario } from '../helpers/contractScenario';
+import { createMemoryStorage } from '../helpers/memoryStorage';
 
 const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDocument<unknown, Record<string, unknown>>;
 
@@ -16,6 +17,7 @@ const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDo
  * C3: Failed leaf destroys restore the removed row.
  * C4: Dedupe skips a committed idempotency key and failed optimistic inserts roll back their temp row.
  * C5-C6: Transport results from a pre-reset runtime cannot commit or roll back the new runtime.
+ * C7-C8: Replace plans bypass their own tombstone and post-commit callback failures cannot roll back.
  */
 describe('defineMutation contracts', () => {
   it('C1: optimistic destroy with dependent cascades rejects before any write or transport call', async () => {
@@ -140,5 +142,58 @@ describe('defineMutation contracts', () => {
     expect(getOperationState().pending()).toEqual([]);
     expect(onCommit).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('C7: an optimistic replace commits over its own mid-flight tombstone', async () => {
+    let resolveTransport!: (value: { data: { save: { id: string; title: string } } }) => void;
+    const transport = jest.fn(() => new Promise<{ data: { save: { id: string; title: string } } }>(resolve => { resolveTransport = resolve; })) as unknown as jest.MockedFunction<DbTransport['mutation']>;
+    createContractScenario({ transport: { mutation: transport } });
+    const Model = defineModel({ id: 'MutationReplaceOriginContract', name: 'MutationReplaceOriginContract', fields: { title: f.str() } });
+    const mutation = defineMutation<{ save: { id: string; title: string } }, { title: string }, { id: string; title: string }, { id: string; title: string }>({
+      document,
+      result: 'save',
+      optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save }
+    });
+    const pending = mutation.run({ title: 'optimistic' });
+    const tempId = Model.getAll()[0]!.id;
+    Model.destroy(tempId);
+
+    resolveTransport({ data: { save: { id: tempId, title: 'committed' } } });
+
+    await expect(pending).resolves.toEqual({ save: { id: tempId, title: 'committed' } });
+    expect(Model.get(tempId)).toEqual({ id: tempId, title: 'committed' });
+  });
+
+  it('C8: a throwing track callback reports failure without rolling back a committed mutation', async () => {
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    const onSyncError = jest.fn();
+    const onError = jest.fn();
+    const storage = createMemoryStorage();
+    configureDb({
+      storage: storage.storage,
+      logger,
+      transport: {
+        query: async <TData>() => ({ data: {} as TData }),
+        mutation: async <TData>() => ({ data: { save: { id: 'server' } } as TData })
+      },
+      defaults: { onSyncError }
+    });
+    const Model = defineModel({ id: 'MutationCallbackContract', name: 'MutationCallbackContract', fields: { title: f.str() } });
+    const mutation = defineMutation<{ save: { id: string } }, { title: string }, { id: string; title: string }, { id: string }>({
+      document,
+      result: 'save',
+      dedupe: { key: () => 'callback' },
+      optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: () => null },
+      track: () => { throw new Error('track failed'); },
+      onError
+    });
+
+    await expect(mutation.run({ title: 'kept' })).resolves.toEqual({ save: { id: 'server' } });
+
+    expect(Model.getAll()).toHaveLength(1);
+    expect(getOperationState().hasCommitted('callback')).toBe(true);
+    expect(onError).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalled();
+    expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), { source: 'mutation', model: Model.modelId });
   });
 });

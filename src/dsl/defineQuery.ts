@@ -187,8 +187,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     };
   };
 
-  const useInfiniteResult = (scope: TScope): QueryResult<TStored> => {
-    const enabled = config.enabled?.(scope) ?? true;
+  const useInfiniteResult = (scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored> => {
+    const enabled = (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const request = useInfiniteQuery({
       queryKey: queryKeyOf(scope),
       enabled,
@@ -218,8 +218,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     });
   };
 
-  const useSingleResult = (scope: TScope): QueryResult<TStored> => {
-    const enabled = config.enabled?.(scope) ?? true;
+  const useSingleResult = (scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored> => {
+    const enabled = (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const request = useQuery({
       queryKey: queryKeyOf(scope),
       enabled,

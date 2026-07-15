@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
 import { expandPlan, hasDependentCascade } from '../core/relations';
+import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import type { ExtractSink } from './defineQuery';
@@ -111,8 +112,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     config.onMutate?.(input, { tempId });
     const generation = getRuntimeGeneration();
 
+    let data: TData;
     try {
-      const data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input) ?? input } })).data as TData;
+      data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input) ?? input } })).data as TData;
       if (generation !== getRuntimeGeneration()) return null;
       const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
       if (payload == null) throw new Error(`${config.result} returned no data`);
@@ -142,10 +144,6 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
 
       if (tracked) operations.close(operationId, 'committed');
-      config.onCommit?.(data, { tempId, input });
-      config.invalidate?.({ input, data });
-      config.track?.({ input, data });
-      return data;
     } catch (error) {
       if (generation !== getRuntimeGeneration()) return null;
       if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
@@ -160,12 +158,32 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         optimistic.model.patch(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && previous && typeof previous === 'object') {
-        optimistic.model.insertStored(previous as { id: string });
+        getApplyRuntime().apply(expandPlan([{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }]));
       }
       if (tracked) operations.close(operationId, 'rolledback');
       config.onError?.(error as Error, { tempId, input });
       throw error;
     }
+    const reportCallbackError = (error: unknown, callback: string): void => {
+      const reported = error instanceof Error ? error : new Error(String(error));
+      try {
+        getDbLogger().error('defineMutation post-commit callback failed', { callback, error: reported });
+      } catch {}
+      try {
+        getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
+      } catch {}
+    };
+    const runCommittedCallback = (callback: string, run: () => void): void => {
+      try {
+        run();
+      } catch (error) {
+        reportCallbackError(error, callback);
+      }
+    };
+    runCommittedCallback('onCommit', () => config.onCommit?.(data, { tempId, input }));
+    runCommittedCallback('invalidate', () => config.invalidate?.({ input, data }));
+    runCommittedCallback('track', () => config.track?.({ input, data }));
+    return data;
   };
 
   return {
