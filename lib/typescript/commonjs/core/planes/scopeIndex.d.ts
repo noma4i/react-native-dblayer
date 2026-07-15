@@ -55,6 +55,10 @@ export type ScopeIndex = {
     has(key: string, id: string): boolean;
     /** All scope keys containing the row - the reverse membership index. */
     keysOf(id: string): string[];
+    /** Ephemeral read revision used by reactive scope subscribers; never persisted. */
+    reactiveEpoch(key: string): number;
+    /** Bump the revisions of scopes that currently contain one of these rows. */
+    touchMembers(ids: string[]): string[];
     persistEntries(): Array<{
         key: string;
         value: string | null;

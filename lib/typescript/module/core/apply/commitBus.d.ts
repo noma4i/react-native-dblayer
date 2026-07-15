@@ -11,6 +11,20 @@ export type CommitBatch = {
     rows: RowChange[];
     scopes: ScopeChange[];
 };
+export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
+export type IncrementalScopeChange = {
+    model: string;
+    scopeKey: string;
+    ids?: string[];
+    appendIds?: string[];
+    detachIds?: string[];
+    rebuild?: boolean;
+};
+export type IncrementalCommitBatch = CommitBatch & {
+    mode?: IncrementalBatchMode;
+    scopeChanges?: IncrementalScopeChange[];
+    maintenanceModels?: string[];
+};
 export type Dependency = {
     kind: 'row';
     model: string;
@@ -34,8 +48,9 @@ export type CommitSubscription = {
  * only when the batch intersects its dependencies.
  */
 export declare const createCommitBus: () => {
-    subscribe: (notify: () => void, deps?: ReadonlyArray<Dependency>) => CommitSubscription;
-    publish: (batch: CommitBatch) => void;
+    subscribe: (notify: () => void, deps?: ReadonlyArray<Dependency>, onBatch?: (batch: IncrementalCommitBatch | null) => void) => CommitSubscription;
+    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void) => CommitSubscription;
+    publish: (batch: IncrementalCommitBatch) => void;
     publishAll: () => void;
     subscriberCount: () => number;
 };

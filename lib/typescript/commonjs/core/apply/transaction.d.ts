@@ -28,6 +28,7 @@ export type ApplyTarget = {
         }>;
         detach: string[];
     }): void;
+    reactiveScopes?(ids: string[]): string[];
     persistEntries(): Array<{
         key: string;
         value: string | null;

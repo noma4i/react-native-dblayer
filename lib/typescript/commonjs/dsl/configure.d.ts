@@ -37,8 +37,9 @@ export declare const getRuntimeGeneration: () => number;
 /** Internal: establish a new generation before the reset fence tears down the old runtime. */
 export declare const advanceRuntimeGeneration: () => void;
 export declare const getCommitBus: () => {
-    subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>) => import("../core/apply/commitBus").CommitSubscription;
-    publish: (batch: import("../core/apply/commitBus").CommitBatch) => void;
+    subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch?: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
+    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
+    publish: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void;
     publishAll: () => void;
     subscriberCount: () => number;
 };

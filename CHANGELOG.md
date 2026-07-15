@@ -1,5 +1,22 @@
 # Changelog
 
+## 6.1.0 - 2026-07-15
+
+### Reactive read performance
+
+- Update `use.where`, `use.count`, and `use.first` from affected commit deltas instead of rescanning every model row after each relevant write.
+- Update field-sorted scope `use` and `useWindow` reads from one scope dependency, while retaining stable ordering for equal sort values.
+- Keep reactive scope revisions in memory so persisted scope bytes remain unchanged by local read invalidation.
+
+### Test coverage
+
+- Add equivalence, stable-tie, descriptor, generation, scope-epoch, and maintenance rebuild coverage for incremental reads.
+- Bound P4 and P5 20k-to-1k scaling checks and assert exactly one installed dependency for field-sorted scope reads.
+
+### Known limitations
+
+- Comparator-sorted scopes conservatively rebuild after a relevant commit because comparator dependencies cannot be inferred safely.
+
 ## 6.0.1 - 2026-07-15
 
 ### Persistence and journal safety
