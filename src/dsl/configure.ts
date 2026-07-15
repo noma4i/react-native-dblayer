@@ -7,6 +7,7 @@ import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler, type CheckpointScheduler } from '../core/apply/checkpoint';
 import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
+import { expandPlan } from '../core/relations';
 
 export interface DbDefaults {
   staleTime?: number;
@@ -23,6 +24,7 @@ let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
+let runtimeGeneration = 0;
 const commitBus = createCommitBus();
 
 /** Single flat key namespace for everything the library persists. */
@@ -30,6 +32,7 @@ const STORAGE_PREFIX = 'dbl:';
 
 /** Configure v6 runtime seams and defaults. */
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
+  runtimeGeneration += 1;
   runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane() };
   applyRuntime = null;
   operationState = null;
@@ -45,6 +48,14 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
 };
 
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
+
+/** Monotonic identity for the configured runtime; async continuations must not cross it. */
+export const getRuntimeGeneration = (): number => runtimeGeneration;
+
+/** Internal: establish a new generation before the reset fence tears down the old runtime. */
+export const advanceRuntimeGeneration = (): void => {
+  runtimeGeneration += 1;
+};
 
 export const getCommitBus = () => commitBus;
 
@@ -97,7 +108,20 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
  * module has been imported (apply targets registered) - records touching unregistered models throw.
  * Returns the number of replayed records.
  */
-export const replayJournal = (): number => getApplyRuntime().replay();
+export const replayJournal = (): number => {
+  const runtime = getApplyRuntime();
+  const replayed = runtime.replay();
+  const operations = getOperationState();
+  const orphaned = operations.hydratedPending();
+  for (const operation of orphaned) {
+    if (operation.tempIds.length > 0) {
+      runtime.apply(expandPlan([{ kind: 'destroy', model: operation.model, ids: operation.tempIds }]));
+    }
+    operations.close(operation.operationId, 'rolledback');
+  }
+  if (orphaned.length > 0) getDbRuntimeConfig().storage.set(operations.persistEntries());
+  return replayed;
+};
 
 /**
  * Remove storage keys outside the library namespace - startup housekeeping that clears pre-v6

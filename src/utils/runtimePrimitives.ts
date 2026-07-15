@@ -1,5 +1,6 @@
 import { isTempId } from './generateTempId';
 import { getDbLogger } from '../core/logger';
+import { getRuntimeGeneration } from '../dsl/configure';
 import type { AnyDbShape, InferShapeStored } from '../schema/infer';
 import { readShapeOrThrow } from '../schema/shape';
 
@@ -425,6 +426,14 @@ const clearBucketTimer = <TItem>(bucket: KeyedBatchBucket<TItem>): void => {
  */
 export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TItem>): KeyedBatchBuffer<TItem> => {
   const buckets = new Map<string, KeyedBatchBucket<TItem>>();
+  let generation: number | null = null;
+
+  const isCurrentGeneration = (): boolean => generation == null || generation === getRuntimeGeneration();
+  const beginGeneration = (): boolean => {
+    if (!isCurrentGeneration()) return false;
+    generation ??= getRuntimeGeneration();
+    return true;
+  };
 
   const getBucket = (key: string): KeyedBatchBucket<TItem> => {
     const existing = buckets.get(key);
@@ -438,7 +447,7 @@ export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TIt
   const flushBucket = (key: string, bucket: KeyedBatchBucket<TItem>): void => {
     clearBucketTimer(bucket);
     buckets.delete(key);
-    if (bucket.items.length === 0) return;
+    if (bucket.items.length === 0 || !isCurrentGeneration()) return;
 
     try {
       config.onFlush(key, [...bucket.items]);
@@ -476,6 +485,7 @@ export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TIt
 
   return {
     push(item) {
+      if (!beginGeneration()) return;
       const key = config.keyOf(item);
       const bucket = getBucket(key);
       pushDistinct(bucket, item);
@@ -488,6 +498,11 @@ export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TIt
       scheduleBucket(key, bucket);
     },
     flushAll() {
+      if (!isCurrentGeneration()) {
+        for (const bucket of buckets.values()) clearBucketTimer(bucket);
+        buckets.clear();
+        return;
+      }
       for (const [key, bucket] of [...buckets.entries()]) {
         flushBucket(key, bucket);
       }

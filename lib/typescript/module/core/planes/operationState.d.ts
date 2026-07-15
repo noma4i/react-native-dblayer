@@ -19,6 +19,8 @@ export type OperationState = {
     /** True while an idempotency key has a pending operation - blocks double-taps. */
     hasPending(idempotencyKey: string): boolean;
     pending(): OperationRecord[];
+    /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
+    hydratedPending(): OperationRecord[];
     prune(): number;
     /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
     nextSequence(key: string, floor: number): number;

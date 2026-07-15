@@ -1,4 +1,5 @@
 import { getDbLogger } from '../core/logger';
+import { getRuntimeGeneration } from '../dsl/configure';
 
 type PollerSession = {
   refs: number;
@@ -51,6 +52,14 @@ export type ModelStatusPoller = {
 export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig<TResult>): ModelStatusPoller => {
   const sessions = new Map<string, PollerSession>();
   const terminalSubscribers = new Map<string, Set<() => void>>();
+  let generation: number | null = null;
+
+  const isCurrentGeneration = (): boolean => generation == null || generation === getRuntimeGeneration();
+  const beginGeneration = (): boolean => {
+    if (!isCurrentGeneration()) return false;
+    generation ??= getRuntimeGeneration();
+    return true;
+  };
 
   const getOrCreateSession = (id: string): PollerSession => {
     const existing = sessions.get(id);
@@ -109,6 +118,10 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   };
 
   const tickSession = async (id: string, session: PollerSession): Promise<void> => {
+    if (!isCurrentGeneration()) {
+      stopSession(id, session, true);
+      return;
+    }
     if (session.inFlight || session.terminal) return;
 
     if (session.attempts >= config.maxAttempts) {
@@ -121,7 +134,9 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
 
     try {
       const result = await config.fetch(id);
+      if (!isCurrentGeneration()) return;
       config.apply(id, result);
+      if (!isCurrentGeneration()) return;
       if (config.isTerminal(result)) {
         markSessionStopped(id, session, 'terminal');
       }
@@ -129,6 +144,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
       getDbLogger().error('ModelStatusPoller', 'fetch failed', { id, attempts: session.attempts, error });
     } finally {
       session.inFlight = false;
+      if (!isCurrentGeneration()) return;
       if (!session.terminal && session.attempts >= config.maxAttempts) {
         markSessionStopped(id, session, 'budget');
       }
@@ -145,6 +161,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
 
   return {
     attach(id) {
+      if (!beginGeneration()) return () => {};
       const session = getOrCreateSession(id);
       session.refs += 1;
       ensurePolling(id, session);
@@ -178,6 +195,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
       };
     },
     async refresh(id, options) {
+      if (!beginGeneration()) return;
       const session = getOrCreateSession(id);
       if (options?.resetBudget) {
         const wasTerminal = session.terminal;

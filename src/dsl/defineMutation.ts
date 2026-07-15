@@ -3,7 +3,7 @@ import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
 import { expandPlan, hasDependentCascade } from '../core/relations';
 import { generateTempId } from '../utils/generateTempId';
-import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
+import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import type { ExtractSink } from './defineQuery';
 
 type MutationModel = {
@@ -109,9 +109,11 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       });
     }
     config.onMutate?.(input, { tempId });
+    const generation = getRuntimeGeneration();
 
     try {
       const data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input) ?? input } })).data as TData;
+      if (generation !== getRuntimeGeneration()) return null;
       const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
       if (payload == null) throw new Error(`${config.result} returned no data`);
 
@@ -145,6 +147,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       config.track?.({ input, data });
       return data;
     } catch (error) {
+      if (generation !== getRuntimeGeneration()) return null;
       if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
         getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
       }

@@ -1,5 +1,5 @@
 import type { JournalRecord } from '../../core/apply/journal';
-import { flushPersistence, getCommitBus, purgeForeignStorageKeys } from '../../dsl/configure';
+import { flushPersistence, getCommitBus, purgeForeignStorageKeys, replayJournal } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
@@ -11,6 +11,7 @@ import { createContractScenario } from '../helpers/contractScenario';
  * C3: Destroying an unseen id is silent but blocks stale snapshots through a tombstone.
  * C4: Auto-membership is visible in the same transaction as an event write.
  * C5: Storage keys outside the namespace are purged only by explicit startup housekeeping.
+ * C6: Covered pending journal records become committed during replay.
  */
 describe('Apply pipeline contracts', () => {
   it('C1: replay restores an uncheckpointed journal plan after a module restart', async () => {
@@ -121,5 +122,18 @@ describe('Apply pipeline contracts', () => {
     expect(scenario.storage.get('moments:1')).toBeUndefined();
     expect(scenario.storage.get('freshness:moments:x')).toBeUndefined();
     expect(scenario.storage.get('dbl:journal')).toBe('live-journal');
+  });
+
+  it('C6: replay commits a pending record already covered by an applied marker', () => {
+    const scenario = createContractScenario();
+    defineModel({ id: 'ZombieJournalContract', name: 'ZombieJournalContract', fields: { title: f.str() } });
+    scenario.storage.set([
+      { key: 'dbl:journal:1', value: JSON.stringify({ epoch: 1, status: 'pending', ops: [{ kind: 'upsert', model: 'ZombieJournalContract', rows: [{ id: 'row', title: 'covered' }] }] }) },
+      { key: 'dbl:applied:ZombieJournalContract', value: '1' }
+    ]);
+
+    expect(replayJournal()).toBe(0);
+    expect(JSON.parse(scenario.storage.get('dbl:journal:1')!) as JournalRecord).toMatchObject({ status: 'committed' });
+    expect(replayJournal()).toBe(0);
   });
 });

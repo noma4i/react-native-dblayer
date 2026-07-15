@@ -1,4 +1,8 @@
 import { createOperationState } from '../../core/planes/operationState';
+import { getOperationState } from '../../dsl/configure';
+import { defineModel } from '../../dsl/defineModel';
+import { f } from '../../schema/f';
+import { createContractScenario } from '../helpers/contractScenario';
 import { createMemoryStorage } from '../helpers/memoryStorage';
 
 /*
@@ -7,6 +11,7 @@ import { createMemoryStorage } from '../helpers/memoryStorage';
  * C3: Closed operations expire by TTL and rebuild idempotency indexes.
  * C4: Keyed optimistic sequences are monotonic and retain their supplied floor.
  * C5: Sequence storage evicts least-recently-used keys past the cap.
+ * C6: Hydrated pending operations reconcile as rolled back crash orphans after WAL replay.
  */
 describe('OperationState contracts', () => {
   it('C1: pending idempotency blocks until the operation closes', () => {
@@ -62,5 +67,33 @@ describe('OperationState contracts', () => {
     expect(Object.keys(sequences)).toHaveLength(512);
     expect(sequences['key:0']).toBeUndefined();
     expect(sequences['key:512']).toBe(1);
+  });
+
+  it('C6: boot reconciliation rolls back hydrated pending operations and releases their dedupe keys', async () => {
+    const scenario = createContractScenario({ persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } });
+    const Model = defineModel({ id: 'OperationCrashContract', name: 'OperationCrashContract', fields: { title: f.str() } });
+    Model.insertStored({ id: 'temp', title: 'sending' });
+    getOperationState().begin({ operationId: 'crashed', model: Model.modelId, tempIds: ['temp'], intent: 'insert', idempotencyKey: 'send:temp', createdAt: 0 });
+    scenario.storage.set(getOperationState().persistEntries());
+
+    jest.resetModules();
+    const configureModule = await import('../../dsl/configure');
+    const gcModule = await import('../../core/gc');
+    const modelModule = await import('../../dsl/defineModel');
+    const schemaModule = await import('../../schema/f');
+    configureModule.configureDb({
+      storage: scenario.storage,
+      transport: { query: async <TData>() => ({ data: {} as TData }), mutation: async <TData>() => ({ data: {} as TData }) },
+      defaults: { persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } }
+    });
+    const restarted = modelModule.defineModel({ id: 'OperationCrashContract', name: 'OperationCrashContract', fields: { title: schemaModule.f.str() } });
+
+    configureModule.replayJournal();
+
+    expect(restarted.get('temp')).toBeUndefined();
+    expect(configureModule.getOperationState().get('crashed')?.status).toBe('rolledback');
+    expect(configureModule.getOperationState().hasPending('send:temp')).toBe(false);
+    expect(configureModule.getOperationState().pending()).toEqual([]);
+    expect(gcModule.collectGarbage().evicted[restarted.modelId]).toBeUndefined();
   });
 });

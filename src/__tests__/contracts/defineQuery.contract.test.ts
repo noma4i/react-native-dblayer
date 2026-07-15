@@ -3,6 +3,8 @@ import { buildScopeKey } from '../../core/compileDbWhere';
 import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { defineQuery } from '../../dsl/defineQuery';
+import { getApplyRuntime } from '../../dsl/configure';
+import { resetRuntimeSync } from '../../core/reset';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
 import type { DbGraphQLDocument } from '../../types';
@@ -16,6 +18,7 @@ const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDo
  * C3: First-page refetches reset membership order ahead of retained pages.
  * C4: Page and complete coverage compile their membership semantics correctly.
  * C5: Extract sinks share the primary query transaction epoch.
+ * C6: A query response from a pre-reset runtime cannot apply into the new runtime.
  */
 describe('defineQuery contracts', () => {
   it('C1: ingest invalidation refetch-invalidates a model-destination query', () => {
@@ -93,5 +96,21 @@ describe('defineQuery contracts', () => {
 
     expect(getApplyRuntime().currentEpoch()).toBe(epoch + 1);
     expect(Authors.get('author')).toEqual({ id: 'author', title: 'author' });
+  });
+
+  it('C6: a resolved pre-reset fetch leaves the new runtime empty', async () => {
+    let resolveTransport!: (value: { data: { items: Array<{ id: string; title: string }> } }) => void;
+    const scenario = createContractScenario({ transport: { query: <TData>() => new Promise<{ data: { items: Array<{ id: string; title: string }> } }>(resolve => { resolveTransport = resolve; }).then(result => result as { data: TData }) } });
+    const Model = defineModel({ id: 'QueryResetContract', name: 'QueryResetContract', fields: { title: f.str() } });
+    const query = defineQuery({ document, key: 'queryReset', select: data => (data as { items: unknown[] }).items, into: Model });
+    const pending = query.fetch({});
+
+    resetRuntimeSync();
+    resolveTransport({ data: { items: [{ id: 'server', title: 'old-world' }] } });
+
+    await pending;
+    expect(Model.getAll()).toEqual([]);
+    expect(scenario.storage.keys('dbl:journal:')).toEqual([]);
+    expect(getApplyRuntime().currentEpoch()).toBe(0);
   });
 });

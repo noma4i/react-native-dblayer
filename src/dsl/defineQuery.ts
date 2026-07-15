@@ -5,7 +5,7 @@ import { computeLoadingState, computePhase } from '../queries/base/loadingState'
 import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
-import { getApplyRuntime, getDbRuntimeConfig } from './configure';
+import { getApplyRuntime, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import type { ScopeHandle } from './defineModel';
 import type { Coverage } from './scope';
 
@@ -121,7 +121,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   const runFetch = async (scope: TScope, cursor: string | null): Promise<PageMeta> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {}) };
+    const generation = getRuntimeGeneration();
     const data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
+    if (generation !== getRuntimeGeneration()) return { endCursor: null, hasNextPage: false, count: 0 };
     return applyResponse(scope, data, cursor == null);
   };
 

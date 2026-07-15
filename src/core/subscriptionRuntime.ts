@@ -3,6 +3,7 @@ import { getDbLogger } from './logger';
 import { getDbTransport } from './transport';
 import type { DbGraphQLDocument } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
+import { getRuntimeGeneration } from '../dsl/configure';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
 const GLOBAL_DEBOUNCE_KEY = '__global__';
@@ -218,12 +219,17 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   }));
   const byKey = new Map(states.map(state => [state.entry.key, state]));
   let active = false;
+  let activeGeneration: number | null = null;
+
+  const isCurrentGeneration = (): boolean => activeGeneration == null || activeGeneration === getRuntimeGeneration();
 
   const runHandler = (state: EntryState, payload: unknown): void => {
+    if (!isCurrentGeneration()) return;
     state.entry.onData(payload);
   };
 
   const handlePayload = (state: EntryState, payload: unknown): void => {
+    if (!isCurrentGeneration()) return;
     if (!isNonArrayRecord(payload)) {
       getDbLogger().debug(LOG_PREFIX, 'payload skipped', { key: state.entry.key });
       return;
@@ -264,7 +270,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   };
 
   const subscribeEntry = (state: EntryState): void => {
-    if (!active || state.unsubscribe) return;
+    if (!active || !isCurrentGeneration() || state.unsubscribe) return;
 
     clearRetryTimer(state);
     const subscribe = getDbTransport().subscribe;
@@ -315,6 +321,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       if (nextActive === active) return;
       if (!nextActive) {
         active = false;
+        activeGeneration = null;
         deactivateAll();
         return;
       }
@@ -325,6 +332,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       }
 
       active = true;
+      activeGeneration = getRuntimeGeneration();
       for (const state of states) {
         subscribeEntry(state);
       }
@@ -333,6 +341,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       return active;
     },
     dispatch(key, payload) {
+      if (!isCurrentGeneration()) return;
       const state = byKey.get(key);
       if (!state) {
         getDbLogger().debug(LOG_PREFIX, 'dispatch skipped', { key });
@@ -351,6 +360,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     },
     stop() {
       active = false;
+      activeGeneration = null;
       deactivateAll();
     }
   };

@@ -24,6 +24,8 @@ export type OperationState = {
   /** True while an idempotency key has a pending operation - blocks double-taps. */
   hasPending(idempotencyKey: string): boolean;
   pending(): OperationRecord[];
+  /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
+  hydratedPending(): OperationRecord[];
   prune(): number;
   /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
   nextSequence(key: string, floor: number): number;
@@ -38,6 +40,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const sequences = new Map<string, number>();
   const committedKeys = new Set<string>();
   const pendingKeys = new Set<string>();
+  const hydratedPendingIds = new Set<string>();
   const indexOperation = (record: OperationRecord): void => {
     if (!record.idempotencyKey) return;
     if (record.status === 'pending') pendingKeys.add(record.idempotencyKey);
@@ -61,6 +64,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     close: (operationId, status) => {
       const operation = operations.get(operationId);
       if (!operation) return;
+      hydratedPendingIds.delete(operationId);
       const record: OperationRecord = { ...operation, status };
       operations.set(operationId, record);
       indexOperation(record);
@@ -69,6 +73,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
+    hydratedPending: () => [...hydratedPendingIds].flatMap(operationId => {
+      const operation = operations.get(operationId);
+      return operation?.status === 'pending' ? [operation] : [];
+    }),
     prune: () => {
       const cutoff = now() - CLOSED_TTL_MS;
       let pruned = 0;
@@ -98,10 +106,14 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     hydrate: () => {
       operations.clear();
       sequences.clear();
+      hydratedPendingIds.clear();
       const rawOps = storage.get(opsKey());
       if (rawOps) {
         try {
-          for (const [operationId, record] of Object.entries(JSON.parse(rawOps) as Record<string, OperationRecord>)) operations.set(operationId, record);
+          for (const [operationId, record] of Object.entries(JSON.parse(rawOps) as Record<string, OperationRecord>)) {
+            operations.set(operationId, record);
+            if (record.status === 'pending') hydratedPendingIds.add(operationId);
+          }
         } catch {
           storage.set([{ key: opsKey(), value: null }]);
         }
@@ -121,6 +133,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       sequences.clear();
       committedKeys.clear();
       pendingKeys.clear();
+      hydratedPendingIds.clear();
     }
   };
 };

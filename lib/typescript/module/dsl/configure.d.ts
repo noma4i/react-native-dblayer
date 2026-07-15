@@ -32,6 +32,10 @@ export declare const configureDb: (options: Omit<RuntimeConfig, "storage"> & {
 }) => void;
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
 export declare const getStoragePrefix: () => string;
+/** Monotonic identity for the configured runtime; async continuations must not cross it. */
+export declare const getRuntimeGeneration: () => number;
+/** Internal: establish a new generation before the reset fence tears down the old runtime. */
+export declare const advanceRuntimeGeneration: () => void;
 export declare const getCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>) => import("../core/apply/commitBus").CommitSubscription;
     publish: (batch: import("../core/apply/commitBus").CommitBatch) => void;
