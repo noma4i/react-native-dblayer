@@ -13,6 +13,18 @@ type MutationModel = {
     patch(id: string, patch: Record<string, unknown>): void;
     destroy(id: string): void;
     __planReplace?(oldId: string, next: unknown): JournalOp[];
+    __captureMembership?(id: string): Array<{
+        id: string;
+        scopeKey: string;
+        order: number;
+        edge?: Record<string, unknown>;
+    }>;
+    __planRestore?(next: unknown, memberships: Array<{
+        id: string;
+        scopeKey: string;
+        order: number;
+        edge?: Record<string, unknown>;
+    }>): JournalOp[];
 };
 export type OptimisticCtx = {
     tempId: string | null;

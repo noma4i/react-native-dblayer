@@ -62,12 +62,12 @@ describe('GC contracts', () => {
 
     expect(collectGarbage().scopesRemoved).toEqual({ GcScopeContract: 1 });
     expect(Model.scopes.all.read({})).toEqual([]);
-    expect(scenario.values.has('dbl:scope:GcScopeContract:__root__')).toBe(false);
+    expect(scenario.values.has('dbl:scope:GcScopeContract:all:__root__')).toBe(false);
   });
 
   it('C4: a hydrated dead entry is detached before its empty scope is removed', () => {
     const scenario = createContractScenario();
-    scenario.values.set('dbl:scope:GcDeadEntryContract:__root__', JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'missing', order: 0, seq: 1 }] }));
+    scenario.values.set('dbl:scope:GcDeadEntryContract:all:__root__', JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'missing', order: 0, seq: 1 }] }));
     const Model = defineModel({ id: 'GcDeadEntryContract', name: 'GcDeadEntryContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
 
     expect(collectGarbage().scopesRemoved).toEqual({ GcDeadEntryContract: 1 });

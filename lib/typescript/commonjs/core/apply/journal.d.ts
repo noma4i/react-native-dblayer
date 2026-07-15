@@ -27,6 +27,7 @@ export type JournalOp = {
     append: Array<{
         id: string;
         edge?: Record<string, unknown>;
+        order?: number;
     }>;
     detach: string[];
 } | {

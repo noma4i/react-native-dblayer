@@ -14,6 +14,7 @@ export type ScopeIndexValue = {
 export type IncomingScopeRow = {
     id: string;
     edge?: Record<string, unknown>;
+    order?: number;
 };
 export type ReconcileResult = {
     next: ScopeIndexValue;
@@ -34,8 +35,19 @@ export type ScopeIndex = {
     reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: {
         resetOrder?: boolean;
     }): ReconcileResult;
+    reconcileNext(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: {
+        resetOrder?: boolean;
+    }): ReconcileResult;
     detach(key: string, ids: string[]): ScopeIndexValue;
     trim(key: string, maxRows: number): string[];
+    trimValue(value: ScopeIndexValue, maxRows: number): {
+        next: ScopeIndexValue;
+        trimmedIds: string[];
+    };
+    trimNext(key: string, maxRows: number): {
+        next: ScopeIndexValue;
+        trimmedIds: string[];
+    };
     /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
     remove(key: string): void;
     keys(): string[];
@@ -52,6 +64,7 @@ export type ScopeIndex = {
 };
 export declare const createScopeIndex: (options: {
     modelId: string;
+    scopeNames?: string[];
     storage: StoragePlane;
     prefix: () => string;
 }) => ScopeIndex;

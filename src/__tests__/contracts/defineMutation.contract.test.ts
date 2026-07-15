@@ -18,6 +18,7 @@ const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDo
  * C4: Dedupe skips a committed idempotency key and failed optimistic inserts roll back their temp row.
  * C5-C6: Transport results from a pre-reset runtime cannot commit or roll back the new runtime.
  * C7-C8: Replace plans bypass their own tombstone and post-commit callback failures cannot roll back.
+ * C9: Failed optimistic destroys restore scope membership and server order.
  */
 describe('defineMutation contracts', () => {
   it('C1: optimistic destroy with dependent cascades rejects before any write or transport call', async () => {
@@ -195,5 +196,30 @@ describe('defineMutation contracts', () => {
     expect(onError).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalled();
     expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), { source: 'mutation', model: Model.modelId });
+  });
+
+  it('C9: a failed optimistic destroy restores by and non-by scope positions', async () => {
+    const mutation = jest.fn(async <TData>() => ({ data: {} as TData })) as unknown as jest.MockedFunction<DbTransport['mutation']>;
+    mutation.mockRejectedValueOnce(new Error('boom'));
+    createContractScenario({ transport: { mutation } });
+    const Model = defineModel({
+      id: 'DestroyRestoreScopeContract',
+      name: 'DestroyRestoreScopeContract',
+      fields: { title: f.str(), chatId: f.id() },
+      scopes: { thread: scope({ by: { chatId: 'chatId' }, sort: 'server-order' }), feed: scope({ sort: 'server-order' }) }
+    });
+    const rows = [{ id: 'first', title: 'first', chatId: 'chat' }, { id: 'second', title: 'second', chatId: 'chat' }];
+    Model.scopes.thread.__apply?.({ chatId: 'chat' }, rows, 'complete');
+    Model.scopes.feed.__apply?.({}, rows, 'complete');
+    const destroy = defineMutation<unknown, Record<string, never>, { id: string; title: string; chatId: string }, unknown>({
+      document,
+      result: 'destroy',
+      optimistic: { method: 'destroy', model: Model, selectId: () => 'first' }
+    });
+
+    await expect(destroy.run({})).rejects.toThrow('boom');
+
+    expect(Model.scopes.thread.read({ chatId: 'chat' }).map(row => row.id)).toEqual(['first', 'second']);
+    expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['first', 'second']);
   });
 });

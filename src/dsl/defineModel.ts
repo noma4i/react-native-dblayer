@@ -62,6 +62,8 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   __applyRows?(rows: TStored[]): void;
   __planRows?(rows: TStored[]): JournalOp[];
   __planReplace?(oldId: string, next: unknown): JournalOp[];
+  __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
+  __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -77,7 +79,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   statics?: (model: ModelCore<any>) => TExt;
 };
 
-const keyForScope = (scopeValue: unknown): string => buildScopeKey(scopeValue);
+const keyForScope = (scopeName: string, scopeValue: unknown): string => `${scopeName}:${buildScopeKey(scopeValue)}`;
 
 const EMPTY_ROWS: any[] = [];
 
@@ -114,7 +116,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     if (planesRef) return planesRef;
     const runtime = getDbRuntimeConfig();
     const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix: getStoragePrefix });
-    const scopeIndex = createScopeIndex({ modelId: config.id, storage: runtime.storage, prefix: getStoragePrefix });
+    const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
     entityState.hydrate();
     scopeIndex.hydrate();
     planesRef = { entityState, scopeIndex };
@@ -169,11 +171,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     const before = planes().entityState.read(id);
     const merged = { ...before, ...row, id };
     const deltas: MembershipDelta[] = [];
-    for (const [, spec] of membershipScopes) {
+    for (const [scopeName, spec] of membershipScopes) {
       const beforeValue = before ? scopeValueFromRow(spec.by, before) : null;
       const afterValue = scopeValueFromRow(spec.by, merged);
-      const beforeKey = beforeValue ? keyForScope(beforeValue) : null;
-      const afterKey = afterValue ? keyForScope(afterValue) : null;
+      const beforeKey = beforeValue ? keyForScope(scopeName, beforeValue) : null;
+      const afterKey = afterValue ? keyForScope(scopeName, afterValue) : null;
       if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) deltas.push({ scopeKey: beforeKey, detach: [id] });
       if (afterKey && !isScopeMember(afterKey, id)) deltas.push({ scopeKey: afterKey, append: [id] });
     }
@@ -252,7 +254,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     scope: (scopeKey: string, next: unknown): void => {
       planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
     },
-    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown> }>; detach: string[] }): void => {
+    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }): void => {
       if (delta.detach.length > 0) planes().scopeIndex.detach(scopeKey, delta.detach);
       if (delta.append.length > 0) planes().scopeIndex.reconcile(scopeKey, 'delta', delta.append);
     },
@@ -307,7 +309,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
-    const value = planes().scopeIndex.read(keyForScope(scopeValue));
+    const value = planes().scopeIndex.read(keyForScope(scopeName, scopeValue));
     const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter(Boolean);
     if (!spec?.sort || spec.sort === 'server-order') return rows;
     if ('comparator' in spec.sort) return [...rows].sort(spec.sort.comparator);
@@ -324,12 +326,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
-      const scopeKey = keyForScope(scopeValue);
-      let { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })), opts);
+      const scopeKey = keyForScope(scopeName, scopeValue);
+      let { next } = planes().scopeIndex.reconcileNext(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })), opts);
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (opts?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
-        planes().scopeIndex.trim(scopeKey, maxRows);
-        next = planes().scopeIndex.read(scopeKey);
+        next = planes().scopeIndex.trimValue(next, maxRows).next;
       }
       return [
         { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) },
@@ -341,7 +342,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       use: (scopeValue: unknown) => {
         const rows = useLiveRead(
           () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), planes().scopeIndex.read(keyForScope(scopeValue)).entries),
+          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeName, scopeValue), planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries),
           arraysShallowEqual
         );
         return rows;
@@ -351,7 +352,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         const [windowSize, setWindowSize] = useState(pageSize);
         const rows = useLiveRead(
           () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeValue), planes().scopeIndex.read(keyForScope(scopeValue)).entries),
+          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeName, scopeValue), planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries),
           arraysShallowEqual
         );
         const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
@@ -367,8 +368,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       },
       useCount: (scopeValue: unknown) =>
         useLiveRead(
-          () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeValue)).entries.length),
-          scopeValue == null ? [] : [scopeDep(keyForScope(scopeValue))]
+          () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries.length),
+          scopeValue == null ? [] : [scopeDep(keyForScope(scopeName, scopeValue))]
         ),
       invalidate: (scopeValue?: unknown) => {
         invalidateModel(config.id, scopeValue);
@@ -387,10 +388,43 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows: rows.filter(isPlanRow) }];
 
-  const planReplace = (oldId: string, next: unknown): JournalOp[] => [
-    { kind: 'destroy', model: config.id, ids: [oldId] },
-    { kind: 'upsert', model: config.id, rows: [next], origin: 'replace' }
-  ];
+  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
+    planes().scopeIndex.keysOf(id).flatMap(scopeKey => {
+      const entry = planes().scopeIndex.read(scopeKey).entries.find(candidate => candidate.id === id);
+      return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
+    });
+
+  const restoreMembership = (nextId: string, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[] =>
+    memberships.map(membership => ({
+      kind: 'scope-delta' as const,
+      model: config.id,
+      scopeKey: membership.scopeKey,
+      append: [{ id: nextId, order: membership.order, edge: membership.edge }],
+      detach: [membership.id]
+    }));
+
+  const replacementId = (next: unknown): string | null => {
+    try {
+      return normalize(next).id;
+    } catch {
+      return null;
+    }
+  };
+
+  const planReplace = (oldId: string, next: unknown): JournalOp[] => {
+    const memberships = captureMembership(oldId);
+    const nextId = replacementId(next);
+    return [
+      { kind: 'destroy', model: config.id, ids: [oldId] },
+      { kind: 'upsert', model: config.id, rows: [next], origin: 'replace' },
+      ...(nextId == null ? [] : restoreMembership(nextId, memberships))
+    ];
+  };
+
+  const planRestore = (next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[] => {
+    const nextId = replacementId(next);
+    return [{ kind: 'upsert', model: config.id, rows: [next], origin: 'replace' }, ...(nextId == null ? [] : restoreMembership(nextId, memberships))];
+  };
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
@@ -486,7 +520,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     },
     __applyRows: rows => applySnapshot(planRows(rows)),
     __planRows: planRows,
-    __planReplace: planReplace
+    __planReplace: planReplace,
+    __captureMembership: captureMembership,
+    __planRestore: planRestore
   };
 
   registerReset(() => {

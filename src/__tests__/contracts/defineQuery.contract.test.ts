@@ -23,6 +23,7 @@ const document = { kind: 'Document', definitions: [] } as unknown as DbGraphQLDo
  * C5: Extract sinks share the primary query transaction epoch.
  * C6: A query response from a pre-reset runtime cannot apply into the new runtime.
  * C7: Per-call enabled gates fetching without changing the scope data path or query key.
+ * C8: A failed extract leaves an uncommitted scope plan out of memory and storage.
  */
 describe('defineQuery contracts', () => {
   it('C1: ingest invalidation refetch-invalidates a model-destination query', () => {
@@ -158,5 +159,24 @@ describe('defineQuery contracts', () => {
     expect(calls).toBe(1);
     expect(client.getQueryCache().getAll()[0]!.queryKey).toEqual(queryKey);
     renderer.unmount();
+  });
+
+  it('C8: a throwing extract does not commit the scope plan before apply', async () => {
+    const scenario = createContractScenario({ transport: { query: async <TData>() => ({ data: { items: [{ id: 'row', title: 'row' }] } as TData }) } });
+    const Model = defineModel({ id: 'PureScopePlanContract', name: 'PureScopePlanContract', fields: { title: f.str() }, scopes: { feed: scope({}) } });
+    const query = defineQuery({
+      document,
+      key: 'pureScopePlan',
+      select: data => (data as { items: unknown[] }).items,
+      into: Model.scopes.feed,
+      extract: () => {
+        throw new Error('extract failed');
+      }
+    });
+
+    await expect(query.fetch({})).rejects.toThrow('extract failed');
+    expect(Model.scopes.feed.read({})).toEqual([]);
+    expect(scenario.storage.keys('dbl:scope:PureScopePlanContract:')).toEqual([]);
+    expect(scenario.storage.keys('dbl:journal:')).toEqual([]);
   });
 });

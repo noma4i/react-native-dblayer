@@ -100,6 +100,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   const touched = new Set<string>();
   const touchViews = new Map<string, TouchEntry>();
   const membership = new Map<string, { model: string; scopeKey: string; append: Set<string>; detach: Set<string> }>();
+  const explicitScopeDeltas: JournalOp[] = [];
   const accumulateMembership = (model: string, deltas: MembershipDelta[]): void => {
     for (const delta of deltas) {
       const key = `${model}:${delta.scopeKey}`;
@@ -207,6 +208,10 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   while (queue.length > 0 || touchViews.size > 0) {
     while (queue.length > 0) {
       const op = queue.shift() as JournalOp;
+      if (op.kind === 'scope-delta') {
+        explicitScopeDeltas.push(op);
+        continue;
+      }
       out.push(op);
       if (op.kind === 'upsert') {
         const host = hosts.get(op.model);
@@ -245,6 +250,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     if (entry.append.size === 0 && entry.detach.size === 0) continue;
     out.push({ kind: 'scope-delta', model: entry.model, scopeKey: entry.scopeKey, append: [...entry.append].map(id => ({ id })), detach: [...entry.detach] });
   }
+  out.push(...explicitScopeDeltas);
 
   return out.filter(op => !(op.kind === 'counter' && authoritative.has(`${op.model}:${op.id}`)));
 };

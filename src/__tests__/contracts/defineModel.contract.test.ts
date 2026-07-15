@@ -14,6 +14,8 @@ import { createMemoryStorage } from '../helpers/memoryStorage';
  * C4: Normalization and merge gates preserve the model's configured data contract.
  * C5: Declarative by-membership re-parents rows between scope handles in one event plan.
  * C6: Bounded reads apply limit after the requested sort order.
+ * C7-C8: Named scopes isolate same-shaped values and delete legacy unnamespaced ledgers.
+ * C9: Replace plans preserve every captured scope membership and server order.
  */
 describe('defineModel contracts', () => {
   it('C1: a model defined before configuration hydrates persisted rows after configuration', () => {
@@ -114,5 +116,51 @@ describe('defineModel contracts', () => {
     act(() => {
       renderer.unmount();
     });
+  });
+
+  it('C7: named scopes isolate same-shaped values during complete reconciliation', () => {
+    createContractScenario();
+    const Model = defineModel({ id: 'ScopeNamespaceContract', name: 'ScopeNamespaceContract', fields: { title: f.str() }, scopes: { first: scope({}), second: scope({}) } });
+
+    Model.scopes.first.__apply?.({}, [{ id: 'first', title: 'first' }], 'complete');
+    Model.scopes.second.__apply?.({}, [{ id: 'second', title: 'second' }], 'complete');
+    Model.scopes.first.__apply?.({}, [{ id: 'replacement', title: 'replacement' }], 'complete');
+
+    expect(Model.scopes.first.read({}).map(row => row.id)).toEqual(['replacement']);
+    expect(Model.scopes.second.read({}).map(row => row.id)).toEqual(['second']);
+  });
+
+  it('C8: hydration deletes a legacy unnamespaced scope ledger', () => {
+    const scenario = createMemoryStorage([
+      ['dbl:scope:LegacyScopeKeyContract:__root__', JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'legacy', order: 0, seq: 1 }] })]
+    ]);
+    createContractScenario({ storage: scenario });
+    const Model = defineModel({ id: 'LegacyScopeKeyContract', name: 'LegacyScopeKeyContract', fields: { title: f.str() }, scopes: { feed: scope({}) } });
+
+    expect(Model.scopes.feed.read({})).toEqual([]);
+    expect(scenario.values.has('dbl:scope:LegacyScopeKeyContract:__root__')).toBe(false);
+  });
+
+  it('C9: replaceRaw preserves server-order memberships for by and non-by scopes', () => {
+    createContractScenario();
+    const Model = defineModel({
+      id: 'ReplaceScopeMembershipContract',
+      name: 'ReplaceScopeMembershipContract',
+      fields: { title: f.str(), chatId: f.id() },
+      scopes: { thread: scope({ by: { chatId: 'chatId' }, sort: 'server-order' }), feed: scope({ sort: 'server-order' }) }
+    });
+    const rows = [{ id: 'first', title: 'first', chatId: 'chat' }, { id: 'second', title: 'second', chatId: 'chat' }];
+    Model.scopes.thread.__apply?.({ chatId: 'chat' }, rows, 'complete');
+    Model.scopes.feed.__apply?.({}, rows, 'complete');
+
+    Model.replaceRaw('first', { id: 'server', title: 'server', chatId: 'chat' });
+
+    expect(Model.scopes.thread.read({ chatId: 'chat' }).map(row => row.id)).toEqual(['server', 'second']);
+    expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['server', 'second']);
+
+    Model.replaceRaw('server', { id: 'server', title: 'refreshed', chatId: 'chat' });
+
+    expect(Model.scopes.thread.read({ chatId: 'chat' }).map(row => row.id)).toEqual(['server', 'second']);
+    expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['server', 'second']);
   });
 });

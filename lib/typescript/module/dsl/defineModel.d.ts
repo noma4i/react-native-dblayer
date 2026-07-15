@@ -64,6 +64,18 @@ type ModelCore<TStored extends {
     __applyRows?(rows: TStored[]): void;
     __planRows?(rows: TStored[]): JournalOp[];
     __planReplace?(oldId: string, next: unknown): JournalOp[];
+    __captureMembership?(id: string): Array<{
+        id: string;
+        scopeKey: string;
+        order: number;
+        edge?: Record<string, unknown>;
+    }>;
+    __planRestore?(next: unknown, memberships: Array<{
+        id: string;
+        scopeKey: string;
+        order: number;
+        edge?: Record<string, unknown>;
+    }>): JournalOp[];
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     id: string;

@@ -15,6 +15,8 @@ type MutationModel = {
   patch(id: string, patch: Record<string, unknown>): void;
   destroy(id: string): void;
   __planReplace?(oldId: string, next: unknown): JournalOp[];
+  __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
+  __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
 };
 
 export type OptimisticCtx = { tempId: string | null };
@@ -75,6 +77,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     let tempId: string | null = null;
     let insertedTempId: string | null = null;
     let previous: unknown = null;
+    let previousMemberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> = [];
 
     if (optimistic && !isMethodOptimistic(optimistic)) {
       const reuseId = optimistic.existingTempId?.(input) ?? null;
@@ -97,6 +100,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       }
       const id = optimistic.selectId(input);
       previous = optimistic.model.get(id);
+      previousMemberships = optimistic.model.__captureMembership?.(id) ?? [];
       optimistic.model.destroy(id);
     }
     if (tracked) {
@@ -158,7 +162,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         optimistic.model.patch(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && previous && typeof previous === 'object') {
-        getApplyRuntime().apply(expandPlan([{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }]));
+        getApplyRuntime().apply(expandPlan(optimistic.model.__planRestore?.(previous, previousMemberships) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }]));
       }
       if (tracked) operations.close(operationId, 'rolledback');
       config.onError?.(error as Error, { tempId, input });

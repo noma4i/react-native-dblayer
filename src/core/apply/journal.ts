@@ -6,7 +6,7 @@ export type JournalOp =
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown> }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
-  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown> }>; detach: string[] }
+  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };
 
 export type JournalRecord = { epoch: number; status: 'pending' | 'committed'; ops: JournalOp[] };

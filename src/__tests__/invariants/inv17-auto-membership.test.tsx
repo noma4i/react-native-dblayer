@@ -160,7 +160,7 @@ describe('v6 invariant 17: automatic scope membership', () => {
 
     expect(messages.scopes.thread.read({ chatId: 'c1' })).toEqual([]);
     flushPersistence();
-    const scopeValue = JSON.parse(storage.get(`dbl:scope:auto-membership-messages:${buildScopeKey({ chatId: 'c1' })}`)!);
+    const scopeValue = JSON.parse(storage.get(`dbl:scope:auto-membership-messages:thread:${buildScopeKey({ chatId: 'c1' })}`)!);
     expect(scopeValue.entries).toEqual([]);
   });
 
@@ -173,7 +173,7 @@ describe('v6 invariant 17: automatic scope membership', () => {
 
     expect(messages.get('message-1')).toBeUndefined();
     flushPersistence();
-    const scopeValue = JSON.parse(storage.get(`dbl:scope:auto-membership-messages:${buildScopeKey({ chatId: 'c1' })}`)!);
+    const scopeValue = JSON.parse(storage.get(`dbl:scope:auto-membership-messages:thread:${buildScopeKey({ chatId: 'c1' })}`)!);
     expect(scopeValue.entries).toEqual([]);
   });
 
