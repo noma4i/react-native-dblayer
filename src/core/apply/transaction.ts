@@ -13,7 +13,8 @@ export type ApplyTarget = {
   upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];
-  counter(id: string, field: string, delta: number): boolean;
+  counter(id: string, field: string, delta: number, next?: number): boolean;
+  counterValue(id: string, field: string): number | null;
   scope(scopeKey: string, next: unknown): void;
   scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }): void;
   persistEntries(): Array<{ key: string; value: string | null }>;
@@ -60,7 +61,7 @@ const applyOperations = (ops: JournalOp[]): CommitBatch => {
       for (const id of target.destroy(op.ids, op.tombstone)) batch.rows.push({ model: op.model, id, fields: null });
     }
     if (op.kind === 'counter') {
-      if (target.counter(op.id, op.field, op.delta)) batch.rows.push({ model: op.model, id: op.id, fields: [op.field] });
+      if (target.counter(op.id, op.field, op.delta, op.next)) batch.rows.push({ model: op.model, id: op.id, fields: [op.field] });
     }
     if (op.kind === 'scope') {
       target.scope(op.scopeKey, op.next);
@@ -75,6 +76,20 @@ const applyOperations = (ops: JournalOp[]): CommitBatch => {
 };
 
 const touchedModelsOf = (ops: JournalOp[]): string[] => [...new Set(ops.map(op => op.model))];
+
+const recordCounterValues = (ops: JournalOp[]): JournalOp[] => {
+  const values = new Map<string, number | null>();
+  return ops.map(op => {
+    if (op.kind !== 'counter' || op.next !== undefined) return op;
+    const key = `${op.model}:${op.id}:${op.field}`;
+    let current = values.get(key);
+    if (current === undefined) current = getApplyTarget(op.model).counterValue(op.id, op.field);
+    if (current === null) return op;
+    const next = current + op.delta;
+    values.set(key, next);
+    return { ...op, next };
+  });
+};
 
 export const createApplyRuntime = (options: {
   storage: StoragePlane;
@@ -108,15 +123,16 @@ export const createApplyRuntime = (options: {
 
   return {
     apply: ops => {
+      const recordedOps = recordCounterValues(ops);
       epoch += 1;
-      const record: JournalRecord = { epoch, status: 'pending', ops };
+      const record: JournalRecord = { epoch, status: 'pending', ops: recordedOps };
       journal.writePending(record);
-      const batch = applyOperations(ops);
+      const batch = applyOperations(recordedOps);
       if (checkpoint) {
         storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
-        checkpoint.notePlan(touchedModelsOf(ops), epoch);
+        checkpoint.notePlan(touchedModelsOf(recordedOps), epoch);
       } else {
-        persistImmediate(ops, record);
+        persistImmediate(recordedOps, record);
       }
       bus.publish(batch);
       return batch;

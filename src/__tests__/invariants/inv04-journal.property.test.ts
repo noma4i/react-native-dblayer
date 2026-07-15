@@ -43,6 +43,7 @@ describe('journalled transactions', () => {
       patch: () => null,
       destroy: ids => ids,
       counter: () => false,
+      counterValue: () => null,
       scope: () => {},
       scopeDelta: () => {},
       persistEntries: () => []
@@ -69,6 +70,7 @@ describe('journalled transactions', () => {
       patch: () => null,
       destroy: ids => ids,
       counter: () => false,
+      counterValue: () => null,
       scope: () => {},
       scopeDelta: () => {},
       persistEntries: () => []
@@ -79,6 +81,34 @@ describe('journalled transactions', () => {
     expect(applied).toBe(1);
     expect(JSON.parse(storage.get('dbl:test:journal:1')!).status).toBe('committed');
     expect(storage.get('dbl:test:applied:m')).toBe('1');
+    unregister();
+  });
+
+  it('replays a counter journal record with its recorded absolute next value', () => {
+    const storage = createStorage();
+    const prefix = () => 'dbl:test:';
+    createJournal(storage, prefix).writePending({
+      epoch: 1,
+      status: 'pending',
+      ops: [{ kind: 'counter', model: 'm', id: '1', field: 'count', delta: 1, next: 1 }]
+    });
+    let count = 1;
+    const unregister = registerApplyTarget('m', {
+      upsert: () => [],
+      patch: () => null,
+      destroy: () => [],
+      counter: (_id, _field, delta, next) => {
+        count = next ?? count + delta;
+        return true;
+      },
+      counterValue: () => count,
+      scope: () => {},
+      scopeDelta: () => {},
+      persistEntries: () => []
+    });
+    const runtime = createApplyRuntime({ storage, prefix, bus: createCommitBus() });
+    runtime.replay();
+    expect(count).toBe(1);
     unregister();
   });
 

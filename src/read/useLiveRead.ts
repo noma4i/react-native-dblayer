@@ -48,6 +48,12 @@ export const useLiveRead = <T>(compute: () => T, deps: ReadonlyArray<Dependency>
         onStoreChange();
       }, state.deps);
       subscriptionRef.current = subscription;
+      const recomputed = state.compute();
+      if (!state.isEqual(state.value, recomputed)) {
+        state.value = recomputed;
+        state.version += 1;
+        onStoreChange();
+      }
       return () => {
         subscriptionRef.current = null;
         subscription.unsubscribe();

@@ -245,11 +245,15 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       }
       return removed;
     },
-    counter: (id: string, field: string, delta: number): boolean => {
+    counter: (id: string, field: string, delta: number, next?: number): boolean => {
       const row = planes().entityState.read(id);
       if (!row) return false;
-      planes().entityState.upsert({ ...row, [field]: ((row[field] as number | undefined) ?? 0) + delta });
+      planes().entityState.upsert({ ...row, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
       return true;
+    },
+    counterValue: (id: string, field: string): number | null => {
+      const value = planes().entityState.read(id)?.[field];
+      return typeof value === 'number' ? value : value == null ? null : Number(value);
     },
     scope: (scopeKey: string, next: unknown): void => {
       planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
@@ -349,7 +353,10 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       },
       useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
-        const [windowSize, setWindowSize] = useState(pageSize);
+        const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+        const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
+        const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
+        if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
         const rows = useLiveRead(
           () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
           scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeName, scopeValue), planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries),
@@ -363,7 +370,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           rows: windowRef.current.window,
           totalCount: rows.length,
           hasMore: rows.length > windowSize,
-          loadMore: () => setWindowSize(current => current + pageSize)
+          loadMore: () => setWindowState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
         };
       },
       useCount: (scopeValue: unknown) =>

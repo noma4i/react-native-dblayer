@@ -1,5 +1,6 @@
 import { belongsTo, expandPlan, hasMany } from '../../core/relations';
 import { defineModel } from '../../dsl/defineModel';
+import { getApplyRuntime } from '../../dsl/configure';
 import { f } from '../../schema/f';
 import { createContractScenario } from '../helpers/contractScenario';
 
@@ -52,5 +53,22 @@ describe('Relations contracts', () => {
     expect(Parent.get('parent')?.count).toBe(1);
     Child.destroy('one');
     expect(Parent.get('parent')?.count).toBe(0);
+  });
+
+  it('C4: same-plan parent creation and destroy cascades an overlay child deterministically', () => {
+    createContractScenario();
+    const Child = defineModel({ id: 'OverlayChildContract', name: 'OverlayChildContract', fields: { parentId: f.id() } });
+    const Parent = defineModel({ id: 'OverlayParentContract', name: 'OverlayParentContract', fields: {}, relations: () => ({ children: hasMany(Child, { foreignKey: 'parentId', dependent: 'destroy' }) }) });
+
+    const expanded = expandPlan([
+      { kind: 'upsert', model: Parent.modelId, rows: [{ id: 'parent' }] },
+      { kind: 'upsert', model: Child.modelId, rows: [{ id: 'child', parentId: 'parent' }] },
+      { kind: 'destroy', model: Parent.modelId, ids: ['parent'] }
+    ]);
+
+    expect(expanded.some(op => op.kind === 'destroy' && op.model === Child.modelId && op.ids.includes('child'))).toBe(true);
+    getApplyRuntime().apply(expanded);
+    expect(Parent.get('parent')).toBeUndefined();
+    expect(Child.get('child')).toBeUndefined();
   });
 });

@@ -6,6 +6,8 @@ import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import type { StoragePlane } from '../../core/planes/storagePlane';
 import { resetRuntime } from '../../core/reset';
+import { getCommitBus } from '../../dsl/configure';
+import { useLiveRead } from '../../read/useLiveRead';
 
 const createStorage = (): StoragePlane => {
   const values = new Map<string, string>();
@@ -74,6 +76,18 @@ describe('v6 invariant 11: pinpoint reactivity', () => {
     act(() => model.patch('1', { name: 'updated' }));
     expect(read.value()).toBe('updated');
     expect(read.renders).toHaveBeenCalledTimes(2);
+  });
+
+  it('emits no bus row for an identical upsert', () => {
+    const model = createModel('identical-upsert');
+    model.insertStored({ id: '1', name: 'one', age: 1, group: 'a' });
+    const notify = jest.fn();
+    const subscription = getCommitBus().subscribe(notify, [{ kind: 'row', model: model.modelId, id: '1' }]);
+
+    model.insertStored({ id: '1', name: 'one', age: 1, group: 'a' });
+
+    expect(notify).not.toHaveBeenCalled();
+    subscription.unsubscribe();
   });
 
   it('keeps a where result reference when its members are unchanged', () => {
@@ -147,5 +161,42 @@ describe('v6 invariant 11: pinpoint reactivity', () => {
     act(() => read.value().loadMore());
     expect(read.value().rows).toHaveLength(5);
     expect(read.value().hasMore).toBe(false);
+  });
+
+  it('resets a grown scope window when its scope key changes', () => {
+    configureDb({ storage: createStorage(), defaults: { pageSize: 2 }, transport: { query: async () => ({ data: {} }), mutation: async () => ({ data: {} }) } as any });
+    const model = defineModel({ id: 'window-switch', name: 'window-switch', fields: { name: f.str() }, scopes: { rows: scope({ sort: 'server-order' }) } });
+    act(() => {
+      (model.scopes as any).rows.__apply({ group: 'a' }, [{ id: 'a1', name: 'a1' }, { id: 'a2', name: 'a2' }, { id: 'a3', name: 'a3' }], 'complete');
+      (model.scopes as any).rows.__apply({ group: 'b' }, [{ id: 'b1', name: 'b1' }, { id: 'b2', name: 'b2' }, { id: 'b3', name: 'b3' }], 'complete');
+    });
+    let result: any;
+    const Reader = ({ scopeValue }: { scopeValue: Record<string, string> }) => {
+      result = (model.scopes as any).rows.useWindow(scopeValue, { pageSize: 2 });
+      return null;
+    };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<Reader scopeValue={{ group: 'a' }} />); });
+    act(() => result.loadMore());
+    expect(result.rows).toHaveLength(3);
+    act(() => { renderer.update(<Reader scopeValue={{ group: 'b' }} />); });
+    expect(result.rows).toHaveLength(2);
+    renderer.unmount();
+  });
+
+  it('rechecks a live read after subscription when a layout commit lands in the gap', () => {
+    let externalValue = 0;
+    const Reader = () => {
+      const value = useLiveRead(() => externalValue, [{ kind: 'row', model: 'gap', id: 'row' }]);
+      React.useLayoutEffect(() => {
+        externalValue = 1;
+        getCommitBus().publish({ rows: [{ model: 'gap', id: 'row', fields: null }], scopes: [] });
+      }, []);
+      return React.createElement('span', { value });
+    };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    act(() => { renderer = TestRenderer.create(<Reader />); });
+    expect((renderer.toJSON() as unknown as { props: { value: number } }).props.value).toBe(1);
+    renderer.unmount();
   });
 });

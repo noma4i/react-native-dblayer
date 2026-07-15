@@ -93,6 +93,7 @@ type CounterRef = { model: string; id: string; field: string };
  */
 export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   const queue: JournalOp[] = [...ops];
+  const overlay = new Map<string, Map<string, StoredRow | null>>();
   const out: JournalOp[] = [];
   const authoritative = new Set<string>();
   const counted = new Map<string, CounterRef>();
@@ -101,6 +102,16 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
   const touchViews = new Map<string, TouchEntry>();
   const membership = new Map<string, { model: string; scopeKey: string; append: Set<string>; detach: Set<string> }>();
   const explicitScopeDeltas: JournalOp[] = [];
+  const overlayRead = (modelId: string, id: string): StoredRow | undefined => {
+    const rows = overlay.get(modelId);
+    if (rows?.has(id)) return rows.get(id) ?? undefined;
+    return hosts.get(modelId)?.read(id);
+  };
+  const overlayWrite = (modelId: string, id: string, row: StoredRow | null): void => {
+    const rows = overlay.get(modelId) ?? new Map<string, StoredRow | null>();
+    rows.set(id, row);
+    overlay.set(modelId, rows);
+  };
   const accumulateMembership = (model: string, deltas: MembershipDelta[]): void => {
     for (const delta of deltas) {
       const key = `${model}:${delta.scopeKey}`;
@@ -117,6 +128,13 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
         entry.detach.add(id);
         entry.append.delete(id);
       }
+    }
+  };
+  const detachAccumulatedMembership = (model: string, id: string): void => {
+    for (const entry of membership.values()) {
+      if (entry.model !== model || !entry.append.has(id)) continue;
+      entry.append.delete(id);
+      entry.detach.add(id);
     }
   };
 
@@ -144,13 +162,13 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     }
   };
 
-  const upsertEffects = (modelId: string, host: RelationHost, row: StoredRow): void => {
+  const upsertEffects = (modelId: string, host: RelationHost, row: StoredRow, existed: boolean): void => {
     const childId = String(row.id);
     for (const relation of Object.values(host.relations())) {
       if (relation.kind !== 'belongsTo') continue;
       const parentId = parentIdOf(row, relation.foreignKey);
       if (!parentId) continue;
-      if (relation.counterCache && !host.has(childId) && (relation.counterCache.filter?.(row) ?? true)) {
+      if (relation.counterCache && !existed && (relation.counterCache.filter?.(row) ?? true)) {
         const counter: CounterRef = { model: relation.model.modelId, id: parentId, field: relation.counterCache.field };
         const countKey = countKeyOf(modelId, childId, counter);
         if (!counted.has(countKey)) {
@@ -162,10 +180,9 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     }
   };
 
-  const patchEffects = (modelId: string, id: string, patch: StoredRow): void => {
+  const patchEffects = (modelId: string, id: string, patch: StoredRow, current: StoredRow | undefined): void => {
     const host = hosts.get(modelId);
     if (!host) return;
-    const current = host.read(id);
     if (!current) return;
     const merged = { ...current, ...patch, id };
     for (const relation of Object.values(host.relations())) {
@@ -175,13 +192,12 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     }
   };
 
-  const destroyEffects = (modelId: string, id: string): void => {
+  const destroyEffects = (modelId: string, id: string, row: StoredRow | undefined): void => {
     const destroyKey = `${modelId}:${id}`;
     if (destroyed.has(destroyKey)) return;
     destroyed.add(destroyKey);
     const host = hosts.get(modelId);
     if (!host) return;
-    const row = host.read(id);
     for (const relation of Object.values(host.relations())) {
       if (relation.kind === 'belongsTo' && relation.counterCache) {
         const parentId = row ? parentIdOf(row, relation.foreignKey) : null;
@@ -196,9 +212,11 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
         }
       }
       if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
-        const ids = relation.model
-          .getWhere({ [relation.foreignKey]: id })
+        const overlayChildren = [...(overlay.get(relation.model.modelId)?.values() ?? [])]
+          .filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
+        const ids = [...relation.model.getWhere({ [relation.foreignKey]: id }), ...overlayChildren]
           .map(child => String(child.id))
+          .filter((childId, index, all) => all.indexOf(childId) === index)
           .filter(childId => !destroyed.has(`${relation.model.modelId}:${childId}`));
         if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
       }
@@ -218,21 +236,27 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
         for (const raw of op.rows) {
           const row = host?.normalize(raw);
           if (!host || !row) continue;
-          upsertEffects(op.model, host, row);
+          const existed = overlayRead(op.model, String(row.id)) !== undefined;
+          upsertEffects(op.model, host, row, existed);
           accumulateMembership(op.model, host.membershipForUpsert(row));
+          overlayWrite(op.model, String(row.id), { ...(overlayRead(op.model, String(row.id)) ?? {}), ...row });
           const key = `${op.model}:${String(row.id)}`;
           authoritative.add(key);
           touchViews.delete(key);
         }
       }
       if (op.kind === 'patch') {
-        patchEffects(op.model, op.id, op.patch);
+        const current = overlayRead(op.model, op.id);
+        patchEffects(op.model, op.id, op.patch, current);
         accumulateMembership(op.model, hosts.get(op.model)?.membershipForPatch(op.id, op.patch) ?? []);
+        if (current) overlayWrite(op.model, op.id, { ...current, ...op.patch, id: op.id });
       }
       if (op.kind === 'destroy') {
         for (const id of op.ids) {
           accumulateMembership(op.model, hosts.get(op.model)?.detachForDestroy(id) ?? []);
-          destroyEffects(op.model, id);
+          detachAccumulatedMembership(op.model, id);
+          destroyEffects(op.model, id, overlayRead(op.model, id));
+          overlayWrite(op.model, id, null);
         }
       }
     }
