@@ -35,6 +35,10 @@ export type ScopeIndex = {
   has(key: string, id: string): boolean;
   /** All scope keys containing the row - the reverse membership index. */
   keysOf(id: string): string[];
+  /** Ephemeral read revision used by reactive scope subscribers; never persisted. */
+  reactiveEpoch(key: string): number;
+  /** Bump the revisions of scopes that currently contain one of these rows. */
+  touchMembers(ids: string[]): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
   hydrate(): void;
   reset(): void;
@@ -47,8 +51,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const removed = new Set<string>();
   const memberSets = new Map<string, Set<string>>();
   const keysByRow = new Map<string, Set<string>>();
+  const reactiveEpochs = new Map<string, number>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
+  const touch = (key: string): void => {
+    reactiveEpochs.set(key, (reactiveEpochs.get(key) ?? 0) + 1);
+  };
 
   const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
     const nextIds = new Set(next.entries.map(entry => entry.id));
@@ -77,6 +85,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     indexCommit(key, scopes.get(key), next);
     scopes.set(key, next);
     dirty.add(key);
+    touch(key);
     return next;
   };
 
@@ -168,10 +177,20 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       scopes.delete(key);
       dirty.delete(key);
       removed.add(key);
+      touch(key);
     },
     keys: () => [...scopes.keys()],
     has: (key, id) => memberSets.get(key)?.has(id) ?? false,
     keysOf: id => [...(keysByRow.get(id) ?? [])],
+    reactiveEpoch: key => reactiveEpochs.get(key) ?? 0,
+    touchMembers: ids => {
+      const touched = new Set<string>();
+      for (const id of ids) {
+        for (const key of keysByRow.get(id) ?? []) touched.add(key);
+      }
+      for (const key of touched) touch(key);
+      return [...touched];
+    },
     persistEntries: () => {
       const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: JSON.stringify(scopes.get(key) ?? empty()) }));
       dirty.clear();
@@ -185,6 +204,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
       memberSets.clear();
       keysByRow.clear();
+      reactiveEpochs.clear();
       for (const fullKey of storage.keys(storageKey(''))) {
         const key = fullKey.slice(storageKey('').length);
         if (scopeNames !== undefined && !scopeNames.some(scopeName => key.startsWith(`${scopeName}:`))) {
@@ -201,6 +221,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       }
       memberSets.clear();
       keysByRow.clear();
+      reactiveEpochs.clear();
       for (const [key, value] of scopes) indexCommit(key, undefined, value);
     },
     reset: () => {
@@ -209,6 +230,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
       memberSets.clear();
       keysByRow.clear();
+      reactiveEpochs.clear();
     }
   };
 };

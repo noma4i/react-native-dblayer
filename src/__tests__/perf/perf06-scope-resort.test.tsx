@@ -40,8 +40,7 @@ const seedRows = (count: number): ScopeRow[] => {
   }));
 };
 
-describe('perf 06: scope resort baseline', () => {
-  it.each(SIZES)('resorts one %i-member scope and records installed dependencies', rowCount => {
+const measureFieldSort = (rowCount: number): { elapsed: number; dependencyCount: number } => {
     configure();
     const model = defineModel({
       id: `perf-scope-${rowCount}`,
@@ -52,7 +51,7 @@ describe('perf 06: scope resort baseline', () => {
     model.scopes.active.__apply?.({ bucket: 'active' }, seedRows(rowCount), 'complete');
 
     const bus = getCommitBus();
-    const subscribe = jest.spyOn(bus, 'subscribe');
+    const subscribe = jest.spyOn(bus, 'subscribeIncremental');
     const Reader = () => {
       model.scopes.active.use({ bucket: 'active' });
       return null;
@@ -72,10 +71,23 @@ describe('perf 06: scope resort baseline', () => {
     });
 
     console.info(`perf P5 rows=${rowCount} deps=${dependencyCount} median=${elapsed.toFixed(3)}ms`);
-    expect(dependencyCount).toBeLessThan(rowCount + 2);
-    expect(elapsed).toBeLessThan(10_000);
     act(() => root.unmount());
     subscribe.mockRestore();
     flushPersistence();
+    return { elapsed, dependencyCount };
+};
+
+describe('perf 06: incremental scope resort scaling', () => {
+  it.each(SIZES)('installs exactly one dependency for a %i-member field-sorted scope', rowCount => {
+    const result = measureFieldSort(rowCount);
+    expect(result.dependencyCount).toBe(1);
+  });
+
+  it('keeps field-sort scaling separate from comparator fallback behavior', () => {
+    const small = measureFieldSort(1_000).elapsed;
+    const large = measureFieldSort(20_000).elapsed;
+    const ratio = large / Math.max(small, 0.1);
+    console.info(`perf P5 field-sort 1k=${small.toFixed(3)}ms 20k=${large.toFixed(3)}ms ratio=${ratio.toFixed(2)}`);
+    expect(ratio).toBeLessThan(12);
   });
 });

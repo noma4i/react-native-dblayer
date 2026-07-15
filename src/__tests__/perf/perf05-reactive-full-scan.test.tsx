@@ -9,7 +9,6 @@ import { mulberry32 } from '../invariants/session.helpers';
 type ReactiveRow = { id: string; kind: string; rank: number; value: number };
 
 const RUNS = 7;
-const SIZES = [1_000, 5_000, 20_000] as const;
 const SUBSCRIBER_COUNTS = [1, 10, 50] as const;
 
 const medianMs = (run: () => void): number => {
@@ -40,8 +39,7 @@ const seedRows = (count: number): ReactiveRow[] => {
   }));
 };
 
-describe('perf 05: reactive full-scan baseline', () => {
-  it.each(SIZES.flatMap(rowCount => SUBSCRIBER_COUNTS.map(subscriberCount => [rowCount, subscriberCount] as const)))('recomputes %i rows for %i live reader groups', (rowCount, subscriberCount) => {
+const measure = (rowCount: number, subscriberCount: number): number => {
     configure();
     const model = defineModel({
       id: `perf-reactive-${rowCount}-${subscriberCount}`,
@@ -69,9 +67,17 @@ describe('perf 05: reactive full-scan baseline', () => {
       });
     });
 
-    console.info(`perf P4 rows=${rowCount} groups=${subscriberCount} liveReads=${subscriberCount * 3} median=${elapsed.toFixed(3)}ms`);
-    expect(elapsed).toBeLessThan(10_000);
     act(() => root.unmount());
     flushPersistence();
+    return elapsed;
+};
+
+describe('perf 05: incremental reactive scaling', () => {
+  it.each(SUBSCRIBER_COUNTS)('keeps the 20k-to-1k delta ratio bounded for %i live reader groups', subscriberCount => {
+    const small = measure(1_000, subscriberCount);
+    const large = measure(20_000, subscriberCount);
+    const ratio = large / Math.max(small, 0.1);
+    console.info(`perf P4 groups=${subscriberCount} 1k=${small.toFixed(3)}ms 20k=${large.toFixed(3)}ms ratio=${ratio.toFixed(2)}`);
+    expect(ratio).toBeLessThan(12);
   });
 });

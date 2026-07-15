@@ -1,6 +1,9 @@
 export type RowChange = { model: string; id: string; fields: string[] | null };
 export type ScopeChange = { model: string; scopeKey: string };
 export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[] };
+export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
+export type IncrementalScopeChange = { model: string; scopeKey: string; ids?: string[]; appendIds?: string[]; detachIds?: string[]; rebuild?: boolean };
+export type IncrementalCommitBatch = CommitBatch & { mode?: IncrementalBatchMode; scopeChanges?: IncrementalScopeChange[]; maintenanceModels?: string[] };
 
 export type Dependency =
   | { kind: 'row'; model: string; id: string; fields?: ReadonlyArray<string> }
@@ -27,27 +30,35 @@ const depMatches = (dep: Dependency, batch: CommitBatch): boolean => {
  * only when the batch intersects its dependencies.
  */
 export const createCommitBus = () => {
-  const subscribers = new Set<{ deps: ReadonlyArray<Dependency>; notify: () => void }>();
+  const subscribers = new Set<{ deps: ReadonlyArray<Dependency>; notify: () => void; onBatch?: (batch: IncrementalCommitBatch | null) => void }>();
+  const subscribe = (notify: () => void, deps: ReadonlyArray<Dependency> = [], onBatch?: (batch: IncrementalCommitBatch | null) => void): CommitSubscription => {
+    const subscriber = { deps, notify, onBatch };
+    subscribers.add(subscriber);
+    return {
+      setDeps: nextDeps => {
+        subscriber.deps = nextDeps;
+      },
+      unsubscribe: () => subscribers.delete(subscriber)
+    };
+  };
 
   return {
-    subscribe: (notify: () => void, deps: ReadonlyArray<Dependency> = []): CommitSubscription => {
-      const subscriber = { deps, notify };
-      subscribers.add(subscriber);
-      return {
-        setDeps: nextDeps => {
-          subscriber.deps = nextDeps;
-        },
-        unsubscribe: () => subscribers.delete(subscriber)
-      };
-    },
-    publish: (batch: CommitBatch): void => {
+    subscribe,
+    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void): CommitSubscription => subscribe(notify, deps, onBatch),
+    publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length) return;
       for (const subscriber of [...subscribers]) {
-        if (subscriber.deps.some(dep => depMatches(dep, batch))) subscriber.notify();
+        if (subscriber.deps.some(dep => depMatches(dep, batch))) {
+          subscriber.onBatch?.(batch);
+          subscriber.notify();
+        }
       }
     },
     publishAll: (): void => {
-      for (const subscriber of [...subscribers]) subscriber.notify();
+      for (const subscriber of [...subscribers]) {
+        subscriber.onBatch?.(null);
+        subscriber.notify();
+      }
     },
     subscriberCount: () => subscribers.size
   };

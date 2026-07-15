@@ -12,6 +12,7 @@ import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDe
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
+import { createModelReadEngine, createScopeReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
 import { useRef, useState } from 'react';
@@ -262,6 +263,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       if (delta.detach.length > 0) planes().scopeIndex.detach(scopeKey, delta.detach);
       if (delta.append.length > 0) planes().scopeIndex.reconcile(scopeKey, 'delta', delta.append);
     },
+    reactiveScopes: (ids: string[]) => planes().scopeIndex.touchMembers(ids),
     persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()]
   };
   registerApplyTarget(config.id, applyTarget);
@@ -324,7 +326,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: config.id, id, ...(fields ? { fields } : {}) });
   const modelDep: Dependency = { kind: 'model', model: config.id };
   const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: config.id, scopeKey });
-  const memberDeps = (scopeKey: string, rows: Array<{ id: string }>): Dependency[] => [scopeDep(scopeKey), ...rows.map(row => rowDep(row.id))];
+  const memberDeps = (scopeKey: string): Dependency[] => [scopeDep(scopeKey)];
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
@@ -344,12 +346,21 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return {
       modelId: config.id,
       use: (scopeValue: unknown) => {
-        const rows = useLiveRead(
-          () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeName, scopeValue), planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries),
-          arraysShallowEqual
-        );
-        return rows;
+        const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+        const signature = incrementalSignature('scope', config.id, scopeName, scopeValue);
+        return useIncrementalRead({
+          signature,
+          deps: scopeKey == null ? [] : memberDeps(scopeKey),
+          create: () =>
+            createScopeReadEngine({
+              signature,
+              model: config.id,
+              scopeKey: scopeKey ?? '',
+              initial: () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
+              read: id => planes().entityState.read(id),
+              sort: spec?.sort === 'server-order' || spec?.sort == null ? 'server-order' : 'comparator' in spec.sort ? spec.sort : { field: String(spec.sort.field), direction: spec.sort.dir }
+            })
+        });
       },
       useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
@@ -357,11 +368,20 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
         const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
         if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
-        const rows = useLiveRead(
-          () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-          scopeValue == null ? [modelDep] : memberDeps(keyForScope(scopeName, scopeValue), planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries),
-          arraysShallowEqual
-        );
+        const signature = incrementalSignature('scope', config.id, scopeName, scopeValue);
+        const rows = useIncrementalRead({
+          signature,
+          deps: scopeKey == null ? [] : memberDeps(scopeKey),
+          create: () =>
+            createScopeReadEngine({
+              signature,
+              model: config.id,
+              scopeKey: scopeKey ?? '',
+              initial: () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
+              read: id => planes().entityState.read(id),
+              sort: spec?.sort === 'server-order' || spec?.sort == null ? 'server-order' : 'comparator' in spec.sort ? spec.sort : { field: String(spec.sort.field), direction: spec.sort.dir }
+            })
+        });
         const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
         if (windowRef.current.source !== rows || windowRef.current.size !== windowSize) {
           windowRef.current = { source: rows, size: windowSize, window: rows.slice(0, windowSize) };
@@ -462,16 +482,35 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           id == null ? [] : [rowDep(id, [String(field)])]
         ),
       first: (where, options) =>
-        useLiveRead(
-          () => sortRows(planes().entityState.values().filter(row => where == null || matchesDbWhere(row, where)), options)[0],
-          [modelDep]
-        ),
+        useIncrementalRead({
+          signature: incrementalSignature('first', config.id, where, options),
+          deps: [modelDep],
+          create: () =>
+            createModelReadEngine({
+              signature: incrementalSignature('first', config.id, where, options),
+              model: config.id,
+              where: row => where == null || matchesDbWhere(row, where),
+              options: options ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit } : undefined,
+              initial: () => planes().entityState.values(),
+              read: id => planes().entityState.read(id),
+              select: rows => rows[0]
+            })
+        }),
       where: (where, options) =>
-        useLiveRead(
-          () => (where == null ? EMPTY_ROWS : sortRows(planes().entityState.values().filter(row => matchesDbWhere(row, where)), options)),
-          where == null ? [] : [modelDep],
-          arraysShallowEqual
-        ),
+        useIncrementalRead({
+          signature: incrementalSignature('where', config.id, where, options),
+          deps: where == null ? [] : [modelDep],
+          create: () =>
+            createModelReadEngine({
+              signature: incrementalSignature('where', config.id, where, options),
+              model: config.id,
+              where: row => where != null && matchesDbWhere(row, where),
+              options: options ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit } : undefined,
+              initial: () => planes().entityState.values(),
+              read: id => planes().entityState.read(id),
+              select: rows => rows
+            })
+        }),
       byIds: ids =>
         useLiveRead(
           () => ids.map(id => planes().entityState.read(id)).filter(Boolean),
@@ -479,10 +518,20 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           arraysShallowEqual
         ),
       count: where =>
-        useLiveRead(
-          () => (where == null ? planes().entityState.values().length : planes().entityState.values().filter(row => matchesDbWhere(row, where)).length),
-          [modelDep]
-        ),
+        useIncrementalRead({
+          signature: incrementalSignature('count', config.id, where),
+          deps: [modelDep],
+          create: () =>
+            createModelReadEngine({
+              signature: incrementalSignature('count', config.id, where),
+              model: config.id,
+              where: row => where == null || matchesDbWhere(row, where),
+              initial: () => planes().entityState.values(),
+              read: id => planes().entityState.read(id),
+              select: (_rows, count) => count,
+              countOnly: true
+            })
+        }),
       related: (id, relationName) => {
         const relation = resolvedRelations()[relationName];
         if (!relation) throw new Error(`${config.name} has no relation ${relationName}`);

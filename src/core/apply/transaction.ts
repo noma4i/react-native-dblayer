@@ -1,4 +1,4 @@
-import type { CommitBatch, CommitBus } from './commitBus';
+import type { CommitBatch, CommitBus, IncrementalCommitBatch, IncrementalScopeChange } from './commitBus';
 import type { CheckpointScheduler } from './checkpoint';
 import type { JournalOp, JournalRecord } from './journal';
 import { createJournal } from './journal';
@@ -17,6 +17,7 @@ export type ApplyTarget = {
   counterValue(id: string, field: string): number | null;
   scope(scopeKey: string, next: unknown): void;
   scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }): void;
+  reactiveScopes?(ids: string[]): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
 };
 
@@ -46,32 +47,63 @@ export const getApplyTarget = (model: string): ApplyTarget => {
   return target;
 };
 
-const applyOperations = (ops: JournalOp[]): CommitBatch => {
-  const batch: CommitBatch = { rows: [], scopes: [] };
+const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
+  const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+  const scopeChanges = new Map<string, IncrementalScopeChange>();
+  const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
+    const key = `${model}:${scopeKey}`;
+    const current = scopeChanges.get(key) ?? { model, scopeKey };
+    const mergeIds = (left?: string[], right?: string[]) => left || right ? [...new Set([...(left ?? []), ...(right ?? [])])] : undefined;
+    scopeChanges.set(key, {
+      ...current,
+      ids: mergeIds(current.ids, change.ids),
+      appendIds: mergeIds(current.appendIds, change.appendIds),
+      detachIds: mergeIds(current.detachIds, change.detachIds),
+      rebuild: current.rebuild === true || change.rebuild === true
+    });
+  };
+  const noteRows = (model: string, target: ApplyTarget, ids: string[]): void => {
+    for (const scopeKey of target.reactiveScopes?.(ids) ?? []) {
+      batch.scopes.push({ model, scopeKey });
+      noteScope(model, scopeKey, { ids });
+    }
+  };
   for (const op of ops) {
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
-      for (const change of target.upsert(op.rows, op.origin)) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+      const changes = target.upsert(op.rows, op.origin);
+      for (const change of changes) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+      noteRows(op.model, target, changes.map(change => change.id));
+      if (op.origin === 'replace') batch.mode = 'replace';
     }
     if (op.kind === 'patch') {
       const change = target.patch(op.id, op.patch);
       if (change) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+      if (change) noteRows(op.model, target, [change.id]);
     }
     if (op.kind === 'destroy') {
-      for (const id of target.destroy(op.ids, op.tombstone)) batch.rows.push({ model: op.model, id, fields: null });
+      const ids = target.destroy(op.ids, op.tombstone);
+      for (const id of ids) batch.rows.push({ model: op.model, id, fields: null });
+      noteRows(op.model, target, ids);
     }
     if (op.kind === 'counter') {
-      if (target.counter(op.id, op.field, op.delta, op.next)) batch.rows.push({ model: op.model, id: op.id, fields: [op.field] });
+      if (target.counter(op.id, op.field, op.delta, op.next)) {
+        batch.rows.push({ model: op.model, id: op.id, fields: [op.field] });
+        noteRows(op.model, target, [op.id]);
+      }
     }
     if (op.kind === 'scope') {
       target.scope(op.scopeKey, op.next);
       batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
+      noteScope(op.model, op.scopeKey, { rebuild: true });
     }
     if (op.kind === 'scope-delta') {
       target.scopeDelta(op.scopeKey, { append: op.append, detach: op.detach });
       batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
+      noteScope(op.model, op.scopeKey, { appendIds: op.append.map(row => row.id), detachIds: op.detach });
     }
   }
+  batch.scopeChanges = [...scopeChanges.values()];
   return batch;
 };
 
