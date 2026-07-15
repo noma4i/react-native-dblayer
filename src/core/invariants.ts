@@ -1,4 +1,4 @@
-/** Date.getTime() comparison — handles timezone offsets (Rails +11:00 vs client Z) */
+/** Date.getTime() comparison - handles timezone offsets (Rails +11:00 vs client Z) */
 const compareTimestamps = (a: string, b: string): number => new Date(a).getTime() - new Date(b).getTime();
 
 /** Return true when an incoming timestamp is newer or equal to the existing timestamp. */
