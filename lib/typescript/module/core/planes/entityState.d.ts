@@ -19,7 +19,9 @@ export type EntityState<T extends {
     values(): T[];
     /** Returns changed top-level fields vs the previous row, or null when the row is new. */
     upsert(row: T): UpsertResult;
-    destroy(id: string): number;
+    destroy(id: string, options?: {
+        tombstone?: boolean;
+    }): number;
     /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
     evict(id: string): boolean;
     isTombstoned(id: string): boolean;

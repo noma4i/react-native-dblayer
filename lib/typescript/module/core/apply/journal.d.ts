@@ -14,6 +14,7 @@ export type JournalOp = {
     kind: 'destroy';
     model: string;
     ids: string[];
+    tombstone?: boolean;
 } | {
     kind: 'scope';
     model: string;
@@ -44,6 +45,11 @@ export declare const createJournal: (storage: StoragePlane, prefix: () => string
     writePending: (record: JournalRecord) => void;
     /** Storage entries marking the record committed + pruning old committed records past the cap. */
     committedEntry: (record: JournalRecord, pruneBeforeEpoch?: number) => Array<{
+        key: string;
+        value: string | null;
+    }>;
+    /** Prune committed records after their checkpoint batch has completed successfully. */
+    pruneCommitted: (pruneBeforeEpoch: number) => Array<{
         key: string;
         value: string | null;
     }>;

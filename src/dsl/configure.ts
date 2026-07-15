@@ -85,6 +85,12 @@ export const flushPersistence = (): void => {
   checkpointScheduler?.flushNow();
 };
 
+/** Persist plane mutations made by maintenance outside an apply-plan epoch. */
+export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void => {
+  getApplyRuntime();
+  checkpointScheduler?.noteMaintenance(models);
+};
+
 /**
  * Idempotently re-apply journal records not yet covered by each model's persisted applied-epoch
  * marker. The host app must call this ONCE at startup, after configureDb and after every model
@@ -107,6 +113,14 @@ export const purgeForeignStorageKeys = (): number => {
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
 export const cancelPersistence = (): void => {
   checkpointScheduler?.cancel();
+};
+
+/** Internal: discard per-runtime WAL/checkpoint caches after storage has been wiped. */
+export const resetPersistenceRuntime = (): void => {
+  checkpointScheduler?.cancel();
+  checkpointScheduler = null;
+  applyRuntime = null;
+  operationState = null;
 };
 
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */

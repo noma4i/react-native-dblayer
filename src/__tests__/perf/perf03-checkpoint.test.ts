@@ -143,7 +143,7 @@ describe('perf 03: checkpoint persistence', () => {
     expect(first.alpha.get('alpha')?.unreadCount).toBe(1);
   });
 
-  it('G. prunes committed records only after a flushed checkpoint', () => {
+  it('G. prunes committed records immediately after a flushed checkpoint', () => {
     const storage = createLoggedStorage();
     const { alpha } = setup(storage, 100);
     for (let index = 0; index < 51; index += 1) alpha.insertStored({ id: `journal-${index}`, value: index, unreadCount: 0 });
@@ -151,6 +151,7 @@ describe('perf 03: checkpoint persistence', () => {
     expect(journal.allRecords()).toHaveLength(51);
 
     flushPersistence();
+    expect(journal.allRecords()).toHaveLength(50);
     alpha.insertStored({ id: 'journal-51', value: 51, unreadCount: 0 });
 
     expect(journal.allRecords()).toHaveLength(50);

@@ -1,4 +1,4 @@
-import { cancelPersistence, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix } from '../dsl/configure';
+import { getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, resetPersistenceRuntime } from '../dsl/configure';
 
 const resetters = new Set<() => void | Promise<void>>();
 
@@ -16,7 +16,7 @@ export const registerReset = (reset: () => void | Promise<void>): (() => void) =
  * teardown can rely on it); an async resetter is a registration error and throws.
  */
 export const resetRuntimeSync = (): void => {
-  cancelPersistence();
+  resetPersistenceRuntime();
   const { storage } = getDbRuntimeConfig();
   storage.set(storage.keys(getStoragePrefix()).map(key => ({ key, value: null })));
   for (const reset of resetters) {

@@ -232,11 +232,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       if (result.changedFields !== null && result.changedFields.length === 0) return null;
       return { id, changedFields: result.changedFields };
     },
-    destroy: (ids: string[]): string[] => {
+    destroy: (ids: string[], tombstone?: boolean): string[] => {
       const removed: string[] = [];
       for (const id of ids) {
         const existed = planes().entityState.read(id) !== undefined;
-        planes().entityState.destroy(id);
+        planes().entityState.destroy(id, { tombstone });
         if (existed) removed.push(id);
       }
       return removed;

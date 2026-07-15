@@ -145,7 +145,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       config.track?.({ input, data });
       return data;
     } catch (error) {
-      if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) optimistic.model.destroy(insertedTempId);
+      if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
+        getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
+      }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && previous && typeof previous === 'object') {
         const previousRecord = previous as Record<string, unknown>;
         const restore: Record<string, unknown> = { ...previousRecord };

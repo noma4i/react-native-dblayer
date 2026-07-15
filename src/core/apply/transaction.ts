@@ -12,7 +12,7 @@ import type { StoragePlane } from '../planes/storagePlane';
 export type ApplyTarget = {
   upsert(rows: unknown[], origin?: 'event' | 'snapshot'): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
-  destroy(ids: string[]): string[];
+  destroy(ids: string[], tombstone?: boolean): string[];
   counter(id: string, field: string, delta: number): boolean;
   scope(scopeKey: string, next: unknown): void;
   scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown> }>; detach: string[] }): void;
@@ -57,7 +57,7 @@ const applyOperations = (ops: JournalOp[]): CommitBatch => {
       if (change) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
     }
     if (op.kind === 'destroy') {
-      for (const id of target.destroy(op.ids)) batch.rows.push({ model: op.model, id, fields: null });
+      for (const id of target.destroy(op.ids, op.tombstone)) batch.rows.push({ model: op.model, id, fields: null });
     }
     if (op.kind === 'counter') {
       if (target.counter(op.id, op.field, op.delta)) batch.rows.push({ model: op.model, id: op.id, fields: [op.field] });
@@ -85,6 +85,10 @@ export const createApplyRuntime = (options: {
   const { storage, prefix, bus, checkpoint } = options;
   const journal = createJournal(storage, prefix);
   let epoch = journal.lastEpoch();
+  checkpoint?.setAfterFlush(flushedEpoch => {
+    const entries = journal.pruneCommitted(flushedEpoch);
+    if (entries.length > 0) storage.set(entries);
+  });
 
   const persistImmediate = (ops: JournalOp[], record: JournalRecord): void => {
     const entries: Array<{ key: string; value: string | null }> = [];

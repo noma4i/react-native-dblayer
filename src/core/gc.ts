@@ -1,4 +1,4 @@
-import { flushPersistence, getOperationState } from '../dsl/configure';
+import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
 
 export type GcHost = {
   modelId: string;
@@ -33,6 +33,7 @@ export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<
 export const collectGarbage = (): GcReport => {
   const marked = new Map<string, Set<string>>();
   const queue: Array<{ model: string; id: string }> = [];
+  const maintainedModels = new Set<string>();
   const mark = (model: string, id: string): void => {
     const host = hosts.get(model);
     if (!host || !host.hasRow(id)) return;
@@ -57,7 +58,10 @@ export const collectGarbage = (): GcReport => {
         if (host.hasRow(id)) mark(host.modelId, id);
         else dead.push(id);
       }
-      if (dead.length > 0) host.detachScopeEntries(key, dead);
+      if (dead.length > 0) {
+        host.detachScopeEntries(key, dead);
+        maintainedModels.add(host.modelId);
+      }
     }
   }
   for (const operation of getOperationState().pending()) {
@@ -80,14 +84,25 @@ export const collectGarbage = (): GcReport => {
       if (live?.has(id)) continue;
       if (host.evict(id)) evicted += 1;
     }
-    if (evicted > 0) report.evicted[host.modelId] = evicted;
+    if (evicted > 0) {
+      report.evicted[host.modelId] = evicted;
+      maintainedModels.add(host.modelId);
+    }
     let scopesRemoved = 0;
     for (const key of host.scopeKeys()) {
       if (host.scopeEntryCount(key) > 0) continue;
       host.removeScope(key);
       scopesRemoved += 1;
     }
-    if (scopesRemoved > 0) report.scopesRemoved[host.modelId] = scopesRemoved;
+    if (scopesRemoved > 0) {
+      report.scopesRemoved[host.modelId] = scopesRemoved;
+      maintainedModels.add(host.modelId);
+    }
+  }
+  if (maintainedModels.size > 0) {
+    const models = [...maintainedModels];
+    noteMaintenancePersistence(models);
+    getCommitBus().publish({ rows: models.map(model => ({ model, id: '__maintenance__', fields: null })), scopes: [] });
   }
 
   flushPersistence();

@@ -52,6 +52,8 @@ export declare const getApplyRuntime: () => ApplyRuntime;
  * must call this on background/inactive and before logout teardown.
  */
 export declare const flushPersistence: () => void;
+/** Persist plane mutations made by maintenance outside an apply-plan epoch. */
+export declare const noteMaintenancePersistence: (models: ReadonlyArray<string>) => void;
 /**
  * Idempotently re-apply journal records not yet covered by each model's persisted applied-epoch
  * marker. The host app must call this ONCE at startup, after configureDb and after every model
@@ -66,6 +68,8 @@ export declare const replayJournal: () => number;
 export declare const purgeForeignStorageKeys: () => number;
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
 export declare const cancelPersistence: () => void;
+/** Internal: discard per-runtime WAL/checkpoint caches after storage has been wiped. */
+export declare const resetPersistenceRuntime: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
 export declare const getOperationState: () => OperationState;
 export {};

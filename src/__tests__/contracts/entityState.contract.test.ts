@@ -31,9 +31,7 @@ describe('EntityState contracts', () => {
     now = 24 * 60 * 60 * 1000 + 1;
 
     const entries = state.persistEntries();
-    const tombstones = JSON.parse(entries[1]!.value as string) as Record<string, unknown>;
-
-    expect(tombstones).toEqual({});
+    expect(entries[1]).toEqual({ key: 'dbl:test:tombstones:entity', value: null });
     expect(state.isTombstoned('x')).toBe(false);
   });
 

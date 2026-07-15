@@ -92,8 +92,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       return next;
     },
     persistEntries: () => [
-      { key: opsKey(), value: JSON.stringify(Object.fromEntries(operations)) },
-      { key: seqKey(), value: JSON.stringify(Object.fromEntries(sequences)) }
+      { key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null },
+      { key: seqKey(), value: sequences.size > 0 ? JSON.stringify(Object.fromEntries(sequences)) : null }
     ],
     hydrate: () => {
       operations.clear();

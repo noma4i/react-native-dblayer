@@ -5,6 +5,8 @@ export type CheckpointTarget = { persistEntries(): Array<{ key: string; value: s
 export type CheckpointScheduler = {
   /** Note one applied plan touching these models; schedules (or forces) a snapshot flush. */
   notePlan(models: ReadonlyArray<string>, epoch: number): void;
+  /** Note direct plane maintenance; persists dirty entries without creating applied-epoch markers. */
+  noteMaintenance(models: ReadonlyArray<string>): void;
   /**
    * Flush pending model snapshots, their applied-epoch markers and the checkpoint meta in ONE
    * ordered storage batch. Meta and applied markers come AFTER the snapshots they describe, so a
@@ -13,6 +15,8 @@ export type CheckpointScheduler = {
   flushNow(): void;
   /** Highest epoch covered by a completed flush - the journal prune gate. */
   flushedEpoch(): number;
+  /** Register the WAL maintenance callback that runs after a successful checkpoint batch. */
+  setAfterFlush(callback: (epoch: number) => void): void;
   pendingPlans(): number;
   cancel(): void;
 };
@@ -31,11 +35,12 @@ export const createCheckpointScheduler = (options: {
   /** Extra storage entries appended to every flush batch (e.g. the operation ledger). */
   extraEntries?: () => Array<{ key: string; value: string | null }>;
 }): CheckpointScheduler => {
-  const dirty = new Map<string, number>();
+  const dirty = new Map<string, number | undefined>();
   let latestEpoch = 0;
   let flushed = 0;
   let plans = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let afterFlush: ((epoch: number) => void) | null = null;
 
   const flushNow = (): void => {
     if (timer) {
@@ -49,7 +54,7 @@ export const createCheckpointScheduler = (options: {
     const markers: Array<{ key: string; value: string | null }> = [];
     for (const [model, epoch] of dirty) {
       entries.push(...options.getTarget(model).persistEntries());
-      markers.push({ key: `${options.prefix()}applied:${model}`, value: String(epoch) });
+      if (epoch !== undefined) markers.push({ key: `${options.prefix()}applied:${model}`, value: String(epoch) });
     }
     entries.push(...markers);
     entries.push(...(options.extraEntries?.() ?? []));
@@ -57,21 +62,35 @@ export const createCheckpointScheduler = (options: {
     dirty.clear();
     options.storage.set(entries);
     flushed = checkpointEpoch;
+    afterFlush?.(checkpointEpoch);
+  };
+
+  const schedule = (): void => {
+    plans += 1;
+    if (plans >= options.maxPendingPlans) {
+      flushNow();
+      return;
+    }
+    if (!timer) timer = setTimeout(flushNow, options.delayMs);
   };
 
   return {
     notePlan: (models, epoch) => {
       for (const model of models) dirty.set(model, epoch);
       latestEpoch = Math.max(latestEpoch, epoch);
-      plans += 1;
-      if (plans >= options.maxPendingPlans) {
-        flushNow();
-        return;
+      schedule();
+    },
+    noteMaintenance: models => {
+      for (const model of models) {
+        if (!dirty.has(model)) dirty.set(model, undefined);
       }
-      if (!timer) timer = setTimeout(flushNow, options.delayMs);
+      schedule();
     },
     flushNow,
     flushedEpoch: () => flushed,
+    setAfterFlush: callback => {
+      afterFlush = callback;
+    },
     pendingPlans: () => plans,
     cancel: () => {
       if (timer) clearTimeout(timer);

@@ -16,7 +16,7 @@ export type ApplyTarget = {
         id: string;
         changedFields: string[] | null;
     } | null;
-    destroy(ids: string[]): string[];
+    destroy(ids: string[], tombstone?: boolean): string[];
     counter(id: string, field: string, delta: number): boolean;
     scope(scopeKey: string, next: unknown): void;
     scopeDelta(scopeKey: string, delta: {

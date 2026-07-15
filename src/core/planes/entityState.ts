@@ -15,7 +15,7 @@ export type EntityState<T extends { id: string }> = {
   values(): T[];
   /** Returns changed top-level fields vs the previous row, or null when the row is new. */
   upsert(row: T): UpsertResult;
-  destroy(id: string): number;
+  destroy(id: string, options?: { tombstone?: boolean }): number;
   /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
   evict(id: string): boolean;
   isTombstoned(id: string): boolean;
@@ -94,13 +94,13 @@ export const createEntityState = <T extends { id: string }>(options: {
       }
       return { seq, changedFields: previous ? diffTopLevelFields(previous, row) : null };
     },
-    destroy: id => {
+    destroy: (id, options = {}) => {
       const seq = clock.next();
       rows.delete(id);
       writes.delete(id);
-      tombstones.set(id, { seq, at: now() });
+      if (options.tombstone !== false) tombstones.set(id, { seq, at: now() });
       dirty.set(id, 'delete');
-      tombstonesDirty = true;
+      if (options.tombstone !== false) tombstonesDirty = true;
       return seq;
     },
     evict: id => {
@@ -122,7 +122,7 @@ export const createEntityState = <T extends { id: string }>(options: {
       }
       dirty.clear();
       if (tombstonesDirty) {
-        entries.push({ key: tombstonesKey(), value: JSON.stringify(Object.fromEntries(tombstones)) });
+        entries.push({ key: tombstonesKey(), value: tombstones.size > 0 ? JSON.stringify(Object.fromEntries(tombstones)) : null });
         tombstonesDirty = false;
       }
       return entries;
