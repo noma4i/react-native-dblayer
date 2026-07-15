@@ -36,6 +36,8 @@ export type ScopeIndex = {
     }): ReconcileResult;
     detach(key: string, ids: string[]): ScopeIndexValue;
     trim(key: string, maxRows: number): string[];
+    /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
+    remove(key: string): void;
     keys(): string[];
     persistEntries(): Array<{
         key: string;

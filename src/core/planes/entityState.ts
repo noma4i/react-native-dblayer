@@ -16,6 +16,8 @@ export type EntityState<T extends { id: string }> = {
   /** Returns changed top-level fields vs the previous row, or null when the row is new. */
   upsert(row: T): UpsertResult;
   destroy(id: string): number;
+  /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
+  evict(id: string): boolean;
   isTombstoned(id: string): boolean;
   snapshot(): number;
   wasWrittenAfter(id: string, capture: number): boolean;
@@ -100,6 +102,12 @@ export const createEntityState = <T extends { id: string }>(options: {
       dirty.set(id, 'delete');
       tombstonesDirty = true;
       return seq;
+    },
+    evict: id => {
+      if (!rows.delete(id)) return false;
+      writes.delete(id);
+      dirty.set(id, 'delete');
+      return true;
     },
     isTombstoned: id => tombstones.has(id),
     snapshot: () => clock.current(),

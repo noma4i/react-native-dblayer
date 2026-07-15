@@ -13,7 +13,8 @@ type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
 export type RelationDecl =
   | { kind: 'belongsTo'; model: ModelRef<StoredRow>; foreignKey: string; touch?: TouchFn; counterCache?: { field: string; filter?: (child: StoredRow) => boolean } }
   | { kind: 'hasMany'; model: ModelRef<StoredRow>; foreignKey: string; dependent?: 'destroy' }
-  | { kind: 'hasOne'; model: ModelRef<StoredRow>; foreignKey: string; comparator?: (left: StoredRow, right: StoredRow) => number };
+  | { kind: 'hasOne'; model: ModelRef<StoredRow>; foreignKey: string; comparator?: (left: StoredRow, right: StoredRow) => number }
+  | { kind: 'references'; model: ModelRef<StoredRow>; ids: (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined };
 
 export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: string[] };
 
@@ -40,6 +41,12 @@ export const hasOne = <TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; comparator?: (left: TChild, right: TChild) => number }
 ): RelationDecl => ({ kind: 'hasOne', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, comparator: options.comparator as ((left: StoredRow, right: StoredRow) => number) | undefined });
+
+/** Declare a GC-only reference edge: ids extracted from the row keep target-model rows alive. */
+export const references = <TChild, TRef>(
+  model: ModelRef<TRef>,
+  options: { ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined }
+): RelationDecl => ({ kind: 'references', model: model as ModelRef<StoredRow>, ids: options.ids as (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined });
 
 /**
  * Model-side capabilities the plan expander needs. Registered once per defineModel; the registry

@@ -73,6 +73,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     guard?: (input: unknown) => boolean;
     relations?: () => Record<string, RelationDecl>;
     scopes?: TScopes;
+    gc?: 'exempt';
     merge?: {
         shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
     };

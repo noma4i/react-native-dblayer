@@ -25,6 +25,8 @@ export type ScopeIndex = {
   reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult;
   detach(key: string, ids: string[]): ScopeIndexValue;
   trim(key: string, maxRows: number): string[];
+  /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
+  remove(key: string): void;
   keys(): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
   hydrate(): void;
@@ -35,10 +37,12 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
   const { modelId, storage, prefix } = options;
   const scopes = new Map<string, ScopeIndexValue>();
   const dirty = new Set<string>();
+  const removed = new Set<string>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
 
   const commit = (key: string, next: ScopeIndexValue): ScopeIndexValue => {
+    removed.delete(key);
     scopes.set(key, next);
     dirty.add(key);
     return next;
@@ -102,15 +106,23 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
       commit(key, { generation: previous.generation + 1, coverage: previous.coverage, entries: kept });
       return trimmedIds;
     },
+    remove: key => {
+      scopes.delete(key);
+      dirty.delete(key);
+      removed.add(key);
+    },
     keys: () => [...scopes.keys()],
     persistEntries: () => {
-      const entries = [...dirty].map(key => ({ key: storageKey(key), value: JSON.stringify(scopes.get(key) ?? empty()) }));
+      const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: JSON.stringify(scopes.get(key) ?? empty()) }));
       dirty.clear();
+      for (const key of removed) entries.push({ key: storageKey(key), value: null });
+      removed.clear();
       return entries;
     },
     hydrate: () => {
       scopes.clear();
       dirty.clear();
+      removed.clear();
       for (const fullKey of storage.keys(storageKey(''))) {
         const raw = storage.get(fullKey);
         if (!raw) continue;
@@ -124,6 +136,7 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
     reset: () => {
       scopes.clear();
       dirty.clear();
+      removed.clear();
     }
   };
 };

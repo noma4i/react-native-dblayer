@@ -26,6 +26,10 @@ export type RelationDecl = {
     model: ModelRef<StoredRow>;
     foreignKey: string;
     comparator?: (left: StoredRow, right: StoredRow) => number;
+} | {
+    kind: 'references';
+    model: ModelRef<StoredRow>;
+    ids: (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined;
 };
 export type MembershipDelta = {
     scopeKey: string;
@@ -50,6 +54,10 @@ export declare const hasMany: <TParent, TChild>(model: ModelRef<TChild>, options
 export declare const hasOne: <TParent, TChild>(model: ModelRef<TChild>, options: {
     foreignKey: keyof TChild & string;
     comparator?: (left: TChild, right: TChild) => number;
+}) => RelationDecl;
+/** Declare a GC-only reference edge: ids extracted from the row keep target-model rows alive. */
+export declare const references: <TChild, TRef>(model: ModelRef<TRef>, options: {
+    ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined;
 }) => RelationDecl;
 /**
  * Model-side capabilities the plan expander needs. Registered once per defineModel; the registry

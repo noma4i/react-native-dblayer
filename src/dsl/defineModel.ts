@@ -3,6 +3,7 @@ import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import type { JournalOp } from '../core/apply/journal';
+import { registerGcHost } from '../core/gc';
 import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
@@ -71,6 +72,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   guard?: (input: unknown) => boolean;
   relations?: () => Record<string, RelationDecl>;
   scopes?: TScopes;
+  gc?: 'exempt';
   merge?: { shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean };
   statics?: (model: ModelCore<any>) => TExt;
 };
@@ -272,6 +274,41 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()]
   };
   registerApplyTarget(config.id, applyTarget);
+  registerGcHost(config.id, {
+    modelId: config.id,
+    exempt: config.gc === 'exempt',
+    rowIds: () => planes().entityState.values().map(row => String(row.id)),
+    hasRow: id => planes().entityState.read(id) !== undefined,
+    scopeKeys: () => planes().scopeIndex.keys(),
+    scopeEntryIds: key => planes().scopeIndex.read(key).entries.map(entry => entry.id),
+    detachScopeEntries: (key, ids) => {
+      planes().scopeIndex.detach(key, ids);
+    },
+    scopeEntryCount: key => planes().scopeIndex.read(key).entries.length,
+    removeScope: key => {
+      planes().scopeIndex.remove(key);
+    },
+    evict: id => planes().entityState.evict(id),
+    referencesOf: id => {
+      const row = planes().entityState.read(id);
+      if (!row) return [];
+      const out: Array<{ model: string; id: string }> = [];
+      for (const relation of Object.values(resolvedRelations())) {
+        if (relation.kind === 'belongsTo') {
+          const value = row[relation.foreignKey];
+          if (typeof value === 'string' && value.length > 0) out.push({ model: relation.model.modelId, id: value });
+        }
+        if (relation.kind === 'references') {
+          const raw = relation.ids(row);
+          const list = Array.isArray(raw) ? raw : [raw];
+          for (const value of list) {
+            if (typeof value === 'string' && value.length > 0) out.push({ model: relation.model.modelId, id: value });
+          }
+        }
+      }
+      return out;
+    }
+  });
 
   /** Snapshot writes (query pages / entity refreshes) apply verbatim - server state is derived already. */
   const applySnapshot = (ops: JournalOp[]): void => {
@@ -436,7 +473,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           compute = () => (id == null ? EMPTY_ROWS : relation.model.getWhere({ [relation.foreignKey]: id }));
           deps = id == null ? [] : [{ kind: 'model', model: relation.model.modelId }];
           isEqual = (a, b) => arraysShallowEqual(a as unknown[], b as unknown[]);
-        } else {
+        } else if (relation.kind === 'hasOne') {
           const comparator = relation.comparator;
           compute = () => {
             if (id == null) return undefined;
@@ -445,6 +482,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
             return comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0];
           };
           deps = id == null ? [] : [{ kind: 'model', model: relation.model.modelId }];
+        } else {
+          compute = () => undefined;
+          deps = [];
         }
         return useLiveRead(compute, deps, isEqual);
       }
