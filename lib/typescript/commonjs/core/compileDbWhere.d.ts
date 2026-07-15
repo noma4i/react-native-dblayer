@@ -4,7 +4,7 @@ export declare const normalizeDbCondition: <TStored>(condition?: Partial<TStored
 /** Sentinel scope key shared by every fetch-state read/write for an empty or missing filter. */
 export declare const ROOT_SCOPE_KEY = "__root__";
 /**
- * Derive the freshness scope key for a filter/scope value.
+ * Derive the stable scope key for a filter/scope value.
  *
  * Single standard shared by every fetch-state read/write path (hook-level `useBaseQuery`/
  * `useBaseInfiniteQuery` and model-level `defineModel`) so the same filter always maps to

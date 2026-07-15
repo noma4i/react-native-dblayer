@@ -50,6 +50,5 @@ export declare const createApplyRuntime: (options: {
     prefix: () => string;
     bus: CommitBus;
     checkpoint?: CheckpointScheduler;
-    setFreshness?: (key: string, value: unknown) => void;
 }) => ApplyRuntime;
 //# sourceMappingURL=transaction.d.ts.map

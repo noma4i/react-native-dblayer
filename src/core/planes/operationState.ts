@@ -13,6 +13,7 @@ export type OperationRecord = {
 };
 
 const CLOSED_TTL_MS = 60 * 60 * 1000;
+const SEQUENCES_CAP = 512;
 
 export type OperationState = {
   begin(operation: Omit<OperationRecord, 'status'>): void;
@@ -82,7 +83,12 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     },
     nextSequence: (key, floor) => {
       const next = Math.max(sequences.get(key) ?? 0, floor) + 1;
+      sequences.delete(key);
       sequences.set(key, next);
+      if (sequences.size > SEQUENCES_CAP) {
+        const oldest = sequences.keys().next().value;
+        if (oldest !== undefined) sequences.delete(oldest);
+      }
       return next;
     },
     persistEntries: () => [

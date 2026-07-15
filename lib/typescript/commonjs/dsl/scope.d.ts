@@ -7,6 +7,10 @@ export interface ScopeSpec<TStored> {
     } | {
         comparator: (a: TStored, b: TStored) => number;
     } | 'server-order';
+    /** Membership cap enforced on first-page refetch (resetOrder) and complete coverage; trimmed ids fall to GC. */
+    retention?: {
+        maxRows: number;
+    };
 }
 /** Declare a model scope without changing its specification. */
 export declare const scope: <TStored>(spec: ScopeSpec<TStored>) => ScopeSpec<TStored>;

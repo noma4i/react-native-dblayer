@@ -336,10 +336,16 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const memberDeps = (scopeKey: string, rows: Array<{ id: string }>): Dependency[] => [scopeDep(scopeKey), ...rows.map(row => rowDep(row.id))];
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
+    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const scopeKey = keyForScope(scopeValue);
-      const { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })), opts);
+      let { next } = planes().scopeIndex.reconcile(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })), opts);
+      const maxRows = spec?.retention?.maxRows;
+      if (maxRows != null && (opts?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
+        planes().scopeIndex.trim(scopeKey, maxRows);
+        next = planes().scopeIndex.read(scopeKey);
+      }
       return [
         { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) },
         { kind: 'scope', model: config.id, scopeKey, next }

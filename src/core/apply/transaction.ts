@@ -45,13 +45,9 @@ export const getApplyTarget = (model: string): ApplyTarget => {
   return target;
 };
 
-const applyOperations = (ops: JournalOp[], setFreshness: (key: string, value: unknown) => void): CommitBatch => {
+const applyOperations = (ops: JournalOp[]): CommitBatch => {
   const batch: CommitBatch = { rows: [], scopes: [] };
   for (const op of ops) {
-    if (op.kind === 'freshness') {
-      setFreshness(op.key, op.value);
-      continue;
-    }
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
       for (const change of target.upsert(op.rows, op.origin)) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
@@ -78,17 +74,15 @@ const applyOperations = (ops: JournalOp[], setFreshness: (key: string, value: un
   return batch;
 };
 
-const touchedModelsOf = (ops: JournalOp[]): string[] => [...new Set(ops.filter(op => op.kind !== 'freshness').map(op => (op as { model: string }).model))];
+const touchedModelsOf = (ops: JournalOp[]): string[] => [...new Set(ops.map(op => op.model))];
 
 export const createApplyRuntime = (options: {
   storage: StoragePlane;
   prefix: () => string;
   bus: CommitBus;
   checkpoint?: CheckpointScheduler;
-  setFreshness?: (key: string, value: unknown) => void;
 }): ApplyRuntime => {
   const { storage, prefix, bus, checkpoint } = options;
-  const setFreshness = options.setFreshness ?? (() => undefined);
   const journal = createJournal(storage, prefix);
   let epoch = journal.lastEpoch();
 
@@ -113,7 +107,7 @@ export const createApplyRuntime = (options: {
       epoch += 1;
       const record: JournalRecord = { epoch, status: 'pending', ops };
       journal.writePending(record);
-      const batch = applyOperations(ops, setFreshness);
+      const batch = applyOperations(ops);
       if (checkpoint) {
         storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
         checkpoint.notePlan(touchedModelsOf(ops), epoch);
@@ -134,10 +128,10 @@ export const createApplyRuntime = (options: {
         return value;
       };
       for (const record of journal.allRecords()) {
-        const ops = record.ops.filter(op => op.kind === 'freshness' || appliedFor((op as { model: string }).model) < record.epoch);
+        const ops = record.ops.filter(op => appliedFor(op.model) < record.epoch);
         epoch = Math.max(epoch, record.epoch);
         if (ops.length === 0) continue;
-        const batch = applyOperations(ops, setFreshness);
+        const batch = applyOperations(ops);
         if (checkpoint) {
           storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
           checkpoint.notePlan(touchedModelsOf(ops), record.epoch);

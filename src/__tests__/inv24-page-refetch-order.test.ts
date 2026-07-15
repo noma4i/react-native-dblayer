@@ -62,4 +62,35 @@ describe('inv24: page refetch order', () => {
 
     expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['n', 'a', 'b', 'c']);
   });
+
+  it('trims retention only on a first-page refetch after keeping loaded pages', () => {
+    configureDb({ storage: createStorage(), transport: { query: async <TData>() => ({ data: {} as TData }), mutation: async <TData>() => ({ data: {} as TData }) } });
+    const Model = defineModel({
+      id: 'RetentionRefetchProbe',
+      name: 'RetentionRefetchProbe',
+      fields: { title: f.str() },
+      scopes: { feed: scope({ sort: 'server-order', retention: { maxRows: 3 } }) }
+    });
+
+    Model.scopes.feed.__apply?.({}, [{ id: 'a', title: 'a' }, { id: 'b', title: 'b' }], 'page');
+    Model.scopes.feed.__apply?.({}, [{ id: 'c', title: 'c' }, { id: 'd', title: 'd' }], 'page');
+    expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['a', 'b', 'c', 'd']);
+
+    Model.scopes.feed.__apply?.({}, [{ id: 'n', title: 'n' }, { id: 'a', title: 'a' }], 'page', { resetOrder: true });
+    expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['n', 'a', 'b']);
+    expect(Model.scopes.feed.read({}).some(row => row.id === 'd')).toBe(false);
+  });
+
+  it('trims complete coverage to the configured retention maximum', () => {
+    configureDb({ storage: createStorage(), transport: { query: async <TData>() => ({ data: {} as TData }), mutation: async <TData>() => ({ data: {} as TData }) } });
+    const Model = defineModel({
+      id: 'RetentionCompleteProbe',
+      name: 'RetentionCompleteProbe',
+      fields: { title: f.str() },
+      scopes: { feed: scope({ sort: 'server-order', retention: { maxRows: 3 } }) }
+    });
+
+    Model.scopes.feed.__apply?.({}, [{ id: 'a', title: 'a' }, { id: 'b', title: 'b' }, { id: 'c', title: 'c' }, { id: 'd', title: 'd' }, { id: 'e', title: 'e' }], 'complete');
+    expect(Model.scopes.feed.read({}).map(row => row.id)).toEqual(['a', 'b', 'c']);
+  });
 });

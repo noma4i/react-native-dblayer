@@ -29,10 +29,6 @@ export type JournalOp = {
     }>;
     detach: string[];
 } | {
-    kind: 'freshness';
-    key: string;
-    value: unknown;
-} | {
     kind: 'counter';
     model: string;
     id: string;

@@ -54,4 +54,23 @@ describe('operation state persistence', () => {
     expect(hydrated.get('op')).toEqual(state.get('op'));
     expect(hydrated.nextSequence('chat', 0)).toBe(12);
   });
+
+  it('evicts cold sequence keys and restores their floor from server data', () => {
+    const state = createOperationState({ storage: createStorage(), prefix: () => 'dbl:test:', now: () => 0 });
+    for (let index = 0; index < 513; index += 1) state.nextSequence(`key-${index}`, 0);
+
+    expect(state.nextSequence('key-0', 40)).toBe(41);
+  });
+
+  it('keeps a recently touched sequence key when the LRU cap evicts the oldest key', () => {
+    const state = createOperationState({ storage: createStorage(), prefix: () => 'dbl:test:', now: () => 0 });
+    state.nextSequence('hot', 0);
+    state.nextSequence('cold', 0);
+    for (let index = 0; index < 510; index += 1) state.nextSequence(`key-${index}`, 0);
+    expect(state.nextSequence('hot', 0)).toBe(2);
+    state.nextSequence('overflow', 0);
+
+    expect(state.nextSequence('cold', 40)).toBe(41);
+    expect(state.nextSequence('hot', 0)).toBe(3);
+  });
 });
