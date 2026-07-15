@@ -41,6 +41,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const committedKeys = new Set<string>();
   const pendingKeys = new Set<string>();
   const hydratedPendingIds = new Set<string>();
+  let sequencesDirty = false;
   const indexOperation = (record: OperationRecord): void => {
     if (!record.idempotencyKey) return;
     if (record.status === 'pending') pendingKeys.add(record.idempotencyKey);
@@ -97,16 +98,22 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         const oldest = sequences.keys().next().value;
         if (oldest !== undefined) sequences.delete(oldest);
       }
+      sequencesDirty = true;
       return next;
     },
-    persistEntries: () => [
-      { key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null },
-      { key: seqKey(), value: sequences.size > 0 ? JSON.stringify(Object.fromEntries(sequences)) : null }
-    ],
+    persistEntries: () => {
+      const entries = [{ key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null }];
+      if (sequencesDirty) {
+        entries.push({ key: seqKey(), value: sequences.size > 0 ? JSON.stringify(Object.fromEntries(sequences)) : null });
+        sequencesDirty = false;
+      }
+      return entries;
+    },
     hydrate: () => {
       operations.clear();
       sequences.clear();
       hydratedPendingIds.clear();
+      sequencesDirty = false;
       const rawOps = storage.get(opsKey());
       if (rawOps) {
         try {
@@ -134,6 +141,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       committedKeys.clear();
       pendingKeys.clear();
       hydratedPendingIds.clear();
+      sequencesDirty = false;
     }
   };
 };

@@ -59,8 +59,8 @@ export const createCheckpointScheduler = (options: {
     entries.push(...markers);
     entries.push(...(options.extraEntries?.() ?? []));
     entries.push({ key: `${options.prefix()}meta`, value: JSON.stringify({ lastCheckpointEpoch: checkpointEpoch }) });
-    dirty.clear();
     options.storage.set(entries);
+    dirty.clear();
     flushed = checkpointEpoch;
     afterFlush?.(checkpointEpoch);
   };

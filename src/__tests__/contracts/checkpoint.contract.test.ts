@@ -98,4 +98,31 @@ describe('Checkpoint contracts', () => {
     expect(configureModule.replayJournal()).toBeGreaterThan(0);
     expect(restarted.getAll()).toEqual([{ id: 'row', title: 'snapshot' }]);
   });
+
+  it('C6: a throwing storage batch retains dirty snapshots for the next flush', () => {
+    const values = new Map<string, string>();
+    let throws = true;
+    const scheduler = createCheckpointScheduler({
+      storage: {
+        get: key => values.get(key),
+        set: entries => {
+          if (throws) {
+            throws = false;
+            throw new Error('storage failed');
+          }
+          for (const entry of entries) entry.value === null ? values.delete(entry.key) : values.set(entry.key, entry.value);
+        },
+        keys: prefix => [...values.keys()].filter(key => key.startsWith(prefix))
+      },
+      prefix: () => 'dbl:',
+      getTarget: () => ({ persistEntries: () => [{ key: 'dbl:row:retry:row', value: 'snapshot' }] }),
+      delayMs: 100000,
+      maxPendingPlans: 100
+    });
+
+    scheduler.notePlan(['retry'], 1);
+    expect(() => scheduler.flushNow()).toThrow('storage failed');
+    scheduler.flushNow();
+    expect(values.get('dbl:row:retry:row')).toBe('snapshot');
+  });
 });

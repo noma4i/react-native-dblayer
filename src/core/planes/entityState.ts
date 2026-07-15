@@ -85,6 +85,8 @@ export const createEntityState = <T extends { id: string }>(options: {
     values: () => [...rows.values()],
     upsert: row => {
       const previous = rows.get(row.id);
+      const changedFields = previous ? diffTopLevelFields(previous, row) : null;
+      if (changedFields !== null && changedFields.length === 0) return { seq: clock.current(), changedFields };
       const seq = clock.next();
       rows.set(row.id, row);
       writes.set(row.id, seq);
@@ -92,13 +94,13 @@ export const createEntityState = <T extends { id: string }>(options: {
       if (tombstones.delete(row.id)) {
         tombstonesDirty = true;
       }
-      return { seq, changedFields: previous ? diffTopLevelFields(previous, row) : null };
+      return { seq, changedFields };
     },
     destroy: (id, options = {}) => {
       const seq = clock.next();
       rows.delete(id);
       writes.delete(id);
-      if (options.tombstone !== false) tombstones.set(id, { seq, at: now() });
+      if (options.tombstone !== false) tombstones.set(id, { seq, at: now() }); // Preserve out-of-order delete-before-create protection within the TTL.
       dirty.set(id, 'delete');
       if (options.tombstone !== false) tombstonesDirty = true;
       return seq;

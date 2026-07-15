@@ -70,4 +70,16 @@ describe('EntityState contracts', () => {
     expect(state.isTombstoned('0')).toBe(true);
     expect(state.isTombstoned('10000')).toBe(true);
   });
+
+  it('C6: an identical upsert preserves row identity and produces no dirty entry', () => {
+    const state = createEntityState<{ id: string; title: string }>({ modelId: 'entity', clock: createEntityClock(), now: () => 0, storage: createMemoryStorage().storage, prefix: () => 'dbl:test:' });
+    const row = { id: 'same', title: 'same' };
+    state.upsert(row);
+    state.persistEntries();
+
+    const result = state.upsert({ id: 'same', title: 'same' });
+    expect(state.read('same')).toBe(row);
+    expect(result.changedFields).toEqual([]);
+    expect(state.persistEntries()).toEqual([]);
+  });
 });

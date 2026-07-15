@@ -69,6 +69,13 @@ describe('OperationState contracts', () => {
     expect(sequences['key:512']).toBe(1);
   });
 
+  it('C6: an idle checkpoint omits the unchanged sequences entry', () => {
+    const state = createOperationState({ storage: createMemoryStorage().storage, prefix: () => 'dbl:test:', now: () => 0 });
+    state.nextSequence('chat:1', 0);
+    expect(state.persistEntries().some(entry => entry.key === 'dbl:test:seq')).toBe(true);
+    expect(state.persistEntries().some(entry => entry.key === 'dbl:test:seq')).toBe(false);
+  });
+
   it('C6: boot reconciliation rolls back hydrated pending operations and releases their dedupe keys', async () => {
     const scenario = createContractScenario({ persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } });
     const Model = defineModel({ id: 'OperationCrashContract', name: 'OperationCrashContract', fields: { title: f.str() } });
