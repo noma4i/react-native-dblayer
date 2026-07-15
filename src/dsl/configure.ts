@@ -93,6 +93,17 @@ export const flushPersistence = (): void => {
  */
 export const replayJournal = (): number => getApplyRuntime().replay();
 
+/**
+ * Remove storage keys outside the library namespace - startup housekeeping that clears pre-v6
+ * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
+ */
+export const purgeForeignStorageKeys = (): number => {
+  const { storage } = getDbRuntimeConfig();
+  const foreign = storage.keys('').filter(key => !key.startsWith(STORAGE_PREFIX));
+  if (foreign.length > 0) storage.set(foreign.map(key => ({ key, value: null })));
+  return foreign.length;
+};
+
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
 export const cancelPersistence = (): void => {
   checkpointScheduler?.cancel();

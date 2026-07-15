@@ -59,6 +59,11 @@ export declare const flushPersistence: () => void;
  * Returns the number of replayed records.
  */
 export declare const replayJournal: () => number;
+/**
+ * Remove storage keys outside the library namespace - startup housekeeping that clears pre-v6
+ * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
+ */
+export declare const purgeForeignStorageKeys: () => number;
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
 export declare const cancelPersistence: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */

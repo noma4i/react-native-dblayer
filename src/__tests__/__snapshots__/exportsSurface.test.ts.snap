@@ -44,6 +44,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "projectShape",
   "pruneExpiredRows",
   "pruneOrphanedRows",
+  "purgeForeignStorageKeys",
   "readFieldsPatch",
   "readShape",
   "readShapeOrThrow",
