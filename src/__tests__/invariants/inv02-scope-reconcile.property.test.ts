@@ -61,5 +61,32 @@ describe('scope index persistence and reconciliation', () => {
     const hydrated = createScopeIndex({ modelId: 'm', storage, prefix });
     hydrated.hydrate();
     expect(hydrated.read('scope')).toEqual(index.read('scope'));
+    expect(hydrated.has('scope', 'a')).toBe(true);
+    expect(hydrated.has('scope', 'c')).toBe(false);
+    expect(hydrated.keysOf('a')).toEqual(['scope']);
+  });
+
+  it('maintains forward and reverse membership indexes across scope changes', () => {
+    const index = createScopeIndex({ modelId: 'm', storage: createStorage(), prefix: () => 'dbl:test:' });
+    index.reconcile('page', 'page', [{ id: 'a' }, { id: 'b' }]);
+    index.reconcile('complete', 'complete', [{ id: 'a' }, { id: 'c' }]);
+    expect(index.has('page', 'a')).toBe(true);
+    expect(index.has('complete', 'c')).toBe(true);
+    expect(index.keysOf('a').sort()).toEqual(['complete', 'page']);
+
+    index.detach('page', ['a']);
+    expect(index.has('page', 'a')).toBe(false);
+    expect(index.keysOf('a')).toEqual(['complete']);
+    expect(index.trim('complete', 1)).toEqual(['c']);
+    expect(index.has('complete', 'c')).toBe(false);
+    expect(index.keysOf('c')).toEqual([]);
+
+    index.write('written', { generation: 1, coverage: 'delta', entries: [{ id: 'd', order: 0, seq: 1 }] });
+    expect(index.has('written', 'd')).toBe(true);
+    expect(index.keysOf('d')).toEqual(['written']);
+    index.remove('complete');
+    expect(index.keysOf('a')).toEqual([]);
+    index.remove('written');
+    expect(index.has('written', 'd')).toBe(false);
   });
 });

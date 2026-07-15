@@ -205,4 +205,18 @@ describe('v6 invariant 17: automatic scope membership', () => {
     expect(view.renders).toHaveBeenCalledTimes(1);
     view.unmount();
   });
+
+  it('J. detaches a destroyed row from every scope containing it', () => {
+    const { chats, messages, chat, message } = setup();
+    chats.insertStored(chat('c1'));
+    chats.insertStored(chat('c2'));
+    const row = message('message-1');
+    messages.insertStored(row);
+    messages.scopes.thread.__apply?.({ chatId: 'c2' }, [row], 'complete');
+
+    messages.destroy('message-1');
+
+    expect(messages.scopes.thread.read({ chatId: 'c1' })).toEqual([]);
+    expect(messages.scopes.thread.read({ chatId: 'c2' })).toEqual([]);
+  });
 });

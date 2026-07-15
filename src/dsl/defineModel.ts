@@ -159,7 +159,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return value;
   };
 
-  const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.read(scopeKey).entries.some(entry => entry.id === id);
+  const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.has(scopeKey, id);
 
   /** Declarative membership: an event row joins/leaves its `by` scopes inside the SAME plan. */
   const membershipForUpsert = (row: Record<string, unknown>): MembershipDelta[] => {
@@ -184,25 +184,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     return membershipForUpsert({ ...patch, id });
   };
 
-  const detachForDestroy = (id: string): MembershipDelta[] => {
-    const row = planes().entityState.read(id);
-    const deltas: MembershipDelta[] = [];
-    const seenKeys = new Set<string>();
-    for (const [, spec] of membershipScopes) {
-      const value = row ? scopeValueFromRow(spec.by, row) : null;
-      const key = value ? keyForScope(value) : null;
-      if (key && !seenKeys.has(key) && isScopeMember(key, id)) {
-        seenKeys.add(key);
-        deltas.push({ scopeKey: key, detach: [id] });
-      }
-    }
-    for (const key of planes().scopeIndex.keys()) {
-      if (seenKeys.has(key) || !isScopeMember(key, id)) continue;
-      seenKeys.add(key);
-      deltas.push({ scopeKey: key, detach: [id] });
-    }
-    return deltas;
-  };
+  const detachForDestroy = (id: string): MembershipDelta[] =>
+    planes().scopeIndex.keysOf(id).map(scopeKey => ({ scopeKey, detach: [id] }));
 
   registerRelationHost(config.id, {
     relations: resolvedRelations,

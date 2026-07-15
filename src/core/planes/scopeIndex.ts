@@ -28,6 +28,10 @@ export type ScopeIndex = {
   /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
   remove(key: string): void;
   keys(): string[];
+  /** O(1) membership check backed by the derived member index. */
+  has(key: string, id: string): boolean;
+  /** All scope keys containing the row - the reverse membership index. */
+  keysOf(id: string): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
   hydrate(): void;
   reset(): void;
@@ -38,11 +42,36 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
   const scopes = new Map<string, ScopeIndexValue>();
   const dirty = new Set<string>();
   const removed = new Set<string>();
+  const memberSets = new Map<string, Set<string>>();
+  const keysByRow = new Map<string, Set<string>>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
 
+  const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
+    const nextIds = new Set(next.entries.map(entry => entry.id));
+    if (previous) {
+      for (const entry of previous.entries) {
+        if (nextIds.has(entry.id)) continue;
+        const keys = keysByRow.get(entry.id);
+        if (!keys) continue;
+        keys.delete(key);
+        if (keys.size === 0) keysByRow.delete(entry.id);
+      }
+    }
+    for (const id of nextIds) {
+      let keys = keysByRow.get(id);
+      if (!keys) {
+        keys = new Set();
+        keysByRow.set(id, keys);
+      }
+      keys.add(key);
+    }
+    memberSets.set(key, nextIds);
+  };
+
   const commit = (key: string, next: ScopeIndexValue): ScopeIndexValue => {
     removed.delete(key);
+    indexCommit(key, scopes.get(key), next);
     scopes.set(key, next);
     dirty.add(key);
     return next;
@@ -107,11 +136,23 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
       return trimmedIds;
     },
     remove: key => {
+      const members = memberSets.get(key);
+      if (members) {
+        for (const id of members) {
+          const keys = keysByRow.get(id);
+          if (!keys) continue;
+          keys.delete(key);
+          if (keys.size === 0) keysByRow.delete(id);
+        }
+        memberSets.delete(key);
+      }
       scopes.delete(key);
       dirty.delete(key);
       removed.add(key);
     },
     keys: () => [...scopes.keys()],
+    has: (key, id) => memberSets.get(key)?.has(id) ?? false,
+    keysOf: id => [...(keysByRow.get(id) ?? [])],
     persistEntries: () => {
       const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: JSON.stringify(scopes.get(key) ?? empty()) }));
       dirty.clear();
@@ -123,6 +164,8 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
       scopes.clear();
       dirty.clear();
       removed.clear();
+      memberSets.clear();
+      keysByRow.clear();
       for (const fullKey of storage.keys(storageKey(''))) {
         const raw = storage.get(fullKey);
         if (!raw) continue;
@@ -132,11 +175,16 @@ export const createScopeIndex = (options: { modelId: string; storage: StoragePla
           storage.set([{ key: fullKey, value: null }]);
         }
       }
+      memberSets.clear();
+      keysByRow.clear();
+      for (const [key, value] of scopes) indexCommit(key, undefined, value);
     },
     reset: () => {
       scopes.clear();
       dirty.clear();
       removed.clear();
+      memberSets.clear();
+      keysByRow.clear();
     }
   };
 };

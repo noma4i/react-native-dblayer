@@ -39,6 +39,10 @@ export type ScopeIndex = {
     /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
     remove(key: string): void;
     keys(): string[];
+    /** O(1) membership check backed by the derived member index. */
+    has(key: string, id: string): boolean;
+    /** All scope keys containing the row - the reverse membership index. */
+    keysOf(id: string): string[];
     persistEntries(): Array<{
         key: string;
         value: string | null;
