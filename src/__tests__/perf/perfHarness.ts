@@ -1,35 +1,15 @@
 import type { Dependency } from '../../core/apply/commitBus';
 import type { StoragePlane } from '../../core/planes/storagePlane';
 import { getCommitBus } from '../../dsl/configure';
-
-export type StorageCounters = { setBatches: number; setEntries: number; gets: number };
+import { createMemoryStorage, type StorageCounters } from '../helpers/memoryStorage';
 
 /** In-memory storage plane that counts persistence work for counted perf specs. */
 export const createCountingStorage = (): { plane: StoragePlane; counters: StorageCounters; resetCounters: () => void } => {
-  const store = new Map<string, string>();
-  const counters: StorageCounters = { setBatches: 0, setEntries: 0, gets: 0 };
+  const memory = createMemoryStorage();
   return {
-    plane: {
-      get: key => {
-        counters.gets += 1;
-        return store.get(key);
-      },
-      set: entries => {
-        counters.setBatches += 1;
-        counters.setEntries += entries.length;
-        for (const { key, value } of entries) {
-          if (value === null) store.delete(key);
-          else store.set(key, value);
-        }
-      },
-      keys: prefix => [...store.keys()].filter(key => key.startsWith(prefix))
-    },
-    counters,
-    resetCounters: () => {
-      counters.setBatches = 0;
-      counters.setEntries = 0;
-      counters.gets = 0;
-    }
+    plane: memory.storage,
+    counters: memory.counters,
+    resetCounters: memory.resetCounters
   };
 };
 
