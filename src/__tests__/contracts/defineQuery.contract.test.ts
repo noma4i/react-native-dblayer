@@ -49,6 +49,23 @@ describe('defineQuery contracts', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['dbl', 'scopeQuery', buildScopeKey({ chatId: '1' })] });
   });
 
+  it('C2b: partial invalidation reaches every registered scope superset and excludes other parents', async () => {
+    const invalidateQueries = jest.fn(async () => undefined);
+    createContractScenario({ queryClient: { invalidateQueries } as unknown as QueryClient });
+    const Model = defineModel({ id: 'SubsetInvalidateContract', name: 'SubsetInvalidateContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
+    const query = defineQuery({ document, key: 'subsetQuery', select: data => data, into: Model.scopes.all });
+
+    await query.fetch({ chatId: 'x' });
+    await query.fetch({ chatId: 'x', mediaBucket: 'visual' });
+    await query.fetch({ chatId: 'y', mediaBucket: 'visual' });
+    invalidateQueries.mockClear();
+    query.invalidate({ chatId: 'x' });
+
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['dbl', 'subsetQuery', buildScopeKey({ chatId: 'x' })] });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['dbl', 'subsetQuery', buildScopeKey({ chatId: 'x', mediaBucket: 'visual' })] });
+    expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['dbl', 'subsetQuery', buildScopeKey({ chatId: 'y', mediaBucket: 'visual' })] });
+  });
+
   it('C3: a first-page refetch places fresh rows before retained later pages', async () => {
     const responses = [
       { conn: { nodes: [{ id: 'a', title: 'a' }, { id: 'b', title: 'b' }], pageInfo: { hasNextPage: true, endCursor: 'c1' } } },

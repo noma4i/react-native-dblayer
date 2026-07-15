@@ -87,6 +87,15 @@ const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> =>
 export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => {
   const keyName = operationKey(config.document, config.key);
   const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
+  const registeredScopes = new Map<string, TScope>();
+  const registerScope = (scope: TScope): void => {
+    registeredScopes.set(buildScopeKey(scope), scope);
+  };
+  const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
+    if (partial == null || typeof partial !== 'object' || Array.isArray(partial)) return Object.is(scope, partial);
+    if (scope == null || typeof scope !== 'object' || Array.isArray(scope)) return false;
+    return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
+  };
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
 
   const pageMetaOf = (connection: ConnectionLike | null): PageMeta => {
@@ -128,6 +137,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   };
 
   const fetch = async (scope: TScope): Promise<void> => {
+    registerScope(scope);
     if (config.enabled && !config.enabled(scope)) return;
     await runFetch(scope, null);
   };
@@ -135,7 +145,14 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   const invalidate = (scope?: TScope): void => {
     const client = getDbRuntimeConfig().queryClient;
     if (!client) return;
-    void client.invalidateQueries({ queryKey: scope === undefined ? ['dbl', keyName] : queryKeyOf(scope) });
+    if (scope === undefined) {
+      void client.invalidateQueries({ queryKey: ['dbl', keyName] });
+      return;
+    }
+    registerScope(scope);
+    for (const registeredScope of registeredScopes.values()) {
+      if (matchesPartialScope(registeredScope, scope)) void client.invalidateQueries({ queryKey: queryKeyOf(registeredScope) });
+    }
   };
   const destinationModelId = (config.into as { modelId?: string }).modelId;
   if (destinationModelId) registerModelInvalidation(destinationModelId, scope => invalidate(scope as TScope | undefined));
@@ -188,6 +205,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   };
 
   const useInfiniteResult = (scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored> => {
+    registerScope(scope);
     const enabled = (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const request = useInfiniteQuery({
       queryKey: queryKeyOf(scope),
@@ -219,6 +237,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   };
 
   const useSingleResult = (scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored> => {
+    registerScope(scope);
     const enabled = (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const request = useQuery({
       queryKey: queryKeyOf(scope),
