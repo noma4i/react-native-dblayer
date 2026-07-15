@@ -36,6 +36,7 @@ export type JournalOp = {
     id: string;
     field: string;
     delta: number;
+    next?: number;
 };
 export type JournalRecord = {
     epoch: number;
