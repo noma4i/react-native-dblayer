@@ -49,7 +49,11 @@ export const createEntityState = <T extends { id: string }>(options: {
   const rows = new Map<string, T>();
   const writes = new Map<string, number>();
   const tombstones = new Map<string, Tombstone>();
-  const rowsKey = () => `${prefix()}rows:${modelId}`;
+  const dirty = new Map<string, 'set' | 'delete'>();
+  let tombstonesDirty = false;
+  const rowKey = (id: string) => `${prefix()}row:${modelId}:${id}`;
+  const rowsPrefix = () => `${prefix()}row:${modelId}:`;
+  const legacyRowsKey = () => `${prefix()}rows:${modelId}`;
   const tombstonesKey = () => `${prefix()}tombstones:${modelId}`;
   const prune = (): number => {
     const cutoff = now() - TOMBSTONE_TTL_MS;
@@ -68,6 +72,9 @@ export const createEntityState = <T extends { id: string }>(options: {
         pruned += 1;
       }
     }
+    if (pruned > 0) {
+      tombstonesDirty = true;
+    }
     return pruned;
   };
 
@@ -79,7 +86,10 @@ export const createEntityState = <T extends { id: string }>(options: {
       const seq = clock.next();
       rows.set(row.id, row);
       writes.set(row.id, seq);
-      tombstones.delete(row.id);
+      dirty.set(row.id, 'set');
+      if (tombstones.delete(row.id)) {
+        tombstonesDirty = true;
+      }
       return { seq, changedFields: previous ? diffTopLevelFields(previous, row) : null };
     },
     destroy: id => {
@@ -87,6 +97,8 @@ export const createEntityState = <T extends { id: string }>(options: {
       rows.delete(id);
       writes.delete(id);
       tombstones.set(id, { seq, at: now() });
+      dirty.set(id, 'delete');
+      tombstonesDirty = true;
       return seq;
     },
     isTombstoned: id => tombstones.has(id),
@@ -96,21 +108,45 @@ export const createEntityState = <T extends { id: string }>(options: {
     pruneTombstones: prune,
     persistEntries: () => {
       prune();
-      return [
-        { key: rowsKey(), value: JSON.stringify([...rows.values()]) },
-        { key: tombstonesKey(), value: JSON.stringify(Object.fromEntries(tombstones)) }
-      ];
+      const entries: Array<{ key: string; value: string | null }> = [];
+      for (const [id, op] of dirty) {
+        entries.push({ key: rowKey(id), value: op === 'set' ? JSON.stringify(rows.get(id)) : null });
+      }
+      dirty.clear();
+      if (tombstonesDirty) {
+        entries.push({ key: tombstonesKey(), value: JSON.stringify(Object.fromEntries(tombstones)) });
+        tombstonesDirty = false;
+      }
+      return entries;
     },
     hydrate: () => {
       rows.clear();
       writes.clear();
       tombstones.clear();
-      const rawRows = storage.get(rowsKey());
-      if (rawRows) {
+      dirty.clear();
+      tombstonesDirty = false;
+      const legacyRaw = storage.get(legacyRowsKey());
+      if (legacyRaw) {
         try {
-          for (const row of JSON.parse(rawRows) as T[]) rows.set(row.id, row);
+          const migrated: Array<{ key: string; value: string | null }> = [];
+          for (const row of JSON.parse(legacyRaw) as T[]) {
+            rows.set(row.id, row);
+            migrated.push({ key: rowKey(row.id), value: JSON.stringify(row) });
+          }
+          migrated.push({ key: legacyRowsKey(), value: null });
+          storage.set(migrated);
         } catch {
-          storage.set([{ key: rowsKey(), value: null }]);
+          storage.set([{ key: legacyRowsKey(), value: null }]);
+        }
+      }
+      for (const fullKey of storage.keys(rowsPrefix())) {
+        const raw = storage.get(fullKey);
+        if (!raw) continue;
+        try {
+          const row = JSON.parse(raw) as T;
+          rows.set(row.id, row);
+        } catch {
+          storage.set([{ key: fullKey, value: null }]);
         }
       }
       const rawTombstones = storage.get(tombstonesKey());
@@ -126,6 +162,8 @@ export const createEntityState = <T extends { id: string }>(options: {
       rows.clear();
       writes.clear();
       tombstones.clear();
+      dirty.clear();
+      tombstonesDirty = false;
     }
   };
 };

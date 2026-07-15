@@ -59,7 +59,7 @@ describe('perf 03: checkpoint persistence', () => {
 
     expect(storage.batches).toHaveLength(2);
     expect(storage.batches.flatMap(batch => batch.map(entry => entry.key)).every(key => key.startsWith('dbl:journal:'))).toBe(true);
-    expect(storage.batches.flatMap(batch => batch.map(entry => entry.key)).some(key => key.startsWith('dbl:rows:') || key.startsWith('dbl:scope:'))).toBe(false);
+    expect(storage.batches.flatMap(batch => batch.map(entry => entry.key)).some(key => key.startsWith('dbl:row:') || key.startsWith('dbl:scope:'))).toBe(false);
   });
 
   it('B. coalesces two plans into one ordered checkpoint batch', () => {
@@ -71,11 +71,11 @@ describe('perf 03: checkpoint persistence', () => {
 
     flushPersistence();
 
-    const rowBatches = storage.batches.filter(batch => batch.some(entry => entry.key.startsWith('dbl:rows:')));
+    const rowBatches = storage.batches.filter(batch => batch.some(entry => entry.key.startsWith('dbl:row:')));
     expect(rowBatches).toHaveLength(1);
     const keys = rowBatches[0].map(entry => entry.key);
     for (const model of ['checkpoint-alpha', 'checkpoint-beta']) {
-      expect(keys.indexOf(`dbl:applied:${model}`)).toBeGreaterThan(keys.indexOf(`dbl:rows:${model}`));
+      expect(keys.indexOf(`dbl:applied:${model}`)).toBeGreaterThan(keys.findIndex(key => key.startsWith(`dbl:row:${model}:`)));
     }
     expect(keys.at(-1)).toBe('dbl:meta');
   });
@@ -104,7 +104,7 @@ describe('perf 03: checkpoint persistence', () => {
     alpha.insertStored({ id: 'three', value: 3, unreadCount: 0 });
 
     expect(storage.batches).toHaveLength(7);
-    expect(storage.batches[6].some(entry => entry.key.startsWith('dbl:rows:'))).toBe(true);
+    expect(storage.batches[6].some(entry => entry.key.startsWith('dbl:row:'))).toBe(true);
     expect(jest.getTimerCount()).toBe(0);
   });
 

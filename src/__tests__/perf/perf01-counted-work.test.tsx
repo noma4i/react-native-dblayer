@@ -79,7 +79,7 @@ describe('perf 01: counted work', () => {
     // WAL: exactly two journal-only batches per plan - pending first, then committed.
     expect(counters.setBatches).toBe(2);
     expect(journalRecordCount(plane)).toBe(beforeJournal + 1);
-    expect(plane.keys('dbl:rows:')).toHaveLength(0);
+    expect(plane.keys('dbl:row:')).toHaveLength(0);
     expect(plane.keys('dbl:scope:')).toHaveLength(0);
     expect(tracker.count()).toBe(1);
     tracker.unsubscribe();
@@ -96,7 +96,7 @@ describe('perf 01: counted work', () => {
     // WAL: exactly two journal-only batches per plan - pending first, then committed.
     expect(counters.setBatches).toBe(2);
     expect(journalRecordCount(plane)).toBe(beforeJournal + 1);
-    expect(plane.keys('dbl:rows:')).toHaveLength(0);
+    expect(plane.keys('dbl:row:')).toHaveLength(0);
     expect(plane.keys('dbl:scope:')).toHaveLength(0);
   });
 

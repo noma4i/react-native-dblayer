@@ -68,4 +68,27 @@ describe('entity state persistence and tombstones', () => {
     expect(hydrated.read('1')).toEqual({ id: '1', name: 'A' });
     expect(hydrated.isTombstoned('2')).toBe(true);
   });
+
+  it('migrates legacy rows and persists only dirty row entries', () => {
+    const storage = createStorage();
+    const prefix = () => 'dbl:';
+    storage.set([{ key: 'dbl:rows:m', value: JSON.stringify([{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }]) }]);
+
+    const state = createEntityState<{ id: string; name?: string }>({ modelId: 'm', clock: createEntityClock(), now: () => 0, storage, prefix });
+    state.hydrate();
+
+    expect(state.read('one')).toEqual({ id: 'one', name: 'One' });
+    expect(state.read('two')).toEqual({ id: 'two', name: 'Two' });
+    expect(storage.keys('dbl:row:m:').sort()).toEqual(['dbl:row:m:one', 'dbl:row:m:two']);
+    expect(storage.get('dbl:rows:m')).toBeUndefined();
+
+    state.upsert({ id: 'one', name: 'Updated' });
+    expect(state.persistEntries()).toEqual([{ key: 'dbl:row:m:one', value: JSON.stringify({ id: 'one', name: 'Updated' }) }]);
+
+    state.destroy('one');
+    expect(state.persistEntries()).toEqual([
+      { key: 'dbl:row:m:one', value: null },
+      { key: 'dbl:tombstones:m', value: expect.any(String) }
+    ]);
+  });
 });
