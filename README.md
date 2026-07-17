@@ -31,6 +31,11 @@ no async hops, debounces, or query-cache round-trips on the write path.
 configureDb({ transport, queryClient });
 ```
 
+DBLay owns the `@tanstack/react-query` version and exports the shared `QueryClient`,
+`QueryClientProvider`, `focusManager`, `useQuery`, and `useQueryClient` primitives for the host app.
+Import them from `@noma4i/react-native-dblayer`. The DBLay query DSL still hides the Query cache from
+model storage: DB rows remain in DBLay planes, not in Query cache entries.
+
 `transport` provides `query`, `mutation`, and `subscribe`. Storage defaults to MMKV and can be
 replaced with any `StoragePlane`. There is no partitioning and no per-user namespace: one flat
 database, and `resetRuntime()` is the kill-switch - it deletes every persisted key, clears all
@@ -110,11 +115,12 @@ const threadQuery = defineQuery({
 const { data, loadingState, hasNextPage, loadMore, refetch } = threadQuery.use({ chatId });
 ```
 
-TanStack Query is hidden: its cache stores only page metadata (cursor, count) - rows live in the
-planes. `extract` sinks apply in the same transaction as the main rows. `loadMore` failures land
-in `error`/`loadingState`, never as unhandled rejections. `emptyStaleTime` lets empty results
-expire faster than filled ones. `invalidate(scope)` targets one scope; `invalidate()` targets
-every scope of that query only. A disabled query with local rows stays `ready`.
+TanStack Query is shared through DBLay package exports, while its cache remains hidden from model
+storage: it stores only page metadata (cursor, count) and rows live in DBLay planes. `extract` sinks
+apply in the same transaction as the main rows. `loadMore` failures land in `error`/`loadingState`,
+never as unhandled rejections. `emptyStaleTime` lets empty results expire faster than filled ones.
+`invalidate(scope)` targets one scope; `invalidate()` targets every scope of that query only. A
+disabled query with local rows stays `ready`.
 
 ## Mutations
 

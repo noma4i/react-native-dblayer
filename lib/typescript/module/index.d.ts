@@ -38,4 +38,5 @@ export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { createThrottledSingleFlight, createKeyedBatchBuffer, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, singletonStatics } from './utils/runtimePrimitives';
 export { reconcileOptimisticRows, pruneOrphanedRows, pruneExpiredRows, trimRowsPerScope, resolveStaleTempRows } from './utils/runtimePrimitives';
 export { patchWhenPresent, waitForRow } from './core/rowWaiters';
+export { focusManager, QueryClient, QueryClientProvider, useQuery, useQueryClient } from './queryRuntime';
 //# sourceMappingURL=index.d.ts.map

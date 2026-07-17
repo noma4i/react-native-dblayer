@@ -3,6 +3,8 @@
 exports[`package exports surface matches the checked-in export name snapshot 1`] = `
 [
   "EMPTY_IDS",
+  "QueryClient",
+  "QueryClientProvider",
   "belongsTo",
   "castNode",
   "castNodes",
@@ -28,6 +30,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "defineShape",
   "f",
   "flushPersistence",
+  "focusManager",
   "generateTempId",
   "getDbQueryClient",
   "getDbTransport",
@@ -63,6 +66,8 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "trimRowsPerScope",
   "useJoinedEntities",
   "useOrderedEntities",
+  "useQuery",
+  "useQueryClient",
   "useStableEntity",
   "useStableProjection",
   "useStableSorted",

@@ -1,7 +1,9 @@
 # Queries
 
-The query DSL runs a GraphQL operation, writes the result into a collection, and hands back the reactive read. It
-sits on `@tanstack/react-query`, so wrap your app in a `QueryClientProvider`.
+The query DSL runs a GraphQL operation, writes the result into a collection, and hands back the reactive read.
+DBLay owns the `@tanstack/react-query` version and exports `QueryClient`, `QueryClientProvider`,
+`focusManager`, `useQuery`, and `useQueryClient` from `@noma4i/react-native-dblayer` for the host app. The query
+cache is not model storage: DBLay rows stay in DBLay planes.
 
 ## `useDbSingleRequest(config)`
 

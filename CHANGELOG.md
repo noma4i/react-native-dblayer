@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.1.1-beta.1 - 2026-07-17
+
+### Query runtime ownership
+
+- Own `@tanstack/react-query` at `5.101.2` and export `QueryClient`, `QueryClientProvider`, `focusManager`, `useQuery`, and `useQueryClient` so consumers use one package-controlled runtime.
+- Remove the unused `@tanstack/react-db` peer and development dependency from the v6 package.
+
+
 ## 6.1.0 - 2026-07-15
 
 ### Reactive read performance
