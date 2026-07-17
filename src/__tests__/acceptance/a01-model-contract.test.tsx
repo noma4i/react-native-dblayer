@@ -70,8 +70,7 @@ describe(`A01 model contract`, () => {
     reader.unmount()
   })
 
-  // ACCEPTANCE-GAP: v6 keeps the tombstone after a public defineIngest event upsert, despite the documented event-origin resurrection contract.
-  it.skip(`A01-3 tombstones reject stale queries but events restore rows`, async () => {
+  it(`A01-3 tombstones reject stale queries but events restore rows`, async () => {
     const transport = createAcceptanceTransport({
       query: async <TData,>() => ({
         data: { items: [{ id: `row-1`, title: `stale` }] } as TData,
@@ -112,6 +111,44 @@ describe(`A01 model contract`, () => {
       ingest.apply(`received`, { id: `row-1`, title: `event` })
     })
     expect(reader.result()).toMatchObject({ id: `row-1`, title: `event` })
+    reader.unmount()
+  })
+
+  it(`A01-3b imperative recreate after destroy clears only its own tombstone`, async () => {
+    const transport = createAcceptanceTransport({
+      query: async <TData,>() => ({
+        data: { items: [{ id: `other-row`, title: `stale other` }] } as TData,
+      }),
+    })
+    setupAcceptanceRuntime({ transport })
+    const model = defineModel({
+      id: `A01ImperativeRecreate`,
+      name: `A01ImperativeRecreate`,
+      fields: { title: f.str() },
+    })
+    const query = defineQuery({
+      document,
+      key: `a01-imperative-recreate`,
+      select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
+      into: model,
+    })
+
+    act(() => {
+      model.insertStored({ id: `recreated-row`, title: `before destroy` })
+      model.insertStored({ id: `other-row`, title: `before destroy` })
+      model.destroy(`recreated-row`)
+      model.destroy(`other-row`)
+      model.insertStored({ id: `recreated-row`, title: `recreated` })
+    })
+    const reader = renderCounted(() => model.use.row(`recreated-row`))
+    expect(reader.result()).toMatchObject({ id: `recreated-row`, title: `recreated` })
+    expect(model.getAll()).toEqual([{ id: `recreated-row`, title: `recreated` }])
+
+    await act(async () => {
+      await query.fetch({})
+    })
+    expect(model.get(`other-row`)).toBeUndefined()
+    expect(model.getAll()).toEqual([{ id: `recreated-row`, title: `recreated` }])
     reader.unmount()
   })
 

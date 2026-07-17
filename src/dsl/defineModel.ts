@@ -218,7 +218,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         getDbLogger().error(`[${config.name}] apply row rejected`, { error });
         continue;
       }
-      if (origin !== 'replace' && planes().entityState.isTombstoned(incoming.id)) continue;
+      if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
       const result = planes().entityState.upsert({ ...current, ...incoming });
@@ -310,7 +310,15 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   /** Imperative/domain writes are events: expand declared relation side effects into the same plan. */
   const applyEvent = (ops: JournalOp[]): void => {
-    getApplyRuntime().apply(expandPlan(ops));
+    getApplyRuntime().apply(
+      expandPlan(
+        ops.map(op =>
+          op.kind === 'upsert' && op.origin === undefined
+            ? { ...op, origin: 'event' as const }
+            : op
+        )
+      )
+    );
   };
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {

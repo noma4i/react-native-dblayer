@@ -28,7 +28,7 @@ describe('defineModel contracts', () => {
     expect(Model.get('live')).toEqual({ id: 'live', title: 'written' });
   });
 
-  it('C2: snapshot and event upserts to a tombstoned id are dropped while a replace upsert applies', () => {
+  it('C2: snapshot upserts to a tombstoned id are dropped while event and replace upserts apply', () => {
     createContractScenario();
     const Model = defineModel({ id: 'TombstoneContract', name: 'TombstoneContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
     Model.insertStored({ id: 'row', title: 'first' });
@@ -40,7 +40,7 @@ describe('defineModel contracts', () => {
     expect(Model.scopes.all.read({})).toEqual([]);
 
     defineIngest(Model, { updated: payload => ({ upsert: payload }) }).apply('updated', { id: 'row', title: 'event' });
-    expect(Model.get('row')).toBeUndefined();
+    expect(Model.get('row')).toEqual({ id: 'row', title: 'event' });
 
     Model.replaceRaw('row', { id: 'row', title: 'replacement' });
     expect(Model.get('row')).toEqual({ id: 'row', title: 'replacement' });

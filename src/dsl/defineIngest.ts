@@ -39,7 +39,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
     }
     if (ids.length > 0) ops.push({ kind: 'destroy', model: model.modelId, ids });
     for (const sink of declaration.extract ?? []) {
-      ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
+      ops.push(...(sink.into.__planRows?.(sink.rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)) ?? []));
     }
     if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
     if (declaration.invalidate) model.invalidate();

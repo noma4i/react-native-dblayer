@@ -138,7 +138,7 @@ describe('Apply pipeline contracts', () => {
     expect(replayJournal()).toBe(0);
   });
 
-  it('C7: a replayed legacy event-origin upsert cannot resurrect a tombstoned row', () => {
+  it('C7: a replayed event-origin upsert resurrects a tombstoned row', () => {
     const scenario = createContractScenario({ persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } });
     const Model = defineModel({ id: 'LegacyEventOriginContract', name: 'LegacyEventOriginContract', fields: { title: f.str() } });
     Model.destroy('row');
@@ -147,6 +147,6 @@ describe('Apply pipeline contracts', () => {
     ]);
 
     expect(replayJournal()).toBeGreaterThanOrEqual(0);
-    expect(Model.get('row')).toBeUndefined();
+    expect(Model.get('row')).toEqual({ id: 'row', title: 'stale event' });
   });
 });
