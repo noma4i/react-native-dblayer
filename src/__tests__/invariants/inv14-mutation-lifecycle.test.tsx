@@ -239,14 +239,16 @@ describe('v6 invariant 14: mutation lifecycle', () => {
     });
     const events: string[] = [];
     let tempId: string | null = null;
+    let operationId: string | null = null;
     const input = { text: 'lifecycle' };
     const mutation = send(messages, {
-      onMutate: (_input: Input, ctx: { tempId: string | null }) => {
+      onMutate: (_input: Input, ctx: { tempId: string | null; operationId: string }) => {
         tempId = ctx.tempId;
+        operationId = ctx.operationId;
         events.push('mutate');
       },
-      onCommit: (data: MutationData, ctx: { tempId: string | null; input: Input }) => {
-        expect(ctx).toEqual({ tempId, input });
+      onCommit: (data: MutationData, ctx: { tempId: string | null; operationId: string; input: Input }) => {
+        expect(ctx).toEqual({ tempId, operationId, input });
         expect(data.messageSend?.message.id).toBe('lifecycle-1');
         events.push('commit');
       },

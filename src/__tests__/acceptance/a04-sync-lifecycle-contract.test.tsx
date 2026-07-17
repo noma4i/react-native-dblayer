@@ -20,37 +20,49 @@ const document = { kind: `Document`, definitions: [] } as never;
 const scopeValue = { feed: `acceptance` };
 
 describe(`A04 sync lifecycle contract`, () => {
-  // ACCEPTANCE-GAP: defineMutation exposes dedupe keys but does not expose a caller-provided operationId for defineIngest echo matching.
-  it.skip(`A04-1 skips an ingest echo for a committed mutation operation id`, async () => {
+  it(`A04-1 skips an ingest echo for a committed mutation operation id`, async () => {
     const transport = createAcceptanceTransport({
       mutation: async <TData,>() => ({ data: { save: { id: `server`, title: `saved` } } as TData })
     });
     setupAcceptanceRuntime({ transport });
     const model = defineModel({ id: `A04Echo`, name: `A04Echo`, fields: { title: f.str() } });
+    let optimisticOperationId: string | undefined;
     const mutation = defineMutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>({
       document,
       result: `save`,
-      dedupe: { key: () => `operation-id` },
+      mapInput: (_input, context) => ({ operationId: context.operationId }),
       optimistic: {
         model,
-        build: (_input, context) => ({ id: context.tempId!, title: `pending` }),
+        build: (_input, context) => {
+          optimisticOperationId = context.operationId;
+          return { id: context.tempId!, title: `pending` };
+        },
         selectServerNode: data => data.save
       }
     });
-    const ingest = defineIngest(model, {
-      received: () => ({ operationId: `operation-id`, upsert: { id: `echo`, title: `echo` } })
-    });
+    const ingest = defineIngest(model, { received: payload => payload as { operationId: string; upsert: { id: string; title: string } } });
     const reader = renderCounted(() => model.use.row(`echo`));
 
     await act(async () => {
       await mutation.run({});
     });
+    const request = transport.calls.find(call => call.kind === `mutation`)?.operation as {
+      variables: { input: { operationId: string } };
+    };
+    const operationId = request.variables.input.operationId;
+    expect(operationId).toEqual(expect.any(String));
+    expect(operationId).toBe(optimisticOperationId);
     const renders = reader.renders();
     act(() => {
-      ingest.apply(`received`, {});
+      ingest.apply(`received`, { operationId, upsert: { id: `echo`, title: `echo` } });
     });
     expect(model.get(`echo`)).toBeUndefined();
     expect(reader.renders()).toBe(renders);
+    act(() => {
+      ingest.apply(`received`, { operationId: `different-operation-id`, upsert: { id: `echo`, title: `echo` } });
+    });
+    expect(reader.result()).toEqual({ id: `echo`, title: `echo` });
+    expect(reader.renders()).toBe(renders + 1);
     reader.unmount();
   });
 
@@ -285,12 +297,11 @@ describe(`A04 sync lifecycle contract`, () => {
     reader.unmount();
   });
 
-  // ACCEPTANCE-GAP: purgeForeignStorageKeys documents and implements non-dbl key cleanup, not removal of undefined-model dbl keys.
-  it.skip(`A04-8 removes foreign dbl keys while preserving non-dbl and defined-model keys`, () => {
+  it(`A04-8 removes non-dbl keys while preserving all dbl keys without notifying readers`, () => {
     const storage = createMemoryPlane();
     storage.set([
-      { key: `dbl:model:ForeignModel`, value: `foreign` },
-      { key: `outside`, value: `outside` }
+      { key: `v5:rows:Chat`, value: `foreign` },
+      { key: `dbl:row:ForeignModel:foreign`, value: JSON.stringify({ id: `foreign`, title: `foreign` }) }
     ]);
     setupAcceptanceRuntime({ storage });
     const defined = defineModel({ id: `A04Defined`, name: `A04Defined`, fields: { title: f.str() } });
@@ -298,11 +309,15 @@ describe(`A04 sync lifecycle contract`, () => {
       defined.insertStored({ id: `defined`, title: `defined` });
       flushPersistence();
     });
+    const reader = renderCounted(() => defined.use.row(`defined`));
+    const renders = reader.renders();
 
-    purgeForeignStorageKeys();
-    expect(storage.get(`dbl:model:ForeignModel`)).toBeUndefined();
-    expect(storage.get(`outside`)).toBe(`outside`);
-    expect(storage.keys(`dbl:model:A04Defined`)).not.toHaveLength(0);
+    expect(purgeForeignStorageKeys()).toBe(1);
+    expect(storage.get(`v5:rows:Chat`)).toBeUndefined();
+    expect(storage.get(`dbl:row:ForeignModel:foreign`)).toBe(JSON.stringify({ id: `foreign`, title: `foreign` }));
+    expect(storage.keys(`dbl:row:A04Defined:`)).not.toHaveLength(0);
+    expect(reader.renders()).toBe(renders);
+    reader.unmount();
   });
 
   it(`A04-9 removes persisted pending optimistic rows during crash reconciliation`, () => {

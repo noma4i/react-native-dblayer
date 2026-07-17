@@ -19,7 +19,12 @@ type MutationModel = {
   __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
 };
 
-export type OptimisticCtx = { tempId: string | null };
+/**
+ * Context shared by optimistic and transport-variable builders for one mutation run.
+ * Send `operationId` to the server, echo it on subscription events, and pass it as
+ * `operationId` in the declaration returned by `defineIngest` to skip committed echoes.
+ */
+export type OptimisticCtx = { tempId: string | null; operationId: string };
 
 export type MutateCallbacks<TData> = {
   /** Receives null when the call was skipped by dedupe (already committed / pending). */
@@ -45,7 +50,8 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
   document: DbGraphQLDocument<TData, any>;
   /** Response field owning the mutation payload; a null payload is treated as failure and rolls back. */
   result: string;
-  mapInput?: (input: TInput) => Record<string, unknown>;
+  /** Build transport variables from the mutation input and its optimistic operation context. */
+  mapInput?: (input: TInput, ctx: OptimisticCtx) => Record<string, unknown>;
   optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
   /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
   extract?: (ctx: { data: TData }) => ExtractSink[];
@@ -87,7 +93,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
         tempId = newTempId;
         insertedTempId = newTempId;
-        const row = optimistic.build(input, { tempId: newTempId });
+        const row = optimistic.build(input, { tempId: newTempId, operationId });
         optimistic.model.insertStored({ ...(row as Record<string, unknown>), id: newTempId });
       }
     } else if (optimistic && optimistic.method === 'patch') {
@@ -109,16 +115,17 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         model: optimistic?.model.modelId ?? '',
         tempIds: tempId ? [tempId] : [],
         intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
-        idempotencyKey: dedupeKey ?? undefined,
+        idempotencyKey: dedupeKey ?? operationId,
         createdAt: Date.now()
       });
     }
-    config.onMutate?.(input, { tempId });
+    const context: OptimisticCtx = { tempId, operationId };
+    config.onMutate?.(input, context);
     const generation = getRuntimeGeneration();
 
     let data: TData;
     try {
-      data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input) ?? input } })).data as TData;
+      data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } })).data as TData;
       if (generation !== getRuntimeGeneration()) return null;
       const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
       if (payload == null) throw new Error(`${config.result} returned no data`);
@@ -171,7 +178,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       } catch (observerError) {
         getDbLogger().error('defineMutation onSyncError failed', { error: observerError });
       }
-      config.onError?.(error as Error, { tempId, input });
+      config.onError?.(error as Error, { ...context, input });
       throw error;
     }
     const reportCallbackError = (error: unknown, callback: string): void => {
@@ -190,7 +197,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         reportCallbackError(error, callback);
       }
     };
-    runCommittedCallback('onCommit', () => config.onCommit?.(data, { tempId, input }));
+    runCommittedCallback('onCommit', () => config.onCommit?.(data, { ...context, input }));
     runCommittedCallback('invalidate', () => config.invalidate?.({ input, data }));
     runCommittedCallback('track', () => config.track?.({ input, data }));
     return data;
