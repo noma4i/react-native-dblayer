@@ -172,8 +172,7 @@ describe(`A04 sync lifecycle contract`, () => {
     reader.unmount()
   })
 
-  // ACCEPTANCE-GAP: collectGarbage evicts the detached row, but its row-level public hook is not notified and remains stale.
-  it.skip(`A04-6 collects detached rows while retaining reachable and exempt rows`, async () => {
+  it(`A04-6 collects detached rows while retaining reachable and exempt rows`, async () => {
     const responses = [
       {
         children: [
@@ -192,7 +191,7 @@ describe(`A04 sync lifecycle contract`, () => {
     const transport = createAcceptanceTransport({
       query: async <TData,>() => ({ data: responses.shift() as TData }),
     })
-    setupAcceptanceRuntime({ transport })
+    const { storage } = setupAcceptanceRuntime({ transport })
     const parent = defineModel({ id: `A04GcParent`, name: `A04GcParent`, fields: { title: f.str() } })
     const child = defineModel({
       id: `A04GcChild`,
@@ -214,6 +213,20 @@ describe(`A04 sync lifecycle contract`, () => {
       },
     })
     const detachedReader = renderCounted(() => child.use.row(`detached`))
+    storage.set([
+      {
+        key: `dbl:scope:A04GcDeadScope:feed:{"feed":"dead"}`,
+        value: JSON.stringify({ generation: 1, coverage: `complete`, entries: [{ id: `missing`, order: 0, seq: 1 }] }),
+      },
+    ])
+    const deadScope = defineModel({
+      id: `A04GcDeadScope`,
+      name: `A04GcDeadScope`,
+      fields: { title: f.str() },
+      scopes: { feed: scope({ sort: `server-order` }) },
+    })
+    const deadScopeReader = renderCounted(() => deadScope.scopes.feed.use({ feed: `dead` }))
+    const unrelatedReader = renderCounted(() => exempt.use.row(`exempt`))
 
     await act(async () => {
       await query.fetch(scopeValue)
@@ -221,14 +234,23 @@ describe(`A04 sync lifecycle contract`, () => {
     })
     expect(child.scopes.feed.read(scopeValue).map((row) => row.id)).toEqual([`live`])
     expect(child.get(`detached`)).toBeDefined()
-    act(() => {
-      collectGarbage()
+    const detachedRenders = detachedReader.renders()
+    const scopeRenders = deadScopeReader.renders()
+    const unrelatedRenders = unrelatedReader.renders()
+    await act(async () => {
+      await collectGarbage()
     })
     expect(child.getAll().map((row) => row.id)).toEqual([`live`])
     expect(detachedReader.result()).toBeUndefined()
+    expect(detachedReader.renders()).toBe(detachedRenders + 1)
+    expect(deadScopeReader.result()).toEqual([])
+    expect(deadScopeReader.renders()).toBe(scopeRenders + 1)
+    expect(unrelatedReader.renders()).toBe(unrelatedRenders)
     expect(parent.get(`parent`)).toEqual({ id: `parent`, title: `parent` })
     expect(exempt.get(`exempt`)).toEqual({ id: `exempt`, title: `exempt` })
     detachedReader.unmount()
+    deadScopeReader.unmount()
+    unrelatedReader.unmount()
   })
 
   it(`A04-7 replays checkpointed and journal-only writes once after a crash`, () => {

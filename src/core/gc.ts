@@ -34,6 +34,9 @@ export const collectGarbage = (): GcReport => {
   const marked = new Map<string, Set<string>>();
   const queue: Array<{ model: string; id: string }> = [];
   const maintainedModels = new Set<string>();
+  const rows: Array<{ model: string; id: string; fields: null }> = [];
+  const scopes: Array<{ model: string; scopeKey: string }> = [];
+  const scopeChanges: Array<{ model: string; scopeKey: string; detachIds?: string[]; rebuild?: boolean }> = [];
   const mark = (model: string, id: string): void => {
     const host = hosts.get(model);
     if (!host || !host.hasRow(id)) return;
@@ -61,6 +64,8 @@ export const collectGarbage = (): GcReport => {
       if (dead.length > 0) {
         host.detachScopeEntries(key, dead);
         maintainedModels.add(host.modelId);
+        scopes.push({ model: host.modelId, scopeKey: key });
+        scopeChanges.push({ model: host.modelId, scopeKey: key, detachIds: dead });
       }
     }
   }
@@ -82,7 +87,10 @@ export const collectGarbage = (): GcReport => {
     let evicted = 0;
     for (const id of host.rowIds()) {
       if (live?.has(id)) continue;
-      if (host.evict(id)) evicted += 1;
+      if (host.evict(id)) {
+        evicted += 1;
+        rows.push({ model: host.modelId, id, fields: null });
+      }
     }
     if (evicted > 0) {
       report.evicted[host.modelId] = evicted;
@@ -93,6 +101,8 @@ export const collectGarbage = (): GcReport => {
       if (host.scopeEntryCount(key) > 0) continue;
       host.removeScope(key);
       scopesRemoved += 1;
+      scopes.push({ model: host.modelId, scopeKey: key });
+      scopeChanges.push({ model: host.modelId, scopeKey: key, rebuild: true });
     }
     if (scopesRemoved > 0) {
       report.scopesRemoved[host.modelId] = scopesRemoved;
@@ -102,7 +112,7 @@ export const collectGarbage = (): GcReport => {
   if (maintainedModels.size > 0) {
     const models = [...maintainedModels];
     noteMaintenancePersistence(models);
-    getCommitBus().publish({ rows: models.map(model => ({ model, id: '__maintenance__', fields: null })), scopes: [] });
+    getCommitBus().publish({ rows, scopes, mode: 'maintenance', scopeChanges, maintenanceModels: models });
   }
 
   flushPersistence();
