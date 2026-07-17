@@ -55,7 +55,7 @@ describe(`A02 query contract`, () => {
     })
     expect(view.result().map((row) => row.id)).toEqual([`b`, `a`])
     act(() => {
-      result.result().loadMore()
+      result.result().fetchNextPage()
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -129,7 +129,7 @@ describe(`A02 query contract`, () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     act(() => {
-      result.result().loadMore()
+      result.result().fetchNextPage()
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -287,7 +287,7 @@ describe(`A02 query contract`, () => {
     expect(window.result().rows.map((row) => row.id)).toEqual([`one`, `two`, `three`])
     expect(result.result().hasNextPage).toBe(true)
     act(() => {
-      result.result().loadMore()
+      result.result().fetchNextPage()
     })
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))

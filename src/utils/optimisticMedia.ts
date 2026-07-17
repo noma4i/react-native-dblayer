@@ -20,12 +20,6 @@ const isMissingDimension = (value: unknown): boolean => !isPositiveFiniteNumber(
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 
-export function mergeOptimisticMedia<TMedia extends MediaRecord>(
-  optimistic: TMedia | null | undefined,
-  server: TMedia | null | undefined,
-  options?: MergeOptimisticMediaOptions<TMedia>
-): TMedia | null | undefined;
-export function mergeOptimisticMedia(optimistic: unknown, server: unknown, options?: MergeOptimisticMediaOptions): unknown;
 /**
  * Merge generic optimistic media continuity fields into a server media object.
  *
@@ -38,6 +32,24 @@ export function mergeOptimisticMedia(optimistic: unknown, server: unknown, optio
  * @param options Dimension key pair and source-like string keys to merge.
  * @returns Server media with generic optimistic continuity fields applied, or the original server value.
  */
+export function mergeOptimisticMedia<TMedia extends MediaRecord>(
+  optimistic: TMedia | null | undefined,
+  server: TMedia | null | undefined,
+  options?: MergeOptimisticMediaOptions<TMedia>
+): TMedia | null | undefined;
+/**
+ * Merge generic optimistic media continuity fields into a server media object.
+ *
+ * Positive optimistic dimensions are preserved when the server omits or zeroes configured dimension
+ * keys, while real server dimensions win. Configured source keys prefer non-empty server strings and
+ * otherwise keep non-empty optimistic strings. Nullish or non-object server values are returned as-is.
+ *
+ * @param optimistic Optimistic media-like record, or any nullish/non-object value.
+ * @param server Server media-like record, or any nullish/non-object value.
+ * @param options Dimension key pair and source-like string keys to merge.
+ * @returns Server media with generic optimistic continuity fields applied, or the original server value.
+ */
+export function mergeOptimisticMedia(optimistic: unknown, server: unknown, options?: MergeOptimisticMediaOptions): unknown;
 export function mergeOptimisticMedia(optimistic: unknown, server: unknown, options: MergeOptimisticMediaOptions = {}): unknown {
   if (!isNonArrayRecord(server)) return server;
 

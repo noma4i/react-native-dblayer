@@ -60,7 +60,7 @@ export const pickEqual = <T extends object>(prev: T | null | undefined, next: T 
 const defaultStableGetKey = <TSource>(source: TSource): string => {
   const id = (source as { id?: unknown }).id;
   if (typeof id !== 'string') {
-    throw new Error('useStableItems default getKey requires source items with a string id.');
+    throw new Error('useStableProjection default getKey requires source items with a string id.');
   }
   return id;
 };
@@ -87,8 +87,17 @@ const resolveStableItemsConfig = <TSource, TEntry extends { item: TItem }, TItem
   };
 };
 
-/** React hook wrapper around `buildStableItems` with cache ownership and array identity reuse. */
-export function useStableItems<TSource, TEntry extends { item: TItem }, TItem extends object>(
+/**
+ * React hook that projects a stable item list: it owns an entry cache keyed by `getKey`, reuses cached
+ * entries whose `entriesEqual` still holds, and returns the previous array reference when every item is
+ * unchanged.
+ *
+ * @param sources Source rows to project, in order.
+ * @param config Projection config: `getKey` (defaults to `source.id`), `buildEntry` (defaults to
+ * `{ item: source }`), `emptyItems`, and either `entriesEqual` or `renderKeys` for entry equality.
+ * @returns The projected item array; the same array reference when nothing changed, a new array otherwise.
+ */
+export function useStableProjection<TSource, TEntry extends { item: TItem }, TItem extends object>(
   sources: TSource[],
   config: StableItemsConfig<TSource, TEntry, TItem>
 ): TItem[] {
@@ -119,7 +128,16 @@ const stableEntityEqual = <TItem extends object>(prev: TItem, next: TItem, confi
   return isEqual(omit(prev, config.volatileKeys), omit(next, config.volatileKeys));
 };
 
-/** React hook that reuses one entity reference while configured fields remain equal. */
+/**
+ * React hook that reuses one entity reference while configured fields remain equal, so consumers memoized
+ * on identity skip re-rendering for changes to fields they do not display.
+ *
+ * @param value Current entity value; `null`/`undefined` pass through unchanged (adopting the new nullish
+ * value immediately resets the stored reference, so returning to a non-nullish value always adopts it).
+ * @param config Either `renderKeys` (compare only these fields) or `volatileKeys` (compare all fields
+ * except these).
+ * @returns `value` on the first call or after a real change; otherwise the previous stable reference.
+ */
 export function useStableEntity<TItem extends object>(value: TItem | null | undefined, config: StableEntityConfig<TItem>): TItem | null | undefined {
   const stableRef = useRef<TItem | null | undefined>(value);
   const previous = stableRef.current;
@@ -137,7 +155,17 @@ export function useStableEntity<TItem extends object>(value: TItem | null | unde
   return value;
 }
 
-/** React hook that memoizes sorted output and reuses it for element-identical input arrays. */
+/**
+ * React hook that memoizes sorted output and reuses it for element-identical input arrays, so a component
+ * memoized on the sorted array's identity skips re-rendering when nothing actually moved.
+ *
+ * @param source Rows to sort; not mutated.
+ * @param compare Standard `Array.prototype.sort` comparator.
+ * @param invalidationKey Extra dependency that forces a resort even when `source`'s elements are unchanged
+ * (e.g. a sort-direction flag `compare` closes over).
+ * @returns The sorted array; the same array reference when `source` (by element identity) and
+ * `invalidationKey` are both unchanged since the last call, a new sorted array otherwise.
+ */
 export const useStableSorted = <T>(source: T[], compare: (left: T, right: T) => number, invalidationKey?: unknown): T[] => {
   const sortRef = useRef<{ source: T[]; invalidationKey: unknown; output: T[] } | null>(null);
 

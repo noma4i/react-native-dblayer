@@ -4,7 +4,13 @@ export const isRecord = (value: unknown): value is Record<string, unknown> => ty
 /** Narrow a value to a non-null, non-array record. */
 export const isNonArrayRecord = (value: unknown): value is Record<string, unknown> => isRecord(value) && !Array.isArray(value);
 
-/** Convert a value to string while preserving null and undefined. */
+/**
+ * Convert a value to string via `String(v)` while preserving explicit `null`/`undefined` as-is (they are
+ * not stringified to `"null"`/`"undefined"`). Note this does not filter empty strings - `toStr('')` is `''`.
+ *
+ * @param v Value to stringify.
+ * @returns `String(v)`, or `v` unchanged when it is `null`/`undefined`.
+ */
 export const toStr = (v: unknown): string | null | undefined => (v != null ? String(v) : (v as null | undefined));
 
 /** Read a string or return undefined for missing or malformed values. */

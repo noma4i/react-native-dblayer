@@ -1,4 +1,16 @@
-/** Cast unknown connection nodes at the package boundary. */
+/**
+ * Cast unknown connection nodes (e.g. GraphQL response `edges`/`nodes` typed as `unknown[]` by transport
+ * boundaries) to `T[]` at the package boundary. A type-only cast - performs no runtime check or copy.
+ *
+ * @param nodes Untyped node array.
+ * @returns The same array, retyped as `T[]`.
+ */
 export const castNodes = <T>(nodes: unknown[]): T[] => nodes as T[];
-/** Cast an unknown node at the package boundary. */
+/**
+ * Cast an unknown node (e.g. a GraphQL response field typed `unknown` by transport boundaries) to `T` at
+ * the package boundary. A type-only cast - performs no runtime check or copy.
+ *
+ * @param node Untyped node.
+ * @returns The same value, retyped as `T`.
+ */
 export const castNode = <T>(node: unknown): T => node as T;

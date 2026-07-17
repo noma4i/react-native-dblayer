@@ -309,12 +309,12 @@ preserve item and array references for list UIs.
 | API | Purpose |
 | --- | --- |
 | `buildStableItems(source, config, previousCache)` | Non-React core; reuses prior entry items when `entriesEqual` passes. |
-| `useStableItems(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
+| `useStableProjection(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
 | `useStableEntity(value, config)` | Single-row identity guard; returns the prior entity while configured fields are equal. |
 | `useStableSorted(source, compare, invalidationKey?)` | Sorts without mutating `source`; reuses previous sorted output when source item refs and optional key are unchanged. |
 | `useWindowedLoadMore(loadMore, refresh, pageSize, resetKey)` | Grows a render window by `pageSize`, delegates network load-more/refresh, and resets on refresh or reset-key change. |
 
-`useStableItems` accepts either custom entry equality or render-key equality:
+`useStableProjection` accepts either custom entry equality or render-key equality:
 
 | Config path | Contract |
 | --- | --- |

@@ -2,7 +2,13 @@ import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperatio
 
 const resetters = new Set<() => void | Promise<void>>();
 
-/** Register in-memory runtime state that the kill-switch must clear. */
+/**
+ * Register in-memory runtime state that `resetRuntime`'s kill-switch must clear. `defineModel` calls this
+ * automatically for its own planes; use it directly only for extra runtime state defined outside a model.
+ *
+ * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
+ * @returns Unregister function - call it to stop the resetter from running on future resets.
+ */
 export const registerReset = (reset: () => void | Promise<void>): (() => void) => {
   resetters.add(reset);
   return () => resetters.delete(reset);

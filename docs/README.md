@@ -10,7 +10,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 - [Models](./models.md) — `defineModel` options and the full `CollectionModel` read/write API.
 - [Queries](./queries.md) — `useDbSingleRequest`, `modelDetailRequest`, `useDbInfiniteRequest`,
   `runDbQueryDirect`, their config options, and return shapes.
-- [Stable views and list helpers](./queries.md#stable-view-and-list-hooks) — `useStableItems`, `useStableEntity`,
+- [Stable views and list helpers](./queries.md#stable-view-and-list-hooks) — `useStableProjection`, `useStableEntity`,
   `useWindowedLoadMore`.
 - [Mutations](./mutations.md) — `useDbMutation` (default / patch / destroy variants), `useCommand`,
   `runDbCommandDirect`, `runDbMutationDirect`.
@@ -64,7 +64,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `mmkvStorageAdapter` | Default MMKV storage adapter. | `StorageAdapter` |
 | `mmkvStorageEventApi` | No-op RN storage event API. | `StorageEventApi` |
 | `modelDetailRequest` | Build standard single-row request config. | `modelDetailRequest(model, config)` |
-| `patchWhenPresent` | Patch a row now or when it appears. | `patchWhenPresent(model,id,patch,options)` |
+| `patchWhenRowExists` | Patch a row now or when it appears. | `patchWhenRowExists(model,id,patch,options)` |
 | `pickDefined` | Build sparse patch from defined values. | `pickDefined(source, keys)` |
 | `pickEqual` | Compare selected render keys. | `pickEqual(left,right,keys)` |
 | `pickPresent` | Build sparse patch from non-nullish values. | `pickPresent(source, keys)` |
@@ -96,7 +96,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `useDbMutation` | Run optimistic mutation hook. | `useDbMutation(config)` |
 | `useDbSingleRequest` | Run single query hook. | `useDbSingleRequest(config)` |
 | `useStableEntity` | Stabilize one entity reference. | `useStableEntity(value, config)` |
-| `useStableItems` | Stabilize list item references. | `useStableItems(source, config)` |
+| `useStableProjection` | Stabilize list item references. | `useStableProjection(source, config)` |
 | `useStableSorted` | Stable sorted projection hook. | `useStableSorted(source, compare, key?)` |
 | `useWindowedLoadMore` | Window render count around loadMore/refetch. | `useWindowedLoadMore(loadMore, refetch, pageSize, resetKey)` |
 | `waitForRow` | Resolve when row appears without polling. | `waitForRow(model,id,options)` |

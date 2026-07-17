@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { useStableEntity, useStableSorted } from '../index';
-import { useStableItems } from '../queries/base/shared';
+import { useStableProjection } from '../queries/base/shared';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -75,7 +75,7 @@ describe('stable view hooks', () => {
 
     const hook = renderHook(
       (props: { rows: SourceRow[]; sectionId: string }) =>
-        useStableItems<SourceRow, ViewEntry, ViewItem>(props.rows, {
+        useStableProjection<SourceRow, ViewEntry, ViewItem>(props.rows, {
           getKey: row => row.id,
           buildEntry: (row: SourceRow) => ({
             sectionId: props.sectionId,
@@ -123,7 +123,7 @@ describe('stable view hooks', () => {
   it('returns a stable empty instance for empty and all-skipped projections', () => {
     const hook = renderHook(
       (rows: SourceRow[]) =>
-        useStableItems<SourceRow, ViewEntry, ViewItem>(rows, {
+        useStableProjection<SourceRow, ViewEntry, ViewItem>(rows, {
           getKey: row => row.id,
           buildEntry: () => null,
           entriesEqual: () => true,
@@ -150,7 +150,7 @@ describe('stable view hooks', () => {
 
     const hook = renderHook(
       (props: { rows: SourceRow[] }) =>
-        useStableItems(props.rows, {
+        useStableProjection(props.rows, {
           getKey: row => row.id,
           buildEntry: (row: SourceRow) => ({
             item: { id: row.id, label: row.title, count: row.count, hiddenLabel: row.hiddenLabel }
@@ -181,7 +181,7 @@ describe('stable view hooks', () => {
   it('uses default item projection options and keeps explicit options authoritative', () => {
     const rows: SourceRow[] = [{ id: '1', title: 'One', count: 1, hiddenLabel: 'a' }];
 
-    const defaultsHook = renderHook((items: SourceRow[]) => useStableItems(items, { renderKeys: ['id', 'title', 'count'] }), rows);
+    const defaultsHook = renderHook((items: SourceRow[]) => useStableProjection(items, { renderKeys: ['id', 'title', 'count'] }), rows);
     const defaultItems = defaultsHook.current;
     const defaultItem = defaultItems[0]!;
 
@@ -200,7 +200,7 @@ describe('stable view hooks', () => {
     const explicitEmpty: ViewItem[] = [];
     const explicitHook = renderHook(
       (items: SourceRow[]) =>
-        useStableItems<SourceRow, ViewEntry, ViewItem>(items, {
+        useStableProjection<SourceRow, ViewEntry, ViewItem>(items, {
           getKey: row => `scope:${row.id}`,
           buildEntry: row => ({
             sectionId: 'explicit',
@@ -222,16 +222,16 @@ describe('stable view hooks', () => {
   it('throws when default item keys are requested for sources without string ids', () => {
     const defaultKeyRequiresStringId = () => {
       // @ts-expect-error default getKey requires source.id to be a string
-      useStableItems([{ id: 1, label: 'One' }], { renderKeys: ['label'] });
+      useStableProjection([{ id: 1, label: 'One' }], { renderKeys: ['label'] });
     };
     void defaultKeyRequiresStringId;
 
     expect(() =>
       renderHook(
-        (items: Array<{ id: string; label: string }>) => useStableItems(items, { renderKeys: ['label'] }),
+        (items: Array<{ id: string; label: string }>) => useStableProjection(items, { renderKeys: ['label'] }),
         [{ id: 1, label: 'One' }] as unknown as Array<{ id: string; label: string }>
       )
-    ).toThrow('useStableItems default getKey requires source items with a string id.');
+    ).toThrow('useStableProjection default getKey requires source items with a string id.');
   });
 
   it('keeps one entity stable with volatileKeys while rendered fields remain equal', () => {

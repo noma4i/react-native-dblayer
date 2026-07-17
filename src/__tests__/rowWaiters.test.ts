@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, patchWhenPresent, type StoragePlane, waitForRow } from '../index';
+import { configureDb, defineModel, f, patchWhenRowExists, type StoragePlane, waitForRow } from '../index';
 import { mockTransport } from './helpers/testRuntime';
 
 const createMemoryStorage = (): StoragePlane => {
@@ -40,7 +40,7 @@ describe('row waiters', () => {
     const model = createMessageModel();
     model.insertStored({ id: 'message-1', body: 'before', status: null });
 
-    patchWhenPresent(model, 'message-1', { body: 'after' }, { ttlMs: 100 });
+    patchWhenRowExists(model, 'message-1', { body: 'after' }, { ttlMs: 100 });
 
     expect(model.get('message-1')).toEqual({ id: 'message-1', body: 'after', status: null });
   });
@@ -49,7 +49,7 @@ describe('row waiters', () => {
     jest.useFakeTimers();
     const model = createMessageModel();
 
-    patchWhenPresent(model, 'message-1', { status: 'sent' }, { ttlMs: 100 });
+    patchWhenRowExists(model, 'message-1', { status: 'sent' }, { ttlMs: 100 });
     model.insertStored({ id: 'message-1', body: 'hello', status: null });
 
     expect(model.get('message-1')).toEqual({ id: 'message-1', body: 'hello', status: 'sent' });
@@ -59,8 +59,8 @@ describe('row waiters', () => {
     jest.useFakeTimers();
     const model = createMessageModel();
 
-    patchWhenPresent(model, 'message-1', row => ({ body: `${row.body}-first` }), { ttlMs: 100 });
-    patchWhenPresent(model, 'message-1', row => ({ body: `${row.body}-second` }), { ttlMs: 100 });
+    patchWhenRowExists(model, 'message-1', row => ({ body: `${row.body}-first` }), { ttlMs: 100 });
+    patchWhenRowExists(model, 'message-1', row => ({ body: `${row.body}-second` }), { ttlMs: 100 });
     model.insertStored({ id: 'message-1', body: 'hello', status: null });
 
     expect(model.get('message-1')?.body).toBe('hello-first-second');
@@ -70,7 +70,7 @@ describe('row waiters', () => {
     jest.useFakeTimers();
     const model = createMessageModel();
 
-    patchWhenPresent(model, 'message-1', { status: 'sent' }, { ttlMs: 100 });
+    patchWhenRowExists(model, 'message-1', { status: 'sent' }, { ttlMs: 100 });
     jest.advanceTimersByTime(100);
     model.insertStored({ id: 'message-1', body: 'hello', status: null });
 

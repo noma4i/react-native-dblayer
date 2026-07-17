@@ -11,9 +11,13 @@ import { expandPlan } from '../core/relations';
 import { isTempId } from '../utils/generateTempId';
 
 export interface DbDefaults {
+  /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
   staleTime?: number;
+  /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` results that omit their own. */
   emptyStaleTime?: number;
+  /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
   gcTime?: number;
+  /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
   pageSize?: number;
   /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
   persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
@@ -32,7 +36,17 @@ const commitBus = createCommitBus();
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
 
-/** Configure v6 runtime seams and defaults. */
+/**
+ * Configure the injected runtime seams (transport, storage, query client, logger) and package-wide
+ * defaults. Must be called once before any model, query, or mutation runs; calling it again advances the
+ * runtime generation, discards cached apply/operation runtimes, and re-applies transport/logger.
+ *
+ * @param options.transport GraphQL transport (`query`/`mutation`) used by `defineQuery`/`defineMutation`.
+ * @param options.storage Synchronous key/value seam for persistence; defaults to `mmkvStoragePlane()`.
+ * @param options.queryClient TanStack Query client shared with `defineQuery`'s hooks; optional.
+ * @param options.logger Package logger seam; optional, defaults to the built-in logger.
+ * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
+ */
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
   runtimeGeneration += 1;
   runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane() };

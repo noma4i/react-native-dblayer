@@ -19,20 +19,43 @@ import { useMemo, useRef, useState } from 'react';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
+/**
+ * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
+ * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ chatId }`); `null`/`undefined`
+ * reads as empty without subscribing.
+ */
 export type ScopeHandle<TStored extends { id: string }, TScope> = {
   modelId: string;
+  /** Reactive read of every row currently in the scope, in the scope's configured sort order. */
   use(scopeValue: TScope | null | undefined): TStored[];
+  /**
+   * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
+   * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
+   * returned `loadMore`. This is LOCAL window growth over rows already synced into the model - a
+   * different concept from `QueryResult.fetchNextPage` (`defineQuery`'s network pagination, which fetches
+   * another page from the server). A list typically wires both: `QueryResult.hasNextPage` /
+   * `fetchNextPage()` to fetch more rows from the network, and `useWindow(...).hasMore` / `loadMore()` to
+   * reveal more of what is already local. The window resets to `pageSize` whenever `scopeValue`'s key
+   * changes.
+   */
   useWindow(
     scopeValue: TScope | null | undefined,
     opts?: { pageSize?: number }
   ): {
+    /** The current window: the first `totalCount` rows up to the window size. */
     rows: TStored[];
+    /** Total rows currently in the scope, independent of the window size. */
     totalCount: number;
+    /** `true` while `totalCount` exceeds the current window size. */
     hasMore: boolean;
+    /** Grow the local window by `pageSize` more rows. Does not touch the network. */
     loadMore: () => void;
   };
+  /** Reactive count of rows currently in the scope. */
   useCount(scopeValue: TScope | null | undefined): number;
+  /** Clear this scope's fetch-state and invalidate its derived React Query key(s). */
   invalidate(scopeValue?: TScope): void;
+  /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
   read(scopeValue: TScope): TStored[];
   __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: { resetOrder?: boolean }): void;
   __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[];
@@ -71,15 +94,51 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
+  /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
   id: string;
+  /** Human-readable model name; prefixes normalize/apply error and log messages. */
   name: string;
+  /** Field spec map (built with `f.*`) that drives normalize/build reads for every stored field. */
   fields: TFields;
+  /**
+   * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
+   * returning anything else makes `normalize` throw `${name} requires id` for that input, which
+   * plan-building paths (writes, apply) catch and log as a rejected row, and direct `buildStored`/
+   * `normalize` calls propagate to the caller.
+   */
   rowId?: (input: unknown) => string;
+  /**
+   * Row-level filter run before id resolution. Return `false` to reject the input; `normalize` then
+   * throws `${name} rejected input`, handled the same way as an unresolved `rowId` (see above).
+   */
   guard?: (input: unknown) => boolean;
+  /**
+   * Lazily-evaluated relation declarations built with `belongsTo`/`hasMany`/`hasOne`/`references`.
+   * Evaluated once on first access and cached, so relation targets that reference other models defined
+   * later in the same module do not need to exist yet at `defineModel` call time.
+   */
   relations?: () => Record<string, RelationDecl>;
+  /**
+   * Named `ScopeSpec` definitions (built with `scope(...)`). Each entry becomes a `model.scopes.<name>`
+   * handle exposing scoped `use`/`useWindow`/`useCount`/`invalidate`/`read` and, for scopes with `by`,
+   * automatic membership tracking as rows are written.
+   */
   scopes?: TScopes;
+  /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
   gc?: 'exempt';
-  merge?: { shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean };
+  merge?: {
+    /**
+     * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`
+     * to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo).
+     * Omit to always accept incoming writes.
+     */
+    shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
+  };
+  /**
+   * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
+   * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
+   * `defineModel` time if any returned key collides with a base model key.
+   */
   statics?: (model: ModelCore<any>) => TExt;
 };
 
@@ -111,7 +170,15 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
   return undefined;
 };
 
-/** Define a v6 model backed by EntityState and the shared journalled apply pipeline. */
+/**
+ * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
+ * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
+ * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
+ *
+ * @param config Field specs, id/guard resolution, optional relations/scopes, gc/merge policy, and statics.
+ * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
+ * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
+ */
 export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
   config: ModelConfig<TFields, TScopes, TExt>
 ): ModelCore<any> & { scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {

@@ -56,7 +56,7 @@ teardown without rebinding entries.
 
 ## Row waiters
 
-### `patchWhenPresent(model, id, patch, { ttlMs })`
+### `patchWhenRowExists(model, id, patch, { ttlMs })`
 
 Applies a partial patch immediately if `model.get(id)` exists. Otherwise it queues the patch and applies queued
 patches in registration order when the row appears through the model collection's `subscribeChanges` channel.

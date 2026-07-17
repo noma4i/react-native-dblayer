@@ -105,7 +105,7 @@ type StableProjectionKeyConfig<TSource, TEntry extends { item: TItem }, TItem> =
 export type StableProjectionConfig<TSource, TEntry extends { item: TItem }, TItem> = StableProjectionKeyConfig<TSource, TEntry, TItem> & {
   /** Compare projection entries for stability. */
   entriesEqual: (prev: TEntry, next: TEntry) => boolean;
-  /** Use `renderKeys` only with `useStableItems`; not with custom entry equality. */
+  /** Use `renderKeys` only with `useStableProjection`; not with custom entry equality. */
   renderKeys?: never;
 };
 

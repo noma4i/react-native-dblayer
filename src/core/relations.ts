@@ -18,7 +18,21 @@ export type RelationDecl =
 
 export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: string[] };
 
-/** Declare an inverse parent relation with optional derived parent updates (values from event data). */
+/**
+ * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
+ * Resolved by `expandPlan`, which accumulates `touch` patches per parent (folding several children in one
+ * plan) and `counterCache` increments/decrements, emitting them as extra `patch`/`counter` ops in the SAME
+ * plan as the triggering event.
+ *
+ * @param model The parent model reference.
+ * @param options.foreignKey Child field storing the parent id.
+ * @param options.touch Derive a partial parent update from the child and current parent view; return `null`
+ * to skip. Runs once per parent per plan even if several children touch it (last patch per field wins).
+ * Only applies to EVENT plans - snapshot writes (queries, entity refreshes) are not expanded.
+ * @param options.counterCache Increment `field` on the parent when a NEW child first references it, decrement
+ * on child destroy (or on an uncommitted increment being cancelled within the same plan); `filter` restricts
+ * which children count.
+ */
 export const belongsTo = <TChild, TParent>(
   model: ModelRef<TParent>,
   options: { foreignKey: keyof TChild & string; touch?: (child: TChild, parent: TParent) => Partial<TParent> | null; counterCache?: { field: keyof TParent & string; filter?: (child: TChild) => boolean } }
@@ -30,19 +44,44 @@ export const belongsTo = <TChild, TParent>(
   counterCache: options.counterCache as { field: string; filter?: (child: StoredRow) => boolean } | undefined
 });
 
-/** Declare a direct child relation whose cascade authority is explicit destroy only. */
+/**
+ * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
+ * `expandPlan` reads children through `model.getWhere` (plus any same-plan overlay writes) so a cascade sees
+ * children written earlier in the same plan.
+ *
+ * @param model The child model reference.
+ * @param options.foreignKey Child field storing the parent id.
+ * @param options.dependent `'destroy'` cascades a parent destroy to its live children in the same plan.
+ * Omit for a query-only relation with no cascade. Optimistic destroy on the parent throws if this is set,
+ * since a cascaded destroy cannot be rolled back.
+ */
 export const hasMany = <TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }
 ): RelationDecl => ({ kind: 'hasMany', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, dependent: options.dependent });
 
-/** Declare a query-only single child relation. */
+/**
+ * Declare a query-only single child relation (parent -> one child), read through `model.related(id, name)`.
+ * Not resolved by `expandPlan` - it has no write-time side effects, only a reactive query.
+ *
+ * @param model The child model reference.
+ * @param options.foreignKey Child field storing the parent id.
+ * @param options.comparator Pick the "one" child when several match; the lowest-sorting row wins. Omit to
+ * use the first match in read order.
+ */
 export const hasOne = <TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; comparator?: (left: TChild, right: TChild) => number }
 ): RelationDecl => ({ kind: 'hasOne', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, comparator: options.comparator as ((left: StoredRow, right: StoredRow) => number) | undefined });
 
-/** Declare a GC-only reference edge: ids extracted from the row keep target-model rows alive. */
+/**
+ * Declare a GC-only reference edge: ids extracted from the row keep the referenced target-model rows alive
+ * during garbage-collection sweeps. Not resolved by `expandPlan` - it has no write-time side effects, only
+ * a GC liveness signal (see `referencesOf` in the model's GC host registration).
+ *
+ * @param model The referenced model.
+ * @param options.ids Extract the referenced id(s) from the row; a single id, an array, or nullish (no reference).
+ */
 export const references = <TChild, TRef>(
   model: ModelRef<TRef>,
   options: { ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined }

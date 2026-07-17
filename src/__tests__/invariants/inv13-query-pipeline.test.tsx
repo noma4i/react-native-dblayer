@@ -73,7 +73,7 @@ describe('v6 invariant 13: query pipeline', () => {
     const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, vars: value => ({ scope: value }) });
     const view = renderQuery(client, () => query.use({ list: 'a' }));
     await waitFor(() => view.value().data?.length === 20);
-    act(() => view.value().loadMore());
+    act(() => view.value().fetchNextPage());
     await waitFor(() => view.value().data?.length === 40 && !view.value().hasNextPage);
     expect(calls[1].after).toBe('c1');
     expect(view.value().data?.map((row: any) => row.id)).toEqual(Array.from({ length: 40 }, (_, index) => String(index + 1)));
@@ -84,7 +84,7 @@ describe('v6 invariant 13: query pipeline', () => {
     const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, cursorVar: 'afterSequence', mapCursor: Number });
     const view = renderQuery(client, () => query.use({ list: 'numeric-cursor' }));
     await waitFor(() => view.value().data?.length === 1);
-    act(() => view.value().loadMore());
+    act(() => view.value().fetchNextPage());
     await waitFor(() => view.value().data?.length === 2 && !view.value().hasNextPage);
     expect(calls[1].afterSequence).toBe(2);
     expect(typeof calls[1].afterSequence).toBe('number');
@@ -128,7 +128,7 @@ describe('v6 invariant 13: query pipeline', () => {
     const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list });
     const view = renderQuery(client, () => query.use({ list: 'error' }));
     await waitFor(() => view.value().data?.length === 1);
-    act(() => view.value().loadMore());
+    act(() => view.value().fetchNextPage());
     await waitFor(() => view.value().error?.message === 'next failed');
     expect(view.value().loadingState.showErrorBanner || view.value().loadingState.phase === 'error').toBe(true);
   });
