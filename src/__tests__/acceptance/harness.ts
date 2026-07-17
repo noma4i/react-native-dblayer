@@ -68,8 +68,9 @@ export function createAcceptanceTransport(handlers: Partial<DbTransport> = {}) {
 export function setupAcceptanceRuntime(options: {
   transport?: ReturnType<typeof createAcceptanceTransport>
   defaults?: DbDefaults
+  storage?: ReturnType<typeof createMemoryPlane>
 } = {}) {
-  const storage = createMemoryPlane()
+  const storage = options.storage ?? createMemoryPlane()
   const transport = options.transport ?? createAcceptanceTransport()
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
