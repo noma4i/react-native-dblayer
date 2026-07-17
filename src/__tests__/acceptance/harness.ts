@@ -71,18 +71,22 @@ export function setupAcceptanceRuntime(options: {
 } = {}) {
   const storage = createMemoryPlane()
   const transport = options.transport ?? createAcceptanceTransport()
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   configureDb({
     storage,
     transport,
     defaults: options.defaults,
-    queryClient: new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    }),
+    queryClient,
   })
-  return { storage, transport }
+  return { storage, transport, queryClient }
 }
 
-export function renderCounted<T>(useHook: () => T) {
+export function renderCounted<T>(
+  useHook: () => T,
+  wrap?: (child: React.ReactElement) => React.ReactElement,
+) {
   let value!: T
   let rerenderReader!: () => void
   let renderCount = 0
@@ -97,7 +101,8 @@ export function renderCounted<T>(useHook: () => T) {
   }
 
   act(() => {
-    root = TestRenderer.create(React.createElement(Reader))
+    const reader = React.createElement(Reader)
+    root = TestRenderer.create(wrap ? wrap(reader) : reader)
   })
 
   return {
