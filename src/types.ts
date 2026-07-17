@@ -13,7 +13,7 @@ export type StorageAdapter = {
   setItem(key: string, value: string): void;
   /** Remove a persisted value synchronously. */
   removeItem(key: string): void;
-  /** Enumerate stored keys under a prefix (hydration, GC and legacy cleanup). */
+  /** Enumerate stored keys under a prefix (hydration, GC and stale-key cleanup). */
   getAllKeys(): string[];
   /** Clear every key owned by the adapter. */
   clear(): void;
