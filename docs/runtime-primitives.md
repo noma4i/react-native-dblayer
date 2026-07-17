@@ -22,14 +22,8 @@ omits it from the return value. The return value is the unmatched server nodes.
 
 | Helper | Behavior |
 | --- | --- |
-| `pruneOrphanedRows(model, foreignKeyField, liveParentIds)` | Deletes rows whose foreign key is not in the live id set. Uses one public `destroyMany(ids)` batch, so cascade and fetch-state clearing run. |
-| `pruneExpiredRows(model, field, ttlMs, now?)` | Deletes rows whose timestamp field is older than `ttlMs`. Boundary rows and invalid/missing timestamps are kept. Uses public `destroyMany(ids)`. |
 | `trimRowsPerScope(model, scopeField, maxPerScope, compare, protect?)` | Groups unprotected rows by scope, sorts each group with `compare`, keeps the first `maxPerScope`, deletes the rest through the internal maintenance delete path, and returns the deleted count. It does not cascade or clear fetch-state. Protected ids/rows do not count toward the limit. |
 | `resolveStaleTempRows(model, { maxAgeMs, protectedIds?, onStale })` | Calls `onStale(row)` for temp-id rows older than `maxAgeMs` and not protected. Returns the resolved count. |
-
-## `createOptimisticSequence()`
-
-Returns `{ next: () => number }`, an independent monotonic counter for local optimistic ordering.
 
 ## Subscription runtime and ingest primitives
 
@@ -59,26 +53,6 @@ Creates an injectable UI-effects channel for subscription entries. It returns `{
 the `effects` table and every wrapper keep stable identity while forwarding to the currently configured effect.
 Entries capture `channel.effects` when they are built, then the effect owner calls `configure` on mount and `reset` on
 teardown without rebinding entries.
-
-### `createKeyedBatchBuffer(config)`
-
-Buffers items by key with one trailing timer per bucket.
-
-| Config | Signature essentials | Behavior |
-| --- | --- | --- |
-| `keyOf` | `(item) => string` | Chooses the bucket. |
-| `flushMs` | `number` | Trailing flush delay per bucket. |
-| `maxSize` | `number` optional | Flushes that bucket synchronously when reached. |
-| `dedupe` | `{ idOf, isNewer }` optional | Keeps one item per id; replaces only when `isNewer(candidate, existing)` is true. |
-| `onFlush` | `(key, items) => void` | Receives a copied item array; thrown errors are logged and contained. |
-
-Returns `{ push, flushAll, clear }`. `flushAll()` fires every non-empty bucket immediately. `clear()` drops pending
-items without firing.
-
-### `createTombstoneLedger({ ttlMs })`
-
-Returns `{ mark, has, clear }`, a memory-only deleted-id ledger. Expired tombstones are pruned lazily on `mark` and
-`has`; there is no interval and no persistence.
 
 ## Row waiters
 

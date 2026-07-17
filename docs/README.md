@@ -11,11 +11,11 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 - [Queries](./queries.md) — `useDbSingleRequest`, `modelDetailRequest`, `useDbInfiniteRequest`,
   `runDbQueryDirect`, their config options, and return shapes.
 - [Stable views and list helpers](./queries.md#stable-view-and-list-hooks) — `useStableItems`, `useStableEntity`,
-  `useOrderedEntities`, `useWindowedLoadMore`.
+  `useWindowedLoadMore`.
 - [Mutations](./mutations.md) — `useDbMutation` (default / patch / destroy variants), `useCommand`,
   `runDbCommandDirect`, `runDbMutationDirect`.
 - [Runtime primitives](./runtime-primitives.md) — optimistic subscription reconcile, cleanup helpers,
-  optimistic ordering sequences, throttled single-flight, nested object patching, and singleton statics.
+  throttled single-flight, nested object patching, and singleton statics.
 
 ## Public runtime exports
 
@@ -28,7 +28,6 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `castNodes` | Type boundary cast for node arrays. | `castNodes<T>(value)` |
 | `clearAllCollections` | Clear every registered persistent collection. | `clearAllCollections.run()` |
 | `clearDbStorage` | Clear DB-owned storage keys. | `clearDbStorage()` |
-| `compositeId` | Build deterministic composite ids. | `compositeId(...parts)` |
 | `computeLoadingState` | Build UI loading-state flags from phase/data. | `computeLoadingState(phase, hasData)` |
 | `computePhase` | Resolve a loading phase. | `computePhase(input)` |
 | `configureDb` | Configure transport, storage, logger, query client, extract, tracking. | `configureDb(options)` |
@@ -39,13 +38,10 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `createExtractSink` | Build extract sink from model/custom table. | `createExtractSink(sinkTable)` |
 | `createIdArrayPatcher` | Create immutable id-array patch helpers. | `createIdArrayPatcher()` |
 | `createKeyedArrayPatcher` | Create immutable keyed sub-row array patch helpers. | `createKeyedArrayPatcher(shape,{ key })` |
-| `createKeyedBatchBuffer` | Create keyed trailing batch buffer. | `createKeyedBatchBuffer(config)` |
 | `createModelStatusPoller` | Create non-React status poller. | `createModelStatusPoller(config)` |
 | `createMutationExtractResolver` | Build mutation extract preset resolver. | `createMutationExtractResolver(presetTable)` |
 | `createNestedObjectPatcher` | Create nested object patch helper. | `createNestedObjectPatcher(model, field, transform)` |
-| `createOptimisticSequence` | Create local monotonic optimistic sequence. | `createOptimisticSequence()` |
 | `createThrottledSingleFlight` | Create coalesced throttled async runner. | `createThrottledSingleFlight(fn, options)` |
-| `createTombstoneLedger` | Create memory-only ttl tombstone ledger. | `createTombstoneLedger({ ttlMs })` |
 | `createUniqueIds` | Dedupe ids preserving order. | `createUniqueIds(ids)` |
 | `defineModel` | Define a collection model. | `defineModel(config)` |
 | `defineShape` | Define reusable field shape. | `defineShape<T>()(fields)` |
@@ -73,10 +69,7 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `pickEqual` | Compare selected render keys. | `pickEqual(left,right,keys)` |
 | `pickPresent` | Build sparse patch from non-nullish values. | `pickPresent(source, keys)` |
 | `projectShape` | Project source through a shape. | `projectShape(shape, source, overrides?)` |
-| `pruneExpiredRows` | Delete rows older than ttl. | `pruneExpiredRows(model, field, ttlMs, now?)` |
-| `pruneOrphanedRows` | Delete rows whose parent id is not live. | `pruneOrphanedRows(model, field, liveIds)` |
 | `pruneStaleFetchStates` | Remove stale persisted fetch metadata. | `pruneStaleFetchStates(maxAgeMs?)` |
-| `readFieldsPatch` | Read sparse patch from field specs. | `readFieldsPatch(fields, source)` |
 | `readId` | Read/coerce required id. | `readId(value)` |
 | `readNullableNumber` | Read number or null. | `readNullableNumber(value)` |
 | `readNullableString` | Read string or null. | `readNullableString(value)` |
@@ -102,9 +95,6 @@ Full reference for `@noma4i/react-native-dblayer`. For a guided tour with compon
 | `useDbInfiniteRequest` | Run cursor-paginated query hook. | `useDbInfiniteRequest(config)` |
 | `useDbMutation` | Run optimistic mutation hook. | `useDbMutation(config)` |
 | `useDbSingleRequest` | Run single query hook. | `useDbSingleRequest(config)` |
-| `useEntitiesById` | Read rows as stable id map. | `useEntitiesById(model, ids)` |
-| `useJoinedEntities` | Join entity arrays by ids. | `useJoinedEntities(config)` |
-| `useOrderedEntities` | Read rows ordered by ids. | `useOrderedEntities(model, ids)` |
 | `useStableEntity` | Stabilize one entity reference. | `useStableEntity(value, config)` |
 | `useStableItems` | Stabilize list item references. | `useStableItems(source, config)` |
 | `useStableSorted` | Stable sorted projection hook. | `useStableSorted(source, compare, key?)` |

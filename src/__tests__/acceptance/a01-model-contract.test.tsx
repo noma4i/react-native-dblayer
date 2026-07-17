@@ -4,7 +4,7 @@ import {
   defineModel,
   defineQuery,
   f,
-  resetRuntimeSync,
+  resetRuntime,
   scope,
 } from '../../index'
 import {
@@ -166,7 +166,7 @@ describe(`A01 model contract`, () => {
     const rendersBeforeReset = reader.renders()
 
     act(() => {
-      resetRuntimeSync()
+      resetRuntime()
     })
     expect(reader.result()).toBeUndefined()
     expect(reader.renders()).toBeGreaterThan(rendersBeforeReset)

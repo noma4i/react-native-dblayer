@@ -1,6 +1,4 @@
 import { isTempId } from './generateTempId';
-import { getDbLogger } from '../core/logger';
-import { getRuntimeGeneration } from '../dsl/configure';
 import type { AnyDbShape, InferShapeStored } from '../schema/infer';
 import { readShapeOrThrow } from '../schema/shape';
 
@@ -164,74 +162,10 @@ export const reconcileOptimisticRows = <TStored extends CreatedAtRow, TNode exte
 
 const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
 
-const destroyManyIfNeeded = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => {
-  if (ids.length === 0) return 0;
-  model.destroyMany(ids);
-  return ids.length;
-};
-
 const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => {
   if (ids.length === 0) return 0;
   model.destroyMany(ids);
   return ids.length;
-};
-
-const toExpiryTimestamp = (value: CreatedAtLike): number => toTimestamp(value);
-
-/**
- * Delete rows whose foreign key no longer points at a live parent id.
- *
- * @param model Model that can snapshot rows and destroy by id.
- * @param foreignKeyField Row field that stores the parent id.
- * @param liveParentIds Live parent ids accepted by the cleanup pass.
- * @returns Number of rows deleted through `destroyMany`.
- */
-export const pruneOrphanedRows = <TStored extends RowId, TForeignKey extends Extract<keyof TStored, string>>(
-  model: DestroyManyModel<TStored>,
-  foreignKeyField: TForeignKey,
-  liveParentIds: ReadonlySet<string> | readonly string[]
-): number => {
-  const liveIds = normalizeIdSet(liveParentIds);
-  const idsToDestroy = model
-    .getAll()
-    .filter(row => {
-      const foreignId = row[foreignKeyField];
-      return (typeof foreignId !== 'string' && typeof foreignId !== 'number') || !liveIds.has(String(foreignId));
-    })
-    .map(row => row.id);
-
-  return destroyManyIfNeeded(model, idsToDestroy);
-};
-
-/**
- * Delete rows whose timestamp field is older than the supplied TTL.
- *
- * Invalid timestamps are kept.
- *
- * @param model Model that can snapshot rows and destroy by id.
- * @param field Row field containing a string, number, or Date timestamp.
- * @param ttlMs Maximum allowed age in milliseconds.
- * @param now Reference time; defaults to `Date.now()`.
- * @returns Number of rows deleted through `destroyMany`.
- */
-export const pruneExpiredRows = <TStored extends RowId, TField extends Extract<keyof TStored, string>>(
-  model: DestroyManyModel<TStored>,
-  field: TField,
-  ttlMs: number,
-  now: CreatedAtLike = Date.now()
-): number => {
-  const nowMs = toExpiryTimestamp(now);
-  if (!Number.isFinite(nowMs)) return 0;
-
-  const idsToDestroy = model
-    .getAll()
-    .filter(row => {
-      const timestamp = toExpiryTimestamp(row[field] as CreatedAtLike);
-      return Number.isFinite(timestamp) && nowMs - timestamp > ttlMs;
-    })
-    .map(row => row.id);
-
-  return destroyManyIfNeeded(model, idsToDestroy);
 };
 
 export type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
@@ -374,145 +308,6 @@ export const createThrottledSingleFlight = <TArgs extends unknown[], TResult>(
     }
 
     return inFlight;
-  };
-};
-
-export type KeyedBatchBufferDedupe<TItem> = {
-  /** Stable dedupe id for an item inside a keyed bucket. */
-  idOf: (item: TItem) => string;
-  /** Return true when the candidate should replace the existing item with the same dedupe id. */
-  isNewer: (candidate: TItem, existing: TItem) => boolean;
-};
-
-export type KeyedBatchBufferConfig<TItem> = {
-  /** Bucket key for an incoming item. */
-  keyOf: (item: TItem) => string;
-  /** Trailing flush delay for each independent bucket. */
-  flushMs: number;
-  /** Flush a bucket synchronously when its buffered item count reaches this size. */
-  maxSize?: number;
-  /** Optional newest-wins dedupe policy inside each bucket. */
-  dedupe?: KeyedBatchBufferDedupe<TItem>;
-  /** Flush callback. Errors are contained and logged. */
-  onFlush: (key: string, items: TItem[]) => void;
-};
-
-export type KeyedBatchBuffer<TItem> = {
-  /** Push an item into its keyed bucket and start or refresh that bucket's trailing timer. */
-  push(item: TItem): void;
-  /** Flush every non-empty bucket immediately. */
-  flushAll(): void;
-  /** Drop every bucket without firing `onFlush`. */
-  clear(): void;
-};
-
-type KeyedBatchBucket<TItem> = {
-  items: TItem[];
-  itemIndexes: Map<string, number>;
-  timer: ReturnType<typeof setTimeout> | null;
-};
-
-const clearBucketTimer = <TItem>(bucket: KeyedBatchBucket<TItem>): void => {
-  if (!bucket.timer) return;
-  clearTimeout(bucket.timer);
-  bucket.timer = null;
-};
-
-/**
- * Create a keyed trailing batch buffer with independent bucket timers.
- *
- * @param config Keying, timing, optional cap/dedupe policy, and flush callback.
- * @returns Runtime buffer controls for pushing, flushing, and clearing pending items.
- */
-export const createKeyedBatchBuffer = <TItem>(config: KeyedBatchBufferConfig<TItem>): KeyedBatchBuffer<TItem> => {
-  const buckets = new Map<string, KeyedBatchBucket<TItem>>();
-  let generation: number | null = null;
-
-  const isCurrentGeneration = (): boolean => generation == null || generation === getRuntimeGeneration();
-  const beginGeneration = (): boolean => {
-    if (!isCurrentGeneration()) return false;
-    generation ??= getRuntimeGeneration();
-    return true;
-  };
-
-  const getBucket = (key: string): KeyedBatchBucket<TItem> => {
-    const existing = buckets.get(key);
-    if (existing) return existing;
-
-    const bucket: KeyedBatchBucket<TItem> = { items: [], itemIndexes: new Map(), timer: null };
-    buckets.set(key, bucket);
-    return bucket;
-  };
-
-  const flushBucket = (key: string, bucket: KeyedBatchBucket<TItem>): void => {
-    clearBucketTimer(bucket);
-    buckets.delete(key);
-    if (bucket.items.length === 0 || !isCurrentGeneration()) return;
-
-    try {
-      config.onFlush(key, [...bucket.items]);
-    } catch (error) {
-      getDbLogger().error('db', 'keyed batch buffer flush failed', { key, error });
-    }
-  };
-
-  const scheduleBucket = (key: string, bucket: KeyedBatchBucket<TItem>): void => {
-    clearBucketTimer(bucket);
-    bucket.timer = setTimeout(() => {
-      flushBucket(key, bucket);
-    }, config.flushMs);
-  };
-
-  const pushDistinct = (bucket: KeyedBatchBucket<TItem>, item: TItem): void => {
-    if (!config.dedupe) {
-      bucket.items.push(item);
-      return;
-    }
-
-    const dedupeId = config.dedupe.idOf(item);
-    const existingIndex = bucket.itemIndexes.get(dedupeId);
-    if (existingIndex === undefined) {
-      bucket.itemIndexes.set(dedupeId, bucket.items.length);
-      bucket.items.push(item);
-      return;
-    }
-
-    const existing = bucket.items[existingIndex];
-    if (existing !== undefined && config.dedupe.isNewer(item, existing)) {
-      bucket.items[existingIndex] = item;
-    }
-  };
-
-  return {
-    push(item) {
-      if (!beginGeneration()) return;
-      const key = config.keyOf(item);
-      const bucket = getBucket(key);
-      pushDistinct(bucket, item);
-
-      if (config.maxSize !== undefined && config.maxSize > 0 && bucket.items.length >= config.maxSize) {
-        flushBucket(key, bucket);
-        return;
-      }
-
-      scheduleBucket(key, bucket);
-    },
-    flushAll() {
-      if (!isCurrentGeneration()) {
-        for (const bucket of buckets.values()) clearBucketTimer(bucket);
-        buckets.clear();
-        return;
-      }
-      for (const [key, bucket] of [...buckets.entries()]) {
-        flushBucket(key, bucket);
-      }
-    },
-    clear() {
-      for (const bucket of buckets.values()) {
-        clearBucketTimer(bucket);
-      }
-      buckets.clear();
-    }
   };
 };
 

@@ -176,10 +176,6 @@ same reader and throws `<label>: invalid shape payload` when the payload is unre
 It keeps only fields declared on the shape and applies typed overrides last. Use it when a model or mutation derives a
 nested stored object from a wider source object.
 
-`readFieldsPatch(fields, source)` reads a sparse patch from a field map. It returns only keys whose field reader
-produces a defined value, so patch callers can pass the result to `Model.patch(id, patch)` without overwriting missing
-fields.
-
 `f.object(shape).emptyDefault()` gives required nested objects a build-time zero-state. The factory reads `shape` from
 an empty object, so `nullDefault` fields become `null` and custom list readers can return their own empty arrays. Explicit
 `buildStored({ field: ... })` input still wins.
@@ -191,17 +187,21 @@ normalized row; `remove(rows, keyValue)` filters by key. Nullish arrays are trea
 `createIdArrayPatcher()` builds immutable id-array helpers: `upsert(ids, id, 'prepend' | 'append')` dedupes and inserts
 at the requested edge, and `remove(ids, id)` filters the id out.
 
-### Row id, guard, and composite ids
+### Row id and guard
 
 Fields models default to `input.id` for the row id. Use `rowId` for composite rows and `guard` to drop inputs early.
 
 ```ts
-import { compositeId, defineModel, f } from '@noma4i/react-native-dblayer';
+import { defineModel, f } from '@noma4i/react-native-dblayer';
 
 export const SimilarMomentModel = defineModel({
   name: 'SimilarMomentModel',
   id: 'similar-moments',
-  rowId: compositeId('momentId', 'similarMomentId'),
+  rowId: (row) => {
+    const momentId = String((row as { momentId?: unknown }).momentId ?? '');
+    const similarMomentId = String((row as { similarMomentId?: unknown }).similarMomentId ?? '');
+    return momentId && similarMomentId ? `${momentId}:${similarMomentId}` : null;
+  },
   guard: (row) => (row as { hidden?: boolean }).hidden !== true,
   fields: {
     momentId: f.id(),
@@ -211,8 +211,8 @@ export const SimilarMomentModel = defineModel({
 });
 ```
 
-The string-key overload reads own properties from unknown payloads and returns `null` for missing or empty parts.
-Use selector functions when an id part requires nested access or transformation.
+`rowId` returns `null` to drop a row whose id cannot be resolved; `guard` returns `false` to drop a row before id
+resolution runs.
 
 ### Sideload nested payloads
 

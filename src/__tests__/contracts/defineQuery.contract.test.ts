@@ -7,7 +7,7 @@ import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { defineQuery } from '../../dsl/defineQuery';
 import { getApplyRuntime } from '../../dsl/configure';
-import { resetRuntimeSync } from '../../core/reset';
+import { resetRuntime } from '../../core/reset';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
 import type { DbGraphQLDocument } from '../../types';
@@ -127,7 +127,7 @@ describe('defineQuery contracts', () => {
     const query = defineQuery({ document, key: 'queryReset', select: data => (data as { items: unknown[] }).items, into: Model });
     const pending = query.fetch({});
 
-    resetRuntimeSync();
+    resetRuntime();
     resolveTransport({ data: { items: [{ id: 'server', title: 'old-world' }] } });
 
     await pending;

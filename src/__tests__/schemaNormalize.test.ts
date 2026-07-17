@@ -1,6 +1,6 @@
 import { f } from '../schema/f';
 import type { FieldSpec } from '../schema/fieldSpec';
-import { compositeId, createSchema } from '../schema/schema';
+import { createSchema } from '../schema/schema';
 import { readBoolean, readNullableString, readNumber, readString, toStr } from '../utils/normalizeHelpers';
 
 type FixtureInput = {
@@ -146,9 +146,17 @@ describe('schema normalize', () => {
   it('drops rows through guard and row id resolution', () => {
     expect(fixtureSchema.normalize({ id: 'drop', name: 'Drop', keep: false })).toBeNull();
 
+    const toRowIdPart = (value: unknown): string | null => {
+      const part = toStr(value);
+      return part ? part : null;
+    };
     const schemaWithRowId = createSchema<FixtureInput, typeof fields>({
       fields,
-      rowId: input => compositeId<FixtureInput>(item => item.momentId, item => item.similarMomentId)(input)
+      rowId: input => {
+        const moment = toRowIdPart(input.momentId);
+        const similar = toRowIdPart(input.similarMomentId);
+        return moment && similar ? `${moment}:${similar}` : null;
+      }
     });
 
     expect(schemaWithRowId.normalize({ momentId: 'm1', similarMomentId: null, name: 'Missing part' })).toBeNull();
@@ -170,24 +178,6 @@ describe('schema normalize', () => {
     expect(fixtureSchema.normalize(null as unknown as FixtureInput)).toBeNull();
     expect(fixtureSchema.normalize(undefined as unknown as FixtureInput)).toBeNull();
     expect(fixtureSchema.normalize('not-an-object' as unknown as FixtureInput)).toBeNull();
-  });
-
-  it('builds composite ids from non-empty selector parts', () => {
-    const readId = compositeId<FixtureInput>(input => input.momentId, input => input.similarMomentId);
-
-    expect(readId({ momentId: 'moment', similarMomentId: 7 })).toBe('moment:7');
-    expect(readId({ momentId: 'moment', similarMomentId: undefined })).toBeNull();
-    expect(readId({ momentId: '', similarMomentId: 'similar' })).toBeNull();
-  });
-
-  it('builds composite ids from own-property keys on unknown payloads', () => {
-    const readId = compositeId('momentId', 'similarMomentId');
-
-    expect(readId({ momentId: 'moment', similarMomentId: 7 })).toBe('moment:7');
-    expect(readId({ momentId: 'moment' })).toBeNull();
-    expect(readId({ momentId: 'moment', similarMomentId: '' })).toBeNull();
-    expect(readId(null)).toBeNull();
-    expect(readId(Object.create({ momentId: 'moment', similarMomentId: 'similar' }) as object)).toBeNull();
   });
 
   it('outputs exactly the keys with defined field values', () => {

@@ -136,12 +136,12 @@ describe('v6 invariant 11: pinpoint reactivity', () => {
     expect(second.get('2')?.name).toBe('two');
   });
 
-  it('notifies live reads on reset and keeps apply targets live for new writes', async () => {
+  it('notifies live reads on reset and keeps apply targets live for new writes', () => {
     const model = createModel('reset-live');
     model.insertStored({ id: '1', name: 'one', age: 1, group: 'a' });
     const read = renderRead(() => model.use.row('1'));
     expect(read.value()?.name).toBe('one');
-    await act(async () => { await resetRuntime(); });
+    act(() => { resetRuntime(); });
     expect(read.value()).toBeUndefined();
     act(() => model.insertStored({ id: '1', name: 'two', age: 2, group: 'a' }));
     expect(read.value()?.name).toBe('two');

@@ -3,7 +3,7 @@ import { replayJournal } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
-import { resetRuntimeSync } from '../../index';
+import { resetRuntime } from '../../index';
 import { createContractScenario } from '../helpers/contractScenario';
 import { createMemoryStorage } from '../helpers/memoryStorage';
 import { createInvariantFixture, rowCount, runSession, scopeKeyCount, storageByteSize, storageKeyCount } from './session.helpers';
@@ -73,7 +73,7 @@ describe('steady-state invariants', () => {
     const fixture = createInvariantFixture();
     await runSession(fixture.driver, session);
     fixture.flushAndCollect();
-    resetRuntimeSync();
+    resetRuntime();
 
     expect(storageKeyCount(fixture.storage.storage)).toBe(0);
     await runSession(fixture.driver, session);

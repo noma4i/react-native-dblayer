@@ -1,5 +1,5 @@
 import { f } from '../schema/f';
-import { defineShape, projectShape, readFieldsPatch, readShape, readShapeOrThrow } from '../schema/shape';
+import { defineShape, projectShape, readShape, readShapeOrThrow } from '../schema/shape';
 
 type MediaInput = {
   url?: unknown;
@@ -120,31 +120,6 @@ describe('schema shapes', () => {
       height: 180
     });
     expect('extra' in projected).toBe(false);
-  });
-
-  it('reads sparse field patches without applying defaults', () => {
-    const fields = {
-      title: f.str().fromKey('name'),
-      count: f.num().fromKey('total'),
-      coverUrl: f.str().nullDefault(),
-      status: f.enum<'ACTIVE' | 'ARCHIVED'>().nullable()
-    };
-
-    expect(
-      readFieldsPatch(fields, {
-        name: 'Ada',
-        total: 2,
-        coverUrl: undefined,
-        status: null
-      })
-    ).toEqual({
-      title: 'Ada',
-      count: 2,
-      status: null
-    });
-
-    expect(readFieldsPatch(fields, {})).toEqual({});
-    expect(readFieldsPatch(fields, { name: 1, total: '2', status: undefined })).toEqual({});
   });
 
   it('throws a labelled error for unreadable shape payloads', () => {

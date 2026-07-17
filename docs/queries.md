@@ -312,9 +312,6 @@ preserve item and array references for list UIs.
 | `useStableItems(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
 | `useStableEntity(value, config)` | Single-row identity guard; returns the prior entity while configured fields are equal. |
 | `useStableSorted(source, compare, invalidationKey?)` | Sorts without mutating `source`; reuses previous sorted output when source item refs and optional key are unchanged. |
-| `useOrderedEntities(model, ids)` | Reads `model.byIds(ids)`, returns entities in input id order, drops missing ids, and shares a stable empty array. |
-| `useEntitiesById(model, ids)` | Reads `model.byIds(ids)` and returns a stable `Map<string, row>` keyed by id. |
-| `useJoinedEntities(config)` | Joins model rows by id across two model sources while preserving stable output identity. |
 | `useWindowedLoadMore(loadMore, refresh, pageSize, resetKey)` | Grows a render window by `pageSize`, delegates network load-more/refresh, and resets on refresh or reset-key change. |
 
 `useStableItems` accepts either custom entry equality or render-key equality:
@@ -326,8 +323,7 @@ preserve item and array references for list UIs.
 
 `getKey` defaults to `item.id` and throws if an item does not have a string `id`. `buildEntry` defaults to
 `item => ({ item })`. `emptyItems` defaults to a shared frozen empty array, and explicit config values always win.
-For comparator behavior that depends on outside state, pass that state as `invalidationKey`. `useOrderedEntities`
-returns only the ordered item array; use `useEntitiesById` directly when a view also needs random lookup by id.
+For comparator behavior that depends on outside state, pass that state as `invalidationKey`.
 
 `useStableEntity` accepts either:
 

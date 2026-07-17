@@ -2,12 +2,9 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import {
   configureDb,
-  createKeyedBatchBuffer,
   createNestedObjectPatcher,
   createThrottledSingleFlight,
   defineModel,
-  pruneExpiredRows,
-  pruneOrphanedRows,
   reconcileOptimisticRows,
   resolveStaleTempRows,
   singletonStatics,
@@ -112,135 +109,6 @@ describe('runtime primitives', () => {
     configureDb({ transport: mockTransport({}) });
   });
 
-  it('flushes keyed batch buckets with independent trailing timers', () => {
-    jest.useFakeTimers();
-    const onFlush = jest.fn();
-    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
-      keyOf: item => item.key,
-      flushMs: 100,
-      onFlush
-    });
-
-    buffer.push({ key: 'a', id: 'a1' });
-    jest.advanceTimersByTime(60);
-    buffer.push({ key: 'b', id: 'b1' });
-    jest.advanceTimersByTime(39);
-
-    expect(onFlush).not.toHaveBeenCalled();
-
-    jest.advanceTimersByTime(1);
-
-    expect(onFlush).toHaveBeenCalledTimes(1);
-    expect(onFlush).toHaveBeenLastCalledWith('a', [{ key: 'a', id: 'a1' }]);
-
-    jest.advanceTimersByTime(60);
-
-    expect(onFlush).toHaveBeenCalledTimes(2);
-    expect(onFlush).toHaveBeenLastCalledWith('b', [{ key: 'b', id: 'b1' }]);
-  });
-
-  it('restarts a keyed batch timer for later pushes into the same bucket', () => {
-    jest.useFakeTimers();
-    const onFlush = jest.fn();
-    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
-      keyOf: item => item.key,
-      flushMs: 100,
-      onFlush
-    });
-
-    buffer.push({ key: 'a', id: 'a1' });
-    jest.advanceTimersByTime(80);
-    buffer.push({ key: 'a', id: 'a2' });
-    jest.advanceTimersByTime(99);
-
-    expect(onFlush).not.toHaveBeenCalled();
-
-    jest.advanceTimersByTime(1);
-
-    expect(onFlush).toHaveBeenCalledWith('a', [
-      { key: 'a', id: 'a1' },
-      { key: 'a', id: 'a2' }
-    ]);
-  });
-
-  it('flushes a capped keyed batch synchronously and clears its timer', () => {
-    jest.useFakeTimers();
-    const onFlush = jest.fn();
-    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
-      keyOf: item => item.key,
-      flushMs: 100,
-      maxSize: 2,
-      onFlush
-    });
-
-    buffer.push({ key: 'a', id: 'a1' });
-    buffer.push({ key: 'a', id: 'a2' });
-
-    expect(onFlush).toHaveBeenCalledTimes(1);
-    expect(onFlush).toHaveBeenCalledWith('a', [
-      { key: 'a', id: 'a1' },
-      { key: 'a', id: 'a2' }
-    ]);
-
-    jest.advanceTimersByTime(100);
-
-    expect(onFlush).toHaveBeenCalledTimes(1);
-  });
-
-  it('dedupes keyed batch items with newest-wins replacement while preserving distinct id order', () => {
-    jest.useFakeTimers();
-    const onFlush = jest.fn();
-    const buffer = createKeyedBatchBuffer<{ key: string; id: string; version: number }>({
-      keyOf: item => item.key,
-      flushMs: 100,
-      dedupe: {
-        idOf: item => item.id,
-        isNewer: (candidate, existing) => candidate.version > existing.version
-      },
-      onFlush
-    });
-
-    buffer.push({ key: 'a', id: 'first', version: 1 });
-    buffer.push({ key: 'a', id: 'second', version: 1 });
-    buffer.push({ key: 'a', id: 'first', version: 0 });
-    buffer.push({ key: 'a', id: 'first', version: 2 });
-    buffer.flushAll();
-
-    expect(onFlush).toHaveBeenCalledWith('a', [
-      { key: 'a', id: 'first', version: 2 },
-      { key: 'a', id: 'second', version: 1 }
-    ]);
-  });
-
-  it('flushes all buckets, clears without firing, and contains flush errors', () => {
-    jest.useFakeTimers();
-    const error = new Error('boom');
-    const onFlush = jest.fn((key: string) => {
-      if (key === 'bad') throw error;
-    });
-    const logger = { debug: jest.fn(), error: jest.fn() };
-    configureDb({ transport: mockTransport({}), logger });
-    const buffer = createKeyedBatchBuffer<{ key: string; id: string }>({
-      keyOf: item => item.key,
-      flushMs: 100,
-      onFlush
-    });
-
-    buffer.push({ key: 'good', id: 'g1' });
-    buffer.push({ key: 'bad', id: 'b1' });
-    buffer.flushAll();
-
-    expect(onFlush).toHaveBeenCalledWith('good', [{ key: 'good', id: 'g1' }]);
-    expect(onFlush).toHaveBeenCalledWith('bad', [{ key: 'bad', id: 'b1' }]);
-    expect(logger.error).toHaveBeenCalledWith('db', 'keyed batch buffer flush failed', { key: 'bad', error });
-
-    buffer.push({ key: 'clear', id: 'c1' });
-    buffer.clear();
-    jest.advanceTimersByTime(100);
-
-    expect(onFlush).toHaveBeenCalledTimes(2);
-  });
-
   it('reconciles optimistic rows by scoped candidates, content match, window, best delta, and existing server ids', () => {
     configureMemoryDb();
     const model = createMessageModel('runtime-reconcile-main');
@@ -330,37 +198,6 @@ describe('runtime primitives', () => {
     expect(unmatched.map(row => row.id)).toEqual(['already-applied']);
     expect(commit).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledWith('temp-1', expect.objectContaining({ id: 'server-1' }));
-  });
-
-  it('prunes orphaned rows with a batched destroyMany call', () => {
-    configureMemoryDb();
-    const model = defineModel({
-      id: 'runtime-orphans',
-      name: 'RuntimeOrphanModel',
-      fields: { momentId: f.str() }
-    });
-    model.insertStored({ id: 'join-1', momentId: 'moment-1' });
-    model.insertStored({ id: 'join-2', momentId: 'moment-missing' });
-    model.insertStored({ id: 'join-3', momentId: 'moment-missing-2' });
-    const destroyMany = jest.spyOn(model, 'destroyMany');
-
-    expect(pruneOrphanedRows(model, 'momentId', new Set(['moment-1']))).toBe(2);
-    expect(destroyMany).toHaveBeenCalledWith(['join-2', 'join-3']);
-    expect(model.getAll().map(row => row.id)).toEqual(['join-1']);
-  });
-
-  it('prunes rows older than ttl while keeping boundary and invalid timestamps', () => {
-    configureMemoryDb();
-    const model = createMessageModel('runtime-expired');
-    model.insertStored(message({ id: 'expired', createdAt: '2026-01-01T00:00:00.000Z' }));
-    model.insertStored(message({ id: 'boundary', createdAt: '2026-01-01T00:01:00.000Z' }));
-    model.insertStored(message({ id: 'fresh', createdAt: '2026-01-01T00:01:01.000Z' }));
-    model.insertStored(message({ id: 'invalid', createdAt: 'not-a-date' }));
-    const destroyMany = jest.spyOn(model, 'destroyMany');
-
-    expect(pruneExpiredRows(model, 'createdAt', 60_000, '2026-01-01T00:02:00.000Z')).toBe(1);
-    expect(destroyMany).toHaveBeenCalledWith(['expired']);
-    expect(model.getAll().map(row => row.id).sort()).toEqual(['boundary', 'fresh', 'invalid']);
   });
 
   it('trims newest rows per scope while excluding protected rows from the limit', () => {

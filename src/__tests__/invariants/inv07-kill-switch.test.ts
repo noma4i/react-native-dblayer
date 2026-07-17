@@ -16,7 +16,7 @@ const createStorage = (): StoragePlane => {
 };
 
 describe('v6 invariant 07: kill switch', () => {
-  it('clears durable and registered state, is idempotent, and permits a clean new write', async () => {
+  it('clears durable and registered state, is idempotent, and permits a clean new write', () => {
     const storage = createStorage();
     configureDb({
       storage,
@@ -38,13 +38,13 @@ describe('v6 invariant 07: kill switch', () => {
     createJournal(storage, prefix).writePending({ epoch: 1, status: 'pending', ops: [] });
     const unregister = [registerReset(() => first.reset()), registerReset(() => second.reset()), registerReset(() => scope.reset()), registerReset(() => operations.reset())];
 
-    await resetRuntime();
+    resetRuntime();
     expect(storage.keys('dbl:')).toEqual([]);
     expect(first.values()).toEqual([]);
     expect(second.values()).toEqual([]);
     expect(scope.read('all').entries).toEqual([]);
     expect(operations.get('op')).toBeUndefined();
-    await expect(resetRuntime()).resolves.toBeUndefined();
+    expect(resetRuntime()).toBeUndefined();
 
     first.upsert({ id: 'new' });
     scope.reconcile('all', 'complete', [{ id: 'new' }]);

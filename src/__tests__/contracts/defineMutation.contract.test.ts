@@ -5,7 +5,7 @@ import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { defineMutation } from '../../dsl/defineMutation';
 import { configureDb, getApplyRuntime, getOperationState } from '../../dsl/configure';
-import { resetRuntimeSync } from '../../core/reset';
+import { resetRuntime } from '../../core/reset';
 import { f } from '../../schema/f';
 import type { DbGraphQLDocument, DbTransport } from '../../types';
 import { createContractScenario } from '../helpers/contractScenario';
@@ -133,7 +133,7 @@ describe('defineMutation contracts', () => {
     });
     const pending = mutation.run({ title: 'old-world' });
 
-    resetRuntimeSync();
+    resetRuntime();
     resolveTransport({ data: { save: { id: 'server', title: 'new-world' } } });
 
     await expect(pending).resolves.toBeNull();
@@ -163,7 +163,7 @@ describe('defineMutation contracts', () => {
     });
     const pending = mutation.run({ title: 'old-world' });
 
-    resetRuntimeSync();
+    resetRuntime();
     rejectTransport(new Error('old-world failure'));
 
     await expect(pending).resolves.toBeNull();

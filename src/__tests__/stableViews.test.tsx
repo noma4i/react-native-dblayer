@@ -1,8 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { configureDb, defineModel, f, useJoinedEntities, useOrderedEntities, useStableEntity, useStableSorted, type StoragePlane } from '../index';
+import { useStableEntity, useStableSorted } from '../index';
 import { useStableItems } from '../queries/base/shared';
-import { mockTransport } from './helpers/testRuntime';
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -62,34 +61,6 @@ type ViewEntry = {
 };
 
 const EMPTY_ITEMS: ViewItem[] = [];
-
-const createMemoryStorage = (): StoragePlane => {
-  const values = new Map<string, string>();
-  return {
-    get: key => values.get(key),
-    set: entries => {
-      for (const entry of entries) {
-        if (entry.value === null) values.delete(entry.key);
-        else values.set(entry.key, entry.value);
-      }
-    },
-    keys: prefix => [...values.keys()].filter(key => key.startsWith(prefix))
-  };
-};
-
-let modelCounter = 0;
-
-const createTodoModel = () =>
-  defineModel({
-    id: `stable-view-todos-${modelCounter++}`,
-    name: `StableViewTodoModel:${modelCounter}`,
-    fields: {
-      title: f.str(),
-      listId: f.str(),
-      done: f.bool(),
-      updatedAt: f.str().nullable()
-    }
-  });
 
 describe('stable view hooks', () => {
   afterEach(async () => {
@@ -335,143 +306,6 @@ describe('stable view hooks', () => {
 
     expect(hook.current).not.toBe(changed);
     expect(hook.current.map(item => item.id)).toEqual(['low', 'high']);
-
-    hook.unmount();
-  });
-
-  it('returns ordered entities, drops missing ids, and keeps a shared empty array', () => {
-    const model = {
-      byIds: (ids: string[]) =>
-        [
-          { id: '1', label: 'One' },
-          { id: '2', label: 'Two' }
-        ].filter(item => ids.includes(item.id))
-    };
-
-    const hook = renderHook((ids: string[]) => useOrderedEntities(model, ids), [] as string[]);
-    const empty = hook.current;
-
-    expect(empty).toEqual([]);
-
-    hook.rerender(['2', 'missing', '1']);
-
-    expect(hook.current.map(item => item.id)).toEqual(['2', '1']);
-
-    hook.rerender(['missing']);
-
-    expect(hook.current).toBe(empty);
-
-    hook.rerender([]);
-
-    expect(hook.current).toBe(empty);
-
-    hook.unmount();
-  });
-
-  it('hydrates join rows in join order, drops missing entities, and reflects model updates', async () => {
-    configureDb({ storage: createMemoryStorage(), transport: mockTransport({}) });
-    const model = createTodoModel();
-
-    act(() => {
-      model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
-      model.insertStored({ id: '2', title: 'Two', listId: 'a', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
-      model.insertStored({ id: '3', title: 'Three', listId: 'a', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
-    });
-
-    type JoinRow = { todoId: string | number; badge: string; hiddenLabel: string };
-    type JoinedItem = { id: string; label: string; done: boolean; badge: string; hiddenLabel: string };
-
-    const hook = renderHook(
-      (rows: JoinRow[]) =>
-        useJoinedEntities(rows, {
-          idField: 'todoId',
-          model: { byIds: model.use.byIds },
-          renderKeys: ['id', 'label', 'done', 'badge'],
-          map: (join, entity): JoinedItem => ({
-            id: entity.id,
-            label: entity.title,
-            done: entity.done,
-            badge: join.badge,
-            hiddenLabel: join.hiddenLabel
-          })
-        }),
-      [
-        { todoId: '2', badge: 'second', hiddenLabel: 'a' },
-        { todoId: 'missing', badge: 'missing', hiddenLabel: 'a' },
-        { todoId: 1, badge: 'first', hiddenLabel: 'a' }
-      ]
-    );
-
-    await act(async () => {
-      await flush();
-    });
-
-    expect(hook.current.map(item => item.id)).toEqual(['2', '1']);
-    expect(hook.current.map(item => item.badge)).toEqual(['second', 'first']);
-
-    const firstItems = hook.current;
-    const stableSecond = hook.current[1]!;
-
-    hook.rerender([
-      { todoId: '2', badge: 'second', hiddenLabel: 'b' },
-      { todoId: 'missing', badge: 'missing', hiddenLabel: 'b' },
-      { todoId: 1, badge: 'first', hiddenLabel: 'b' }
-    ]);
-
-    expect(hook.current).toBe(firstItems);
-    expect(hook.current[1]).toBe(stableSecond);
-
-    act(() => {
-      model.patch('2', { title: 'Two updated', updatedAt: '2026-01-02T00:00:00.000Z' });
-    });
-
-    await act(async () => {
-      await flush();
-    });
-
-    expect(hook.current.map(item => item.label)).toEqual(['Two updated', 'One']);
-    expect(hook.current[1]).toBe(stableSecond);
-
-    hook.unmount();
-  });
-
-  it('returns shared empty output for nullish join rows and keeps hook order stable across flips', async () => {
-    configureDb({ storage: createMemoryStorage(), transport: mockTransport({}) });
-    const model = createTodoModel();
-
-    act(() => {
-      model.insertStored({ id: '1', title: 'One', listId: 'a', done: false, updatedAt: '2026-01-01T00:00:00.000Z' });
-    });
-
-    type JoinRow = { todoId: string };
-
-    const hook = renderHook(
-      (rows: readonly JoinRow[] | null | undefined) =>
-        useJoinedEntities(rows, {
-          idField: 'todoId',
-          model: { byIds: model.use.byIds },
-          renderKeys: ['id', 'title', 'done']
-        }),
-      null as readonly JoinRow[] | null | undefined
-    );
-
-    const empty = hook.current;
-    expect(empty).toEqual([]);
-
-    hook.rerender([]);
-    expect(hook.current).toBe(empty);
-
-    hook.rerender([{ todoId: '1' }]);
-
-    await act(async () => {
-      await flush();
-    });
-
-    expect(hook.current.map(item => item.id)).toEqual(['1']);
-    expect(hook.current[0]?.title).toBe('One');
-
-    hook.rerender(null);
-    expect(hook.current).toBe(empty);
 
     hook.unmount();
   });

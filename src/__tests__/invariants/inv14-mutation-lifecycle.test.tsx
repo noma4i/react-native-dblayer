@@ -2,7 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { parse } from 'graphql';
 import { belongsTo } from '../../core/relations';
-import { resetRuntimeSync } from '../../core/reset';
+import { resetRuntime } from '../../core/reset';
 import { getApplyRuntime, getOperationState, configureDb } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
 import { defineMutation } from '../../dsl/defineMutation';
@@ -361,7 +361,7 @@ describe('v6 invariant 14: mutation lifecycle', () => {
   it('resets models synchronously and permits a fresh insert', () => {
     const { messages, message } = setup(async () => server());
     messages.insertStored(message('before-reset'));
-    resetRuntimeSync();
+    resetRuntime();
     expect(messages.get('before-reset')).toBeUndefined();
     messages.insertStored(message('after-reset'));
     expect(messages.get('after-reset')).toMatchObject({ id: 'after-reset', text: 'before' });

@@ -3,7 +3,7 @@ import TestRenderer, { act } from 'react-test-renderer'
 import {
   configureDb,
   QueryClient,
-  resetRuntimeSync,
+  resetRuntime,
   type DbDefaults,
   type DbTransport,
   type StoragePlane,
@@ -115,5 +115,5 @@ export function renderCounted<T>(
 }
 
 afterEach(() => {
-  resetRuntimeSync()
+  resetRuntime()
 })

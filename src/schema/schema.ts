@@ -1,5 +1,5 @@
 import { toStr } from '../utils/normalizeHelpers';
-import { readObjectField, readSourceKey } from './fieldSpec';
+import { readObjectField } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
 import type { InferStoredFields } from './infer';
 
@@ -18,37 +18,6 @@ const normalizeId = (value: unknown): string | null => {
 
 /** A row source must be a non-null object; guard/rowId/field readers assume object shape. */
 const isNormalizableInput = (input: unknown): boolean => typeof input === 'object' && input !== null;
-
-/**
- * Build a row-id resolver by joining normalized own-key reads or selector outputs with `:`.
- *
- * @param parts Own-property keys or functions that read id parts from an input object.
- * @returns A resolver that returns `null` when any key/selector is unreadable or yields an empty part.
- */
-export function compositeId(...keys: string[]): (input: unknown) => string | null;
-export function compositeId<TInput>(...selectors: Array<(input: TInput) => unknown>): (input: TInput) => string | null;
-export function compositeId<TInput>(...parts: Array<string | ((input: TInput) => unknown)>): (input: TInput) => string | null {
-  return input => {
-    if (!parts.length) return null;
-
-    const normalizedParts: string[] = [];
-
-    for (const partReader of parts) {
-      let value: unknown;
-      try {
-        value = typeof partReader === 'string' ? readSourceKey(input, partReader) : partReader(input);
-      } catch {
-        return null;
-      }
-
-      const part = normalizeId(value);
-      if (part === null) return null;
-      normalizedParts.push(part);
-    }
-
-    return normalizedParts.join(':');
-  };
-}
 
 export const createSchema = <TInput, TFields extends SchemaFields<TInput>>(config: {
   fields: TFields;
