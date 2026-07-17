@@ -17,7 +17,8 @@ export interface DbDefaults {
   pageSize?: number;
   /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
   persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
-  onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown }) => void;
+  /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
+  onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown; key?: string; event?: string }) => void;
 }
 
 type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; defaults?: DbDefaults };

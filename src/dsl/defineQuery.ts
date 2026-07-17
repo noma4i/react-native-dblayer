@@ -6,6 +6,7 @@ import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { getApplyRuntime, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
+import { getDbLogger } from '../core/logger';
 import type { ScopeHandle } from './defineModel';
 import type { Coverage } from './scope';
 
@@ -131,7 +132,14 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {}) };
     const generation = getRuntimeGeneration();
-    const data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
+    let data: TResponse;
+    try {
+      data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
+    } catch (error) {
+      const reported = error instanceof Error ? error : new Error(String(error));
+      try { getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'query', model: destinationModelId, key: keyName }); } catch (observerError) { getDbLogger().error('defineQuery onSyncError failed', { error: observerError }); }
+      throw error;
+    }
     if (generation !== getRuntimeGeneration()) return { endCursor: null, hasNextPage: false, count: 0 };
     return applyResponse(scope, data, cursor == null);
   };

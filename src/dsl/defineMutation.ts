@@ -165,6 +165,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         getApplyRuntime().apply(expandPlan(optimistic.model.__planRestore?.(previous, previousMemberships) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }]));
       }
       if (tracked) operations.close(operationId, 'rolledback');
+      const reported = error instanceof Error ? error : new Error(String(error));
+      try {
+        getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
+      } catch (observerError) {
+        getDbLogger().error('defineMutation onSyncError failed', { error: observerError });
+      }
       config.onError?.(error as Error, { tempId, input });
       throw error;
     }

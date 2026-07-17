@@ -1,6 +1,7 @@
 import type { JournalOp } from '../core/apply/journal';
 import { expandPlan } from '../core/relations';
-import { getApplyRuntime, getOperationState } from './configure';
+import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
+import { getDbLogger } from '../core/logger';
 import type { ExtractSink } from './defineQuery';
 
 export type IngestDecl = {
@@ -28,6 +29,7 @@ type IngestModel = {
  */
 export const defineIngest = (model: IngestModel, handlers: Record<string, (payload: unknown) => IngestDecl | null>): IngestHandle => ({
   apply: (event, payload) => {
+    try {
     const declaration = handlers[event]?.(payload) ?? null;
     if (!declaration) return null;
     if (declaration.operationId && getOperationState().hasCommitted(declaration.operationId)) return declaration;
@@ -44,5 +46,10 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
     if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
     if (declaration.invalidate) model.invalidate();
     return declaration;
+    } catch (error) {
+      const reported = error instanceof Error ? error : new Error(String(error));
+      try { getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'ingest', model: model.modelId, event }); } catch (observerError) { getDbLogger().error('defineIngest onSyncError failed', { error: observerError }); }
+      return null;
+    }
   }
 });
