@@ -1,281 +1,141 @@
 # Mutations
 
-`useDbMutation` runs a GraphQL mutation as one transaction: an optimistic local write, the network call, then a
-server write-through — with automatic rollback of every local change if anything throws. Returns a
-`@tanstack/react-query` mutation (`{ mutate, mutateAsync, isPending, ... }`).
+`defineMutation` runs a GraphQL mutation as one lifecycle: an optional optimistic local write,
+the network call, then a single-transaction commit - with automatic rollback of the optimistic
+write if anything throws. Dedupe, extract sinks, and lifecycle callbacks all run through the same
+path for both the hook and the direct call.
 
-Configure analytics-agnostic tracking once. Without `trackSink`, `track` sections are no-ops and their callbacks are
-not called.
+## `defineMutation(config)`
 
 ```ts
-configureDb({
-  transport,
-  trackSink: (event) => analytics.track(event.name, event.payload),
-});
-```
+import { defineMutation, generateTempId } from '@noma4i/react-native-dblayer';
 
-## Variant 1 — custom optimistic (`onMutate` + `onCommit`)
-
-The most flexible form: you insert a temp row, then swap it for the server row.
-
-```tsx
-import { useDbMutation, generateTempId } from '@noma4i/react-native-dblayer';
-import { SEND_MESSAGE } from './operations';
-
-function useSendMessage() {
-  return useDbMutation({
-    key: () => ['sendMessage'],
-    logPrefix: 'sendMessage',
-    mutation: SEND_MESSAGE,
-    resultField: 'sendMessage',                  // response.data.sendMessage
-    onMutate: (input) => {                        // optimistic — shows instantly
-      const temp = { id: generateTempId('msg'), chatId: input.chatId, body: input.body, pending: true };
-      MessageModel.insertStored(temp);
-      return { tempId: temp.id };                 // context -> onCommit / onError
-    },
-    onCommit: (data, _input, ctx) => {            // server write-through, inside the tx
-      if (data) MessageModel.replaceRaw(ctx.tempId, data); // temp -> server row
-    },
-  });
-}
-
-function Composer({ chatId }: { chatId: string }) {
-  const send = useSendMessage();
-  return <Button title="Send" onPress={() => send.mutate({ chatId, body: 'hi' })} disabled={send.isPending} />;
-}
-```
-
-If `SEND_MESSAGE` throws, the optimistic `insertStored` is rolled back automatically and `onError` (if provided)
-runs before the error rethrows.
-
-## Variant 2 — declarative optimistic (`optimistic`)
-
-Use `optimistic` when a mutation always follows the temp-row pattern. The model is a direct reference, matching
-`method: 'patch' | 'destroy'`, so `insertStored`, `replaceRaw`, and `buildStored` remain type-checked.
-
-```tsx
-const send = useDbMutation({
-  mutation: SEND_MESSAGE,
-  resultField: 'sendMessage',
+const sendMessage = defineMutation({
+  document: MessageSendDocument,
+  result: 'messageSend',
   optimistic: {
     model: MessageModel,
-    tempIdPrefix: 'msg',
-    buildStored: ({ input, tempId }) =>
-      MessageModel.buildStored({ id: tempId, chatId: input.chatId, body: input.body, pending: true }),
-    selectServerNode: (data) => data?.message,
-    preserveOnCommit: { fields: ['body', 'media', 'localPreviewUrl'] },
+    tempIdPrefix: 'message',
+    build: (input: SendMessageInput, ctx) => ({
+      id: ctx.tempId!,
+      chatId: input.chatId,
+      text: input.text,
+      kind: 'text',
+      createdAt: new Date().toISOString(),
+      localEcho: true
+    }),
+    selectServerNode: data => data.messageSend.message,
+    preserveOnCommit: ['localEcho'],
+    existingTempId: input => input.retryTempId ?? null
   },
-  onCommit: (_data, input, ctx) => {
-    trackSent(input.chatId, ctx.tempId, ctx.optimisticRow); // optional side effects after the preset commit
-  },
-  track: {
-    start: (input) => ({ name: 'message_send_initiated', payload: { chatId: input.chatId } }),
-    success: (_data, input, ctx) => ({ name: 'message_sent', payload: { chatId: input.chatId, tempId: ctx.tempId } }),
-    error: (error, input) => ({ name: 'message_send_failed', payload: { chatId: input.chatId, error: error.message } }),
-  },
-});
-```
-
-Preset behavior:
-
-| Step | Behavior |
-| --- | --- |
-| mutate | If `selectTempId(input)` or `input.tempId` returns an id, skip insertion and return `{ tempId, optimisticRow: model.get(tempId) ?? null }`. |
-| mutate | Otherwise generate `generateTempId(tempIdPrefix)`, call `buildStored({ input, tempId })`, `insertStored(row)`, and return `{ tempId, optimisticRow: row }`. |
-| commit | `selectServerNode(data, input)` chooses the server node. |
-| commit | `preserveOnCommit` transforms the server node before any write. |
-| commit | With `ctx.tempId`, run `model.replaceRaw(ctx.tempId, node)`; without it, run `model.applyServerData([node], mergeSyncContract('mutation'))`. |
-| escape hatch | `onMutate` may still run extra optimistic side effects; object returns are merged with `{ tempId }`. |
-| escape hatch | `onCommit` still runs after extract handling and after the preset commit. |
-
-Return `null` from `buildStored` to skip optimistic insertion and use the commit fallback. This covers flows where
-the row was already created elsewhere or no local optimistic row is available.
-
-`preserveOnCommit` can be a function `(serverNode, context) => nextServerNode` or a declarative field list:
-`{ fields: ['body'], mergers?: { body: (optimisticValue, serverValue) => value } }`. The declarative form uses
-`mergeOptimisticSnapshot(ctx.optimisticRow, serverNode, options)`: server values win unless they are `null`,
-`undefined`, or an empty string while the optimistic row has a value. Without `fields`, `mergeOptimisticSnapshot`
-performs the same keyed union merge for every key.
-
-## Variant 3 — declarative patch (`method: 'patch'`)
-
-For simple field updates, skip `onMutate`/`onCommit`:
-
-```ts
-const rename = useDbMutation({
-  key: () => ['renameUser'],
-  logPrefix: 'renameUser',
-  mutation: RENAME_USER,
-  resultField: 'renameUser',
-  method: 'patch',
-  model: UserModel,
-  selectId: (input) => input.id,
-  selectPatch: (input, current) => ({ name: input.name, version: (current?.version ?? 0) + 1 }),
+  extract: ({ data }) => [{ into: UserModel, rows: [data.messageSend.message.author] }],
+  dedupe: { key: input => input.clientKey },
+  mapInput: (input, ctx) => ({ ...input, operationId: ctx.operationId }),
+  onCommit: (data, { tempId, input }) => {},
+  onError: (error, { input }) => {},
+  invalidate: ({ input }) => ChatModel.invalidate({ id: input.chatId }),
+  track: ({ input }) => analytics.track('message_sent', { chatId: input.chatId })
 });
 
-rename.mutate({ id, name: 'New name' }); // optimistic patch, rolled back on error
+const { mutate, mutateAsync, isPending, error } = sendMessage.use();
+await sendMessage.run(input);   // same lifecycle, imperatively
 ```
 
-## Variant 4 — declarative destroy (`method: 'destroy'`)
+### `MutationConfig`
 
-```ts
-const remove = useDbMutation({
-  key: () => ['deleteMessage'],
-  logPrefix: 'deleteMessage',
-  mutation: DELETE_MESSAGE,
-  resultField: 'deleteMessage',
-  method: 'destroy',
-  model: MessageModel,
-  selectId: (input) => input.id,
-});
-
-remove.mutate({ id: messageId }); // optimistic delete, restored on error
-```
-
-## Config reference
-
-### Shared fields (all variants)
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `mutation` | `TypedDocumentNode<Record<string, TData>, { input }> \| DocumentNode` | **required** | The GraphQL mutation. |
-| `resultField` | `string` | **required** | Field of `response.data` holding the result (e.g. `'sendMessage'`). |
-| `key` | `() => readonly unknown[]` | `() => [resultField]` | React Query mutation key. The default is input-independent. |
-| `dedupe` | `{ key: (input) => string \| null }` | `none` | Opt-in transport dedupe. Matching non-null keys share one in-flight transport promise; omit it to send every call independently. |
-| `logPrefix` | `string` | capitalized `resultField` | Log tag for `debug`/`error`. |
-| `mapInput` | `(input) => unknown` | identity | Transform caller input → the mutation's `variables.input`. |
-| `extract` | `ExtractSpecOf<typeof presetTable, TData>` (default resolver seam: `unknown`) | `—` | Side-load spec → `createMutationExtractResolver`/custom resolver → sink (source `'mutation'`). |
-| `extractSource` | `string` | `'mutation'` | Source label passed to the extract sink. |
-| `onCommit` | `(data, input, context) => void` | `—` | Server write-through. Runs in the tx, after the response, before commit. |
-| `invalidate` | `(data, input) => void` | `—` | After commit — invalidate dependent queries. |
-| `onError` | `(error, input, context) => void` | `-` | On hook failure, after rollback and before the original error is rethrown. Direct execution has no rollback. |
-| `track` | `{ start?, success?, error? }` | `—` | Emits analytics-agnostic events through `configureDb({ trackSink })`. |
-
-### `track`
-
-| Hook | Signature | Ordering |
+| Option | Type | Description |
 | --- | --- | --- |
-| `start` | `(input) => TrackEvent \| null` | Before optimistic preset / `onMutate` / patch / destroy. |
-| `success` | `(data, input, context) => TrackEvent \| null` | After extract, optimistic preset commit, and manual `onCommit`; before transaction commit. |
-| `error` | `(error, input) => TrackEvent \| null` | After rollback + manual `onError`; before rethrow. |
+| `document` | GraphQL document | The mutation document. |
+| `result` | `string` | Response field owning the mutation payload; a null payload is treated as failure and rolls back. |
+| `mapInput` | `(input, ctx: OptimisticCtx) => Record<string, unknown>` | Build transport variables from the mutation input and its optimistic operation context. |
+| `optimistic` | insert / patch / destroy | Optimistic local write applied before the network call, undone on error/rollback. Omit for mutations with no local write of their own (pure side-effect calls). See below. |
+| `extract` | `(ctx: { data }) => ExtractSink[]` | Cross-model sideloads from the response, applied in the SAME transaction as the commit. |
+| `dedupe` | `{ key: (input) => string \| null }` | Idempotency: a committed key is never re-sent; a pending key blocks double-taps; a `null` key skips dedupe. |
+| `onMutate` | `(input, ctx) => void` | Called synchronously right after the optimistic write (if any), before the transport call starts. |
+| `onCommit` | `(data, ctx: OptimisticCtx & { input }) => void` | Called after the response commits successfully, after extract sinks and preserve-on-commit have applied. |
+| `onError` | `(error, ctx: OptimisticCtx & { input }) => void` | Called after a failed run has rolled back its optimistic write (if any) and closed the operation. |
+| `invalidate` | `(ctx: { input, data }) => void` | Called after a successful commit to invalidate related queries; errors are logged and do not fail the mutation. |
+| `track` | `(ctx: { input, data }) => void` | Called after a successful commit for analytics/tracking; errors are logged and do not fail the mutation. |
 
-`TrackEvent` is `{ name: string; payload?: Record<string, unknown> }`. Returning `null` or `undefined` skips emission.
-Track resolver errors and throwing sinks are swallowed and logged with `logger.debug`, so tracking never breaks the
-mutation.
+### Optimistic write variants
 
-### `method` undefined (Variants 1 and 2)
+`optimistic` is one of three shapes:
 
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `optimistic` | `{ model, tempIdPrefix?, selectTempId?, buildStored, selectServerNode, preserveOnCommit? }` | `—` | Declarative temp-row preset. |
-| `onMutate` | `(input) => TContext` | `—` | Manual optimistic write or extra side effects; with `optimistic`, object returns are merged into the preset context. |
-
-### `method: 'patch'` (Variant 3)
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `model` | `{ get, patch }` | **required** | The model to patch. |
-| `selectId` | `(input) => string \| null` | **required** | Which row. |
-| `selectPatch` | `(input, current?) => Record<string, unknown> \| null` | **required** | The patch; `current` is the existing row. `null` skips. |
-
-### `method: 'destroy'` (Variant 4)
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `model` | `{ destroy }` | **required** | The model to delete from. |
-| `selectId` | `(input) => string \| null` | **required** | Which row to remove. |
-
-### Lifecycle
-
-```
-mutate(input)
-  → optimistic write        (optimistic | onMutate | selectPatch/selectId) [inside tx]
-  → transport.mutation(...)  (network)
-  → extract                  (optional side-loads)                [inside tx]
-  → optimistic commit        (replaceRaw | applyServerData)       [inside tx]
-  → onCommit(...)            (manual side effects/write-through)  [inside tx]
-  → track.success(...)       (optional event)                     [inside tx]
-  → commit                                                        (persist)
-  → invalidate(...)          (post-commit)
-  ── on any throw ──▶ rollback (all tx writes undone) → onError → track.error → rethrow
-```
-
-### `extract` presets
-
-Wire `configureDb({ extract: { mutationResolver: createMutationExtractResolver(table), sink } })` once, then use
-declarative preset flags in mutation configs:
-
-```ts
-const send = useDbMutation({
-  mutation: SEND_MESSAGE,
-  resultField: 'sendMessage',
-  extract: { user: true, message: true, chat: (result) => result.chat },
-});
-```
-
-For each preset key, `true` uses the table reader and a function overrides the reader. Spec keys absent from the preset
-table throw immediately; for known keys, `false`, `null`, and `undefined` are legal skip markers. The resolver drops
-empty results and array-lifts nodes by default, so `{ message: true }` can emit `{ messages: [node] }` when the table
-maps `message` to the `messages` sink key. Use `many: false` in the table for singleton payloads.
-
-## `useCommand(config)`
-
-Fire-and-forget GraphQL command — no optimistic write, no transaction.
-
-```ts
-const track = useCommand({
-  mutation: TRACK_EVENT,
-  resultField: 'trackEvent',
-});
-track.mutate({ name: 'opened_chat', chatId });
-```
-
-Resolved-per-input form when the operation depends on the input:
-
-```ts
-const doAction = useCommand({
-  key: () => ['action'],
-  logPrefix: 'action',
-  resolve: (input) => ({ mutation: ACTION_MUTATIONS[input.kind], resultField: 'action', input }),
-});
-```
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `key` | `() => readonly unknown[]` | `() => [resultField]` for static commands | React Query command key. Resolved and low-level command defaults use `['command']`. |
-| `dedupe` | `{ key: (input) => string \| null }` | `none` | Opt-in transport dedupe. Matching non-null keys share one in-flight transport promise; omit it to send every call independently. |
-| `logPrefix` | `string` | capitalized `resultField` for static commands | Log tag. Resolved and low-level command defaults use `Command`. |
-| `mutation` | document | **required** (static form) | The mutation. |
-| `resultField` | `string` | **required** (static form) | Response field to return. |
-| `mapInput` | `(input) => unknown` | identity | Map input → `variables.input`. |
-| `resolve` | `(input) => { mutation, resultField, input? }` | — (resolved form) | Per-input operation instead of static `mutation`/`resultField`. |
-| `track` | `{ start?, success?, error? }` | `—` | Emits analytics-agnostic command events through `configureDb({ trackSink })`. |
-
-Command tracking uses the same sink and resolver rules as mutation tracking:
-
-| Hook | Signature | Ordering |
+| Variant | Shape | Behavior |
 | --- | --- | --- |
-| `start` | `(input) => TrackEvent \| null` | Before the transport request. |
-| `success` | `(data, input) => TrackEvent \| null` | After extract handling. |
-| `error` | `(error, input) => TrackEvent \| null` | Before rethrow when the command fails. |
+| Insert | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. |
+| Patch | `{ method: 'patch', model, selectId, selectPatch }` | Applies a partial update immediately, restoring the previous field values on error. |
+| Destroy | `{ method: 'destroy', model, selectId }` | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back. |
 
-`runDbCommandDirect(config, input)` runs the same static or resolved command config outside React. It ignores
-hook-only `key`, sends `variables.input`, runs command tracking/extract handling, and returns
-`response.data[resultField] ?? null`. `logPrefix` is shared by hook logs and tracking guard logs.
+**Temp-id -> server replace.** On a successful insert commit, `selectServerNode(data)` picks the
+server-created node; the temp row is replaced by it in the same transaction as any `extract` sinks.
+`preserveOnCommit` names client-only fields (visual state, local uris) copied from the optimistic
+row onto the committed server row before it lands - use it for fields the server response does not
+carry, like `localEcho` above.
 
-## Non-React execution
+**Rollback guarantees.** A thrown transport error (or a null `result` payload) undoes exactly the
+optimistic write that ran: an inserted temp row is destroyed (untombstoned, so a later write can
+reuse the id cleanly), a patch restores its previous field values, a destroy restores the previous
+row and its captured scope memberships. Rollback runs before `onError` and before the mutation
+promise rejects.
 
-`runDbMutationDirect(config, input, context?)` runs the request plus extract/commit logic outside React. It does not
-run optimistic insertion; for optimistic configs it reads `input.tempId`/`selectTempId(input)` or `context.tempId`
-and adds `{ tempId, optimisticRow: model.get(tempId) ?? null }` before the request. The direct path shares
-`track.start/success/error`, `onError`, commit, and post-success `invalidate` ordering with `useDbMutation`. It does not
-run hook-only single-flight, transactions, `onMutate`, optimistic insertion, or rollback. Patch configs run
-`selectPatch` before transport and keep that patch on failure. Destroy configs likewise remove the local row before
-transport and do not restore it on failure:
+**Cascade-destroy guard.** `optimistic: { method: 'destroy' }` throws synchronously, before any
+network call, if the target model has a `hasMany` relation with `dependent: 'destroy'` - an
+optimistic destroy on that model would need to roll back a cascade of children it does not track,
+so the guard refuses the mutation outright rather than leaving orphaned or resurrected children.
+
+### `operationId` echo wiring with `defineIngest`
+
+Every mutation run gets a fresh `operationId` (`OptimisticCtx.operationId`), independent of
+`dedupe`'s key. Send it to the server (typically via `mapInput`) so the server echoes it back on
+the subscription event the mutation itself triggers; pass it through as `operationId` in the
+declaration an ingest handler returns (see [configuration.md](./configuration.md#defineingestmodel-handlers)).
+`defineIngest` skips the whole event when that `operationId` already committed locally - the
+mutation's own commit already applied the row, so the echoed subscription event is a no-op instead
+of a duplicate write.
+
+### `use()` result shape
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `mutate` | `(input, callbacks?: MutateCallbacks) => void` | Fire-and-forget: runs the mutation, invoking `callbacks.onSuccess`/`onError`/`onSettled`. |
+| `mutateAsync` | `(input) => Promise<TData \| null>` | Runs the mutation and returns/rejects like `run`, while also reflecting `isPending`/`error` in hook state. |
+| `isPending` | `boolean` | `true` while a `mutate`/`mutateAsync` call from this hook instance is in flight. |
+| `error` | `Error \| null` | The last error thrown by this hook instance's calls. |
+
+`MutateCallbacks<TData>`: `onSuccess?: (data: TData \| null) => void` (receives `null` when the call
+was skipped by dedupe), `onError?: (error: Error) => void` (called after rollback has already run),
+`onSettled?: () => void` (called after `onSuccess`/`onError`, regardless of outcome).
+
+`run(input)` (the non-hook path) executes one mutation outside React, resolving to the response
+data, or `null` when dedupe skipped it.
+
+## `mergeOptimisticSnapshot`
+
+Merge an optimistic row snapshot with a committed server node - useful inside `onCommit`, or any
+custom commit path that needs the same null/empty-string preservation `preserveOnCommit` gives you
+for a fixed field list.
 
 ```ts
-import { runDbCommandDirect, runDbMutationDirect } from '@noma4i/react-native-dblayer';
+import { mergeOptimisticSnapshot } from '@noma4i/react-native-dblayer';
 
-await runDbMutationDirect(sendMessageConfig, { chatId, body, attachmentUrl, tempId });
-await runDbCommandDirect(trackEventConfig, { name: 'opened_chat', chatId });
+const merged = mergeOptimisticSnapshot(optimisticRow, serverNode, {
+  fields: ['caption', 'localUri'],
+  mergers: { localUri: (optimistic, server) => server ?? optimistic }
+});
 ```
+
+`mergeOptimisticSnapshot(optimistic, server, options?)`: for each merged field, the server value
+wins **unless** it is `null`, `undefined`, or an empty string while the optimistic row has a value -
+in which case the optimistic value is kept. `options.fields` restricts the merge to a field
+allowlist (defaults to the union of both objects' keys); `options.mergers` overrides the
+per-field rule for specific keys. Returns whichever side exists when the other is nullish.
+
+## Error policy
+
+A thrown mutation error always rejects `run`/`mutateAsync` (and reaches `mutate`'s `onError`
+callback) after rollback has completed - errors are never swallowed. Independently, the same error
+is reported to `DbDefaults.onSyncError` with `{ source: 'mutation' }` (see
+[configuration.md](./configuration.md#onsyncerror-policy)), so app-wide error tracking does not need
+to be wired into every call site. `onSyncError` observes the failure; it never changes whether the
+mutation rejects.

@@ -1,6 +1,7 @@
 # Runtime Primitives
 
-Utilities for subscription handlers, cleanup jobs, nested status updates, throttled syncs, and singleton rows.
+Utilities for cleanup jobs, row waiters, nested status updates, throttled syncs, singleton rows,
+and small scalar/id helpers used across the schema and mutation DSLs.
 
 ## `reconcileOptimisticRows(model, nodes, options)`
 
@@ -22,50 +23,25 @@ omits it from the return value. The return value is the unmatched server nodes.
 
 | Helper | Behavior |
 | --- | --- |
-| `trimRowsPerScope(model, scopeField, maxPerScope, compare, protect?)` | Groups unprotected rows by scope, sorts each group with `compare`, keeps the first `maxPerScope`, deletes the rest through the internal maintenance delete path, and returns the deleted count. It does not cascade or clear fetch-state. Protected ids/rows do not count toward the limit. |
+| `trimRowsPerScope(model, scopeField, maxPerScope, compare, protect?)` | Groups unprotected rows by scope, sorts each group with `compare`, keeps the first `maxPerScope`, deletes the rest with `model.destroyMany(ids)`, and returns the deleted count. Protected ids/rows (a predicate, a `Set`, or an id array) do not count toward the limit. |
 | `resolveStaleTempRows(model, { maxAgeMs, protectedIds?, onStale })` | Calls `onStale(row)` for temp-id rows older than `maxAgeMs` and not protected. Returns the resolved count. |
 
-## Subscription runtime and ingest primitives
-
-### `createDbSubscriptionRuntime(entries)`
-
-Creates an imperative subscription dispatcher for transport-level GraphQL subscriptions.
-
-| Surface | Signature essentials | Behavior |
-| --- | --- | --- |
-| `setActive(active)` | `(active: boolean) => void` | Subscribes or unsubscribes every entry through the configured transport. |
-| `isActive()` | `() => boolean` | Returns the runtime-wide active flag. |
-| `stop()` | `() => void` | Unsubscribes active subscriptions and clears runtime state. |
-| `dispatch(key, payload)` | `(key: string, payload: unknown) => void` | Manually routes a payload through the matching entry for tests or external transports. |
-| `inspect()` | `() => DbSubscriptionRuntimeInspectRow[]` | Returns runtime status rows for diagnostics. |
-
-Entries provide `{ key, query, vars?, debounce?, onData }`. The runtime unwraps transport response data by `key`,
-validates a record payload, applies optional keyed trailing debounce, and calls `onData(payload)`. Transport errors
-are logged, unsubscribed, and retried with bounded exponential backoff.
-
-Use `defineDbSubscriptionEntry({ key, query, vars, debounce, onData })` with a typed GraphQL document. It constrains
-`key` to a result root field, infers `vars` from the document variables, and types `onData`/`debounce.keyOf` from the
-selected root payload while still returning an entry that can join a heterogeneous runtime registry.
-
-### `createDbSubscriptionEffects`
-
-Creates an injectable UI-effects channel for subscription entries. It returns `{ effects, configure(overrides), reset() }`;
-the `effects` table and every wrapper keep stable identity while forwarding to the currently configured effect.
-Entries capture `channel.effects` when they are built, then the effect owner calls `configure` on mount and `reset` on
-teardown without rebinding entries.
+Subscription-runtime and `defineIngest` primitives (`createDbSubscriptionRuntime`,
+`defineDbSubscriptionEntry`, `createDbSubscriptionEffects`, `defineIngest`) are documented in
+[configuration.md](./configuration.md#subscription-runtime-and-defineingest-echo-guard), alongside
+the rest of the runtime configuration surface.
 
 ## Row waiters
 
 ### `patchWhenRowExists(model, id, patch, { ttlMs })`
 
-Applies a partial patch immediately if `model.get(id)` exists. Otherwise it queues the patch and applies queued
-patches in registration order when the row appears through the model collection's `subscribeChanges` channel.
-`patch` may be a partial object or `(row) => partial`. TTL expiry drops queued patches and logs a debug entry.
-Model runtime reset clears deferred queues.
+Applies a partial patch immediately if `model.get(id)` exists. Otherwise it queues the patch on the
+commit bus and applies it, in registration order, the moment a write makes the row exist. `patch`
+may be a partial object or `(row) => partial`. TTL expiry drops the queued patch without applying it.
 
 ### `waitForRow(model, id, { timeoutMs, signal? })`
 
-Resolves immediately with `model.get(id)` when present. Otherwise it subscribes to the model collection and resolves
+Resolves immediately with `model.get(id)` when present. Otherwise it subscribes to the commit bus and resolves
 with the row when it appears, or `undefined` on timeout/abort. Every exit path removes the timer and subscription.
 
 ## `createModelStatusPoller(config)`
@@ -155,3 +131,18 @@ Builds statics for one-row models:
 | `useCurrent()` | Reactive read by `recordId`, falling back to `defaults`. |
 | `upsertCurrent(input)` | Patches existing row or inserts `{ ...defaults, ...input, id: recordId }`; ignores `input.id`. |
 | `patchClamped(field, delta, min = 0)` | Adds `delta` to a numeric field and clamps at `min`. Returns `false` when the row is missing or `delta` is zero. |
+
+## Utility helpers
+
+Small scalar/id/type-boundary helpers, standalone or used internally by the schema and mutation DSLs.
+
+| Export | Signature | Behavior |
+| --- | --- | --- |
+| `generateTempId` | `(prefix?: string) => string` | Generates a stable-format optimistic temporary id: `temp[-prefix]-<timestamp>-<counter>`. Ids generated within the same millisecond share the timestamp but get a strictly increasing counter, so ids stay unique and sortable under rapid-fire calls. Used internally by `defineMutation`'s optimistic insert; also useful for building your own temp ids outside a mutation. |
+| `isTempId` | `(id: string \| null \| undefined) => boolean` | Returns `true` for an id generated by `generateTempId` (starts with `temp-`). |
+| `isIncomingNewer` | `(existingUpdatedAt, incomingUpdatedAt) => boolean` | The newer-wins acceptance gate: returns `true` when an incoming `updatedAt` is newer than or equal to the existing one. Nullish timestamps are permissive - both nullish accepts, only-existing-nullish accepts, only-incoming-nullish rejects (an incoming row with no timestamp cannot prove it is newer). Drop it straight into `merge.shouldOverwrite` (see [models.md](./models.md#definemodelconfig)). |
+| `castNode` | `<T>(node: unknown) => T` | Type-only cast of one untyped node (e.g. a GraphQL response field) to `T` at a package boundary. Performs no runtime check or copy. |
+| `castNodes` | `<T>(nodes: unknown[]) => T[]` | Type-only cast of an untyped node array to `T[]` at a package boundary. Performs no runtime check or copy. |
+| `toStr` | `(v: unknown) => string \| null \| undefined` | `String(v)`, preserving explicit `null`/`undefined` as-is instead of stringifying them. Does not filter empty strings. |
+| `pickDefined` | `(source, keys) => Partial<Pick<TSource, TKey>>` | Picks the listed keys whose values are not `undefined`; explicit `null` values are kept. |
+| `pickPresent` | `(source, keys) => Partial<...>` | Picks the listed keys whose values are neither `null` nor `undefined`. |

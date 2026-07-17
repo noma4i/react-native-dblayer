@@ -1,379 +1,165 @@
 # Queries
 
-The query DSL runs a GraphQL operation, writes the result into a collection, and hands back the reactive read.
-DBLay owns the `@tanstack/react-query` version and exports `QueryClient`, `QueryClientProvider`,
-`focusManager`, `useQuery`, and `useQueryClient` from `@noma4i/react-native-dblayer` for the host app. The query
-cache is not model storage: DBLay rows stay in DBLay planes.
+Two DSLs cover network reads. `defineQuery` compiles a GraphQL response into the shared apply
+pipeline and writes it into a model or scope, so the result becomes a normal reactive model read.
+`defineFetch` is the ephemeral counterpart: it runs a query and hands back the selected payload
+directly, with no store destination. Both are backed by TanStack Query, whose shared client/provider
+live in [configuration.md](./configuration.md#react-query-passthrough).
 
-## `defineFetch(config)`
-
-Ephemeral, store-free fetch: runs a query and hands back the selected payload directly, with no `into`
-destination. The response never reaches the apply pipeline, never writes a journal record, and never touches a
-`dbl:` storage key. Use it for display-only data with no reactive read of its own — pricing tables, country
-lists, SKU catalogs — where a `defineQuery` write destination is pure overhead.
+## `defineQuery(config)`
 
 ```ts
-import { defineFetch } from '@noma4i/react-native-dblayer';
-import { COUNTRIES_QUERY } from './operations';
+import { defineQuery } from '@noma4i/react-native-dblayer';
 
-const countriesFetch = defineFetch({
-  document: COUNTRIES_QUERY,
-  key: 'countries',
-  select: (data) => data.countries,
+const chatThreadQuery = defineQuery({
+  document: MessagesDocument,               // cache key defaults to the operation name
+  vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
+  page: data => data.messages,               // infinite connection; use `select` for a single fetch
+  into: MessageModel.scopes.thread,
+  edge: node => ({ deliveredAt: node.deliveredAt }),
+  extract: ({ nodes }) => [{ into: UserModel, rows: authorsOf(nodes) }],
+  staleTime: 30_000,
+  emptyStaleTime: 5_000
 });
 
-function CountryPicker() {
-  const { data: countries, loadingState, error, refetch } = countriesFetch.use();
-  if (loadingState.showSkeleton) return <ActivityIndicator />;
-  if (error) return <ErrorBanner onRetry={refetch} />;
-  return <Picker items={countries} />;
-}
+const { data, loadingState, error, hasNextPage, isFetchingNextPage, fetchNextPage, refetch } =
+  chatThreadQuery.use({ chatId });
 
-// Outside React (e.g. a preload):
-const countries = await countriesFetch.fetch(); // throws on transport error
+await chatThreadQuery.fetch({ chatId });      // one fetch outside React
+chatThreadQuery.invalidate({ chatId });       // clear the React Query cache for one scope
 ```
 
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `document` | `TypedDocumentNode<TData, TVars> \| DocumentNode` | **required** | The GraphQL query. |
-| `key` | `string` | **required** | Cache-key namespace, combined with a stable hash of the call input. |
-| `select` | `(data: TData) => TSelected` | **required** | Pick the payload to expose as `data`. |
-| `vars` | `(input: TInput) => Record<string, unknown>` | `—` | Derive GraphQL variables from the call input. |
-| `enabled` | `(input: TInput) => boolean` | always enabled | Gates `use(input)`'s automatic fetch only; `fetch(input)` always runs. |
-| `staleTime` | `number` (ms) | package default, then `0` | Freshness window, passed to TanStack Query unchanged. |
-| `gcTime` | `number` (ms) | package default | TanStack Query cache GC time. |
+### `QueryConfig`
 
-Returns `{ use, fetch }`. `use(input)` is a hook returning `{ data, loadingState, error, refetch }` — the same
-`loadingState` machine `defineQuery` uses. `refetch()` is fire-and-forget (`() => void`); await `fetch(input)`
-instead when you need to know a refetch has settled. `fetch(input)` runs one fetch outside React and resolves
-to the selected payload, throwing on transport failure.
+| Option | Type | Description |
+| --- | --- | --- |
+| `document` | GraphQL document | The query document. `TResponse`/`TVars` are inferred from a `TypedDocumentNode`. |
+| `key` | `string` | Stable cache-key namespace; defaults to the document's operation name. |
+| `vars` | `(scope) => TVars` | Derive GraphQL variables from the scope value passed to `use`/`fetch`. |
+| `page` | `(data) => { nodes \| edges, pageInfo }` | Infinite-connection selector for cursor pagination. Mutually exclusive with `select` - setting `page` makes `use` an infinite-query hook (`hasNextPage`/`fetchNextPage` become live). |
+| `select` | `(data) => unknown` | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`. |
+| `into` | `ScopeHandle \| Model` | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. |
+| `coverage` | `Coverage` | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See Coverage semantics below. |
+| `edge` | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists). |
+| `extract` | `(ctx: { data, nodes }) => ExtractSink[]` | Cross-model sideloads applied in the SAME transaction as the main rows. |
+| `map` | `(selected) => unknown` | Transform the selected/paged payload before it is split into nodes and written. Runs after `select`/`page`. |
+| `enabled` | `(scope) => boolean` | Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled. |
+| `staleTime` | `number` (ms) | Freshness window before a scope with data is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. |
+| `emptyStaleTime` | `number` (ms) | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows. |
+| `gcTime` | `number` (ms) | TanStack Query cache garbage-collection time for this query's cache entries. |
+| `maxPages` | `number` | Bounded page window retained by the underlying infinite query; older pages are dropped past this count. |
+| `refetchOnMount` | `boolean` | Whether TanStack Query refetches on hook remount. |
+| `direction` | `'forward' \| 'backward'` | Cursor pagination direction; `'backward'` reads `hasPreviousPage`/`startCursor` instead of the forward pair. |
+| `cursorVar` | `string` | GraphQL variable carrying the page cursor; defaults to `'after'` (`'before'` when backward). |
+| `getCursor` | `(page) => string \| null` | Override cursor extraction from a page; defaults to reading `pageInfo.endCursor`/`startCursor` per `direction`. |
+| `mapCursor` | `(cursor: string) => unknown` | Transform the raw string cursor before it is substituted into the cursor variable (e.g. `Number` for numeric cursors). |
 
-## `useDbSingleRequest(config)`
+`defineQuery` returns `{ use, fetch, invalidate }`:
 
-Full example — fetch one user, store it, render the reactive row:
+- `use(scope, opts?)` is a hook - a single-fetch hook when `page` is omitted, an infinite-query hook
+  when `page` is set - returning a `QueryResult`.
+- `fetch(scope)` runs one fetch outside React, applying the response through the same pipeline.
+- `invalidate(scope?)` clears the React Query cache for one scope, or every registered scope when
+  `scope` is omitted.
 
-```tsx
-import { useDbSingleRequest } from '@noma4i/react-native-dblayer';
-import { ActivityIndicator, Text } from 'react-native';
-import { USER_QUERY } from './operations'; // graphql-codegen TypedDocumentNode
-
-function UserCard({ id }: { id: string }) {
-  const { data: user, isLoading, loadingState } = useDbSingleRequest({
-    query: USER_QUERY,                            // types inferred from the document
-    vars: { id },
-    select: (d) => d.user,                        // pick the payload
-    sync: { model: UserModel, contract: 'user' }, // write it into UserModel
-    read: { model: UserModel, id },               // read it back reactively
-  });
-
-  if (loadingState.showSkeleton) return <ActivityIndicator />;
-  return <Text>{user?.name}</Text>;
-}
-```
-
-Because it wrote into `UserModel`, any other component now reads the same row for free:
-
-```tsx
-function OnlineDot({ id }: { id: string }) {
-  const user = UserModel.find(id); // no fetch; re-renders on change
-  return user?.isOnline ? <Dot /> : null;
-}
-```
-
-### `modelDetailRequest(model, config)`
-
-Use this builder for standard "fetch one node, write it to the same model, read it back by id" requests. Raw
-`useDbSingleRequest` configs remain supported for custom flows.
-
-```tsx
-import { modelDetailRequest, useDbSingleRequest } from '@noma4i/react-native-dblayer';
-
-const user = useDbSingleRequest(
-  modelDetailRequest(UserModel, {
-    query: USER_QUERY,
-    id: userId,
-    select: (d) => d.user,
-    contract: 'profile',
-    staleTime: Infinity,
-  })
-);
-```
-
-The builder derives:
-
-| Field | Derived value |
-| --- | --- |
-| `key` | model-scoped DB query key; explicit `key` wins. |
-| `vars` | `{ id }`; pass `vars: (id) => ({ momentId: id })` or an object for custom variable names. |
-| `sync` | `{ model, contract: config.contract ?? 'detail' }`. |
-| `read` | `{ model, id }`; pass `read: false` for select-only detail lookups such as public uuid routes. |
-| `enabled` | `Boolean(id) && callerEnabled`; `enabled` may be a boolean or `(id) => boolean`. |
-
-No-read variant:
-
-```ts
-modelDetailRequest(UserModel, {
-  query: USER_BY_UUID_QUERY,
-  id: uuid,
-  select: (d) => d.user,
-  vars: (id) => ({ id, first: 1 }),
-  contract: 'deepLink',
-  read: false,
-});
-```
-
-### `DbRequestSingleConfig`
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `query` | `TypedDocumentNode<TResponse, TVars> \| DocumentNode` | **required** | The GraphQL query. Types flow from a `TypedDocumentNode`. |
-| `key` | `readonly unknown[]` | derived when model-backed | React Query cache key. Explicit keys win. |
-| `select` | `(data: TResponse) => TSelected` | identity | Pick the payload (e.g. `d => d.user`). Omit to use the full response data. |
-| `vars` | `TVars` | `—` | Query variables. |
-| `map` | `(selected) => TResult` | identity | Transform the payload before writing/returning. |
-| `sync` | `{ model, contract: string } \| ((selected) => void)` | `—` | Where to write. `{ model, contract }` merges into the model under the `contract` label; a function writes manually. |
-| `extract` | `({ data, selected }) => unknown` | `—` | Side-load payload → extract sink (source `'query'`). |
-| `extractSource` | `string` | `'query'` | Source label passed to the extract sink. |
-| `read` | `{ model, id } \| { model }` | `—` | Reactive read returned: `{ model, id }` = one row, `{ model }` = `all()`. |
-| `enabled` | `boolean` | `true` | `false` disables network execution and fetch scheduling. Local model reads stay live: rows produce `ready`, no rows produce `idle` without skeleton. |
-| `staleTime` | `number` (ms) | TanStack Query | Freshness window. |
-| `emptyStaleTime` | `number` (ms) | `0` | Known-empty DB fetch-state skip window. Not passed to React Query. |
-| `gcTime` | `number` (ms) | TanStack Query | Cache GC time. |
-| `refetchOnMount` | `boolean` | TanStack Query | Refetch on remount. |
-
-### Freshness gate resolution
-
-| Knob | Resolution | Default | Meaning |
-| --- | --- | --- | --- |
-| `staleTime` | request config > model config > package default | `0` = DB gate off for non-empty scopes | DB fetch-state skip window for scopes with rows. Request `staleTime` is still passed to React Query unchanged. |
-| `emptyStaleTime` | request config > model config > package default | `0` = known-empty scopes never skip | DB fetch-state skip window only when stored fetch-state has `empty === true`. Not passed to React Query. |
-
-Writing a list into a collection and reading it all back:
-
-```tsx
-function Members({ teamId }: { teamId: string }) {
-  const { loadingState } = useDbSingleRequest({
-    query: MEMBERS_QUERY,
-    vars: { teamId },
-    select: (d) => d.team.members,               // User[]
-    sync: { model: UserModel, contract: 'members' },
-    read: { model: UserModel },                  // read all() reactively
-    staleTime: 60_000,
-  });
-  const members = UserModel.all();
-  if (loadingState.showEmptyState) return <Empty />;
-  return <FlatList data={members} renderItem={/* ... */} />;
-}
-```
-
-Side-loading related entities with `extract` (needs the extract seam wired — see
-[Configuration](./configuration.md#extract-seam)):
-
-```ts
-useDbSingleRequest({
-  query: POST_QUERY, vars: { id },
-  select: (d) => d.post,
-  sync: { model: PostModel, contract: 'post' },
-  extract: ({ selected }) => ({ users: [selected.author] }), // author lands in UserModel via the sink
-  read: { model: PostModel, id },
-});
-```
-
-### Returns — `BaseQueryResult<TResult>`
-
-The full `@tanstack/react-query` `UseQueryResult` (`data`, `isLoading`, `isError`, `error`, `refetch`, …) **plus** a
-`loadingState` UI state machine:
-
-```ts
-loadingState: {
-  phase: 'idle' | 'hydrating' | 'initial_loading' | 'ready' | 'refreshing' | 'loading_more' | 'error';
-  hasData; isReady; showSkeleton; showData; showEmptyState;
-  showRefreshIndicator; showFooterSpinner; showErrorBanner;
-}
-```
-
-```tsx
-const { loadingState } = useDbSingleRequest(/* ... */);
-if (loadingState.showSkeleton)   return <Skeleton />;
-if (loadingState.showErrorBanner) return <ErrorBanner />;
-if (loadingState.showEmptyState) return <Empty />;
-return <Content />;
-```
-
-## `useDbInfiniteRequest(config)`
-
-Cursor-paginated connections. Each page's nodes are written into a collection.
-
-```tsx
-function Feed() {
-  const { items, loadingState, loadMore, hasNextPage } = useDbInfiniteRequest({
-    query: FEED_QUERY,
-    selectPage: (d) => d.feed,                       // -> { edges | nodes, pageInfo }
-    getCursor: (d) => d.feed.pageInfo.endCursor,
-    getPageVars: (after) => ({ after }),
-    read: feedCollectionBinding,                     // collection that stores page nodes
-  });
-
-  return (
-    <FlatList
-      data={items}
-      keyExtractor={(n) => n.id}
-      onEndReached={() => hasNextPage && loadMore()}
-      ListFooterComponent={loadingState.showFooterSpinner ? <Spinner /> : null}
-      renderItem={/* ... */}
-    />
-  );
-}
-```
-
-### `DbRequestInfiniteConfig`
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `query` | `TypedDocumentNode<TResponse, TVars> \| DocumentNode` | **required** | The paginated query. |
-| `key` | `readonly unknown[]` | derived from collection binding | React Query key. Explicit keys win. |
-| `selectPage` | `(data) => ConnectionWithNodes \| ConnectionWithEdges \| null` | **required** | Pick the connection (`{ nodes, pageInfo }` or `{ edges, pageInfo }`). |
-| `read` | collection binding | **required** | Stores page nodes; read back reactively. |
-| `vars` | `TVars` | `—` | Base variables. |
-| `scope` | `object \| () => object` | `—` | Scope values merged into variables and used as the read/write filter when `filter` is omitted. |
-| `getPageVars` | `(pageParam: string) => Record<string, unknown>` | `—` | Cursor → next page's variables. |
-| `getCursor` | `(data) => string \| number \| null` | `—` | Next cursor from a page. |
-| `patchNode` | `(node, { index, globalIndex, pageParam }) => Partial \| null` | `—` | Decorate each node before storing. `globalIndex` resets on initial-page fetches and increments across loaded pages. |
-| `extract` | `({ data, nodes }) => unknown` | `—` | Side-load payload (extract sink, source `'query'`). |
-| `extractSource` | `string` | `'query'` | Source label passed to the extract sink. |
-| `resolveSyncContract` | `(ctx) => SyncContract` | replace initial page, merge loaded pages | Override how each page is written. Use `mergeInitialSyncContract` when initial pages should merge instead of replace. |
-| `readMode` | `'data' \| 'none'` | `'data'` | `'none'` when a view hook owns the reactive read. |
-| `filter` | `() => unknown` | `—` | Scope filter for the read. |
-| `currentUserId` | `() => string \| undefined` | `—` | Scope-key input. |
-| `direction` | `'forward' \| 'backward'` | `'forward'` | Pagination direction. |
-| `enabled` / `staleTime` / `emptyStaleTime` / `gcTime` / `refetchOnMount` | | `true` / see freshness table / TanStack Query | As above. |
-| `maxPages` | `number` | `none` | Bounded page window retained by TanStack `useInfiniteQuery`. |
-
-Infinite requests derive omitted keys from `createCollectionBinding(model, { scopeMap })` and the runtime
-`filter`/`currentUserId` scope. Pass an explicit `key` for non-model-backed reads.
-
-When `scope` is provided, the runtime merges it into query variables before `vars`, so explicit `vars` win on
-conflicts. If `filter` is omitted, the same `scope` becomes the collection read/write filter:
-
-```ts
-const chatCollection = createCollectionBinding(ChatModel, {
-  sortField: 'lastActivityAt',
-  scopeMap: { statusFilter: 'status' },
-});
-
-useDbInfiniteRequest({
-  query: CHATS_QUERY,
-  selectPage: (d) => d.chats,
-  vars: { first: 20 },
-  scope: { statusFilter },
-  read: chatCollection,
-});
-```
-
-That is equivalent to `vars: { statusFilter, first: 20 }` plus `filter: () => ({ statusFilter })`. Explicit
-`filter` still wins over `scope`, which keeps raw configs a first-class escape hatch for scopes whose server
-variables do not match the collection scope vocabulary.
-
-By default, an initial page writes `replaceSyncContract('initial', scope)` and a loaded page writes
-`mergeSyncContract('loadMore', scope)`. Pass `resolveSyncContract: mergeInitialSyncContract` for append-only
-scopes where the initial page should merge with existing rows while still tagging sources as `'initial'` or
-`'loadMore'`.
-
-### `createCollectionBinding(model, options)`
-
-Bindings connect an infinite request to a model. They own collection writes, freshness scopes, and reactive reads.
-
-| Option | Description |
-| --- | --- |
-| `scopeMap` | Maps request/filter keys to stored-row fields for scoped reads, freshness, and scoped replace filters. |
-| `sortField` / `sortDirection` | Field ordering for the bound read. `sortDirection` defaults to `'desc'`. |
-| `comparator` | Custom row comparator for canonical ordering. Mutually exclusive with `sortField`. |
-| `useData` | Override hook for read projections. Receives `{ filter, scope, rows, empty }`; return `empty` for stable no-data output. |
-
-For scoped bindings, explicit nullish reads return no rows: `binding.useData(null)` and `binding.useData(undefined)`
-return a stable empty array, and `binding.count(null)` / `binding.count(undefined)` return `0`. Unscoped
-`binding.useData()` and `binding.count()` still read the full collection.
-
-## Imperative requests
-
-```ts
-import { invalidateDbRequests, invalidateModel, resetDbQueryRuntime } from '@noma4i/react-native-dblayer';
-
-invalidateModel(MessageModel, { chatId });                      // fetch-state clear + React Query invalidation
-await invalidateDbRequests(['messages', chatId]);                // explicit React Query key invalidation
-await resetDbQueryRuntime();                                    // cancel all queries, then clear cache
-```
-
-These helpers use the `queryClient` passed to `configureDb`. Without one, they no-op and log through the package
-logger. Hooks still read the React Query client from React context.
-
-`invalidateModel(model, scope?)` first clears DB fetch-state (`model.clearFetchState(scope)` for a scoped call,
-or every persisted fetch-state record for that model when unscoped), then invalidates the derived React Query key.
-Mounted hooks subscribe to fetch-state changes, so a freshness-gated request can fetch after `invalidateModel`.
-`invalidateDbRequests(key)` is intentionally React Query only and does not clear DB fetch-state.
-
-### Returns — `InfiniteQueryResult<TNode>`
+### `QueryResult`
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `data` | `TNode[]` | Accumulated nodes (reactive). |
-| `loadingState` | `LoadingState` | UI state machine (as above). |
-| `hasNextPage` | `boolean` | Another page exists. |
-| `isFetchingNextPage` | `boolean` | A page load is in flight. |
-| `isBackgroundFetching` | `boolean` | Background refresh running. |
-| `loadMore` | `() => void` | Load the next page. |
-| `refetch` | `() => Promise<void>` | Re-run from the first page. |
+| `data` | `T[] \| T \| undefined` | Reactive read of the write destination (`config.into`); `undefined` before any successful write. |
+| `loadingState` | `LoadingState` | UI loading-state machine derived from fetch status and whether `data` has rows. |
+| `error` | `Error \| null` | The last fetch/next-page error, or `null`. Cleared on the next successful fetch. |
+| `hasNextPage` | `boolean` | `true` when another page is available. Always `false` for single (non-`page`) queries. |
+| `isFetchingNextPage` | `boolean` | `true` while a next-page fetch is in flight. Always `false` for single (non-`page`) queries. |
+| `fetchNextPage` | `() => void` | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).loadMore` (local window growth over already-synced rows; see [models.md](./models.md#scopehandle)). A paginated list typically wires both. |
+| `refetch` | `() => Promise<void>` | Re-run the query from the first page, replacing `data`. |
 
-## Non-React execution
+### Coverage semantics
 
-Run the same configs outside React (services, preloads):
+`Coverage` controls how an incoming batch of rows reconciles against a scope's existing membership:
+
+| Coverage | Behavior |
+| --- | --- |
+| `'complete'` | Incoming rows become the exact membership, in server order; previous members absent from the response are detached (their entity rows are untouched, only scope membership drops). |
+| `'page'` | Incoming rows upsert into membership - existing members keep their order, new ones append in server order; nothing is detached. A first-page refetch (`resetOrder`) makes incoming rows the new head order, with previous members kept, in their relative order, after them. |
+| `'delta'` | Same merge semantics as `'page'`, used for single-row/subscription-driven updates. |
+
+### Error surfacing
+
+A transport failure surfaces on `QueryResult.error` (and `FetchResult.error` for `defineFetch`) and
+is separately reported to `DbDefaults.onSyncError` with `{ source: 'query' }` (see
+[configuration.md](./configuration.md#onsyncerror-policy)), so app-wide error tracking does not
+need to be wired into every screen individually. `onSyncError` observes the failure; it never
+changes the query's own control flow.
+
+## `defineFetch(config)`
+
+Ephemeral, store-free fetch: runs a query and hands back the selected payload directly, with no
+`into` destination. The response never reaches the apply pipeline, never writes a journal record,
+and never touches a `dbl:` storage key. Use it for display-only data with no local reactive read of
+its own (pricing tables, country lists, SKU catalogs) where a `defineQuery` write destination would
+be pure overhead.
 
 ```ts
-import { runDbInfiniteQueryDirect, runDbQueryDirect } from '@noma4i/react-native-dblayer';
+import { defineFetch } from '@noma4i/react-native-dblayer';
 
-await runDbQueryDirect({ key: ['user', id], query: USER_QUERY, vars: { id }, select: (d) => d.user,
-  sync: { model: UserModel, contract: 'user' } });
+const skuPricing = defineFetch({
+  document: SkuPricingDocument,
+  key: 'sku-pricing',
+  vars: (input: { sku: string }) => ({ sku: input.sku }),
+  select: data => data.pricing,
+  staleTime: 60_000
+});
 
-await runDbInfiniteQueryDirect(feedConfig, /* pageParam */ undefined);
+const { data, loadingState, error, refetch } = skuPricing.use({ sku });
+const pricing = await skuPricing.fetch({ sku });   // one fetch outside React, throws on failure
 ```
-`runDbQueryDirect` is the one-shot counterpart to `useDbSingleRequest`. It ignores hook-only fields such as `key`,
-`enabled`, `staleTime`, `gcTime`, and `refetchOnMount`; the request runs immediately. When `select` is
-omitted, the full response data is used as the selected payload.
 
-When `key` is omitted in hooks, model-backed single requests derive it from `read.model`, `read.id`, or `sync.model`
-as `['db', collectionId]` or `['db', collectionId, stableSerialize(scope)]`. Hook configs without an explicit key
-and without a model-backed `read` or `sync.model` throw a config error.
+### `FetchConfig`
 
-## Stable View and List Hooks
+| Option | Type | Description |
+| --- | --- | --- |
+| `document` | GraphQL document | The query document. `TData` is inferred from a `TypedDocumentNode`. |
+| `key` | `string` | Stable cache-key namespace for this fetch, combined with a hash of the input. |
+| `select` | `(data: TData) => TSelected` | Pick the payload to expose as `data`; the raw response is never returned. |
+| `vars` | `(input: TInput) => Record<string, unknown>` | Derive GraphQL variables from the hook/imperative call input. Omit for input-less queries. |
+| `enabled` | `(input: TInput) => boolean` | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`. |
+| `staleTime` | `number` (ms) | Freshness window before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. |
+| `gcTime` | `number` (ms) | TanStack Query cache garbage-collection time. Defaults to `DbDefaults.gcTime`. |
 
-Collection emissions often create fresh arrays and row objects even when rendered fields did not change. These hooks
-preserve item and array references for list UIs.
+`defineFetch` returns `{ use, fetch }`: `use(input)` is a hook returning a `FetchResult`; `fetch(input)`
+runs one fetch outside React and resolves to the selected payload, throwing on transport failure.
 
-| API | Purpose |
-| --- | --- |
-| `buildStableItems(source, config, previousCache)` | Non-React core; reuses prior entry items when `entriesEqual` passes. |
-| `useStableProjection(source, config)` | Hook wrapper; owns the entry cache, writes it back, and reuses the previous array when item refs are element-identical. |
-| `useStableEntity(value, config)` | Single-row identity guard; returns the prior entity while configured fields are equal. |
-| `useStableSorted(source, compare, invalidationKey?)` | Sorts without mutating `source`; reuses previous sorted output when source item refs and optional key are unchanged. |
-| `useWindowedLoadMore(loadMore, refresh, pageSize, resetKey)` | Grows a render window by `pageSize`, delegates network load-more/refresh, and resets on refresh or reset-key change. |
+### `FetchResult`
 
-`useStableProjection` accepts either custom entry equality or render-key equality:
+| Field | Type | Description |
+| --- | --- | --- |
+| `data` | `TSelected \| undefined` | The selected payload; `undefined` before the first successful fetch. |
+| `loadingState` | `LoadingState` | UI loading-state machine derived from fetch status and whether `data` is present. |
+| `error` | `unknown` | The last fetch error, or `null`. |
+| `refetch` | `() => void` | Re-run the fetch, replacing `data` on success. Does not return a promise - `await fetch(input)` instead. |
 
-| Config path | Contract |
-| --- | --- |
-| `entriesEqual(prev, next)` | Full control; entry shape can include context fields beyond `item`. |
-| `renderKeys: Array<keyof TItem>` | Compares `prev.item` and `next.item` through `pickEqual`; mutually exclusive with `entriesEqual`. |
+`defineFetch` reports transport failures to `DbDefaults.onSyncError` with `{ source: 'query' }`,
+same as `defineQuery`.
 
-`getKey` defaults to `item.id` and throws if an item does not have a string `id`. `buildEntry` defaults to
-`item => ({ item })`. `emptyItems` defaults to a shared frozen empty array, and explicit config values always win.
-For comparator behavior that depends on outside state, pass that state as `invalidationKey`.
+## Stable view and list hooks
 
-`useStableEntity` accepts either:
+Read helpers that keep derived arrays and view objects referentially stable across renders, so
+components memoized on identity skip re-rendering for changes they do not display.
 
-| Config path | Contract |
-| --- | --- |
-| `volatileKeys: Array<keyof TItem>` | Deep-compares the entity after omitting volatile fields such as timestamps. |
-| `renderKeys: Array<keyof TItem>` | Compares only fields that affect rendering. |
+| Export | Signature | Role |
+| --- | --- | --- |
+| `useStableProjection` | `(sources, config) => TItem[]` | Projects a stable item list: owns an entry cache keyed by `getKey` (defaults to `source.id`), reuses cached entries whose `entriesEqual` (or `renderKeys`) still holds, and returns the previous array reference when every item is unchanged. |
+| `useStableEntity` | `(value, config) => TItem \| null \| undefined` | Reuses one entity reference while configured fields (`renderKeys` or all-but-`volatileKeys`) remain equal. |
+| `useStableSorted` | `(source, compare, invalidationKey?) => T[]` | Memoizes sorted output and reuses it for element-identical input arrays, resorting only when `source` or `invalidationKey` changes. |
+| `pickEqual` | `(prev, next, keys) => boolean` | Shared value-equality: deep-compares only the listed keys. The building block behind `useStableProjection`'s `renderKeys` and `useStableEntity`'s `renderKeys`. |
+| `EMPTY_IDS` | `string[]` | Shared immutable empty id list for stable fallback reads. |
+| `createUniqueIds` | `(ids) => string[]` | Returns unique non-empty ids in first-seen order. |
+| `computeLoadingState` | `(phase, hasData) => LoadingState` | Converts a loading phase plus data presence into UI display flags (`showSkeleton`, `showEmptyState`, `showRefreshIndicator`, ...). Exported so a screen composing a custom loading state from multiple hook results can reuse the package's own derivation. |
+| `computePhase` | `(input: ComputePhaseInput) => LoadingPhase` | Computes the current loading phase (`'idle' \| 'hydrating' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) from query and collection state. |
 
-`null` and `undefined` are returned as-is. Moving from a nullish value to an object always adopts the new object
-identity.
+`LoadingState`, `DbWhere<T>`, and `StableProjectionConfig` are the corresponding public types:
+`LoadingState` is the object `computeLoadingState` returns and every `QueryResult`/`FetchResult`
+exposes as `loadingState`; `DbWhere<T>` is the predicate type accepted by every model `where`/`getWhere`
+read (see [models.md](./models.md#reads)); `StableProjectionConfig` is the config shape
+`useStableProjection` accepts (`getKey`, `buildEntry`, `emptyItems`, `entriesEqual`).
