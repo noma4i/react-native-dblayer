@@ -16,12 +16,13 @@ let dbStorage: MmkvStorage | null = null;
 
 const getDbStorage = (): MmkvStorage => {
   if (dbStorage === null) {
+    // The instance id predates v6 and is frozen: renaming it would orphan persisted rows on user devices.
     dbStorage = require<MmkvModule>('react-native-mmkv').createMMKV({ id: 'tanstack-db' });
   }
   return dbStorage;
 };
 
-/** Default direct MMKV-backed storage adapter. Collection serialization owns deferral. */
+/** Default direct MMKV-backed storage adapter behind the injectable storage seam. */
 export const mmkvStorageAdapter = {
   getItem: (key: string): string | null => getDbStorage().getString(key) ?? null,
   setItem: (key: string, value: string): void => {
