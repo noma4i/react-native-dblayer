@@ -149,6 +149,7 @@ export const replayJournal = (): number => {
     const orphanIds = [...ids].filter(id => !pendingTempIds.has(id));
     if (orphanIds.length > 0) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
+  flushPersistence();
   return replayed;
 };
 

@@ -395,4 +395,41 @@ describe(`A04 sync lifecycle contract`, () => {
     expect(restarted.get(`server`)).toEqual({ id: `server`, title: `server` });
     reader.unmount();
   });
+
+  it(`A04-11 repeated crash boots do not grow the journal`, () => {
+    const storage = createMemoryPlane();
+    const journalCounts: number[] = [];
+    for (let cycle = 1; cycle <= 5; cycle += 1) {
+      setupAcceptanceRuntime({ storage, defaults: { persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } } });
+      const model = defineModel({
+        id: `A04JournalBoot`,
+        name: `A04JournalBoot`,
+        fields: { title: f.str() }
+      });
+      act(() => {
+        replayJournal();
+      });
+      journalCounts.push(storage.snapshotKeys().filter(key => key.startsWith(`dbl:journal:`)).length);
+      act(() => {
+        for (let index = 1; index <= 12; index += 1) {
+          const id = `row-${cycle}-${index}`;
+          model.insertStored({ id, title: id });
+          model.patch(id, { title: `patched-${cycle}-${index}` });
+        }
+      });
+    }
+    setupAcceptanceRuntime({ storage, defaults: { persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } } });
+    const restarted = defineModel({
+      id: `A04JournalBoot`,
+      name: `A04JournalBoot`,
+      fields: { title: f.str() }
+    });
+    act(() => {
+      replayJournal();
+    });
+    journalCounts.push(storage.snapshotKeys().filter(key => key.startsWith(`dbl:journal:`)).length);
+
+    expect(journalCounts.at(-1)).toBeLessThanOrEqual(50);
+    expect(restarted.getAll()).toHaveLength(60);
+  });
 });

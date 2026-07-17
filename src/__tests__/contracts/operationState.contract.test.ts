@@ -98,7 +98,7 @@ describe('OperationState contracts', () => {
     configureModule.replayJournal();
 
     expect(restarted.get('temp')).toBeUndefined();
-    expect(configureModule.getOperationState().get('crashed')?.status).toBe('rolledback');
+    expect(configureModule.getOperationState().get('crashed')).toBeUndefined();
     expect(configureModule.getOperationState().hasPending('send:temp')).toBe(false);
     expect(configureModule.getOperationState().pending()).toEqual([]);
     expect(gcModule.collectGarbage().evicted[restarted.modelId]).toBeUndefined();
