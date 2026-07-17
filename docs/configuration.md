@@ -35,6 +35,39 @@ configureDb({
 `configureDb` is the public seam owner. It wires those seams, then prunes stale fetch-state metadata using the
 package freshness policy.
 
+## `bootDb(options)` / `suspendDb()`
+
+The recommended app-lifecycle pair. `bootDb` wraps `configureDb` with the startup sequence a real app needs;
+`suspendDb` wraps the matching background/teardown sequence. `configureDb`, `replayJournal`, `collectGarbage`,
+and `purgeForeignStorageKeys` all stay exported individually as composable primitives for apps with different
+sequencing needs — `bootDb`/`suspendDb` are the recommended path for the common case.
+
+```ts
+import { bootDb, suspendDb } from '@noma4i/react-native-dblayer';
+import './models'; // import every model module FIRST so its apply target is registered
+
+async function start() {
+  const { replayed, gc } = await bootDb({ transport, queryClient });
+  console.log(`replayed ${replayed} journal records, evicted`, gc.evicted);
+}
+
+// On app background / before logout teardown:
+suspendDb();
+```
+
+`bootDb(options)` takes the exact same options as `configureDb`, and runs, in order: `configureDb(options)`,
+`replayJournal()` (recovers WAL-only writes from a crash), `collectGarbage()` (reclaims rows left unreachable
+by that replay), `purgeForeignStorageKeys()` (clears pre-migration/foreign storage keys). Every model module
+MUST be imported before calling it — `replayJournal` throws on a journal record whose model has no registered
+apply target, and `bootDb` does not catch or swallow any step's error; a silent partial boot is worse than a
+startup crash. Returns `{ replayed, gc }`: the replayed journal record count, and the `collectGarbage` report
+for the post-replay sweep.
+
+`suspendDb()` runs `flushPersistence()` (write pending checkpoint snapshots now) then `collectGarbage()`
+(reclaim rows that became unreachable since the last sweep). Safe to call repeatedly, and safe to call before
+`configureDb` has run. It only flushes and reclaims — it never clears state; a full wipe still goes through
+`resetRuntime`'s kill-switch.
+
 ## QueryClient seam
 
 ```ts

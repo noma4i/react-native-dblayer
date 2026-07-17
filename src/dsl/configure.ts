@@ -41,6 +41,10 @@ const STORAGE_PREFIX = 'dbl:';
  * defaults. Must be called once before any model, query, or mutation runs; calling it again advances the
  * runtime generation, discards cached apply/operation runtimes, and re-applies transport/logger.
  *
+ * Most apps should call `bootDb(options)` instead: it wraps this call with the recommended
+ * `replayJournal`/`collectGarbage`/`purgeForeignStorageKeys` startup sequence. `configureDb` stays
+ * exported directly for callers with a different startup sequencing need.
+ *
  * @param options.transport GraphQL transport (`query`/`mutation`) used by `defineQuery`/`defineMutation`.
  * @param options.storage Synchronous key/value seam for persistence; defaults to `mmkvStoragePlane()`.
  * @param options.queryClient TanStack Query client shared with `defineQuery`'s hooks; optional.
@@ -62,6 +66,9 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
   if (!runtimeConfig) throw new Error('configureDb must be called before using dblayer');
   return runtimeConfig;
 };
+
+/** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
+export const isDbConfigured = (): boolean => runtimeConfig !== null;
 
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
 
@@ -106,7 +113,8 @@ export const getApplyRuntime = (): ApplyRuntime => {
 
 /**
  * Force a checkpoint flush NOW - pending model snapshots hit storage in one batch. The host app
- * must call this on background/inactive and before logout teardown.
+ * must call this on background/inactive and before logout teardown. `suspendDb()` calls this for you
+ * as part of the recommended background/teardown sequence.
  */
 export const flushPersistence = (): void => {
   checkpointScheduler?.flushNow();
@@ -123,6 +131,10 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
  * marker. The host app must call this ONCE at startup, after configureDb and after every model
  * module has been imported (apply targets registered) - records touching unregistered models throw.
  * Returns the number of replayed records.
+ *
+ * Most apps should call `bootDb(options)` instead, which runs this in the recommended startup order
+ * (`configureDb` -> `replayJournal` -> `collectGarbage` -> `purgeForeignStorageKeys`) and surfaces this
+ * function's return value as `{ replayed }`.
  */
 export const replayJournal = (): number => {
   const runtime = getApplyRuntime();
@@ -171,6 +183,8 @@ export const replayJournal = (): number => {
 /**
  * Remove storage keys outside the library namespace - startup housekeeping that clears pre-v6
  * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
+ *
+ * Most apps should call `bootDb(options)` instead, which runs this last in the recommended startup order.
  */
 export const purgeForeignStorageKeys = (): number => {
   const { storage } = getDbRuntimeConfig();

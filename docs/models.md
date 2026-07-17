@@ -471,6 +471,7 @@ const latestMessage = MessageModel.first(
 | `destroyWhere` | `(filter: Partial<TStored>)` | `number` | Delete matching; throws on empty filter (use `clearScope`). |
 | `replaceRaw` | `(oldId: string, item: TInput)` | `boolean` | Atomically delete `oldId`, insert normalized `item`. |
 | `insertStored` | `(item: TStored)` | `void` | Insert an already-stored-shaped row. |
+| `insertStoredMany` | `(items: TStored[])` | `void` | Insert several already-stored-shaped rows as ONE plan: one journal record, one commit publish - not N calls to `insertStored`. Same per-row normalize/guard as `insertStored`; relation side effects (`touch`, `counterCache`, declarative scope membership) expand once over the whole batch. |
 | `clearScope` | `()` | `void` | Delete every row + clear freshness. |
 
 `destroy`, `destroyMany`, and `destroyWhere` clear per-scope fetch-state records whose persisted freshness filter
@@ -501,6 +502,9 @@ MessageModel.replaceRaw(temp.id, serverMessage); // temp id gone, server row in
 // Direct edits:
 UserModel.patch(userId, { isOnline: true });
 UserModel.destroyWhere({ role: 'guest' });
+
+// Batch insert - one commit for the whole page, not one per row:
+MessageModel.insertStoredMany(pageOfMessages);
 ```
 
 ### Sparse patch helpers

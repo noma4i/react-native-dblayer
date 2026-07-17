@@ -71,6 +71,15 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   destroy(id: string): void;
   destroyMany(ids: string[]): void;
   insertStored(row: TStored): void;
+  /**
+   * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
+   * unlike calling `insertStored` in a loop, which would journal/publish once per row. Each row still
+   * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insertStored`;
+   * relation side effects (`touch`, `counterCache`, declarative scope membership) are expanded once over
+   * the whole batch, so a `belongsTo` `counterCache` increments by the batch's full count in one step
+   * rather than one increment per row.
+   */
+  insertStoredMany(rows: TStored[]): void;
   replaceRaw(oldId: string, next: unknown): void;
   buildStored(input: unknown): TStored;
   normalize(input: unknown): Partial<TStored> & { id: string };
@@ -576,6 +585,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),
     insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
+    insertStoredMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
     replaceRaw: (oldId, next) => applyEvent(planReplace(oldId, next)),
     buildStored: input => normalize(input, true),
     normalize: input => normalize(input),

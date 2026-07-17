@@ -29,6 +29,9 @@ export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<
  * operations. Edges: belongsTo/references of live rows. Unreached rows are evicted (no
  * tombstones), dead scope entries detached, empty scope keys removed, then persistence flushes.
  * Run at startup after replayJournal - NOT while UI renders unscoped detail rows.
+ *
+ * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
+ * directly only for a different sweep cadence.
  */
 export const collectGarbage = (): GcReport => {
   const marked = new Map<string, Set<string>>();

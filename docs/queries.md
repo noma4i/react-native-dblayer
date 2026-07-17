@@ -5,6 +5,49 @@ DBLay owns the `@tanstack/react-query` version and exports `QueryClient`, `Query
 `focusManager`, `useQuery`, and `useQueryClient` from `@noma4i/react-native-dblayer` for the host app. The query
 cache is not model storage: DBLay rows stay in DBLay planes.
 
+## `defineFetch(config)`
+
+Ephemeral, store-free fetch: runs a query and hands back the selected payload directly, with no `into`
+destination. The response never reaches the apply pipeline, never writes a journal record, and never touches a
+`dbl:` storage key. Use it for display-only data with no reactive read of its own — pricing tables, country
+lists, SKU catalogs — where a `defineQuery` write destination is pure overhead.
+
+```ts
+import { defineFetch } from '@noma4i/react-native-dblayer';
+import { COUNTRIES_QUERY } from './operations';
+
+const countriesFetch = defineFetch({
+  document: COUNTRIES_QUERY,
+  key: 'countries',
+  select: (data) => data.countries,
+});
+
+function CountryPicker() {
+  const { data: countries, loadingState, error, refetch } = countriesFetch.use();
+  if (loadingState.showSkeleton) return <ActivityIndicator />;
+  if (error) return <ErrorBanner onRetry={refetch} />;
+  return <Picker items={countries} />;
+}
+
+// Outside React (e.g. a preload):
+const countries = await countriesFetch.fetch(); // throws on transport error
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `document` | `TypedDocumentNode<TData, TVars> \| DocumentNode` | **required** | The GraphQL query. |
+| `key` | `string` | **required** | Cache-key namespace, combined with a stable hash of the call input. |
+| `select` | `(data: TData) => TSelected` | **required** | Pick the payload to expose as `data`. |
+| `vars` | `(input: TInput) => Record<string, unknown>` | `—` | Derive GraphQL variables from the call input. |
+| `enabled` | `(input: TInput) => boolean` | always enabled | Gates `use(input)`'s automatic fetch only; `fetch(input)` always runs. |
+| `staleTime` | `number` (ms) | package default, then `0` | Freshness window, passed to TanStack Query unchanged. |
+| `gcTime` | `number` (ms) | package default | TanStack Query cache GC time. |
+
+Returns `{ use, fetch }`. `use(input)` is a hook returning `{ data, loadingState, error, refetch }` — the same
+`loadingState` machine `defineQuery` uses. `refetch()` is fire-and-forget (`() => void`); await `fetch(input)`
+instead when you need to know a refetch has settled. `fetch(input)` runs one fetch outside React and resolves
+to the selected payload, throwing on transport failure.
+
 ## `useDbSingleRequest(config)`
 
 Full example — fetch one user, store it, render the reactive row:
