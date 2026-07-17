@@ -8,6 +8,7 @@ import { createCheckpointScheduler, type CheckpointScheduler } from '../core/app
 import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
 import { expandPlan } from '../core/relations';
+import { isTempId } from '../utils/generateTempId';
 
 export interface DbDefaults {
   staleTime?: number;
@@ -115,11 +116,39 @@ export const replayJournal = (): number => {
   const orphaned = operations.hydratedPending();
   for (const operation of orphaned) {
     if (operation.tempIds.length > 0) {
-      runtime.apply(expandPlan([{ kind: 'destroy', model: operation.model, ids: operation.tempIds }]));
+      runtime.apply(expandPlan([{ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false }]));
     }
     operations.close(operation.operationId, 'rolledback');
   }
-  if (orphaned.length > 0) getDbRuntimeConfig().storage.set(operations.persistEntries());
+  const storage = getDbRuntimeConfig().storage;
+  const candidates = new Map<string, Set<string>>();
+  const noteCandidate = (model: string, id: unknown): void => {
+    if (typeof id !== 'string' || !isTempId(id)) return;
+    const ids = candidates.get(model) ?? new Set<string>();
+    ids.add(id);
+    candidates.set(model, ids);
+  };
+  const rowPrefix = `${getStoragePrefix()}row:`;
+  for (const key of storage.keys(rowPrefix)) {
+    const [model, id] = key.slice(rowPrefix.length).split(':', 2);
+    if (model && id) noteCandidate(model, id);
+  }
+  for (const key of storage.keys(`${getStoragePrefix()}journal:`)) {
+    const raw = storage.get(key);
+    if (!raw) continue;
+    try {
+      const record = JSON.parse(raw) as { ops?: Array<{ kind?: string; model?: string; rows?: Array<{ id?: unknown }> }> };
+      for (const operation of record.ops ?? []) {
+        if (operation.kind !== 'upsert' || !operation.model) continue;
+        for (const row of operation.rows ?? []) noteCandidate(operation.model, row.id);
+      }
+    } catch {}
+  }
+  const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
+  for (const [model, ids] of candidates) {
+    const orphanIds = [...ids].filter(id => !pendingTempIds.has(id));
+    if (orphanIds.length > 0) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
+  }
   return replayed;
 };
 

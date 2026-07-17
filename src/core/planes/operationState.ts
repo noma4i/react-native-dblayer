@@ -55,12 +55,21 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   };
   const opsKey = () => `${prefix()}ops`;
   const seqKey = () => `${prefix()}seq`;
+  const persistEntries = (): Array<{ key: string; value: string | null }> => {
+    const entries = [{ key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null }];
+    if (sequencesDirty) {
+      entries.push({ key: seqKey(), value: sequences.size > 0 ? JSON.stringify(Object.fromEntries(sequences)) : null });
+      sequencesDirty = false;
+    }
+    return entries;
+  };
 
   return {
     begin: operation => {
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
       indexOperation(record);
+      storage.set(persistEntries());
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
@@ -69,15 +78,17 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const record: OperationRecord = { ...operation, status };
       operations.set(operationId, record);
       indexOperation(record);
+      storage.set(persistEntries());
     },
     get: operationId => operations.get(operationId),
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
-    hydratedPending: () => [...hydratedPendingIds].flatMap(operationId => {
-      const operation = operations.get(operationId);
-      return operation?.status === 'pending' ? [operation] : [];
-    }),
+    hydratedPending: () =>
+      [...hydratedPendingIds].flatMap(operationId => {
+        const operation = operations.get(operationId);
+        return operation?.status === 'pending' ? [operation] : [];
+      }),
     prune: () => {
       const cutoff = now() - CLOSED_TTL_MS;
       let pruned = 0;
@@ -101,14 +112,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       sequencesDirty = true;
       return next;
     },
-    persistEntries: () => {
-      const entries = [{ key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null }];
-      if (sequencesDirty) {
-        entries.push({ key: seqKey(), value: sequences.size > 0 ? JSON.stringify(Object.fromEntries(sequences)) : null });
-        sequencesDirty = false;
-      }
-      return entries;
-    },
+    persistEntries,
     hydrate: () => {
       operations.clear();
       sequences.clear();

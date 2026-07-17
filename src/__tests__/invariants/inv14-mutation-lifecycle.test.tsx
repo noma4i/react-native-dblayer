@@ -279,7 +279,7 @@ describe('v6 invariant 14: mutation lifecycle', () => {
     const operations = Object.values(JSON.parse(raw!) as Record<string, { status: string }>);
     expect(operations).toHaveLength(1);
     expect(operations[0].status).toBe('rolledback');
-    expect(storage.get('dbl:ops')).toBeUndefined();
+    expect(storage.get('dbl:ops')).toBe(raw);
   });
 
   it('keeps the counter consistent through insert rollback and replacement', async () => {
