@@ -1,5 +1,12 @@
 # Changelog
 
+## 6.1.1-beta.2 - 2026-07-17
+
+### Package metadata
+
+- Describe the v6 package as a persistent data-layer DSL without claiming the removed TanStack DB runtime dependency.
+
+
 ## 6.1.1-beta.1 - 2026-07-17
 
 ### Query runtime ownership
