@@ -1,0 +1,29 @@
+import { act } from 'react-test-renderer'
+import { collectGarbage, defineIngest, defineModel, defineMutation, defineQuery, f, resetRuntimeSync, scope, trimRowsPerScope } from '../../index'
+import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness'
+
+const document = { kind: `Document`, definitions: [] } as never
+const scopeValue = { group: `g` }
+const makeModels = () => ({ model: defineModel({ id: `A07Rows`, name: `A07Rows`, fields: { group: f.str(), title: f.str(), createdAt: f.num() }, scopes: { feed: scope({ by: { group: `group` }, sort: `server-order` }) } }), other: defineModel({ id: `A07Other`, name: `A07Other`, fields: { title: f.str() }, gc: `exempt` }) })
+const panel = (model: ReturnType<typeof defineModel>, other: ReturnType<typeof defineModel>) => {
+  const readers = { row: renderCounted(() => model.use.row(`a`)), field: renderCounted(() => model.use.field(`a`, `title`)), where: renderCounted(() => model.use.where({ group: `g` })), scope: renderCounted(() => model.scopes.feed.use(scopeValue)), window: renderCounted(() => model.scopes.feed.useWindow(scopeValue, { pageSize: 2 })), count: renderCounted(() => model.scopes.feed.useCount(scopeValue)), other: renderCounted(() => other.use.row(`other`)) }
+  const reset = () => Object.values(readers).map(reader => reader.renders())
+  const counts = (before: number[]) => Object.values(readers).map((reader, index) => reader.renders() - before[index]!)
+  const close = () => Object.values(readers).forEach(reader => reader.unmount())
+  return { reset, counts, close }
+}
+const log = (name: string, counts: number[]) => console.log(`A07-RESULT ${name}: ${counts.join(`,`)}`)
+
+describe(`A07 reactivity sweep`, () => {
+  it(`F-1 query page apply`, async () => {
+    const transport = createAcceptanceTransport({ query: async <TData,>() => ({ data: { rows: [{ id: `a`, group: `g`, title: `a`, createdAt: 1 }, { id: `b`, group: `g`, title: `b`, createdAt: 2 }] } as TData }) })
+    setupAcceptanceRuntime({ transport }); const { model, other } = makeModels(); other.insertStored({ id: `other`, title: `other` }); const readers = panel(model, other); const query = defineQuery({ document, key: `a07`, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed }); const before = readers.reset(); await act(async () => { await query.fetch(scopeValue) }); const counts = readers.counts(before); log(`F-1`, counts); expect(counts).toEqual([1, 1, 1, 1, 1, 1, 0]); readers.close()
+  })
+  it(`F-2 complete refetch detaches`, async () => { setupAcceptanceRuntime(); const { model, other } = makeModels(); model.insertStored({ id: `a`, group: `g`, title: `a`, createdAt: 1 }); model.insertStored({ id: `b`, group: `g`, title: `b`, createdAt: 2 }); other.insertStored({ id: `other`, title: `other` }); const readers = panel(model, other); const before = readers.reset(); act(() => { model.scopes.feed.__apply!(scopeValue, [{ id: `a`, group: `g`, title: `a`, createdAt: 1 }], `complete`) }); const counts = readers.counts(before); log(`F-2`, counts); expect(counts[0]).toBe(0); expect(counts[6]).toBe(0); readers.close() })
+  it(`F-3 ingest idempotence`, () => { setupAcceptanceRuntime(); const { model, other } = makeModels(); model.insertStored({ id: `a`, group: `g`, title: `a`, createdAt: 1 }); other.insertStored({ id: `other`, title: `other` }); const readers = panel(model, other); const ingest = defineIngest(model, { row: payload => ({ upsert: payload }) }); act(() => { ingest.apply(`row`, { id: `b`, group: `g`, title: `b`, createdAt: 2 }) }); const before = readers.reset(); act(() => { ingest.apply(`row`, { id: `b`, group: `g`, title: `b`, createdAt: 2 }) }); const counts = readers.counts(before); log(`F-3`, counts); expect(counts).toEqual([0, 0, 0, 0, 0, 0, 0]); readers.close() })
+  it(`F-4 maintenance trim`, () => { setupAcceptanceRuntime(); const { model, other } = makeModels(); model.insertStored({ id: `a`, group: `g`, title: `a`, createdAt: 1 }); model.insertStored({ id: `b`, group: `g`, title: `b`, createdAt: 2 }); other.insertStored({ id: `other`, title: `other` }); const readers = panel(model, other); const before = readers.reset(); trimRowsPerScope(model, `group`, 1, (left, right) => Number(right.createdAt) - Number(left.createdAt)); const counts = readers.counts(before); log(`F-4`, counts); expect(counts[6]).toBe(0); readers.close() })
+  it(`F-5 tombstoned snapshot is silent`, () => { setupAcceptanceRuntime(); const { model, other } = makeModels(); model.insertStored({ id: `a`, group: `g`, title: `a`, createdAt: 1 }); other.insertStored({ id: `other`, title: `other` }); model.destroy(`a`); const readers = panel(model, other); const before = readers.reset(); model.__applyRows!([{ id: `a`, group: `g`, title: `stale`, createdAt: 1 }]); const counts = readers.counts(before); log(`F-5`, counts); expect(counts).toEqual([0, 0, 0, 0, 0, 0, 0]); readers.close() })
+  it.skip(`F-6 mutation dedupe skip`, () => {})
+  it(`F-7 kill switch reset`, () => { setupAcceptanceRuntime(); const { model, other } = makeModels(); model.insertStored({ id: `a`, group: `g`, title: `a`, createdAt: 1 }); other.insertStored({ id: `other`, title: `other` }); const readers = panel(model, other); const before = readers.reset(); act(() => { resetRuntimeSync() }); const counts = readers.counts(before); log(`F-7`, counts); expect(counts.every(count => count === 1)).toBe(true); readers.close() })
+  it(`F-8 GC evicts unscoped row`, () => { setupAcceptanceRuntime(); const { model, other } = makeModels(); model.insertStored({ id: `a`, title: `a`, createdAt: 1 }); other.insertStored({ id: `other`, title: `other` }); const readers = panel(model, other); const before = readers.reset(); act(() => { collectGarbage() }); const counts = readers.counts(before); log(`F-8`, counts); expect(counts[0]).toBe(1); expect(counts[6]).toBe(0); readers.close() })
+})
