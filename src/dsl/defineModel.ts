@@ -15,14 +15,17 @@ import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
 import { createModelReadEngine, createScopeReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
 export type ScopeHandle<TStored extends { id: string }, TScope> = {
   modelId: string;
   use(scopeValue: TScope | null | undefined): TStored[];
-  useWindow(scopeValue: TScope | null | undefined, opts?: { pageSize?: number }): {
+  useWindow(
+    scopeValue: TScope | null | undefined,
+    opts?: { pageSize?: number }
+  ): {
     rows: TStored[];
     totalCount: number;
     hasMore: boolean;
@@ -99,7 +102,9 @@ const sortRows = <TStored>(rows: TStored[], options?: DbReadOptions<TStored>): T
 };
 
 const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: string, complete: boolean): unknown => {
-  const value = complete ? field.read(input, key) : (field as FieldSpec<any, any, any, any> & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown })[fieldSpecSparseRead](input, key);
+  const value = complete
+    ? field.read(input, key)
+    : (field as FieldSpec<any, any, any, any> & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown })[fieldSpecSparseRead](input, key);
   if (value !== undefined) return value;
   if (complete && field.factoryDefault !== undefined) return typeof field.factoryDefault === 'function' ? field.factoryDefault() : field.factoryDefault;
   if (complete && (field.mode === 'nullable' || field.mode === 'optionalNullable')) return null;
@@ -150,8 +155,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   let relationCache: Record<string, RelationDecl> | null = null;
   const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
 
-  const membershipScopes = Object.entries(config.scopes ?? {}).filter(
-    (entry): entry is [string, ScopeSpec<any> & { by: Record<string, string> }] => Boolean((entry[1] as ScopeSpec<any>).by)
+  const membershipScopes = Object.entries(config.scopes ?? {}).filter((entry): entry is [string, ScopeSpec<any> & { by: Record<string, string> }] =>
+    Boolean((entry[1] as ScopeSpec<any>).by)
   );
 
   const scopeValueFromRow = (by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null => {
@@ -190,7 +195,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   };
 
   const detachForDestroy = (id: string): MembershipDelta[] =>
-    planes().scopeIndex.keysOf(id).map(scopeKey => ({ scopeKey, detach: [id] }));
+    planes()
+      .scopeIndex.keysOf(id)
+      .map(scopeKey => ({ scopeKey, detach: [id] }));
 
   registerRelationHost(config.id, {
     relations: resolvedRelations,
@@ -270,10 +277,16 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   registerGcHost(config.id, {
     modelId: config.id,
     exempt: config.gc === 'exempt',
-    rowIds: () => planes().entityState.values().map(row => String(row.id)),
+    rowIds: () =>
+      planes()
+        .entityState.values()
+        .map(row => String(row.id)),
     hasRow: id => planes().entityState.read(id) !== undefined,
     scopeKeys: () => planes().scopeIndex.keys(),
-    scopeEntryIds: key => planes().scopeIndex.read(key).entries.map(entry => entry.id),
+    scopeEntryIds: key =>
+      planes()
+        .scopeIndex.read(key)
+        .entries.map(entry => entry.id),
     detachScopeEntries: (key, ids) => {
       planes().scopeIndex.detach(key, ids);
     },
@@ -310,15 +323,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   /** Imperative/domain writes are events: expand declared relation side effects into the same plan. */
   const applyEvent = (ops: JournalOp[]): void => {
-    getApplyRuntime().apply(
-      expandPlan(
-        ops.map(op =>
-          op.kind === 'upsert' && op.origin === undefined
-            ? { ...op, origin: 'event' as const }
-            : op
-        )
-      )
-    );
+    getApplyRuntime().apply(expandPlan(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { ...op, origin: 'event' as const } : op))));
   };
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {
@@ -341,7 +346,12 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const scopeKey = keyForScope(scopeName, scopeValue);
-      let { next } = planes().scopeIndex.reconcileNext(scopeKey, coverage, liveRows.map(({ row, edge }) => ({ id: row.id, edge })), opts);
+      let { next } = planes().scopeIndex.reconcileNext(
+        scopeKey,
+        coverage,
+        liveRows.map(({ row, edge }) => ({ id: row.id, edge })),
+        opts
+      );
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (opts?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
         next = planes().scopeIndex.trimValue(next, maxRows).next;
@@ -366,7 +376,12 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
               scopeKey: scopeKey ?? '',
               initial: () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
               read: id => planes().entityState.read(id),
-              sort: spec?.sort === 'server-order' || spec?.sort == null ? 'server-order' : 'comparator' in spec.sort ? spec.sort : { field: String(spec.sort.field), direction: spec.sort.dir }
+              sort:
+                spec?.sort === 'server-order' || spec?.sort == null
+                  ? 'server-order'
+                  : 'comparator' in spec.sort
+                    ? spec.sort
+                    : { field: String(spec.sort.field), direction: spec.sort.dir }
             })
         });
       },
@@ -376,10 +391,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
         const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
         if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
-        const signature = incrementalSignature('scope', config.id, scopeName, scopeValue);
+        const signature = incrementalSignature('scope-window', config.id, scopeName, scopeValue, windowSize);
+        const deps = useMemo(() => (scopeKey == null ? [] : memberDeps(scopeKey)), [scopeKey]);
         const rows = useIncrementalRead({
           signature,
-          deps: scopeKey == null ? [] : memberDeps(scopeKey),
+          deps,
           create: () =>
             createScopeReadEngine({
               signature,
@@ -387,7 +403,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
               scopeKey: scopeKey ?? '',
               initial: () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
               read: id => planes().entityState.read(id),
-              sort: spec?.sort === 'server-order' || spec?.sort == null ? 'server-order' : 'comparator' in spec.sort ? spec.sort : { field: String(spec.sort.field), direction: spec.sort.dir }
+              windowSize,
+              sort:
+                spec?.sort === 'server-order' || spec?.sort == null
+                  ? 'server-order'
+                  : 'comparator' in spec.sort
+                    ? spec.sort
+                    : { field: String(spec.sort.field), direction: spec.sort.dir }
             })
         });
         const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
@@ -411,7 +433,14 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       },
       read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
       __apply: (scopeValue: unknown, rows: any[], coverage: Coverage, opts?: { resetOrder?: boolean }) => {
-        applySnapshot(planApply(scopeValue, rows.map(row => ({ row })), coverage, opts));
+        applySnapshot(
+          planApply(
+            scopeValue,
+            rows.map(row => ({ row })),
+            coverage,
+            opts
+          )
+        );
       },
       __planApply: planApply
     };
@@ -424,10 +453,14 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows: rows.filter(isPlanRow) }];
 
   const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
-    planes().scopeIndex.keysOf(id).flatMap(scopeKey => {
-      const entry = planes().scopeIndex.read(scopeKey).entries.find(candidate => candidate.id === id);
-      return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
-    });
+    planes()
+      .scopeIndex.keysOf(id)
+      .flatMap(scopeKey => {
+        const entry = planes()
+          .scopeIndex.read(scopeKey)
+          .entries.find(candidate => candidate.id === id);
+        return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
+      });
 
   const restoreMembership = (nextId: string, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[] =>
     memberships.map(membership => ({
@@ -464,7 +497,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
     get: id => (id == null ? undefined : planes().entityState.read(id)),
-    getWhere: (where, options) => sortRows(planes().entityState.values().filter(row => matchesDbWhere(row, where)), options),
+    getWhere: (where, options) =>
+      sortRows(
+        planes()
+          .entityState.values()
+          .filter(row => matchesDbWhere(row, where)),
+        options
+      ),
     getAll: () => planes().entityState.values(),
     patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id, patch: patch as Record<string, unknown> }]),
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
@@ -479,16 +518,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     use: {
       row: (id, options) => {
         const select = options?.select as ReadonlyArray<string> | undefined;
-        return useLiveRead(
-          () => (id == null ? undefined : planes().entityState.read(id)),
-          id == null ? [] : [rowDep(id, select)]
-        );
+        return useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)), id == null ? [] : [rowDep(id, select)]);
       },
-      field: (id, field) =>
-        useLiveRead(
-          () => (id == null ? undefined : planes().entityState.read(id)?.[field]),
-          id == null ? [] : [rowDep(id, [String(field)])]
-        ),
+      field: (id, field) => useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)?.[field]), id == null ? [] : [rowDep(id, [String(field)])]),
       first: (where, options) =>
         useIncrementalRead({
           signature: incrementalSignature('first', config.id, where, options),
@@ -498,7 +530,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
               signature: incrementalSignature('first', config.id, where, options),
               model: config.id,
               where: row => where == null || matchesDbWhere(row, where),
-              options: options ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit } : undefined,
+              options: options
+                ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit }
+                : undefined,
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => rows[0]
@@ -513,7 +547,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
               signature: incrementalSignature('where', config.id, where, options),
               model: config.id,
               where: row => where != null && matchesDbWhere(row, where),
-              options: options ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit } : undefined,
+              options: options
+                ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit }
+                : undefined,
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => rows

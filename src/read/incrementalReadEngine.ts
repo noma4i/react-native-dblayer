@@ -193,6 +193,7 @@ type ScopeEngineOptions<T extends Row> = {
   initial(): T[];
   read(id: string): T | undefined;
   sort?: { field: string; direction: 'asc' | 'desc' } | 'server-order' | { comparator: (left: T, right: T) => number };
+  windowSize?: number;
 };
 
 /** P5 state: one scope subscription, ephemeral epochs, and conservative comparator rebuilds. */
@@ -200,6 +201,7 @@ export const createScopeReadEngine = <T extends Row>(options: ScopeEngineOptions
   const rows = new Map<string, T>();
   const ordinals = new Map<string, number>();
   let ordinal = 0;
+  let windowSnapshot: { rows: T[]; totalCount: number; hasMore: boolean } | null = null;
   const engine: Engine<T[]> = {
     signature: options.signature,
     generation: getRuntimeGeneration(),
@@ -226,13 +228,21 @@ export const createScopeReadEngine = <T extends Row>(options: ScopeEngineOptions
     }
     render();
   };
+  const changedWindow = (): boolean => {
+    if (options.windowSize === undefined) return true;
+    const next = { rows: (engine.value as T[]).slice(0, options.windowSize), totalCount: (engine.value as T[]).length, hasMore: (engine.value as T[]).length > options.windowSize };
+    const changed = windowSnapshot === null || windowSnapshot.totalCount !== next.totalCount || windowSnapshot.hasMore !== next.hasMore || windowSnapshot.rows.length !== next.rows.length || windowSnapshot.rows.some((row, index) => row !== next.rows[index]);
+    windowSnapshot = next;
+    return changed;
+  };
   rebuild();
+  changedWindow();
   engine.apply = batch => {
     const scopeChanges = batch?.scopeChanges?.filter(change => change.model === options.model && change.scopeKey === options.scopeKey) ?? [];
     if (batch === null || batch?.mode !== 'delta' || batch.maintenanceModels?.includes(options.model) || scopeChanges.some(change => change.rebuild) || (options.sort && typeof options.sort !== 'string' && 'comparator' in options.sort)) {
       const previous = engine.value;
       rebuild();
-      if (previous !== engine.value) engine.version += 1;
+      if (previous !== engine.value && changedWindow()) engine.version += 1;
       return true;
     }
     if (scopeChanges.length === 0) return false;
@@ -251,7 +261,7 @@ export const createScopeReadEngine = <T extends Row>(options: ScopeEngineOptions
     }
     if (!changed) return false;
     render();
-    engine.version += 1;
+    if (changedWindow()) engine.version += 1;
     return true;
   };
   return engine;
