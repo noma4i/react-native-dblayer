@@ -1,18 +1,16 @@
 # Queries
 
-Two DSLs cover network reads. `defineQuery` compiles a GraphQL response into the shared apply
-pipeline and writes it into a model or scope, so the result becomes a normal reactive model read.
-`defineFetch` is the ephemeral counterpart: it runs a query and hands back the selected payload
-directly, with no store destination. Both are backed by TanStack Query, whose shared client/provider
-live in [configuration.md](./configuration.md#react-query-passthrough).
+Two surfaces cover network reads. `Model.query(name, config)` compiles a GraphQL response into the
+shared apply pipeline and writes it into a model or scope, so the result becomes a normal reactive
+model read. `defineFetch` is the model-less counterpart: it runs a query and hands back the
+selected payload directly, with no store destination. Both are backed by TanStack Query, whose
+shared client/provider live in [configuration.md](./configuration.md#react-query-passthrough).
 
-## `defineQuery(config)`
+## `Model.query(name, config)`
 
 ```ts
-import { defineQuery } from '@noma4i/react-native-dblayer';
-
-const chatThreadQuery = defineQuery({
-  document: MessagesDocument,               // cache key defaults to the operation name
+const threadQuery = MessageModel.query('thread', {
+  document: MessagesDocument,
   vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
   page: data => data.messages,               // infinite connection; use `select` for a single fetch
   into: MessageModel.scopes.thread,
@@ -23,22 +21,25 @@ const chatThreadQuery = defineQuery({
 });
 
 const { data, loadingState, error, hasNextPage, isFetchingNextPage, fetchNextPage, refetch } =
-  chatThreadQuery.use({ chatId });
+  threadQuery.use({ chatId });
 
-await chatThreadQuery.fetch({ chatId });      // one fetch outside React
-chatThreadQuery.invalidate({ chatId });       // clear the React Query cache for one scope
+await threadQuery.fetch({ chatId });      // one fetch outside React
+threadQuery.invalidate({ chatId });       // clear the React Query cache for one scope
 ```
+
+`name` sets the query's conventional cache-key namespace (`<modelId>:<name>`, overridable via
+`key`) and its default write destination (the owning model itself, overridable via `into`).
 
 ### `QueryConfig`
 
 | Option | Type | Description |
 | --- | --- | --- |
 | `document` | GraphQL document | The query document. `TResponse`/`TVars` are inferred from a `TypedDocumentNode`. |
-| `key` | `string` | Stable cache-key namespace; defaults to the document's operation name. |
+| `key` | `string` | Stable cache-key namespace. Defaults to `<modelId>:<name>`. |
 | `vars` | `(scope) => TVars` | Derive GraphQL variables from the scope value passed to `use`/`fetch`. |
 | `page` | `(data) => { nodes \| edges, pageInfo }` | Infinite-connection selector for cursor pagination. Mutually exclusive with `select` - setting `page` makes `use` an infinite-query hook (`hasNextPage`/`fetchNextPage` become live). |
 | `select` | `(data) => unknown` | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`. |
-| `into` | `ScopeHandle \| Model` | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. |
+| `into` | `ScopeHandle \| Model` | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. Defaults to the owning model. |
 | `coverage` | `Coverage` | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See Coverage semantics below. |
 | `edge` | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists). |
 | `extract` | `(ctx: { data, nodes }) => ExtractSink[]` | Cross-model sideloads applied in the SAME transaction as the main rows. |
@@ -54,7 +55,7 @@ chatThreadQuery.invalidate({ chatId });       // clear the React Query cache for
 | `getCursor` | `(page) => string \| null` | Override cursor extraction from a page; defaults to reading `pageInfo.endCursor`/`startCursor` per `direction`. |
 | `mapCursor` | `(cursor: string) => unknown` | Transform the raw string cursor before it is substituted into the cursor variable (e.g. `Number` for numeric cursors). |
 
-`defineQuery` returns `{ use, fetch, invalidate }`:
+`Model.query` returns `{ use, fetch, invalidate }`:
 
 - `use(scope, opts?)` is a hook - a single-fetch hook when `page` is omitted, an infinite-query hook
   when `page` is set - returning a `QueryResult`.
@@ -86,19 +87,19 @@ chatThreadQuery.invalidate({ chatId });       // clear the React Query cache for
 
 ### Error surfacing
 
-A transport failure surfaces on `QueryResult.error` (and `FetchResult.error` for `defineFetch`) and
-is separately reported to `DbDefaults.onSyncError` with `{ source: 'query' }` (see
-[configuration.md](./configuration.md#onsyncerror-policy)), so app-wide error tracking does not
-need to be wired into every screen individually. `onSyncError` observes the failure; it never
+A transport failure surfaces on the status surface's `error` field (and `FetchResult.error` for
+`defineFetch`) and is separately reported to `DbDefaults.onSyncError` with `{ source: 'query' }`
+(see [configuration.md](./configuration.md#onsyncerror-policy)), so app-wide error tracking does
+not need to be wired into every screen individually. `onSyncError` observes the failure; it never
 changes the query's own control flow.
 
 ## `defineFetch(config)`
 
-Ephemeral, store-free fetch: runs a query and hands back the selected payload directly, with no
+Ephemeral, model-less fetch: runs a query and hands back the selected payload directly, with no
 `into` destination. The response never reaches the apply pipeline, never writes a journal record,
-and never touches a `dbl:` storage key. Use it for display-only data with no local reactive read of
-its own (pricing tables, country lists, SKU catalogs) where a `defineQuery` write destination would
-be pure overhead.
+and never touches a `dbl:` storage key. Use it for display-only data that does not belong to any
+single model and has no local reactive read of its own (pricing tables, country lists, SKU
+catalogs) where a `Model.query` write destination would be pure overhead.
 
 ```ts
 import { defineFetch } from '@noma4i/react-native-dblayer';
@@ -140,7 +141,7 @@ runs one fetch outside React and resolves to the selected payload, throwing on t
 | `refetch` | `() => void` | Re-run the fetch, replacing `data` on success. Does not return a promise - `await fetch(input)` instead. |
 
 `defineFetch` reports transport failures to `DbDefaults.onSyncError` with `{ source: 'query' }`,
-same as `defineQuery`.
+same as `Model.query`.
 
 ## Stable view and list hooks
 
@@ -159,7 +160,7 @@ components memoized on identity skip re-rendering for changes they do not displa
 | `computePhase` | `(input: ComputePhaseInput) => LoadingPhase` | Computes the current loading phase (`'idle' \| 'hydrating' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) from query and collection state. |
 
 `LoadingState`, `DbWhere<T>`, and `StableProjectionConfig` are the corresponding public types:
-`LoadingState` is the object `computeLoadingState` returns and every `QueryResult`/`FetchResult`
-exposes as `loadingState`; `DbWhere<T>` is the predicate type accepted by every model `where`/`getWhere`
-read (see [models.md](./models.md#reads)); `StableProjectionConfig` is the config shape
-`useStableProjection` accepts (`getKey`, `buildEntry`, `emptyItems`, `entriesEqual`).
+`LoadingState` is the object `computeLoadingState` returns and every query/`FetchResult` status
+surface exposes as `loadingState`; `DbWhere<T>` is the predicate type accepted by every model
+`getWhere`/`use.where` read (see [models.md](./models.md#reads)); `StableProjectionConfig` is the
+config shape `useStableProjection` accepts (`getKey`, `buildEntry`, `emptyItems`, `entriesEqual`).

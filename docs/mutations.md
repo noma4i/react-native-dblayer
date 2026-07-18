@@ -1,16 +1,17 @@
 # Mutations
 
-`defineMutation` runs a GraphQL mutation as one lifecycle: an optional optimistic local write,
-the network call, then a single-transaction commit - with automatic rollback of the optimistic
-write if anything throws. Dedupe, extract sinks, and lifecycle callbacks all run through the same
-path for both the hook and the direct call.
+`Model.mutation(name, config)` runs a GraphQL mutation as one lifecycle: an optional optimistic
+local write, the network call, then a single-transaction commit - with automatic rollback of the
+optimistic write if anything throws. Dedupe, extract sinks, and lifecycle callbacks all run
+through the same path for both the hook and the direct call. `defineCommand(name, config)` is the
+model-less counterpart for mutations with no local write of their own.
 
-## `defineMutation(config)`
+## `Model.mutation(name, config)`
 
 ```ts
-import { defineMutation, generateTempId } from '@noma4i/react-native-dblayer';
+import { generateTempId } from '@noma4i/react-native-dblayer';
 
-const sendMessage = defineMutation({
+const sendMessage = MessageModel.mutation('send', {
   document: MessageSendDocument,
   result: 'messageSend',
   optimistic: {
@@ -41,6 +42,9 @@ const { mutate, mutateAsync, isPending, error } = sendMessage.use();
 await sendMessage.run(input);   // same lifecycle, imperatively
 ```
 
+`name` sets the mutation's conventional dedupe key namespace (`<modelId>:<name>:<inputHash>`) -
+see Dedupe below.
+
 ### `MutationConfig`
 
 | Option | Type | Description |
@@ -50,7 +54,7 @@ await sendMessage.run(input);   // same lifecycle, imperatively
 | `mapInput` | `(input, ctx: OptimisticCtx) => Record<string, unknown>` | Build transport variables from the mutation input and its optimistic operation context. |
 | `optimistic` | insert / patch / destroy | Optimistic local write applied before the network call, undone on error/rollback. Omit for mutations with no local write of their own (pure side-effect calls). See below. |
 | `extract` | `(ctx: { data }) => ExtractSink[]` | Cross-model sideloads from the response, applied in the SAME transaction as the commit. |
-| `dedupe` | `{ key: (input) => string \| null }` | Idempotency: a committed key is never re-sent; a pending key blocks double-taps; a `null` key skips dedupe. |
+| `dedupe` | `{ key: (input) => string \| null } \| false` | Idempotency: ON by default with a conventional key (`<modelId>:<name>:<inputHash>`) - a committed key is never re-sent, a pending key blocks double-taps. Pass `false` to opt out entirely, or a custom `{ key }` to override the key derivation. A `null` key from either the default or a custom `key` skips dedupe for that call. See Dedupe below. |
 | `onMutate` | `(input, ctx) => void` | Called synchronously right after the optimistic write (if any), before the transport call starts. |
 | `onCommit` | `(data, ctx: OptimisticCtx & { input }) => void` | Called after the response commits successfully, after extract sinks and preserve-on-commit have applied. |
 | `onError` | `(error, ctx: OptimisticCtx & { input }) => void` | Called after a failed run has rolled back its optimistic write (if any) and closed the operation. |
@@ -84,13 +88,34 @@ network call, if the target model has a `hasMany` relation with `dependent: 'des
 optimistic destroy on that model would need to roll back a cascade of children it does not track,
 so the guard refuses the mutation outright rather than leaving orphaned or resurrected children.
 
-### `operationId` echo wiring with `defineIngest`
+### Dedupe
+
+`Model.mutation` turns dedupe on by default, keyed by `<modelId>:<name>:<inputHash>` (the input
+hashed the same way scope values are hashed elsewhere in the DSL) - a committed key is never
+re-sent and a pending key blocks a double-tap, with no config needed for the common case. Opt out
+for a mutation that genuinely needs to resubmit identical input, e.g. a two-state toggle where a
+third press should replay an input already dedupe-committed by the first:
+
+```ts
+const toggleRead = MessageModel.mutation('toggle-read', {
+  dedupe: false,   // resubmitting the same { messageId } must always re-run - it flips state each time
+  optimistic: { method: 'patch', model: MessageModel, selectId: input => input.messageId, selectPatch: input => ({ read: input.read }) },
+  document: ToggleMessageReadDocument,
+  result: 'messageToggleRead'
+});
+```
+
+Pass a custom `dedupe: { key }` instead of `false` to keep dedupe on with a different key
+derivation - e.g. keying on a subset of the input, or returning `null` to skip dedupe only for
+specific inputs.
+
+### `operationId` echo wiring with `Model.ingest`
 
 Every mutation run gets a fresh `operationId` (`OptimisticCtx.operationId`), independent of
 `dedupe`'s key. Send it to the server (typically via `mapInput`) so the server echoes it back on
 the subscription event the mutation itself triggers; pass it through as `operationId` in the
-declaration an ingest handler returns (see [configuration.md](./configuration.md#defineingestmodel-handlers)).
-`defineIngest` skips the whole event when that `operationId` already committed locally - the
+declaration a `Model.ingest` handler returns (see [models.md](./models.md#modelingestentries)).
+`Model.ingest` skips the whole event when that `operationId` already committed locally - the
 mutation's own commit already applied the row, so the echoed subscription event is a no-op instead
 of a duplicate write.
 
@@ -130,6 +155,28 @@ wins **unless** it is `null`, `undefined`, or an empty string while the optimist
 in which case the optimistic value is kept. `options.fields` restricts the merge to a field
 allowlist (defaults to the union of both objects' keys); `options.mergers` overrides the
 per-field rule for specific keys. Returns whichever side exists when the other is nullish.
+
+## `defineCommand(name, config)`
+
+The model-less counterpart to `Model.mutation`, for RPC-style mutations with no local optimistic
+write of their own (sending a verification email, triggering a server-side export) - the same
+lifecycle minus the `optimistic` step.
+
+```ts
+import { defineCommand } from '@noma4i/react-native-dblayer';
+
+const resendVerificationEmail = defineCommand('resend-verification-email', {
+  document: ResendVerificationEmailDocument,
+  result: 'resendVerificationEmail',
+  mapInput: (input: { userId: string }) => ({ userId: input.userId })
+});
+
+const { mutate, isPending } = resendVerificationEmail.use();
+```
+
+Takes the same `MutationConfig` minus `optimistic`, returns the same `{ use, run }` surface, and
+gets the same dedupe defaults keyed by `<name>:<inputHash>` (`dedupe: false` to opt out, same as
+`Model.mutation`).
 
 ## Error policy
 

@@ -32,9 +32,9 @@ sequencing need.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `transport` | `DbTransport` | **required** | GraphQL transport (`query`/`mutation`/optional `subscribe`) used by `defineQuery`/`defineMutation`/subscription runtimes. See Transport seam below. |
+| `transport` | `DbTransport` | **required** | GraphQL transport (`query`/`mutation`/optional `subscribe`) used by `Model.query`/`Model.mutation`/subscription runtimes. See Transport seam below. |
 | `storage` | `StoragePlane` | `mmkvStoragePlane()` | Synchronous key/value seam for persistence. See Storage seam below. |
-| `queryClient` | `QueryClient` | `undefined` | TanStack Query client shared with `defineQuery`'s hooks and the imperative `getDbQueryClient()`. |
+| `queryClient` | `QueryClient` | `undefined` | TanStack Query client shared with `Model.query`'s hooks and the imperative `getDbQueryClient()`. |
 | `logger` | `DbLogger` | no-op | Package logger seam: `{ debug, error }`. |
 | `defaults` | `DbDefaults` | `{}` | Package-wide freshness/pagination/error-observation defaults. See below. |
 
@@ -42,10 +42,10 @@ sequencing need.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `staleTime` | `number` (ms) | Package-wide default `staleTime` for `defineQuery`/`defineFetch` results that omit their own. |
-| `emptyStaleTime` | `number` (ms) | Package-wide default `emptyStaleTime` for `defineQuery` results that omit their own. |
+| `staleTime` | `number` (ms) | Package-wide default `staleTime` for `Model.query`/`defineFetch` results that omit their own. |
+| `emptyStaleTime` | `number` (ms) | Package-wide default `emptyStaleTime` for `Model.query` results that omit their own. |
 | `gcTime` | `number` (ms) | Package-wide default TanStack Query cache `gcTime` for results that omit their own. |
-| `pageSize` | `number` | Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. |
+| `pageSize` | `number` | Package-wide default window size for `ScopeHandle.useWindow`/`Model.view`'s `useWindow` when its own `pageSize` is omitted. |
 | `persistence.checkpointDelayMs` / `persistence.maxPendingPlans` | `number` | Checkpoint flush tuning: how long snapshots wait, and how many pending plans accumulate, before a batched flush leaves the hot path. |
 | `onSyncError` | `(error: Error, ctx) => void` | Observes contained pipeline failures without changing their control flow. See the policy table below. |
 
@@ -58,9 +58,9 @@ an error handler.
 
 | `ctx.source` | Raised by | Also surfaces as |
 | --- | --- | --- |
-| `'query'` | A `defineQuery`/`defineFetch` transport failure. | `QueryResult.error` / `FetchResult.error` (see [queries.md](./queries.md#error-surfacing)). |
-| `'mutation'` | A `defineMutation` run that threw, after rollback completed. | The rejected `run(input)`/`mutateAsync(input)` promise (see [mutations.md](./mutations.md#error-policy)). |
-| `'ingest'` | A `defineIngest` handler or its resulting plan apply that threw. | Nothing else - the event is dropped; `defineIngest.apply` returns `null`. |
+| `'query'` | A `Model.query`/`defineFetch` transport failure. | The status surface's `error` field / `FetchResult.error` (see [queries.md](./queries.md#error-surfacing)). |
+| `'mutation'` | A `Model.mutation`/`defineCommand` run that threw, after rollback completed. | The rejected `run(input)`/`mutateAsync(input)` promise (see [mutations.md](./mutations.md#error-policy)). |
+| `'ingest'` | A `Model.ingest` handler or its resulting plan apply that threw. | Nothing else - the event is dropped. |
 
 `ctx` also carries `model`/`scope`/`key`/`event` where applicable, identifying which model or
 document raised the failure. A throw inside `onSyncError` itself is caught and logged through the
@@ -79,8 +79,9 @@ import { bootDb, suspendDb } from '@noma4i/react-native-dblayer';
 import './models'; // import every model module FIRST so its apply target is registered
 
 async function start() {
-  const { replayed, gc } = await bootDb({ transport, queryClient });
+  const { replayed, gc, maintenance } = await bootDb({ transport, queryClient });
   console.log(`replayed ${replayed} journal records, evicted`, gc.evicted);
+  console.log('ran maintenance', maintenance);
 }
 
 // On app background / before logout teardown:
@@ -90,11 +91,13 @@ suspendDb();
 `bootDb(options)` takes the exact same options as `configureDb`, and runs, in order:
 `configureDb(options)`, `replayJournal()` (recovers WAL-only writes from a crash), `collectGarbage()`
 (reclaims rows left unreachable by that replay), `purgeForeignStorageKeys()` (clears pre-migration/
-foreign storage keys). Every model module MUST be imported before calling it - `replayJournal`
-throws on a journal record whose model has no registered apply target, and `bootDb` does not catch
-or swallow any step's error; a silent partial boot is worse than a startup crash. Returns
-`{ replayed, gc }`: the replayed journal record count, and the `collectGarbage` report for the
-post-replay sweep.
+foreign storage keys), then every declared `ModelConfig.maintenance` task (see
+[models.md](./models.md#maintenance)). Every model module MUST be imported before calling it -
+`replayJournal` throws on a journal record whose model has no registered apply target, and `bootDb`
+does not catch or swallow any step's error; a silent partial boot is worse than a startup crash.
+Returns `{ replayed, gc, maintenance }`: the replayed journal record count, the `collectGarbage`
+report for the post-replay sweep, and one `MaintenanceReport` (`{ model, task: 'maxRowsPerScope',
+affected }`) per declared maintenance task across every model.
 
 `suspendDb()` runs `flushPersistence()` (write pending checkpoint snapshots now) then
 `collectGarbage()` (reclaim rows that became unreachable since the last sweep). Safe to call
@@ -110,7 +113,7 @@ different sequencing need.
 | --- | --- | --- |
 | `replayJournal` | `() => number` | Idempotently re-applies journal records not yet covered by each model's persisted applied-epoch marker. Call ONCE at startup, after `configureDb` and after every model module has been imported. Returns the replayed record count. |
 | `collectGarbage` | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations. Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, then persistence flushes. Run at startup after `replayJournal` - NOT while UI renders unscoped detail rows. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
-| `purgeForeignStorageKeys` | `() => number` | Removes storage keys outside the library's `dbl:` namespace - startup housekeeping that clears pre-v6 leftovers from the dedicated storage instance. Idempotent. Returns the removed key count. |
+| `purgeForeignStorageKeys` | `() => number` | Removes storage keys outside the library's `dbl:` namespace - startup housekeeping that clears pre-migration leftovers from the dedicated storage instance. Idempotent. Returns the removed key count. |
 | `flushPersistence` | `() => void` | Forces a checkpoint flush now - pending model snapshots hit storage in one batch. |
 
 ## `resetRuntime()` kill-switch
@@ -180,62 +183,44 @@ transport after initial configuration.
 (`fetchPolicy`, `context`, ...) your adapter reads off it - `DbQueryOperation`/`DbMutationOperation`
 are `& Record<string, unknown>`.
 
-## Subscription runtime and `defineIngest` echo guard
+## Subscription runtime
 
 ```ts
-import { createDbSubscriptionRuntime, defineDbSubscriptionEntry, defineIngest } from '@noma4i/react-native-dblayer';
+import { createDbSubscriptionRuntime } from '@noma4i/react-native-dblayer';
 
-const messageIngest = defineIngest(MessageModel, {
-  messageCreated: payload => ({ upsert: payload.message, operationId: payload.clientOperationId }),
-  messageDeleted: payload => ({ destroy: payload.id, invalidate: true })
+const messageIngest = MessageModel.ingest({
+  messageCreated: { handler: payload => ({ upsert: payload.message, operationId: payload.clientOperationId }) },
+  messageDeleted: { handler: payload => ({ destroy: payload.id, invalidate: true }) }
 });
 
-const subscriptions = createDbSubscriptionRuntime([
-  defineDbSubscriptionEntry({
-    key: 'messageEvents',
-    query: MessageEventsDocument,
-    vars: { chatId },
-    onData: payload => messageIngest.apply(payload.__typename, payload)
-  })
-]);
+const subscriptions = createDbSubscriptionRuntime(messageIngest.entries);
 
 subscriptions.setActive(true);  // requires transport.subscribe
 // subscriptions.stop();        // final teardown
 ```
 
-### `defineIngest(model, handlers)`
-
-Compiles a subscription event into ONE event plan: rows, destroys, and `extract` sinks apply with
-relation side effects (`touch`/`counterCache`/`dependent`) in a single epoch, the same as any other
-event write (see [models.md](./models.md#writes)). Version arbitration for stale events lives in
-the model's `merge.shouldOverwrite` gate, not here - one acceptance gate, not a second one layered
-on top.
-
-`IngestDecl` (a handler's return value): `upsert?` (one row or an array), `destroy?` (one id or an
-array), `invalidate?: boolean` (invalidate the model's registered queries after applying),
-`extract?: ExtractSink[]` (cross-model sideloads applied in the SAME transaction as the event rows),
-and `operationId?: string | null` - the echo guard: when this operation id already committed
-locally (via a `defineMutation` run that sent the same id, see
-[mutations.md](./mutations.md#operationid-echo-wiring-with-defineingest)), the whole event is
-skipped, so a mutation's own echoed subscription event never double-applies. A handler returning
-`null` skips the event entirely. A thrown error inside a handler or its plan apply is caught,
-reported to `DbDefaults.onSyncError` with `{ source: 'ingest' }`, and the event is dropped.
+Subscription handling splits into two layers: **declaration** (what an event does to a model -
+`Model.ingest`, documented in [models.md](./models.md#modelingestentries)) and **runtime** (how
+declared entries subscribe to the transport and dispatch payloads - documented here).
 
 ### `createDbSubscriptionRuntime(entries)`
 
-Runs a plain subscription runtime over the configured `DbTransport`. Returns a controller:
-`setActive(active)` subscribes/unsubscribes every entry (first activation requires
+Runs a plain subscription runtime over the configured `DbTransport`. Takes a `Model.ingest(...)`
+call's `entries`, or a hand-built list of `defineDbSubscriptionEntry` entries. Returns a
+controller: `setActive(active)` subscribes/unsubscribes every entry (first activation requires
 `transport.subscribe`); `isActive()` reads the runtime-wide flag; `dispatch(key, payload)` manually
 injects a payload into the same validate/debounce/handler pipeline transport events use (handy for
-tests); `inspect()` returns per-entry counters (`active`, `eventCount`, `lastEventAt`,
-`errorCount`); `stop()` is final teardown for subscriptions and pending timers. A failed entry
-retries with exponential backoff (1s up to 30s) while active.
+tests, and equivalent to calling `Model.ingest(...).apply(key, payload)` directly); `inspect()`
+returns per-entry counters (`active`, `eventCount`, `lastEventAt`, `errorCount`); `stop()` is final
+teardown for subscriptions and pending timers. A failed entry retries with exponential backoff (1s
+up to 30s) while active.
 
 ### `defineDbSubscriptionEntry(entry)`
 
 Defines one subscription entry whose key, variables, payload handler, and debounce key resolver are
 inferred from a typed GraphQL document. `debounce?: { ms, keyOf? }` trailing-debounces `onData`;
-omit `keyOf` to use one global bucket for the entry.
+omit `keyOf` to use one global bucket for the entry. Most apps never call this directly - it is the
+primitive `Model.ingest`'s fused declarative form compiles down to.
 
 ### `createDbSubscriptionEffects(noopEffects)`
 
@@ -243,7 +228,8 @@ Creates an injectable effects channel for subscription entries that need to call
 without importing it: entries call `channel.effects.onX(...)`, and the app injects real
 implementations with `channel.configure(overrides)` when its effect owner mounts, calling
 `channel.reset()` on teardown. The returned `effects` table and every wrapper keep one identity for
-the channel's lifetime, so entries built once at module scope never need to rebind.
+the channel's lifetime, so entries built once at module scope never need to rebind. `Model.ingest`'s
+fused form's `effect: { name, when }` field wires into this channel.
 
 ## Persistence model
 
@@ -255,9 +241,9 @@ snapshot, since the two storage batches are never interleaved with a partial sna
 
 At boot, `replayJournal()` re-applies every pending record left over from the last session (the
 recovery half of WAL), then `bootDb`'s `collectGarbage()` reclaims anything that replay left
-unreachable and `purgeForeignStorageKeys()` clears any non-`dbl:` keys - together, the boot
-compaction pass that brings persisted state back to exactly what a live session would have
-produced.
+unreachable, `purgeForeignStorageKeys()` clears any non-`dbl:` keys, and declared model maintenance
+runs last - together, the boot compaction pass that brings persisted state back to exactly what a
+live session would have produced.
 
 ## React Query passthrough
 
@@ -272,12 +258,12 @@ const queryClient = new QueryClient();
 | Export | Re-exports | Notes |
 | --- | --- | --- |
 | `QueryClient` | `@tanstack/react-query`'s `QueryClient` | Pass an instance to `configureDb({ queryClient })`. |
-| `QueryClientProvider` | `@tanstack/react-query`'s `QueryClientProvider` | Wrap the app so `defineQuery`/`defineFetch` hooks can read the client from context. |
+| `QueryClientProvider` | `@tanstack/react-query`'s `QueryClientProvider` | Wrap the app so `Model.query`/`defineFetch` hooks can read the client from context. |
 | `focusManager` | `@tanstack/react-query`'s `focusManager` | Wire app foreground/background events to TanStack Query's refetch-on-focus behavior. |
-| `useQuery` | `@tanstack/react-query`'s `useQuery` | Available for direct use alongside `defineQuery`/`defineFetch`. |
+| `useQuery` | `@tanstack/react-query`'s `useQuery` | Available for direct use alongside `Model.query`/`defineFetch`. |
 | `useQueryClient` | `@tanstack/react-query`'s `useQueryClient` | Reads the client from `QueryClientProvider` context. |
 
-The query DSL still hides the Query cache from model storage: `defineQuery` stores only page
+The query DSL still hides the Query cache from model storage: `Model.query` stores only page
 metadata (cursor, count) in the Query cache, while rows live in the model's own planes -
 `configureDb({ queryClient })` is used by imperative APIs (`getDbQueryClient()`, `invalidate`);
 hooks keep reading the client from `QueryClientProvider` context regardless.
