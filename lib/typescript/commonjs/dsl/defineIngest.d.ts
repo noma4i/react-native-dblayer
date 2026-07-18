@@ -35,8 +35,10 @@ export type ModelIngestTools = {
     models: Record<string, IngestModel>;
 };
 export type ModelIngestEntry = {
-    /** Subscription document passed to the configured transport. */
-    document: DbSubscriptionEntry['query'];
+    /** Subscription document passed to the configured transport. Required unless `handler` is used only for imperative delivery. */
+    document?: DbSubscriptionEntry['query'];
+    /** Declaration-return handler using the exact atomic `defineIngest` apply pipeline. */
+    handler?: (payload: unknown) => IngestDecl | null;
     /** Transform the runtime payload before guard, effects, and apply. */
     payload?: (data: unknown) => unknown;
     /** Apply normalized rows, destroy an id, or run a custom model-aware handler. */

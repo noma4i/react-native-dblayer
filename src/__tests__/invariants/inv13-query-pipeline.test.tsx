@@ -4,6 +4,7 @@ import { parse } from 'graphql';
 import TestRenderer, { act } from 'react-test-renderer';
 import { flushPersistence, getApplyRuntime, configureDb } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
+// Public query construction uses Model.query; this invariant covers the internal key engine.
 import { defineQuery } from '../../dsl/defineQuery';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';

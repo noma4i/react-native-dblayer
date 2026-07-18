@@ -2,7 +2,6 @@ import { act } from 'react-test-renderer'
 import {
   belongsTo,
   defineModel,
-  defineMutation,
   f,
   isIncomingNewer,
   resetRuntime,
@@ -73,9 +72,10 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const rows = model(`A09G2`)
-    const mutation = defineMutation<{ save: Row }, { title: string }, Row, Row>({
+    const mutation = rows.mutation<{ save: Row }, { title: string }, Row, Row>(`reconcile`, {
       document,
       result: `save`,
+      dedupe: false,
       optimistic: {
         model: rows,
         build: (input, context) => ({ id: context.tempId!, group: `g`, title: input.title, updatedAt: `2026-01-01T00:00:00.000Z` }),
@@ -104,9 +104,10 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
     const transport = createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> })
     setupAcceptanceRuntime({ transport })
     const rows = model(`A09G3`)
-    const mutation = defineMutation<{ save: Row }, Record<string, never>, Row, Row>({
+    const mutation = rows.mutation<{ save: Row }, Record<string, never>, Row, Row>(`ingest-winner`, {
       document,
       result: `save`,
+      dedupe: false,
       optimistic: {
         model: rows,
         build: (_input, context) => ({ id: context.tempId!, group: `g`, title: `draft`, updatedAt: `2026-01-01T00:00:00.000Z` }),
@@ -140,9 +141,10 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const rows = model(`A09G4`)
-    const mutation = defineMutation<{ save: Row }, Record<string, never>, Row, Row>({
+    const mutation = rows.mutation<{ save: Row }, Record<string, never>, Row, Row>(`reset`, {
       document,
       result: `save`,
+      dedupe: false,
       optimistic: { model: rows, build: (_input, context) => ({ id: context.tempId!, group: `g`, title: `temp` }), selectServerNode: data => data.save },
     })
     const query = rows.query(`a09-g4`, { document, key: `a09-g4`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
@@ -264,8 +266,8 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
     act(() => {
       rows.insertStored({ id: `row`, group: `g`, title: `before`, body: `before` })
     })
-    const title = defineMutation<{ save: { id: string } }, { title: string }, Row, Row>({ document, result: `save`, optimistic: { method: `patch`, model: rows, selectId: () => `row`, selectPatch: input => ({ title: input.title }) } })
-    const body = defineMutation<{ save: { id: string } }, { body: string }, Row, Row>({ document, result: `save`, optimistic: { method: `patch`, model: rows, selectId: () => `row`, selectPatch: input => ({ body: input.body }) } })
+    const title = rows.mutation<{ save: { id: string } }, { title: string }, Row, Row>(`title`, { document, result: `save`, dedupe: false, optimistic: { method: `patch`, model: rows, selectId: () => `row`, selectPatch: input => ({ title: input.title }) } })
+    const body = rows.mutation<{ save: { id: string } }, { body: string }, Row, Row>(`body`, { document, result: `save`, dedupe: false, optimistic: { method: `patch`, model: rows, selectId: () => `row`, selectPatch: input => ({ body: input.body }) } })
     const reader = renderCounted(() => rows.use.row(`row`))
     const left = title.run({ title: `title` })
     const right = body.run({ body: `body` })

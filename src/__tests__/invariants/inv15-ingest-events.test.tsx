@@ -2,6 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { belongsTo } from '../../core/relations';
 import { getApplyRuntime, getOperationState, configureDb } from '../../dsl/configure';
+// Public ingest construction uses Model.ingest; these invariants cover engine return values.
 import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { f } from '../../schema/f';

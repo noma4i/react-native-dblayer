@@ -3,7 +3,6 @@ import {
   belongsTo,
   collectGarbage,
   defineModel,
-  defineMutation,
   f,
   flushPersistence,
   hasMany,
@@ -25,9 +24,10 @@ describe(`A04 sync lifecycle contract`, () => {
     setupAcceptanceRuntime({ transport });
     const model = defineModel({ id: `A04Echo`, name: `A04Echo`, fields: { title: f.str() } });
     let optimisticOperationId: string | undefined;
-    const mutation = defineMutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>({
+    const mutation = model.mutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>(`echo`, {
       document,
       result: `save`,
+      dedupe: false,
       mapInput: (_input, context) => ({ operationId: context.operationId }),
       optimistic: {
         model,
@@ -331,9 +331,10 @@ describe(`A04 sync lifecycle contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) }
     });
-    const mutation = defineMutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>({
+    const mutation = first.mutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>(`crash-orphan`, {
       document,
       result: `save`,
+      dedupe: false,
       optimistic: {
         model: first,
         build: (_input, context) => ({ id: context.tempId!, title: `pending` }),
@@ -374,9 +375,10 @@ describe(`A04 sync lifecycle contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) }
     });
-    const mutation = defineMutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>({
+    const mutation = first.mutation<{ save: { id: string; title: string } }, Record<string, never>, { id: string; title: string }, { id: string; title: string }>(`ledger-window`, {
       document,
       result: `save`,
+      dedupe: false,
       optimistic: {
         model: first,
         build: (_input, context) => ({ id: context.tempId!, title: `pending` }),
