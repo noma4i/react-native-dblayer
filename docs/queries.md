@@ -54,6 +54,7 @@ threadQuery.invalidate({ chatId });       // clear the React Query cache for one
 | `cursorVar` | `string` | GraphQL variable carrying the page cursor; defaults to `'after'` (`'before'` when backward). |
 | `getCursor` | `(page) => string \| null` | Override cursor extraction from a page; defaults to reading `pageInfo.endCursor`/`startCursor` per `direction`. |
 | `mapCursor` | `(cursor: string) => unknown` | Transform the raw string cursor before it is substituted into the cursor variable (e.g. `Number` for numeric cursors). |
+| `live` | `Record<string, ModelIngestEntry>` | Colocated live subscription entries, activated while a reader is mounted. See Live subscription colocation below. |
 
 `Model.query` returns `{ use, fetch, invalidate }`:
 
@@ -74,6 +75,50 @@ threadQuery.invalidate({ chatId });       // clear the React Query cache for one
 | `isFetchingNextPage` | `boolean` | `true` while a next-page fetch is in flight. Always `false` for single (non-`page`) queries. |
 | `fetchNextPage` | `() => void` | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).fetchNextPage` (local window growth over already-synced rows; see [models.md](./models.md#scopehandle)), even though both surfaces share the `fetchNextPage` name. A paginated list typically wires both. |
 | `refetch` | `() => Promise<void>` | Re-run the query from the first page, replacing `data`. |
+
+### Live subscription colocation
+
+```ts
+const threadQuery = MessageModel.query('thread', {
+  document: MessagesDocument,
+  vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
+  select: data => data.messages,
+  into: MessageModel.scopes.thread,
+  live: {
+    messageCreated: { document: MessageCreatedDocument, handler: payload => ({ upsert: payload.message }) }
+  }
+});
+
+const { data } = threadQuery.use({ chatId });             // mounting subscribes; unmounting may stop
+threadQuery.live.apply('messageCreated', { message });    // manual injection, same pipeline
+```
+
+`live` is a `Record<string, ModelIngestEntry>` - the identical entry shape
+[`Model.ingest`](./models.md#modelingestentries) accepts, so every guard, `echoGuard`, effect, and
+error-containment rule documented there applies unchanged here, delivered through the same model
+ingest pipeline. Passing `live` picks the `Model.query` overload whose return type adds a
+`live: LiveQueryHandle` member (`{ apply(event, payload) }`); omitting `live` entirely picks the
+plain overload, whose return has no `live` member at all - at the type level and at runtime.
+
+**Lifecycle.** The colocated subscription is refcounted by mounted `use` readers, not by the query
+itself: the first `use()` mount activates it (lazily creating one `createDbSubscriptionRuntime` over
+the query's compiled `live` entries), each further mount only increments the reader count, and the
+subscription deactivates only when the LAST mounted reader unmounts - overlapping readers of the
+same query share exactly ONE transport subscription. `fetch(scope)` never touches this refcount or
+activates anything; it is a plain one-shot network call that never subscribes.
+
+**Reset.** `resetRuntime()` deactivates and drops the query's live runtime immediately. If every
+reader was already unmounted, nothing more happens - a payload delivered to the old (now
+deactivated) subscriber handle after this point writes nothing. If a reader is still mounted when
+`resetRuntime()` runs, the drop is followed by an immediate resync: a fresh runtime is created and
+reactivated for the mounted reader, so subscription delivery resumes transparently across a reset.
+
+**`live.apply(event, payload)`.** Injects a payload through the exact same guarded pipeline
+(`ModelIngestEntry`'s `guard`/`echoGuard`/`debounce`/`effect`/`apply`) that a real transport
+subscription event uses - `list.live.apply('messageCreated', payload)` and
+`MessageModel.ingest({ messageCreated: {...} }).apply('messageCreated', payload)` commit identical
+rows for identical entries. Handy for tests, or for a transport delivering live events outside
+`createDbSubscriptionRuntime`.
 
 ### Coverage semantics
 

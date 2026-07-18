@@ -107,6 +107,7 @@ Generated from `src/index.ts`, grouped by area.
 | --- | --- | --- |
 | `QueryResult` | type | [queries.md](./queries.md#queryresult) |
 | `ExtractSink` | type | [queries.md](./queries.md#modelqueryname-config) |
+| `LiveQueryHandle` | type | [queries.md](./queries.md#live-subscription-colocation) |
 | `Coverage` | type | [queries.md](./queries.md#coverage-semantics) |
 | `defineFetch` | value | [queries.md](./queries.md#definefetchconfig) |
 | `FetchResult` | type | [queries.md](./queries.md#fetchresult) |
