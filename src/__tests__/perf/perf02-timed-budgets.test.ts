@@ -1,6 +1,5 @@
 import { belongsTo, hasMany } from '../../core/relations';
 import { configureDb } from '../../dsl/configure';
-import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
@@ -144,11 +143,11 @@ describe('perf 02: timed budgets', () => {
     expect(sendElapsed).toBeLessThan(25);
 
     let incomingIndex = 0;
-    const ingest = defineIngest(messages, {
-      received: () => {
+    const ingest = messages.ingest({
+      received: { handler: () => {
         incomingIndex += 1;
         return { upsert: message(`incoming-${incomingIndex}`, 30_000 + incomingIndex, 'chat-1') };
-      }
+      } }
     });
     const beforeJournal = journalRecordCount(storage);
     ingest.apply('received', {});

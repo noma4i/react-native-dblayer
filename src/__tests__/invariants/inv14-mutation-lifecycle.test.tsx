@@ -4,8 +4,7 @@ import { parse } from 'graphql';
 import { belongsTo } from '../../core/relations';
 import { resetRuntime } from '../../core/reset';
 import { getApplyRuntime, getOperationState, configureDb } from '../../dsl/configure';
-import { defineModel } from '../../dsl/defineModel';
-import { defineMutation } from '../../dsl/defineMutation';
+import { defineModel, type ModelCore } from '../../dsl/defineModel';
 import { f } from '../../schema/f';
 import { isTempId } from '../../utils/generateTempId';
 import type { StoragePlane } from '../../core/planes/storagePlane';
@@ -91,10 +90,11 @@ const setup = (mutation: () => Promise<{ data: MutationData }>) => {
   return { storage, chats, messages, calls: () => calls, chat, message };
 };
 
-const send = (messages: any, options: Record<string, unknown> = {}) =>
-  defineMutation<MutationData, Input, Message, Message>({
+const send = (messages: ModelCore<Message>, options: Record<string, unknown> = {}) =>
+  messages.mutation<MutationData, Input, Message, Message>('send', {
     document,
     result: 'messageSend',
+    dedupe: false,
     optimistic: {
       model: messages,
       build: (input: Input) => ({
@@ -172,9 +172,10 @@ describe('v6 invariant 14: mutation lifecycle', () => {
   it('rolls back an optimistic patch', async () => {
     const { messages, message } = setup(async () => { throw new Error('patch failed'); });
     messages.insertStored(message('message-1'));
-    const mutation = defineMutation<any, Input, Message, Message>({
+    const mutation = (messages as ModelCore<Message>).mutation<any, Input, Message, Message>('patch', {
       document,
       result: 'messageSend',
+      dedupe: false,
       optimistic: { method: 'patch', model: messages, selectId: input => input.id!, selectPatch: input => ({ text: input.text }) }
     });
     const pending = mutation.run({ id: 'message-1', text: 'after' });
@@ -186,9 +187,10 @@ describe('v6 invariant 14: mutation lifecycle', () => {
   it('rolls back an optimistic destroy', async () => {
     const { messages, message } = setup(async () => { throw new Error('destroy failed'); });
     messages.insertStored(message('message-1'));
-    const mutation = defineMutation<any, Input, Message, Message>({
+    const mutation = (messages as ModelCore<Message>).mutation<any, Input, Message, Message>('destroy', {
       document,
       result: 'messageSend',
+      dedupe: false,
       optimistic: { method: 'destroy', model: messages, selectId: input => input.id! }
     });
     const pending = mutation.run({ id: 'message-1', text: 'unused' });

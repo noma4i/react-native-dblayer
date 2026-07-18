@@ -6,8 +6,7 @@ import { ROOT_SCOPE_KEY, buildScopeKey } from '../../core/compileDbWhere';
 import { belongsTo, hasMany } from '../../core/relations';
 import { configureDb } from '../../dsl/configure';
 import { defineModel } from '../../dsl/defineModel';
-import { defineMutation } from '../../dsl/defineMutation';
-import { defineQuery } from '../../dsl/defineQuery';
+import { defineCommand } from '../../index';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
 import type { StoragePlane } from '../../core/planes/storagePlane';
@@ -167,9 +166,10 @@ describe('v6 invariant 16: v5 parity', () => {
     const messages = defineModel({ id: 'parity-retry-messages', name: 'ParityRetryMessageModel', fields: { text: f.str() } });
     const tempId = 'temp-retry';
     messages.insertStored({ id: tempId, text: 'retrying' });
-    const mutation = defineMutation<any, { text: string }, { id: string; text: string }, { id: string; text: string }>({
+    const mutation = messages.mutation<any, { text: string }, { id: string; text: string }, { id: string; text: string }>('retry', {
       document: mutationDocument,
       result: 'messageSend',
+      dedupe: false,
       optimistic: {
         model: messages,
         existingTempId: () => tempId,
@@ -195,7 +195,7 @@ describe('v6 invariant 16: v5 parity', () => {
         return { data: { messageSend: {} } };
       }
     });
-    const mutation = defineMutation<any, { value: string }, { id: string }, { id: string }>({
+    const mutation = defineCommand<any, { value: string }, { id: string }, { id: string }>('parallel', {
       document: mutationDocument,
       result: 'messageSend',
       dedupe: { key: () => null }
@@ -268,7 +268,7 @@ describe('v6 invariant 16: v5 parity', () => {
       } as any
     });
     const items = defineModel({ id: 'parity-enabled-items', name: 'ParityEnabledItemModel', fields: { name: f.str() }, scopes: { list: scope({ sort: 'server-order' }) } });
-    const query = defineQuery<any, any, { enabled: boolean }, any>({
+    const query = items.query<any, any, { enabled: boolean }, any>('enabled', {
       document: queryDocument,
       select: data => data.items,
       into: items.scopes.list,
@@ -300,7 +300,7 @@ describe('v6 invariant 16: v5 parity', () => {
     const items = defineModel({ id: 'parity-disabled-items', name: 'ParityDisabledItemModel', fields: { name: f.str() }, scopes: { list: scope({ sort: 'server-order' }) } });
     const scopeValue = { list: 'local' };
     items.scopes.list.__apply?.(scopeValue, [{ id: 'row-1', name: 'local' }], 'complete');
-    const query = defineQuery<any, any, typeof scopeValue, any>({
+    const query = items.query<any, any, typeof scopeValue, any>('disabled', {
       document: queryDocument,
       select: data => data.items,
       into: items.scopes.list,

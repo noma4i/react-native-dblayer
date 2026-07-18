@@ -74,11 +74,11 @@ describe('v6 invariant 15: ingest events', () => {
     const { chats, messages, chat, message } = setup();
     chats.insertStored(chat());
     messages.insertStored(message('old-message', { text: 'old', createdAt: 1 }));
-    const ingest = defineIngest(messages, {
-      received: () => ({
+    const ingest = messages.ingest({
+      received: { handler: () => ({
         upsert: [message('message-1', { text: 'first', createdAt: 2 }), message('message-2', { text: 'second', createdAt: 3 })],
         destroy: ['old-message']
-      })
+      }) }
     });
     const before = getApplyRuntime().currentEpoch();
     ingest.apply('received', {});
@@ -93,7 +93,7 @@ describe('v6 invariant 15: ingest events', () => {
     const { chats, messages, chat, message } = setup();
     chats.insertStored(chat());
     const declaration = { upsert: message('message-1', { text: 'once', createdAt: 2 }) };
-    const ingest = defineIngest(messages, { received: () => declaration });
+    const ingest = messages.ingest({ received: { handler: () => declaration } });
     ingest.apply('received', {});
     expect(chats.get('chat-1')?.unreadCount).toBe(1);
     const view = renderRead(() => chats.use.row('chat-1'));
@@ -128,8 +128,8 @@ describe('v6 invariant 15: ingest events', () => {
   it('applies an event whose operation id is not committed', () => {
     const { chats, messages, chat, message } = setup();
     chats.insertStored(chat());
-    const ingest = defineIngest(messages, {
-      received: () => ({ operationId: 'missing-operation', upsert: message('normal-row', { text: 'normal', createdAt: 2 }) })
+    const ingest = messages.ingest({
+      received: { handler: () => ({ operationId: 'missing-operation', upsert: message('normal-row', { text: 'normal', createdAt: 2 }) }) }
     });
     ingest.apply('received', {});
     expect(messages.get('normal-row')?.text).toBe('normal');
@@ -147,7 +147,7 @@ describe('v6 invariant 15: ingest events', () => {
   it('invalidates the model when the declaration requests it', () => {
     const { messages } = setup();
     const invalidate = jest.spyOn(messages, 'invalidate');
-    const ingest = defineIngest(messages, { received: () => ({ invalidate: true }) });
+    const ingest = messages.ingest({ received: { handler: () => ({ invalidate: true }) } });
     ingest.apply('received', {});
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
@@ -155,11 +155,11 @@ describe('v6 invariant 15: ingest events', () => {
   it('applies extracted authoritative chat rows in the same event epoch', () => {
     const { chats, messages, chat, message } = setup();
     chats.insertStored(chat());
-    const ingest = defineIngest(messages, {
-      received: () => ({
+    const ingest = messages.ingest({
+      received: { handler: () => ({
         upsert: message('message-1', { text: 'message touch', createdAt: 2 }),
         extract: [{ into: chats, rows: [{ id: 'chat-1', unreadCount: 40, lastText: 'authoritative', lastActivityAt: 99 }] }]
-      })
+      }) }
     });
     const before = getApplyRuntime().currentEpoch();
     ingest.apply('received', {});

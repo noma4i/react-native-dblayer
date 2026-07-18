@@ -1,6 +1,5 @@
 import { belongsTo, collectGarbage, defineModel, f, scope } from '../../index';
 import { flushPersistence, getOperationState } from '../../dsl/configure';
-import { defineMutation } from '../../dsl/defineMutation';
 import type { DbGraphQLDocument } from '../../types';
 import { createContractScenario } from '../helpers/contractScenario';
 import { storageKeyCount } from './session.helpers';
@@ -54,9 +53,10 @@ describe('lifecycle invariants', () => {
     const fixture = createContractScenario({ transport: { mutation: async () => { throw new Error('rollback'); } } });
     const Model = defineModel({ id: 'LifecycleRollback', name: 'LifecycleRollback', fields: { title: f.str() } });
     const baseline = { rows: Model.getAll().length, tombstones: fixture.storage.keys('dbl:tombstones:LifecycleRollback').length };
-    const mutation = defineMutation<unknown, { title: string }, { id: string; title: string }, unknown>({
+    const mutation = Model.mutation<unknown, { title: string }, { id: string; title: string }, unknown>('create', {
       document: { kind: 'Document', definitions: [] } as unknown as DbGraphQLDocument<unknown, Record<string, unknown>>,
       result: 'create',
+      dedupe: false,
       optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: () => null }
     });
 

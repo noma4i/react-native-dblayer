@@ -3,7 +3,6 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { buildScopeKey } from '../../core/compileDbWhere';
 import { belongsTo, hasMany } from '../../core/relations';
 import { flushPersistence, getApplyRuntime, configureDb } from '../../dsl/configure';
-import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
@@ -103,7 +102,7 @@ describe('v6 invariant 17: automatic scope membership', () => {
   it('B. applies ingest membership and relation effects in one epoch', () => {
     const { chats, messages, chat, message } = setup();
     chats.insertStored(chat('c1'));
-    const ingest = defineIngest(messages, { received: () => ({ upsert: message('message-1', { text: 'ingested', createdAt: 2 }) }) });
+    const ingest = messages.ingest({ received: { handler: () => ({ upsert: message('message-1', { text: 'ingested', createdAt: 2 }) }) } });
     const before = getApplyRuntime().currentEpoch();
 
     ingest.apply('received', {});

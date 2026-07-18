@@ -3,7 +3,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { hasMany } from '../../core/relations';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
-import { defineCommand } from '../../dsl/defineCommand';
+import { defineCommand } from '../../index';
 import { configureDb, getApplyRuntime, getOperationState } from '../../dsl/configure';
 import { resetRuntime } from '../../core/reset';
 import { f } from '../../schema/f';

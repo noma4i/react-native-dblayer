@@ -70,7 +70,7 @@ const setup = (responses: Array<unknown | Error>) => {
 describe('v6 invariant 13: query pipeline', () => {
   it('loads infinite pages with the cursor and keeps server order', async () => {
     const { client, calls, items } = setup([{ items: page(1, 20, true, 'c1') }, { items: page(21, 20, false, null) }]);
-    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, vars: value => ({ scope: value }) });
+    const query = items.query<any, any, any, any>('cursor', { document, page: data => data.items, into: items.scopes.list, vars: value => ({ scope: value }) });
     const view = renderQuery(client, () => query.use({ list: 'a' }));
     await waitFor(() => view.value().data?.length === 20);
     act(() => view.value().fetchNextPage());
@@ -81,7 +81,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('maps a cursor before passing it to the configured variable', async () => {
     const { client, calls, items } = setup([{ items: page(1, 1, true, '2') }, { items: page(2, 1, false, null) }]);
-    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, cursorVar: 'afterSequence', mapCursor: Number });
+    const query = items.query<any, any, any, any>('numeric-cursor', { document, page: data => data.items, into: items.scopes.list, cursorVar: 'afterSequence', mapCursor: Number });
     const view = renderQuery(client, () => query.use({ list: 'numeric-cursor' }));
     await waitFor(() => view.value().data?.length === 1);
     act(() => view.value().fetchNextPage());
@@ -93,7 +93,7 @@ describe('v6 invariant 13: query pipeline', () => {
   it('detaches missing complete-scope rows without destroying entities', async () => {
     const { items } = setup([{ items: [{ id: '1', name: 'one' }, { id: '2', name: 'two' }, { id: '3', name: 'three' }] }, { items: [{ id: '1', name: 'one' }, { id: '2', name: 'two' }] }]);
     const scopeValue = { list: 'complete' };
-    const query = defineQuery<any, any, any, any>({ document, select: data => data.items, into: items.scopes.list, coverage: 'complete' });
+    const query = items.query<any, any, any, any>('complete', { document, select: data => data.items, into: items.scopes.list, coverage: 'complete' });
     await query.fetch(scopeValue);
     await query.fetch(scopeValue);
     expect(items.scopes.list.read(scopeValue).map((row: any) => row.id)).toEqual(['1', '2']);
@@ -102,7 +102,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('applies extracts in the same transaction as primary rows', async () => {
     const { items, authors } = setup([{ items: [{ id: '1', name: 'one' }], authors: [{ id: 'a1', name: 'author' }] }]);
-    const query = defineQuery<any, any, any, any>({
+    const query = items.query<any, any, any, any>('extract', {
       document,
       select: data => data.items,
       into: items.scopes.list,
@@ -116,7 +116,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('persists edge payloads for edge-format connections', async () => {
     const { storage, items } = setup([{ items: { edges: [{ node: { id: '1', name: 'one' }, sequenceNumber: 9 }], pageInfo: { hasNextPage: false, endCursor: null } } }]);
-    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, edge: source => ({ seq: (source as any).sequenceNumber }) });
+    const query = items.query<any, any, any, any>('edge', { document, page: data => data.items, into: items.scopes.list, edge: source => ({ seq: (source as any).sequenceNumber }) });
     await query.fetch({ list: 'edge' });
     flushPersistence();
     const scopeKey = storage.keys('dbl:scope:items:')[0]!;
@@ -125,7 +125,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('routes load-more failures into QueryResult error state', async () => {
     const { client, items } = setup([{ items: page(1, 1, true, 'c1') }, new Error('next failed')]);
-    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list });
+    const query = items.query<any, any, any, any>('load-more', { document, page: data => data.items, into: items.scopes.list });
     const view = renderQuery(client, () => query.use({ list: 'error' }));
     await waitFor(() => view.value().data?.length === 1);
     act(() => view.value().fetchNextPage());
@@ -135,7 +135,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('refreshes an entity model without exposing scope data', async () => {
     const { client, items } = setup([{ item: { id: '1', name: 'fresh' } }]);
-    const query = defineQuery<any, any, any, any>({ document, select: data => data.item, into: items });
+    const query = items.query<any, any, any, any>('entity', { document, select: data => data.item });
     const view = renderQuery(client, () => query.use({ entity: '1' }));
     await waitFor(() => items.get('1')?.name === 'fresh');
     expect(view.value().data).toBeUndefined();
@@ -144,7 +144,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('stays idle and does not transport when disabled', async () => {
     const { client, calls, items } = setup([{ items: page(1, 1) }]);
-    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, enabled: () => false });
+    const query = items.query<any, any, any, any>('disabled', { document, page: data => data.items, into: items.scopes.list, enabled: () => false });
     const view = renderQuery(client, () => query.use({ list: 'disabled' }));
     await act(async () => { await Promise.resolve(); });
     expect(calls).toHaveLength(0);
@@ -153,7 +153,7 @@ describe('v6 invariant 13: query pipeline', () => {
 
   it('invalidates only the selected scope or all active scopes', async () => {
     const { client, calls, items } = setup([{ items: page(1, 1) }, { items: page(2, 1) }, { items: page(3, 1) }, { items: page(4, 1) }, { items: page(5, 1) }]);
-    const query = defineQuery<any, any, any, any>({ document, page: data => data.items, into: items.scopes.list, vars: value => ({ scope: value }) });
+    const query = items.query<any, any, any, any>('invalidate', { document, key: 'ItemsList', page: data => data.items, into: items.scopes.list, vars: value => ({ scope: value }) });
     const first = renderQuery(client, () => query.use({ scope: 'a' }));
     const second = renderQuery(client, () => query.use({ scope: 'b' }));
     await waitFor(() => calls.length === 2);
@@ -170,7 +170,7 @@ describe('v6 invariant 13: query pipeline', () => {
   it('treats empty results as stale while retaining non-empty fresh results', async () => {
     const empty = setup([{ items: page(1, 0) }, { items: page(1, 0) }]);
     const emptyScope = { list: 'empty' };
-    const emptyQuery = defineQuery<any, any, any, any>({ document, page: data => data.items, into: empty.items.scopes.list, staleTime: Infinity, emptyStaleTime: 0 });
+    const emptyQuery = empty.items.query<any, any, any, any>('empty', { document, key: 'ItemsList', page: data => data.items, into: empty.items.scopes.list, staleTime: Infinity, emptyStaleTime: 0 });
     const firstEmpty = renderQuery(empty.client, () => emptyQuery.use(emptyScope));
     await waitFor(() => empty.calls.length === 1);
     const emptyCached = empty.client.getQueryCache().find({ queryKey: ['dbl', 'ItemsList', buildScopeKey(emptyScope)] });
@@ -181,7 +181,7 @@ describe('v6 invariant 13: query pipeline', () => {
     firstEmpty.unmount();
     const filled = setup([{ items: page(1, 1) }]);
     const filledScope = { list: 'filled' };
-    const filledQuery = defineQuery<any, any, any, any>({ document, page: data => data.items, into: filled.items.scopes.list, staleTime: Infinity, emptyStaleTime: 0 });
+    const filledQuery = filled.items.query<any, any, any, any>('filled', { document, key: 'ItemsList', page: data => data.items, into: filled.items.scopes.list, staleTime: Infinity, emptyStaleTime: 0 });
     const firstFilled = renderQuery(filled.client, () => filledQuery.use(filledScope));
     await waitFor(() => filled.calls.length === 1);
     const filledCached = filled.client.getQueryCache().find({ queryKey: ['dbl', 'ItemsList', buildScopeKey(filledScope)] });
