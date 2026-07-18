@@ -63,7 +63,7 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
         () => onStoreChange(),
         deps,
         batch => {
-          engine.apply(batch);
+          engineRef.current?.apply(batch);
         }
       );
       subscriptionRef.current = subscription;
@@ -72,7 +72,7 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
         subscription.unsubscribe();
       };
     },
-    [bus, deps, engine]
+    [bus, deps]
   );
 
   useEffect(() => {
