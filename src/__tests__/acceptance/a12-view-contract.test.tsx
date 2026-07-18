@@ -72,4 +72,105 @@ describe(`A12 view contract`, () => {
     const model = defineModel({ id: `A12ReferenceSource`, name: `ReferenceSource`, fields: { feedId: f.str(), targetId: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) }, relations: () => ({ target: references(target, { ids: row => (row as { targetId?: string }).targetId ?? null }) }) })
     expect(() => model.view(`invalid`, { source: `feed`, include: { target: `target` } })).toThrow(`Model.view does not support references includes`)
   })
+
+  it(`keeps view reader identities and renders stable for an unrelated model write`, () => {
+    setupAcceptanceRuntime()
+    const post = defineModel({ id: `A12UseIrrelevantPost`, name: `UseIrrelevantPost`, fields: { feedId: f.str(), title: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) } })
+    const unrelated = defineModel({ id: `A12UseIrrelevantOther`, name: `UseIrrelevantOther`, fields: { title: f.str() } })
+    post.insertStoredMany([{ id: `one`, feedId: `feed`, title: `one` }, { id: `two`, feedId: `feed`, title: `two` }])
+    const view = post.view(`irrelevant`, { source: `feed`, include: {}, select: row => ({ id: row.id, title: row.title }), renderKeys: [`title`] })
+    const reader = renderCounted(() => view.use(scopeValue))
+    const initial = reader.result()
+    const initialItems = [...initial]
+    const before = reader.renders()
+
+    act(() => { unrelated.insertStored({ id: `other`, title: `ignored` }) })
+
+    expect(reader.renders() - before).toBe(0)
+    expect(reader.result()).toBe(initial)
+    reader.result().forEach((row, index) => expect(row).toBe(initialItems[index]))
+    reader.unmount()
+  })
+
+  it(`rebuilds mounted view projections from fresh source and relation state after reset`, () => {
+    setupAcceptanceRuntime()
+    const author = defineModel({ id: `A12UseResetAuthor`, name: `UseResetAuthor`, fields: { name: f.str() } })
+    const post = defineModel({ id: `A12UseResetPost`, name: `UseResetPost`, fields: { feedId: f.str(), authorId: f.str(), title: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) }, relations: () => ({ author: belongsTo(author, { foreignKey: `authorId` }) }) })
+    const view = post.view(`reset`, { source: `feed`, include: { author: `author` }, select: (row, included) => ({ id: row.id, title: row.title, author: included.author }), renderKeys: [`title`, `author`] })
+    author.insertStored({ id: `author`, name: `stale` })
+    post.insertStored({ id: `post`, feedId: `feed`, authorId: `author`, title: `stale` })
+    const reader = renderCounted(() => view.use(scopeValue))
+    const before = reader.renders()
+
+    act(() => { resetRuntime() })
+    act(() => {
+      author.insertStored({ id: `author`, name: `fresh` })
+      post.insertStored({ id: `post`, feedId: `feed`, authorId: `author`, title: `fresh` })
+    })
+
+    expect(reader.renders()).toBeGreaterThan(before)
+    expect(reader.result()).toEqual([{ id: `post`, title: `fresh`, author: { id: `author`, name: `fresh` } }])
+    reader.unmount()
+  })
+
+  it(`stops view reader renders after unmount`, () => {
+    setupAcceptanceRuntime()
+    const post = defineModel({ id: `A12UseUnmountPost`, name: `UseUnmountPost`, fields: { feedId: f.str(), title: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) } })
+    const view = post.view(`unmount`, { source: `feed`, include: {}, select: row => ({ id: row.id, title: row.title }), renderKeys: [`title`] })
+    post.insertStored({ id: `post`, feedId: `feed`, title: `before` })
+    const reader = renderCounted(() => view.use(scopeValue))
+    reader.unmount()
+    const frozen = reader.renders()
+
+    act(() => { post.patch(`post`, { title: `after` }) })
+
+    expect(reader.renders()).toBe(frozen)
+  })
+
+  it(`renders windowed views only for visible source changes`, () => {
+    setupAcceptanceRuntime()
+    const post = defineModel({ id: `A12WindowVisibilityPost`, name: `WindowVisibilityPost`, fields: { feedId: f.str(), title: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) } })
+    const unrelated = defineModel({ id: `A12WindowVisibilityOther`, name: `WindowVisibilityOther`, fields: { title: f.str() } })
+    post.insertStoredMany([{ id: `visible`, feedId: `feed`, title: `visible` }, { id: `outside`, feedId: `feed`, title: `outside` }])
+    const view = post.view(`window-visibility`, { source: `feed`, include: {}, select: row => ({ id: row.id, title: row.title }), renderKeys: [`title`] })
+    const reader = renderCounted(() => view.useWindow(scopeValue, { pageSize: 1 }))
+    const beforeVisible = reader.renders()
+    act(() => { post.patch(`visible`, { title: `updated` }) })
+    expect(reader.renders() - beforeVisible).toBe(1)
+    const beforeOutside = reader.renders()
+    act(() => { post.patch(`outside`, { title: `ignored` }) })
+    expect(reader.renders() - beforeOutside).toBe(0)
+    const beforeUnrelated = reader.renders()
+    act(() => { unrelated.insertStored({ id: `other`, title: `ignored` }) })
+    expect(reader.renders() - beforeUnrelated).toBe(0)
+    reader.unmount()
+  })
+
+  it(`rehydrates mounted windowed views with fresh rows only after reset`, () => {
+    setupAcceptanceRuntime()
+    const post = defineModel({ id: `A12WindowResetPost`, name: `WindowResetPost`, fields: { feedId: f.str(), title: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) } })
+    const view = post.view(`window-reset`, { source: `feed`, include: {}, select: row => ({ id: row.id, title: row.title }), renderKeys: [`title`] })
+    post.insertStored({ id: `stale`, feedId: `feed`, title: `stale` })
+    const reader = renderCounted(() => view.useWindow(scopeValue, { pageSize: 2 }))
+
+    act(() => { resetRuntime() })
+    act(() => { post.insertStored({ id: `fresh`, feedId: `feed`, title: `fresh` }) })
+
+    expect(reader.result().rows).toEqual([{ id: `fresh`, title: `fresh` }])
+    reader.unmount()
+  })
+
+  it(`releases windowed view subscriptions after unmount`, () => {
+    setupAcceptanceRuntime()
+    const post = defineModel({ id: `A12WindowUnmountPost`, name: `WindowUnmountPost`, fields: { feedId: f.str(), title: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) } })
+    const view = post.view(`window-unmount`, { source: `feed`, include: {}, select: row => ({ id: row.id, title: row.title }), renderKeys: [`title`] })
+    post.insertStored({ id: `post`, feedId: `feed`, title: `before` })
+    const reader = renderCounted(() => view.useWindow(scopeValue, { pageSize: 1 }))
+    reader.unmount()
+    const frozen = reader.renders()
+
+    act(() => { post.patch(`post`, { title: `after` }) })
+
+    expect(reader.renders()).toBe(frozen)
+  })
 })

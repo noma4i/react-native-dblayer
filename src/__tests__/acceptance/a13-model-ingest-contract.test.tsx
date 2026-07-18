@@ -1,6 +1,6 @@
 import { act } from 'react-test-renderer'
 import { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineModel, f, resetRuntime } from '../../index'
-import { createAcceptanceTransport, setupAcceptanceRuntime } from './harness'
+import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness'
 
 const document = { kind: `Document`, definitions: [] } as never
 
@@ -82,5 +82,65 @@ describe(`A13 model ingest contract`, () => {
     staleEntry.onData({ id: `four`, title: `four` })
     expect(stale).toHaveBeenCalledTimes(1)
     expect(errors.filter(event => event === `stale`)).toHaveLength(2)
+  })
+
+  it(`keeps mounted reader identities stable for duplicate fused payloads`, () => {
+    setupAcceptanceRuntime()
+    const rows = defineModel({ id: `A13DuplicateRows`, name: `DuplicateRows`, fields: { title: f.str() } })
+    const runtime = createDbSubscriptionRuntime(rows.ingest({ created: { document } }))
+    const reader = renderCounted(() => rows.use.where({}).rows())
+    act(() => { runtime.dispatch(`created`, { id: `row`, title: `created` }) })
+    const initial = reader.result()
+    const initialRow = initial[0]
+    const beforeDuplicate = reader.renders()
+
+    act(() => { runtime.dispatch(`created`, { id: `row`, title: `created` }) })
+
+    expect(reader.renders() - beforeDuplicate).toBe(0)
+    expect(reader.result()).toBe(initial)
+    expect(reader.result()[0]).toBe(initialRow)
+    runtime.stop()
+    reader.unmount()
+  })
+
+  it(`renders only the affected mounted reader for a fused entry`, () => {
+    setupAcceptanceRuntime()
+    const rows = defineModel({ id: `A13AffectedRows`, name: `AffectedRows`, fields: { title: f.str() } })
+    const other = defineModel({ id: `A13AffectedOther`, name: `AffectedOther`, fields: { title: f.str() } })
+    const runtime = createDbSubscriptionRuntime(rows.ingest({ created: { document } }))
+    const rowsReader = renderCounted(() => rows.use.where({}).rows())
+    const otherReader = renderCounted(() => other.use.where({}).rows())
+    const beforeRows = rowsReader.renders()
+    const beforeOther = otherReader.renders()
+
+    act(() => { runtime.dispatch(`created`, { id: `row`, title: `created` }) })
+
+    expect(rowsReader.renders() - beforeRows).toBe(1)
+    expect(otherReader.renders() - beforeOther).toBe(0)
+    runtime.stop()
+    otherReader.unmount()
+    rowsReader.unmount()
+  })
+
+  it(`does not apply a stale fused payload after runtime stop`, () => {
+    const subscribers: Array<{ next(data: unknown): void }> = []
+    const transport = createAcceptanceTransport({ subscribe: (_options, handlers) => { subscribers.push(handlers); return () => {} } })
+    setupAcceptanceRuntime({ transport })
+    const rows = defineModel({ id: `A13StoppedRows`, name: `StoppedRows`, fields: { title: f.str() } })
+    const runtime = createDbSubscriptionRuntime(rows.ingest({ created: { document } }))
+    const reader = renderCounted(() => rows.use.where({}).rows())
+    runtime.setActive(true)
+    const staleSubscriber = subscribers[0]!
+    act(() => { staleSubscriber.next({ created: { id: `initial`, title: `initial` } }) })
+    const beforeStop = reader.result()
+    const frozen = reader.renders()
+    runtime.stop()
+
+    act(() => { staleSubscriber.next({ created: { id: `late`, title: `late` } }) })
+
+    expect(reader.renders()).toBe(frozen)
+    expect(reader.result()).toBe(beforeStop)
+    expect(reader.result()).toEqual([{ id: `initial`, title: `initial` }])
+    reader.unmount()
   })
 })
