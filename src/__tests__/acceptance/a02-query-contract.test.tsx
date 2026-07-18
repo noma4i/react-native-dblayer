@@ -281,7 +281,7 @@ describe(`A02 query contract`, () => {
     expect(window.result()).toMatchObject({ totalCount: 3, hasMore: true })
     expect(window.result().rows.map((row) => row.id)).toEqual([`one`, `two`])
     act(() => {
-      window.result().loadMore()
+      window.result().fetchNextPage()
     })
     expect(window.result()).toMatchObject({ totalCount: 3, hasMore: false })
     expect(window.result().rows.map((row) => row.id)).toEqual([`one`, `two`, `three`])

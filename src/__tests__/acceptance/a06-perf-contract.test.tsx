@@ -162,7 +162,7 @@ describe(`A06 performance contract`, () => {
     const reader = renderCounted(() => model.scopes.thread.useWindow({ chatId: `chat` }, { pageSize: 50 }));
     const before = reader.renders();
     act(() => {
-      reader.result().loadMore();
+      reader.result().fetchNextPage();
     });
     expect(reader.renders()).toBeLessThanOrEqual(before + 2);
     const after = reader.renders();
@@ -170,7 +170,7 @@ describe(`A06 performance contract`, () => {
       model.patch(`chat-4000`, { title: `outside` });
     });
     expect(reader.renders()).toBe(after);
-    console.log(`A06-RESULT 6: loadMore=${after - before},outside=0`);
+    console.log(`A06-RESULT 6: fetchNextPage=${after - before},outside=0`);
     reader.unmount();
   });
 });

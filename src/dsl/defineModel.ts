@@ -31,12 +31,12 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   /**
    * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
    * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
-   * returned `loadMore`. This is LOCAL window growth over rows already synced into the model - a
+   * returned `fetchNextPage`. This is LOCAL window growth over rows already synced into the model - a
    * different concept from `QueryResult.fetchNextPage` (`defineQuery`'s network pagination, which fetches
-   * another page from the server). A list typically wires both: `QueryResult.hasNextPage` /
-   * `fetchNextPage()` to fetch more rows from the network, and `useWindow(...).hasMore` / `loadMore()` to
-   * reveal more of what is already local. The window resets to `pageSize` whenever `scopeValue`'s key
-   * changes.
+   * another page from the server), even though both surfaces share the `fetchNextPage` name. A list
+   * typically wires both: `QueryResult.hasNextPage` / `QueryResult.fetchNextPage()` to fetch more rows
+   * from the network, and `useWindow(...).hasMore` / `useWindow(...).fetchNextPage()` to reveal more of
+   * what is already local. The window resets to `pageSize` whenever `scopeValue`'s key changes.
    */
   useWindow(
     scopeValue: TScope | null | undefined,
@@ -49,7 +49,7 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
     /** `true` while `totalCount` exceeds the current window size. */
     hasMore: boolean;
     /** Grow the local window by `pageSize` more rows. Does not touch the network. */
-    loadMore: () => void;
+    fetchNextPage: () => void;
   };
   /** Reactive count of rows currently in the scope. */
   useCount(scopeValue: TScope | null | undefined): number;
@@ -496,7 +496,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           rows: windowRef.current.window,
           totalCount: rows.length,
           hasMore: rows.length > windowSize,
-          loadMore: () => setWindowState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
+          fetchNextPage: () => setWindowState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
         };
       },
       useCount: (scopeValue: unknown) =>

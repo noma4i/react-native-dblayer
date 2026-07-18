@@ -28,8 +28,9 @@ export type QueryResult<T> = {
   /**
    * Fetch and apply the next page over the network (TanStack Query `fetchNextPage`). A no-op for single
    * (non-`page`) queries. This is server-side pagination - a DIFFERENT concept from a scope's
-   * `ScopeHandle.useWindow(...).loadMore`, which grows how many already-synced local rows are rendered
-   * without touching the network. A paginated list typically wires both.
+   * `ScopeHandle.useWindow(...).fetchNextPage`, which grows how many already-synced local rows are
+   * rendered without touching the network. Both surfaces share the `fetchNextPage` name (network pages
+   * vs local window); a paginated list typically wires both.
    */
   fetchNextPage: () => void;
   /** Re-run the query from the first page, replacing `data`. */

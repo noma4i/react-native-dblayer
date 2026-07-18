@@ -71,7 +71,7 @@ chatThreadQuery.invalidate({ chatId });       // clear the React Query cache for
 | `error` | `Error \| null` | The last fetch/next-page error, or `null`. Cleared on the next successful fetch. |
 | `hasNextPage` | `boolean` | `true` when another page is available. Always `false` for single (non-`page`) queries. |
 | `isFetchingNextPage` | `boolean` | `true` while a next-page fetch is in flight. Always `false` for single (non-`page`) queries. |
-| `fetchNextPage` | `() => void` | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).loadMore` (local window growth over already-synced rows; see [models.md](./models.md#scopehandle)). A paginated list typically wires both. |
+| `fetchNextPage` | `() => void` | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).fetchNextPage` (local window growth over already-synced rows; see [models.md](./models.md#scopehandle)), even though both surfaces share the `fetchNextPage` name. A paginated list typically wires both. |
 | `refetch` | `() => Promise<void>` | Re-run the query from the first page, replacing `data`. |
 
 ### Coverage semantics

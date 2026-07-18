@@ -156,9 +156,9 @@ describe('v6 invariant 11: pinpoint reactivity', () => {
     expect(read.value().rows).toHaveLength(2);
     expect(read.value().totalCount).toBe(5);
     expect(read.value().hasMore).toBe(true);
-    act(() => read.value().loadMore());
+    act(() => read.value().fetchNextPage());
     expect(read.value().rows).toHaveLength(4);
-    act(() => read.value().loadMore());
+    act(() => read.value().fetchNextPage());
     expect(read.value().rows).toHaveLength(5);
     expect(read.value().hasMore).toBe(false);
   });
@@ -177,7 +177,7 @@ describe('v6 invariant 11: pinpoint reactivity', () => {
     };
     let renderer!: TestRenderer.ReactTestRenderer;
     act(() => { renderer = TestRenderer.create(<Reader scopeValue={{ group: 'a' }} />); });
-    act(() => result.loadMore());
+    act(() => result.fetchNextPage());
     expect(result.rows).toHaveLength(3);
     act(() => { renderer.update(<Reader scopeValue={{ group: 'b' }} />); });
     expect(result.rows).toHaveLength(2);
