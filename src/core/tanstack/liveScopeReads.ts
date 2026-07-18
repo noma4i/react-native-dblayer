@@ -1,6 +1,7 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ApplyTarget } from '../apply/transaction';
 import { getCommitBus } from '../../dsl/configure';
+import { arraysShallowEqual, rowsShallowEqual } from '../../read/useLiveRead';
 import {
   createLiveQueryCollection,
   ensureMembershipCollection,
@@ -36,14 +37,6 @@ export function getScopeLiveReadRegistryStats(): { entryCount: number; refCount:
   };
 }
 
-const rowsEqual = (left: StoredRowShape, right: StoredRowShape): boolean => {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  return [...keys].every(key => left[key] === right[key]);
-};
-
-const arraysEqual = (left: ReadonlyArray<StoredRowShape>, right: ReadonlyArray<StoredRowShape>): boolean =>
-  left.length === right.length && left.every((row, index) => row === right[index]);
-
 const plainRow = (row: StoredRowShape): StoredRowShape =>
   Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith(`$`))) as StoredRowShape;
 
@@ -54,12 +47,12 @@ const updateSnapshot = (entry: ScopeLiveEntry): void => {
     if (cached) return cached;
     const row = plainRow(source);
     const current = entry.rowCache.get(row.id);
-    const resolved = current && rowsEqual(current, row) ? current : row;
+    const resolved = current && rowsShallowEqual(current, row) ? current : row;
     entry.rowCache.set(row.id, resolved);
     entry.sourceCache.set(source, resolved);
     return resolved;
   });
-  if (arraysEqual(entry.snapshot, next)) {
+  if (arraysShallowEqual(entry.snapshot, next)) {
     return;
   }
   entry.snapshot = next;
@@ -190,7 +183,7 @@ export function useScopeLiveWindowRows(
     if (windowRef.current.source === source && windowRef.current.size === windowSize) return windowRef.current.snapshot;
     const rows = source.slice(0, windowSize);
     const previous = windowRef.current.snapshot;
-    if (previous.totalCount === source.length && arraysEqual(previous.rows, rows)) {
+    if (previous.totalCount === source.length && arraysShallowEqual(previous.rows, rows)) {
       windowRef.current = { source, size: windowSize, snapshot: previous };
       return previous;
     }

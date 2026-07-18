@@ -1,5 +1,5 @@
 import { getDbLogger } from '../core/logger';
-import { getRuntimeGeneration } from '../dsl/configure';
+import { createGenerationFence } from './runtimePrimitives';
 
 type PollerSession = {
   refs: number;
@@ -52,12 +52,11 @@ export type ModelStatusPoller = {
 export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig<TResult>): ModelStatusPoller => {
   const sessions = new Map<string, PollerSession>();
   const terminalSubscribers = new Map<string, Set<() => void>>();
-  let generation: number | null = null;
-
-  const isCurrentGeneration = (): boolean => generation == null || generation === getRuntimeGeneration();
+  const generationFence = createGenerationFence({ lazy: true });
+  const isCurrentGeneration = (): boolean => generationFence.isCurrent();
   const beginGeneration = (): boolean => {
     if (!isCurrentGeneration()) return false;
-    generation ??= getRuntimeGeneration();
+    generationFence.captureNow();
     return true;
   };
 

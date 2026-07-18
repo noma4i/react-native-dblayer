@@ -2,7 +2,7 @@
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 /** Narrow a value to a non-null, non-array record. */
-export const isNonArrayRecord = (value: unknown): value is Record<string, unknown> => isRecord(value) && !Array.isArray(value);
+export const isNonArrayRecord = (value: unknown): value is Record<string, unknown> => isPlainObject(value);
 
 /**
  * Convert a value to string via `String(v)` while preserving explicit `null`/`undefined` as-is (they are
@@ -40,3 +40,4 @@ export const readId = (value: unknown): string | undefined => {
   const id = String(value);
   return id === '' ? undefined : id;
 };
+import { isPlainObject } from 'es-toolkit';

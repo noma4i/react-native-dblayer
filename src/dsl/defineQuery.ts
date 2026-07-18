@@ -5,7 +5,9 @@ import { computeLoadingState, computePhase } from '../queries/base/loadingState'
 import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
-import { getApplyRuntime, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
+import { createGenerationFence } from '../utils/runtimePrimitives';
+import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
+import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import { getDbLogger } from '../core/logger';
 import type { ScopeHandle } from './defineModel';
 import type { Coverage } from './scope';
@@ -107,7 +109,7 @@ const operationKey = (document: DbGraphQLDocument<any, any>, override?: string):
 
 const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown }> => {
   if (Array.isArray(value)) return value.map(node => ({ node, edgeSource: node }));
-  if (!value || typeof value !== 'object') return value == null ? [] : [{ node: value, edgeSource: value }];
+  if (!isRecord(value)) return value == null ? [] : [{ node: value, edgeSource: value }];
   const connection = value as ConnectionLike;
   if (connection.nodes) return connection.nodes.map(node => ({ node, edgeSource: node }));
   if (connection.edges) return connection.edges.flatMap(edge => (edge.node == null ? [] : [{ node: edge.node, edgeSource: edge }]));
@@ -137,8 +139,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     registeredScopes.set(buildScopeKey(scope), scope);
   };
   const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
-    if (partial == null || typeof partial !== 'object' || Array.isArray(partial)) return Object.is(scope, partial);
-    if (scope == null || typeof scope !== 'object' || Array.isArray(scope)) return false;
+    if (!isNonArrayRecord(partial)) return Object.is(scope, partial);
+    if (!isNonArrayRecord(scope)) return false;
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
   };
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
@@ -175,7 +177,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   const runFetch = async (scope: TScope, cursor: string | null): Promise<PageMeta> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {}) };
-    const generation = getRuntimeGeneration();
+    const generationFence = createGenerationFence();
     let data: TResponse;
     try {
       data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
@@ -184,7 +186,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       try { getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'query', model: destinationModelId, key: keyName }); } catch (observerError) { getDbLogger().error('defineQuery onSyncError failed', { error: observerError }); }
       throw error;
     }
-    if (generation !== getRuntimeGeneration()) return { endCursor: null, hasNextPage: false, count: 0 };
+    if (!generationFence.isCurrent()) return { endCursor: null, hasNextPage: false, count: 0 };
     return applyResponse(scope, data, cursor == null);
   };
 
@@ -211,7 +213,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
 
   const isEmptyMeta = (data: unknown): boolean => {
     if (data == null) return true;
-    if (typeof data === 'object' && 'pages' in (data as Record<string, unknown>)) {
+    if (isRecord(data) && 'pages' in data) {
       return ((data as { pages: PageMeta[] }).pages ?? []).every(page => page.count === 0);
     }
     return (data as PageMeta).count === 0;

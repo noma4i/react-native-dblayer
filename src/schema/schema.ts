@@ -1,4 +1,4 @@
-import { toStr } from '../utils/normalizeHelpers';
+import { isRecord, toStr } from '../utils/normalizeHelpers';
 import { readObjectField } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
 import type { InferStoredFields } from './infer';
@@ -17,7 +17,7 @@ const normalizeId = (value: unknown): string | null => {
 };
 
 /** A row source must be a non-null object; guard/rowId/field readers assume object shape. */
-const isNormalizableInput = (input: unknown): boolean => typeof input === 'object' && input !== null;
+const isNormalizableInput = (input: unknown): boolean => isRecord(input);
 
 export const createSchema = <TInput, TFields extends SchemaFields<TInput>>(config: {
   fields: TFields;

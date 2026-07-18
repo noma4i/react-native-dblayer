@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { arraysShallowEqual } from './useLiveRead';
+import { isRecord } from '../utils/normalizeHelpers';
 
 type Engine<T> = {
   signature: string;
@@ -25,7 +26,7 @@ const semanticValue = (value: unknown): string => {
     return `function:${token}`;
   }
   if (Array.isArray(value)) return `[${value.map(semanticValue).join(',')}]`;
-  if (typeof value === 'object') {
+  if (isRecord(value)) {
     const object = value as object;
     const record = value as Record<string, unknown>;
     if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
@@ -104,11 +105,14 @@ type RowEngineOptions<T extends Row, TValue> = {
 const compareField = <T extends Row>(left: T, right: T, field: string, direction: 'asc' | 'desc', ordinals: Map<string, number>): number => {
   const a = left[field];
   const b = right[field];
-  if (a !== b) {
-    const result = a == null ? -1 : b == null ? 1 : a < b ? -1 : 1;
-    return direction === 'asc' ? result : -result;
-  }
-  return (ordinals.get(left.id) ?? 0) - (ordinals.get(right.id) ?? 0);
+  const aMissing = a == null;
+  const bMissing = b == null;
+  if (aMissing && bMissing) return (ordinals.get(left.id) ?? 0) - (ordinals.get(right.id) ?? 0);
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  if (Object.is(a, b)) return (ordinals.get(left.id) ?? 0) - (ordinals.get(right.id) ?? 0);
+  const result = a < b ? -1 : 1;
+  return direction === 'asc' ? result : -result;
 };
 
 /** Sort model read results by declared keys with NULLS LAST and an implicit id tie-breaker. */

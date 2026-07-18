@@ -1,6 +1,7 @@
 import { isEqual, omit, pick } from 'es-toolkit';
 import { useMemo, useRef } from 'react';
 import type { StableItemsConfig, StableEntityConfig, StableProjectionConfig } from '../../types';
+import { arraysShallowEqual } from '../../read/useLiveRead';
 
 const EMPTY: readonly unknown[] = Object.freeze([]);
 
@@ -40,8 +41,6 @@ export const buildStableItems = <TSource, TEntry extends { item: TItem }, TItem>
 
   return { items, cache };
 };
-
-const sameItems = <T>(left: readonly T[], right: readonly T[]): boolean => left.length === right.length && left.every((item, index) => item === right[index]);
 
 /**
  * Shared value-equality: reuse a prior view object when its rendered fields are unchanged. `useLiveQuery`
@@ -111,7 +110,7 @@ export function useStableProjection<TSource, TEntry extends { item: TItem }, TIt
 
     const nextItems = built.items.length > 0 ? built.items : stableConfig.emptyItems;
     const previousItems = itemsRef.current;
-    if (previousItems && sameItems(previousItems, nextItems)) {
+    if (previousItems && arraysShallowEqual(previousItems, nextItems)) {
       return previousItems;
     }
 
@@ -171,7 +170,7 @@ export const useStableSorted = <T>(source: T[], compare: (left: T, right: T) => 
 
   return useMemo(() => {
     const previous = sortRef.current;
-    if (previous && Object.is(previous.invalidationKey, invalidationKey) && sameItems(previous.source, source)) {
+    if (previous && Object.is(previous.invalidationKey, invalidationKey) && arraysShallowEqual(previous.source, source)) {
       return previous.output;
     }
 
@@ -180,4 +179,3 @@ export const useStableSorted = <T>(source: T[], compare: (left: T, right: T) => 
     return output;
   }, [source, compare, invalidationKey]);
 };
-

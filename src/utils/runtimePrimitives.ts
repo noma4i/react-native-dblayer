@@ -1,10 +1,26 @@
 import { isTempId } from './generateTempId';
 import type { AnyDbShape, InferShapeStored } from '../schema/infer';
 import { readShapeOrThrow } from '../schema/shape';
+import { getRuntimeGeneration } from '../dsl/configure';
+import { isRecord } from './normalizeHelpers';
 
 type RowId = { id: string };
 type CreatedAtLike = string | number | Date | null | undefined;
 type CreatedAtRow = RowId & { createdAt?: CreatedAtLike };
+
+/**
+ * Capture the current runtime generation and expose a reset fence for async work.
+ *
+ * @param options Set `lazy` when a lifecycle owner captures only when it starts.
+ * @returns A current-generation predicate and an explicit capture operation.
+ */
+export const createGenerationFence = (options?: { lazy?: boolean }): { isCurrent(): boolean; captureNow(): void } => {
+  let generation: number | null = options?.lazy ? null : getRuntimeGeneration();
+  return {
+    isCurrent: () => generation == null || generation === getRuntimeGeneration(),
+    captureNow: () => { generation = getRuntimeGeneration(); }
+  };
+};
 
 type SnapshotModel<TStored extends RowId> = {
   get(id: string | undefined | null): TStored | undefined;
@@ -265,7 +281,7 @@ export type ThrottledSingleFlightOptions<TArgs extends unknown[]> = {
 };
 
 const defaultIsForced = (arg: unknown): boolean =>
-  typeof arg === 'object' && arg !== null && (arg as { force?: unknown }).force === true;
+  isRecord(arg) && arg.force === true;
 
 /**
  * Coalesce concurrent calls and suppress calls inside the post-success interval.
@@ -387,7 +403,7 @@ export const createNestedObjectPatcher = <
   return (id, ...args) => {
     const row = model.get(id);
     const current = row?.[field];
-    if (typeof current !== 'object' || current === null) return false;
+    if (!isRecord(current)) return false;
 
     model.patch(id, {
       [field]: {

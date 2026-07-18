@@ -4,7 +4,8 @@ import { computeLoadingState, computePhase } from '../queries/base/loadingState'
 import { buildScopeKey } from '../core/compileDbWhere';
 import { getDbTransport } from '../core/transport';
 import { getDbLogger } from '../core/logger';
-import { getDbRuntimeConfig, getRuntimeGeneration } from './configure';
+import { createGenerationFence } from '../utils/runtimePrimitives';
+import { getDbRuntimeConfig } from './configure';
 
 type FetchConfig<TData, TInput, TSelected> = {
   /** The GraphQL query document. `TData` flows from a `TypedDocumentNode`. */
@@ -52,7 +53,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
 
   const fetch = async (input: TInput): Promise<TSelected> => {
     const variables = config.vars?.(input) ?? {};
-    const generation = getRuntimeGeneration();
+    const generationFence = createGenerationFence();
     let data: TData;
     try {
       data = (await getDbTransport().query({ query: config.document, variables })).data as TData;
@@ -65,7 +66,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       }
       throw error;
     }
-    if (generation !== getRuntimeGeneration()) {
+    if (!generationFence.isCurrent()) {
       throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
     }
     return config.select(data);

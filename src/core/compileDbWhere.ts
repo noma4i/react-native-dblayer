@@ -6,7 +6,7 @@ type QueryRow = Record<string, unknown>;
 type DbWhereOperator<T> = { and: Array<DbWhere<T>> } | { or: Array<DbWhere<T>> } | { not: DbWhere<T> };
 
 const isOperatorNode = <TStored>(where: DbWhere<TStored>): where is DbWhereOperator<TStored> => {
-  if (!where || typeof where !== 'object' || Array.isArray(where)) return false;
+  if (!isNonArrayRecord(where)) return false;
   return 'and' in where || 'or' in where || 'not' in where;
 };
 

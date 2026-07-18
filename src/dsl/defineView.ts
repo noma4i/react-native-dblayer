@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
 import type { RelationDecl } from '../core/relations';
 import { arraysShallowEqual, useLiveRead } from '../read/useLiveRead';
+import { isRecord } from '../utils/normalizeHelpers';
 import { getDbRuntimeConfig } from './configure';
 import type { ModelCore, ScopeHandle } from './defineModel';
 
@@ -33,9 +34,9 @@ type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
 
 const valuesEqual = (left: unknown, right: unknown): boolean => {
   if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length && left.every((value, index) => valuesEqual(value, right[index]));
-  if (left && right && typeof left === 'object' && typeof right === 'object') {
-    const keys = Object.keys(left as Record<string, unknown>);
-    return keys.length === Object.keys(right as Record<string, unknown>).length && keys.every(key => Object.is((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]));
+  if (isRecord(left) && isRecord(right)) {
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length && keys.every(key => Object.is(left[key], right[key]));
   }
   return Object.is(left, right);
 };

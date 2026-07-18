@@ -96,15 +96,15 @@ type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
 
 /** Read `input[key]` when input is an object, otherwise return undefined. */
 export const readObjectField = <TInput>(input: TInput, key: string): unknown => {
-  if (typeof input !== 'object' || input === null) return undefined;
-  return (input as Record<string, unknown>)[key];
+  if (!isRecord(input)) return undefined;
+  return input[key];
 };
 
 /** Read an own key from a source object, otherwise return undefined. */
 export const readSourceKey = (source: unknown, key: string): unknown => {
-  if (typeof source !== 'object' || source === null) return undefined;
+  if (!isRecord(source)) return undefined;
   if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
-  return (source as Record<string, unknown>)[key];
+  return source[key];
 };
 
 const nullableMode = <TMode extends FieldMode>(mode: TMode): NullableMode<TMode> => (mode === 'optional' || mode === 'optionalNullable' ? 'optionalNullable' : 'nullable') as NullableMode<TMode>;
@@ -190,3 +190,4 @@ export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefau
 
   return spec;
 };
+import { isRecord } from '../utils/normalizeHelpers';

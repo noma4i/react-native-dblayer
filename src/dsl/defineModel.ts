@@ -25,6 +25,7 @@ import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
+import { isRecord } from '../utils/normalizeHelpers';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
@@ -220,7 +221,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const normalize = (input: unknown, complete = false): any => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
-    const id = config.rowId?.(input) ?? (typeof input === 'object' && input !== null ? (input as Record<string, unknown>).id : undefined);
+    const id = config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined);
     if (typeof id !== 'string' || id.length === 0) throw new Error(`${config.name} requires id`);
     const output: Record<string, unknown> = { id };
     for (const [key, field] of Object.entries(config.fields)) {

@@ -14,6 +14,12 @@ type LiveReadState<T> = {
 export const arraysShallowEqual = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
   a === b || (a.length === b.length && a.every((item, index) => Object.is(item, b[index])));
 
+/** Shallow row equality across the union of both row key sets. */
+export const rowsShallowEqual = (left: Record<string, unknown>, right: Record<string, unknown>): boolean => {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every(key => left[key] === right[key]);
+};
+
 /**
  * Reactive read primitive with pinpoint emissions: the hook subscribes to the commit bus with an
  * explicit dependency set, recomputes only when a commit batch intersects it, and re-renders only

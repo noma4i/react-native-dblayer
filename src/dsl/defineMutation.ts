@@ -4,7 +4,9 @@ import type { JournalOp } from '../core/apply/journal';
 import { expandPlan, hasDependentCascade } from '../core/relations';
 import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
-import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
+import { createGenerationFence } from '../utils/runtimePrimitives';
+import { isRecord } from '../utils/normalizeHelpers';
+import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
 
 type MutationModel = {
@@ -171,12 +173,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     }
     const context: OptimisticCtx = { tempId, operationId };
     config.onMutate?.(input, context);
-    const generation = getRuntimeGeneration();
+    const generationFence = createGenerationFence();
 
     let data: TData;
     try {
       data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } })).data as TData;
-      if (generation !== getRuntimeGeneration()) return null;
+      if (!generationFence.isCurrent()) return null;
       const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
       if (payload == null) throw new Error(`${config.result} returned no data`);
 
@@ -206,11 +208,11 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
 
       if (tracked) operations.close(operationId, 'committed');
     } catch (error) {
-      if (generation !== getRuntimeGeneration()) return null;
+      if (!generationFence.isCurrent()) return null;
       if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
         getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
       }
-      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && previous && typeof previous === 'object') {
+      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
         const previousRecord = previous as Record<string, unknown>;
         const restore: Record<string, unknown> = { ...previousRecord };
         for (const key of Object.keys(optimistic.selectPatch(input) as Record<string, unknown>)) {
@@ -218,7 +220,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         }
         optimistic.model.patch(optimistic.selectId(input), restore);
       }
-      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && previous && typeof previous === 'object') {
+      if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         getApplyRuntime().apply(expandPlan(optimistic.model.__planRestore?.(previous, previousMemberships) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }]));
       }
       if (tracked) operations.close(operationId, 'rolledback');
