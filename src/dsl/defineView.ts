@@ -31,6 +31,7 @@ export type ViewHandle<TItem, TScope> = {
 type CacheEntry<TItem> = { row: Row; included: Included; item: TItem };
 type RelationIndex = { revision: number; rowsByForeignKey: Map<string, Row[]> };
 type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
+type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number };
 
 const valuesEqual = (left: unknown, right: unknown): boolean => {
   if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length && left.every((value, index) => valuesEqual(value, right[index]));
@@ -101,14 +102,14 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
     return index.rowsByForeignKey.get(id) ?? [];
   };
 
-  const use = (scopeValue: TScope | null | undefined): TItem[] => {
+  const useItems = (scopeValue: TScope | null | undefined, limit: number | null): ItemSnapshot<TItem> => {
     const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
-    const evaluate = (): { items: TItem[]; deps: Dependency[] } => {
+    const evaluate = (): { items: TItem[]; totalCount: number; deps: Dependency[] } => {
       const rows = scopeValue == null ? [] : source.read(scopeValue);
+      const visibleRows = limit === null ? rows : rows.slice(0, limit);
       const deps: Dependency[] = scopeValue == null ? [] : [{ kind: 'scope', model: source.modelId, scopeKey: source.__key!(scopeValue) }];
-      const liveIds = new Set<string>();
-      const items = rows.map((row, index) => {
-        liveIds.add(row.id);
+      const liveIds = new Set(rows.map(row => row.id));
+      const items = visibleRows.map((row, index) => {
         deps.push({ kind: 'row', model: model.modelId, id: row.id });
         const included: Included = {};
         for (const [alias, include] of Object.entries(config.include)) {
@@ -141,14 +142,21 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
         return item;
       });
       for (const id of cacheRef.current.keys()) if (!liveIds.has(id)) cacheRef.current.delete(id);
-      return { items, deps };
+      return { items, totalCount: rows.length, deps };
     };
     const initial = evaluate();
-    return useLiveRead(() => evaluate().items, initial.deps, arraysShallowEqual);
+    return useLiveRead(
+      () => {
+        const next = evaluate();
+        return { items: next.items, totalCount: next.totalCount };
+      },
+      initial.deps,
+      (left, right) => left.totalCount === right.totalCount && arraysShallowEqual(left.items, right.items)
+    );
   };
 
   return {
-    use,
+    use: scopeValue => useItems(scopeValue, null).items,
     useWindow: (scopeValue, options) => {
       const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
       const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
@@ -156,14 +164,15 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
       const size = state.scopeKey === scopeKey ? state.size : pageSize;
       if (state.scopeKey !== scopeKey) setState({ scopeKey, size: pageSize });
       const windowRef = useRef<WindowCache<TItem> | null>(null);
-      const items = use(scopeValue);
+      const snapshot = useItems(scopeValue, size);
+      const items = snapshot.items;
       const cached = windowRef.current;
       const rows = cached && cached.items === items && cached.size === size ? cached.rows : items.slice(0, size);
       windowRef.current = { items, size, rows };
       return {
         rows,
-        totalCount: items.length,
-        hasMore: items.length > size,
+        totalCount: snapshot.totalCount,
+        hasMore: snapshot.totalCount > size,
         fetchNextPage: () => setState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
       };
     }

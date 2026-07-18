@@ -275,6 +275,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   };
 
   const handleTransportNext = (state: EntryState, data: unknown): void => {
+    if (!active) return;
     if (!isNonArrayRecord(data)) {
       getDbLogger().debug(LOG_PREFIX, 'response skipped', { key: state.entry.key });
       return;
