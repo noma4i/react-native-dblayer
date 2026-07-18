@@ -1,6 +1,5 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
 import { f } from '../../schema/f';
@@ -39,7 +38,7 @@ describe('defineModel contracts', () => {
     expect(Model.get('row')).toBeUndefined();
     expect(Model.scopes.all.read({})).toEqual([]);
 
-    defineIngest(Model, { updated: payload => ({ upsert: payload }) }).apply('updated', { id: 'row', title: 'event' });
+    Model.ingest({ updated: { handler: payload => ({ upsert: payload }) } }).apply('updated', { id: 'row', title: 'event' });
     expect(Model.get('row')).toEqual({ id: 'row', title: 'event' });
 
     Model.replaceRaw('row', { id: 'row', title: 'replacement' });

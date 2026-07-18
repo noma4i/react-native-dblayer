@@ -3,9 +3,7 @@ import { QueryClient as QueryClientImpl, QueryClientProvider } from '@tanstack/r
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { buildScopeKey } from '../../core/compileDbWhere';
-import { defineIngest } from '../../dsl/defineIngest';
 import { defineModel } from '../../dsl/defineModel';
-import { defineQuery } from '../../dsl/defineQuery';
 import { getApplyRuntime } from '../../dsl/configure';
 import { resetRuntime } from '../../core/reset';
 import { scope } from '../../dsl/scope';
@@ -30,8 +28,8 @@ describe('defineQuery contracts', () => {
     const invalidateQueries = jest.fn(async () => undefined);
     createContractScenario({ queryClient: { invalidateQueries } as unknown as QueryClient });
     const Model = defineModel({ id: 'QueryInvalidateContract', name: 'QueryInvalidateContract', fields: { title: f.str() } });
-    defineQuery({ document, key: 'modelQuery', select: data => data, into: Model });
-    const ingest = defineIngest(Model, { evt: payload => ({ upsert: payload, invalidate: true }) });
+    Model.query('model', { document, key: 'modelQuery', select: data => data });
+    const ingest = Model.ingest({ evt: { handler: payload => ({ upsert: payload, invalidate: true }) } });
 
     ingest.apply('evt', { id: 'row', title: 'updated' });
 
@@ -42,7 +40,7 @@ describe('defineQuery contracts', () => {
     const invalidateQueries = jest.fn(async () => undefined);
     createContractScenario({ queryClient: { invalidateQueries } as unknown as QueryClient });
     const Model = defineModel({ id: 'ScopeInvalidateContract', name: 'ScopeInvalidateContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
-    defineQuery({ document, key: 'scopeQuery', select: data => data, into: Model.scopes.all });
+    Model.query('scope', { document, key: 'scopeQuery', select: data => data, into: Model.scopes.all });
 
     Model.scopes.all.invalidate({ chatId: '1' });
 
@@ -53,7 +51,7 @@ describe('defineQuery contracts', () => {
     const invalidateQueries = jest.fn(async () => undefined);
     createContractScenario({ queryClient: { invalidateQueries } as unknown as QueryClient });
     const Model = defineModel({ id: 'SubsetInvalidateContract', name: 'SubsetInvalidateContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
-    const query = defineQuery({ document, key: 'subsetQuery', select: data => data, into: Model.scopes.all });
+    const query = Model.query('subset', { document, key: 'subsetQuery', select: data => data, into: Model.scopes.all });
 
     await query.fetch({ chatId: 'x' });
     await query.fetch({ chatId: 'x', mediaBucket: 'visual' });
@@ -73,9 +71,8 @@ describe('defineQuery contracts', () => {
     ];
     createContractScenario({ transport: { query: async <TData>() => ({ data: responses.shift() as TData }) } });
     const Model = defineModel({ id: 'QueryOrderContract', name: 'QueryOrderContract', fields: { title: f.str() }, scopes: { feed: scope({ sort: 'server-order' }) } });
-    const query = defineQuery({
+    const query = Model.query('page', {
       document,
-      key: 'pageQuery',
       page: data => (data as { conn: { nodes: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string } } }).conn,
       into: Model.scopes.feed
     });
@@ -91,7 +88,7 @@ describe('defineQuery contracts', () => {
     const responses = [{ items: [{ id: 'one', title: 'one' }, { id: 'two', title: 'two' }] }, { items: [{ id: 'one', title: 'one' }] }];
     createContractScenario({ transport: { query: async <TData>() => ({ data: responses.shift() as TData }) } });
     const Model = defineModel({ id: 'CompleteCoverageContract', name: 'CompleteCoverageContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
-    const query = defineQuery({ document, key: 'completeCoverage', select: data => (data as { items: unknown[] }).items, into: Model.scopes.all, coverage: 'complete' });
+    const query = Model.query('complete', { document, select: data => (data as { items: unknown[] }).items, into: Model.scopes.all, coverage: 'complete' });
 
     await query.fetch({});
     await query.fetch({});
@@ -105,9 +102,8 @@ describe('defineQuery contracts', () => {
     createContractScenario({ transport: { query: async <TData>() => ({ data: { items: [{ id: 'one', title: 'one' }], authors: [{ id: 'author', title: 'author' }] } as TData }) } });
     const Items = defineModel({ id: 'ExtractItemsContract', name: 'ExtractItemsContract', fields: { title: f.str() }, scopes: { all: scope({}) } });
     const Authors = defineModel({ id: 'ExtractAuthorsContract', name: 'ExtractAuthorsContract', fields: { title: f.str() } });
-    const query = defineQuery({
+    const query = Items.query('extract', {
       document,
-      key: 'extractContract',
       select: data => (data as { items: unknown[] }).items,
       into: Items.scopes.all,
       extract: ctx => [{ into: Authors, rows: (ctx.data as { authors: unknown[] }).authors }]
@@ -124,7 +120,7 @@ describe('defineQuery contracts', () => {
     let resolveTransport!: (value: { data: { items: Array<{ id: string; title: string }> } }) => void;
     const scenario = createContractScenario({ transport: { query: <TData>() => new Promise<{ data: { items: Array<{ id: string; title: string }> } }>(resolve => { resolveTransport = resolve; }).then(result => result as { data: TData }) } });
     const Model = defineModel({ id: 'QueryResetContract', name: 'QueryResetContract', fields: { title: f.str() } });
-    const query = defineQuery({ document, key: 'queryReset', select: data => (data as { items: unknown[] }).items, into: Model });
+    const query = Model.query('reset', { document, select: data => (data as { items: unknown[] }).items });
     const pending = query.fetch({});
 
     resetRuntime();
@@ -151,7 +147,7 @@ describe('defineQuery contracts', () => {
     const Model = defineModel({ id: 'PerCallEnabledContract', name: 'PerCallEnabledContract', fields: { title: f.str() }, scopes: { feed: scope({ sort: 'server-order' }) } });
     const scopeValue = { chatId: 'chat-1' };
     Model.scopes.feed.__apply?.(scopeValue, [{ id: 'local', title: 'local' }], 'complete');
-    const query = defineQuery({ document, key: 'perCallEnabled', select: data => (data as { items: unknown[] }).items, into: Model.scopes.feed });
+    const query = Model.query('enabled', { document, key: 'perCallEnabled', select: data => (data as { items: unknown[] }).items, into: Model.scopes.feed });
     let result!: ReturnType<typeof query.use>;
     const Reader = ({ enabled }: { enabled: boolean }) => {
       result = query.use(scopeValue, { enabled });
@@ -181,9 +177,8 @@ describe('defineQuery contracts', () => {
   it('C8: a throwing extract does not commit the scope plan before apply', async () => {
     const scenario = createContractScenario({ transport: { query: async <TData>() => ({ data: { items: [{ id: 'row', title: 'row' }] } as TData }) } });
     const Model = defineModel({ id: 'PureScopePlanContract', name: 'PureScopePlanContract', fields: { title: f.str() }, scopes: { feed: scope({}) } });
-    const query = defineQuery({
+    const query = Model.query('pure-scope-plan', {
       document,
-      key: 'pureScopePlan',
       select: data => (data as { items: unknown[] }).items,
       into: Model.scopes.feed,
       extract: () => {

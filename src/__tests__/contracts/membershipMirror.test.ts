@@ -1,4 +1,4 @@
-import { collectGarbage, defineModel, defineQuery, f, flushPersistence, hasMany, replayJournal, resetRuntime, scope, trimRowsPerScope } from '../../index';
+import { collectGarbage, defineModel, f, flushPersistence, hasMany, replayJournal, resetRuntime, scope, trimRowsPerScope } from '../../index';
 import { ensureMembershipCollection, membershipCollectionFor } from '../../core/tanstack/facade';
 import { createContractScenario } from '../helpers/contractScenario';
 import { createMemoryStorage } from '../helpers/memoryStorage';
@@ -50,12 +50,12 @@ describe(`membership collection mirror`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) }
     });
-    const page = defineQuery({ document, key: `membership-page`, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `page` });
+    const page = model.query(`page`, { document, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `page` });
     await page.fetch(feed);
     await page.fetch(feed);
     expectMembershipScope(`MembershipPage`, `feed:${JSON.stringify(feed)}`, { kind: `server-order` }, model.scopes.feed.read(feed));
 
-    const complete = defineQuery({ document, key: `membership-complete`, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `complete` });
+    const complete = model.query(`complete`, { document, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `complete` });
     await complete.fetch(feed);
     expectMembershipScope(`MembershipPage`, `feed:${JSON.stringify(feed)}`, { kind: `server-order` }, model.scopes.feed.read(feed));
   });
@@ -63,7 +63,7 @@ describe(`membership collection mirror`, () => {
   it(`clears memberships on reset and repopulates after a query apply`, async () => {
     createContractScenario({ transport: { query: async <TData>() => ({ data: { rows: [{ id: `a`, title: `a` }] } as TData }) } });
     const model = defineModel({ id: `MembershipReset`, name: `MembershipReset`, fields: { title: f.str() }, scopes: { feed: scope({ sort: `server-order` }) } });
-    const query = defineQuery({ document, key: `membership-reset`, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `complete` });
+    const query = model.query(`reset`, { document, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `complete` });
     await query.fetch(feed);
     resetRuntime();
     expect(ensureMembershipCollection(`MembershipReset`).toArray).toEqual([]);
@@ -75,7 +75,7 @@ describe(`membership collection mirror`, () => {
     const memory = createMemoryStorage();
     createContractScenario({ storage: memory, transport: { query: async <TData>() => ({ data: { rows: [{ id: `a`, title: `a` }] } as TData }) } });
     const first = defineModel({ id: `MembershipRestart`, name: `MembershipRestart`, fields: { title: f.str() }, scopes: { feed: scope({ sort: `server-order` }) } });
-    const query = defineQuery({ document, key: `membership-restart`, select: data => (data as { rows: unknown[] }).rows, into: first.scopes.feed, coverage: `complete` });
+    const query = first.query(`restart`, { document, select: data => (data as { rows: unknown[] }).rows, into: first.scopes.feed, coverage: `complete` });
     await query.fetch(feed);
     flushPersistence();
     createContractScenario({ storage: memory });
@@ -165,7 +165,7 @@ describe(`membership collection mirror`, () => {
       transport: { query: async <TData>() => ({ data: { rows: Array.from({ length: 10 }, (_, index) => ({ id: `row-${index}`, title: String(index) })) } as TData }) }
     });
     const model = defineModel({ id: `MembershipStorm`, name: `MembershipStorm`, fields: { title: f.str() }, scopes: { feed: scope({ sort: `server-order` }) } });
-    const query = defineQuery({ document, key: `membership-storm`, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `complete` });
+    const query = model.query(`storm`, { document, select: data => (data as { rows: unknown[] }).rows, into: model.scopes.feed, coverage: `complete` });
     const collection = ensureMembershipCollection(`MembershipStorm`);
     let callbacks = 0;
     const subscription = collection.subscribeChanges(() => {

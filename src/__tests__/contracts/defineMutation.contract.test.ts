@@ -3,7 +3,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { hasMany } from '../../core/relations';
 import { defineModel } from '../../dsl/defineModel';
 import { scope } from '../../dsl/scope';
-import { defineMutation } from '../../dsl/defineMutation';
+import { defineCommand } from '../../dsl/defineCommand';
 import { configureDb, getApplyRuntime, getOperationState } from '../../dsl/configure';
 import { resetRuntime } from '../../core/reset';
 import { f } from '../../schema/f';
@@ -26,9 +26,10 @@ describe('defineMutation contracts', () => {
   it('uses the latest definition run after a hook rebind', async () => {
     const calls: string[] = [];
     const makeMutation = (name: string) =>
-      defineMutation<{ save: { id: string } }, { id: string }, { id: string }, { id: string }>({
+      defineCommand<{ save: { id: string } }, { id: string }, { id: string }, { id: string }>(name, {
         document,
         result: 'save',
+        dedupe: false,
         mapInput: input => ({ ...input, name })
       });
     configureDb({
@@ -60,7 +61,7 @@ describe('defineMutation contracts', () => {
     const Parent = defineModel({ id: 'CascadeParentContract', name: 'CascadeParentContract', fields: {}, relations: () => ({ children: hasMany(Child, { foreignKey: 'parentId', dependent: 'destroy' }) }) });
     Parent.insertStored({ id: 'parent' });
     Child.insertStored({ id: 'child', parentId: 'parent' });
-    const destroy = defineMutation<unknown, { id: string }, { id: string }, unknown>({ document, result: 'destroy', optimistic: { method: 'destroy', model: Parent, selectId: input => input.id } });
+    const destroy = Parent.mutation<unknown, { id: string }, { id: string }, unknown>('destroy', { document, result: 'destroy', dedupe: false, optimistic: { method: 'destroy', model: Parent, selectId: input => input.id } });
 
     await expect(destroy.run({ id: 'parent' })).rejects.toThrow('dependent cascades');
     expect(mutation).not.toHaveBeenCalled();
@@ -74,7 +75,7 @@ describe('defineMutation contracts', () => {
     createContractScenario({ transport: { mutation } });
     const Model = defineModel({ id: 'PatchContract', name: 'PatchContract', fields: { title: f.str() } });
     Model.insertStored({ id: 'row', title: 'kept' });
-    const patch = defineMutation<unknown, Record<string, never>, { id: string; title: string; extra?: string }, unknown>({ document, result: 'patch', optimistic: { method: 'patch', model: Model, selectId: () => 'row', selectPatch: () => ({ title: 'changed', extra: 'added' }) } });
+    const patch = Model.mutation<unknown, Record<string, never>, { id: string; title: string; extra?: string }, unknown>('patch', { document, result: 'patch', dedupe: false, optimistic: { method: 'patch', model: Model, selectId: () => 'row', selectPatch: () => ({ title: 'changed', extra: 'added' }) } });
 
     await expect(patch.run({})).rejects.toThrow('boom');
     expect(Model.get('row')).toEqual({ id: 'row', title: 'kept' });
@@ -86,7 +87,7 @@ describe('defineMutation contracts', () => {
     createContractScenario({ transport: { mutation } });
     const Model = defineModel({ id: 'LeafDestroyContract', name: 'LeafDestroyContract', fields: { title: f.str() } });
     Model.insertStored({ id: 'row', title: 'kept' });
-    const destroy = defineMutation<unknown, Record<string, never>, { id: string; title: string }, unknown>({ document, result: 'destroy', optimistic: { method: 'destroy', model: Model, selectId: () => 'row' } });
+    const destroy = Model.mutation<unknown, Record<string, never>, { id: string; title: string }, unknown>('destroy', { document, result: 'destroy', dedupe: false, optimistic: { method: 'destroy', model: Model, selectId: () => 'row' } });
 
     await expect(destroy.run({})).rejects.toThrow('boom');
     expect(Model.get('row')).toEqual({ id: 'row', title: 'kept' });
@@ -95,7 +96,7 @@ describe('defineMutation contracts', () => {
   it('C4: a committed dedupe key skips the second transport call', async () => {
     const mutation = jest.fn(async <TData>() => ({ data: { save: { id: 'server' } } as TData })) as unknown as jest.MockedFunction<DbTransport['mutation']>;
     createContractScenario({ transport: { mutation } });
-    const run = defineMutation<{ save: { id: string } }, { key: string }, { id: string }, { id: string }>({ document, result: 'save', dedupe: { key: input => input.key } });
+    const run = defineCommand<{ save: { id: string } }, { key: string }, { id: string }, { id: string }>('dedupe', { document, result: 'save', dedupe: { key: input => input.key } });
 
     await expect(run.run({ key: 'same' })).resolves.toEqual({ save: { id: 'server' } });
     await expect(run.run({ key: 'same' })).resolves.toBeNull();
@@ -107,9 +108,10 @@ describe('defineMutation contracts', () => {
     mutation.mockRejectedValueOnce(new Error('boom'));
     createContractScenario({ transport: { mutation } });
     const Model = defineModel({ id: 'InsertRollbackContract', name: 'InsertRollbackContract', fields: { title: f.str() } });
-    const insert = defineMutation<unknown, { title: string }, { id: string; title: string }, unknown>({
+    const insert = Model.mutation<unknown, { title: string }, { id: string; title: string }, unknown>('insert', {
       document,
       result: 'insert',
+      dedupe: false,
       optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: () => null }
     });
 
@@ -124,9 +126,10 @@ describe('defineMutation contracts', () => {
     const onError = jest.fn();
     const scenario = createContractScenario({ transport: { mutation: transport } });
     const Model = defineModel({ id: 'MutationResetResolveContract', name: 'MutationResetResolveContract', fields: { title: f.str() }, scopes: { feed: scope({}) } });
-    const mutation = defineMutation<{ save: { id: string; title: string } }, { title: string }, { id: string; title: string }, { id: string; title: string }>({
+    const mutation = Model.mutation<{ save: { id: string; title: string } }, { title: string }, { id: string; title: string }, { id: string; title: string }>('resolve', {
       document,
       result: 'save',
+      dedupe: false,
       optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save },
       onCommit,
       onError
@@ -154,9 +157,10 @@ describe('defineMutation contracts', () => {
     const onError = jest.fn();
     const scenario = createContractScenario({ transport: { mutation: transport } });
     const Model = defineModel({ id: 'MutationResetRejectContract', name: 'MutationResetRejectContract', fields: { title: f.str() }, scopes: { feed: scope({}) } });
-    const mutation = defineMutation<unknown, { title: string }, { id: string; title: string }, unknown>({
+    const mutation = Model.mutation<unknown, { title: string }, { id: string; title: string }, unknown>('reject', {
       document,
       result: 'save',
+      dedupe: false,
       optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: () => null },
       onCommit,
       onError
@@ -182,9 +186,10 @@ describe('defineMutation contracts', () => {
     const transport = jest.fn(() => new Promise<{ data: { save: { id: string; title: string } } }>(resolve => { resolveTransport = resolve; })) as unknown as jest.MockedFunction<DbTransport['mutation']>;
     createContractScenario({ transport: { mutation: transport } });
     const Model = defineModel({ id: 'MutationReplaceOriginContract', name: 'MutationReplaceOriginContract', fields: { title: f.str() } });
-    const mutation = defineMutation<{ save: { id: string; title: string } }, { title: string }, { id: string; title: string }, { id: string; title: string }>({
+    const mutation = Model.mutation<{ save: { id: string; title: string } }, { title: string }, { id: string; title: string }, { id: string; title: string }>('replace', {
       document,
       result: 'save',
+      dedupe: false,
       optimistic: { model: Model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save }
     });
     const pending = mutation.run({ title: 'optimistic' });
@@ -212,7 +217,7 @@ describe('defineMutation contracts', () => {
       defaults: { onSyncError }
     });
     const Model = defineModel({ id: 'MutationCallbackContract', name: 'MutationCallbackContract', fields: { title: f.str() } });
-    const mutation = defineMutation<{ save: { id: string } }, { title: string }, { id: string; title: string }, { id: string }>({
+    const mutation = Model.mutation<{ save: { id: string } }, { title: string }, { id: string; title: string }, { id: string }>('callback', {
       document,
       result: 'save',
       dedupe: { key: () => 'callback' },
@@ -243,9 +248,10 @@ describe('defineMutation contracts', () => {
     const rows = [{ id: 'first', title: 'first', chatId: 'chat' }, { id: 'second', title: 'second', chatId: 'chat' }];
     Model.scopes.thread.__apply?.({ chatId: 'chat' }, rows, 'complete');
     Model.scopes.feed.__apply?.({}, rows, 'complete');
-    const destroy = defineMutation<unknown, Record<string, never>, { id: string; title: string; chatId: string }, unknown>({
+    const destroy = Model.mutation<unknown, Record<string, never>, { id: string; title: string; chatId: string }, unknown>('destroy', {
       document,
       result: 'destroy',
+      dedupe: false,
       optimistic: { method: 'destroy', model: Model, selectId: () => 'first' }
     });
 

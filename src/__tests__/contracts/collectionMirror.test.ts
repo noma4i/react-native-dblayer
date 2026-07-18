@@ -1,9 +1,7 @@
 import {
   belongsTo,
   collectGarbage,
-  defineIngest,
   defineModel,
-  defineQuery,
   f,
   flushPersistence,
   replayJournal,
@@ -95,14 +93,12 @@ describe(`collection mirror`, () => {
       name: `MirrorNetwork`,
       fields: { title: f.str() },
     })
-    const query = defineQuery({
+    const query = model.query(`network`, {
       document,
-      key: `mirror-network`,
       select: (data) => (data as { rows: Array<{ id: string; title: string }> }).rows,
-      into: model,
     })
-    const ingest = defineIngest(model, {
-      received: (payload) => ({ upsert: payload }),
+    const ingest = model.ingest({
+      received: { handler: (payload) => ({ upsert: payload }) },
     })
 
     await query.fetch({})
