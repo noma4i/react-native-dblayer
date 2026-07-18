@@ -170,7 +170,7 @@ committed locally is skipped. Stale-version arbitration lives in the model's
 `pruneOrphanedRows`, `pruneExpiredRows`, `trimRowsPerScope`, `resolveStaleTempRows`, and
 `reconcileOptimisticRows` consume any model via its maintenance channel. `patchWhenPresent` and
 `waitForRow` defer work until a row appears (commit-bus backed, TTL/abort aware).
-`singletonStatics` builds a reactive single-row facade. `useStableProjection`,
+`createSingletonStatics` builds a reactive single-row facade. `useStableProjection`,
 `useJoinedEntities`, `useOrderedEntities`, and friends keep derived view arrays referentially
 stable.
 
