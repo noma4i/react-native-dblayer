@@ -1,6 +1,6 @@
 import { act } from 'react-test-renderer';
 import { defineModel, f, hasMany, isTempId, resetRuntime, scope } from '../../index';
-import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness';
+import { createAcceptanceTransport, measureCpuMs, renderCounted, setupAcceptanceRuntime } from './harness';
 
 type Row = { id: string; group?: string; title: string; localUri?: string; extra?: string };
 
@@ -912,13 +912,12 @@ describe(`A03 mutation contract`, () => {
           ...(position === `prepend` ? { prependTo: { scope: model.scopes.feed, value: () => scopeValue } } : { appendTo: { scope: model.scopes.feed, value: () => scopeValue } })
         }
       });
-      const measure = (index: number) => {
-          const started = performance.now();
+      const measure = (index: number) =>
+        measureCpuMs(() => {
           act(() => {
             void mutation.run({ title: `${position}-${index}` });
           });
-          return performance.now() - started;
-      };
+        });
       measure(-1);
       const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
       return elapsed;
@@ -962,13 +961,12 @@ describe(`A03 mutation contract`, () => {
           prependTo: { scope: model.scopes.feed, value: () => scopeValue }
         }
       });
-      const measure = (index: number) => {
-          const started = performance.now();
+      const measure = (index: number) =>
+        measureCpuMs(() => {
           act(() => {
             void mutation.run({ title: `respond-${index}` });
           });
-          return performance.now() - started;
-      };
+        });
       measure(-1);
       const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
       expect(fabricated).toBe(26);

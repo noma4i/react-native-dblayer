@@ -1,7 +1,7 @@
 import { act } from 'react-test-renderer';
 import React from 'react';
 import { QueryClientProvider, defineModel, f, isTempId, scope } from '../../index';
-import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness';
+import { createAcceptanceTransport, measureCpuMs, renderCounted, setupAcceptanceRuntime } from './harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 const scopeValue = { group: 'feed' };
@@ -337,13 +337,12 @@ describe('A16 crud scaffold', () => {
       );
       const crud = model.crud({ update: { document, result: 'update' } });
       const reader = renderCounted(() => model.scopes.feed.use(scopeValue));
-      const measure = (index: number) => {
-          const started = performance.now();
+      const measure = (index: number) =>
+        measureCpuMs(() => {
           act(() => {
             void crud.update.run({ id: 'row-0', title: `changed-${index}` });
           });
-          return performance.now() - started;
-      };
+        });
       measure(-1);
       const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
       expect(reader.result()[0]).toMatchObject({ id: 'row-0', title: 'changed-24' });
