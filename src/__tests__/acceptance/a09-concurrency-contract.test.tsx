@@ -3,7 +3,6 @@ import {
   belongsTo,
   defineModel,
   defineMutation,
-  defineQuery,
   f,
   isIncomingNewer,
   resetRuntime,
@@ -46,8 +45,8 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const rows = model(`A09G1`)
-    const older = defineQuery({ document, key: `a09-g1-old`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
-    const newer = defineQuery({ document, key: `a09-g1-new`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
+    const older = rows.query(`a09-g1-old`, { document, key: `a09-g1-old`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
+    const newer = rows.query(`a09-g1-new`, { document, key: `a09-g1-new`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
     const reader = renderCounted(() => rows.scopes.feed.use(feed))
     const before = reader.renders()
     const pendingOld = older.fetch(feed)
@@ -83,7 +82,7 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
         selectServerNode: data => data.save,
       },
     })
-    const query = defineQuery({ document, key: `a09-g2`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed, coverage: `complete` })
+    const query = rows.query(`a09-g2`, { document, key: `a09-g2`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed, coverage: `complete` })
     const reader = renderCounted(() => rows.scopes.feed.use(feed))
     let pending!: Promise<{ save: Row } | null>
     act(() => {
@@ -146,7 +145,7 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
       result: `save`,
       optimistic: { model: rows, build: (_input, context) => ({ id: context.tempId!, group: `g`, title: `temp` }), selectServerNode: data => data.save },
     })
-    const query = defineQuery({ document, key: `a09-g4`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
+    const query = rows.query(`a09-g4`, { document, key: `a09-g4`, select: (data: { rows: Row[] }) => data.rows, into: rows.scopes.feed })
     const reader = renderCounted(() => rows.scopes.feed.use(feed))
     const pendingMutation = mutation.run({})
     const pendingQuery = query.fetch(feed)

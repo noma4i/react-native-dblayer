@@ -4,7 +4,6 @@ import {
   collectGarbage,
   defineModel,
   defineMutation,
-  defineQuery,
   f,
   flushPersistence,
   hasMany,
@@ -208,7 +207,7 @@ describe(`A04 sync lifecycle contract`, () => {
       scopes: { feed: scope({ sort: `server-order` }) }
     });
     const exempt = defineModel({ id: `A04GcExempt`, name: `A04GcExempt`, fields: { title: f.str() }, gc: `exempt` });
-    const query = defineQuery({
+    const query = child.query(`a04-gc`, {
       document,
       key: `a04-gc`,
       select: data => (data as { children: Array<{ id: string; parentId?: string; title: string }> }).children,

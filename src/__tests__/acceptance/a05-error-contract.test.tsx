@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer'
-import { defineModel, defineMutation, defineQuery, f, scope } from '../../index'
+import { defineModel, defineMutation, f, scope } from '../../index'
 import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness'
 
 const document = { kind: `Document`, definitions: [] } as never
@@ -24,7 +24,7 @@ describe(`A05 error contract`, () => {
     const transport = createAcceptanceTransport({ query: async () => Promise.reject(new Error(`query failed`)) })
     setupAcceptanceRuntime({ transport, defaults: { onSyncError } })
     const model = defineModel({ id: `A05Query`, name: `A05Query`, fields: { title: f.str() }, scopes: { feed: scope({}) } })
-    const query = defineQuery({ document, key: `a05-query`, select: () => [], into: model.scopes.feed })
+    const query = model.query(`a05-query`, { document, key: `a05-query`, select: () => [], into: model.scopes.feed })
     await expect(query.fetch({})).rejects.toThrow(`query failed`)
     expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ source: `query`, model: `A05Query`, key: `a05-query` }))
   })

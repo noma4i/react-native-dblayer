@@ -2,7 +2,6 @@ import React from 'react'
 import { act } from 'react-test-renderer'
 import {
   defineModel,
-  defineQuery,
   f,
   flushPersistence,
   QueryClientProvider,
@@ -54,7 +53,7 @@ describe(`A10 loading and refresh status contract`, () => {
     const transport = createAcceptanceTransport({ query: <TData,>() => hold.promise as Promise<{ data: TData }> })
     const { queryClient } = setupAcceptanceRuntime({ transport })
     const model = rowsModel(`A10H1`)
-    const query = defineQuery({ document, key: `a10-h1`, select: (data: { rows: Row[] }) => data.rows, into: model.scopes.feed })
+    const query = model.query(`a10-h1`, { document, key: `a10-h1`, select: (data: { rows: Row[] }) => data.rows, into: model.scopes.feed })
     const result = renderCounted(() => query.use(scopeValue), wrapper(queryClient))
     const scopeReader = renderCounted(() => model.scopes.feed.use(scopeValue))
 
@@ -80,7 +79,7 @@ describe(`A10 loading and refresh status contract`, () => {
     const transport = createAcceptanceTransport({ query: <TData,>() => (call++ === 0 ? first.promise : second.promise) as Promise<{ data: TData }> })
     const { queryClient } = setupAcceptanceRuntime({ transport })
     const model = rowsModel(`A10H2`)
-    const query = defineQuery({ document, key: `a10-h2`, select: (data: { rows: Row[] }) => data.rows, into: model.scopes.feed })
+    const query = model.query(`a10-h2`, { document, key: `a10-h2`, select: (data: { rows: Row[] }) => data.rows, into: model.scopes.feed })
     const result = renderCounted(() => query.use(scopeValue), wrapper(queryClient))
     await act(async () => {
       first.resolve({ data: { rows: [{ id: `row`, group: `g`, title: `before` }] } })
@@ -109,7 +108,7 @@ describe(`A10 loading and refresh status contract`, () => {
     const transport = createAcceptanceTransport({ query: <TData,>() => (call++ === 0 ? first.promise : second.promise) as Promise<{ data: TData }> })
     const { queryClient } = setupAcceptanceRuntime({ transport })
     const model = rowsModel(`A10H3`)
-    const query = defineQuery({ document, key: `a10-h3`, page: (data: ReturnType<typeof page>) => data.connection, into: model.scopes.feed })
+    const query = model.query(`a10-h3`, { document, key: `a10-h3`, page: (data: ReturnType<typeof page>) => data.connection, into: model.scopes.feed })
     const result = renderCounted(() => query.use(scopeValue), wrapper(queryClient))
     await act(async () => {
       first.resolve({ data: page([{ id: `one`, group: `g`, title: `one` }], `cursor`, true) })
@@ -146,7 +145,7 @@ describe(`A10 loading and refresh status contract`, () => {
     const transport = createAcceptanceTransport({ query: <TData,>() => responses.shift()!.promise as Promise<{ data: TData }> })
     const { queryClient } = setupAcceptanceRuntime({ transport })
     const initialModel = rowsModel(`A10H4Initial`)
-    const initialQuery = defineQuery({ document, key: `a10-h4-initial`, select: (data: { rows: Row[] }) => data.rows, into: initialModel.scopes.feed })
+    const initialQuery = initialModel.query(`a10-h4-initial`, { document, key: `a10-h4-initial`, select: (data: { rows: Row[] }) => data.rows, into: initialModel.scopes.feed })
     const initial = renderCounted(() => initialQuery.use(scopeValue), wrapper(queryClient))
     await act(async () => {
       initialFailure.reject(new Error(`initial failed`))
@@ -157,7 +156,7 @@ describe(`A10 loading and refresh status contract`, () => {
     initial.unmount()
 
     const model = rowsModel(`A10H4Refresh`)
-    const query = defineQuery({ document, key: `a10-h4-refresh`, select: (data: { rows: Row[] }) => data.rows, into: model.scopes.feed })
+    const query = model.query(`a10-h4-refresh`, { document, key: `a10-h4-refresh`, select: (data: { rows: Row[] }) => data.rows, into: model.scopes.feed })
     const result = renderCounted(() => query.use(scopeValue), wrapper(queryClient))
     await act(async () => {
       success.resolve({ data: { rows: [{ id: `row`, group: `g`, title: `before` }] } })
@@ -191,7 +190,7 @@ describe(`A10 loading and refresh status contract`, () => {
     const seedTransport = createAcceptanceTransport({ query: async <TData,>() => ({ data: { rows: [{ id: `row`, group: `g`, title: `persisted` }] } as TData }) })
     setupAcceptanceRuntime({ storage, transport: seedTransport })
     const seeded = rowsModel(`A10H5`)
-    const seedQuery = defineQuery({ document, key: `a10-h5`, select: (data: { rows: Row[] }) => data.rows, into: seeded.scopes.feed })
+    const seedQuery = seeded.query(`a10-h5`, { document, key: `a10-h5`, select: (data: { rows: Row[] }) => data.rows, into: seeded.scopes.feed })
     await seedQuery.fetch(scopeValue)
     flushPersistence()
 
@@ -200,7 +199,7 @@ describe(`A10 loading and refresh status contract`, () => {
     const { queryClient } = setupAcceptanceRuntime({ storage, transport })
     const hydrated = rowsModel(`A10H5`)
     replayJournal()
-    const query = defineQuery({ document, key: `a10-h5`, select: (data: { rows: Row[] }) => data.rows, into: hydrated.scopes.feed })
+    const query = hydrated.query(`a10-h5`, { document, key: `a10-h5`, select: (data: { rows: Row[] }) => data.rows, into: hydrated.scopes.feed })
     const result = renderCounted(() => query.use(scopeValue), wrapper(queryClient))
     await settle()
     expect(result.result().data).toEqual([{ id: `row`, group: `g`, title: `persisted` }])
