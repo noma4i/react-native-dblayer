@@ -84,6 +84,8 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: { resetOrder?: boolean }): void;
   __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[];
   __key?(scopeValue: TScope): string;
+  __isServerOrder?(): boolean;
+  __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
 };
 
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
@@ -594,7 +596,14 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         );
       },
       __planApply: planApply,
-      __key: (scopeValue: unknown) => keyForScope(scopeName, scopeValue)
+      __key: (scopeValue: unknown) => keyForScope(scopeName, scopeValue),
+      __isServerOrder: () => !spec?.sort || spec.sort === 'server-order',
+      __planPlacement: (scopeValue: unknown, id: string, position: 'prepend' | 'append') => {
+        const scopeKey = keyForScope(scopeName, scopeValue);
+        const entries = planes().scopeIndex.read(scopeKey).entries;
+        const order = position === 'prepend' ? Math.min(0, ...entries.map(entry => entry.order)) - 1 : Math.max(-1, ...entries.map(entry => entry.order)) + 1;
+        return [{ kind: 'scope-delta', model: config.id, scopeKey, append: [{ id, order }], detach: [] }];
+      }
     };
   };
 

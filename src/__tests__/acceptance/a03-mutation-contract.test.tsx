@@ -364,4 +364,86 @@ describe(`A03 mutation contract`, () => {
     expect(parent.get(`parent`)).toBeDefined()
     expect(child.get(`child`)).toBeDefined()
   })
+
+  it(`A03-10 prepends an optimistic insert into server order without replacing existing rows`, async () => {
+    const hold = deferred<{ data: { save: Row } }>()
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) })
+    const model = scopedModel(`A03Prepend`)
+    act(() => { model.insertStored({ id: `first`, group: `scope-1`, title: `first` }); model.insertStored({ id: `second`, group: `scope-1`, title: `second` }) })
+    const reader = renderCounted(() => model.scopes.feed.use(scopeValue))
+    const existing = reader.result()[0]
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`prepend`, { dedupe: false, document, result: `save`, optimistic: { model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save, prependTo: { scope: model.scopes.feed, value: () => scopeValue } } })
+    act(() => { void mutation.run({ title: `draft` }) })
+    expect(reader.result()[0]).toMatchObject({ title: `draft` })
+    expect(reader.result()[1]).toBe(existing)
+    expect(reader.renders()).toBe(2)
+    reader.unmount()
+  })
+
+  it(`A03-11 appends an optimistic insert to the end of server order`, async () => {
+    const hold = deferred<{ data: { save: Row } }>()
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) })
+    const model = scopedModel(`A03Append`)
+    act(() => { model.insertStored({ id: `first`, group: `scope-1`, title: `first` }); model.insertStored({ id: `second`, group: `scope-1`, title: `second` }) })
+    const reader = renderCounted(() => model.scopes.feed.use(scopeValue))
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`append`, { dedupe: false, document, result: `save`, optimistic: { model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save, appendTo: { scope: model.scopes.feed, value: () => scopeValue } } })
+    act(() => { void mutation.run({ title: `draft` }) })
+    expect(reader.result().at(-1)).toMatchObject({ title: `draft` })
+    expect(reader.renders()).toBe(2)
+    reader.unmount()
+  })
+
+  it(`A03-12 preserves prepend position through the temp to server swap`, async () => {
+    const hold = deferred<{ data: { save: Row } }>()
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) })
+    const model = scopedModel(`A03PrependSwap`)
+    act(() => { model.insertStored({ id: `first`, group: `scope-1`, title: `first` }); model.insertStored({ id: `second`, group: `scope-1`, title: `second` }) })
+    const transitions: string[][] = []
+    const reader = renderCounted(() => { const rows = model.scopes.feed.use(scopeValue); transitions.push(rows.map(row => row.id)); return rows })
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`swap-prepend`, { dedupe: false, document, result: `save`, optimistic: { model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save, prependTo: { scope: model.scopes.feed, value: () => scopeValue } } })
+    let pending!: Promise<{ save: Row } | null>
+    act(() => { pending = mutation.run({ title: `draft` }) })
+    await act(async () => { hold.resolve({ data: { save: { id: `server`, group: `scope-1`, title: `draft` } } }); await pending })
+    expect(reader.result().map(row => row.id)).toEqual([`server`, `first`, `second`])
+    expect(reader.renders()).toBe(3)
+    expect(transitions).toHaveLength(3)
+    expect(transitions[2]).toEqual([`server`, `first`, `second`])
+    reader.unmount()
+  })
+
+  it(`A03-13 rollback restores the exact server-order sequence after prepend`, async () => {
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: async () => Promise.reject(new Error(`prepend failed`)) }) })
+    const model = scopedModel(`A03PrependRollback`)
+    act(() => { model.insertStored({ id: `first`, group: `scope-1`, title: `first` }); model.insertStored({ id: `second`, group: `scope-1`, title: `second` }) })
+    const reader = renderCounted(() => model.scopes.feed.use(scopeValue))
+    const before = reader.result().map(row => row.id)
+    const previousRows = reader.result()
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`rollback-prepend`, { dedupe: false, document, result: `save`, optimistic: { model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save, prependTo: { scope: model.scopes.feed, value: () => scopeValue } } })
+    const pending = mutation.run({ title: `draft` })
+    await expect(pending).rejects.toThrow(`prepend failed`)
+    expect(reader.result().map(row => row.id)).toEqual(before)
+    expect(reader.result()).toEqual(previousRows)
+    reader.unmount()
+  })
+
+  it(`A03-14 rejects placement into a field-sorted scope at definition`, () => {
+    setupAcceptanceRuntime()
+    const model = defineModel({ id: `A03SortedReject`, name: `A03SortedReject`, fields: { title: f.str() }, scopes: { feed: scope({ sort: { field: `title`, dir: `asc` } }) } })
+    expect(() => model.mutation<{ save: Row }, { title: string }, Row, Row>(`reject-placement`, { dedupe: false, document, result: `save`, optimistic: { model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save, prependTo: { scope: model.scopes.feed, value: () => ({}) } } })).toThrow(`server-order`)
+  })
+
+  it(`A03-15 leaves unrelated readers untouched through prepend and commit`, async () => {
+    const hold = deferred<{ data: { save: Row } }>()
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) })
+    const model = scopedModel(`A03PrependIsolation`)
+    const other = defineModel({ id: `A03PrependOther`, name: `A03PrependOther`, fields: { title: f.str() } })
+    const otherReader = renderCounted(() => other.use.row(`other`))
+    const before = otherReader.renders()
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`isolation-prepend`, { dedupe: false, document, result: `save`, optimistic: { model, build: (input, context) => ({ id: context.tempId!, title: input.title }), selectServerNode: data => data.save, prependTo: { scope: model.scopes.feed, value: () => scopeValue } } })
+    let pending!: Promise<{ save: Row } | null>
+    act(() => { pending = mutation.run({ title: `draft` }) })
+    await act(async () => { hold.resolve({ data: { save: { id: `server`, group: `scope-1`, title: `draft` } } }); await pending })
+    expect(otherReader.renders()).toBe(before)
+    otherReader.unmount()
+  })
 })

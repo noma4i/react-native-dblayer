@@ -73,6 +73,8 @@ export type ScopeHandle<TStored extends {
         resetOrder?: boolean;
     }): JournalOp[];
     __key?(scopeValue: TScope): string;
+    __isServerOrder?(): boolean;
+    __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
 };
 export type ModelCore<TStored extends {
     id: string;

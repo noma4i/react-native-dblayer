@@ -25,6 +25,19 @@ type MutationModel = {
         order: number;
         edge?: Record<string, unknown>;
     }>): JournalOp[];
+    __planRows?(rows: unknown[]): JournalOp[];
+};
+type ScopePlacementHandle = {
+    modelId: string;
+    __isServerOrder?: () => boolean;
+    __planPlacement?: (scopeValue: any, id: string, position: 'prepend' | 'append') => JournalOp[];
+};
+/** A server-order scope plus the mutation-input mapping that selects its concrete scope value. */
+export type ScopeHandleExpr<TInput> = {
+    /** Server-order scope receiving the optimistic temp row. */
+    scope: ScopePlacementHandle;
+    /** Derive the destination scope value from the mutation input. */
+    value: (input: TInput) => unknown;
 };
 /**
  * Context shared by optimistic and transport-variable builders for one mutation run.
@@ -60,6 +73,10 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
     preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
     /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
     existingTempId?: (input: TInput) => string | null;
+    /** Place the temp row at the top of this server-order scope; `value` derives that scope's value from the mutation input. */
+    prependTo?: ScopeHandleExpr<TInput>;
+    /** Place the temp row at the bottom of this server-order scope; `value` derives that scope's value from the mutation input. */
+    appendTo?: ScopeHandleExpr<TInput>;
 };
 /** Optimistic patch: applies a partial update immediately, restoring the previous values on error. */
 type PatchOptimistic<TInput, TStored> = {

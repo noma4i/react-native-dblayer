@@ -19,6 +19,21 @@ type MutationModel = {
   __planReplace?(oldId: string, next: unknown): JournalOp[];
   __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
   __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
+  __planRows?(rows: unknown[]): JournalOp[];
+};
+
+type ScopePlacementHandle = {
+  modelId: string;
+  __isServerOrder?: () => boolean;
+  __planPlacement?: (scopeValue: any, id: string, position: 'prepend' | 'append') => JournalOp[];
+};
+
+/** A server-order scope plus the mutation-input mapping that selects its concrete scope value. */
+export type ScopeHandleExpr<TInput> = {
+  /** Server-order scope receiving the optimistic temp row. */
+  scope: ScopePlacementHandle;
+  /** Derive the destination scope value from the mutation input. */
+  value: (input: TInput) => unknown;
 };
 
 /**
@@ -54,6 +69,10 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
   preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
   /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
   existingTempId?: (input: TInput) => string | null;
+  /** Place the temp row at the top of this server-order scope; `value` derives that scope's value from the mutation input. */
+  prependTo?: ScopeHandleExpr<TInput>;
+  /** Place the temp row at the bottom of this server-order scope; `value` derives that scope's value from the mutation input. */
+  appendTo?: ScopeHandleExpr<TInput>;
 };
 /** Optimistic patch: applies a partial update immediately, restoring the previous values on error. */
 type PatchOptimistic<TInput, TStored> = {
@@ -122,6 +141,17 @@ const isMethodOptimistic = <TData, TInput, TStored, TNode>(
  * where `mutate` fires-and-forgets with optional `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
  */
 export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
+  const optimisticConfig = config.optimistic;
+  if (optimisticConfig && isMethodOptimistic(optimisticConfig) && (`prependTo` in optimisticConfig || `appendTo` in optimisticConfig)) {
+    throw new Error(`optimistic prependTo/appendTo requires an insert optimistic config`);
+  }
+  if (optimisticConfig && !isMethodOptimistic(optimisticConfig)) {
+    if (optimisticConfig.prependTo && optimisticConfig.appendTo) throw new Error(`optimistic prependTo and appendTo are mutually exclusive`);
+    const placement = optimisticConfig.prependTo ?? optimisticConfig.appendTo;
+    if (placement && placement.scope.__isServerOrder?.() !== true) throw new Error(`optimistic prependTo/appendTo requires a server-order scope`);
+    if (placement && placement.scope.modelId !== optimisticConfig.model.modelId) throw new Error(`optimistic prependTo/appendTo scope must belong to the optimistic model`);
+  }
+
   const run = async (input: TInput): Promise<TData | null> => {
     const operations = getOperationState();
     const dedupeKey = config.dedupe?.key(input);
@@ -146,7 +176,11 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         tempId = newTempId;
         insertedTempId = newTempId;
         const row = optimistic.build(input, { tempId: newTempId, operationId });
-        optimistic.model.insertStored({ ...(row as Record<string, unknown>), id: newTempId });
+        const placement = optimistic.prependTo ?? optimistic.appendTo;
+        const position = optimistic.prependTo ? 'prepend' : 'append';
+        const ops = optimistic.model.__planRows?.([{ ...(row as Record<string, unknown>), id: newTempId }]) ?? [{ kind: 'upsert' as const, model: optimistic.model.modelId, rows: [{ ...(row as Record<string, unknown>), id: newTempId }] }];
+        if (placement) ops.push(...(placement.scope.__planPlacement?.(placement.value(input), newTempId, position) ?? []));
+        getApplyRuntime().apply(expandPlan(ops));
       }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);

@@ -18,7 +18,7 @@ export { defineShape, projectShape, readShape, readShapeOrThrow } from './schema
 export type { QueryResult, ExtractSink } from './dsl/defineQuery';
 export { defineFetch } from './dsl/defineFetch';
 export type { FetchResult } from './dsl/defineFetch';
-export type { MutateCallbacks } from './dsl/defineMutation';
+export type { MutateCallbacks, ScopeHandleExpr } from './dsl/defineMutation';
 export { defineCommand } from './dsl/defineCommand';
 export type { IngestDecl } from './dsl/defineIngest';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
