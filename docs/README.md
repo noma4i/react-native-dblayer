@@ -118,6 +118,7 @@ Generated from `src/index.ts`, grouped by area.
 | Export | Kind | Home |
 | --- | --- | --- |
 | `MutateCallbacks` | type | [mutations.md](./mutations.md#use-result-shape) |
+| `ScopeHandleExpr` | type | [mutations.md](./mutations.md#optimistic-write-variants) |
 | `defineCommand` | value | [mutations.md](./mutations.md#definecommandname-config) |
 | `mergeOptimisticSnapshot` | value | [mutations.md](./mutations.md#mergeoptimisticsnapshot) |
 

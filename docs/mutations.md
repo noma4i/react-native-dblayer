@@ -67,7 +67,7 @@ see Dedupe below.
 
 | Variant | Shape | Behavior |
 | --- | --- | --- |
-| Insert | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. |
+| Insert | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
 | Patch | `{ method: 'patch', model, selectId, selectPatch }` | Applies a partial update immediately, restoring the previous field values on error. |
 | Destroy | `{ method: 'destroy', model, selectId }` | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back. |
 
@@ -82,6 +82,37 @@ optimistic write that ran: an inserted temp row is destroyed (untombstoned, so a
 reuse the id cleanly), a patch restores its previous field values, a destroy restores the previous
 row and its captured scope memberships. Rollback runs before `onError` and before the mutation
 promise rejects.
+
+**Optimistic scope placement.** `prependTo`/`appendTo` declaratively place an Insert variant's temp
+row at the top or bottom of a **server-order** scope (`sort: 'server-order'`, the default - see
+[models.md](./models.md#scopespec)), instead of leaving it unplaced until the server response
+arrives:
+
+```ts
+const sendMessage = MessageModel.mutation('send', {
+  document: MessageSendDocument,
+  result: 'messageSend',
+  optimistic: {
+    model: MessageModel,
+    build: (input: SendMessageInput, ctx) => ({ id: ctx.tempId!, chatId: input.chatId, text: input.text, createdAt: new Date().toISOString() }),
+    selectServerNode: data => data.messageSend.message,
+    prependTo: { scope: MessageModel.scopes.thread, value: input => ({ chatId: input.chatId }) }
+  }
+});
+```
+
+Both take a `ScopeHandleExpr<TInput>`: `{ scope, value: (input) => scopeValue }`, where `scope` is a
+`ScopeHandle` from the SAME model as `optimistic.model` and `value(input)` derives that scope's
+concrete value from the mutation input. `prependTo` and `appendTo` are mutually exclusive, and only
+valid on the Insert variant - `defineMutation` throws synchronously, before any network call, if
+either is combined with a `method: 'patch'`/`method: 'destroy'` optimistic config, if both are set
+at once, if `scope` is not a server-order scope (a `sort: { field, dir }` or custom-comparator scope
+rejects it), or if `scope` belongs to a different model than `optimistic.model`. The assigned
+position survives the temp-id -> server-node replace - the same edge/order captured for the temp row
+is carried over onto the committed server row in the same transaction, so a message optimistically
+prepended into a thread stays at the top once the server response lands. On rollback, destroying the
+temp row removes it from the scope's membership entirely, restoring the scope to the order it had
+before the optimistic insert.
 
 **Cascade-destroy guard.** `optimistic: { method: 'destroy' }` throws synchronously, before any
 network call, if the target model has a `hasMany` relation with `dependent: 'destroy'` - an
