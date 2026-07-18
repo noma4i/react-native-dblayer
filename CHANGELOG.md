@@ -1,5 +1,66 @@
 # Changelog
 
+## 7.0.0-beta.2 - 2026-07-19
+
+### Breaking changes and migration
+
+- BREAKING: standalone `defineQuery`, `defineMutation`, and `defineIngest` are removed from the public API. Migrate to the model-owned constructors: `Model.query(name, config)`, `Model.mutation(name, config)`, `Model.ingest(entries)`. `defineFetch` (model-less ephemeral reads) and `defineCommand` (model-less RPC mutations) remain public.
+- BREAKING: `Model.mutation` deduplicates by default with a conventional input-sensitive key (`<modelId>:<name>:<input>`); pass `dedupe: false` to opt out. The removed standalone constructor defaulted to no deduplication.
+- BREAKING: ordered reads unify null ordering. `getWhere`, `use.first`, the chainable builder, and field-sorted scopes now treat `null` and `undefined` as equivalent missing values sorted LAST, with antisymmetric comparators and an implicit `id` tie-break. Field-sorted paths previously ordered nulls first; re-check consumer scopes sorting on nullable fields.
+- BREAKING: final naming sweep of the public barrel - `Coverage` is now `ScopeCoverage`, `ScopeHandleExpr` is now `ScopePlacement`, `EMPTY_IDS` is now `emptyIds`, `createUniqueIds` is now `dedupeIds`, `toStr` is now `stringifyNullish`, and `singletonStatics` is now `createSingletonStatics`. Mechanical rename on the consumer side; no behavior changes.
+- BREAKING: `bootDb` now runs deferred definition validations before replay and rejects on invalid configurations - in particular a conventional `crud`/`mutation` optimistic destroy on a model whose relations declare `dependent: 'destroy'` cascades. These configurations previously surfaced only when the mutation ran; the run-time guard also remains. `resetRuntime` clears the validation registry.
+
+### Model-centric DSL
+
+- Add `Model.query`, `Model.mutation`, and `Model.fetch` with conventional `<modelId>:<name>` keys and model-owned destinations, plus `defineCommand` for model-less RPC.
+- Add `Model.view(name, { include, select, renderKeys })` - joined reactive projections with memoized foreign-key indexes; `useWindow` evaluates includes only for visible rows while keeping `totalCount`/`hasMore` reactive.
+- Add `Model.ingest(entries)` returning `{ entries, apply(key, payload) }` - fused subscription entries (guards, echo suppression, injected effects, custom apply) plus a declaration-return `{ handler }` form that applies atomically as one plan; the imperative `apply` delivers through the same pipeline as a live subscription.
+- Add chainable reads `Model.use.where(criteria).orderBy(field, dir).limit(n)` with reactive `.rows()` and snapshot `.read()` terminals - stable subscriptions across re-construction, natural storage order without `orderBy`.
+- Add model `maintenance: { maxRowsPerScope }` declarations executed by `bootDb` (its report is returned as `maintenance`; protection thunks may read other models), and `Model.poller(name, config)` - a refcounted status poller with `<modelId>:<name>` failure diagnostics. Boot-time temp-row cleanup needs no maintenance entry: the replay orphan sweep already destroys unconfirmed temp rows on every boot.
+
+### Optimistic writes
+
+- Add `prependTo`/`appendTo` on Insert and Respond optimistic configs - declarative placement of the temp row at the top or bottom of a server-order scope via `ScopeHandleExpr` (`{ scope, value(input) }`). The assigned position survives the temp-to-server swap; rollback restores the previous scope order. Define-time validation rejects non-server-order scopes, foreign-model scopes, method optimistic configs, and setting both at once.
+- Add the Respond optimistic variant: `optimistic: { model, selectServerNode, respond(input, { tempId, operationId }) }` fabricates a transport-shaped response that runs through the exact same plan builder as the real one - `result` extraction, node selection, `extract` sinks, and placement composition are identical on the fabricated and committed passes. Rollback captures per-target inverses (absent rows invert to destroy, existing rows restore with their scope memberships).
+
+### CRUD scaffold
+
+- Add `Model.crud({ list, get, create, update, destroy })` - a Rails-resources-style composer over `Model.query`/`Model.mutation` with conventional keys and optimistic defaults: `list` requires an explicit `into` scope (define-time throw), `get` targets the model, `create` takes `respond` or `build`+`selectServerNode` with `prependTo`/`appendTo` pass-through, `update` defaults to a patch by `input.id` with the id excluded from the patch, `destroy` defaults to a destroy by `input.id`. Explicit `optimistic` overrides a convention entirely; `optimistic: false` disables the local write. Conventional `update`/`destroy` inputs require `id: string` at the type level; returned handles are fully typed per present section.
+
+### Live subscription colocation
+
+- Add `live: { <event>: <ingest entry> }` on `Model.query` - subscription entries colocated with the query they keep fresh, compiled through the `Model.ingest` pipeline. Subscriptions are refcounted on the query's `use` readers: first mount subscribes, last unmount unsubscribes, overlapping readers share one transport subscription, `fetch` alone never subscribes. `resetRuntime` drops the runtime and reactivates it for still-mounted readers; late payloads after teardown write nothing. The returned handle adds `live.apply(event, payload)` (typed `LiveQueryHandle`, present only when the config declares `live`).
+
+### Required fields
+
+- Add the `require` gate on every read surface: `use.row(id, { require })`, `use.first(where, { require })`, the chainable builder's `.require(...)` step, and per-include `require` inside `Model.view` configs. A row is delivered only when every required field is present; `undefined` counts as missing while an explicit `null` counts as present. Filtering is row-level only - scope `totalCount` and windowing stay driven by the unfiltered source. TypeScript narrows delivered rows so required fields drop their `undefined` arm.
+
+### Retention and garbage collection
+
+- `collectGarbage` roots now include mounted readers: any row, scope, or model a mounted hook depends on survives collection, and unmounting releases it for the next pass. Manual GC during active screens no longer needs protective scope design.
+- Add opt-in in-session GC scheduling via `configureDb({ defaults: { inSessionGc: { threshold, debounceMs } } })` (defaults 500 disappearances / 1000ms debounce, `false` to keep GC purely app-driven). Pressure counts row disappearances and scope detaches - bulk inserts and hydration build none - and a maintenance pass never re-triggers itself.
+- Add opt-in idle scope collection via model `maintenance: { dropIdleScopesAfterMs }`: scopes not accessed for the window are dropped together with rows that become unreferenced. Access marks are mount-time (hooks and views) or explicit (`scope.read()`); re-renders never refresh them. Hydration seeds a grace window, and a mounted reader always protects its scope regardless of age.
+- Tombstones now decay on three tiers: a 24h TTL, a 10,000-per-model cap that never evicts tombstones younger than 10 minutes, and an overflow valve that trims straight to the cap when a burst passes 20,000. Every flush prunes every known model, so quiescent models decay too.
+
+### Tooling
+
+- Add `yarn check:jsdoc` - an AST-driven gate (TypeScript compiler API) that fails when any value export of the public barrel lacks IntelliSense-grade JSDoc on its declaration.
+- Perf gates now measure process CPU time with warmup and median-of-25 sampling, making scale ratios immune to wall-clock noise from parallel test workers.
+
+### Reliability and performance
+
+- Lock every public read surface with guarantee-matrix contracts (reference identity, counted renders, reset/lifecycle, teardown). Fixed by those contracts: windowed views no longer re-render on off-window writes; a stopped subscription runtime ignores late transport payloads; `defineFetch` hook results keep stable identity for unchanged data.
+- Round-two surfaces carry the full matrix plus negative paths: duplicate live events are idempotent with preserved array/row identity, unrelated readers render zero times on placement/respond/crud/live writes, colocated debounce and retry timers clear after the last unmount, and 20k/1k scale ratio gates bound placement, respond, crud, and live delivery.
+- Fix an O(scope) hot path in optimistic placement discovered by those gates: membership mirroring now carries sparse scope orders end to end (scope-index boundary fast-path, append orders plumbed through the commit bus, placement-covered auto memberships deduplicated at plan assembly). A prepend into a 20k-row scope dropped from ~950ms to under 0.4ms; all scale gates hold ratios under 12.
+- On-device (Hermes, iOS simulator): cold boot with 20k persisted rows in ~6.5-7.0s (target <10s), patch median 20k/1k ratio ~3.2, optimistic prepend and respond flows verified end to end on the example app.
+- Unify comparison, equality, and generation-fence helpers on shared implementations with `es-toolkit`-first utilities; sorting runs only when an ordering is declared.
+
+### Known limitations
+
+- Internal `__`-prefixed handle members (plan/apply plumbing on `ScopeHandle` and ingest declarations) remain visible in generated declarations; opaque wrappers are deferred with rationale - they are optional, undocumented, and carry no support surface.
+- A define-time cascade guard is structurally impossible (relations are lazy thunks); the guard runs at `bootDb` instead, with the run-time check as backstop.
+- `docs/` reference is fully reconciled with the shipped surface in this release; the historical v6 planning artifacts (`docs/v6-api-mapping.md`, `docs/v6-contract-spec.md`) are removed.
+
 ## 7.0.0-beta.1 - 2026-07-18
 
 ### Breaking changes and migration
