@@ -24,7 +24,7 @@ import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from '.
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
 import type { InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
@@ -32,12 +32,15 @@ import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelS
 import { trimRowsPerScope } from '../utils/runtimePrimitives';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { omit } from 'es-toolkit';
+import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
   key?: string;
   into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
+  /** Colocated live subscription entries, delivered through the model ingest pipeline while readers are mounted. */
+  live?: Record<string, ModelIngestEntry>;
 };
 type ModelMutationConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe'> & {
   dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
@@ -680,7 +683,40 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
-    query: (name, queryConfig) => defineQuery({ ...queryConfig, key: queryConfig.key ?? `${config.id}:${name}`, into: queryConfig.into ?? model }),
+    query: (name, queryConfig) => {
+      const { live, ...queryOptions } = queryConfig;
+      const handle = defineQuery({ ...queryOptions, key: queryConfig.key ?? `${config.id}:${name}`, into: queryConfig.into ?? model });
+      if (!live) return handle;
+      const compiled = defineModelIngest(model, live);
+      let runtime: ReturnType<typeof createDbSubscriptionRuntime> | null = null;
+      let readers = 0;
+      const sync = () => {
+        if (readers === 0) return;
+        runtime ??= createDbSubscriptionRuntime(compiled.entries);
+        runtime.setActive(true);
+      };
+      model.registerReset(() => {
+        runtime?.setActive(false);
+        runtime = null;
+        sync();
+      });
+      return {
+        ...handle,
+        use: (...args: any[]) => {
+          const result = (handle.use as any)(...args);
+          useEffect(() => {
+            readers += 1;
+            sync();
+            return () => {
+              readers -= 1;
+              if (readers === 0) runtime?.setActive(false);
+            };
+          }, []);
+          return result;
+        },
+        live: { apply: compiled.apply }
+      };
+    },
     mutation: (name, mutationConfig) => {
       const dedupe = mutationConfig.dedupe === false ? undefined : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });

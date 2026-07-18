@@ -15,6 +15,8 @@ export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Re
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
     key?: string;
     into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
+    /** Colocated live subscription entries, delivered through the model ingest pipeline while readers are mounted. */
+    live?: Record<string, ModelIngestEntry>;
 };
 type ModelMutationConfig<TData, TInput, TStored extends {
     id: string;
@@ -118,7 +120,6 @@ export type ModelCore<TStored extends {
     mutation<TData, TInput, TRow extends {
         id: string;
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
-    /** Compose conventional list/get/create/update/destroy handles through this model's existing query and mutation builders. */
     /** Compose conventional resource handles.
      * @param sections Present resource sections and their builder-derived configuration.
      * @returns Exactly the handles for the present section keys.
