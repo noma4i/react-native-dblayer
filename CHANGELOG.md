@@ -1,5 +1,31 @@
 # Changelog
 
+## 7.0.0-beta.1 - 2026-07-18
+
+### Breaking changes and migration
+
+- BREAKING: the reactive core now runs on TanStack DB. On Hermes, consumers must provide Web Crypto: install `react-native-get-random-values`, import it first in the app entry, and polyfill `crypto.randomUUID` (yupi_v2 already ships both - no action needed there).
+- BREAKING: all models must be imported (registered) before `bootDb()` / `replayJournal()` runs; Metro inline-requires can defer screen modules, so import model modules explicitly in the app entry. Journal replay and maintenance soft-fail on unregistered models instead of crashing, but registration-before-boot is the supported pattern.
+
+### Core
+
+- Serve `Model.scopes.X.use` and `useWindow` from shared TanStack live queries - one incrementally-maintained pipeline per scope with native `orderBy`; concurrent readers of the same scope share it.
+- Mirror entity rows and scope membership into TanStack collections through a commit-bus firehose - a single path covering apply, journal replay, and GC maintenance - with sort-value-based membership ordering for field-sorted scopes.
+- Keep the arbitration planes (tombstones, coverage, merge gates, operation ledger) and WAL/checkpoint persistence unchanged - no storage migration; existing persisted data is picked up as-is.
+- Fix a subscription race after `resetRuntime` on the new read path and guard collection seeding against unregistered models.
+
+### Performance
+
+- Scope-read patch and resort scale better than the previous engine: acceptance gate ratios improved and absolute large-scope timings dropped several-fold; every existing perf budget is unchanged and green.
+
+### Example
+
+- The example app runs on the new core and demonstrates the consumer patterns above (crypto polyfill, models imported before boot).
+
+### Known limitations
+
+- Hybrid phase: `use.where`, `use.first`, and point reads still run on the previous engine paths; the model-centric Rails-like DSL lands in the next betas.
+
 ## 6.2.0-beta.1 - 2026-07-18
 
 ### Breaking changes and migration
