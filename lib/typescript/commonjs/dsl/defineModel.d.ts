@@ -121,7 +121,6 @@ export type ModelCore<TStored extends {
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
         first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
         where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
-        where(where: DbWhere<TStored> | null, opts: DbReadOptions<TStored>): TStored[];
         byIds(ids: string[]): TStored[];
         count(where?: DbWhere<TStored> | null): number;
         related(id: string | null | undefined, relation: string): unknown;
