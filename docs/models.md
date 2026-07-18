@@ -384,7 +384,7 @@ const messageIngest = MessageModel.ingest({
 | `upsert` | `unknown \| unknown[]` | Row(s) to write into this model as an event upsert. |
 | `destroy` | `string \| string[]` | Id(s) to destroy. |
 | `invalidate` | `boolean` | Invalidate the model's registered queries after applying. |
-| `extract` | `Array<{ into, rows }>` | Cross-model sideloads applied in the SAME transaction as the event rows. |
+| `extract` | `ExtractSink[]` | Cross-model sideloads applied in the SAME transaction as the event rows. |
 | `operationId` | `string \| null` | Echo guard: when this operation id already committed locally (via a `Model.mutation` run that sent the same id, see [mutations.md](./mutations.md#operationid-echo-wiring-with-modelingest)), the whole event is skipped. |
 
 **Fused declarative form** - when `handler` is omitted, `Model.ingest` compiles the subscription

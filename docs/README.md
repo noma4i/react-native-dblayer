@@ -104,6 +104,8 @@ Generated from `src/index.ts`, grouped by area.
 
 | Export | Kind | Home |
 | --- | --- | --- |
+| `QueryResult` | type | [queries.md](./queries.md#queryresult) |
+| `ExtractSink` | type | [queries.md](./queries.md#modelqueryname-config) |
 | `Coverage` | type | [queries.md](./queries.md#coverage-semantics) |
 | `defineFetch` | value | [queries.md](./queries.md#definefetchconfig) |
 | `FetchResult` | type | [queries.md](./queries.md#fetchresult) |
@@ -126,6 +128,7 @@ Generated from `src/index.ts`, grouped by area.
 
 | Export | Kind | Home |
 | --- | --- | --- |
+| `IngestDecl` | type | [models.md](./models.md#modelingestentries) |
 | `createDbSubscriptionRuntime` | value | [configuration.md](./configuration.md#createdbsubscriptionruntimeentries) |
 | `createDbSubscriptionEffects` | value | [configuration.md](./configuration.md#createdbsubscriptioneffectsnoopeffects) |
 | `defineDbSubscriptionEntry` | value | [configuration.md](./configuration.md#definedbsubscriptionentryentry) |
