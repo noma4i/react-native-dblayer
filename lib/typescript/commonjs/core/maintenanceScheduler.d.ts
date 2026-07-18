@@ -4,7 +4,8 @@
  * accumulated, debounced so a burst of writes produces one sweep instead of one per batch.
  *
  * Pressure accumulates per non-maintenance batch as (count of `batch.rows` entries whose `fields`
- * is `null` - both destroys and brand-new inserts report `null` on `RowChange`, so both count) +
+ * is `null` AND whose row has actually disappeared - see `hasDisappeared`; a `fields === null` row
+ * from a bulk insert reports `null` too but has NOT disappeared, so it contributes no pressure) +
  * (sum of every `batch.scopeChanges[].detachIds.length`). Batches published by `collectGarbage()`
  * itself carry `mode: 'maintenance'` and are skipped entirely, so a sweep can never re-trigger
  * itself through its own eviction/detach rows.

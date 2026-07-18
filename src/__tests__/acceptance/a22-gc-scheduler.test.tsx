@@ -90,10 +90,17 @@ describe('A22 in-session GC scheduler', () => {
       setupAcceptanceRuntime();
       const model = defineModel({ id: 'A22SelfTrigger', name: 'A22SelfTrigger', fields: { title: f.str() } });
 
-      // Inserting 600 unscoped/unreferenced/unrooted rows alone crosses the pressure threshold
-      // and arms the first sweep; collectGarbage() evicts all 600 in one maintenance batch.
+      // 600 orphan rows: unscoped/unreferenced/unrooted, never destroyed - present only so the
+      // sweep has something real to evict (a non-empty maintenance batch to test self-trigger against).
       const orphans = burstRows('orphan', 600);
       model.insertStoredMany(orphans);
+
+      // Separate destroy-shaped pressure source that actually arms the sweep - bulk inserts alone
+      // build no pressure since nothing has disappeared.
+      const trigger = burstRows('trigger', 600);
+      model.insertStoredMany(trigger);
+      model.destroyMany(trigger.map(row => row.id));
+
       model.insertStored({ id: 'kept', title: 'kept' });
       const reader = renderCounted(() => model.use.row('kept'));
 
@@ -122,6 +129,7 @@ describe('A22 in-session GC scheduler', () => {
       const model = defineModel({ id: 'A22ResetCancel', name: 'A22ResetCancel', fields: { title: f.str() } });
       const rows = burstRows('row', 600);
       model.insertStoredMany(rows);
+      model.destroyMany(rows.map(row => row.id)); // destroy-shaped pressure - actually arms a pending timer
 
       resetRuntime();
 
@@ -141,14 +149,35 @@ describe('A22 in-session GC scheduler', () => {
     try {
       setupAcceptanceRuntime({ defaults: { inSessionGc: false } });
       const model = defineModel({ id: 'A22Disabled', name: 'A22Disabled', fields: { title: f.str() } });
+      model.insertStored({ id: 'orphan', title: 'orphan' }); // unscoped, unreferenced, unrooted
+
       const rows = burstRows('row', 600);
       model.insertStoredMany(rows);
+      model.destroyMany(rows.map(row => row.id)); // would normally cross the threshold and trigger a sweep
 
       act(() => {
         jest.advanceTimersByTime(60_000);
       });
 
-      expect(model.get(rows[0]!.id)).toBeDefined();
+      expect(model.get('orphan')).toBeDefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('bulk inserts build no pressure', () => {
+    jest.useFakeTimers();
+    try {
+      setupAcceptanceRuntime();
+      const model = defineModel({ id: 'A22BulkInsert', name: 'A22BulkInsert', fields: { title: f.str() } });
+      model.insertStored({ id: 'orphan', title: 'orphan' }); // pre-seeded, unscoped, unreferenced, unrooted
+
+      const rows = burstRows('row', 600);
+      model.insertStoredMany(rows); // 600 fresh inserts, no destroys anywhere
+
+      jest.advanceTimersByTime(60_000);
+
+      expect(model.get('orphan')).toBeDefined();
     } finally {
       jest.useRealTimers();
     }
