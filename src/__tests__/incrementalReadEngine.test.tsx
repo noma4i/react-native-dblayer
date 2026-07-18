@@ -26,7 +26,7 @@ describe('incremental equivalence property suite', () => {
   it('matches a full scan through insert, patch, destroy, replace, scope apply, GC, and reset', () => {
     configure();
     const model = defineModel({ id: 'incremental-property', name: 'incremental-property', fields: { group: f.str(), rank: f.num() } });
-    const reader = render(() => model.use.where({ group: 'a' }, { orderBy: { field: 'rank', direction: 'asc' } }));
+    const reader = render(() => model.use.where({ group: 'a' }).orderBy('rank').rows());
     const assertEquivalent = () => expect(reader.value()).toEqual(model.getWhere({ group: 'a' }, { orderBy: { field: 'rank', direction: 'asc' } }));
     act(() => model.insertStored({ id: 'one', group: 'a', rank: 2 })); assertEquivalent();
     act(() => model.insertStored({ id: 'two', group: 'b', rank: 1 })); assertEquivalent();
@@ -43,7 +43,7 @@ describe('incremental tie suite', () => {
     configure();
     const model = defineModel({ id: 'incremental-ties', name: 'incremental-ties', fields: { rank: f.num() } });
     act(() => { model.insertStored({ id: 'first', rank: 1 }); model.insertStored({ id: 'second', rank: 1 }); });
-    const reader = render(() => model.use.where({}, { orderBy: { field: 'rank', direction: 'asc' } }));
+    const reader = render(() => model.use.where({}).orderBy('rank').rows());
     expect(reader.value().map(row => row.id)).toEqual(['first', 'second']);
     act(() => model.patch('first', { rank: 2 }));
     act(() => model.patch('first', { rank: 1 }));

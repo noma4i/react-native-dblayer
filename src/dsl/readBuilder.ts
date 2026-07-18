@@ -7,9 +7,9 @@ export type ModelReadBuilder<TStored extends { id: string }> = {
   orderBy(field: keyof TStored & string, direction?: 'asc' | 'desc'): ModelReadBuilder<TStored>;
   /** Keep only the leading `count` rows after filtering and ordering. */
   limit(count: number): ModelReadBuilder<TStored>;
-  /** Reactively read rows for this builder declaration. */
+  /** Reactively read rows for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
   rows(): TStored[];
-  /** Read one non-reactive snapshot for this builder declaration. */
+  /** Read one non-reactive snapshot for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
   read(): TStored[];
 };
 

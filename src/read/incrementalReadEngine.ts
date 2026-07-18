@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
+import { arraysShallowEqual } from './useLiveRead';
 
 type Engine<T> = {
   signature: string;
@@ -116,9 +117,12 @@ export const sortModelReadRows = <T extends Row>(rows: T[], orderBy: ReadonlyArr
     for (const order of orderBy) {
       const a = left[order.field];
       const b = right[order.field];
+      const aMissing = a == null;
+      const bMissing = b == null;
+      if (aMissing && bMissing) continue;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
       if (Object.is(a, b)) continue;
-      if (a == null) return 1;
-      if (b == null) return -1;
       const result = a < b ? -1 : 1;
       return order.direction === 'asc' ? result : -result;
     }
@@ -128,9 +132,7 @@ export const sortModelReadRows = <T extends Row>(rows: T[], orderBy: ReadonlyArr
 };
 
 const engineValuesEqual = (left: unknown, right: unknown): boolean =>
-  Array.isArray(left) && Array.isArray(right)
-    ? left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
-    : Object.is(left, right);
+  Array.isArray(left) && Array.isArray(right) ? arraysShallowEqual(left, right) : Object.is(left, right);
 
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
 export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineOptions<T, TValue>): Engine<TValue> => {
@@ -149,7 +151,12 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
   const render = (): void => {
     if (rows) {
       const orderBy = options.options?.orderBy ?? [];
-      ordered = sortModelReadRows([...rows.values()], orderBy, options.options?.limit);
+      const values = [...rows.values()];
+      ordered = orderBy.length > 0
+        ? sortModelReadRows(values, orderBy, options.options?.limit)
+        : options.options?.limit === undefined
+          ? values
+          : values.slice(0, Math.max(0, options.options.limit));
       engine.value = options.select(ordered, ids.size);
     } else {
       engine.value = options.select([], ids.size);

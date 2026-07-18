@@ -49,7 +49,7 @@ const measure = (rowCount: number, subscriberCount: number): number => {
     model.__applyRows?.(seedRows(rowCount));
 
     const Reader = () => {
-      model.use.where({ kind: 'watched' }, { orderBy: { field: 'rank', direction: 'asc' } });
+      model.use.where({ kind: 'watched' }).orderBy('rank').rows();
       model.use.count({ kind: 'watched' });
       model.use.first({ kind: 'watched' }, { orderBy: { field: 'rank', direction: 'asc' } });
       return null;

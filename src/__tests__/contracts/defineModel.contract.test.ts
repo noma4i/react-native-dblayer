@@ -102,7 +102,7 @@ describe('defineModel contracts', () => {
     Model.insertStored({ id: 'two', rank: 2 });
     let rows: Array<{ id: string; rank: number }> = [];
     const Harness = () => {
-      rows = Model.use.where({}, { orderBy: { field: 'rank', direction: 'desc' }, limit: 2 });
+      rows = Model.use.where({}).orderBy('rank', 'desc').limit(2).rows();
       return null;
     };
     let renderer!: TestRenderer.ReactTestRenderer;

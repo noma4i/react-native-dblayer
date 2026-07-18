@@ -90,22 +90,16 @@ describe('typed predicate DSL', () => {
     seedChats(model);
 
     const complexRows = renderHook(() =>
-      model.use.where(
-        {
+      model.use.where({
           and: [
             { or: [{ status: 'secondary' }, { and: [{ status: 'primary' }, { premium: true }] }] },
             { not: { kind: 'system' } }
           ]
-        },
-        { orderBy: { field: 'lastActivityAt', direction: 'desc' }, limit: 25 }
-      )
+        }).orderBy('lastActivityAt', 'desc').limit(25).rows()
     );
     const count = renderHook(() => model.use.count({ and: [{ status: 'primary', pinned: true }, { not: { kind: 'system' } }] }));
     const primaryRows = renderHook(() =>
-      model.use.where(
-        { and: [{ status: 'primary' }, { or: [{ pinned: true }, { kind: 'system' }] }] },
-        { orderBy: { field: 'lastActivityAt', direction: 'desc' } }
-      )
+      model.use.where({ and: [{ status: 'primary' }, { or: [{ pinned: true }, { kind: 'system' }] }] }).orderBy('lastActivityAt', 'desc').rows()
     );
     const latestInChat = renderHook(() => model.use.first({ chatId: 'c1' }, { orderBy: { field: 'createdAt', direction: 'desc' } }));
 
