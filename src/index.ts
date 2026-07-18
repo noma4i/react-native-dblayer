@@ -19,6 +19,7 @@ export type { QueryResult, ExtractSink } from './dsl/defineQuery';
 export { defineFetch } from './dsl/defineFetch';
 export type { FetchResult } from './dsl/defineFetch';
 export type { MutateCallbacks, ScopeHandleExpr } from './dsl/defineMutation';
+export type { LiveQueryHandle } from './dsl/defineModel';
 export { defineCommand } from './dsl/defineCommand';
 export type { IngestDecl } from './dsl/defineIngest';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';

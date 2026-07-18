@@ -12,6 +12,11 @@ import type { Coverage, ScopeSpec } from './scope';
 import type { InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
+/** Manual injection surface for a query's colocated live entries. */
+export type LiveQueryHandle = {
+    /** Inject a payload into the same guarded pipeline transport events use for this query's live entries. */
+    apply(event: string, payload: unknown): void;
+};
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
     key?: string;
     into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
@@ -112,6 +117,14 @@ export type ModelCore<TStored extends {
     updatedAt?: string | null;
 }> = {
     modelId: string;
+    /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
+    query<TResponse, TVars, TScope, TRow extends {
+        id: string;
+    }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & {
+        live: Record<string, ModelIngestEntry>;
+    }): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>> & {
+        live: LiveQueryHandle;
+    };
     /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
     query<TResponse, TVars, TScope, TRow extends {
         id: string;

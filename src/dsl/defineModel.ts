@@ -36,6 +36,12 @@ import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
+/** Manual injection surface for a query's colocated live entries. */
+export type LiveQueryHandle = {
+  /** Inject a payload into the same guarded pipeline transport events use for this query's live entries. */
+  apply(event: string, payload: unknown): void;
+};
+
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
   key?: string;
   into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
@@ -111,6 +117,11 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
 
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   modelId: string;
+  /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { live: Record<string, ModelIngestEntry> }
+  ): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>> & { live: LiveQueryHandle };
   /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
@@ -683,7 +694,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
-    query: (name, queryConfig) => {
+    // The runtime branch adds `live` exactly when the overload's live config is present.
+    query: ((name, queryConfig) => {
       const { live, ...queryOptions } = queryConfig;
       const handle = defineQuery({ ...queryOptions, key: queryConfig.key ?? `${config.id}:${name}`, into: queryConfig.into ?? model });
       if (!live) return handle;
@@ -702,8 +714,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       });
       return {
         ...handle,
-        use: (...args: any[]) => {
-          const result = (handle.use as any)(...args);
+        use: (scope: unknown, options?: { enabled?: boolean }) => {
+          const result = handle.use(scope as never, options);
           useEffect(() => {
             readers += 1;
             sync();
@@ -716,7 +728,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         },
         live: { apply: compiled.apply }
       };
-    },
+    }) as ModelCore<any>['query'],
     mutation: (name, mutationConfig) => {
       const dedupe = mutationConfig.dedupe === false ? undefined : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });
@@ -732,16 +744,31 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         const { respond, build, selectServerNode, prependTo, appendTo, optimistic, ...create } = sections.create;
         const hasOptimistic = Object.prototype.hasOwnProperty.call(sections.create, 'optimistic');
         if (!hasOptimistic && !respond && (!build || !selectServerNode)) throw new Error(`${config.id}: crud create requires respond or build with selectServerNode`);
-        const createOptimistic = hasOptimistic ? (optimistic === false ? undefined : optimistic) : respond ? { model, respond, selectServerNode, prependTo, appendTo } : { model, build, selectServerNode, prependTo, appendTo };
+        const createOptimistic = hasOptimistic
+          ? optimistic === false
+            ? undefined
+            : optimistic
+          : respond
+            ? { model, respond, selectServerNode, prependTo, appendTo }
+            : { model, build, selectServerNode, prependTo, appendTo };
         handles.create = model.mutation('create', { ...create, optimistic: createOptimistic } as any);
       }
       if (sections.update) {
         const { optimistic, ...update } = sections.update;
-        handles.update = model.mutation('update', { ...update, optimistic: optimistic === false ? undefined : (optimistic ?? { method: 'patch', model, selectId: (input: { id: string }) => input.id, selectPatch: (input: { id: string }) => omit(input, ['id']) }) } as any);
+        handles.update = model.mutation('update', {
+          ...update,
+          optimistic:
+            optimistic === false
+              ? undefined
+              : (optimistic ?? { method: 'patch', model, selectId: (input: { id: string }) => input.id, selectPatch: (input: { id: string }) => omit(input, ['id']) })
+        } as any);
       }
       if (sections.destroy) {
         const { optimistic, ...destroy } = sections.destroy;
-        handles.destroy = model.mutation('destroy', { ...destroy, optimistic: optimistic === false ? undefined : (optimistic ?? { method: 'destroy', model, selectId: (input: { id: string }) => input.id }) } as any);
+        handles.destroy = model.mutation('destroy', {
+          ...destroy,
+          optimistic: optimistic === false ? undefined : (optimistic ?? { method: 'destroy', model, selectId: (input: { id: string }) => input.id })
+        } as any);
       }
       return handles as { [K in keyof typeof sections]: any };
     },
