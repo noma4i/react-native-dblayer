@@ -26,6 +26,7 @@ import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
+import type { InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
 import { trimRowsPerScope } from '../utils/runtimePrimitives';
@@ -99,7 +100,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
   /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
-  /** Define a refcounted status poller owned by this model. */
+  /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
   poller<TData>(
     name: string,
     config: {
@@ -193,10 +194,10 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
   maintenance?: {
     maxRowsPerScope?: Array<{
-      scopeField: keyof any & string;
+      scopeField: keyof InferStoredFields<TFields> & string;
       limit: number;
-      compare: (left: any, right: any) => number;
-      /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: any) => boolean;
+      compare: (left: InferStoredFields<TFields>, right: InferStoredFields<TFields>) => number;
+      /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: InferStoredFields<TFields>) => boolean;
     }>;
   };
   merge?: {
@@ -653,10 +654,17 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       return defineMutation({ ...mutationConfig, dedupe });
     },
     fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
-    poller: (_name, pollerConfig) =>
+    poller: (name, pollerConfig) =>
       createModelStatusPoller({
         ...pollerConfig,
-        fetch: async id => (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data as any
+        fetch: async id => {
+          try {
+            return (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data as any;
+          } catch (error) {
+            getDbLogger().error('Model.poller', 'fetch failed', { key: `${config.id}:${name}`, id, error });
+            throw error;
+          }
+        }
       }),
     view: (name, viewConfig) => defineView(model, name, viewConfig),
     ingest: entries => defineModelIngest(model, entries),

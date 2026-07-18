@@ -9,6 +9,7 @@ import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
+import type { InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
@@ -88,7 +89,7 @@ export type ModelCore<TStored extends {
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
-    /** Define a refcounted status poller owned by this model. */
+    /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
     poller<TData>(name: string, config: {
         document: DbGraphQLDocument<TData, {
             id: string;
@@ -194,10 +195,10 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
     maintenance?: {
         maxRowsPerScope?: Array<{
-            scopeField: keyof any & string;
+            scopeField: keyof InferStoredFields<TFields> & string;
             limit: number;
-            compare: (left: any, right: any) => number;
-            /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: any) => boolean;
+            compare: (left: InferStoredFields<TFields>, right: InferStoredFields<TFields>) => number;
+            /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: InferStoredFields<TFields>) => boolean;
         }>;
     };
     merge?: {
