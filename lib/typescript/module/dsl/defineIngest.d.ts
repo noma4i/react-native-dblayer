@@ -60,7 +60,10 @@ export type ModelIngestEntry = {
  * @param entries Subscription event declarations keyed by their root-field name.
  * @returns Subscription entries accepted directly by `createDbSubscriptionRuntime`.
  */
-export declare const defineModelIngest: (model: IngestModel, entries: Record<string, ModelIngestEntry>) => DbSubscriptionEntry[];
+export declare const defineModelIngest: (model: IngestModel, entries: Record<string, ModelIngestEntry>) => {
+    entries: DbSubscriptionEntry[];
+    apply: (key: string, payload: unknown) => void;
+};
 /**
  * Compile a subscription event into ONE event plan: rows, destroys and extract sinks apply with
  * relation side effects (touch/counterCache/dependent) in a single epoch. Version arbitration for

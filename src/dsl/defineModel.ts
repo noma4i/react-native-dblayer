@@ -116,7 +116,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   /** Define a reactive joined projection over one declared scope and its current related rows. */
   view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
   /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
-  ingest(entries: Record<string, ModelIngestEntry>): DbSubscriptionEntry[];
+  ingest(entries: Record<string, ModelIngestEntry>): { entries: DbSubscriptionEntry[]; apply(key: string, payload: unknown): void };
   get(id: string | null | undefined): TStored | undefined;
   getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
