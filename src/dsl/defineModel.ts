@@ -682,9 +682,9 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       const handles: Record<string, unknown> = {};
       if (sections.list) {
         if (!sections.list.into) throw new Error(`${config.id}: crud list requires an explicit into scope`);
-        handles.list = model.query(`list`, sections.list as any);
+        handles.list = model.query('list', sections.list as any);
       }
-      if (sections.get) handles.get = model.query(`get`, { ...sections.get, into: sections.get.into ?? model } as any);
+      if (sections.get) handles.get = model.query('get', { ...sections.get, into: sections.get.into ?? model } as any);
       if (sections.create) {
         const { respond, build, selectServerNode, prependTo, appendTo, optimistic, ...create } = sections.create;
         const hasOptimistic = Object.prototype.hasOwnProperty.call(sections.create, 'optimistic');
