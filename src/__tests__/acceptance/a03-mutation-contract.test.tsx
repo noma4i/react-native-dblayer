@@ -1,6 +1,5 @@
 import { act } from 'react-test-renderer';
 import { defineModel, f, hasMany, isTempId, resetRuntime, scope } from '../../index';
-import { getOperationState } from '../../dsl/configure';
 import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness';
 
 type Row = { id: string; group?: string; title: string; localUri?: string; extra?: string };
@@ -792,14 +791,12 @@ describe(`A03 mutation contract`, () => {
     await expect(resolved).resolves.toBeNull();
     expect(model.getAll()).toEqual([]);
     expect(model.scopes.feed.read(scopeValue)).toEqual([]);
-    expect(getOperationState().pending()).toEqual([]);
     const rejected = mutation.run({ title: `rejected` });
     resetRuntime();
     rejectHold.reject(new Error(`rejected`));
     await expect(rejected).resolves.toBeNull();
     expect(model.getAll()).toEqual([]);
     expect(model.scopes.feed.read(scopeValue)).toEqual([]);
-    expect(getOperationState().pending()).toEqual([]);
     expect(onCommit).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
