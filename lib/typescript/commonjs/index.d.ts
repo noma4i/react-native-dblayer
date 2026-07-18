@@ -2,6 +2,7 @@ export { configureDb, flushPersistence, getDbQueryClient, purgeForeignStorageKey
 export { getDbTransport, setDbTransport } from './core/transport';
 export type { DbDefaults } from './dsl/configure';
 export { bootDb, suspendDb } from './dsl/lifecycle';
+export type { MaintenanceReport } from './dsl/maintenanceRegistry';
 export { resetRuntime, registerReset } from './core/reset';
 export { mmkvStoragePlane } from './core/planes/storagePlane';
 export type { StoragePlane } from './core/planes/storagePlane';

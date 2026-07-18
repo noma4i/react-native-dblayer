@@ -1,4 +1,4 @@
-import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
+import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
@@ -26,6 +26,10 @@ import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
+import { getDbTransport } from '../core/transport';
+import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
+import { trimRowsPerScope } from '../utils/runtimePrimitives';
+import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
@@ -95,6 +99,19 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
   /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
+  /** Define a refcounted status poller owned by this model. */
+  poller<TData>(
+    name: string,
+    config: {
+      document: DbGraphQLDocument<TData, { id: string }>;
+      vars?: (id: string) => Record<string, unknown>;
+      apply: (id: string, data: TData) => void;
+      isTerminal: (data: TData) => boolean;
+      intervalMs: number;
+      maxAttempts: number;
+      onSessionStop?: (id: string, reason: 'terminal' | 'budget') => void;
+    }
+  ): ModelStatusPoller;
   /** Define a reactive joined projection over one declared scope and its current related rows. */
   view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
   /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
@@ -173,6 +190,15 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   scopes?: TScopes;
   /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
   gc?: 'exempt';
+  /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
+  maintenance?: {
+    maxRowsPerScope?: Array<{
+      scopeField: keyof any & string;
+      limit: number;
+      compare: (left: any, right: any) => number;
+      /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: any) => boolean;
+    }>;
+  };
   merge?: {
     /**
      * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`
@@ -627,6 +653,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       return defineMutation({ ...mutationConfig, dedupe });
     },
     fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
+    poller: (_name, pollerConfig) =>
+      createModelStatusPoller({
+        ...pollerConfig,
+        fetch: async id => (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data as any
+      }),
     view: (name, viewConfig) => defineView(model, name, viewConfig),
     ingest: entries => defineModelIngest(model, entries),
     get: id => (id == null ? undefined : planes().entityState.read(id)),
@@ -745,6 +776,15 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     __revision: () => revision
   };
   registerIngestModel(config.name, model);
+  if (config.maintenance) {
+    registerModelMaintenance(config.id, () => {
+      const reports: MaintenanceReport[] = [];
+      for (const task of config.maintenance?.maxRowsPerScope ?? []) {
+        reports.push({ model: config.id, task: 'maxRowsPerScope', affected: trimRowsPerScope(model, task.scopeField, task.limit, task.compare, task.protect?.()) });
+      }
+      return reports;
+    });
+  }
 
   registerReset(() => {
     revision += 1;

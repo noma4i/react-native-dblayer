@@ -1,6 +1,7 @@
 import type { GcReport } from '../core/gc';
 import { collectGarbage } from '../core/gc';
 import { configureDb, flushPersistence, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
+import { runModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 
 /**
  * Recommended app-startup sequence: `configureDb(options)`, then `replayJournal()` to recover any
@@ -21,12 +22,13 @@ import { configureDb, flushPersistence, isDbConfigured, purgeForeignStorageKeys,
  * @returns `replayed` - the journal record count `replayJournal` recovered; `gc` - the `collectGarbage`
  * report for the post-replay sweep.
  */
-export const bootDb = async (options: Parameters<typeof configureDb>[0]): Promise<{ replayed: number; gc: GcReport }> => {
+export const bootDb = async (options: Parameters<typeof configureDb>[0]): Promise<{ replayed: number; gc: GcReport; maintenance: MaintenanceReport[] }> => {
   configureDb(options);
   const replayed = await replayJournal();
   const gc = collectGarbage();
   purgeForeignStorageKeys();
-  return { replayed, gc };
+  const maintenance = runModelMaintenance();
+  return { replayed, gc, maintenance };
 };
 
 /**

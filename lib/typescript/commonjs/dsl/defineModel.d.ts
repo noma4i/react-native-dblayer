@@ -1,4 +1,4 @@
-import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
+import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import type { JournalOp } from '../core/apply/journal';
 import { type RelationDecl } from '../core/relations';
 import { defineFetch } from './defineFetch';
@@ -9,6 +9,7 @@ import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
+import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
     key?: string;
@@ -87,6 +88,18 @@ export type ModelCore<TStored extends {
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
+    /** Define a refcounted status poller owned by this model. */
+    poller<TData>(name: string, config: {
+        document: DbGraphQLDocument<TData, {
+            id: string;
+        }>;
+        vars?: (id: string) => Record<string, unknown>;
+        apply: (id: string, data: TData) => void;
+        isTerminal: (data: TData) => boolean;
+        intervalMs: number;
+        maxAttempts: number;
+        onSessionStop?: (id: string, reason: 'terminal' | 'budget') => void;
+    }): ModelStatusPoller;
     /** Define a reactive joined projection over one declared scope and its current related rows. */
     view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
     /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
@@ -178,6 +191,15 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     scopes?: TScopes;
     /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
     gc?: 'exempt';
+    /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
+    maintenance?: {
+        maxRowsPerScope?: Array<{
+            scopeField: keyof any & string;
+            limit: number;
+            compare: (left: any, right: any) => number;
+            /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: any) => boolean;
+        }>;
+    };
     merge?: {
         /**
          * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`

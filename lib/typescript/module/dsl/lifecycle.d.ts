@@ -1,5 +1,6 @@
 import type { GcReport } from '../core/gc';
 import { configureDb } from './configure';
+import { type MaintenanceReport } from './maintenanceRegistry';
 /**
  * Recommended app-startup sequence: `configureDb(options)`, then `replayJournal()` to recover any
  * WAL-only writes from a crash, then `collectGarbage()` to reclaim unreachable rows left over from that
@@ -22,6 +23,7 @@ import { configureDb } from './configure';
 export declare const bootDb: (options: Parameters<typeof configureDb>[0]) => Promise<{
     replayed: number;
     gc: GcReport;
+    maintenance: MaintenanceReport[];
 }>;
 /**
  * Recommended app-background/teardown sequence: `flushPersistence()` to write pending checkpoint
