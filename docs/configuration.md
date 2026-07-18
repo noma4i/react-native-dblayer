@@ -47,6 +47,7 @@ sequencing need.
 | `gcTime` | `number` (ms) | Package-wide default TanStack Query cache `gcTime` for results that omit their own. |
 | `pageSize` | `number` | Package-wide default window size for `ScopeHandle.useWindow`/`Model.view`'s `useWindow` when its own `pageSize` is omitted. |
 | `persistence.checkpointDelayMs` / `persistence.maxPendingPlans` | `number` | Checkpoint flush tuning: how long snapshots wait, and how many pending plans accumulate, before a batched flush leaves the hot path. |
+| `inSessionGc` | `false \| { threshold?, debounceMs? }` | ON by default (`threshold: 500`, `debounceMs: 1000`) - see [In-session GC trigger](#in-session-gc-trigger) below. `false` disables it entirely. |
 | `onSyncError` | `(error: Error, ctx) => void` | Observes contained pipeline failures without changing their control flow. See the policy table below. |
 
 ### `onSyncError` policy
@@ -65,6 +66,24 @@ an error handler.
 `ctx` also carries `model`/`scope`/`key`/`event` where applicable, identifying which model or
 document raised the failure. A throw inside `onSyncError` itself is caught and logged through the
 configured `DbLogger`, never re-thrown into the pipeline that reported it.
+
+### In-session GC trigger
+
+Watches every applied write and, once enough eviction-shaped pressure accumulates, runs one
+debounced `collectGarbage()` sweep automatically - long-lived sessions reclaim unreachable rows
+without the host app ever calling `collectGarbage()` itself.
+
+Pressure accumulates as (rows that actually disappeared - destroyed or GC-evicted) + (detached
+scope entries). Bulk inserts and hydration build no pressure: a brand-new row also reports
+`fields: null` on its commit batch, but nothing disappeared, so it does not count. Once pressure
+reaches `threshold` (default 500) and no sweep is already pending, a `debounceMs` (default 1000)
+timer arms; further pressure while it pends keeps accumulating but does not add a second timer. On
+fire, `collectGarbage()` runs once and pressure resets to zero. `collectGarbage()`'s own published
+batch never counts toward pressure, so a sweep can never re-trigger itself.
+
+`resetRuntime()` stops the current trigger and cancels any pending sweep; the next `configureDb`
+call starts a fresh one. Set `inSessionGc: false` to disable the trigger entirely - `bootDb`'s
+startup sweep and any manual `collectGarbage()` call are unaffected either way.
 
 ## `bootDb(options)` / `suspendDb()`
 
@@ -89,15 +108,25 @@ suspendDb();
 ```
 
 `bootDb(options)` takes the exact same options as `configureDb`, and runs, in order:
-`configureDb(options)`, `replayJournal()` (recovers WAL-only writes from a crash), `collectGarbage()`
-(reclaims rows left unreachable by that replay), `purgeForeignStorageKeys()` (clears pre-migration/
-foreign storage keys), then every declared `ModelConfig.maintenance` task (see
-[models.md](./models.md#maintenance)). Every model module MUST be imported before calling it -
-`replayJournal` throws on a journal record whose model has no registered apply target, and `bootDb`
-does not catch or swallow any step's error; a silent partial boot is worse than a startup crash.
-Returns `{ replayed, gc, maintenance }`: the replayed journal record count, the `collectGarbage`
-report for the post-replay sweep, and one `MaintenanceReport` (`{ model, task: 'maxRowsPerScope',
-affected }`) per declared maintenance task across every model.
+`configureDb(options)`, deferred definition validation (see below), `replayJournal()` (recovers
+WAL-only writes from a crash), `collectGarbage()` (reclaims rows left unreachable by that replay),
+`purgeForeignStorageKeys()` (clears pre-migration/foreign storage keys), then every declared
+`ModelConfig.maintenance` task (see [models.md](./models.md#maintenance)). Every model module MUST
+be imported before calling it - `replayJournal` throws on a journal record whose model has no
+registered apply target, and `bootDb` does not catch or swallow any step's error; a silent partial
+boot is worse than a startup crash. Returns `{ replayed, gc, maintenance }`: the replayed journal
+record count, the `collectGarbage` report for the post-replay sweep, and one `MaintenanceReport`
+(`{ model, task: 'maxRowsPerScope', affected }`) per declared maintenance task across every model.
+
+**Deferred definition validation.** Some definitions cannot be fully checked until every model
+module has been imported - `bootDb` runs these checks right after `configureDb`, before
+`replayJournal`, so a bad definition fails loudly at startup instead of surfacing later as a
+runtime mutation error. Today's one check: an optimistic `method: 'destroy'` on a model with a
+`hasMany` `dependent: 'destroy'` relation throws `<modelId>: optimistic destroy is not supported on
+models with dependent cascades - rollback cannot restore cascaded children`, since such a cascade
+cannot be rolled back if the network call fails. The same guard also fires at the mutation's actual
+`run()` call time regardless of whether `bootDb` ran - the boot-time copy exists purely to fail at
+startup instead of on first use.
 
 `suspendDb()` runs `flushPersistence()` (write pending checkpoint snapshots now) then
 `collectGarbage()` (reclaim rows that became unreachable since the last sweep). Safe to call
@@ -112,7 +141,7 @@ different sequencing need.
 | Function | Signature | Description |
 | --- | --- | --- |
 | `replayJournal` | `() => number` | Idempotently re-applies journal records not yet covered by each model's persisted applied-epoch marker. Call ONCE at startup, after `configureDb` and after every model module has been imported. Returns the replayed record count. |
-| `collectGarbage` | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations. Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, then persistence flushes. Run at startup after `replayJournal` - NOT while UI renders unscoped detail rows. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
+| `collectGarbage` | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations, and every mounted reader (`use.row` roots that row, a model-wide reader roots the whole model, a scope reader roots its members). Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, then persistence flushes. Safe to call during in-session UI rendering - a sweep never evicts a row any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
 | `purgeForeignStorageKeys` | `() => number` | Removes storage keys outside the library's `dbl:` namespace - startup housekeeping that clears pre-migration leftovers from the dedicated storage instance. Idempotent. Returns the removed key count. |
 | `flushPersistence` | `() => void` | Forces a checkpoint flush now - pending model snapshots hit storage in one batch. |
 

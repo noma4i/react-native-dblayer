@@ -159,6 +159,18 @@ under the same id. Garbage-collection eviction (`collectGarbage`, see
 [configuration.md](./configuration.md)) never tombstones: an evicted row is simply absent, and any
 later write (snapshot or event) resurrects it.
 
+**Tombstone retention.** Tombstones are not kept forever - a per-model tombstone map decays on a
+three-tier policy, checked on every checkpoint/flush cycle: any tombstone older than 24h is pruned
+unconditionally; once a model's tombstone count exceeds 10,000, tombstones already older than a
+10-minute minimum age are pruned oldest-first back down to that cap (the floor protects the
+delete-before-create race window a fresh destroy needs, so cap pressure alone cannot cut it short);
+if a burst pushes the count past 20,000 (twice the cap) in one tick, an overflow valve prunes
+oldest-first straight down to the cap, ignoring the 10-minute floor entirely for the overflow - an
+extreme burst is a bigger memory/storage risk than the narrow race window the floor exists to
+protect. Decay runs for every model on each flush (`flushPersistence`/`suspendDb`/background
+checkpoint), including a quiescent model with no new writes since the last flush - tombstones age
+out even without fresh activity on that model.
+
 ## Reads
 
 Snapshot reads never subscribe; use them outside React or in the library/maintenance channel.
