@@ -6,6 +6,18 @@ type CreatedAtLike = string | number | Date | null | undefined;
 type CreatedAtRow = RowId & {
     createdAt?: CreatedAtLike;
 };
+/**
+ * Capture the current runtime generation and expose a reset fence for async work.
+ *
+ * @param options Set `lazy` when a lifecycle owner captures only when it starts.
+ * @returns A current-generation predicate and an explicit capture operation.
+ */
+export declare const createGenerationFence: (options?: {
+    lazy?: boolean;
+}) => {
+    isCurrent(): boolean;
+    captureNow(): void;
+};
 type SnapshotModel<TStored extends RowId> = {
     get(id: string | undefined | null): TStored | undefined;
     getAll(): TStored[];
