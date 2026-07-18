@@ -6,7 +6,8 @@ the [project README](../README.md).
 ## Contents
 
 - [Models](./models.md) - `defineModel` end-to-end: the `f`/`defineShape` field DSL, writes, reads
-  (including the chainable `use.where` builder), scopes, relations, boot-time maintenance, and
+  (including the chainable `use.where` builder), scopes, relations, boot-time and in-session
+  maintenance (row caps, idle scope collection), and
   `Model.poller`/`Model.view`/`Model.ingest`.
 - [Queries](./queries.md) - `Model.query` (network reads into a model/scope, pagination, coverage
   semantics, status surface), `defineFetch` (model-less reads), and the stable view/list read
