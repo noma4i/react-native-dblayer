@@ -297,6 +297,67 @@ cleanup does not need a maintenance entry: it is already handled by the replay o
 (`{ model, task: 'maxRowsPerScope', affected }`) in `bootDb`'s return value; see
 [configuration.md](./configuration.md#bootdboptions--suspenddb).
 
+## `Model.crud(sections)`
+
+Composes conventional resource handles from one call: `model.crud({ list?, get?, create?, update?,
+destroy? })`. Each PRESENT section builds one `Model.query`/`Model.mutation` handle under a fixed
+conventional name (`'list'`/`'get'`/`'create'`/`'update'`/`'destroy'`), so keys and dedupe follow
+the same conventions as calling `Model.query`/`Model.mutation` directly (see
+[queries.md](./queries.md#modelqueryname-config) and
+[mutations.md](./mutations.md#modelmutationname-config)). The returned object has exactly the
+present keys, typed as the real `Model.query`/`Model.mutation` handles - omitting a section from
+the call omits it from the return type too.
+
+```ts
+const todosCrud = TodoModel.crud({
+  list: { document: TodosDocument, select: data => data.todos, into: TodoModel.scopes.active },
+  create: {
+    document: TodoCreateDocument,
+    result: 'todoCreate',
+    respond: (input: { text: string }, ctx) => ({ todoCreate: { id: ctx.tempId, text: input.text, done: false } }),
+    selectServerNode: data => data.todoCreate,
+    prependTo: { scope: TodoModel.scopes.active, value: () => ({}) }
+  },
+  update: { document: TodoUpdateDocument, result: 'todoUpdate' },
+  destroy: { document: TodoDestroyDocument, result: 'todoDestroy' }
+});
+
+await todosCrud.create.run({ text: 'Buy milk' });
+await todosCrud.update.run({ id: 'row-1', text: 'Buy milk and eggs' });
+await todosCrud.destroy.run({ id: 'row-1' });
+```
+
+### Section conventions
+
+| Section | Convention | Notes |
+| --- | --- | --- |
+| `list` | `model.query('list', section)` -> `<modelId>:list` | `into` is **required** - `crud` throws `` `${modelId}: crud list requires an explicit into scope` `` at call time if omitted. |
+| `get` | `model.query('get', section)` -> `<modelId>:get` | `into` defaults to the model itself when omitted. |
+| `create` | `model.mutation('create', section)` -> `<modelId>:create` | Requires `respond`, or `build` with `selectServerNode`, unless an explicit `optimistic` key is present - see below. `prependTo`/`appendTo` pass straight through to the conventional optimistic config. |
+| `update` | `model.mutation('update', section)` -> `<modelId>:update` | Default optimistic: `{ method: 'patch', selectId: input => input.id, selectPatch: input => omit(input, ['id']) }`. |
+| `destroy` | `model.mutation('destroy', section)` -> `<modelId>:destroy` | Default optimistic: `{ method: 'destroy', selectId: input => input.id }`. |
+
+Every mutation section keeps `Model.mutation`'s conventional dedupe on by default (see
+[mutations.md](./mutations.md#dedupe)) - `dedupe: false` in a section config opts out the same way
+it would on a standalone `Model.mutation` call.
+
+**`create`'s requirement.** `model.crud({ create: {...} })` throws
+`` `${modelId}: crud create requires respond or build with selectServerNode` `` at call time unless
+the section supplies `respond` (see the Respond variant in
+[mutations.md](./mutations.md#optimistic-write-variants)), the `build`/`selectServerNode` pair (the
+Insert variant, same section), or an explicit `optimistic` key of its own - the check is
+presence-based, so an explicit `optimistic: undefined` still counts as present and skips it.
+
+**Overriding the convention.** An explicit `optimistic` in any section (`create`/`update`/`destroy`)
+replaces the conventional default ENTIRELY, not merged with it. `optimistic: false` disables the
+local write for that section outright - the mutation runs with no optimistic step, same as omitting
+`optimistic` on a standalone `Model.mutation` call.
+
+**Typed `id` requirement.** `update`/`destroy` handles are typed to require
+`input: { id: string } & Record<string, unknown>` regardless of the section's own config - passing
+an input without `id` is a compile-time error on the conventional path, since the default
+`selectId`/`selectPatch` closures read `input.id`.
+
 ## `Model.poller(name, config)`
 
 A refcounted, non-React status poller scoped to this model, for server-side async processing
