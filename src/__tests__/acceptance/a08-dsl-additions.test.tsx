@@ -105,6 +105,25 @@ describe(`A08 DSL additions`, () => {
     expect(storage.get(`v5:legacy`)).toBeUndefined();
   });
 
+  it(`A08-3b bootDb wipe discards persisted state before replay`, async () => {
+    const storage = createMemoryPlane();
+    setupAcceptanceRuntime({ storage });
+    const first = defineModel({ id: `A08Wipe`, name: `A08Wipe`, fields: { title: f.str() }, gc: `exempt` });
+    act(() => {
+      first.insertStored({ id: `row-1`, title: `one` });
+      flushPersistence();
+    });
+    expect(storage.snapshotKeys().some(key => key.startsWith(`dbl:`))).toBe(true);
+
+    const transport = createAcceptanceTransport();
+    const result = await bootDb({ storage, transport, wipe: true });
+    const restarted = defineModel({ id: `A08Wipe`, name: `A08Wipe`, fields: { title: f.str() }, gc: `exempt` });
+
+    expect(restarted.getAll()).toEqual([]);
+    expect(result.replayed).toBe(0);
+    expect(storage.snapshotKeys().some(key => key.startsWith(`dbl:`))).toBe(false);
+  });
+
   it(`A08-4 suspendDb flushes pending writes and retains a mounted orphan row`, () => {
     const storage = createMemoryPlane();
     setupAcceptanceRuntime({ storage, defaults: { persistence: { checkpointDelayMs: 100000, maxPendingPlans: 100000 } } });

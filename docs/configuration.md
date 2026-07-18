@@ -30,25 +30,25 @@ sequencing need.
 
 ### Options
 
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `transport` | `DbTransport` | **required** | GraphQL transport (`query`/`mutation`/optional `subscribe`) used by `Model.query`/`Model.mutation`/subscription runtimes. See Transport seam below. |
-| `storage` | `StoragePlane` | `mmkvStoragePlane()` | Synchronous key/value seam for persistence. See Storage seam below. |
-| `queryClient` | `QueryClient` | `undefined` | TanStack Query client shared with `Model.query`'s hooks and the imperative `getDbQueryClient()`. |
-| `logger` | `DbLogger` | no-op | Package logger seam: `{ debug, error }`. |
-| `defaults` | `DbDefaults` | `{}` | Package-wide freshness/pagination/error-observation defaults. See below. |
+| Option        | Type           | Default              | Description                                                                                                                                         |
+| ------------- | -------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`   | `DbTransport`  | **required**         | GraphQL transport (`query`/`mutation`/optional `subscribe`) used by `Model.query`/`Model.mutation`/subscription runtimes. See Transport seam below. |
+| `storage`     | `StoragePlane` | `mmkvStoragePlane()` | Synchronous key/value seam for persistence. See Storage seam below.                                                                                 |
+| `queryClient` | `QueryClient`  | `undefined`          | TanStack Query client shared with `Model.query`'s hooks and the imperative `getDbQueryClient()`.                                                    |
+| `logger`      | `DbLogger`     | no-op                | Package logger seam: `{ debug, error }`.                                                                                                            |
+| `defaults`    | `DbDefaults`   | `{}`                 | Package-wide freshness/pagination/error-observation defaults. See below.                                                                            |
 
 ### `DbDefaults`
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `staleTime` | `number` (ms) | Package-wide default `staleTime` for `Model.query`/`defineFetch` results that omit their own. |
-| `emptyStaleTime` | `number` (ms) | Package-wide default `emptyStaleTime` for `Model.query` results that omit their own. |
-| `gcTime` | `number` (ms) | Package-wide default TanStack Query cache `gcTime` for results that omit their own. |
-| `pageSize` | `number` | Package-wide default window size for `ScopeHandle.useWindow`/`Model.view`'s `useWindow` when its own `pageSize` is omitted. |
-| `persistence.checkpointDelayMs` / `persistence.maxPendingPlans` | `number` | Checkpoint flush tuning: how long snapshots wait, and how many pending plans accumulate, before a batched flush leaves the hot path. |
-| `inSessionGc` | `false \| { threshold?, debounceMs? }` | ON by default (`threshold: 500`, `debounceMs: 1000`) - see [In-session GC trigger](#in-session-gc-trigger) below. `false` disables it entirely. |
-| `onSyncError` | `(error: Error, ctx) => void` | Observes contained pipeline failures without changing their control flow. See the policy table below. |
+| Field                                                           | Type                                   | Description                                                                                                                                     |
+| --------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `staleTime`                                                     | `number` (ms)                          | Package-wide default `staleTime` for `Model.query`/`defineFetch` results that omit their own.                                                   |
+| `emptyStaleTime`                                                | `number` (ms)                          | Package-wide default `emptyStaleTime` for `Model.query` results that omit their own.                                                            |
+| `gcTime`                                                        | `number` (ms)                          | Package-wide default TanStack Query cache `gcTime` for results that omit their own.                                                             |
+| `pageSize`                                                      | `number`                               | Package-wide default window size for `ScopeHandle.useWindow`/`Model.view`'s `useWindow` when its own `pageSize` is omitted.                     |
+| `persistence.checkpointDelayMs` / `persistence.maxPendingPlans` | `number`                               | Checkpoint flush tuning: how long snapshots wait, and how many pending plans accumulate, before a batched flush leaves the hot path.            |
+| `inSessionGc`                                                   | `false \| { threshold?, debounceMs? }` | ON by default (`threshold: 500`, `debounceMs: 1000`) - see [In-session GC trigger](#in-session-gc-trigger) below. `false` disables it entirely. |
+| `onSyncError`                                                   | `(error: Error, ctx) => void`          | Observes contained pipeline failures without changing their control flow. See the policy table below.                                           |
 
 ### `onSyncError` policy
 
@@ -57,11 +57,11 @@ never changes whether the failure also surfaces through its normal channel (a qu
 field, a mutation's thrown rejection, or a dropped ingest event) - it is a side observation, not
 an error handler.
 
-| `ctx.source` | Raised by | Also surfaces as |
-| --- | --- | --- |
-| `'query'` | A `Model.query`/`defineFetch` transport failure. | The status surface's `error` field / `FetchResult.error` (see [queries.md](./queries.md#error-surfacing)). |
-| `'mutation'` | A `Model.mutation`/`defineCommand` run that threw, after rollback completed. | The rejected `run(input)`/`mutateAsync(input)` promise (see [mutations.md](./mutations.md#error-policy)). |
-| `'ingest'` | A `Model.ingest` handler or its resulting plan apply that threw. | Nothing else - the event is dropped. |
+| `ctx.source` | Raised by                                                                    | Also surfaces as                                                                                           |
+| ------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `'query'`    | A `Model.query`/`defineFetch` transport failure.                             | The status surface's `error` field / `FetchResult.error` (see [queries.md](./queries.md#error-surfacing)). |
+| `'mutation'` | A `Model.mutation`/`defineCommand` run that threw, after rollback completed. | The rejected `run(input)`/`mutateAsync(input)` promise (see [mutations.md](./mutations.md#error-policy)).  |
+| `'ingest'`   | A `Model.ingest` handler or its resulting plan apply that threw.             | Nothing else - the event is dropped.                                                                       |
 
 `ctx` also carries `model`/`scope`/`key`/`event` where applicable, identifying which model or
 document raised the failure. A throw inside `onSyncError` itself is caught and logged through the
@@ -118,6 +118,11 @@ boot is worse than a startup crash. Returns `{ replayed, gc, maintenance }`: the
 record count, the `collectGarbage` report for the post-replay sweep, and one `MaintenanceReport`
 (`{ model, task: 'maxRowsPerScope', affected }`) per declared maintenance task across every model.
 
+Pass `wipe: true` to discard all persisted and in-memory library state - the `resetRuntime`
+kill-switch runs after configuration and deferred validations but before journal replay, so boot
+starts from an empty store. Use it for consumer-side schema/cache-version bumps where stale
+persisted rows must not be rehydrated.
+
 **Deferred definition validation.** Some definitions cannot be fully checked until every model
 module has been imported - `bootDb` runs these checks right after `configureDb`, before
 `replayJournal`, so a bad definition fails loudly at startup instead of surfacing later as a
@@ -138,12 +143,12 @@ clears state; a full wipe still goes through `resetRuntime`'s kill-switch.
 `bootDb`/`suspendDb` cover the common startup/teardown sequence; call these directly only for a
 different sequencing need.
 
-| Function | Signature | Description |
-| --- | --- | --- |
-| `replayJournal` | `() => number` | Idempotently re-applies journal records not yet covered by each model's persisted applied-epoch marker. Call ONCE at startup, after `configureDb` and after every model module has been imported. Returns the replayed record count. |
-| `collectGarbage` | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations, and every mounted reader (`use.row` roots that row, a model-wide reader roots the whole model, a scope reader roots its members). Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, opt-in idle scopes dropped (`maintenance.dropIdleScopesAfterMs`, see [models.md](./models.md#maintenance)), then persistence flushes. Safe to call during in-session UI rendering - a sweep never evicts a row any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
-| `purgeForeignStorageKeys` | `() => number` | Removes storage keys outside the library's `dbl:` namespace - startup housekeeping that clears pre-migration leftovers from the dedicated storage instance. Idempotent. Returns the removed key count. |
-| `flushPersistence` | `() => void` | Forces a checkpoint flush now - pending model snapshots hit storage in one batch. |
+| Function                  | Signature        | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `replayJournal`           | `() => number`   | Idempotently re-applies journal records not yet covered by each model's persisted applied-epoch marker. Call ONCE at startup, after `configureDb` and after every model module has been imported. Returns the replayed record count.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `collectGarbage`          | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations, and every mounted reader (`use.row` roots that row, a model-wide reader roots the whole model, a scope reader roots its members). Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, opt-in idle scopes dropped (`maintenance.dropIdleScopesAfterMs`, see [models.md](./models.md#maintenance)), then persistence flushes. Safe to call during in-session UI rendering - a sweep never evicts a row any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
+| `purgeForeignStorageKeys` | `() => number`   | Removes storage keys outside the library's `dbl:` namespace - startup housekeeping that clears pre-migration leftovers from the dedicated storage instance. Idempotent. Returns the removed key count.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `flushPersistence`        | `() => void`     | Forces a checkpoint flush now - pending model snapshots hit storage in one batch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## `resetRuntime()` kill-switch
 
@@ -175,11 +180,11 @@ const storage: StoragePlane = mmkvStoragePlane(); // default; pass a custom Stor
 
 `StoragePlane` is the atomic-enough synchronous seam every state plane persists through:
 
-| Member | Signature | Description |
-| --- | --- | --- |
-| `get` | `(key: string) => string \| undefined` | Read one key; `undefined` when missing. |
-| `set` | `(entries: Array<{ key, value: string \| null }>) => void` | Apply entries in order; a `null` value removes the key, any other value writes it. |
-| `keys` | `(prefix: string) => string[]` | List every stored key starting with `prefix`. |
+| Member | Signature                                                  | Description                                                                        |
+| ------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `get`  | `(key: string) => string \| undefined`                     | Read one key; `undefined` when missing.                                            |
+| `set`  | `(entries: Array<{ key, value: string \| null }>) => void` | Apply entries in order; a `null` value removes the key, any other value writes it. |
+| `keys` | `(prefix: string) => string[]`                             | List every stored key starting with `prefix`.                                      |
 
 `mmkvStoragePlane()` builds a `StoragePlane` backed by the configured MMKV storage adapter,
 resolved lazily on every call so it always reads whichever adapter is configured at call time. The
@@ -202,10 +207,10 @@ transport after initial configuration.
 
 ### `DbTransport`
 
-| Member | Signature | Description |
-| --- | --- | --- |
-| `query` | `(op) => Promise<{ data }>` | Execute a GraphQL query. |
-| `mutation` | `(op) => Promise<{ data }>` | Execute a GraphQL mutation. |
+| Member      | Signature                           | Description                                                                                                                                                                                                                                                                                      |
+| ----------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `query`     | `(op) => Promise<{ data }>`         | Execute a GraphQL query.                                                                                                                                                                                                                                                                         |
+| `mutation`  | `(op) => Promise<{ data }>`         | Execute a GraphQL mutation.                                                                                                                                                                                                                                                                      |
 | `subscribe` | `(options, handlers) => () => void` | Optional. Subscribe to a GraphQL document, pushing response `data` to `handlers.next`/`handlers.error`. Required only to activate `createDbSubscriptionRuntime`. Returns an unsubscribe callback. Transport-level reconnect and observer resubscription are transparent to callers of this seam. |
 
 `op` carries `query`/`mutation` (the document) and `variables`, plus any client-specific extras
@@ -224,7 +229,7 @@ const messageIngest = MessageModel.ingest({
 
 const subscriptions = createDbSubscriptionRuntime(messageIngest.entries);
 
-subscriptions.setActive(true);  // requires transport.subscribe
+subscriptions.setActive(true); // requires transport.subscribe
 // subscriptions.stop();        // final teardown
 ```
 
@@ -285,13 +290,13 @@ import { QueryClient, QueryClientProvider, focusManager, useQuery, useQueryClien
 const queryClient = new QueryClient();
 ```
 
-| Export | Re-exports | Notes |
-| --- | --- | --- |
-| `QueryClient` | `@tanstack/react-query`'s `QueryClient` | Pass an instance to `configureDb({ queryClient })`. |
-| `QueryClientProvider` | `@tanstack/react-query`'s `QueryClientProvider` | Wrap the app so `Model.query`/`defineFetch` hooks can read the client from context. |
-| `focusManager` | `@tanstack/react-query`'s `focusManager` | Wire app foreground/background events to TanStack Query's refetch-on-focus behavior. |
-| `useQuery` | `@tanstack/react-query`'s `useQuery` | Available for direct use alongside `Model.query`/`defineFetch`. |
-| `useQueryClient` | `@tanstack/react-query`'s `useQueryClient` | Reads the client from `QueryClientProvider` context. |
+| Export                | Re-exports                                      | Notes                                                                                |
+| --------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `QueryClient`         | `@tanstack/react-query`'s `QueryClient`         | Pass an instance to `configureDb({ queryClient })`.                                  |
+| `QueryClientProvider` | `@tanstack/react-query`'s `QueryClientProvider` | Wrap the app so `Model.query`/`defineFetch` hooks can read the client from context.  |
+| `focusManager`        | `@tanstack/react-query`'s `focusManager`        | Wire app foreground/background events to TanStack Query's refetch-on-focus behavior. |
+| `useQuery`            | `@tanstack/react-query`'s `useQuery`            | Available for direct use alongside `Model.query`/`defineFetch`.                      |
+| `useQueryClient`      | `@tanstack/react-query`'s `useQueryClient`      | Reads the client from `QueryClientProvider` context.                                 |
 
 The query DSL still hides the Query cache from model storage: `Model.query` stores only page
 metadata (cursor, count) in the Query cache, while rows live in the model's own planes -

@@ -16,11 +16,20 @@ import { type MaintenanceReport } from './maintenanceRegistry';
  * exported as composable primitives for callers with a different startup sequencing need; `bootDb` is the
  * recommended path for the common case.
  *
- * @param options The exact `configureDb` options (transport, storage, queryClient, logger, defaults).
+ * Pass `wipe: true` to discard all persisted and in-memory library state (the `resetRuntime`
+ * kill-switch) between validation and replay - boot then starts from an empty store. Use it for
+ * consumer-side schema/cache-version bumps where stale persisted rows must not be rehydrated.
+ *
+ * @param options The exact `configureDb` options (transport, storage, queryClient, logger, defaults),
+ * plus the boot-only `wipe` flag.
  * @returns `replayed` - the journal record count `replayJournal` recovered; `gc` - the `collectGarbage`
  * report for the post-replay sweep.
  */
-export declare const bootDb: (options: Parameters<typeof configureDb>[0]) => Promise<{
+export declare const bootDb: (options: Parameters<typeof configureDb>[0] & {
+    /** Discard all persisted and in-memory library state (the `resetRuntime` kill-switch) after
+     * configuration and validations but before journal replay, so boot starts from an empty store. */
+    wipe?: boolean;
+}) => Promise<{
     replayed: number;
     gc: GcReport;
     maintenance: MaintenanceReport[];
