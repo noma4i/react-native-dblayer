@@ -912,15 +912,15 @@ describe(`A03 mutation contract`, () => {
           ...(position === `prepend` ? { prependTo: { scope: model.scopes.feed, value: () => scopeValue } } : { appendTo: { scope: model.scopes.feed, value: () => scopeValue } })
         }
       });
-      const elapsed = median(
-        Array.from({ length: 7 }, (_, index) => {
+      const measure = (index: number) => {
           const started = performance.now();
           act(() => {
             void mutation.run({ title: `${position}-${index}` });
           });
           return performance.now() - started;
-        })
-      );
+      };
+      measure(-1);
+      const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
       return elapsed;
     };
     const prependSmall = sample(1_000, `prepend`);
@@ -962,16 +962,16 @@ describe(`A03 mutation contract`, () => {
           prependTo: { scope: model.scopes.feed, value: () => scopeValue }
         }
       });
-      const elapsed = median(
-        Array.from({ length: 7 }, (_, index) => {
+      const measure = (index: number) => {
           const started = performance.now();
           act(() => {
             void mutation.run({ title: `respond-${index}` });
           });
           return performance.now() - started;
-        })
-      );
-      expect(fabricated).toBe(7);
+      };
+      measure(-1);
+      const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
+      expect(fabricated).toBe(26);
       expect(model.scopes.feed.read(scopeValue).some(row => isTempId(row.id))).toBe(true);
       return elapsed;
     };

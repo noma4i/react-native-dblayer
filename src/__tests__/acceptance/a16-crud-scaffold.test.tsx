@@ -337,16 +337,16 @@ describe('A16 crud scaffold', () => {
       );
       const crud = model.crud({ update: { document, result: 'update' } });
       const reader = renderCounted(() => model.scopes.feed.use(scopeValue));
-      const elapsed = median(
-        Array.from({ length: 7 }, (_, index) => {
+      const measure = (index: number) => {
           const started = performance.now();
           act(() => {
             void crud.update.run({ id: 'row-0', title: `changed-${index}` });
           });
           return performance.now() - started;
-        })
-      );
-      expect(reader.result()[0]).toMatchObject({ id: 'row-0', title: 'changed-6' });
+      };
+      measure(-1);
+      const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
+      expect(reader.result()[0]).toMatchObject({ id: 'row-0', title: 'changed-24' });
       reader.unmount();
       return elapsed;
     };

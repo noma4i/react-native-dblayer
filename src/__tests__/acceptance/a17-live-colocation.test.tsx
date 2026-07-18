@@ -250,16 +250,16 @@ describe('A17 live colocation', () => {
         () => list.use(value).data,
         child => React.createElement(QueryClientProvider, { client: queryClient }, child)
       );
-      const elapsed = median(
-        Array.from({ length: 7 }, (_, index) => {
+      const measure = (index: number) => {
           const started = performance.now();
           act(() => {
             subscribers[0]!.next({ created: { id: 'row-0', group: 'g', title: `changed-${index}` } });
           });
           return performance.now() - started;
-        })
-      );
-      expect(deliveries).toBe(7);
+      };
+      measure(-1);
+      const elapsed = median(Array.from({ length: 25 }, (_, index) => measure(index)));
+      expect(deliveries).toBe(26);
       reader.unmount();
       return elapsed;
     };
