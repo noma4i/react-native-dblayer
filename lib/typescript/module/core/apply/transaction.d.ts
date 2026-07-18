@@ -8,6 +8,21 @@ import type { StoragePlane } from '../planes/storagePlane';
  * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
 export type ApplyTarget = {
+    readRow(id: string): Record<string, unknown> | undefined;
+    readAllRows(): Array<Record<string, unknown>>;
+    readScopeOrder(scopeKey: string): string[];
+    readScopeOrderRevision(scopeKey: string): number;
+    scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
+    scopeSortMeta(scopeKey: string): {
+        kind: 'server-order';
+    } | {
+        kind: 'field';
+        field: string;
+        dir: 'asc' | 'desc';
+    } | {
+        kind: 'comparator';
+    };
+    readAllScopeKeys(): string[];
     upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{
         id: string;
         changedFields: string[] | null;

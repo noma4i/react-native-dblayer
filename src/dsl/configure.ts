@@ -166,9 +166,17 @@ export const replayJournal = (): number => {
   seedCollections([...models]);
   const replayed = runtime.replay();
   const operations = getOperationState();
+  const hasApplyTarget = (model: string): boolean => {
+    try {
+      getApplyTarget(model);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const orphaned = operations.hydratedPending();
   for (const operation of orphaned) {
-    if (operation.tempIds.length > 0) {
+    if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
       runtime.apply(expandPlan([{ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false }]));
     }
     operations.close(operation.operationId, 'rolledback');
@@ -198,7 +206,7 @@ export const replayJournal = (): number => {
   const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {
     const orphanIds = [...ids].filter(id => !pendingTempIds.has(id));
-    if (orphanIds.length > 0) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
+    if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
   flushPersistence();
   replayCompleted = true;

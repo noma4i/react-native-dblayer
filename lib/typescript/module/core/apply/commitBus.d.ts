@@ -50,6 +50,7 @@ export type CommitSubscription = {
 export declare const createCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<Dependency>, onBatch?: (batch: IncrementalCommitBatch | null) => void) => CommitSubscription;
     subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void) => CommitSubscription;
+    subscribeAll: (onBatch: (batch: IncrementalCommitBatch) => void) => (() => void);
     publish: (batch: IncrementalCommitBatch) => void;
     publishAll: () => void;
     subscriberCount: () => number;

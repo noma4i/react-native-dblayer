@@ -54,6 +54,8 @@ export declare const configureDb: (options: Omit<RuntimeConfig, "storage"> & {
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
 export declare const isDbConfigured: () => boolean;
+/** Internal: reports whether the current runtime completed journal replay. */
+export declare const hasReplayedJournal: () => boolean;
 export declare const getStoragePrefix: () => string;
 /** Monotonic identity for the configured runtime; async continuations must not cross it. */
 export declare const getRuntimeGeneration: () => number;
@@ -62,6 +64,7 @@ export declare const advanceRuntimeGeneration: () => void;
 export declare const getCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch?: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
     subscribeIncremental: (notify: () => void, deps: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
+    subscribeAll: (onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void) => (() => void);
     publish: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void;
     publishAll: () => void;
     subscriberCount: () => number;

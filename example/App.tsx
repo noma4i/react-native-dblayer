@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { QueryClient, QueryClientProvider, bootDb, suspendDb } from '@noma4i/react-native-dblayer';
 import { exampleStorage, exampleTransport } from './src/db/transport';
+import './src/db/models';
 import { DevScreen } from './src/screens/DevScreen';
 import { FeedScreen } from './src/screens/FeedScreen';
 import { PostDetailScreen } from './src/screens/PostDetailScreen';

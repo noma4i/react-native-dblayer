@@ -57,6 +57,7 @@ export type ScopeIndex = {
     keysOf(id: string): string[];
     /** Ephemeral read revision used by reactive scope subscribers; never persisted. */
     reactiveEpoch(key: string): number;
+    orderRevision(key: string): number;
     /** Bump the revisions of scopes that currently contain one of these rows. */
     touchMembers(ids: string[]): string[];
     persistEntries(): Array<{
