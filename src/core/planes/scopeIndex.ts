@@ -32,6 +32,10 @@ export type ScopeIndex = {
   /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
   remove(key: string): void;
   keys(): string[];
+  /** Record an in-memory read timestamp for one scope key. */
+  noteAccess(key: string): void;
+  /** Return the most recent in-memory read timestamp for one scope key. */
+  lastAccess(key: string): number | undefined;
   /** O(1) membership check backed by the derived member index. */
   has(key: string, id: string): boolean;
   /** All scope keys containing the row - the reverse membership index. */
@@ -55,6 +59,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const keysByRow = new Map<string, Set<string>>();
   const reactiveEpochs = new Map<string, number>();
   const orderRevisions = new Map<string, number>();
+  const accessTimes = new Map<string, number>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
   const touch = (key: string): void => {
@@ -232,9 +237,14 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       scopes.delete(key);
       dirty.delete(key);
       removed.add(key);
+      accessTimes.delete(key);
       touch(key);
     },
     keys: () => [...scopes.keys()],
+    noteAccess: key => {
+      accessTimes.set(key, Date.now());
+    },
+    lastAccess: key => accessTimes.get(key),
     has: (key, id) => memberSets.get(key)?.has(id) ?? false,
     keysOf: id => [...(keysByRow.get(id) ?? [])],
     reactiveEpoch: key => reactiveEpochs.get(key) ?? 0,
@@ -261,6 +271,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       memberSets.clear();
       keysByRow.clear();
       reactiveEpochs.clear();
+      accessTimes.clear();
       for (const fullKey of storage.keys(storageKey(''))) {
         const key = fullKey.slice(storageKey('').length);
         if (scopeNames !== undefined && !scopeNames.some(scopeName => key.startsWith(`${scopeName}:`))) {
@@ -271,6 +282,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         if (!raw) continue;
         try {
           scopes.set(key, JSON.parse(raw) as ScopeIndexValue);
+          accessTimes.set(key, Date.now());
         } catch {
           storage.set([{ key: fullKey, value: null }]);
         }
@@ -287,6 +299,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       memberSets.clear();
       keysByRow.clear();
       reactiveEpochs.clear();
+      accessTimes.clear();
     }
   };
 };

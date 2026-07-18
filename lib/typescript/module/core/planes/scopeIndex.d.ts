@@ -51,6 +51,10 @@ export type ScopeIndex = {
     /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
     remove(key: string): void;
     keys(): string[];
+    /** Record an in-memory read timestamp for one scope key. */
+    noteAccess(key: string): void;
+    /** Return the most recent in-memory read timestamp for one scope key. */
+    lastAccess(key: string): number | undefined;
     /** O(1) membership check backed by the derived member index. */
     has(key: string, id: string): boolean;
     /** All scope keys containing the row - the reverse membership index. */

@@ -211,7 +211,10 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   __revision?(): number;
 };
 
-type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first' | 'where'> & {
+type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<
+  ModelCore<TStored>['use'],
+  'row' | 'first' | 'where'
+> & {
   row<K extends TKey>(id: string | null | undefined, opts: { select?: ReadonlyArray<keyof TStored>; require: readonly K[] }): RequiredFields<TStored, K> | undefined;
   row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored>; require?: never }): TStored | undefined;
   first<K extends TKey>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & { require: readonly K[] }): RequiredFields<TStored, K> | undefined;
@@ -254,6 +257,8 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   gc?: 'exempt';
   /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
   maintenance?: {
+    /** Opt-in idle scope collection: unread scopes are removed at the next GC sweep after this duration, then their rows follow normal reachability. */
+    dropIdleScopesAfterMs?: number;
     maxRowsPerScope?: Array<{
       scopeField: keyof InferStoredFields<TFields> & string;
       limit: number;
@@ -302,7 +307,10 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
  */
 export const defineModel = <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
   config: ModelConfig<TFields, TScopes, TExt>
-): Omit<ModelCore<any>, 'use'> & { use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>; scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
+): Omit<ModelCore<any>, 'use'> & {
+  use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
+  scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
+} & TExt => {
   type ModelPlanes = { entityState: EntityState<any>; scopeIndex: ScopeIndex };
   let planesRef: ModelPlanes | null = null;
   let revision = 0;
@@ -522,6 +530,8 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     removeScope: key => {
       planes().scopeIndex.remove(key);
     },
+    idleScopeAfterMs: () => config.maintenance?.dropIdleScopesAfterMs,
+    scopeLastAccess: key => planes().scopeIndex.lastAccess(key),
     evict: id => planes().entityState.evict(id),
     referencesOf: id => {
       const row = planes().entityState.read(id);
@@ -568,6 +578,11 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
   const modelDep: Dependency = { kind: 'model', model: config.id };
   const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: config.id, scopeKey });
   const memberDeps = (scopeKey: string): Dependency[] => [scopeDep(scopeKey)];
+  const useScopeAccess = (scopeKey: string | null): void => {
+    useEffect(() => {
+      if (scopeKey != null) planes().scopeIndex.noteAccess(scopeKey);
+    }, [scopeKey]);
+  };
 
   function whereRead(where: DbWhere<any> | null): ModelReadBuilder<any> {
     return createReadBuilder(where, {
@@ -620,6 +635,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       modelId: config.id,
       use: (scopeValue: unknown) => {
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+        useScopeAccess(scopeKey);
         return useScopeLiveRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`));
       },
       useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
@@ -628,6 +644,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
         const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
         if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
+        useScopeAccess(scopeKey);
         const window = useScopeLiveWindowRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`), windowSize);
         return {
           rows: window.rows,
@@ -636,15 +653,22 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
           fetchNextPage: () => setWindowState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
         };
       },
-      useCount: (scopeValue: unknown) =>
-        useLiveRead(
+      useCount: (scopeValue: unknown) => {
+        const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+        useScopeAccess(scopeKey);
+        return useLiveRead(
           () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries.length),
-          scopeValue == null ? [] : [scopeDep(keyForScope(scopeName, scopeValue))]
-        ),
+          scopeKey == null ? [] : [scopeDep(scopeKey)]
+        );
+      },
       invalidate: (scopeValue?: unknown) => {
         invalidateModel(config.id, scopeValue);
       },
-      read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
+      read: (scopeValue: unknown) => {
+        const scopeKey = keyForScope(scopeName, scopeValue);
+        planes().scopeIndex.noteAccess(scopeKey);
+        return scopeSortedRows(scopeName, scopeValue);
+      },
       __apply: (scopeValue: unknown, rows: any[], coverage: ScopeCoverage, opts?: { resetOrder?: boolean }) => {
         applySnapshot(
           planApply(
@@ -956,5 +980,8 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       if (key in model) throw new Error(`${config.name} statics collide with base model key ${key}`);
     }
   }
-  return Object.assign(model, statics) as Omit<ModelCore<any>, 'use'> & { use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>; scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt;
+  return Object.assign(model, statics) as Omit<ModelCore<any>, 'use'> & {
+    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
+    scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
+  } & TExt;
 };

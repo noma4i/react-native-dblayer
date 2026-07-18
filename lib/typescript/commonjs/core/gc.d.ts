@@ -8,6 +8,8 @@ export type GcHost = {
     detachScopeEntries(key: string, ids: string[]): void;
     scopeEntryCount(key: string): number;
     removeScope(key: string): void;
+    idleScopeAfterMs?(): number | undefined;
+    scopeLastAccess?(key: string): number | undefined;
     evict(id: string): boolean;
     referencesOf(id: string): Array<{
         model: string;
@@ -22,9 +24,9 @@ export type GcReport = {
 };
 /**
  * Reachability GC over all registered models. Roots: scope members, exempt models, pending
- * operations. Edges: belongsTo/references of live rows. Unreached rows are evicted (no
- * tombstones), dead scope entries detached, empty scope keys removed, then persistence flushes.
- * Mounted readers are GC roots, so this is safe during in-session UI rendering.
+ * operations, mounted readers, and non-idle scopes. Edges: belongsTo/references of live rows.
+ * Unreached rows are evicted (no tombstones), dead and opt-in idle scope keys removed, then
+ * persistence flushes. Mounted readers are GC roots, so this is safe during in-session UI rendering.
  *
  * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
  * directly only for a different sweep cadence.

@@ -10,6 +10,8 @@ export type GcHost = {
   detachScopeEntries(key: string, ids: string[]): void;
   scopeEntryCount(key: string): number;
   removeScope(key: string): void;
+  idleScopeAfterMs?(): number | undefined;
+  scopeLastAccess?(key: string): number | undefined;
   evict(id: string): boolean;
   referencesOf(id: string): Array<{ model: string; id: string }>;
 };
@@ -26,9 +28,9 @@ export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<
 
 /**
  * Reachability GC over all registered models. Roots: scope members, exempt models, pending
- * operations. Edges: belongsTo/references of live rows. Unreached rows are evicted (no
- * tombstones), dead scope entries detached, empty scope keys removed, then persistence flushes.
- * Mounted readers are GC roots, so this is safe during in-session UI rendering.
+ * operations, mounted readers, and non-idle scopes. Edges: belongsTo/references of live rows.
+ * Unreached rows are evicted (no tombstones), dead and opt-in idle scope keys removed, then
+ * persistence flushes. Mounted readers are GC roots, so this is safe during in-session UI rendering.
  *
  * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
  * directly only for a different sweep cadence.
@@ -42,6 +44,13 @@ export const collectGarbage = (): GcReport => {
   const rows: Array<{ model: string; id: string; fields: null }> = [];
   const scopes: Array<{ model: string; scopeKey: string }> = [];
   const scopeChanges: Array<{ model: string; scopeKey: string; detachIds?: string[]; rebuild?: boolean }> = [];
+  const report: GcReport = { evicted: {}, scopesRemoved: {} };
+  const noteScopeRemoval = (host: GcHost, key: string): void => {
+    report.scopesRemoved[host.modelId] = (report.scopesRemoved[host.modelId] ?? 0) + 1;
+    maintainedModels.add(host.modelId);
+    scopes.push({ model: host.modelId, scopeKey: key });
+    scopeChanges.push({ model: host.modelId, scopeKey: key, rebuild: true });
+  };
   const mark = (model: string, id: string): void => {
     const host = hosts.get(model);
     if (!host || !host.hasRow(id)) return;
@@ -54,6 +63,26 @@ export const collectGarbage = (): GcReport => {
     set.add(id);
     queue.push({ model, id });
   };
+
+  const activeScopeDependencies = new Set(
+    getCommitBus()
+      .activeDependencies()
+      .filter((dependency): dependency is Extract<typeof dependency, { kind: 'scope' }> => dependency.kind === 'scope')
+      .map(dependency => `${dependency.model}\0${dependency.scopeKey}`)
+  );
+  const now = Date.now();
+  for (const host of hosts.values()) {
+    const threshold = host.idleScopeAfterMs?.();
+    if (!host.exempt && threshold !== undefined) {
+      for (const key of host.scopeKeys()) {
+        if (activeScopeDependencies.has(`${host.modelId}\0${key}`)) continue;
+        const lastAccess = host.scopeLastAccess?.(key);
+        if (lastAccess !== undefined && now - lastAccess <= threshold) continue;
+        host.removeScope(key);
+        noteScopeRemoval(host, key);
+      }
+    }
+  }
 
   for (const host of hosts.values()) {
     if (host.exempt) {
@@ -92,7 +121,6 @@ export const collectGarbage = (): GcReport => {
     for (const reference of host.referencesOf(id)) mark(reference.model, reference.id);
   }
 
-  const report: GcReport = { evicted: {}, scopesRemoved: {} };
   for (const host of hosts.values()) {
     if (host.exempt) continue;
     const live = marked.get(host.modelId);
@@ -108,17 +136,10 @@ export const collectGarbage = (): GcReport => {
       report.evicted[host.modelId] = evicted;
       maintainedModels.add(host.modelId);
     }
-    let scopesRemoved = 0;
     for (const key of host.scopeKeys()) {
       if (host.scopeEntryCount(key) > 0) continue;
       host.removeScope(key);
-      scopesRemoved += 1;
-      scopes.push({ model: host.modelId, scopeKey: key });
-      scopeChanges.push({ model: host.modelId, scopeKey: key, rebuild: true });
-    }
-    if (scopesRemoved > 0) {
-      report.scopesRemoved[host.modelId] = scopesRemoved;
-      maintainedModels.add(host.modelId);
+      noteScopeRemoval(host, key);
     }
   }
   if (maintainedModels.size > 0) {

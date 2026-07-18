@@ -281,6 +281,8 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     gc?: 'exempt';
     /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
     maintenance?: {
+        /** Opt-in idle scope collection: unread scopes are removed at the next GC sweep after this duration, then their rows follow normal reachability. */
+        dropIdleScopesAfterMs?: number;
         maxRowsPerScope?: Array<{
             scopeField: keyof InferStoredFields<TFields> & string;
             limit: number;
