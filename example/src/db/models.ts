@@ -49,5 +49,5 @@ export const PerfModel = defineModel({
   id: 'example-perf',
   name: 'PerfModel',
   fields: { id: f.id(), label: f.str(), counter: f.num() },
-  scopes: { all: scope({ sort: 'server-order' }) },
+  gc: 'exempt',
 });
