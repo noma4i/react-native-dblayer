@@ -31,6 +31,7 @@ import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
 import { trimRowsPerScope } from '../utils/runtimePrimitives';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
+import { omit } from 'es-toolkit';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
@@ -42,6 +43,19 @@ type ModelMutationConfig<TData, TInput, TStored extends { id: string }, TNode> =
   dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
 };
 type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & { key?: string };
+type CrudSection = Record<string, any>;
+export type CrudSections = {
+  /** List query configuration. `into` is required and must be a scope handle. */
+  list?: CrudSection & { into: ScopeHandle<any, any> };
+  /** Get query configuration; destination defaults to this model. */
+  get?: CrudSection;
+  /** Create mutation configuration; provide `respond` or `build` with `selectServerNode`. */
+  create?: CrudSection;
+  /** Update mutation configuration; default optimistic patch reads `input.id`. */
+  update?: CrudSection;
+  /** Destroy mutation configuration; default optimistic destroy reads `input.id`. */
+  destroy?: CrudSection;
+};
 
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
@@ -100,6 +114,8 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
     name: string,
     config: ModelMutationConfig<TData, TInput, TRow, TNode>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+  /** Compose conventional list/get/create/update/destroy handles through this model's existing query and mutation builders. */
+  crud<TSections extends CrudSections>(sections: TSections): { [K in keyof TSections]: any };
   /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
   /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
@@ -661,6 +677,29 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     mutation: (name, mutationConfig) => {
       const dedupe = mutationConfig.dedupe === false ? undefined : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });
+    },
+    crud: sections => {
+      const handles: Record<string, unknown> = {};
+      if (sections.list) {
+        if (!sections.list.into) throw new Error(`${config.id}: crud list requires an explicit into scope`);
+        handles.list = model.query(`list`, sections.list as any);
+      }
+      if (sections.get) handles.get = model.query(`get`, { ...sections.get, into: sections.get.into ?? model } as any);
+      if (sections.create) {
+        const { respond, build, selectServerNode, prependTo, appendTo, optimistic, ...create } = sections.create;
+        const createOptimistic = optimistic ?? (respond ? { model, respond, selectServerNode: selectServerNode ?? ((data: any) => data[create.result]), prependTo, appendTo } : { model, build, selectServerNode, prependTo, appendTo });
+        if (!respond && (!build || !selectServerNode)) throw new Error(`${config.id}: crud create requires respond or build with selectServerNode`);
+        handles.create = model.mutation(`create`, { ...create, optimistic: createOptimistic } as any);
+      }
+      if (sections.update) {
+        const { optimistic, ...update } = sections.update;
+        handles.update = model.mutation(`update`, { ...update, optimistic: optimistic === false ? undefined : (optimistic ?? { method: `patch`, model, selectId: (input: { id: string }) => input.id, selectPatch: (input: { id: string }) => omit(input, [`id`]) }) } as any);
+      }
+      if (sections.destroy) {
+        const { optimistic, ...destroy } = sections.destroy;
+        handles.destroy = model.mutation(`destroy`, { ...destroy, optimistic: optimistic === false ? undefined : (optimistic ?? { method: `destroy`, model, selectId: (input: { id: string }) => input.id }) } as any);
+      }
+      return handles as { [K in keyof typeof sections]: any };
     },
     fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
     poller: (name, pollerConfig) =>

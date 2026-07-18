@@ -24,6 +24,21 @@ type ModelMutationConfig<TData, TInput, TStored extends {
 type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & {
     key?: string;
 };
+type CrudSection = Record<string, any>;
+export type CrudSections = {
+    /** List query configuration. `into` is required and must be a scope handle. */
+    list?: CrudSection & {
+        into: ScopeHandle<any, any>;
+    };
+    /** Get query configuration; destination defaults to this model. */
+    get?: CrudSection;
+    /** Create mutation configuration; provide `respond` or `build` with `selectServerNode`. */
+    create?: CrudSection;
+    /** Update mutation configuration; default optimistic patch reads `input.id`. */
+    update?: CrudSection;
+    /** Destroy mutation configuration; default optimistic destroy reads `input.id`. */
+    destroy?: CrudSection;
+};
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
  * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ chatId }`); `null`/`undefined`
@@ -89,6 +104,10 @@ export type ModelCore<TStored extends {
     mutation<TData, TInput, TRow extends {
         id: string;
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+    /** Compose conventional list/get/create/update/destroy handles through this model's existing query and mutation builders. */
+    crud<TSections extends CrudSections>(sections: TSections): {
+        [K in keyof TSections]: any;
+    };
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
     /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
