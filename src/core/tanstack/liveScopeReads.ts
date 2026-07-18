@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ApplyTarget } from '../apply/transaction';
 import { getCommitBus } from '../../dsl/configure';
 import {
@@ -23,9 +23,18 @@ type ScopeLiveEntry = {
   sourceCache: WeakMap<StoredRowShape, StoredRowShape>;
   listeners: Set<() => void>;
 };
+type ScopeLiveWindowSnapshot = { rows: StoredRowShape[]; totalCount: number };
 
 const EMPTY_ROWS: StoredRowShape[] = [];
 const entries = new Map<string, ScopeLiveEntry>();
+
+/** Returns internal shared-live-query registry totals for contract tests. */
+export function getScopeLiveReadRegistryStats(): { entryCount: number; refCount: number } {
+  return {
+    entryCount: entries.size,
+    refCount: [...entries.values()].reduce((count, entry) => count + entry.refCount, 0)
+  };
+}
 
 const rowsEqual = (left: StoredRowShape, right: StoredRowShape): boolean => {
   const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
@@ -147,6 +156,52 @@ registerLiveScopeReadReset(clearEntries);
  * @returns Ordered stored rows with stable identities until their content changes.
  */
 export function useScopeLiveRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta): StoredRowShape[] {
+  const { entry, subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
+  const getSnapshot = useCallback(
+    () => (scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot),
+    [modelId, scopeKey, sortMeta]
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Reads a stable local window from one shared TanStack live query projection.
+ *
+ * @param modelId Model identifier owning the entity and membership collections.
+ * @param scopeKey Serialized scope key, or `null` for the stable empty result.
+ * @param sortMeta Membership sort metadata supplied by the model apply target.
+ * @param windowSize Number of leading rows included in the local window.
+ * @returns Stable window rows and the complete shared scope count.
+ */
+export function useScopeLiveWindowRows(
+  modelId: string,
+  scopeKey: string | null,
+  sortMeta: ScopeSortMeta,
+  windowSize: number
+): ScopeLiveWindowSnapshot {
+  const { subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
+  const windowRef = useRef<{ source: StoredRowShape[]; size: number; snapshot: ScopeLiveWindowSnapshot }>({
+    source: EMPTY_ROWS,
+    size: 0,
+    snapshot: { rows: EMPTY_ROWS, totalCount: 0 }
+  });
+  const getSnapshot = useCallback(() => {
+    const source = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
+    if (windowRef.current.source === source && windowRef.current.size === windowSize) return windowRef.current.snapshot;
+    const rows = source.slice(0, windowSize);
+    const previous = windowRef.current.snapshot;
+    if (previous.totalCount === source.length && arraysEqual(previous.rows, rows)) {
+      windowRef.current = { source, size: windowSize, snapshot: previous };
+      return previous;
+    }
+    const snapshot = { rows, totalCount: source.length };
+    windowRef.current = { source, size: windowSize, snapshot };
+    return snapshot;
+  }, [modelId, scopeKey, sortMeta, windowSize]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+const useScopeLiveEntry = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {
   const entry = scopeKey == null ? null : entryFor(modelId, scopeKey, sortMeta);
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -160,9 +215,5 @@ export function useScopeLiveRows(modelId: string, scopeKey: string | null, sortM
     },
     [entry, modelId, scopeKey]
   );
-  const getSnapshot = useCallback(
-    () => (scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot),
-    [modelId, scopeKey, sortMeta]
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
+  return { entry, subscribe };
+};

@@ -1,4 +1,12 @@
 import { createLiveQueryCollection, eq } from '@tanstack/db'
+import React from 'react'
+import TestRenderer, { act } from 'react-test-renderer'
+import { configureDb } from '../../dsl/configure'
+import { defineModel } from '../../dsl/defineModel'
+import { scope } from '../../dsl/scope'
+import { f } from '../../schema/f'
+import { createMemoryStorage } from '../helpers/memoryStorage'
+import { getScopeLiveReadRegistryStats } from '../../core/tanstack/liveScopeReads'
 import {
   collectionFor,
   createModelCollection,
@@ -123,5 +131,39 @@ describe(`TanStack collection facade`, () => {
       `Missing writer for facade-reset`,
     )
     subscription.unsubscribe()
+  })
+
+  it(`shares one live scope entry between use and useWindow`, () => {
+    const memory = createMemoryStorage()
+    configureDb({
+      storage: memory.storage,
+      transport: { query: async () => ({ data: {} }), mutation: async () => ({ data: {} }) } as never,
+    })
+    const model = defineModel({
+      id: `facade-shared-scope`,
+      name: `FacadeSharedScope`,
+      fields: { group: f.str(), title: f.str() },
+      scopes: { feed: scope({ by: { group: `group` }, sort: `server-order` }) },
+    })
+    const scopeValue = { group: `shared` }
+    act(() => {
+      model.scopes.feed.__apply?.(scopeValue, [{ id: `one`, group: `shared`, title: `one` }], `complete`)
+    })
+
+    const Reader = () => {
+      model.scopes.feed.use(scopeValue)
+      model.scopes.feed.useWindow(scopeValue, { pageSize: 1 })
+      return null
+    }
+    let root!: TestRenderer.ReactTestRenderer
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader))
+    })
+
+    expect(getScopeLiveReadRegistryStats()).toEqual({ entryCount: 1, refCount: 2 })
+
+    act(() => root.unmount())
+
+    expect(getScopeLiveReadRegistryStats()).toEqual({ entryCount: 0, refCount: 0 })
   })
 })

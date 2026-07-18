@@ -2,7 +2,7 @@ import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
-import { useScopeLiveRows } from '../core/tanstack/liveScopeReads';
+import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
 import type { JournalOp } from '../core/apply/journal';
 import { registerGcHost } from '../core/gc';
 import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
@@ -16,7 +16,7 @@ import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
 import { createModelReadEngine, createScopeReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
-import { useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
@@ -483,35 +483,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
         const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
         if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
-        const signature = incrementalSignature('scope-window', config.id, scopeName, scopeValue, windowSize);
-        const deps = useMemo(() => (scopeKey == null ? [] : memberDeps(scopeKey)), [scopeKey]);
-        const rows = useIncrementalRead({
-          signature,
-          deps,
-          create: () =>
-            createScopeReadEngine({
-              signature,
-              model: config.id,
-              scopeKey: scopeKey ?? '',
-              initial: () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-              read: id => planes().entityState.read(id),
-              windowSize,
-              sort:
-                spec?.sort === 'server-order' || spec?.sort == null
-                  ? 'server-order'
-                  : 'comparator' in spec.sort
-                    ? spec.sort
-                    : { field: String(spec.sort.field), direction: spec.sort.dir }
-            })
-        });
-        const windowRef = useRef<{ source: any[]; size: number; window: any[] }>({ source: EMPTY_ROWS, size: 0, window: EMPTY_ROWS });
-        if (windowRef.current.source !== rows || windowRef.current.size !== windowSize) {
-          windowRef.current = { source: rows, size: windowSize, window: rows.slice(0, windowSize) };
-        }
+        const window = useScopeLiveWindowRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`), windowSize);
         return {
-          rows: windowRef.current.window,
-          totalCount: rows.length,
-          hasMore: rows.length > windowSize,
+          rows: window.rows,
+          totalCount: window.totalCount,
+          hasMore: window.totalCount > windowSize,
           fetchNextPage: () => setWindowState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
         };
       },
