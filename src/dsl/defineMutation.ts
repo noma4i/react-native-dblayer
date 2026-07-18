@@ -6,6 +6,7 @@ import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
 import { createGenerationFence } from '../utils/runtimePrimitives';
 import { isRecord } from '../utils/normalizeHelpers';
+import { registerBootValidation } from './bootValidations';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
 
@@ -164,6 +165,13 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
   if (optimisticConfig && isMethodOptimistic(optimisticConfig) && (`prependTo` in optimisticConfig || `appendTo` in optimisticConfig)) {
     throw new Error(`optimistic prependTo/appendTo requires an insert optimistic config`);
   }
+  if (optimisticConfig && isMethodOptimistic(optimisticConfig) && optimisticConfig.method === 'destroy') {
+    registerBootValidation(() => {
+      if (hasDependentCascade(optimisticConfig.model.modelId)) {
+        throw new Error(`${optimisticConfig.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
+      }
+    });
+  }
   if (optimisticConfig && !isMethodOptimistic(optimisticConfig)) {
     if (optimisticConfig.prependTo && optimisticConfig.appendTo) throw new Error(`optimistic prependTo and appendTo are mutually exclusive`);
     const placement = optimisticConfig.prependTo ?? optimisticConfig.appendTo;
@@ -202,7 +210,8 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined) ops.push(...(optimistic.model.__planReplace?.(context.tempId, row) ?? []));
       else ops.push(...(optimistic.model.__planRows?.([row]) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [row] }]));
       const placement = optimistic.prependTo ?? optimistic.appendTo;
-      if (placement && context.tempId && id === context.tempId) ops.push(...(placement.scope.__planPlacement?.(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append') ?? []));
+      if (placement && context.tempId && id === context.tempId)
+        ops.push(...(placement.scope.__planPlacement?.(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append') ?? []));
     }
     for (const sink of config.extract?.({ data }) ?? []) ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
     return ops;

@@ -2,15 +2,15 @@ import type { GcReport } from '../core/gc';
 import { configureDb } from './configure';
 import { type MaintenanceReport } from './maintenanceRegistry';
 /**
- * Recommended app-startup sequence: `configureDb(options)`, then `replayJournal()` to recover any
- * WAL-only writes from a crash, then `collectGarbage()` to reclaim unreachable rows left over from that
- * replay, then `purgeForeignStorageKeys()` to clear any pre-migration/foreign storage keys - in exactly
- * that order, once, before the first render that reads a model.
+ * Recommended app-startup sequence: `configureDb(options)`, then deferred definition validation, then
+ * `replayJournal()` to recover any WAL-only writes from a crash, then `collectGarbage()` to reclaim
+ * unreachable rows left over from that replay, then `purgeForeignStorageKeys()` to clear any
+ * pre-migration/foreign storage keys - in exactly that order, once, before the first render that reads a model.
  *
  * Every model module MUST be imported (so `defineModel` has registered its apply target) before calling
  * this - `replayJournal` throws on a journal record whose model has no registered apply target, and that
- * throw is intentionally loud here: `bootDb` does not catch or swallow any step's error, since a silent
- * partial boot is worse than a startup crash.
+ * throw is intentionally loud here: `bootDb` does not catch or swallow validation or replay errors, since a
+ * silent partial boot is worse than a startup crash.
  *
  * `configureDb`, `replayJournal`, `collectGarbage`, and `purgeForeignStorageKeys` remain individually
  * exported as composable primitives for callers with a different startup sequencing need; `bootDb` is the
@@ -21,9 +21,9 @@ import { type MaintenanceReport } from './maintenanceRegistry';
  * report for the post-replay sweep.
  */
 export declare const bootDb: (options: Parameters<typeof configureDb>[0]) => Promise<{
-    replayed: number;
-    gc: GcReport;
-    maintenance: MaintenanceReport[];
+  replayed: number;
+  gc: GcReport;
+  maintenance: MaintenanceReport[];
 }>;
 /**
  * Recommended app-background/teardown sequence: `flushPersistence()` to write pending checkpoint
