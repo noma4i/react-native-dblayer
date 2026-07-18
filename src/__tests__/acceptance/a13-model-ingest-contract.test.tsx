@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer'
-import { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineModel, f } from '../../index'
+import { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineModel, f, resetRuntime } from '../../index'
 import { createAcceptanceTransport, setupAcceptanceRuntime } from './harness'
 
 const document = { kind: `Document`, definitions: [] } as never
@@ -59,5 +59,28 @@ describe(`A13 model ingest contract`, () => {
     expect(rows.get(`one`)).toBeUndefined()
     runtime.stop()
     jest.useRealTimers()
+  })
+
+  it(`clears named effects on runtime reset and replaces them on recreation`, () => {
+    const errors: string[] = []
+    setupAcceptanceRuntime({ defaults: { onSyncError: (_error, context) => errors.push(context.event ?? ``) } })
+    const model = defineModel({ id: `A13Effects`, name: `Effects`, fields: { title: f.str() } })
+    const stale = jest.fn()
+    createDbSubscriptionEffects({ stale })
+    const staleEntry = model.ingest({ stale: { document, effect: { name: `stale`, when: `before` } } })[0]!
+    staleEntry.onData({ id: `one`, title: `one` })
+    expect(stale).toHaveBeenCalledTimes(1)
+    act(() => { resetRuntime() })
+    staleEntry.onData({ id: `two`, title: `two` })
+    expect(stale).toHaveBeenCalledTimes(1)
+    expect(errors).toContain(`stale`)
+    const fresh = jest.fn()
+    createDbSubscriptionEffects({ fresh })
+    const freshEntry = model.ingest({ fresh: { document, effect: { name: `fresh`, when: `before` } } })[0]!
+    freshEntry.onData({ id: `three`, title: `three` })
+    expect(fresh).toHaveBeenCalledTimes(1)
+    staleEntry.onData({ id: `four`, title: `four` })
+    expect(stale).toHaveBeenCalledTimes(1)
+    expect(errors.filter(event => event === `stale`)).toHaveLength(2)
   })
 })

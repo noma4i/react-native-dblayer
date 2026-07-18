@@ -4,12 +4,20 @@ import { getDbTransport } from './transport';
 import type { DbGraphQLDocument } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { getRuntimeGeneration } from '../dsl/configure';
+import { registerReset } from './reset';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
 const GLOBAL_DEBOUNCE_KEY = '__global__';
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30000;
 const namedEffects = new Map<string, (...args: unknown[]) => void>();
+
+/** Clear injected effect wrappers during runtime teardown. */
+export const resetSubscriptionRuntimeEffects = (): void => {
+  namedEffects.clear();
+};
+
+registerReset(resetSubscriptionRuntimeEffects);
 
 /** Resolve an injected subscription effect by its stable application name. */
 export const getDbSubscriptionEffect = (name: string): ((...args: unknown[]) => void) | undefined => namedEffects.get(name);
@@ -98,6 +106,7 @@ export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffec
       }
     ])
   ) as TEffects;
+  namedEffects.clear();
   for (const [name, effect] of Object.entries(effects)) namedEffects.set(name, effect as (...args: unknown[]) => void);
 
   return {
