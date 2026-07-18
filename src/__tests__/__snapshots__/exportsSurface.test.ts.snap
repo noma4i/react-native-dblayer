@@ -21,6 +21,7 @@ exports[`package exports surface matches the checked-in export name snapshot 1`]
   "createNestedObjectPatcher",
   "createThrottledSingleFlight",
   "createUniqueIds",
+  "defineCommand",
   "defineDbSubscriptionEntry",
   "defineFetch",
   "defineIngest",

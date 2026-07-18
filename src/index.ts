@@ -20,6 +20,7 @@ export { defineFetch } from './dsl/defineFetch';
 export type { FetchResult } from './dsl/defineFetch';
 export type { MutateCallbacks } from './dsl/defineMutation';
 export { defineMutation } from './dsl/defineMutation';
+export { defineCommand } from './dsl/defineCommand';
 export { defineIngest } from './dsl/defineIngest';
 export type { IngestDecl } from './dsl/defineIngest';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';

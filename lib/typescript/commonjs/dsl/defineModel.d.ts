@@ -1,8 +1,23 @@
 import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import type { JournalOp } from '../core/apply/journal';
 import { type RelationDecl } from '../core/relations';
+import { defineFetch } from './defineFetch';
+import { defineMutation, type MutationConfig } from './defineMutation';
+import { defineQuery } from './defineQuery';
 import type { Coverage, ScopeSpec } from './scope';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
+type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
+    key?: string;
+    into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
+};
+type ModelMutationConfig<TData, TInput, TStored extends {
+    id: string;
+}, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe'> & {
+    dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
+};
+type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & {
+    key?: string;
+};
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
  * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ chatId }`); `null`/`undefined`
@@ -57,6 +72,16 @@ type ModelCore<TStored extends {
     updatedAt?: string | null;
 }> = {
     modelId: string;
+    /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
+    query<TResponse, TVars, TScope, TRow extends {
+        id: string;
+    }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
+    /** Define a model-owned mutation with conventional input-sensitive deduplication; pass `dedupe: false` to opt out. */
+    mutation<TData, TInput, TRow extends {
+        id: string;
+    }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+    /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
+    fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
     get(id: string | null | undefined): TStored | undefined;
     getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
     /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
