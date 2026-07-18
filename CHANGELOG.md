@@ -1,5 +1,11 @@
 # Changelog
 
+## 7.0.0-beta.3 - 2026-07-19
+
+### Boot lifecycle
+
+- Add `wipe` to `bootDb` options: `bootDb({ ..., wipe: true })` runs the `resetRuntime` kill-switch after configuration and deferred validations but before journal replay, so boot starts from an empty store. Use it for consumer-side schema/cache-version bumps where stale persisted rows must not be rehydrated - previously a pre-boot wipe had no first-class path (`resetRuntime` throws before `configureDb`).
+
 ## 7.0.0-beta.2 - 2026-07-19
 
 ### Breaking changes and migration
@@ -132,14 +138,12 @@
 
 - Describe the v6 package as a persistent data-layer DSL without claiming the removed TanStack DB runtime dependency.
 
-
 ## 6.1.1-beta.1 - 2026-07-17
 
 ### Query runtime ownership
 
 - Own `@tanstack/react-query` at `5.101.2` and export `QueryClient`, `QueryClientProvider`, `focusManager`, `useQuery`, and `useQueryClient` so consumers use one package-controlled runtime.
 - Remove the unused `@tanstack/react-db` peer and development dependency from the v6 package.
-
 
 ## 6.1.0 - 2026-07-15
 
@@ -425,23 +429,23 @@ Final stable release of the v2.5 consolidation line; merges 2.5.0-beta.1 through
 
 ### Breaking changes
 
-| Old | New |
-| --- | --- |
-| `executeDbSingleRequest` | `runDbQueryDirect` |
-| `executeDbInfiniteRequest` | `runDbInfiniteQueryDirect` |
-| `InfiniteQueryResult.items` | `InfiniteQueryResult.data` |
-| `InfiniteQueryResult.refresh` | `InfiniteQueryResult.refetch` |
-| `InfiniteQueryResult.fetchNextPage` | `InfiniteQueryResult.loadMore` |
-| `getFirstWhere` | `getFirst` |
-| singleton `upsert` | `upsertCurrent` |
-| `_collection` | `collection` |
-| config `inactive` | config `enabled` with inverted meaning |
-| `FetchStatePageInfo` | removed |
-| `NormalizedPageInfo` | removed |
-| `DisplayState` | removed |
-| `DisplayStateInput` | removed |
-| `ServerSyncContract` | removed |
-| `ServerSyncMode` | removed |
+| Old                                 | New                                    |
+| ----------------------------------- | -------------------------------------- |
+| `executeDbSingleRequest`            | `runDbQueryDirect`                     |
+| `executeDbInfiniteRequest`          | `runDbInfiniteQueryDirect`             |
+| `InfiniteQueryResult.items`         | `InfiniteQueryResult.data`             |
+| `InfiniteQueryResult.refresh`       | `InfiniteQueryResult.refetch`          |
+| `InfiniteQueryResult.fetchNextPage` | `InfiniteQueryResult.loadMore`         |
+| `getFirstWhere`                     | `getFirst`                             |
+| singleton `upsert`                  | `upsertCurrent`                        |
+| `_collection`                       | `collection`                           |
+| config `inactive`                   | config `enabled` with inverted meaning |
+| `FetchStatePageInfo`                | removed                                |
+| `NormalizedPageInfo`                | removed                                |
+| `DisplayState`                      | removed                                |
+| `DisplayStateInput`                 | removed                                |
+| `ServerSyncContract`                | removed                                |
+| `ServerSyncMode`                    | removed                                |
 
 - Prune 47 runtime exports from the public barrel. The following internals moved out of the public package surface: `DEFAULT_FETCH_STATE_MAX_AGE_MS`, `acceptPersistentCollectionMutations`, `clearAllFreshnessMetadata`, `clearCollectionFetchState`, `clearCollectionFetchStates`, `clearModelRegistry`, `createCollectionModel`, `createMerge`, `createPatchCrud`, `createPersistentCollection`, `createReplace`, `deriveDbKey`, `getCollectionFetchState`, `getCollectionFetchStateVersion`, `getDbExtractSink`, `getDbLogger`, `getDbMutationExtractResolver`, `getDbQueryClient`, `getDbStorageAdapter`, `getDbTransport`, `getRegisteredModel`, `isInManagedMutationBatch`, `isIncomingNewer`, `listCollectionFetchScopes`, `mmkvCollectionOptions`, `readBoolean`, `readString`, `refetchDbRequests`, `registerCollectionFetchStateCache`, `registerModel`, `registerModelRuntimeReset`, `registerPersistentCollectionMutationAcceptor`, `resolveMergedField`, `runInManagedMutationBatch`, `setCollectionFetchState`, `setDbExtractSink`, `setDbLogger`, `setDbMutationExtractResolver`, `setDbStorageAdapter`, `setDbTransport`, `shallowEqual`, `shouldAcceptIncoming`, `subscribeCollectionFetchState`, `toQueryValue`, `useCollectionRead`, `useCommandMutation`, and `useStableArray`.
 
