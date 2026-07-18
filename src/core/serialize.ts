@@ -1,3 +1,5 @@
+import { isRecord } from '../utils/normalizeHelpers';
+
 /** Serialize a value with stable object-key ordering. */
 export const stableSerialize = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -9,4 +11,3 @@ export const stableSerialize = (value: unknown): string => {
   }
   return JSON.stringify(value);
 };
-import { isRecord } from '../utils/normalizeHelpers';

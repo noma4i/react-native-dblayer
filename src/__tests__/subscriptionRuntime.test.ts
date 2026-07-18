@@ -1,6 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from '../index';
 import { setDbLogger } from '../core/logger';
+import { resetRuntime } from '../core/reset';
 import type { DbGraphQLDocument, DbTransport } from '../types';
 import { mockTransport } from './helpers/testRuntime';
 
@@ -10,9 +11,7 @@ type TestPayload = {
   value?: number;
 };
 
-const typecheckSubscriptionEntry = (
-  typedDocument: TypedDocumentNode<{ messageCreated: TestPayload; unreadCount: number }, { chatId: string }>
-) => {
+const typecheckSubscriptionEntry = (typedDocument: TypedDocumentNode<{ messageCreated: TestPayload; unreadCount: number }, { chatId: string }>) => {
   defineDbSubscriptionEntry({
     key: 'messageCreated',
     query: typedDocument,
@@ -128,6 +127,23 @@ describe('subscription runtime', () => {
     jest.advanceTimersByTime(100);
 
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('drops late payloads from a stopped subscription after runtime reset', () => {
+    const { records, transport } = createTransport();
+    configureDb({ transport });
+    const handler = jest.fn();
+    const runtime = createDbSubscriptionRuntime([{ key: 'message', query, onData: handler }]);
+
+    runtime.setActive(true);
+    records[0]!.handlers.next({ message: { id: 'before-stop' } });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    runtime.stop();
+    resetRuntime();
+    records[0]!.handlers.next({ message: { id: 'late' } });
+
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
   it('validates payloads from response data and logs skipped malformed payloads', () => {

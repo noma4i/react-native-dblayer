@@ -40,6 +40,8 @@ export declare const sortModelReadRows: <T extends Row>(rows: T[], orderBy: Read
     field: string;
     direction: "asc" | "desc";
 }>, limit?: number) => T[];
+/** Apply an optional non-negative row limit; undefined means no limit. */
+export declare const limitRows: <T>(rows: T[], limit: number | undefined) => T[];
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
 export declare const createModelReadEngine: <T extends Row, TValue>(options: RowEngineOptions<T, TValue>) => Engine<TValue>;
 type ScopeEngineOptions<T extends Row> = {

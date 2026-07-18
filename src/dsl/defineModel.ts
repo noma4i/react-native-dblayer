@@ -14,7 +14,7 @@ import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDe
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
-import { createModelReadEngine, createScopeReadEngine, incrementalSignature, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
+import { createModelReadEngine, createScopeReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
@@ -29,8 +29,13 @@ import { isRecord } from '../utils/normalizeHelpers';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
-type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & { key?: string; into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'] };
-type ModelMutationConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe'> & { dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'] };
+type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
+  key?: string;
+  into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
+};
+type ModelMutationConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe'> & {
+  dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
+};
 type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & { key?: string };
 
 /**
@@ -79,9 +84,15 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   modelId: string;
   /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
-  query<TResponse, TVars, TScope, TRow extends { id: string }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
+  ): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
   /** Define a model-owned mutation with conventional input-sensitive deduplication; pass `dedupe: false` to opt out. */
-  mutation<TData, TInput, TRow extends { id: string }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+  mutation<TData, TInput, TRow extends { id: string }, TNode>(
+    name: string,
+    config: ModelMutationConfig<TData, TInput, TRow, TNode>
+  ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
   /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
   /** Define a reactive joined projection over one declared scope and its current related rows. */
@@ -487,9 +498,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
             })
         }),
       read: (criteria, orders, limit) => {
-        const rows = planes().entityState.values().filter(row => criteria != null && matchesDbWhere(row, criteria));
+        const rows = planes()
+          .entityState.values()
+          .filter(row => criteria != null && matchesDbWhere(row, criteria));
         if (orders.length > 0) return sortModelReadRows(rows, orders, limit);
-        return limit === undefined ? rows : rows.slice(0, Math.max(0, limit));
+        return limitRows(rows, limit);
       }
     });
   }
@@ -610,7 +623,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     modelId: config.id,
     query: (name, queryConfig) => defineQuery({ ...queryConfig, key: queryConfig.key ?? `${config.id}:${name}`, into: queryConfig.into ?? model }),
     mutation: (name, mutationConfig) => {
-      const dedupe = mutationConfig.dedupe === false ? undefined : mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` };
+      const dedupe = mutationConfig.dedupe === false ? undefined : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });
     },
     fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
@@ -618,8 +631,10 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     ingest: entries => defineModelIngest(model, entries),
     get: id => (id == null ? undefined : planes().entityState.read(id)),
     getWhere: (where, options) => {
-      const rows = planes().entityState.values().filter(row => matchesDbWhere(row, where));
-      if (!options?.orderBy) return options?.limit === undefined ? rows : rows.slice(0, Math.max(0, options.limit));
+      const rows = planes()
+        .entityState.values()
+        .filter(row => matchesDbWhere(row, where));
+      if (!options?.orderBy) return limitRows(rows, options?.limit);
       return sortModelReadRows(rows, [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], options.limit);
     },
     getAll: () => planes().entityState.values(),

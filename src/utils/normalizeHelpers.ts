@@ -1,3 +1,5 @@
+import { isPlainObject } from 'es-toolkit';
+
 /** Narrow a value to a non-null object. Arrays also satisfy this check - callers that need to exclude them do so themselves. */
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
@@ -40,4 +42,3 @@ export const readId = (value: unknown): string | undefined => {
   const id = String(value);
   return id === '' ? undefined : id;
 };
-import { isPlainObject } from 'es-toolkit';

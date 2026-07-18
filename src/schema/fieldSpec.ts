@@ -1,3 +1,5 @@
+import { isRecord } from '../utils/normalizeHelpers';
+
 export type FieldMode = 'required' | 'nullable' | 'optional' | 'optionalNullable';
 export type FieldDefault<TOut> = TOut | (() => TOut);
 
@@ -190,4 +192,3 @@ export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefau
 
   return spec;
 };
-import { isRecord } from '../utils/normalizeHelpers';

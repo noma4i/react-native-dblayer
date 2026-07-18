@@ -30,7 +30,10 @@ const semanticValue = (value: unknown): string => {
     const object = value as object;
     const record = value as Record<string, unknown>;
     if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
-      return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${semanticValue(record[key])}`).join(',')}}`;
+      return `{${Object.keys(record)
+        .sort()
+        .map(key => `${JSON.stringify(key)}:${semanticValue(record[key])}`)
+        .join(',')}}`;
     }
     const token = identityTokens.get(object) ?? nextIdentityToken++;
     identityTokens.set(object, token);
@@ -132,11 +135,13 @@ export const sortModelReadRows = <T extends Row>(rows: T[], orderBy: ReadonlyArr
     }
     return left.id.localeCompare(right.id);
   });
-  return limit === undefined ? sorted : sorted.slice(0, Math.max(0, limit));
+  return limitRows(sorted, limit);
 };
 
-const engineValuesEqual = (left: unknown, right: unknown): boolean =>
-  Array.isArray(left) && Array.isArray(right) ? arraysShallowEqual(left, right) : Object.is(left, right);
+/** Apply an optional non-negative row limit; undefined means no limit. */
+export const limitRows = <T>(rows: T[], limit: number | undefined): T[] => (limit === undefined ? rows : rows.slice(0, Math.max(0, limit)));
+
+const engineValuesEqual = (left: unknown, right: unknown): boolean => (Array.isArray(left) && Array.isArray(right) ? arraysShallowEqual(left, right) : Object.is(left, right));
 
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
 export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineOptions<T, TValue>): Engine<TValue> => {
@@ -156,11 +161,7 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
     if (rows) {
       const orderBy = options.options?.orderBy ?? [];
       const values = [...rows.values()];
-      ordered = orderBy.length > 0
-        ? sortModelReadRows(values, orderBy, options.options?.limit)
-        : options.options?.limit === undefined
-          ? values
-          : values.slice(0, Math.max(0, options.options.limit));
+      ordered = orderBy.length > 0 ? sortModelReadRows(values, orderBy, options.options?.limit) : limitRows(values, options.options?.limit);
       engine.value = options.select(ordered, ids.size);
     } else {
       engine.value = options.select([], ids.size);
@@ -182,7 +183,13 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
   rebuild();
   engine.apply = batch => {
     const relevant = batch?.rows.filter(change => change.model === options.model) ?? [];
-    const requiresRebuild = batch === null || batch.mode === 'bulk' || batch.mode === 'replace' || batch.mode === 'maintenance' || batch?.maintenanceModels?.includes(options.model) === true || relevant.length > 64;
+    const requiresRebuild =
+      batch === null ||
+      batch.mode === 'bulk' ||
+      batch.mode === 'replace' ||
+      batch.mode === 'maintenance' ||
+      batch?.maintenanceModels?.includes(options.model) === true ||
+      relevant.length > 64;
     if (requiresRebuild) {
       const previous = engine.value;
       rebuild();
@@ -268,7 +275,12 @@ export const createScopeReadEngine = <T extends Row>(options: ScopeEngineOptions
   const changedWindow = (): boolean => {
     if (options.windowSize === undefined) return true;
     const next = { rows: (engine.value as T[]).slice(0, options.windowSize), totalCount: (engine.value as T[]).length, hasMore: (engine.value as T[]).length > options.windowSize };
-    const changed = windowSnapshot === null || windowSnapshot.totalCount !== next.totalCount || windowSnapshot.hasMore !== next.hasMore || windowSnapshot.rows.length !== next.rows.length || windowSnapshot.rows.some((row, index) => row !== next.rows[index]);
+    const changed =
+      windowSnapshot === null ||
+      windowSnapshot.totalCount !== next.totalCount ||
+      windowSnapshot.hasMore !== next.hasMore ||
+      windowSnapshot.rows.length !== next.rows.length ||
+      windowSnapshot.rows.some((row, index) => row !== next.rows[index]);
     windowSnapshot = next;
     return changed;
   };
@@ -276,7 +288,13 @@ export const createScopeReadEngine = <T extends Row>(options: ScopeEngineOptions
   changedWindow();
   engine.apply = batch => {
     const scopeChanges = batch?.scopeChanges?.filter(change => change.model === options.model && change.scopeKey === options.scopeKey) ?? [];
-    if (batch === null || batch?.mode !== 'delta' || batch.maintenanceModels?.includes(options.model) || scopeChanges.some(change => change.rebuild) || (options.sort && typeof options.sort !== 'string' && 'comparator' in options.sort)) {
+    if (
+      batch === null ||
+      batch?.mode !== 'delta' ||
+      batch.maintenanceModels?.includes(options.model) ||
+      scopeChanges.some(change => change.rebuild) ||
+      (options.sort && typeof options.sort !== 'string' && 'comparator' in options.sort)
+    ) {
       const previous = engine.value;
       rebuild();
       if (previous !== engine.value && changedWindow()) engine.version += 1;
