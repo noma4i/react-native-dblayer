@@ -1,5 +1,6 @@
 import { act } from 'react-test-renderer';
-import { defineModel, f, isTempId, scope } from '../../index';
+import React from 'react';
+import { QueryClientProvider, defineModel, f, isTempId, scope } from '../../index';
 import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -76,5 +77,90 @@ describe('A16 crud scaffold', () => {
       void crud.update.run({ title: 'x' });
     }
     expect(crud.update).toBeDefined();
+  });
+
+  it('crud writes preserve unaffected identities', async () => {
+    const createHold = deferred<{ data: { create: { id: string; group: string; title: string } } }>();
+    let calls = 0;
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => {
+      calls += 1;
+      if (calls === 1) return createHold.promise as Promise<{ data: TData }>;
+      if (calls === 2) return Promise.resolve({ data: { update: { id: 'first', group: 'feed', title: 'updated' } } as TData });
+      return Promise.resolve({ data: { destroy: { id: 'second' } } as TData });
+    } }) });
+    const model = defineModel({ id: 'A16Identity', name: 'A16Identity', fields: { group: f.str(), title: f.str() }, scopes: { feed: scope({ by: { group: 'group' }, sort: 'server-order' }) } });
+    act(() => { model.insertStored({ id: 'first', group: 'feed', title: 'first' }); model.insertStored({ id: 'second', group: 'feed', title: 'second' }); model.insertStored({ id: 'third', group: 'feed', title: 'third' }); });
+    const crud = model.crud({ create: { document, result: 'create', respond: (input: { title: string }, context: { tempId: string }) => ({ create: { id: context.tempId, group: 'feed', title: input.title } }), selectServerNode: (data: any) => data.create, appendTo: { scope: model.scopes.feed, value: () => scopeValue } }, update: { document, result: 'update' }, destroy: { document, result: 'destroy' } });
+    const reader = renderCounted(() => model.scopes.feed.use(scopeValue));
+    const initial = reader.result();
+    const [first, second, third] = initial;
+    let created!: Promise<any>;
+    act(() => { created = crud.create.run({ title: 'created' }); });
+    const fabricated = reader.result();
+    expect(fabricated).not.toBe(initial);
+    expect(fabricated[0]).toBe(first); expect(fabricated[1]).toBe(second); expect(fabricated[2]).toBe(third);
+    await act(async () => { createHold.resolve({ data: { create: { id: 'server-created', group: 'feed', title: 'created' } } }); await created; });
+    const committedCreate = reader.result();
+    expect(committedCreate.map(row => row.id)).toEqual(['first', 'second', 'third', 'server-created']);
+    expect(committedCreate[0]).toBe(first); expect(committedCreate[1]).toBe(second); expect(committedCreate[2]).toBe(third);
+    await act(async () => { await crud.update.run({ id: 'first', title: 'updated' }); });
+    const updated = reader.result();
+    expect(updated[1]).toBe(second); expect(updated[2]).toBe(third); expect(updated[3]).toBe(committedCreate[3]);
+    await act(async () => { await crud.destroy.run({ id: 'second' }); });
+    const destroyed = reader.result();
+    expect(destroyed).not.toBe(updated);
+    expect(destroyed.map(row => row.id)).toEqual(['first', 'third', 'server-created']);
+    expect(destroyed[1]).toBe(third); expect(destroyed[2]).toBe(committedCreate[3]);
+    reader.unmount();
+  });
+
+  it('crud writes keep unrelated readers at zero renders', async () => {
+    const createHold = deferred<{ data: { create: { id: string; group: string; title: string } } }>();
+    let calls = 0;
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => {
+      calls += 1;
+      if (calls === 1) return createHold.promise as Promise<{ data: TData }>;
+      if (calls === 2) return Promise.resolve({ data: { update: { id: 'target', group: 'feed', title: 'updated' } } as TData });
+      return Promise.resolve({ data: { destroy: { id: 'target' } } as TData });
+    } }) });
+    const model = defineModel({ id: 'A16Pinpoint', name: 'A16Pinpoint', fields: { group: f.str(), title: f.str() }, scopes: { feed: scope({ by: { group: 'group' }, sort: 'server-order' }) } });
+    const other = defineModel({ id: 'A16PinpointOther', name: 'A16PinpointOther', fields: { title: f.str() } });
+    act(() => { model.insertStored({ id: 'target', group: 'feed', title: 'target' }); });
+    const crud = model.crud({ create: { document, result: 'create', respond: (input: { title: string }, context: { tempId: string }) => ({ create: { id: context.tempId, group: 'feed', title: input.title } }), selectServerNode: (data: any) => data.create, appendTo: { scope: model.scopes.feed, value: () => scopeValue } }, update: { document, result: 'update' }, destroy: { document, result: 'destroy' } });
+    const affected = renderCounted(() => model.scopes.feed.use(scopeValue));
+    const otherScope = renderCounted(() => model.scopes.feed.use({ group: 'other' }));
+    const unrelatedRow = renderCounted(() => model.use.row('unrelated'));
+    const otherModel = renderCounted(() => other.use.row('other'));
+    const before = [affected.renders(), otherScope.renders(), unrelatedRow.renders(), otherModel.renders()];
+    let created!: Promise<any>;
+    act(() => { created = crud.create.run({ title: 'created' }); });
+    expect(affected.renders()).toBe(before[0]! + 1);
+    await act(async () => { createHold.resolve({ data: { create: { id: 'server-created', group: 'feed', title: 'created' } } }); await created; });
+    expect(affected.renders()).toBe(before[0]! + 2);
+    await act(async () => { await crud.update.run({ id: 'target', title: 'updated' }); });
+    expect(affected.renders()).toBe(before[0]! + 3);
+    await act(async () => { await crud.destroy.run({ id: 'target' }); });
+    expect(affected.renders()).toBe(before[0]! + 4);
+    expect(otherScope.renders()).toBe(before[1]);
+    expect(unrelatedRow.renders()).toBe(before[2]);
+    expect(otherModel.renders()).toBe(before[3]);
+    affected.unmount(); otherScope.unmount(); unrelatedRow.unmount(); otherModel.unmount();
+  });
+
+  it('crud list reader tears down cleanly', async () => {
+    const hold = deferred<{ data: { items: Array<{ id: string; group: string; title: string }> } }>();
+    const transport = createAcceptanceTransport({ query: <TData,>() => hold.promise as Promise<{ data: TData }> });
+    const { queryClient } = setupAcceptanceRuntime({ transport });
+    const model = defineModel({ id: 'A16Teardown', name: 'A16Teardown', fields: { group: f.str(), title: f.str() }, scopes: { feed: scope({ by: { group: 'group' }, sort: 'server-order' }) } });
+    const crud = model.crud({ list: { document, select: (data: any) => data.items, into: model.scopes.feed } });
+    const reader = renderCounted(() => crud.list.use(scopeValue).data, child => React.createElement(QueryClientProvider, { client: queryClient }, child));
+    expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(1);
+    await act(async () => { hold.resolve({ data: { items: [{ id: 'server', group: 'feed', title: 'server' }] } }); await hold.promise; });
+    const rendersBeforeUnmount = reader.renders();
+    reader.unmount();
+    act(() => { model.insertStored({ id: 'after-unmount', group: 'feed', title: 'after-unmount' }); });
+    expect(reader.renders()).toBe(rendersBeforeUnmount);
+    expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(1);
+    expect(transport.calls.filter(call => call.kind === 'subscribe')).toHaveLength(0);
   });
 });
