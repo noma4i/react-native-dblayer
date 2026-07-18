@@ -181,20 +181,6 @@ const keyForScope = (scopeName: string, scopeValue: unknown): string => `${scope
 
 const EMPTY_ROWS: any[] = [];
 
-const sortRows = <TStored>(rows: TStored[], options?: DbReadOptions<TStored>): TStored[] => {
-  const ordered = options?.orderBy
-    ? [...rows].sort((left, right) => {
-        const { field, direction } = options.orderBy!;
-        const a = left[field];
-        const b = right[field];
-        if (a === b) return 0;
-        const result = a == null ? -1 : b == null ? 1 : a < b ? -1 : 1;
-        return direction === 'asc' ? result : -result;
-      })
-    : rows;
-  return options?.limit === undefined ? ordered : ordered.slice(0, Math.max(0, options.limit));
-};
-
 const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: string, complete: boolean): unknown => {
   const value = complete
     ? field.read(input, key)
@@ -474,7 +460,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     if (!spec?.sort || spec.sort === 'server-order') return rows;
     if ('comparator' in spec.sort) return [...rows].sort(spec.sort.comparator);
     const { field, dir } = spec.sort;
-    return sortRows(rows, { orderBy: { field, direction: dir } });
+    return sortModelReadRows(rows, [{ field, direction: dir }]);
   };
 
   const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: config.id, id, ...(fields ? { fields } : {}) });
@@ -630,13 +616,11 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     view: (name, viewConfig) => defineView(model, name, viewConfig),
     ingest: entries => defineModelIngest(model, entries),
     get: id => (id == null ? undefined : planes().entityState.read(id)),
-    getWhere: (where, options) =>
-      sortRows(
-        planes()
-          .entityState.values()
-          .filter(row => matchesDbWhere(row, where)),
-        options
-      ),
+    getWhere: (where, options) => {
+      const rows = planes().entityState.values().filter(row => matchesDbWhere(row, where));
+      if (!options?.orderBy) return options?.limit === undefined ? rows : rows.slice(0, Math.max(0, options.limit));
+      return sortModelReadRows(rows, [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], options.limit);
+    },
     getAll: () => planes().entityState.values(),
     patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id, patch: patch as Record<string, unknown> }]),
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),

@@ -118,6 +118,28 @@ describe('defineModel contracts', () => {
     });
   });
 
+  it('C6a: getWhere orders nullish values last deterministically', () => {
+    createContractScenario();
+    const Model = defineModel({ id: 'NullishOrderContract', name: 'NullishOrderContract', fields: { rank: f.num().nullable().optional() } });
+    Model.insertStoredMany([
+      { id: 'missing-undefined' },
+      { id: 'missing-null', rank: null },
+      { id: 'present', rank: 1 }
+    ]);
+
+    expect(Model.getWhere({}, { orderBy: { field: 'rank', direction: 'asc' } }).map(row => row.id)).toEqual(['present', 'missing-null', 'missing-undefined']);
+
+    createContractScenario();
+    const Reversed = defineModel({ id: 'NullishOrderReversedContract', name: 'NullishOrderReversedContract', fields: { rank: f.num().nullable().optional() } });
+    Reversed.insertStoredMany([
+      { id: 'missing-null', rank: null },
+      { id: 'missing-undefined' },
+      { id: 'present', rank: 1 }
+    ]);
+
+    expect(Reversed.getWhere({}, { orderBy: { field: 'rank', direction: 'asc' } }).map(row => row.id)).toEqual(['present', 'missing-null', 'missing-undefined']);
+  });
+
   it('C7: named scopes isolate same-shaped values during complete reconciliation', () => {
     createContractScenario();
     const Model = defineModel({ id: 'ScopeNamespaceContract', name: 'ScopeNamespaceContract', fields: { title: f.str() }, scopes: { first: scope({}), second: scope({}) } });
