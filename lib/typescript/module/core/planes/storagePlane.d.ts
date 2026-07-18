@@ -1,13 +1,11 @@
 /** Atomic-enough synchronous storage seam used by all v6 state planes. */
 export interface StoragePlane {
-  get(key: string): string | undefined;
-  set(
-    entries: Array<{
-      key: string;
-      value: string | null;
-    }>
-  ): void;
-  keys(prefix: string): string[];
+    get(key: string): string | undefined;
+    set(entries: Array<{
+        key: string;
+        value: string | null;
+    }>): void;
+    keys(prefix: string): string[];
 }
 /**
  * Build a {@link StoragePlane} backed by the configured MMKV storage adapter (`getDbStorageAdapter()`).

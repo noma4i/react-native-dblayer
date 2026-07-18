@@ -5,7 +5,7 @@
  * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
  * @returns Unregister function - call it to stop the resetter from running on future resets.
  */
-export declare const registerReset: (reset: () => void | Promise<void>) => () => void;
+export declare const registerReset: (reset: () => void | Promise<void>) => (() => void);
 /**
  * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
  * persisted key under the library namespace, clears all registered in-memory state and notifies

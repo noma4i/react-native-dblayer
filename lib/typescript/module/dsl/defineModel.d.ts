@@ -8,178 +8,154 @@ export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Re
  * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ chatId }`); `null`/`undefined`
  * reads as empty without subscribing.
  */
-export type ScopeHandle<
-  TStored extends {
+export type ScopeHandle<TStored extends {
     id: string;
-  },
-  TScope
-> = {
-  modelId: string;
-  /** Reactive read of every row currently in the scope, in the scope's configured sort order. */
-  use(scopeValue: TScope | null | undefined): TStored[];
-  /**
-   * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
-   * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
-   * returned `fetchNextPage`. This is LOCAL window growth over rows already synced into the model - a
-   * different concept from `QueryResult.fetchNextPage` (`defineQuery`'s network pagination, which fetches
-   * another page from the server), even though both surfaces share the `fetchNextPage` name. A list
-   * typically wires both: `QueryResult.hasNextPage` / `QueryResult.fetchNextPage()` to fetch more rows
-   * from the network, and `useWindow(...).hasMore` / `useWindow(...).fetchNextPage()` to reveal more of
-   * what is already local. The window resets to `pageSize` whenever `scopeValue`'s key changes.
-   */
-  useWindow(
-    scopeValue: TScope | null | undefined,
-    opts?: {
-      pageSize?: number;
-    }
-  ): {
-    /** The current window: the first `totalCount` rows up to the window size. */
-    rows: TStored[];
-    /** Total rows currently in the scope, independent of the window size. */
-    totalCount: number;
-    /** `true` while `totalCount` exceeds the current window size. */
-    hasMore: boolean;
-    /** Grow the local window by `pageSize` more rows. Does not touch the network. */
-    fetchNextPage: () => void;
-  };
-  /** Reactive count of rows currently in the scope. */
-  useCount(scopeValue: TScope | null | undefined): number;
-  /** Clear this scope's fetch-state and invalidate its derived React Query key(s). */
-  invalidate(scopeValue?: TScope): void;
-  /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
-  read(scopeValue: TScope): TStored[];
-  __apply?(
-    scopeValue: TScope,
-    rows: TStored[],
-    coverage: Coverage,
-    opts?: {
-      resetOrder?: boolean;
-    }
-  ): void;
-  __planApply?(
-    scopeValue: TScope,
-    rows: Array<{
-      row: TStored;
-      edge?: Record<string, unknown>;
-    }>,
-    coverage: Coverage,
-    opts?: {
-      resetOrder?: boolean;
-    }
-  ): JournalOp[];
+}, TScope> = {
+    modelId: string;
+    /** Reactive read of every row currently in the scope, in the scope's configured sort order. */
+    use(scopeValue: TScope | null | undefined): TStored[];
+    /**
+     * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
+     * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
+     * returned `fetchNextPage`. This is LOCAL window growth over rows already synced into the model - a
+     * different concept from `QueryResult.fetchNextPage` (`defineQuery`'s network pagination, which fetches
+     * another page from the server), even though both surfaces share the `fetchNextPage` name. A list
+     * typically wires both: `QueryResult.hasNextPage` / `QueryResult.fetchNextPage()` to fetch more rows
+     * from the network, and `useWindow(...).hasMore` / `useWindow(...).fetchNextPage()` to reveal more of
+     * what is already local. The window resets to `pageSize` whenever `scopeValue`'s key changes.
+     */
+    useWindow(scopeValue: TScope | null | undefined, opts?: {
+        pageSize?: number;
+    }): {
+        /** The current window: the first `totalCount` rows up to the window size. */
+        rows: TStored[];
+        /** Total rows currently in the scope, independent of the window size. */
+        totalCount: number;
+        /** `true` while `totalCount` exceeds the current window size. */
+        hasMore: boolean;
+        /** Grow the local window by `pageSize` more rows. Does not touch the network. */
+        fetchNextPage: () => void;
+    };
+    /** Reactive count of rows currently in the scope. */
+    useCount(scopeValue: TScope | null | undefined): number;
+    /** Clear this scope's fetch-state and invalidate its derived React Query key(s). */
+    invalidate(scopeValue?: TScope): void;
+    /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
+    read(scopeValue: TScope): TStored[];
+    __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: {
+        resetOrder?: boolean;
+    }): void;
+    __planApply?(scopeValue: TScope, rows: Array<{
+        row: TStored;
+        edge?: Record<string, unknown>;
+    }>, coverage: Coverage, opts?: {
+        resetOrder?: boolean;
+    }): JournalOp[];
 };
-type ModelCore<
-  TStored extends {
+type ModelCore<TStored extends {
     id: string;
     updatedAt?: string | null;
-  }
-> = {
-  modelId: string;
-  get(id: string | null | undefined): TStored | undefined;
-  getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
-  /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
-  getAll(): TStored[];
-  patch(id: string, patch: Partial<TStored>): void;
-  destroy(id: string): void;
-  destroyMany(ids: string[]): void;
-  insertStored(row: TStored): void;
-  /**
-   * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
-   * unlike calling `insertStored` in a loop, which would journal/publish once per row. Each row still
-   * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insertStored`;
-   * relation side effects (`touch`, `counterCache`, declarative scope membership) are expanded once over
-   * the whole batch, so a `belongsTo` `counterCache` increments by the batch's full count in one step
-   * rather than one increment per row.
-   */
-  insertStoredMany(rows: TStored[]): void;
-  replaceRaw(oldId: string, next: unknown): void;
-  buildStored(input: unknown): TStored;
-  normalize(input: unknown): Partial<TStored> & {
-    id: string;
-  };
-  invalidate(scope?: unknown): void;
-  use: {
-    row(
-      id: string | null | undefined,
-      opts?: {
-        select?: ReadonlyArray<keyof TStored>;
-      }
-    ): TStored | undefined;
-    field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
-    first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
-    where(where: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored[];
-    byIds(ids: string[]): TStored[];
-    count(where?: DbWhere<TStored> | null): number;
-    related(id: string | null | undefined, relation: string): unknown;
-  };
-  scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
-  registerReset(fn: () => void): void;
-  __applyRows?(rows: TStored[]): void;
-  __planRows?(rows: TStored[]): JournalOp[];
-  __planReplace?(oldId: string, next: unknown): JournalOp[];
-  __captureMembership?(id: string): Array<{
-    id: string;
-    scopeKey: string;
-    order: number;
-    edge?: Record<string, unknown>;
-  }>;
-  __planRestore?(
-    next: unknown,
-    memberships: Array<{
-      id: string;
-      scopeKey: string;
-      order: number;
-      edge?: Record<string, unknown>;
-    }>
-  ): JournalOp[];
+}> = {
+    modelId: string;
+    get(id: string | null | undefined): TStored | undefined;
+    getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
+    /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
+    getAll(): TStored[];
+    patch(id: string, patch: Partial<TStored>): void;
+    destroy(id: string): void;
+    destroyMany(ids: string[]): void;
+    insertStored(row: TStored): void;
+    /**
+     * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
+     * unlike calling `insertStored` in a loop, which would journal/publish once per row. Each row still
+     * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insertStored`;
+     * relation side effects (`touch`, `counterCache`, declarative scope membership) are expanded once over
+     * the whole batch, so a `belongsTo` `counterCache` increments by the batch's full count in one step
+     * rather than one increment per row.
+     */
+    insertStoredMany(rows: TStored[]): void;
+    replaceRaw(oldId: string, next: unknown): void;
+    buildStored(input: unknown): TStored;
+    normalize(input: unknown): Partial<TStored> & {
+        id: string;
+    };
+    invalidate(scope?: unknown): void;
+    use: {
+        row(id: string | null | undefined, opts?: {
+            select?: ReadonlyArray<keyof TStored>;
+        }): TStored | undefined;
+        field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
+        first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
+        where(where: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored[];
+        byIds(ids: string[]): TStored[];
+        count(where?: DbWhere<TStored> | null): number;
+        related(id: string | null | undefined, relation: string): unknown;
+    };
+    scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
+    registerReset(fn: () => void): void;
+    __applyRows?(rows: TStored[]): void;
+    __planRows?(rows: TStored[]): JournalOp[];
+    __planReplace?(oldId: string, next: unknown): JournalOp[];
+    __captureMembership?(id: string): Array<{
+        id: string;
+        scopeKey: string;
+        order: number;
+        edge?: Record<string, unknown>;
+    }>;
+    __planRestore?(next: unknown, memberships: Array<{
+        id: string;
+        scopeKey: string;
+        order: number;
+        edge?: Record<string, unknown>;
+    }>): JournalOp[];
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
-  /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
-  id: string;
-  /** Human-readable model name; prefixes normalize/apply error and log messages. */
-  name: string;
-  /** Field spec map (built with `f.*`) that drives normalize/build reads for every stored field. */
-  fields: TFields;
-  /**
-   * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
-   * returning anything else makes `normalize` throw `${name} requires id` for that input, which
-   * plan-building paths (writes, apply) catch and log as a rejected row, and direct `buildStored`/
-   * `normalize` calls propagate to the caller.
-   */
-  rowId?: (input: unknown) => string;
-  /**
-   * Row-level filter run before id resolution. Return `false` to reject the input; `normalize` then
-   * throws `${name} rejected input`, handled the same way as an unresolved `rowId` (see above).
-   */
-  guard?: (input: unknown) => boolean;
-  /**
-   * Lazily-evaluated relation declarations built with `belongsTo`/`hasMany`/`hasOne`/`references`.
-   * Evaluated once on first access and cached, so relation targets that reference other models defined
-   * later in the same module do not need to exist yet at `defineModel` call time.
-   */
-  relations?: () => Record<string, RelationDecl>;
-  /**
-   * Named `ScopeSpec` definitions (built with `scope(...)`). Each entry becomes a `model.scopes.<name>`
-   * handle exposing scoped `use`/`useWindow`/`useCount`/`invalidate`/`read` and, for scopes with `by`,
-   * automatic membership tracking as rows are written.
-   */
-  scopes?: TScopes;
-  /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
-  gc?: 'exempt';
-  merge?: {
+    /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
+    id: string;
+    /** Human-readable model name; prefixes normalize/apply error and log messages. */
+    name: string;
+    /** Field spec map (built with `f.*`) that drives normalize/build reads for every stored field. */
+    fields: TFields;
     /**
-     * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`
-     * to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo).
-     * Omit to always accept incoming writes.
+     * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
+     * returning anything else makes `normalize` throw `${name} requires id` for that input, which
+     * plan-building paths (writes, apply) catch and log as a rejected row, and direct `buildStored`/
+     * `normalize` calls propagate to the caller.
      */
-    shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
-  };
-  /**
-   * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
-   * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
-   * `defineModel` time if any returned key collides with a base model key.
-   */
-  statics?: (model: ModelCore<any>) => TExt;
+    rowId?: (input: unknown) => string;
+    /**
+     * Row-level filter run before id resolution. Return `false` to reject the input; `normalize` then
+     * throws `${name} rejected input`, handled the same way as an unresolved `rowId` (see above).
+     */
+    guard?: (input: unknown) => boolean;
+    /**
+     * Lazily-evaluated relation declarations built with `belongsTo`/`hasMany`/`hasOne`/`references`.
+     * Evaluated once on first access and cached, so relation targets that reference other models defined
+     * later in the same module do not need to exist yet at `defineModel` call time.
+     */
+    relations?: () => Record<string, RelationDecl>;
+    /**
+     * Named `ScopeSpec` definitions (built with `scope(...)`). Each entry becomes a `model.scopes.<name>`
+     * handle exposing scoped `use`/`useWindow`/`useCount`/`invalidate`/`read` and, for scopes with `by`,
+     * automatic membership tracking as rows are written.
+     */
+    scopes?: TScopes;
+    /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
+    gc?: 'exempt';
+    merge?: {
+        /**
+         * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`
+         * to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo).
+         * Omit to always accept incoming writes.
+         */
+        shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
+    };
+    /**
+     * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
+     * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
+     * `defineModel` time if any returned key collides with a base model key.
+     */
+    statics?: (model: ModelCore<any>) => TExt;
 };
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
@@ -190,10 +166,8 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export declare const defineModel: <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
-  config: ModelConfig<TFields, TScopes, TExt>
-) => ModelCore<any> & {
-  scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
+export declare const defineModel: <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => ModelCore<any> & {
+    scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>; };
 } & TExt;
 export {};
 //# sourceMappingURL=defineModel.d.ts.map

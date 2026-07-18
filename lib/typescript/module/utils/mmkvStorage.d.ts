@@ -1,8 +1,8 @@
 /** Default direct MMKV-backed storage adapter behind the injectable storage seam. */
 export declare const mmkvStorageAdapter: {
-  getItem: (key: string) => string | null;
-  setItem: (key: string, value: string) => void;
-  removeItem: (key: string) => void;
+    getItem: (key: string) => string | null;
+    setItem: (key: string, value: string) => void;
+    removeItem: (key: string) => void;
 };
 /** Clear all DB keys from MMKV. */
 export declare const clearDbStorage: () => void;

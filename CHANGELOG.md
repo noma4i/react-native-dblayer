@@ -1,5 +1,44 @@
 # Changelog
 
+## 6.2.0-beta.1 - 2026-07-18
+
+### Breaking changes and migration
+
+- BREAKING: `resetRuntimeSync` is removed; `resetRuntime` is the single synchronous kill-switch - replace `resetRuntimeSync()` calls with `resetRuntime()`.
+- BREAKING: `loadMore` is renamed to `fetchNextPage` on query results and `useWindow` handles - rename call sites.
+- BREAKING: `patchWhenPresent` is renamed to `patchWhenRowExists`.
+- BREAKING: dead exports are removed: `compositeId`, `createKeyedBatchBuffer`, `pruneExpiredRows`, `pruneOrphanedRows`, `readFieldsPatch`, `useJoinedEntities`, `useOrderedEntities`.
+
+### Reliability
+
+- Fix event-origin ingest being blocked by tombstones after a destroy - live events resurrect rows correctly while stale snapshots stay blocked.
+- Fix `collectGarbage` evicting rows without notifying mounted `use.row` and scope readers - maintenance batches now publish precise change-sets.
+- Persist operation-ledger entries synchronously and sweep orphaned temp rows during `replayJournal` - crash windows no longer resurrect phantom optimistic rows.
+- Force a checkpoint flush after `replayJournal` so the WAL journal cannot grow unboundedly across repeated short sessions.
+- Unify sync-error routing: `onSyncError` receives tagged errors from query, mutation, and ingest paths; ingest handlers are guarded.
+- Fix a subscription race after `resetRuntime` - remounted readers receive fresh updates because incremental subscriptions route through the live engine.
+- Report warm-cache fetches as refreshing: hydrated starts no longer flash a ready state; `loadingState` distinguishes the boot skeleton from background revalidation.
+- Fix an extra `useWindow` render via window-aware slice versioning.
+
+### DSL
+
+- Add `defineFetch` for ephemeral network reads with the standard `loadingState` surface.
+- Add `bootDb()` and `suspendDb()` lifecycle helpers.
+- Add `insertStoredMany` for batch stored writes.
+- Expose `operationId` in mutation optimistic, transport, and lifecycle contexts; it is the fallback idempotency key.
+
+### Tests
+
+- Library-agnostic acceptance specification: 10 bundles, 72 contracts covering model, query, mutation, sync lifecycle, errors, perf gates, the reactivity sweep, DSL additions, concurrency and anti-storm behavior, and loading/refresh status.
+
+### Example
+
+- Add a permanent buildable `example/` iOS showcase app: cross-referenced screens over a public GraphQL API demonstrating live relations, optimistic temp-to-server swap, cascade destroy, and reactive `use.count`.
+
+### Docs
+
+- Rewrite the reference docs against the current public surface and add IntelliSense-grade JSDoc across the core DSL.
+
 ## 6.1.1-beta.2 - 2026-07-17
 
 ### Package metadata
