@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from 'react';
 import { useQuery } from '../queryRuntime';
 import type { DbGraphQLDocument, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
@@ -93,14 +94,9 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       isError: request.error != null,
       hasFetchedData: request.isFetched
     });
-    return {
-      data: request.data,
-      loadingState: computeLoadingState(phase, hasData),
-      error: request.error,
-      refetch: () => {
-        void request.refetch();
-      }
-    };
+    const loadingState = useMemo(() => computeLoadingState(phase, hasData), [phase, hasData]);
+    const refetch = useCallback(() => { void request.refetch(); }, [request.refetch]);
+    return useMemo(() => ({ data: request.data, loadingState, error: request.error, refetch }), [request.data, loadingState, request.error, refetch]);
   };
 
   return { use, fetch };
