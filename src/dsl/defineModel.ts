@@ -687,17 +687,18 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       if (sections.get) handles.get = model.query(`get`, { ...sections.get, into: sections.get.into ?? model } as any);
       if (sections.create) {
         const { respond, build, selectServerNode, prependTo, appendTo, optimistic, ...create } = sections.create;
-        const createOptimistic = optimistic ?? (respond ? { model, respond, selectServerNode: selectServerNode ?? ((data: any) => data[create.result]), prependTo, appendTo } : { model, build, selectServerNode, prependTo, appendTo });
-        if (!respond && (!build || !selectServerNode)) throw new Error(`${config.id}: crud create requires respond or build with selectServerNode`);
-        handles.create = model.mutation(`create`, { ...create, optimistic: createOptimistic } as any);
+        const hasOptimistic = Object.prototype.hasOwnProperty.call(sections.create, 'optimistic');
+        if (!hasOptimistic && !respond && (!build || !selectServerNode)) throw new Error(`${config.id}: crud create requires respond or build with selectServerNode`);
+        const createOptimistic = hasOptimistic ? (optimistic === false ? undefined : optimistic) : respond ? { model, respond, selectServerNode, prependTo, appendTo } : { model, build, selectServerNode, prependTo, appendTo };
+        handles.create = model.mutation('create', { ...create, optimistic: createOptimistic } as any);
       }
       if (sections.update) {
         const { optimistic, ...update } = sections.update;
-        handles.update = model.mutation(`update`, { ...update, optimistic: optimistic === false ? undefined : (optimistic ?? { method: `patch`, model, selectId: (input: { id: string }) => input.id, selectPatch: (input: { id: string }) => omit(input, [`id`]) }) } as any);
+        handles.update = model.mutation('update', { ...update, optimistic: optimistic === false ? undefined : (optimistic ?? { method: 'patch', model, selectId: (input: { id: string }) => input.id, selectPatch: (input: { id: string }) => omit(input, ['id']) }) } as any);
       }
       if (sections.destroy) {
         const { optimistic, ...destroy } = sections.destroy;
-        handles.destroy = model.mutation(`destroy`, { ...destroy, optimistic: optimistic === false ? undefined : (optimistic ?? { method: `destroy`, model, selectId: (input: { id: string }) => input.id }) } as any);
+        handles.destroy = model.mutation('destroy', { ...destroy, optimistic: optimistic === false ? undefined : (optimistic ?? { method: 'destroy', model, selectId: (input: { id: string }) => input.id }) } as any);
       }
       return handles as { [K in keyof typeof sections]: any };
     },
