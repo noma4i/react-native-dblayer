@@ -118,7 +118,6 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
     name: string,
     config: ModelMutationConfig<TData, TInput, TRow, TNode>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
-  /** Compose conventional list/get/create/update/destroy handles through this model's existing query and mutation builders. */
   /** Compose conventional resource handles.
    * @param sections Present resource sections and their builder-derived configuration.
    * @returns Exactly the handles for the present section keys.
