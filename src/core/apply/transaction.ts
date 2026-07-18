@@ -3,6 +3,7 @@ import type { CheckpointScheduler } from './checkpoint';
 import type { JournalOp, JournalRecord } from './journal';
 import { createJournal } from './journal';
 import type { StoragePlane } from '../planes/storagePlane';
+import { uniq, uniqBy } from 'es-toolkit';
 
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
@@ -62,10 +63,10 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
     const key = `${model}:${scopeKey}`;
     const current = scopeChanges.get(key) ?? { model, scopeKey };
-    const mergeIds = (left?: string[], right?: string[]) => (left || right ? [...new Set([...(left ?? []), ...(right ?? [])])] : undefined);
+    const mergeIds = (left?: string[], right?: string[]) => (left || right ? uniq([...(left ?? []), ...(right ?? [])]) : undefined);
     const mergeAppendEntries = (left?: Array<{ id: string; order: number }>, right?: Array<{ id: string; order: number }>) => {
       if (!left && !right) return undefined;
-      return [...new Map([...(left ?? []), ...(right ?? [])].map(entry => [entry.id, entry])).values()];
+      return uniqBy([...(right ?? []), ...(left ?? [])], entry => entry.id);
     };
     scopeChanges.set(key, {
       ...current,

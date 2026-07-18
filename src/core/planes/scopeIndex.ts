@@ -1,4 +1,5 @@
 import type { StoragePlane } from './storagePlane';
+import { sortBy } from 'es-toolkit';
 
 export type Coverage = 'complete' | 'page' | 'delta';
 
@@ -140,7 +141,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
 
     if (boundaryAdd) {
-      const sortedIncoming = [...incoming].sort((left, right) => left.order! - right.order!).map(row => ({ id: row.id, order: row.order!, seq: generation, edge: row.edge }));
+      const sortedIncoming = sortBy(incoming, [row => row.order, row => row.id]).map(row => ({ id: row.id, order: row.order!, seq: generation, edge: row.edge }));
       const entries = boundaryAdd.side === 'head' ? [...sortedIncoming, ...previous.entries] : [...previous.entries, ...sortedIncoming];
       return { next: { generation, coverage: previous.coverage === 'complete' ? 'complete' : coverage, entries }, detachedIds: [] };
     }

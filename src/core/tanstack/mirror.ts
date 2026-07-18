@@ -1,12 +1,8 @@
 import type { CommitBus } from '../apply/commitBus';
 import { getApplyTarget } from '../apply/transaction';
 import { ensureModelCollection, ensureMembershipCollection, membershipWriterFor, runInWriteBatch, writerFor } from './facade';
-
-const hasChanged = (current: object, next: object): boolean => {
-  const currentRecord = current as Record<string, unknown>;
-  const nextRecord = next as Record<string, unknown>;
-  return Object.keys({ ...currentRecord, ...nextRecord }).some(key => currentRecord[key] !== nextRecord[key]);
-};
+import { uniq, uniqBy } from 'es-toolkit';
+import { rowsShallowEqual } from '../../read/useLiveRead';
 const scopeOrderCache = new Map<string, Map<string, number>>();
 
 /** Starts synchronously mirroring every commit-bus row batch into TanStack model collections. */
@@ -54,7 +50,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
             writer.write({ type: `insert`, value: next });
             continue;
           }
-          if (hasChanged(current, next)) {
+          if (!rowsShallowEqual(current as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>)) {
             writer.write({ type: `update`, value: next });
           }
         }
@@ -68,9 +64,9 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           const scopeChanges = (batch.scopeChanges ?? []).filter(change => change.model === modelId && change.scopeKey === scopeKey);
           const structural = scopeChanges.reduce(
             (current, change) => ({
-              appendIds: [...new Set([...current.appendIds, ...(change.appendIds ?? [])])],
-              appendEntries: [...new Map([...current.appendEntries, ...(change.appendEntries ?? [])].map(entry => [entry.id, entry])).values()],
-              detachIds: [...new Set([...current.detachIds, ...(change.detachIds ?? [])])],
+              appendIds: uniq([...current.appendIds, ...(change.appendIds ?? [])]),
+              appendEntries: uniqBy([...(change.appendEntries ?? []), ...current.appendEntries], entry => entry.id),
+              detachIds: uniq([...current.detachIds, ...(change.detachIds ?? [])]),
               rebuild: current.rebuild || change.rebuild === true
             }),
             { appendIds: [] as string[], appendEntries: [] as Array<{ id: string; order: number }>, detachIds: [] as string[], rebuild: false }
@@ -89,7 +85,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
               for (const row of expected) {
                 const current = memberships.get(row.key);
                 if (!current) membershipWriter.write({ type: `insert`, value: row });
-                else if (hasChanged(current, row)) membershipWriter.write({ type: `update`, value: row });
+                else if (!rowsShallowEqual(current as unknown as Record<string, unknown>, row as unknown as Record<string, unknown>)) membershipWriter.write({ type: `update`, value: row });
               }
             } else {
               for (const rowId of structural.detachIds) membershipWriter.write({ type: `delete`, key: `${scopeKey}\0${rowId}` });
@@ -99,7 +95,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
                 const next = { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] };
                 const current = memberships.get(next.key);
                 if (!current) membershipWriter.write({ type: `insert`, value: next });
-                else if (hasChanged(current, next)) membershipWriter.write({ type: `update`, value: next });
+                else if (!rowsShallowEqual(current as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>)) membershipWriter.write({ type: `update`, value: next });
               }
             }
             for (const change of batch.rows) {
@@ -109,7 +105,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
               const row = target.readRow(change.id);
               if (!current || !row) continue;
               const next = { key, scopeKey, rowId: change.id, sortValue: row[meta.field] };
-              if (hasChanged(current, next)) membershipWriter.write({ type: `update`, value: next });
+              if (!rowsShallowEqual(current as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>)) membershipWriter.write({ type: `update`, value: next });
             }
             continue;
           }
@@ -128,7 +124,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
                 const next = { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq: order };
                 const current = memberships.get(next.key);
                 if (!current) membershipWriter.write({ type: `insert`, value: next });
-                else if (hasChanged(current, next)) membershipWriter.write({ type: `update`, value: next });
+                else if (!rowsShallowEqual(current as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>)) membershipWriter.write({ type: `update`, value: next });
               }
               modelCache.set(scopeKey, revision);
               continue;
@@ -152,7 +148,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           for (const row of expected) {
             const current = memberships.get(row.key);
             if (!current) membershipWriter.write({ type: `insert`, value: row });
-            else if (hasChanged(current, row)) membershipWriter.write({ type: `update`, value: row });
+            else if (!rowsShallowEqual(current as unknown as Record<string, unknown>, row as unknown as Record<string, unknown>)) membershipWriter.write({ type: `update`, value: row });
           }
           modelCache.set(scopeKey, revision);
         }
@@ -183,7 +179,7 @@ export function seedCollections(models: string[]): void {
           writer.write({ type: `insert`, value: next });
           continue;
         }
-        if (hasChanged(current, next)) {
+        if (!rowsShallowEqual(current as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>)) {
           writer.write({ type: `update`, value: next });
         }
       }
@@ -209,7 +205,7 @@ export function seedCollections(models: string[]): void {
         for (const row of expected) {
           const current = memberships.get(row.key);
           if (!current) membershipWriter.write({ type: `insert`, value: row });
-          else if (hasChanged(current, row)) membershipWriter.write({ type: `update`, value: row });
+          else if (!rowsShallowEqual(current as unknown as Record<string, unknown>, row as unknown as Record<string, unknown>)) membershipWriter.write({ type: `update`, value: row });
         }
         const modelCache = scopeOrderCache.get(modelId) ?? new Map<string, number>();
         scopeOrderCache.set(modelId, modelCache);
