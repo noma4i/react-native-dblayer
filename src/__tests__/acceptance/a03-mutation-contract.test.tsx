@@ -889,4 +889,96 @@ describe(`A03 mutation contract`, () => {
     expect(reader.result().map(row => row.id)).toEqual([`existing`, `server-first`, `server-second`]);
     reader.unmount();
   });
+
+  it(`A03-27 placement scaling stays bounded at 1k and 20k rows`, () => {
+    const median = (samples: number[]) => [...samples].sort((left, right) => left - right)[Math.floor(samples.length / 2)]!;
+    const sample = (count: number, position: `prepend` | `append`) => {
+      const hold = deferred<{ data: { save: Row } }>();
+      setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) });
+      const model = scopedModel(`A03PlacementScale${position}${count}`);
+      model.scopes.feed.__apply?.(
+        scopeValue,
+        Array.from({ length: count }, (_, index) => ({ id: `row-${index}`, group: `scope-1`, title: `title-${index}` })),
+        `complete`
+      );
+      const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`placement-scale-${position}`, {
+        dedupe: false,
+        document,
+        result: `save`,
+        optimistic: {
+          model,
+          build: (input, context) => ({ id: context.tempId!, title: input.title }),
+          selectServerNode: data => data.save,
+          ...(position === `prepend` ? { prependTo: { scope: model.scopes.feed, value: () => scopeValue } } : { appendTo: { scope: model.scopes.feed, value: () => scopeValue } })
+        }
+      });
+      const elapsed = median(
+        Array.from({ length: 7 }, (_, index) => {
+          const started = performance.now();
+          act(() => {
+            void mutation.run({ title: `${position}-${index}` });
+          });
+          return performance.now() - started;
+        })
+      );
+      return elapsed;
+    };
+    const prependSmall = sample(1_000, `prepend`);
+    const prependLarge = sample(20_000, `prepend`);
+    const appendSmall = sample(1_000, `append`);
+    const appendLarge = sample(20_000, `append`);
+    const prependRatio = prependLarge / Math.max(prependSmall, 0.001);
+    const appendRatio = appendLarge / Math.max(appendSmall, 0.001);
+    console.log(
+      `A03-RESULT placement-scale: prepend-small=${prependSmall},prepend-large=${prependLarge},prepend-ratio=${prependRatio},append-small=${appendSmall},append-large=${appendLarge},append-ratio=${appendRatio}`
+    );
+    expect(prependRatio).toBeLessThan(12);
+    expect(appendRatio).toBeLessThan(12);
+  });
+
+  it(`A03-28 respond scaling stays bounded at 1k and 20k rows`, () => {
+    const median = (samples: number[]) => [...samples].sort((left, right) => left - right)[Math.floor(samples.length / 2)]!;
+    const sample = (count: number) => {
+      const hold = deferred<{ data: { save: Row } }>();
+      setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) });
+      const model = scopedModel(`A03RespondScale${count}`);
+      model.scopes.feed.__apply?.(
+        scopeValue,
+        Array.from({ length: count }, (_, index) => ({ id: `row-${index}`, group: `scope-1`, title: `title-${index}` })),
+        `complete`
+      );
+      let fabricated = 0;
+      const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`respond-scale`, {
+        dedupe: false,
+        document,
+        result: `save`,
+        optimistic: {
+          model,
+          selectServerNode: data => data.save,
+          respond: (input, context) => {
+            fabricated += 1;
+            return { save: { id: context.tempId, group: `scope-1`, title: input.title } };
+          },
+          prependTo: { scope: model.scopes.feed, value: () => scopeValue }
+        }
+      });
+      const elapsed = median(
+        Array.from({ length: 7 }, (_, index) => {
+          const started = performance.now();
+          act(() => {
+            void mutation.run({ title: `respond-${index}` });
+          });
+          return performance.now() - started;
+        })
+      );
+      expect(fabricated).toBe(7);
+      expect(model.scopes.feed.read(scopeValue).some(row => isTempId(row.id))).toBe(true);
+      return elapsed;
+    };
+    const small = sample(1_000);
+    const large = sample(20_000);
+    const ratio = large / Math.max(small, 0.001);
+    console.log(`A03-RESULT respond-scale: small=${small},large=${large},ratio=${ratio}`);
+    expect(ratio).toBeLessThan(12);
+  });
 });
