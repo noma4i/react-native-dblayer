@@ -99,6 +99,21 @@ type DestroyOptimistic<TInput> = {
     /** Row id to destroy, derived from the mutation input. */
     selectId: (input: TInput) => string;
 };
+type RespondOptimistic<TData, TInput, TNode> = {
+    /** Model receiving the response node through the same normalize and swap plan as the transport response. */
+    model: MutationModel;
+    /** Pick the response node; an empty id is mapped to this run's temp id. */
+    selectServerNode: (data: TData) => TNode | null | undefined;
+    /** Fabricate a transport-shaped response for the optimistic apply; extract sinks run against it too. */
+    respond: (input: TInput, ctx: {
+        tempId: string;
+        operationId: string;
+    }) => TData;
+    /** Place a fabricated temp row at the top of this server-order scope. */
+    prependTo?: ScopeHandleExpr<TInput>;
+    /** Place a fabricated temp row at the bottom of this server-order scope. */
+    appendTo?: ScopeHandleExpr<TInput>;
+};
 export type MutationConfig<TData, TInput, TStored, TNode> = {
     /** The GraphQL mutation document. */
     document: DbGraphQLDocument<TData, any>;
@@ -111,7 +126,7 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
      * temp row, replaced by the server node on commit), a `method: 'patch'`, or a `method: 'destroy'`. Omit
      * for mutations with no local write of their own (e.g. pure side-effect calls).
      */
-    optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
+    optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | RespondOptimistic<TData, TInput, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
     /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
     extract?: (ctx: {
         data: TData;

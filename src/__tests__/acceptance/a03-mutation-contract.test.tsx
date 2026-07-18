@@ -446,4 +446,92 @@ describe(`A03 mutation contract`, () => {
     expect(otherReader.renders()).toBe(before)
     otherReader.unmount()
   })
-})
+
+  it(`A03-16 applies a fabricated response through the same temp swap path`, async () => {
+    const hold = deferred<{ data: { save: Row } }>();
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) });
+    const model = scopedModel(`A03Respond`);
+    const reader = renderCounted(() => model.scopes.feed.use(scopeValue));
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`respond`, {
+      dedupe: false,
+      document,
+      result: `save`,
+      optimistic: {
+        model,
+        selectServerNode: data => data.save,
+        respond: (input, context) => ({ save: { id: context.tempId, group: `scope-1`, title: input.title } }),
+        prependTo: { scope: model.scopes.feed, value: () => scopeValue }
+      }
+    });
+    let pending!: Promise<{ save: Row } | null>;
+    act(() => {
+      pending = mutation.run({ title: `draft` });
+    });
+    expect(reader.result()).toMatchObject([{ group: `scope-1`, title: `draft` }]);
+    expect(reader.renders()).toBe(2);
+    await act(async () => {
+      hold.resolve({ data: { save: { id: `server`, group: `scope-1`, title: `draft` } } });
+      await pending;
+    });
+    expect(reader.result()).toEqual([{ id: `server`, group: `scope-1`, title: `draft` }]);
+    expect(reader.renders()).toBe(3);
+    reader.unmount();
+  });
+
+  it(`A03-17 keeps fabricated and committed response fields in parity`, async () => {
+    const hold = deferred<{ data: { save: Row } }>();
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) });
+    const model = scopedModel(`A03RespondParity`);
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`respond-parity`, { dedupe: false, document, result: `save`, optimistic: { model, selectServerNode: data => data.save, respond: (input, context) => ({ save: { id: context.tempId, group: `scope-1`, title: input.title } }) } });
+    const pending = mutation.run({ title: `same` });
+    const optimistic = model.getAll()[0]!;
+    await act(async () => { hold.resolve({ data: { save: { id: `server`, group: `scope-1`, title: `same` } } }); await pending; });
+    expect(model.get(`server`)).toEqual({ ...optimistic, id: `server` });
+  });
+
+  it(`A03-18 restores an existing row after a fabricated response fails`, async () => {
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: async () => Promise.reject(new Error(`respond failed`)) }) });
+    const model = scopedModel(`A03RespondPatch`);
+    act(() => { model.insertStored({ id: `row`, group: `scope-1`, title: `before` }); });
+    const reader = renderCounted(() => model.use.row(`row`));
+    const before = reader.result();
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`respond-patch`, { dedupe: false, document, result: `save`, optimistic: { model, selectServerNode: data => data.save, respond: input => ({ save: { id: `row`, group: `scope-1`, title: input.title } }) } });
+    await expect(mutation.run({ title: `after` })).rejects.toThrow(`respond failed`);
+    expect(reader.result()).toEqual(before);
+    reader.unmount();
+  });
+
+  it(`A03-19 removes fabricated temp rows and memberships on rollback`, async () => {
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: async () => Promise.reject(new Error(`respond failed`)) }) });
+    const model = scopedModel(`A03RespondRollback`);
+    act(() => { model.insertStored({ id: `first`, group: `scope-1`, title: `first` }); });
+    const reader = renderCounted(() => model.scopes.feed.use(scopeValue));
+    const before = reader.result().map(row => row.id);
+    const mutation = model.mutation<{ save: Row }, Record<string, never>, Row, Row>(`respond-rollback`, { dedupe: false, document, result: `save`, optimistic: { model, selectServerNode: data => data.save, respond: (_input, context) => ({ save: { id: context.tempId, group: `scope-1`, title: `draft` } }), prependTo: { scope: model.scopes.feed, value: () => scopeValue } } });
+    await expect(mutation.run({})).rejects.toThrow(`respond failed`);
+    expect(reader.result().map(row => row.id)).toEqual(before);
+    reader.unmount();
+  });
+
+  it(`A03-20 applies fabricated extract sinks idempotently through commit`, async () => {
+    const hold = deferred<{ data: { save: Row; authors: Array<{ id: string; title: string }> } }>();
+    setupAcceptanceRuntime({ transport: createAcceptanceTransport({ mutation: <TData,>() => hold.promise as Promise<{ data: TData }> }) });
+    const model = scopedModel(`A03RespondExtract`);
+    const authors = defineModel({ id: `A03RespondAuthors`, name: `A03RespondAuthors`, fields: { title: f.str() } });
+    const reader = renderCounted(() => authors.use.row(`author`));
+    const mutation = model.mutation<{ save: Row; authors: Array<{ id: string; title: string }> }, Record<string, never>, Row, Row>(`respond-extract`, { dedupe: false, document, result: `save`, optimistic: { model, selectServerNode: data => data.save, respond: (_input, context) => ({ save: { id: context.tempId, group: `scope-1`, title: `draft` }, authors: [{ id: `author`, title: `author` }] }) }, extract: ({ data }) => [{ into: authors, rows: data.authors }] });
+    let pending!: Promise<{ save: Row; authors: Array<{ id: string; title: string }> } | null>;
+    act(() => { pending = mutation.run({}); });
+    expect(reader.result()).toEqual({ id: `author`, title: `author` });
+    await act(async () => { hold.resolve({ data: { save: { id: `server`, group: `scope-1`, title: `draft` }, authors: [{ id: `author`, title: `author` }] } }); await pending; });
+    expect(authors.getAll()).toEqual([{ id: `author`, title: `author` }]);
+    expect(reader.renders()).toBeLessThanOrEqual(3);
+    reader.unmount();
+  });
+
+  it(`A03-21 rejects respond combined with build at definition`, () => {
+    setupAcceptanceRuntime();
+    const model = scopedModel(`A03RespondReject`);
+    expect(() => model.mutation<{ save: Row }, Record<string, never>, Row, Row>(`respond-reject`, { dedupe: false, document, result: `save`, optimistic: { model, selectServerNode: (data: { save: Row }) => data.save, respond: (_input: Record<string, never>, context: { tempId: string }) => ({ save: { id: context.tempId, group: `scope-1`, title: `draft` } }), build: () => ({ id: `unused`, title: `unused` }) } as any })).toThrow(`respond cannot`);
+  });
+});

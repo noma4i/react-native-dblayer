@@ -95,6 +95,18 @@ type DestroyOptimistic<TInput> = {
   /** Row id to destroy, derived from the mutation input. */
   selectId: (input: TInput) => string;
 };
+type RespondOptimistic<TData, TInput, TNode> = {
+  /** Model receiving the response node through the same normalize and swap plan as the transport response. */
+  model: MutationModel;
+  /** Pick the response node; an empty id is mapped to this run's temp id. */
+  selectServerNode: (data: TData) => TNode | null | undefined;
+  /** Fabricate a transport-shaped response for the optimistic apply; extract sinks run against it too. */
+  respond: (input: TInput, ctx: { tempId: string; operationId: string }) => TData;
+  /** Place a fabricated temp row at the top of this server-order scope. */
+  prependTo?: ScopeHandleExpr<TInput>;
+  /** Place a fabricated temp row at the bottom of this server-order scope. */
+  appendTo?: ScopeHandleExpr<TInput>;
+};
 
 export type MutationConfig<TData, TInput, TStored, TNode> = {
   /** The GraphQL mutation document. */
@@ -108,7 +120,7 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
    * temp row, replaced by the server node on commit), a `method: 'patch'`, or a `method: 'destroy'`. Omit
    * for mutations with no local write of their own (e.g. pure side-effect calls).
    */
-  optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
+  optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | RespondOptimistic<TData, TInput, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
   /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
   extract?: (ctx: { data: TData }) => ExtractSink[];
   /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps; null skips dedupe. */
@@ -129,6 +141,10 @@ const isMethodOptimistic = <TData, TInput, TStored, TNode>(
   value: NonNullable<MutationConfig<TData, TInput, TStored, TNode>['optimistic']>
 ): value is PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput> => 'method' in value;
 
+const isRespondOptimistic = <TData, TInput, TStored, TNode>(
+  value: NonNullable<MutationConfig<TData, TInput, TStored, TNode>['optimistic']>
+): value is RespondOptimistic<TData, TInput, TNode> => 'respond' in value;
+
 /**
  * Define hook and imperative mutation paths with one lifecycle: optimistic write -> transport call ->
  * single-transaction commit (or rollback of the optimistic write on error/dedupe-skip). Dedupe, extract
@@ -142,6 +158,9 @@ const isMethodOptimistic = <TData, TInput, TStored, TNode>(
  */
 export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
   const optimisticConfig = config.optimistic;
+  if (optimisticConfig && isRespondOptimistic(optimisticConfig) && (`build` in optimisticConfig || `method` in optimisticConfig)) {
+    throw new Error(`optimistic respond cannot be combined with build or method`);
+  }
   if (optimisticConfig && isMethodOptimistic(optimisticConfig) && (`prependTo` in optimisticConfig || `appendTo` in optimisticConfig)) {
     throw new Error(`optimistic prependTo/appendTo requires an insert optimistic config`);
   }
@@ -151,6 +170,40 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     if (placement && placement.scope.__isServerOrder?.() !== true) throw new Error(`optimistic prependTo/appendTo requires a server-order scope`);
     if (placement && placement.scope.modelId !== optimisticConfig.model.modelId) throw new Error(`optimistic prependTo/appendTo scope must belong to the optimistic model`);
   }
+
+  const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[] => {
+    const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
+    if (payload == null) throw new Error(`${config.result} returned no data`);
+    const node = optimistic.selectServerNode(data);
+    const ops: JournalOp[] = [];
+    if (node != null) {
+      const raw = node as Record<string, unknown>;
+      const id = raw.id === `` || raw.id == null ? context.tempId : String(raw.id);
+      const row = { ...raw, id };
+      if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined) ops.push(...(optimistic.model.__planReplace?.(context.tempId, row) ?? []));
+      else ops.push(...(optimistic.model.__planRows?.([row]) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [row] }]));
+      const placement = optimistic.prependTo ?? optimistic.appendTo;
+      if (placement && context.tempId && id === context.tempId)
+        ops.push(...(placement.scope.__planPlacement?.(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append') ?? []));
+    }
+    for (const sink of config.extract?.({ data }) ?? []) ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
+    return ops;
+  };
+  const inverseFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[] => {
+    const targets: Array<{ model: MutationModel; id: string }> = [];
+    const node = optimistic.selectServerNode(data) as Record<string, unknown> | null | undefined;
+    if (node) targets.push({ model: optimistic.model, id: node.id === `` || node.id == null ? context.tempId! : String(node.id) });
+    for (const sink of config.extract?.({ data }) ?? []) {
+      const model = sink.into as MutationModel;
+      for (const row of sink.rows) if (isRecord(row) && typeof row.id === 'string') targets.push({ model, id: row.id });
+    }
+    return targets.flatMap(({ model, id }) => {
+      const previous = model.get?.(id);
+      if (previous === undefined) return [{ kind: 'destroy' as const, model: model.modelId, ids: [id], tombstone: false }];
+      const memberships = model.__captureMembership?.(id) ?? [];
+      return model.__planRestore?.(previous, memberships) ?? [{ kind: 'upsert' as const, model: model.modelId, rows: [previous], origin: 'replace' as const }];
+    });
+  };
 
   const run = async (input: TInput): Promise<TData | null> => {
     const operations = getOperationState();
@@ -166,8 +219,16 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     let insertedTempId: string | null = null;
     let previous: unknown = null;
     let previousMemberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> = [];
+    let respondInverse: JournalOp[] = [];
 
-    if (optimistic && !isMethodOptimistic(optimistic)) {
+    if (optimistic && isRespondOptimistic(optimistic)) {
+      tempId = generateTempId('row');
+      insertedTempId = tempId;
+      const fabricated = optimistic.respond(input, { tempId, operationId });
+      respondInverse = inverseFromRespond(fabricated, { tempId, operationId }, optimistic);
+      const optimisticOps = planFromRespond(fabricated, { tempId, operationId }, optimistic, input);
+      if (optimisticOps.length > 0) getApplyRuntime().apply(expandPlan(optimisticOps));
+    } else if (optimistic && !isMethodOptimistic(optimistic)) {
       const reuseId = optimistic.existingTempId?.(input) ?? null;
       if (reuseId != null && optimistic.model.get(reuseId) !== undefined) {
         tempId = reuseId;
@@ -178,7 +239,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const row = optimistic.build(input, { tempId: newTempId, operationId });
         const placement = optimistic.prependTo ?? optimistic.appendTo;
         const position = optimistic.prependTo ? 'prepend' : 'append';
-        const ops = optimistic.model.__planRows?.([{ ...(row as Record<string, unknown>), id: newTempId }]) ?? [{ kind: 'upsert' as const, model: optimistic.model.modelId, rows: [{ ...(row as Record<string, unknown>), id: newTempId }] }];
+        const ops = optimistic.model.__planRows?.([{ ...(row as Record<string, unknown>), id: newTempId }]) ?? [
+          { kind: 'upsert' as const, model: optimistic.model.modelId, rows: [{ ...(row as Record<string, unknown>), id: newTempId }] }
+        ];
         if (placement) ops.push(...(placement.scope.__planPlacement?.(placement.value(input), newTempId, position) ?? []));
         getApplyRuntime().apply(expandPlan(ops));
       }
@@ -217,7 +280,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (payload == null) throw new Error(`${config.result} returned no data`);
 
       const ops: JournalOp[] = [];
-      if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
+      if (optimistic && isRespondOptimistic(optimistic)) {
+        ops.push(...planFromRespond(data, context, optimistic, input));
+      } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
         const node = optimistic.selectServerNode(data);
         if (node != null) {
           ops.push(...(optimistic.model.__planReplace?.(tempId, node) ?? []));
@@ -243,7 +308,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (tracked) operations.close(operationId, 'committed');
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
-      if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
+      if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
+        if (respondInverse.length > 0) getApplyRuntime().apply(expandPlan(respondInverse));
+      } else if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
         getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
@@ -255,7 +322,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         optimistic.model.patch(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
-        getApplyRuntime().apply(expandPlan(optimistic.model.__planRestore?.(previous, previousMemberships) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }]));
+        getApplyRuntime().apply(
+          expandPlan(optimistic.model.__planRestore?.(previous, previousMemberships) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }])
+        );
       }
       if (tracked) operations.close(operationId, 'rolledback');
       const reported = error instanceof Error ? error : new Error(String(error));
