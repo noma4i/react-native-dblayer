@@ -34,7 +34,7 @@ Every network-facing capability is a method on the model it belongs to. There ar
 | --- | --- | --- |
 | `Model.query(name, config)` | Network reads into a model/scope. | [queries.md](./queries.md#modelqueryname-config) |
 | `Model.mutation(name, config)` | Optimistic network writes. | [mutations.md](./mutations.md#modelmutationname-config) |
-| `Model.fetch(name, config)` | Ephemeral, store-free reads scoped to a model. | [models.md](./models.md#defineshape) |
+| `Model.fetch(name, config)` | Ephemeral, store-free reads scoped to a model. | [queries.md](./queries.md#modelfetchname-config) |
 | `Model.poller(name, config)` | Refcounted async status polling. | [models.md](./models.md#modelpollername-config) |
 | `Model.view(name, config)` | Reactive joined projection over a scope. | [models.md](./models.md#modelviewname-config) |
 | `Model.ingest(entries)` | Subscription event declarations. | [models.md](./models.md#modelingestentries) |

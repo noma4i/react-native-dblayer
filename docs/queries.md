@@ -143,6 +143,21 @@ runs one fetch outside React and resolves to the selected payload, throwing on t
 `defineFetch` reports transport failures to `DbDefaults.onSyncError` with `{ source: 'query' }`,
 same as `Model.query`.
 
+### `Model.fetch(name, config)`
+
+A model-scoped wrapper over `defineFetch`: identical config and `{ use, fetch }` -> `FetchResult`
+surface, with `key` defaulting to `<modelId>:<name>` instead of being required. Use it for a fetch
+that conceptually belongs to one model (e.g. a model-specific aggregate) but still wants no local
+store write of its own.
+
+```ts
+const unreadSummary = MessageModel.fetch('unread-summary', {
+  document: UnreadSummaryDocument,
+  vars: (chatId: string) => ({ chatId }),
+  select: data => data.unreadSummary
+});
+```
+
 ## Stable view and list hooks
 
 Read helpers that keep derived arrays and view objects referentially stable across renders, so
