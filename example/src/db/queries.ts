@@ -1,5 +1,5 @@
 import { parse } from 'graphql';
-import { defineFetch, defineQuery } from '@noma4i/react-native-dblayer';
+import { defineFetch } from '@noma4i/react-native-dblayer';
 import { CommentModel, PostModel, TodoModel, UserModel, type CommentNode, type PostNode, type TodoNode, type UserNode } from './models';
 
 export const USERS_SCOPE = {};
@@ -23,26 +23,26 @@ const userPostsDocument = parse('query ExampleUserPosts($userId: Int!) { posts(u
 const todosDocument = parse('query ExampleUserTodos($userId: Int!) { todos(userId: $userId, first: 100) { id title completed user { id } } }');
 const statsDocument = parse('query ExampleStats { users(first: 100) { id } posts(first: 100) { id } }');
 
-export const usersQuery = defineQuery<{ users: ApiUser[] }, Record<string, never>, typeof USERS_SCOPE, UserNode>({
-  document: usersDocument, key: 'example-users', select: data => data.users.map(toRelatedUser), into: UserModel.scopes.list, coverage: 'complete',
+export const usersQuery = UserModel.query<{ users: ApiUser[] }, Record<string, never>, typeof USERS_SCOPE, UserNode>('users', {
+  document: usersDocument, select: data => data.users.map(toRelatedUser), into: UserModel.scopes.list, coverage: 'complete',
 });
 
-export const postsFeedQuery = defineQuery<{ posts: ApiPost[] }, Record<string, never>, typeof FEED_SCOPE, PostNode>({
-  document: postsDocument, key: 'example-post-feed', select: data => data.posts.map(toPost), into: PostModel.scopes.feed, coverage: 'complete',
+export const postsFeedQuery = PostModel.query<{ posts: ApiPost[] }, Record<string, never>, typeof FEED_SCOPE, PostNode>('feed', {
+  document: postsDocument, select: data => data.posts.map(toPost), into: PostModel.scopes.feed, coverage: 'complete',
   extract: ({ data }) => [{ into: UserModel, rows: data.posts.map(post => toRelatedUser(post.user)) }],
 });
 
-export const postCommentsQuery = defineQuery<{ comments: ApiComment[] }, { postId: number }, { postId: string }, CommentNode>({
-  document: commentsDocument, key: 'example-post-comments', vars: scopeValue => ({ postId: Number(scopeValue.postId) }), select: data => data.comments.map(toComment), into: CommentModel.scopes.byPost, coverage: 'complete',
+export const postCommentsQuery = CommentModel.query<{ comments: ApiComment[] }, { postId: number }, { postId: string }, CommentNode>('post-comments', {
+  document: commentsDocument, vars: scopeValue => ({ postId: Number(scopeValue.postId) }), select: data => data.comments.map(toComment), into: CommentModel.scopes.byPost, coverage: 'complete',
 });
 
-export const userPostsQuery = defineQuery<{ posts: ApiPost[] }, { userId: number }, { userId: string }, PostNode>({
-  document: userPostsDocument, key: 'example-user-posts', vars: scopeValue => ({ userId: Number(scopeValue.userId) }), select: data => data.posts.map(toPost), into: PostModel.scopes.byUser, coverage: 'complete',
+export const userPostsQuery = PostModel.query<{ posts: ApiPost[] }, { userId: number }, { userId: string }, PostNode>('user-posts', {
+  document: userPostsDocument, vars: scopeValue => ({ userId: Number(scopeValue.userId) }), select: data => data.posts.map(toPost), into: PostModel.scopes.byUser, coverage: 'complete',
   extract: ({ data }) => [{ into: UserModel, rows: data.posts.map(post => toRelatedUser(post.user)) }],
 });
 
-export const userTodosQuery = defineQuery<{ todos: ApiTodo[] }, { userId: number }, { userId: string }, TodoNode>({
-  document: todosDocument, key: 'example-user-todos', vars: scopeValue => ({ userId: Number(scopeValue.userId) }), select: data => data.todos.map(toTodo), into: TodoModel.scopes.byUser, coverage: 'complete',
+export const userTodosQuery = TodoModel.query<{ todos: ApiTodo[] }, { userId: number }, { userId: string }, TodoNode>('user-todos', {
+  document: todosDocument, vars: scopeValue => ({ userId: Number(scopeValue.userId) }), select: data => data.todos.map(toTodo), into: TodoModel.scopes.byUser, coverage: 'complete',
 });
 
 export const statsFetch = defineFetch<{ users: Array<{ id: number }>; posts: Array<{ id: number }> }, void, { users: number; posts: number }>({
