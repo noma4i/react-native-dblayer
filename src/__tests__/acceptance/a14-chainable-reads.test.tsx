@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer'
-import { defineModel, f } from '../../index'
+import { defineModel, f, resetRuntime } from '../../index'
 import { renderCounted, setupAcceptanceRuntime } from './harness'
 
 describe(`A14 chainable reads`, () => {
@@ -129,5 +129,28 @@ describe(`A14 chainable reads`, () => {
     expect(reader.renders() - beforeWrite).toBe(0)
     expect(model.use.where({ group: `feed` }).read().find(row => row.id === `z`)?.title).toBe(`updated`)
     reader.unmount()
+  })
+
+  it(`rehydrates mounted builder rows with fresh matching data after reset`, () => {
+    setupAcceptanceRuntime()
+    const model = defineModel({ id: `A14ResetRows`, name: `ResetRows`, fields: { group: f.str(), title: f.str() } })
+    model.insertStored({ id: `stale`, group: `feed`, title: `stale` })
+    const reader = renderCounted(() => model.use.where({ group: `feed` }).rows())
+    const before = reader.renders()
+    act(() => { resetRuntime() })
+    act(() => { model.insertStored({ id: `fresh`, group: `feed`, title: `fresh` }) })
+    expect(reader.renders()).toBeGreaterThan(before)
+    expect(reader.result()).toEqual([{ id: `fresh`, group: `feed`, title: `fresh` }])
+    reader.unmount()
+  })
+
+  it(`stops builder row renders after unmount`, () => {
+    setupAcceptanceRuntime()
+    const model = defineModel({ id: `A14UnmountRows`, name: `UnmountRows`, fields: { group: f.str(), title: f.str() } })
+    const reader = renderCounted(() => model.use.where({ group: `feed` }).rows())
+    reader.unmount()
+    const frozen = reader.renders()
+    act(() => { model.insertStored({ id: `fresh`, group: `feed`, title: `fresh` }) })
+    expect(reader.renders()).toBe(frozen)
   })
 })
