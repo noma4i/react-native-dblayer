@@ -312,6 +312,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   };
 
   const applyTarget = {
+    readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
+    readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
     upsert: writeRows,
     patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {
       const current = planes().entityState.read(id);

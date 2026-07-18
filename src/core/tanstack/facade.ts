@@ -22,6 +22,7 @@ export function createModelCollection(modelId: string) {
   const collection = createCollection<StoredRowShape, string>({
     id: modelId,
     getKey: (row) => row.id,
+    startSync: true,
     sync: {
       sync: ({ begin, write, commit, markReady }) => {
         writerRegistry.set(modelId, { begin, write, commit, markReady })
@@ -34,6 +35,11 @@ export function createModelCollection(modelId: string) {
 
   collectionRegistry.set(modelId, collection)
   return collection
+}
+
+/** Returns a model collection, creating its ready writer-backed instance when absent. */
+export function ensureModelCollection(modelId: string) {
+  return collectionRegistry.get(modelId) ?? createModelCollection(modelId)
 }
 
 /** Returns the registered synchronous writer for a model identifier. */

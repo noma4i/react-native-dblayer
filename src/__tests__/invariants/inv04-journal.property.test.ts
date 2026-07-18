@@ -36,6 +36,8 @@ describe('journalled transactions', () => {
     const prefix = () => 'dbl:test:';
     const observedStatuses: string[] = [];
     const unregister = registerApplyTarget('m', {
+      readRow: () => undefined,
+      readAllRows: () => [],
       upsert: rows => {
         observedStatuses.push(JSON.parse(storage.get('dbl:test:journal:1')!).status);
         return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null }));
@@ -66,6 +68,8 @@ describe('journalled transactions', () => {
     createJournal(storage, prefix).writePending({ epoch: 1, status: 'pending', ops: [{ kind: 'upsert', model: 'm', rows: [{ id: '1' }] }] });
     let applied = 0;
     const unregister = registerApplyTarget('m', {
+      readRow: () => undefined,
+      readAllRows: () => [],
       upsert: rows => { applied += 1; return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null })); },
       patch: () => null,
       destroy: ids => ids,
@@ -94,6 +98,8 @@ describe('journalled transactions', () => {
     });
     let count = 1;
     const unregister = registerApplyTarget('m', {
+      readRow: () => undefined,
+      readAllRows: () => [],
       upsert: () => [],
       patch: () => null,
       destroy: () => [],

@@ -9,6 +9,9 @@ import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/a
 import { createOperationState, type OperationState } from '../core/planes/operationState';
 import { expandPlan } from '../core/relations';
 import { isTempId } from '../utils/generateTempId';
+import { registerReset } from '../core/reset';
+import { resetCollectionRegistry } from '../core/tanstack/facade';
+import { seedCollections, startCollectionMirror } from '../core/tanstack/mirror';
 
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
@@ -32,6 +35,8 @@ let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
 let runtimeGeneration = 0;
 const commitBus = createCommitBus();
+let stopCollectionMirror: (() => void) | null = null;
+let collectionRegistryResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
@@ -60,6 +65,14 @@ export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?
   checkpointScheduler = null;
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
+  getApplyRuntime();
+  stopCollectionMirror?.();
+  resetCollectionRegistry();
+  stopCollectionMirror = startCollectionMirror(commitBus);
+  if (!collectionRegistryResetRegistered) {
+    registerReset(resetCollectionRegistry);
+    collectionRegistryResetRegistered = true;
+  }
 };
 
 export const getDbRuntimeConfig = (): RuntimeConfig => {
@@ -138,6 +151,14 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
  */
 export const replayJournal = (): number => {
   const runtime = getApplyRuntime();
+  const storage = getDbRuntimeConfig().storage;
+  const rowPrefix = `${getStoragePrefix()}row:`;
+  const models = new Set<string>();
+  for (const key of storage.keys(rowPrefix)) {
+    const model = key.slice(rowPrefix.length).split(':', 1)[0];
+    if (model) models.add(model);
+  }
+  seedCollections([...models]);
   const replayed = runtime.replay();
   const operations = getOperationState();
   const orphaned = operations.hydratedPending();
@@ -147,7 +168,6 @@ export const replayJournal = (): number => {
     }
     operations.close(operation.operationId, 'rolledback');
   }
-  const storage = getDbRuntimeConfig().storage;
   const candidates = new Map<string, Set<string>>();
   const noteCandidate = (model: string, id: unknown): void => {
     if (typeof id !== 'string' || !isTempId(id)) return;
@@ -155,7 +175,6 @@ export const replayJournal = (): number => {
     ids.add(id);
     candidates.set(model, ids);
   };
-  const rowPrefix = `${getStoragePrefix()}row:`;
   for (const key of storage.keys(rowPrefix)) {
     const [model, id] = key.slice(rowPrefix.length).split(':', 2);
     if (model && id) noteCandidate(model, id);

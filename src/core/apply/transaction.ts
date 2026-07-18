@@ -10,6 +10,8 @@ import type { StoragePlane } from '../planes/storagePlane';
  * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
 export type ApplyTarget = {
+  readRow(id: string): Record<string, unknown> | undefined;
+  readAllRows(): Array<Record<string, unknown>>;
   upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];

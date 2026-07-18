@@ -31,6 +31,7 @@ const depMatches = (dep: Dependency, batch: CommitBatch): boolean => {
  */
 export const createCommitBus = () => {
   const subscribers = new Set<{ deps: ReadonlyArray<Dependency>; notify: () => void; onBatch?: (batch: IncrementalCommitBatch | null) => void }>();
+  const allSubscribers = new Set<(batch: IncrementalCommitBatch) => void>();
   const subscribe = (notify: () => void, deps: ReadonlyArray<Dependency> = [], onBatch?: (batch: IncrementalCommitBatch | null) => void): CommitSubscription => {
     const subscriber = { deps, notify, onBatch };
     subscribers.add(subscriber);
@@ -45,8 +46,13 @@ export const createCommitBus = () => {
   return {
     subscribe,
     subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void): CommitSubscription => subscribe(notify, deps, onBatch),
+    subscribeAll: (onBatch: (batch: IncrementalCommitBatch) => void): (() => void) => {
+      allSubscribers.add(onBatch);
+      return () => allSubscribers.delete(onBatch);
+    },
     publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length) return;
+      for (const onBatch of [...allSubscribers]) onBatch(batch);
       for (const subscriber of [...subscribers]) {
         if (subscriber.deps.some(dep => depMatches(dep, batch))) {
           subscriber.onBatch?.(batch);
