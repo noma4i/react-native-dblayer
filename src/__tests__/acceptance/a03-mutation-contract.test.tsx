@@ -2,8 +2,6 @@ import { act } from 'react-test-renderer'
 import {
   defineIngest,
   defineModel,
-  defineMutation,
-  defineQuery,
   f,
   hasMany,
   isTempId,
@@ -47,7 +45,7 @@ describe(`A03 mutation contract`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const model = scopedModel(`A03Swap`)
-    const mutation = defineMutation<{ save: Row }, { title: string }, Row, Row>({
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`swap`, { dedupe: false,
       document,
       result: `save`,
       optimistic: {
@@ -94,7 +92,7 @@ describe(`A03 mutation contract`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const model = scopedModel(`A03Concurrent`)
-    const mutation = defineMutation<{ save: Row }, { title: string }, Row, Row>({
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`concurrent`, { dedupe: false,
       document,
       result: `save`,
       optimistic: {
@@ -142,7 +140,7 @@ describe(`A03 mutation contract`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const model = scopedModel(`A03InsertRollback`)
-    const mutation = defineMutation<{ save: Row }, { title: string }, Row, Row>({
+    const mutation = model.mutation<{ save: Row }, { title: string }, Row, Row>(`rollback`, { dedupe: false,
       document,
       result: `save`,
       optimistic: {
@@ -177,7 +175,7 @@ describe(`A03 mutation contract`, () => {
     act(() => {
       model.insertStored({ id: `row`, group: `scope-1`, title: `original` })
     })
-    const mutation = defineMutation<{ save: Row }, { id: string }, Row, Row>({
+    const mutation = model.mutation<{ save: Row }, { id: string }, Row, Row>(`patch`, { dedupe: false,
       document,
       result: `save`,
       optimistic: {
@@ -211,9 +209,8 @@ describe(`A03 mutation contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`destroy-seed`, {
       document,
-      key: `a03-destroy-seed`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model.scopes.feed,
     })
@@ -221,7 +218,7 @@ describe(`A03 mutation contract`, () => {
       await query.fetch(scopeValue)
     })
     const reader = renderCounted(() => model.scopes.feed.use(scopeValue))
-    const mutation = defineMutation<{ destroy: { id: string } }, { id: string }, Row, Row>({
+    const mutation = model.mutation<{ destroy: { id: string } }, { id: string }, Row, Row>(`destroy`, { dedupe: false,
       document,
       result: `destroy`,
       optimistic: { method: `destroy`, model, selectId: (input) => input.id },
@@ -247,7 +244,7 @@ describe(`A03 mutation contract`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const model = scopedModel(`A03Dedupe`)
-    const mutation = defineMutation<{ save: Row }, { key: string }, Row, Row>({
+    const mutation = model.mutation<{ save: Row }, { key: string }, Row, Row>(`dedupe`, {
       document,
       result: `save`,
       dedupe: { key: (input) => input.key },
@@ -275,7 +272,7 @@ describe(`A03 mutation contract`, () => {
     })
     setupAcceptanceRuntime({ transport })
     const model = scopedModel(`A03Preserve`)
-    const mutation = defineMutation<{ save: Row }, Record<string, never>, Row, Row>({
+    const mutation = model.mutation<{ save: Row }, Record<string, never>, Row, Row>(`failure`, { dedupe: false,
       document,
       result: `save`,
       optimistic: {
@@ -318,7 +315,7 @@ describe(`A03 mutation contract`, () => {
       name: `A03ExtractAuthors`,
       fields: { title: f.str() },
     })
-    const mutation = defineMutation<{ save: Row; authors: Array<{ id: string; title: string }> }, Record<string, never>, Row, Row>({
+    const mutation = model.mutation<{ save: Row; authors: Array<{ id: string; title: string }> }, Record<string, never>, Row, Row>(`extract`, { dedupe: false,
       document,
       result: `save`,
       optimistic: {
@@ -357,7 +354,7 @@ describe(`A03 mutation contract`, () => {
       parent.insertStored({ id: `parent`, title: `parent` })
       child.insertStored({ id: `child`, parentId: `parent` })
     })
-    const mutation = defineMutation<{ destroy: { id: string } }, { id: string }, Row, Row>({
+    const mutation = parent.mutation<{ destroy: { id: string } }, { id: string }, Row, Row>(`cascade-destroy`, { dedupe: false,
       document,
       result: `destroy`,
       optimistic: { method: `destroy`, model: parent, selectId: (input) => input.id },

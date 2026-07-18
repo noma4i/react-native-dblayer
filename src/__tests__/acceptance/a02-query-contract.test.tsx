@@ -2,7 +2,6 @@ import React from 'react'
 import { act } from 'react-test-renderer'
 import {
   defineModel,
-  defineQuery,
   f,
   QueryClientProvider,
   scope,
@@ -41,9 +40,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`cursor`, {
       document,
-      key: `a02-cursor`,
       page: (data) => (data as ReturnType<typeof page>).conn,
       into: model.scopes.feed,
     })
@@ -82,9 +80,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`complete`, {
       document,
-      key: `a02-complete`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model.scopes.feed,
       coverage: `complete`,
@@ -116,9 +113,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`page`, {
       document,
-      key: `a02-page`,
       page: (data) => (data as ReturnType<typeof page>).conn,
       into: model.scopes.feed,
     })
@@ -160,9 +156,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`invalidate`, {
       document,
-      key: `a02-invalidate`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model.scopes.feed,
     })
@@ -201,9 +196,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`loading`, {
       document,
-      key: `a02-loading`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model.scopes.feed,
     })
@@ -236,9 +230,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const emptyQuery = defineQuery({
+    const emptyQuery = emptyModel.query(`empty`, {
       document,
-      key: `a02-empty`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: emptyModel.scopes.feed,
     })
@@ -266,9 +259,8 @@ describe(`A02 query contract`, () => {
       fields: { title: f.str() },
       scopes: { feed: scope({ sort: `server-order` }) },
     })
-    const query = defineQuery({
+    const query = model.query(`window`, {
       document,
-      key: `a02-window`,
       page: (data) => (data as ReturnType<typeof page>).conn,
       into: model.scopes.feed,
     })
@@ -319,9 +311,8 @@ describe(`A02 query contract`, () => {
       name: `A02ExtractAuthors`,
       fields: { title: f.str() },
     })
-    const query = defineQuery({
+    const query = items.query(`extract`, {
       document,
-      key: `a02-extract`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: items.scopes.feed,
       extract: ({ data }) => [{
@@ -357,9 +348,8 @@ describe(`A02 query contract`, () => {
     act(() => {
       model.insertStored({ id: `local`, feed: `acceptance`, title: `local` })
     })
-    const query = defineQuery({
+    const query = model.query(`disabled`, {
       document,
-      key: `a02-disabled`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model.scopes.feed,
     })

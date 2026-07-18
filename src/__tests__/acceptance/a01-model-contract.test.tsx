@@ -2,7 +2,6 @@ import { act } from 'react-test-renderer'
 import {
   defineIngest,
   defineModel,
-  defineQuery,
   f,
   resetRuntime,
   scope,
@@ -82,9 +81,8 @@ describe(`A01 model contract`, () => {
       name: `A01Tombstone`,
       fields: { title: f.str() },
     })
-    const query = defineQuery({
+    const query = model.query(`tombstone`, {
       document,
-      key: `a01-tombstone`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model,
     })
@@ -126,9 +124,8 @@ describe(`A01 model contract`, () => {
       name: `A01ImperativeRecreate`,
       fields: { title: f.str() },
     })
-    const query = defineQuery({
+    const query = model.query(`imperative-recreate`, {
       document,
-      key: `a01-imperative-recreate`,
       select: (data) => (data as { items: Array<{ id: string; title: string }> }).items,
       into: model,
     })
