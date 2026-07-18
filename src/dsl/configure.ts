@@ -12,6 +12,7 @@ import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
 import { resetCollectionRegistry } from '../core/tanstack/facade';
 import { seedCollections, startCollectionMirror } from '../core/tanstack/mirror';
+import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
@@ -24,6 +25,13 @@ export interface DbDefaults {
   pageSize?: number;
   /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
   persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
+  /**
+   * In-session garbage-collection trigger tuning. ON by default (`threshold: 500`,
+   * `debounceMs: 1000`) - a burst of destroys/inserts crossing the pressure threshold schedules one
+   * debounced `collectGarbage()` sweep. Set `false` to disable the trigger entirely; `bootDb`'s
+   * startup sweep and manual `collectGarbage()` calls are unaffected either way.
+   */
+  inSessionGc?: false | { threshold?: number; debounceMs?: number };
   /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
   onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown; key?: string; event?: string }) => void;
 }
@@ -38,6 +46,8 @@ let replayCompleted = false;
 const commitBus = createCommitBus();
 let stopCollectionMirror: (() => void) | null = null;
 let collectionRegistryResetRegistered = false;
+let stopMaintenanceScheduler: (() => void) | null = null;
+let maintenanceSchedulerResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
@@ -74,6 +84,15 @@ export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?
   if (!collectionRegistryResetRegistered) {
     registerReset(resetCollectionRegistry);
     collectionRegistryResetRegistered = true;
+  }
+  stopMaintenanceScheduler?.();
+  stopMaintenanceScheduler = options.defaults?.inSessionGc === false ? null : startMaintenanceScheduler(options.defaults?.inSessionGc);
+  if (!maintenanceSchedulerResetRegistered) {
+    registerReset(() => {
+      stopMaintenanceScheduler?.();
+      stopMaintenanceScheduler = null;
+    });
+    maintenanceSchedulerResetRegistered = true;
   }
 };
 

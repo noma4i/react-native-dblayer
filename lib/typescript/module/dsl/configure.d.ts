@@ -17,6 +17,16 @@ export interface DbDefaults {
         checkpointDelayMs?: number;
         maxPendingPlans?: number;
     };
+    /**
+     * In-session garbage-collection trigger tuning. ON by default (`threshold: 500`,
+     * `debounceMs: 1000`) - a burst of destroys/inserts crossing the pressure threshold schedules one
+     * debounced `collectGarbage()` sweep. Set `false` to disable the trigger entirely; `bootDb`'s
+     * startup sweep and manual `collectGarbage()` calls are unaffected either way.
+     */
+    inSessionGc?: false | {
+        threshold?: number;
+        debounceMs?: number;
+    };
     /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
     onSyncError?: (error: Error, ctx: {
         source: string;
