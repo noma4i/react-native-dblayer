@@ -1,5 +1,6 @@
 import type { Dependency } from './apply/commitBus';
-import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
+import { getCommitBus } from '../dsl/configure';
+import { createGenerationFence } from '../utils/runtimePrimitives';
 
 type WaiterModel<TStored extends { id: string }> = {
   modelId: string;
@@ -42,7 +43,7 @@ export const patchWhenRowExists = <TStored extends { id: string }>(
   patch: RowPatch<TStored>,
   options: PatchWhenRowExistsOptions
 ): void => {
-  const generation = getRuntimeGeneration();
+  const generationFence = createGenerationFence();
   const existing = model.get(id);
   if (existing) {
     model.patch(id, resolvePatch(existing, patch));
@@ -52,7 +53,7 @@ export const patchWhenRowExists = <TStored extends { id: string }>(
   let active = true;
   const subscription = getCommitBus().subscribe(() => {
     if (!active) return;
-    if (generation !== getRuntimeGeneration()) return;
+    if (!generationFence.isCurrent()) return;
     const row = model.get(id);
     if (!row) return;
     active = false;
@@ -81,7 +82,7 @@ export const waitForRow = <TStored extends { id: string }>(
   id: string,
   options: WaitForRowOptions
 ): Promise<TStored | undefined> => {
-  const generation = getRuntimeGeneration();
+  const generationFence = createGenerationFence();
   const existing = model.get(id);
   if (existing) return Promise.resolve(existing);
   return new Promise(resolve => {
@@ -97,7 +98,7 @@ export const waitForRow = <TStored extends { id: string }>(
     };
     const onAbort = (): void => finish(undefined);
     const subscription = getCommitBus().subscribe(() => {
-      if (generation !== getRuntimeGeneration()) {
+      if (!generationFence.isCurrent()) {
         finish(undefined);
         return;
       }
