@@ -45,8 +45,10 @@ export type ModelIngestTools = {
 };
 
 export type ModelIngestEntry = {
-  /** Subscription document passed to the configured transport. */
-  document: DbSubscriptionEntry['query'];
+  /** Subscription document passed to the configured transport. Required unless `handler` is used only for imperative delivery. */
+  document?: DbSubscriptionEntry['query'];
+  /** Declaration-return handler using the exact atomic `defineIngest` apply pipeline. */
+  handler?: (payload: unknown) => IngestDecl | null;
   /** Transform the runtime payload before guard, effects, and apply. */
   payload?: (data: unknown) => unknown;
   /** Apply normalized rows, destroy an id, or run a custom model-aware handler. */
@@ -88,6 +90,10 @@ export const defineModelIngest = (
   entries: Record<string, ModelIngestEntry>
 ): { entries: DbSubscriptionEntry[]; apply: (key: string, payload: unknown) => void } => {
   const deliver = (event: string, entry: ModelIngestEntry, data: unknown): void => {
+    if (entry.handler) {
+      defineIngest(model, { [event]: entry.handler }).apply(event, data);
+      return;
+    }
     const payload = entry.payload ? entry.payload(data) : data;
     try {
       if (entry.echoGuard?.(payload)) return;
@@ -123,7 +129,7 @@ export const defineModelIngest = (
   };
   const compiled = Object.entries(entries).map(([event, entry]) => ({
     key: event,
-    query: entry.document,
+    query: entry.document as DbSubscriptionEntry['query'],
     debounce: entry.debounce,
     onData: (data: unknown) => deliver(event, entry, data)
   }));

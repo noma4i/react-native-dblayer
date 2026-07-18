@@ -194,4 +194,17 @@ describe(`A13 model ingest contract`, () => {
     expect(rows.get(`row`)).toMatchObject({ title: `applied` });
     expect(rows.get(`echo`)).toBeUndefined();
   });
+
+  it(`applies one handler declaration atomically through imperative delivery`, () => {
+    setupAcceptanceRuntime();
+    const rows = defineModel({ id: `A13HandlerIngest`, name: `HandlerIngest`, fields: { title: f.str() } });
+    rows.insertStored({ id: `old`, title: `old` });
+    const reader = renderCounted(() => rows.use.where({}).rows());
+    const ingest = rows.ingest({ batch: { handler: () => ({ upsert: [{ id: `one`, title: `one` }, { id: `two`, title: `two` }], destroy: `old` }) } });
+    const before = reader.renders();
+    act(() => { ingest.apply(`batch`, {}); });
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result().map(row => row.id)).toEqual([`one`, `two`]);
+    reader.unmount();
+  });
 });
