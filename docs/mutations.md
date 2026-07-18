@@ -141,7 +141,7 @@ const sendMessage = MessageModel.mutation('send', {
 });
 ```
 
-Both take a `ScopeHandleExpr<TInput>`: `{ scope, value: (input) => scopeValue }`, where `scope` is a
+Both take a `ScopePlacement<TInput>`: `{ scope, value: (input) => scopeValue }`, where `scope` is a
 `ScopeHandle` from the SAME model as `optimistic.model` and `value(input)` derives that scope's
 concrete value from the mutation input. `prependTo` and `appendTo` are mutually exclusive, and valid
 only on the Insert and Respond variants - `defineMutation` throws synchronously, before any network

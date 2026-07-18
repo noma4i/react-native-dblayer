@@ -7,7 +7,7 @@
  *   head order, with previous members kept, in their relative order, after them.
  * - `'delta'`: same merge semantics as `'page'`, used for single-row/subscription-driven updates.
  */
-export type Coverage = 'complete' | 'page' | 'delta';
+export type ScopeCoverage = 'complete' | 'page' | 'delta';
 export interface ScopeSpec<TStored> {
     /**
      * Automatic membership mapping from scope-value fields to stored row fields (e.g. `{ chatId: 'chatId' }`).

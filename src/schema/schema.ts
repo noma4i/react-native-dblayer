@@ -1,4 +1,4 @@
-import { isRecord, toStr } from '../utils/normalizeHelpers';
+import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
 import { readObjectField } from './fieldSpec';
 import type { FieldSpec } from './fieldSpec';
 import type { InferStoredFields } from './infer';
@@ -11,7 +11,7 @@ export type DbSchema<TInput, TFields extends SchemaFields<TInput>> = {
 };
 
 const normalizeId = (value: unknown): string | null => {
-  const id = toStr(value);
+  const id = stringifyNullish(value);
   if (!id) return null;
   return id;
 };

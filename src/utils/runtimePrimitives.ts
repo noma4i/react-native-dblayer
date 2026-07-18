@@ -432,7 +432,7 @@ const removeSingletonId = <TStored extends RowId>(input: Partial<TStored>): Omit
  * @param defaults Default row returned before insertion and used for first upsert.
  * @returns Singleton statics for reading, upserting, and clamped numeric patches.
  */
-export const singletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
+export const createSingletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
   const upsert = (input: Partial<TStored>): void => {
     const updates = removeSingletonId(input);
     const existing = model.get(recordId);

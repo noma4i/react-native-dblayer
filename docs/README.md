@@ -108,7 +108,7 @@ Generated from `src/index.ts`, grouped by area.
 | `QueryResult` | type | [queries.md](./queries.md#queryresult) |
 | `ExtractSink` | type | [queries.md](./queries.md#modelqueryname-config) |
 | `LiveQueryHandle` | type | [queries.md](./queries.md#live-subscription-colocation) |
-| `Coverage` | type | [queries.md](./queries.md#coverage-semantics) |
+| `ScopeCoverage` | type | [queries.md](./queries.md#coverage-semantics) |
 | `defineFetch` | value | [queries.md](./queries.md#definefetchconfig) |
 | `FetchResult` | type | [queries.md](./queries.md#fetchresult) |
 
@@ -120,7 +120,7 @@ Generated from `src/index.ts`, grouped by area.
 | Export | Kind | Home |
 | --- | --- | --- |
 | `MutateCallbacks` | type | [mutations.md](./mutations.md#use-result-shape) |
-| `ScopeHandleExpr` | type | [mutations.md](./mutations.md#optimistic-write-variants) |
+| `ScopePlacement` | type | [mutations.md](./mutations.md#optimistic-write-variants) |
 | `defineCommand` | value | [mutations.md](./mutations.md#definecommandname-config) |
 | `mergeOptimisticSnapshot` | value | [mutations.md](./mutations.md#mergeoptimisticsnapshot) |
 
@@ -147,8 +147,8 @@ Generated from `src/index.ts`, grouped by area.
 | `useStableEntity` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
 | `useStableSorted` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
 | `pickEqual` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
-| `EMPTY_IDS` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
-| `createUniqueIds` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
+| `emptyIds` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
+| `dedupeIds` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
 | `computeLoadingState` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
 | `computePhase` | value | [queries.md](./queries.md#stable-view-and-list-hooks) |
 | `LoadingState` | type | [queries.md](./queries.md#stable-view-and-list-hooks) |
@@ -164,7 +164,7 @@ Generated from `src/index.ts`, grouped by area.
 | `isIncomingNewer` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `castNode` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `castNodes` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
-| `toStr` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
+| `stringifyNullish` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `pickDefined` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `pickPresent` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `mergeOptimisticMedia` | value | [runtime-primitives.md](./runtime-primitives.md#mergeoptimisticmediaoptimistic-server) |
@@ -173,7 +173,7 @@ Generated from `src/index.ts`, grouped by area.
 | `createKeyedArrayPatcher` | value | [runtime-primitives.md](./runtime-primitives.md#array-patchers) |
 | `createIdArrayPatcher` | value | [runtime-primitives.md](./runtime-primitives.md#array-patchers) |
 | `createNestedObjectPatcher` | value | [runtime-primitives.md](./runtime-primitives.md#createnestedobjectpatchermodel-field-transform) |
-| `singletonStatics` | value | [runtime-primitives.md](./runtime-primitives.md#singletonstaticsmodel-recordid-defaults) |
+| `createSingletonStatics` | value | [runtime-primitives.md](./runtime-primitives.md#singletonstaticsmodel-recordid-defaults) |
 | `reconcileOptimisticRows` | value | [runtime-primitives.md](./runtime-primitives.md#reconcileoptimisticrowsmodel-nodes-options) |
 | `trimRowsPerScope` | value | [runtime-primitives.md](./runtime-primitives.md#cleanup-helpers) |
 | `resolveStaleTempRows` | value | [runtime-primitives.md](./runtime-primitives.md#cleanup-helpers) |

@@ -9,7 +9,7 @@ import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
 import type { RequiredFields } from './readBuilder';
-import type { Coverage, ScopeSpec } from './scope';
+import type { ScopeCoverage, ScopeSpec } from './scope';
 import type { InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
@@ -100,13 +100,13 @@ export type ScopeHandle<TStored extends {
     invalidate(scopeValue?: TScope): void;
     /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
     read(scopeValue: TScope): TStored[];
-    __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: {
+    __apply?(scopeValue: TScope, rows: TStored[], coverage: ScopeCoverage, opts?: {
         resetOrder?: boolean;
     }): void;
     __planApply?(scopeValue: TScope, rows: Array<{
         row: TStored;
         edge?: Record<string, unknown>;
-    }>, coverage: Coverage, opts?: {
+    }>, coverage: ScopeCoverage, opts?: {
         resetOrder?: boolean;
     }): JournalOp[];
     __key?(scopeValue: TScope): string;

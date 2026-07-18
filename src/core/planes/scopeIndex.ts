@@ -1,11 +1,11 @@
 import type { StoragePlane } from './storagePlane';
 import { sortBy } from 'es-toolkit';
 
-export type Coverage = 'complete' | 'page' | 'delta';
+export type ScopeCoverage = 'complete' | 'page' | 'delta';
 
 export type ScopeEntry = { id: string; order: number; seq: number; edge?: Record<string, unknown> };
 
-export type ScopeIndexValue = { generation: number; coverage: Coverage; entries: ScopeEntry[] };
+export type ScopeIndexValue = { generation: number; coverage: ScopeCoverage; entries: ScopeEntry[] };
 
 export type IncomingScopeRow = { id: string; edge?: Record<string, unknown>; order?: number };
 
@@ -23,8 +23,8 @@ export type ScopeIndex = {
    *   With opts.resetOrder (a first-page refetch) incoming rows become the new head order and previous members keep relative order after them.
    * - 'delta': same merge semantics as 'page' (single-row/subscription-driven updates).
    */
-  reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult;
-  reconcileNext(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult;
+  reconcile(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult;
+  reconcileNext(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult;
   detach(key: string, ids: string[]): ScopeIndexValue;
   trim(key: string, maxRows: number): string[];
   trimValue(value: ScopeIndexValue, maxRows: number): { next: ScopeIndexValue; trimmedIds: string[] };
@@ -64,7 +64,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const boundaryAddFor = (
     key: string,
     previous: ScopeIndexValue,
-    coverage: Coverage,
+    coverage: ScopeCoverage,
     incoming: IncomingScopeRow[],
     opts?: { resetOrder?: boolean }
   ): { side: 'head' | 'tail'; ids: string[] } | undefined => {
@@ -135,7 +135,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     return next;
   };
 
-  const reconcileNext = (key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
+  const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
     const previous = scopes.get(key) ?? empty();
     const generation = previous.generation + 1;
     const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);

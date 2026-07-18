@@ -1,7 +1,7 @@
 import { f } from '../schema/f';
 import type { FieldSpec } from '../schema/fieldSpec';
 import { createSchema } from '../schema/schema';
-import { readBoolean, readNullableString, readNumber, readString, toStr } from '../utils/normalizeHelpers';
+import { readBoolean, readNullableString, readNumber, readString, stringifyNullish } from '../utils/normalizeHelpers';
 
 type FixtureInput = {
   id?: string | number | null;
@@ -48,7 +48,7 @@ const fixtureSchema = createSchema<FixtureInput, typeof fields>({
 const referenceNormalize = (input: FixtureInput) => {
   if (input.keep === false) return null;
 
-  const id = toStr(input.id);
+  const id = stringifyNullish(input.id);
   if (!id) return null;
 
   const output: Record<string, unknown> & { id: string } = { id };
@@ -63,7 +63,7 @@ const referenceNormalize = (input: FixtureInput) => {
   if (active !== undefined) output.active = active;
 
   if (typeof input.ownerId === 'string' || typeof input.ownerId === 'number') {
-    output.ownerId = toStr(input.ownerId);
+    output.ownerId = stringifyNullish(input.ownerId);
   }
 
   if (input.kind != null) output.kind = input.kind;
@@ -147,7 +147,7 @@ describe('schema normalize', () => {
     expect(fixtureSchema.normalize({ id: 'drop', name: 'Drop', keep: false })).toBeNull();
 
     const toRowIdPart = (value: unknown): string | null => {
-      const part = toStr(value);
+      const part = stringifyNullish(value);
       return part ? part : null;
     };
     const schemaWithRowId = createSchema<FixtureInput, typeof fields>({
@@ -164,7 +164,7 @@ describe('schema normalize', () => {
     expect(schemaWithRowId.normalize({ momentId: 'm1', similarMomentId: 's1', name: 'Composite' })?.id).toBe('m1:s1');
   });
 
-  it('uses the default input id through toStr', () => {
+  it('uses the default input id through stringifyNullish', () => {
     expect(fixtureSchema.normalize({ id: 123, name: 'Numeric id' })).toEqual({
       id: '123',
       name: 'Numeric id',

@@ -96,7 +96,7 @@ export interface StoragePlane {
 
 // ---------- scopes ----------
 export type ScopeKind = 'membership' | 'entity';
-export type Coverage = 'complete' | 'page' | 'delta';
+export type ScopeCoverage = 'complete' | 'page' | 'delta';
 export interface ScopeSpec<TStored> {
   by?: Record<string, keyof TStored & string>;             // AUTO-MEMBERSHIP (M7): an event row (insert/patch/ingest/replace) joins/leaves the matching scope inside the SAME plan/epoch - same-tick visibility for optimistic and ingest rows; patch changing a by-field re-parents (detach old + append new); destroy detaches everywhere (incl. sweep of non-by ledgers); snapshot reconciles stay authoritative over auto-membership
   kind?: ScopeKind;                                        // default 'entity'
@@ -204,7 +204,7 @@ export function defineQuery<TResponse, TVars, TScope, TStored>(config: {
   page?: (data: TResponse) => ConnectionLike;               // infinite; XOR with select
   select?: (data: TResponse) => unknown;
   into: ScopeHandle<TStored, TScope> | Model<any, any>;
-  coverage?: Coverage;                                      // default: page for `page`, complete otherwise
+  coverage?: ScopeCoverage;                                      // default: page for `page`, complete otherwise
   edge?: (edgeSource: unknown) => Record<string, unknown> | undefined;  // scope-entry edge payload; receives the connection edge object (node for plain lists)
   extract?: (ctx: { data: TResponse; nodes: unknown[] }) => ExtractSink[];  // sideloads applied in the SAME transaction (one epoch) as main rows - closes class A1
   map?: (selected: unknown) => unknown;
@@ -285,7 +285,7 @@ export function defineIngest(model: Model<any, any>,
 ## 4. Kept verbatim from v5 (do not redesign)
 
 `f`/`defineShape`/fieldSpec/shape readers; `mergeOptimisticSnapshot` + mergers; `createThrottledSingleFlight` (adds mandatory error forward to `onSyncError`); `createKeyedBatchBuffer`; `createModelStatusPoller` (fix: standalone refresh removes refs=0 session); freshness storage; loading-state machine; transport seam types; `useJoinedEntities`/`useOrderedEntities`; `pickEqual`; mmkv low-level adapter; `generateTempId`/`isTempId`; `compositeId`; `DbWhere` compiler + signature dependency (`buildScopeKey`/`ROOT_SCOPE_KEY` = the ONE canonical scope-key normalizer - defineModel/defineQuery key through it).
-REWRITTEN in 6c (v5 CollectionModel contract purge): `rowWaiters` (patchWhenPresent/waitForRow now subscribe the commit bus); `singletonStatics` (useCurrent via model.use.row); maintenance utils (prune/trim/reconcile) consume v6 Model.getAll. REMOVED: sideload runtime (superseded by extract sinks), modelDetailRequest, queryClient wrapper, deriveDbKey, createTombstoneLedger (absorbed into EntityState), v5 request helpers in shared.ts (useCollectionRead/createCollectionBinding/useWindowedLoadMore etc).
+REWRITTEN in 6c (v5 CollectionModel contract purge): `rowWaiters` (patchWhenPresent/waitForRow now subscribe the commit bus); `createSingletonStatics` (useCurrent via model.use.row); maintenance utils (prune/trim/reconcile) consume v6 Model.getAll. REMOVED: sideload runtime (superseded by extract sinks), modelDetailRequest, queryClient wrapper, deriveDbKey, createTombstoneLedger (absorbed into EntityState), v5 request helpers in shared.ts (useCollectionRead/createCollectionBinding/useWindowedLoadMore etc).
 `useStableProjection(source, config)` = rename of `useStableItems` (same `StableProjectionConfig`: `buildEntry`, `entriesEqual`, `getKey?`, `renderKeys?`); keep `useStableEntity`, `useStableSorted`.
 
 ## 5. App-query coverage mapping (part B; verify each against the actual GraphQL document - rule: connection with pageInfo/cursor => 'page'; full array response scoped to an entity => 'complete')
@@ -313,11 +313,11 @@ FeedModel/CompassRelationModel decision: PRIMARY = migrate both onto ScopeIndex 
 configureDb, resetRuntime, getDbTransport, setDbTransport, getDbQueryClient, StoragePlane (type), mmkvStoragePlane,
 defineModel, scope, belongsTo, hasMany, hasOne, compositeId, f, defineShape, readShape, readShapeOrThrow, projectShape, readFieldsPatch,
 defineQuery, defineMutation, defineIngest, createDbSubscriptionRuntime, defineDbSubscriptionEntry, createDbSubscriptionEffects,
-useStableProjection, useStableEntity, useStableSorted, useJoinedEntities, useOrderedEntities, createUniqueIds, EMPTY_IDS, pickEqual,
-computeLoadingState, LoadingState (type), generateTempId, isTempId, castNode, castNodes, toStr, pickDefined, pickPresent,
+useStableProjection, useStableEntity, useStableSorted, useJoinedEntities, useOrderedEntities, dedupeIds, emptyIds, pickEqual,
+computeLoadingState, LoadingState (type), generateTempId, isTempId, castNode, castNodes, stringifyNullish, pickDefined, pickPresent,
 mergeOptimisticSnapshot, mergeOptimisticMedia, createModelStatusPoller, createThrottledSingleFlight, createKeyedBatchBuffer,
-createKeyedArrayPatcher, createNestedObjectPatcher, singletonStatics, patchWhenPresent, waitForRow,
-type exports: ModelStored, ModelInput, DbWhere, ScopeSpec, Coverage, ScopeHandle, QueryResult, IngestDecl, DbDefaults, DbTransport.
+createKeyedArrayPatcher, createNestedObjectPatcher, createSingletonStatics, patchWhenPresent, waitForRow,
+type exports: ModelStored, ModelInput, DbWhere, ScopeSpec, ScopeCoverage, ScopeHandle, QueryResult, IngestDecl, DbDefaults, DbTransport.
 Everything else internal. Removed vs v5: all items in spec section 2.3.
 
 ## 5.1 REFERENCE APP ACCEPTANCE (owner directive, MANDATORY)

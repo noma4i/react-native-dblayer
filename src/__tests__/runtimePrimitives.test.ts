@@ -7,7 +7,7 @@ import {
   defineModel,
   reconcileOptimisticRows,
   resolveStaleTempRows,
-  singletonStatics,
+  createSingletonStatics,
   trimRowsPerScope,
   type StoragePlane
 } from '../index';
@@ -358,7 +358,7 @@ describe('runtime primitives', () => {
         unreadChatsCount: f.num(),
         unreadSecondaryChatsCount: f.num()
       },
-      statics: baseModel => singletonStatics(baseModel, 'counters', defaults)
+      statics: baseModel => createSingletonStatics(baseModel, 'counters', defaults)
     });
     const hook = renderHook(() => model.useCurrent());
 

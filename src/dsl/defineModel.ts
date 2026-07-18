@@ -25,7 +25,7 @@ import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
-import type { Coverage, ScopeSpec } from './scope';
+import type { ScopeCoverage, ScopeSpec } from './scope';
 import { useEffect, useState } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
 import type { InferStoredFields } from '../schema/infer';
@@ -110,8 +110,8 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   invalidate(scopeValue?: TScope): void;
   /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
   read(scopeValue: TScope): TStored[];
-  __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: { resetOrder?: boolean }): void;
-  __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[];
+  __apply?(scopeValue: TScope, rows: TStored[], coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): void;
+  __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp[];
   __key?(scopeValue: TScope): string;
   __isServerOrder?(): boolean;
   __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
@@ -598,7 +598,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
-    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
+    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const scopeKey = keyForScope(scopeName, scopeValue);
       let { next } = planes().scopeIndex.reconcileNext(
@@ -645,7 +645,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         invalidateModel(config.id, scopeValue);
       },
       read: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
-      __apply: (scopeValue: unknown, rows: any[], coverage: Coverage, opts?: { resetOrder?: boolean }) => {
+      __apply: (scopeValue: unknown, rows: any[], coverage: ScopeCoverage, opts?: { resetOrder?: boolean }) => {
         applySnapshot(
           planApply(
             scopeValue,

@@ -33,7 +33,7 @@ type ScopePlacementHandle = {
     __planPlacement?: (scopeValue: any, id: string, position: 'prepend' | 'append') => JournalOp[];
 };
 /** A server-order scope plus the mutation-input mapping that selects its concrete scope value. */
-export type ScopeHandleExpr<TInput> = {
+export type ScopePlacement<TInput> = {
     /** Server-order scope receiving the optimistic temp row. */
     scope: ScopePlacementHandle;
     /** Derive the destination scope value from the mutation input. */
@@ -74,9 +74,9 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
     /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
     existingTempId?: (input: TInput) => string | null;
     /** Place the temp row at the top of this server-order scope; `value` derives that scope's value from the mutation input. */
-    prependTo?: ScopeHandleExpr<TInput>;
+    prependTo?: ScopePlacement<TInput>;
     /** Place the temp row at the bottom of this server-order scope; `value` derives that scope's value from the mutation input. */
-    appendTo?: ScopeHandleExpr<TInput>;
+    appendTo?: ScopePlacement<TInput>;
 };
 /** Optimistic patch: applies a partial update immediately, restoring the previous values on error. */
 type PatchOptimistic<TInput, TStored> = {
@@ -110,9 +110,9 @@ type RespondOptimistic<TData, TInput, TNode> = {
         operationId: string;
     }) => TData;
     /** Place a fabricated temp row at the top of this server-order scope. */
-    prependTo?: ScopeHandleExpr<TInput>;
+    prependTo?: ScopePlacement<TInput>;
     /** Place a fabricated temp row at the bottom of this server-order scope. */
-    appendTo?: ScopeHandleExpr<TInput>;
+    appendTo?: ScopePlacement<TInput>;
 };
 export type MutationConfig<TData, TInput, TStored, TNode> = {
     /** The GraphQL mutation document. */

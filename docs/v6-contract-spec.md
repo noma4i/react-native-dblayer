@@ -138,4 +138,4 @@ chat -> feed/compass -> users/misc; delete FeedModel/CompassRelationModel where 
 
 ## 7. Explicitly rejected (do not implement)
 
-`onMissing:'auto'`, universal 'server-order' replacement for Feed/Compass/Search (Search = ephemeral RQ result with gcTime, never persistent), single retention knob, global maxPages default, `resolveEnabled` util, mechanical toStr unification, DuckDB storage plane (binding broken; core stays storage-agnostic behind StoragePlane).
+`onMissing:'auto'`, universal 'server-order' replacement for Feed/Compass/Search (Search = ephemeral RQ result with gcTime, never persistent), single retention knob, global maxPages default, `resolveEnabled` util, mechanical stringifyNullish unification, DuckDB storage plane (binding broken; core stays storage-agnostic behind StoragePlane).

@@ -169,7 +169,7 @@ type NumericField<TStored> = {
  * @param defaults Default row returned before insertion and used for first upsert.
  * @returns Singleton statics for reading, upserting, and clamped numeric patches.
  */
-export declare const singletonStatics: <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
+export declare const createSingletonStatics: <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
     recordId: string;
     defaults: TStored;
     current: () => TStored | undefined;

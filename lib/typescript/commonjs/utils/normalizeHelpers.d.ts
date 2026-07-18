@@ -4,12 +4,12 @@ export declare const isRecord: (value: unknown) => value is Record<string, unkno
 export declare const isNonArrayRecord: (value: unknown) => value is Record<string, unknown>;
 /**
  * Convert a value to string via `String(v)` while preserving explicit `null`/`undefined` as-is (they are
- * not stringified to `"null"`/`"undefined"`). Note this does not filter empty strings - `toStr('')` is `''`.
+ * not stringified to `"null"`/`"undefined"`). Note this does not filter empty strings - `stringifyNullish('')` is `''`.
  *
  * @param v Value to stringify.
  * @returns `String(v)`, or `v` unchanged when it is `null`/`undefined`.
  */
-export declare const toStr: (v: unknown) => string | null | undefined;
+export declare const stringifyNullish: (v: unknown) => string | null | undefined;
 /** Read a string or return undefined for missing or malformed values. */
 export declare const readString: (value: unknown) => string | undefined;
 /** Read a string while preserving explicit null writes. */

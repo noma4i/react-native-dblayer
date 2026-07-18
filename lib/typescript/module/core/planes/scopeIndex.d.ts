@@ -1,5 +1,5 @@
 import type { StoragePlane } from './storagePlane';
-export type Coverage = 'complete' | 'page' | 'delta';
+export type ScopeCoverage = 'complete' | 'page' | 'delta';
 export type ScopeEntry = {
     id: string;
     order: number;
@@ -8,7 +8,7 @@ export type ScopeEntry = {
 };
 export type ScopeIndexValue = {
     generation: number;
-    coverage: Coverage;
+    coverage: ScopeCoverage;
     entries: ScopeEntry[];
 };
 export type IncomingScopeRow = {
@@ -32,10 +32,10 @@ export type ScopeIndex = {
      *   With opts.resetOrder (a first-page refetch) incoming rows become the new head order and previous members keep relative order after them.
      * - 'delta': same merge semantics as 'page' (single-row/subscription-driven updates).
      */
-    reconcile(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: {
+    reconcile(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: {
         resetOrder?: boolean;
     }): ReconcileResult;
-    reconcileNext(key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: {
+    reconcileNext(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: {
         resetOrder?: boolean;
     }): ReconcileResult;
     detach(key: string, ids: string[]): ScopeIndexValue;

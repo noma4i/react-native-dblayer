@@ -40,7 +40,7 @@ threadQuery.invalidate({ chatId });       // clear the React Query cache for one
 | `page` | `(data) => { nodes \| edges, pageInfo }` | Infinite-connection selector for cursor pagination. Mutually exclusive with `select` - setting `page` makes `use` an infinite-query hook (`hasNextPage`/`fetchNextPage` become live). |
 | `select` | `(data) => unknown` | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`. |
 | `into` | `ScopeHandle \| Model` | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. Defaults to the owning model. |
-| `coverage` | `Coverage` | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See Coverage semantics below. |
+| `coverage` | `ScopeCoverage` | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See ScopeCoverage semantics below. |
 | `edge` | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists). |
 | `extract` | `(ctx: { data, nodes }) => ExtractSink[]` | Cross-model sideloads applied in the SAME transaction as the main rows. |
 | `map` | `(selected) => unknown` | Transform the selected/paged payload before it is split into nodes and written. Runs after `select`/`page`. |
@@ -120,11 +120,11 @@ subscription event uses - `list.live.apply('messageCreated', payload)` and
 rows for identical entries. Handy for tests, or for a transport delivering live events outside
 `createDbSubscriptionRuntime`.
 
-### Coverage semantics
+### ScopeCoverage semantics
 
-`Coverage` controls how an incoming batch of rows reconciles against a scope's existing membership:
+`ScopeCoverage` controls how an incoming batch of rows reconciles against a scope's existing membership:
 
-| Coverage | Behavior |
+| ScopeCoverage | Behavior |
 | --- | --- |
 | `'complete'` | Incoming rows become the exact membership, in server order; previous members absent from the response are detached (their entity rows are untouched, only scope membership drops). |
 | `'page'` | Incoming rows upsert into membership - existing members keep their order, new ones append in server order; nothing is detached. A first-page refetch (`resetOrder`) makes incoming rows the new head order, with previous members kept, in their relative order, after them. |
@@ -214,8 +214,8 @@ components memoized on identity skip re-rendering for changes they do not displa
 | `useStableEntity` | `(value, config) => TItem \| null \| undefined` | Reuses one entity reference while configured fields (`renderKeys` or all-but-`volatileKeys`) remain equal. |
 | `useStableSorted` | `(source, compare, invalidationKey?) => T[]` | Memoizes sorted output and reuses it for element-identical input arrays, resorting only when `source` or `invalidationKey` changes. |
 | `pickEqual` | `(prev, next, keys) => boolean` | Shared value-equality: deep-compares only the listed keys. The building block behind `useStableProjection`'s `renderKeys` and `useStableEntity`'s `renderKeys`. |
-| `EMPTY_IDS` | `string[]` | Shared immutable empty id list for stable fallback reads. |
-| `createUniqueIds` | `(ids) => string[]` | Returns unique non-empty ids in first-seen order. |
+| `emptyIds` | `string[]` | Shared immutable empty id list for stable fallback reads. |
+| `dedupeIds` | `(ids) => string[]` | Returns unique non-empty ids in first-seen order. |
 | `computeLoadingState` | `(phase, hasData) => LoadingState` | Converts a loading phase plus data presence into UI display flags (`showSkeleton`, `showEmptyState`, `showRefreshIndicator`, ...). Exported so a screen composing a custom loading state from multiple hook results can reuse the package's own derivation. |
 | `computePhase` | `(input: ComputePhaseInput) => LoadingPhase` | Computes the current loading phase (`'idle' \| 'hydrating' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) from query and collection state. |
 

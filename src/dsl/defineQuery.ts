@@ -10,7 +10,7 @@ import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import { getDbLogger } from '../core/logger';
 import type { ScopeHandle } from './defineModel';
-import type { Coverage } from './scope';
+import type { ScopeCoverage } from './scope';
 
 type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
 type ConnectionLike = { nodes?: unknown[]; edges?: Array<{ node?: unknown } & Record<string, unknown>>; pageInfo?: PageInfoLike };
@@ -66,7 +66,7 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
   /** Write destination: a model's `ScopeHandle` (scoped write, membership tracking) or a model directly. */
   into: QueryDestination<TStored, TScope>;
   /** Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. */
-  coverage?: Coverage;
+  coverage?: ScopeCoverage;
   /** Edge payload for scope entries; receives the connection edge object (or the node for plain lists). */
   edge?: (edgeSource: unknown) => Record<string, unknown> | undefined;
   /** Cross-model sideloads applied in the SAME transaction as the main rows. */

@@ -120,7 +120,7 @@ Creates `(id, ...args) => boolean`.
 The patcher reads the row, returns `false` when `row[field]` is `null` or missing, and otherwise patches
 `{ [field]: { ...current, ...transform(current, ...args) } }`.
 
-## `singletonStatics(model, recordId, defaults)`
+## `createSingletonStatics(model, recordId, defaults)`
 
 Builds statics for one-row models:
 
@@ -144,6 +144,6 @@ Small scalar/id/type-boundary helpers, standalone or used internally by the sche
 | `isIncomingNewer` | `(existingUpdatedAt, incomingUpdatedAt) => boolean` | The newer-wins acceptance gate: returns `true` when an incoming `updatedAt` is newer than or equal to the existing one. Nullish timestamps are permissive - both nullish accepts, only-existing-nullish accepts, only-incoming-nullish rejects (an incoming row with no timestamp cannot prove it is newer). Drop it straight into `merge.shouldOverwrite` (see [models.md](./models.md#definemodelconfig)). |
 | `castNode` | `<T>(node: unknown) => T` | Type-only cast of one untyped node (e.g. a GraphQL response field) to `T` at a package boundary. Performs no runtime check or copy. |
 | `castNodes` | `<T>(nodes: unknown[]) => T[]` | Type-only cast of an untyped node array to `T[]` at a package boundary. Performs no runtime check or copy. |
-| `toStr` | `(v: unknown) => string \| null \| undefined` | `String(v)`, preserving explicit `null`/`undefined` as-is instead of stringifying them. Does not filter empty strings. |
+| `stringifyNullish` | `(v: unknown) => string \| null \| undefined` | `String(v)`, preserving explicit `null`/`undefined` as-is instead of stringifying them. Does not filter empty strings. |
 | `pickDefined` | `(source, keys) => Partial<Pick<TSource, TKey>>` | Picks the listed keys whose values are not `undefined`; explicit `null` values are kept. |
 | `pickPresent` | `(source, keys) => Partial<...>` | Picks the listed keys whose values are neither `null` nor `undefined`. |

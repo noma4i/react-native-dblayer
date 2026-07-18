@@ -1,6 +1,6 @@
 import { createEntityClock, createEntityState } from '../../core/planes/entityState';
 import { createOperationState } from '../../core/planes/operationState';
-import { createScopeIndex, type Coverage } from '../../core/planes/scopeIndex';
+import { createScopeIndex, type ScopeCoverage } from '../../core/planes/scopeIndex';
 import { createMemoryStorage } from './memoryStorage';
 
 type RuntimeOptions = { current?: string[]; sharedRow?: boolean };
@@ -23,7 +23,7 @@ export const createV6TestRuntime = (options: RuntimeOptions = {}) => {
   scope.reconcile('scope', 'complete', current.map(id => ({ id })));
   if (options.sharedRow) state.upsert({ id: 'shared' });
 
-  const reconcile = (coverage: Coverage, ids: string[]) => {
+  const reconcile = (coverage: ScopeCoverage, ids: string[]) => {
     scope.reconcile('scope', coverage, ids.map(id => ({ id })));
   };
 
