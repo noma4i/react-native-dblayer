@@ -34,6 +34,7 @@ let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
 let runtimeGeneration = 0;
+let replayCompleted = false;
 const commitBus = createCommitBus();
 let stopCollectionMirror: (() => void) | null = null;
 let collectionRegistryResetRegistered = false;
@@ -58,6 +59,7 @@ const STORAGE_PREFIX = 'dbl:';
  */
 export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
   runtimeGeneration += 1;
+  replayCompleted = false;
   runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane() };
   applyRuntime = null;
   operationState = null;
@@ -82,6 +84,9 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
 
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
 export const isDbConfigured = (): boolean => runtimeConfig !== null;
+
+/** Internal: reports whether the current runtime completed journal replay. */
+export const hasReplayedJournal = (): boolean => replayCompleted;
 
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
 
@@ -196,6 +201,7 @@ export const replayJournal = (): number => {
     if (orphanIds.length > 0) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
   flushPersistence();
+  replayCompleted = true;
   return replayed;
 };
 

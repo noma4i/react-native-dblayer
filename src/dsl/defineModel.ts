@@ -3,6 +3,7 @@ import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
+import { seedCollections } from '../core/tanstack/mirror';
 import type { JournalOp } from '../core/apply/journal';
 import { registerGcHost } from '../core/gc';
 import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
@@ -14,7 +15,7 @@ import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
 import { createModelReadEngine, createScopeReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
-import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix } from './configure';
+import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix, hasReplayedJournal } from './configure';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
 
@@ -384,6 +385,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()]
   };
   registerApplyTarget(config.id, applyTarget);
+  if (hasReplayedJournal()) seedCollections([config.id]);
   registerGcHost(config.id, {
     modelId: config.id,
     exempt: config.gc === 'exempt',

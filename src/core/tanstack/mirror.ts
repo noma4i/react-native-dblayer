@@ -143,9 +143,14 @@ export function startCollectionMirror(bus: CommitBus): () => void {
 export function seedCollections(models: string[]): void {
   runInWriteBatch(() => {
     for (const modelId of models) {
+      let target;
+      try {
+        target = getApplyTarget(modelId);
+      } catch {
+        continue;
+      }
       const collection = ensureModelCollection(modelId);
       const writer = writerFor(modelId);
-      const target = getApplyTarget(modelId);
       writer.begin();
       for (const row of target.readAllRows()) {
         const id = String(row.id);
