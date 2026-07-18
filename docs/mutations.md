@@ -63,11 +63,12 @@ see Dedupe below.
 
 ### Optimistic write variants
 
-`optimistic` is one of three shapes:
+`optimistic` is one of four shapes:
 
 | Variant | Shape | Behavior |
 | --- | --- | --- |
 | Insert | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
+| Respond | `{ model, selectServerNode, respond, prependTo?, appendTo? }` | Fabricates a full transport-shaped response and runs it through the exact same plan builder as the real one - see Respond variant below. |
 | Patch | `{ method: 'patch', model, selectId, selectPatch }` | Applies a partial update immediately, restoring the previous field values on error. |
 | Destroy | `{ method: 'destroy', model, selectId }` | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back. |
 
@@ -77,16 +78,55 @@ server-created node; the temp row is replaced by it in the same transaction as a
 row onto the committed server row before it lands - use it for fields the server response does not
 carry, like `localEcho` above.
 
+**Respond variant.** `respond(input, { tempId, operationId })` fabricates a full `TData` response -
+shaped exactly like the real mutation response, keyed under the same `result` field - instead of
+building one row. The fabricated response is run through the SAME plan builder later used for the
+real transport response: `result`-field extraction (`data[config.result]`, throwing the same
+`` `${result} returned no data` `` error when missing), `selectServerNode` node selection, and an
+empty/missing node id mapping to this run's `tempId` - all identical whether the data came from
+`respond` or the transport. `extract` sinks run against the fabricated data optimistically, then run
+again against the real data on commit; both passes are plain upserts, so the commit pass overwrites
+the optimistic one idempotently rather than duplicating rows. Reach for `respond` instead of `build`
+when the optimistic write needs the same nested shape (and `extract` sideloads) the real mutation
+produces, not just one row:
+
+```ts
+const sendMessage = MessageModel.mutation('send', {
+  document: MessageSendDocument,
+  result: 'messageSend',
+  optimistic: {
+    model: MessageModel,
+    selectServerNode: data => data.messageSend.message,
+    respond: (input: SendMessageInput, ctx) => ({
+      messageSend: { message: { id: ctx.tempId, chatId: input.chatId, text: input.text, createdAt: new Date().toISOString() } }
+    }),
+    prependTo: { scope: MessageModel.scopes.thread, value: input => ({ chatId: input.chatId }) }
+  }
+});
+```
+
+**Respond rollback.** Before the fabricated write applies, its inverse is captured per target - the
+selected node's id, plus every `extract` sink row's id: a target with no existing row inverts to a
+plain destroy (undoing the fabricated creation); a target that already had a row inverts to restore
+that previous row and its captured scope memberships. On a thrown transport error this inverse plan
+applies, so `extract`-sideloaded rows the fabricated response created are destroyed the same way the
+primary fabricated row is, while any that already existed are restored rather than destroyed.
+
+**Respond define-time validation.** `defineMutation` throws synchronously, before any network call,
+if `respond` is combined with `build` or `method` - `{ model, respond }` cannot also declare an
+Insert variant's `build` or a Patch/Destroy variant's `method`; `respond` is its own optimistic
+shape, not a modifier on the other three.
+
 **Rollback guarantees.** A thrown transport error (or a null `result` payload) undoes exactly the
 optimistic write that ran: an inserted temp row is destroyed (untombstoned, so a later write can
 reuse the id cleanly), a patch restores its previous field values, a destroy restores the previous
 row and its captured scope memberships. Rollback runs before `onError` and before the mutation
 promise rejects.
 
-**Optimistic scope placement.** `prependTo`/`appendTo` declaratively place an Insert variant's temp
-row at the top or bottom of a **server-order** scope (`sort: 'server-order'`, the default - see
-[models.md](./models.md#scopespec)), instead of leaving it unplaced until the server response
-arrives:
+**Optimistic scope placement.** `prependTo`/`appendTo` declaratively place an Insert or Respond
+variant's temp row at the top or bottom of a **server-order** scope (`sort: 'server-order'`, the
+default - see [models.md](./models.md#scopespec)), instead of leaving it unplaced until the server
+response arrives:
 
 ```ts
 const sendMessage = MessageModel.mutation('send', {
@@ -103,16 +143,16 @@ const sendMessage = MessageModel.mutation('send', {
 
 Both take a `ScopeHandleExpr<TInput>`: `{ scope, value: (input) => scopeValue }`, where `scope` is a
 `ScopeHandle` from the SAME model as `optimistic.model` and `value(input)` derives that scope's
-concrete value from the mutation input. `prependTo` and `appendTo` are mutually exclusive, and only
-valid on the Insert variant - `defineMutation` throws synchronously, before any network call, if
-either is combined with a `method: 'patch'`/`method: 'destroy'` optimistic config, if both are set
-at once, if `scope` is not a server-order scope (a `sort: { field, dir }` or custom-comparator scope
-rejects it), or if `scope` belongs to a different model than `optimistic.model`. The assigned
-position survives the temp-id -> server-node replace - the same edge/order captured for the temp row
-is carried over onto the committed server row in the same transaction, so a message optimistically
-prepended into a thread stays at the top once the server response lands. On rollback, destroying the
-temp row removes it from the scope's membership entirely, restoring the scope to the order it had
-before the optimistic insert.
+concrete value from the mutation input. `prependTo` and `appendTo` are mutually exclusive, and valid
+only on the Insert and Respond variants - `defineMutation` throws synchronously, before any network
+call, if either is combined with a `method: 'patch'`/`method: 'destroy'` optimistic config, if both
+are set at once, if `scope` is not a server-order scope (a `sort: { field, dir }` or
+custom-comparator scope rejects it), or if `scope` belongs to a different model than
+`optimistic.model`. The assigned position survives the temp-id -> server-node replace - the same
+edge/order captured for the temp row is carried over onto the committed server row in the same
+transaction, so a message optimistically prepended into a thread stays at the top once the server
+response lands. On rollback, destroying the temp row removes it from the scope's membership entirely,
+restoring the scope to the order it had before the optimistic insert.
 
 **Cascade-destroy guard.** `optimistic: { method: 'destroy' }` throws synchronously, before any
 network call, if the target model has a `hasMany` relation with `dependent: 'destroy'` - an
