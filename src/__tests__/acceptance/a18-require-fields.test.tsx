@@ -88,4 +88,26 @@ describe('A18 require fields', () => {
     });
     reader.unmount();
   });
+
+  it('filters incomplete builder snapshot rows while retaining null fields', () => {
+    setupAcceptanceRuntime();
+    const model = defineModel({ id: 'A18Snapshot', name: 'Snapshot', fields: { group: f.str(), b: f.str().nullable().optional() } });
+    model.insertStoredMany([{ id: 'missing', group: 'g' }, { id: 'ready', group: 'g', b: 'ready' }, { id: 'null', group: 'g', b: null }]);
+
+    expect(model.use.where({ group: 'g' }).require('b').read().map(row => row.id)).toEqual(['ready', 'null']);
+  });
+
+  it('remounts a require reader without stale filtered state', () => {
+    setupAcceptanceRuntime();
+    const model = defineModel({ id: 'A18Unmount', name: 'Unmount', fields: { b: f.str().optional() } });
+    model.insertStored({ id: 'row' });
+    const first = renderCounted(() => model.use.row('row', { require: ['b'] }));
+    expect(first.result()).toBeUndefined();
+    first.unmount();
+    model.patch('row', { b: 'fresh' });
+    const second = renderCounted(() => model.use.row('row', { require: ['b'] }));
+
+    expect(second.result()).toMatchObject({ id: 'row', b: 'fresh' });
+    second.unmount();
+  });
 });

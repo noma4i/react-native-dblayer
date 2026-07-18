@@ -11,11 +11,17 @@ describe('A19 in-session garbage collection', () => {
     list.insertStored({ id: 'list', title: 'list' });
     const detailReader = renderCounted(() => detail.use.row('detail'));
     const listReader = renderCounted(() => list.use.where({}).rows());
+    const detailRow = detailReader.result();
+    const rows = listReader.result();
+    const detailRenders = detailReader.renders();
+    const listRenders = listReader.renders();
 
     act(() => { collectGarbage(); });
 
-    expect(detailReader.result()).toEqual({ id: 'detail', title: 'detail' });
-    expect(listReader.result()).toEqual([{ id: 'list', title: 'list' }]);
+    expect(detailReader.renders()).toBe(detailRenders);
+    expect(listReader.renders()).toBe(listRenders);
+    expect(detailReader.result()).toBe(detailRow);
+    expect(listReader.result()).toBe(rows);
     detailReader.unmount();
     listReader.unmount();
   });
@@ -31,5 +37,18 @@ describe('A19 in-session garbage collection', () => {
 
     expect(detail.use.where({}).read()).toEqual([]);
     expect(list.use.where({}).read()).toEqual([]);
+  });
+
+  it('unmounted reader rows become collectible', () => {
+    setupAcceptanceRuntime();
+    const model = defineModel({ id: 'A19Unmounted', name: 'Unmounted', fields: { title: f.str() } });
+    model.insertStored({ id: 'row', title: 'row' });
+    const reader = renderCounted(() => model.use.row('row'));
+    reader.unmount();
+
+    act(() => { collectGarbage(); });
+
+    expect(model.get('row')).toBeUndefined();
+    expect(model.use.where({}).read()).toEqual([]);
   });
 });

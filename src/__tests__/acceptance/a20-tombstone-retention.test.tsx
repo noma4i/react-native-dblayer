@@ -1,5 +1,5 @@
 import { defineModel, f, flushPersistence } from '../../index';
-import { createAcceptanceTransport, setupAcceptanceRuntime } from './harness';
+import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 
@@ -68,6 +68,31 @@ describe('A20 tombstone retention', () => {
       await query.fetch({});
 
       expect(model.get('row-1')).toMatchObject({ id: 'row-1', title: 'stale' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('retention-only flush preserves unrelated reader identity', () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
+      setupAcceptanceRuntime();
+      const model = defineModel({ id: 'A20Identity', name: 'Identity', fields: { title: f.str() } });
+      model.insertStored({ id: 'kept', title: 'kept' });
+      model.insertStored({ id: 'expired', title: 'expired' });
+      model.destroy('expired');
+      flushPersistence();
+      const reader = renderCounted(() => model.use.row('kept'));
+      const initial = reader.result();
+      const renders = reader.renders();
+
+      jest.advanceTimersByTime(24 * 60 * 60 * 1000 + 1);
+      flushPersistence();
+
+      expect(reader.renders()).toBe(renders);
+      expect(reader.result()).toBe(initial);
+      reader.unmount();
     } finally {
       jest.useRealTimers();
     }

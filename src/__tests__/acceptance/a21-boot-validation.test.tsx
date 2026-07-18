@@ -1,4 +1,4 @@
-import { bootDb, defineModel, f, hasMany } from '../../index';
+import { bootDb, defineModel, f, hasMany, resetRuntime } from '../../index';
 import { createAcceptanceTransport, createMemoryPlane, setupAcceptanceRuntime } from './harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -49,5 +49,25 @@ describe('A21 boot validation', () => {
     });
 
     await expect(mutation.run({ id: 'parent' })).rejects.toThrow(cascadeError);
+  });
+
+  it('resetRuntime clears failing boot validations', async () => {
+    const child = defineModel({ id: 'A21ResetChild', name: 'ResetChild', fields: { parentId: f.id() } });
+    const parent = defineModel({
+      id: 'A21ResetParent',
+      name: 'ResetParent',
+      fields: {},
+      relations: () => ({ children: hasMany(child, { foreignKey: 'parentId', dependent: 'destroy' }) })
+    });
+    parent.mutation('destroy', {
+      document,
+      result: 'destroy',
+      optimistic: { method: 'destroy', model: parent, selectId: (input: { id: string }) => input.id }
+    });
+
+    await expect(bootDb({ storage: createMemoryPlane(), transport: createAcceptanceTransport() })).rejects.toThrow(cascadeError);
+    resetRuntime();
+
+    await expect(bootDb({ storage: createMemoryPlane(), transport: createAcceptanceTransport() })).resolves.toEqual(expect.objectContaining({ replayed: expect.any(Number) }));
   });
 });

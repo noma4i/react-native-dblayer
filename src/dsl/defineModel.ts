@@ -115,6 +115,8 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   __key?(scopeValue: TScope): string;
   __isServerOrder?(): boolean;
   __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
+  __readRows?(scopeValue: TScope): TStored[];
+  __noteAccess?(scopeValue: TScope): void;
 };
 
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
@@ -687,6 +689,10 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         const entries = planes().scopeIndex.read(scopeKey).entries;
         const order = position === 'prepend' ? Math.min(0, ...entries.map(entry => entry.order)) - 1 : Math.max(-1, ...entries.map(entry => entry.order)) + 1;
         return [{ kind: 'scope-delta', model: config.id, scopeKey, append: [{ id, order }], detach: [] }];
+      },
+      __readRows: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
+      __noteAccess: (scopeValue: unknown) => {
+        planes().scopeIndex.noteAccess(keyForScope(scopeName, scopeValue));
       }
     };
   };

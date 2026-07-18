@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
 import type { RelationDecl } from '../core/relations';
 import { arraysShallowEqual, useLiveRead } from '../read/useLiveRead';
@@ -109,8 +109,12 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
 
   const useItems = (scopeValue: TScope | null | undefined, limit: number | null): ItemSnapshot<TItem> => {
     const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
+    const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
+    useEffect(() => {
+      if (scopeKey != null) source.__noteAccess!(scopeValue as TScope);
+    }, [scopeKey]);
     const evaluate = (): { items: TItem[]; totalCount: number; deps: Dependency[] } => {
-      const rows = scopeValue == null ? [] : source.read(scopeValue);
+      const rows = scopeValue == null ? [] : source.__readRows!(scopeValue);
       const visibleRows = limit === null ? rows : rows.slice(0, limit);
       const deps: Dependency[] = scopeValue == null ? [] : [{ kind: 'scope', model: source.modelId, scopeKey: source.__key!(scopeValue) }];
       const liveIds = new Set(rows.map(row => row.id));

@@ -142,4 +142,99 @@ describe('A23 idle scopes', () => {
       jest.useRealTimers();
     }
   });
+
+  it('view re-renders do not refresh scope access', () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(1_000);
+      setupAcceptanceRuntime();
+      const model = defineModel({
+        id: 'A23ViewAccess',
+        name: 'ViewAccess',
+        fields: { group: f.str(), title: f.str() },
+        scopes: { feed: scope({ by: { group: 'group' }, sort: 'server-order' }) },
+        maintenance: { dropIdleScopesAfterMs: 100 }
+      });
+      model.scopes.feed.__apply!(scopeValue, [{ id: 'row', group: 'group', title: 'row' }], 'complete');
+      const view = model.view('feed-view', { source: 'feed', include: {}, select: row => ({ id: row.id, title: row.title }) });
+      const reader = renderCounted(() => view.use(scopeValue));
+
+      act(() => {
+        jest.advanceTimersByTime(90);
+        reader.rerender();
+        reader.rerender();
+        reader.rerender();
+      });
+      reader.unmount();
+      act(() => {
+        jest.advanceTimersByTime(11);
+        collectGarbage();
+      });
+
+      expect(model.scopes.feed.read(scopeValue)).toEqual([]);
+      expect(model.use.where({}).read()).toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('unmounted scope reader no longer protects an idle scope', () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(1_000);
+      setupAcceptanceRuntime();
+      const model = defineModel({
+        id: 'A23Unmounted',
+        name: 'Unmounted',
+        fields: { group: f.str(), title: f.str() },
+        scopes: { feed: scope({ by: { group: 'group' }, sort: 'server-order' }) },
+        maintenance: { dropIdleScopesAfterMs: 100 }
+      });
+      model.scopes.feed.__apply!(scopeValue, [{ id: 'row', group: 'group', title: 'row' }], 'complete');
+      const reader = renderCounted(() => model.scopes.feed.use(scopeValue));
+      reader.unmount();
+      act(() => {
+        jest.advanceTimersByTime(101);
+        collectGarbage();
+      });
+
+      expect(model.scopes.feed.read(scopeValue)).toEqual([]);
+      expect(model.get('row')).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('idle collection of another scope preserves mounted scope identity', () => {
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(1_000);
+      setupAcceptanceRuntime();
+      const model = defineModel({
+        id: 'A23Identity',
+        name: 'Identity',
+        fields: { group: f.str(), title: f.str() },
+        scopes: { feed: scope({ by: { group: 'group' }, sort: 'server-order' }) },
+        maintenance: { dropIdleScopesAfterMs: 100 }
+      });
+      const scopeA = { group: 'a' };
+      const scopeB = { group: 'b' };
+      model.scopes.feed.__apply!(scopeA, [{ id: 'a', group: 'a', title: 'a' }], 'complete');
+      model.scopes.feed.__apply!(scopeB, [{ id: 'b', group: 'b', title: 'b' }], 'complete');
+      const reader = renderCounted(() => model.scopes.feed.use(scopeA));
+      const initial = reader.result();
+      const renders = reader.renders();
+      act(() => {
+        jest.advanceTimersByTime(101);
+        collectGarbage();
+      });
+
+      expect(reader.renders()).toBe(renders);
+      expect(reader.result()).toBe(initial);
+      expect(model.scopes.feed.read(scopeB)).toEqual([]);
+      reader.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

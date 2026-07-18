@@ -112,6 +112,8 @@ export type ScopeHandle<TStored extends {
     __key?(scopeValue: TScope): string;
     __isServerOrder?(): boolean;
     __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
+    __readRows?(scopeValue: TScope): TStored[];
+    __noteAccess?(scopeValue: TScope): void;
 };
 export type ModelCore<TStored extends {
     id: string;

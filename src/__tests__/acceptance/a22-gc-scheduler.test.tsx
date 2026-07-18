@@ -182,4 +182,28 @@ describe('A22 in-session GC scheduler', () => {
       jest.useRealTimers();
     }
   });
+
+  it('preserves unrelated reader identity through a scheduled sweep', () => {
+    jest.useFakeTimers();
+    try {
+      setupAcceptanceRuntime();
+      const pressure = defineModel({ id: 'A22IdentityPressure', name: 'IdentityPressure', fields: { title: f.str() } });
+      const unrelated = defineModel({ id: 'A22IdentityUnrelated', name: 'IdentityUnrelated', fields: { title: f.str() } });
+      unrelated.insertStored({ id: 'kept', title: 'kept' });
+      const reader = renderCounted(() => unrelated.use.row('kept'));
+      const initial = reader.result();
+      const renders = reader.renders();
+      const rows = burstRows('pressure', 600);
+      pressure.insertStoredMany(rows);
+      pressure.destroyMany(rows.map(row => row.id));
+
+      act(() => { jest.advanceTimersByTime(1000); });
+
+      expect(reader.renders()).toBe(renders);
+      expect(reader.result()).toBe(initial);
+      reader.unmount();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
