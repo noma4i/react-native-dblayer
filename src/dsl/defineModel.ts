@@ -124,6 +124,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
   __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
   __relations?(): Record<string, RelationDecl>;
+  __revision?(): number;
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -217,6 +218,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 ): ModelCore<any> & { scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
   type ModelPlanes = { entityState: EntityState<any>; scopeIndex: ScopeIndex };
   let planesRef: ModelPlanes | null = null;
+  let revision = 0;
   /** Planes are created and hydrated on first touch, so models can be defined before configureDb. */
   const planes = (): ModelPlanes => {
     if (planesRef) return planesRef;
@@ -332,6 +334,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
+    if (changes.length > 0) revision += 1;
     return changes;
   };
 
@@ -375,6 +378,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       if (!current) return null;
       const result = planes().entityState.upsert({ ...current, ...patch, id });
       if (result.changedFields !== null && result.changedFields.length === 0) return null;
+      revision += 1;
       return { id, changedFields: result.changedFields };
     },
     destroy: (ids: string[], tombstone?: boolean): string[] => {
@@ -384,12 +388,14 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
         planes().entityState.destroy(id, { tombstone });
         if (existed) removed.push(id);
       }
+      if (removed.length > 0) revision += 1;
       return removed;
     },
     counter: (id: string, field: string, delta: number, next?: number): boolean => {
       const row = planes().entityState.read(id);
       if (!row) return false;
       planes().entityState.upsert({ ...row, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
+      revision += 1;
       return true;
     },
     counterValue: (id: string, field: string): number | null => {
@@ -725,11 +731,13 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     __planReplace: planReplace,
     __captureMembership: captureMembership,
     __planRestore: planRestore,
-    __relations: resolvedRelations
+    __relations: resolvedRelations,
+    __revision: () => revision
   };
   registerIngestModel(config.name, model);
 
   registerReset(() => {
+    revision += 1;
     planesRef?.entityState.reset();
     planesRef?.scopeIndex.reset();
     // The apply target stays registered: a model must keep working after the kill-switch.

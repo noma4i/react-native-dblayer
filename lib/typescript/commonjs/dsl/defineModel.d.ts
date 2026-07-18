@@ -142,6 +142,7 @@ export type ModelCore<TStored extends {
         edge?: Record<string, unknown>;
     }>): JournalOp[];
     __relations?(): Record<string, RelationDecl>;
+    __revision?(): number;
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */

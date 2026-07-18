@@ -12,7 +12,7 @@ type ComputedInclude = [ModelCore<Row>, (row: Row) => string | string[] | null];
 export type ViewConfig<TItem> = {
   /** Declared scope name or scope handle on the model that owns the view. */
   source: string | ScopeHandle<Row, Record<string, unknown>>;
-  /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. */
+  /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
   include: Record<string, string | ComputedInclude>;
   /** Build one view item from a source row, resolved includes, and its source index. */
   select?: (row: Row, included: Included, ctx: { index: number }) => TItem;
@@ -28,6 +28,8 @@ export type ViewHandle<TItem, TScope> = {
 };
 
 type CacheEntry<TItem> = { row: Row; included: Included; item: TItem };
+type RelationIndex = { revision: number; rowsByForeignKey: Map<string, Row[]> };
+type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
 
 const valuesEqual = (left: unknown, right: unknown): boolean => {
   if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length && left.every((value, index) => valuesEqual(value, right[index]));
@@ -46,13 +48,13 @@ const includesEqual = (left: Included, right: Included): boolean => {
 const idsOf = (value: string | string[] | null): string[] =>
   (Array.isArray(value) ? value : value == null ? [] : [value]).filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-const resolveRelation = (row: Row, relation: RelationDecl): unknown => {
+const resolveRelation = (row: Row, relation: RelationDecl, rowsFor: (foreignKey: string, id: string) => Row[]): unknown => {
   if (relation.kind === 'belongsTo') {
     const id = row[relation.foreignKey];
     return typeof id === 'string' ? relation.model.get(id) ?? null : null;
   }
   if (relation.kind === 'references') throw new Error(`Model.view does not support ${relation.kind} includes`);
-  const rows = relation.model.getWhere({ [relation.foreignKey]: row.id });
+  const rows = rowsFor(relation.foreignKey, row.id);
   if (relation.kind === 'hasMany') return rows;
   if (relation.kind === 'hasOne') {
     if (rows.length === 0) return null;
@@ -73,9 +75,30 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
   const source = (typeof config.source === 'string' ? model.scopes[config.source] : config.source) as ScopeHandle<Row, TScope> | undefined;
   if (!source || source.modelId !== model.modelId) throw new Error(`${model.modelId} has no scope ${typeof config.source === 'string' ? config.source : name} for view ${name}`);
   const relations = model.__relations!();
+  const relationIndexes = new Map<RelationDecl, RelationIndex>();
   for (const [alias, include] of Object.entries(config.include)) {
     if (typeof include === 'string' && !relations[include]) throw new Error(`${model.modelId} has no relation ${include} for view ${name}.${alias}`);
+    if (typeof include === 'string' && relations[include]!.kind === 'references') throw new Error(`Model.view does not support references includes`);
   }
+
+  const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
+    const target = relation.model as ModelCore<Row>;
+    const revision = target.__revision?.() ?? 0;
+    let index = relationIndexes.get(relation);
+    if (!index || index.revision !== revision) {
+      const rowsByForeignKey = new Map<string, Row[]>();
+      for (const row of target.getAll()) {
+        const value = row[foreignKey];
+        if (typeof value !== 'string') continue;
+        const rows = rowsByForeignKey.get(value) ?? [];
+        rows.push(row);
+        rowsByForeignKey.set(value, rows);
+      }
+      index = { revision, rowsByForeignKey };
+      relationIndexes.set(relation, index);
+    }
+    return index.rowsByForeignKey.get(id) ?? [];
+  };
 
   const use = (scopeValue: TScope | null | undefined): TItem[] => {
     const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
@@ -90,7 +113,7 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
         for (const [alias, include] of Object.entries(config.include)) {
           if (typeof include === 'string') {
             const relation = relations[include]!;
-            included[alias] = resolveRelation(row, relation);
+            included[alias] = resolveRelation(row, relation, (foreignKey, id) => rowsFor(relation, foreignKey, id));
             if (relation.kind === 'belongsTo') {
               const id = row[relation.foreignKey];
               if (typeof id === 'string') deps.push({ kind: 'row', model: relation.model.modelId, id });
@@ -131,9 +154,13 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
       const [state, setState] = useState({ scopeKey, size: pageSize });
       const size = state.scopeKey === scopeKey ? state.size : pageSize;
       if (state.scopeKey !== scopeKey) setState({ scopeKey, size: pageSize });
+      const windowRef = useRef<WindowCache<TItem> | null>(null);
       const items = use(scopeValue);
+      const cached = windowRef.current;
+      const rows = cached && cached.items === items && cached.size === size ? cached.rows : items.slice(0, size);
+      windowRef.current = { items, size, rows };
       return {
-        rows: items.slice(0, size),
+        rows,
         totalCount: items.length,
         hasMore: items.length > size,
         fetchNextPage: () => setState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))

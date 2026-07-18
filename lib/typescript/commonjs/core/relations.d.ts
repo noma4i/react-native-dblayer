@@ -3,6 +3,7 @@ import type { JournalOp } from './apply/journal';
 export type ModelRef<TStored> = {
     modelId: string;
     get(id: string | null | undefined): TStored | undefined;
+    getAll(): TStored[];
     getWhere(where: Record<string, unknown>): TStored[];
 };
 type StoredRow = Record<string, unknown>;

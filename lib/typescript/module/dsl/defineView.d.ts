@@ -8,7 +8,7 @@ type ComputedInclude = [ModelCore<Row>, (row: Row) => string | string[] | null];
 export type ViewConfig<TItem> = {
     /** Declared scope name or scope handle on the model that owns the view. */
     source: string | ScopeHandle<Row, Record<string, unknown>>;
-    /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. */
+    /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
     include: Record<string, string | ComputedInclude>;
     /** Build one view item from a source row, resolved includes, and its source index. */
     select?: (row: Row, included: Included, ctx: {

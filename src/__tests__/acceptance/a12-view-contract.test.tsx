@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer'
-import { belongsTo, defineModel, f, hasMany, resetRuntime, scope } from '../../index'
+import { belongsTo, defineModel, f, hasMany, references, resetRuntime, scope } from '../../index'
 import { renderCounted, setupAcceptanceRuntime } from './harness'
 
 const scopeValue = { feedId: `feed` }
@@ -48,14 +48,28 @@ describe(`A12 view contract`, () => {
     act(() => { post.patch(`other`, { title: `Ignored` }) })
     expect(reader.renders() - beforeUnrelated).toBe(0)
 
+    const beforeUnrelatedComment = reader.renders()
+    act(() => { comment.insertStored({ id: `unrelated`, postId: `other`, body: `ignored` }) })
+    expect(reader.renders() - beforeUnrelatedComment).toBe(0)
+
     const beforeBatch = reader.renders()
     act(() => { post.insertStored({ id: `post`, feedId: `feed`, authorId: `author`, opponentId: `opponent`, title: `Updated`, detail: `changed` }) })
     expect(reader.renders() - beforeBatch).toBe(1)
 
     const window = renderCounted(() => view.useWindow(scopeValue, { pageSize: 1 }))
     expect(window.result()).toMatchObject({ totalCount: 1, hasMore: false })
+    const windowRows = window.result().rows
+    window.rerender()
+    expect(window.result().rows).toBe(windowRows)
     window.unmount()
     reader.unmount()
     act(() => { resetRuntime() })
+  })
+
+  it(`rejects unsupported references includes while defining the view`, () => {
+    setupAcceptanceRuntime()
+    const target = defineModel({ id: `A12ReferenceTarget`, name: `ReferenceTarget`, fields: { title: f.str() } })
+    const model = defineModel({ id: `A12ReferenceSource`, name: `ReferenceSource`, fields: { feedId: f.str(), targetId: f.str() }, scopes: { feed: scope({ by: { feedId: `feedId` }, sort: `server-order` }) }, relations: () => ({ target: references(target, { ids: row => (row as { targetId?: string }).targetId ?? null }) }) })
+    expect(() => model.view(`invalid`, { source: `feed`, include: { target: `target` } })).toThrow(`Model.view does not support references includes`)
   })
 })
