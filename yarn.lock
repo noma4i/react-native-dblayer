@@ -1860,6 +1860,8 @@ __metadata:
     "@babel/core": "npm:^7"
     "@babel/preset-env": "npm:^7"
     "@graphql-typed-document-node/core": "npm:^3"
+    "@tanstack/db": "npm:0.6.16"
+    "@tanstack/react-db": "npm:0.1.94"
     "@tanstack/react-query": "npm:5.101.2"
     "@testing-library/react-native": "npm:^14.0.1"
     "@types/jest": "npm:^29.5.14"
@@ -2046,10 +2048,61 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@standard-schema/spec@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@standard-schema/spec@npm:1.1.0"
+  checksum: 10c0/d90f55acde4b2deb983529c87e8025fa693de1a5e8b49ecc6eb84d1fd96328add0e03d7d551442156c7432fd78165b2c26ff561b970a9a881f046abb78d6a526
+  languageName: node
+  linkType: hard
+
+"@tanstack/db-ivm@npm:0.1.18":
+  version: 0.1.18
+  resolution: "@tanstack/db-ivm@npm:0.1.18"
+  dependencies:
+    fractional-indexing: "npm:^3.2.0"
+    sorted-btree: "npm:^1.8.1"
+  peerDependencies:
+    typescript: ">=4.7"
+  checksum: 10c0/769b86b24970d83ef53e0a4ae97cd9fa0f79ac6d546acb8a49269095df2ea85e0e479a6eba748df3671a3fa17100acb9195257fd7a91c06b2ba127189f215eef
+  languageName: node
+  linkType: hard
+
+"@tanstack/db@npm:0.6.16":
+  version: 0.6.16
+  resolution: "@tanstack/db@npm:0.6.16"
+  dependencies:
+    "@standard-schema/spec": "npm:^1.1.0"
+    "@tanstack/db-ivm": "npm:0.1.18"
+    "@tanstack/pacer-lite": "npm:^0.2.1"
+  peerDependencies:
+    typescript: ">=4.7"
+  checksum: 10c0/c5eb68b933e24e1de3a4cbfa4e2872d12fec5120a529259be20c0abd7f0636011889429c8aaad65467f73d9ea4ca4321902cca077495b4f7eb08e3027f856339
+  languageName: node
+  linkType: hard
+
+"@tanstack/pacer-lite@npm:^0.2.1":
+  version: 0.2.2
+  resolution: "@tanstack/pacer-lite@npm:0.2.2"
+  checksum: 10c0/fc442c25af3403e1be3d95f6c67b8d044ca5a655f2d0c0219030d75f990ae6a0d599fb496a355b0985056cdd032037c96711c7ed6f736d8d8ca1154a357457dd
+  languageName: node
+  linkType: hard
+
 "@tanstack/query-core@npm:5.101.2":
   version: 5.101.2
   resolution: "@tanstack/query-core@npm:5.101.2"
   checksum: 10c0/c3288757bfd563ca35cee21bf6ed0edb2f4425a8c92f75d84dcb36a0580a59e48bd97fcdbbc7c8d8e95a4c40376edfc5772b14665b85d183079a0ba7e17793b2
+  languageName: node
+  linkType: hard
+
+"@tanstack/react-db@npm:0.1.94":
+  version: 0.1.94
+  resolution: "@tanstack/react-db@npm:0.1.94"
+  dependencies:
+    "@tanstack/db": "npm:0.6.16"
+    use-sync-external-store: "npm:^1.6.0"
+  peerDependencies:
+    react: ">=16.8.0"
+  checksum: 10c0/7cbded295c230aa979be48f32ba4015a67b323a57bae82ed8e02563180e00c775d754af59ddcc53a910286eb2b0de1b13d2e3a79b6d229b8b426dba8bd063b05
   languageName: node
   linkType: hard
 
@@ -3288,6 +3341,13 @@ __metadata:
     cross-spawn: "npm:^7.0.6"
     signal-exit: "npm:^4.0.1"
   checksum: 10c0/8986e4af2430896e65bc2788d6679067294d6aee9545daefc84923a0a4b399ad9c7a3ea7bd8c0b2b80fdf4a92de4c69df3f628233ff3224260e9c1541a9e9ed3
+  languageName: node
+  linkType: hard
+
+"fractional-indexing@npm:^3.2.0":
+  version: 3.4.0
+  resolution: "fractional-indexing@npm:3.4.0"
+  checksum: 10c0/43c6fd9babc4a387da60a1fc1f3fbdb5a61f6237b8e93150772e269e58e053571b2d5e073dfae89c4facaa28edaa16548f74b6d25ae24f6c4f50ba7ba6099f4c
   languageName: node
   linkType: hard
 
@@ -5718,6 +5778,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"sorted-btree@npm:^1.8.1":
+  version: 1.8.1
+  resolution: "sorted-btree@npm:1.8.1"
+  checksum: 10c0/96b1d920ad40bc9dfcf13698a209532cebe50fa063426d59bd9a862930ab025afec5c5597c254724403b5107f7b7ca91572565f4efc2214ce05d9c617c6b1142
+  languageName: node
+  linkType: hard
+
 "source-map-support@npm:0.5.13":
   version: 0.5.13
   resolution: "source-map-support@npm:0.5.13"
@@ -6155,6 +6222,15 @@ __metadata:
   bin:
     update-browserslist-db: cli.js
   checksum: 10c0/13a00355ea822388f68af57410ce3255941d5fb9b7c49342c4709a07c9f230bbef7f7499ae0ca7e0de532e79a82cc0c4edbd125f1a323a1845bf914efddf8bec
+  languageName: node
+  linkType: hard
+
+"use-sync-external-store@npm:^1.6.0":
+  version: 1.6.0
+  resolution: "use-sync-external-store@npm:1.6.0"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10c0/35e1179f872a53227bdf8a827f7911da4c37c0f4091c29b76b1e32473d1670ebe7bcd880b808b7549ba9a5605c233350f800ffab963ee4a4ee346ee983b6019b
   languageName: node
   linkType: hard
 

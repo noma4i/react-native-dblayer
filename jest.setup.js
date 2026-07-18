@@ -11,3 +11,12 @@ console.error = (...args) => {
   }
   originalError(...args);
 };
+
+afterEach(() => {
+  try {
+    const { CleanupQueue } = require('./node_modules/@tanstack/db/dist/cjs/collection/cleanup-queue.cjs');
+    CleanupQueue.resetInstance();
+  } catch {
+    // Test-only cleanup for TanStack DB internals; ignore if the package layout changes.
+  }
+});

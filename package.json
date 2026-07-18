@@ -126,6 +126,8 @@
     ]
   },
   "dependencies": {
+    "@tanstack/db": "0.6.16",
+    "@tanstack/react-db": "0.1.94",
     "@tanstack/react-query": "5.101.2",
     "es-toolkit": "^1.49.0"
   }
