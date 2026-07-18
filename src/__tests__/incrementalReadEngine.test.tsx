@@ -57,7 +57,7 @@ describe('incremental descriptor suite', () => {
     configure();
     const model = defineModel({ id: 'incremental-descriptor', name: 'incremental-descriptor', fields: { group: f.str() } });
     act(() => model.insertStored({ id: 'one', group: 'a' }));
-    const reader = render(() => model.use.where({ group: 'a' }));
+    const reader = render(() => model.use.where({ group: 'a' }).rows());
     expect(reader.value().map(row => row.id)).toEqual(['one']);
     reader.root.unmount();
   });

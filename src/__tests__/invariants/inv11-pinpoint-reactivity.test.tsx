@@ -94,7 +94,7 @@ describe('v6 invariant 11: pinpoint reactivity', () => {
     const model = createModel('where-pinpoint');
     model.insertStored({ id: '1', name: 'one', age: 1, group: 'a' });
     model.insertStored({ id: '2', name: 'two', age: 2, group: 'b' });
-    const read = renderRead(() => model.use.where({ group: 'a' }));
+    const read = renderRead(() => model.use.where({ group: 'a' }).rows());
     const before = read.value();
     act(() => model.patch('2', { age: 3 }));
     expect(read.value()).toBe(before);

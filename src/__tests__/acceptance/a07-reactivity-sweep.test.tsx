@@ -6,7 +6,7 @@ const document = { kind: `Document`, definitions: [] } as never
 const scopeValue = { group: `g` }
 const makeModels = () => ({ model: defineModel({ id: `A07Rows`, name: `A07Rows`, fields: { group: f.str(), title: f.str(), createdAt: f.num() }, scopes: { feed: scope({ by: { group: `group` }, sort: `server-order` }) } }), other: defineModel({ id: `A07Other`, name: `A07Other`, fields: { title: f.str() }, gc: `exempt` }) })
 const panel = (model: ReturnType<typeof defineModel>, other: ReturnType<typeof defineModel>) => {
-  const readers = { row: renderCounted(() => model.use.row(`a`)), field: renderCounted(() => model.use.field(`a`, `title`)), where: renderCounted(() => model.use.where({ group: `g` })), scope: renderCounted(() => model.scopes.feed.use(scopeValue)), window: renderCounted(() => model.scopes.feed.useWindow(scopeValue, { pageSize: 2 })), count: renderCounted(() => model.scopes.feed.useCount(scopeValue)), other: renderCounted(() => other.use.row(`other`)) }
+  const readers = { row: renderCounted(() => model.use.row(`a`)), field: renderCounted(() => model.use.field(`a`, `title`)), where: renderCounted(() => model.use.where({ group: `g` }).rows()), scope: renderCounted(() => model.scopes.feed.use(scopeValue)), window: renderCounted(() => model.scopes.feed.useWindow(scopeValue, { pageSize: 2 })), count: renderCounted(() => model.scopes.feed.useCount(scopeValue)), other: renderCounted(() => other.use.row(`other`)) }
   const reset = () => Object.values(readers).map(reader => reader.renders())
   const counts = (before: number[]) => Object.values(readers).map((reader, index) => reader.renders() - before[index]!)
   const close = () => Object.values(readers).forEach(reader => reader.unmount())

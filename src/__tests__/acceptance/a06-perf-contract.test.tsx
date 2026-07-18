@@ -42,7 +42,7 @@ describe(`A06 performance contract`, () => {
     for (let index = 0; index < 5; index += 1) other.insertStored({ id: `other-${index}`, title: `other` });
     const rowReaders = Array.from({ length: 10 }, (_, index) => renderCounted(() => model.use.row(`chat-${index}`)));
     const scopeReader = renderCounted(() => model.scopes.thread.use({ chatId: `chat` }));
-    const whereReader = renderCounted(() => model.use.where({ chatId: `chat` }));
+    const whereReader = renderCounted(() => model.use.where({ chatId: `chat` }).rows());
     const otherReaders = Array.from({ length: 5 }, (_, index) => renderCounted(() => other.use.row(`other-${index}`)));
     const before = rowReaders.map(reader => reader.renders());
     const scopeBefore = scopeReader.renders();
@@ -79,7 +79,7 @@ describe(`A06 performance contract`, () => {
       });
       seed(model, count);
       const scopeReader = renderCounted(() => model.scopes.thread.use({ chatId: `chat` }));
-      const whereReader = renderCounted(() => model.use.where({ chatId: `chat` }));
+      const whereReader = renderCounted(() => model.use.where({ chatId: `chat` }).rows());
       const value = median(Array.from({ length: 7 }, () => measure(() => model.patch(`chat-0`, { title: `x` }))));
       scopeReader.unmount();
       whereReader.unmount();

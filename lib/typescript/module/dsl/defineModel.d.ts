@@ -7,6 +7,7 @@ import { defineQuery } from './defineQuery';
 import { type ViewConfig, type ViewHandle } from './defineView';
 import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
+import { type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
@@ -119,7 +120,8 @@ export type ModelCore<TStored extends {
         }): TStored | undefined;
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
         first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
-        where(where: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored[];
+        where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
+        where(where: DbWhere<TStored> | null, opts: DbReadOptions<TStored>): TStored[];
         byIds(ids: string[]): TStored[];
         count(where?: DbWhere<TStored> | null): number;
         related(id: string | null | undefined, relation: string): unknown;

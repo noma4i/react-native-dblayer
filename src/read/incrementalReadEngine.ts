@@ -93,7 +93,7 @@ type RowEngineOptions<T extends Row, TValue> = {
   signature: string;
   model: string;
   where(row: T): boolean;
-  options?: { orderBy?: { field: string; direction: 'asc' | 'desc' }; limit?: number };
+  options?: { orderBy?: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>; limit?: number };
   initial(): T[];
   read(id: string): T | undefined;
   select(rows: T[], count: number): TValue;
@@ -109,6 +109,28 @@ const compareField = <T extends Row>(left: T, right: T, field: string, direction
   }
   return (ordinals.get(left.id) ?? 0) - (ordinals.get(right.id) ?? 0);
 };
+
+/** Sort model read results by declared keys with NULLS LAST and an implicit id tie-breaker. */
+export const sortModelReadRows = <T extends Row>(rows: T[], orderBy: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit?: number): T[] => {
+  const sorted = [...rows].sort((left, right) => {
+    for (const order of orderBy) {
+      const a = left[order.field];
+      const b = right[order.field];
+      if (Object.is(a, b)) continue;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      const result = a < b ? -1 : 1;
+      return order.direction === 'asc' ? result : -result;
+    }
+    return left.id.localeCompare(right.id);
+  });
+  return limit === undefined ? sorted : sorted.slice(0, Math.max(0, limit));
+};
+
+const engineValuesEqual = (left: unknown, right: unknown): boolean =>
+  Array.isArray(left) && Array.isArray(right)
+    ? left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
+    : Object.is(left, right);
 
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
 export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineOptions<T, TValue>): Engine<TValue> => {
@@ -126,10 +148,8 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
   };
   const render = (): void => {
     if (rows) {
-      const orderBy = options.options?.orderBy;
-      ordered = [...rows.values()];
-      if (orderBy) ordered.sort((left, right) => compareField(left, right, orderBy.field, orderBy.direction, ordinals));
-      if (options.options?.limit !== undefined) ordered = ordered.slice(0, Math.max(0, options.options.limit));
+      const orderBy = options.options?.orderBy ?? [];
+      ordered = sortModelReadRows([...rows.values()], orderBy, options.options?.limit);
       engine.value = options.select(ordered, ids.size);
     } else {
       engine.value = options.select([], ids.size);
@@ -155,7 +175,8 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
     if (requiresRebuild) {
       const previous = engine.value;
       rebuild();
-      if (!Object.is(previous, engine.value)) engine.version += 1;
+      if (!engineValuesEqual(previous, engine.value)) engine.version += 1;
+      else engine.value = previous;
       return true;
     }
     if (relevant.length === 0) return false;
@@ -179,7 +200,12 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
       }
     }
     if (!changed) return false;
+    const previous = engine.value;
     render();
+    if (engineValuesEqual(previous, engine.value)) {
+      engine.value = previous;
+      return false;
+    }
     engine.version += 1;
     return true;
   };

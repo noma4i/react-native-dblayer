@@ -24,10 +24,10 @@ type RowEngineOptions<T extends Row, TValue> = {
     model: string;
     where(row: T): boolean;
     options?: {
-        orderBy?: {
+        orderBy?: ReadonlyArray<{
             field: string;
             direction: 'asc' | 'desc';
-        };
+        }>;
         limit?: number;
     };
     initial(): T[];
@@ -35,6 +35,11 @@ type RowEngineOptions<T extends Row, TValue> = {
     select(rows: T[], count: number): TValue;
     countOnly?: boolean;
 };
+/** Sort model read results by declared keys with NULLS LAST and an implicit id tie-breaker. */
+export declare const sortModelReadRows: <T extends Row>(rows: T[], orderBy: ReadonlyArray<{
+    field: string;
+    direction: "asc" | "desc";
+}>, limit?: number) => T[];
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
 export declare const createModelReadEngine: <T extends Row, TValue>(options: RowEngineOptions<T, TValue>) => Engine<TValue>;
 type ScopeEngineOptions<T extends Row> = {

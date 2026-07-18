@@ -14,7 +14,7 @@ import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDe
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
-import { createModelReadEngine, createScopeReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
+import { createModelReadEngine, createScopeReadEngine, incrementalSignature, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
@@ -22,6 +22,7 @@ import { defineQuery } from './defineQuery';
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
+import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
 
@@ -111,7 +112,8 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
     row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored> }): TStored | undefined;
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
     first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
-    where(where: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored[];
+    where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
+    where(where: DbWhere<TStored> | null, opts: DbReadOptions<TStored>): TStored[];
     byIds(ids: string[]): TStored[];
     count(where?: DbWhere<TStored> | null): number;
     related(id: string | null | undefined, relation: string): unknown;
@@ -481,6 +483,45 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: config.id, scopeKey });
   const memberDeps = (scopeKey: string): Dependency[] => [scopeDep(scopeKey)];
 
+  function whereRead(where: DbWhere<any> | null): ModelReadBuilder<any>;
+  function whereRead(where: DbWhere<any> | null, options: DbReadOptions<any>): any[];
+  function whereRead(where: DbWhere<any> | null, options?: DbReadOptions<any>): ModelReadBuilder<any> | any[] {
+    if (options) {
+      return useIncrementalRead({
+        signature: incrementalSignature('where', config.id, where, options),
+        deps: where == null ? [] : [modelDep],
+        create: () =>
+          createModelReadEngine({
+            signature: incrementalSignature('where', config.id, where, options),
+            model: config.id,
+            where: row => where != null && matchesDbWhere(row, where),
+            options: { orderBy: options.orderBy ? [{ field: String(options.orderBy.field), direction: options.orderBy.direction }] : undefined, limit: options.limit },
+            initial: () => planes().entityState.values(),
+            read: id => planes().entityState.read(id),
+            select: rows => rows
+          })
+      });
+    }
+    return createReadBuilder(where, {
+      rows: (criteria, orders, limit) =>
+        useIncrementalRead({
+          signature: incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit })),
+          deps: [modelDep],
+          create: () =>
+            createModelReadEngine({
+              signature: incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit })),
+              model: config.id,
+              where: row => criteria != null && matchesDbWhere(row, criteria),
+              options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
+              initial: () => planes().entityState.values(),
+              read: id => planes().entityState.read(id),
+              select: rows => rows
+            })
+        }),
+      read: (criteria, orders, limit) => sortModelReadRows(planes().entityState.values().filter(row => criteria != null && matchesDbWhere(row, criteria)), orders, limit)
+    });
+  }
+
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
     const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
@@ -639,30 +680,14 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
               model: config.id,
               where: row => where == null || matchesDbWhere(row, where),
               options: options
-                ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit }
+                ? { orderBy: options.orderBy ? [{ field: String(options.orderBy.field), direction: options.orderBy.direction }] : undefined, limit: options.limit }
                 : undefined,
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => rows[0]
             })
         }),
-      where: (where, options) =>
-        useIncrementalRead({
-          signature: incrementalSignature('where', config.id, where, options),
-          deps: where == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine({
-              signature: incrementalSignature('where', config.id, where, options),
-              model: config.id,
-              where: row => where != null && matchesDbWhere(row, where),
-              options: options
-                ? { orderBy: options.orderBy ? { field: String(options.orderBy.field), direction: options.orderBy.direction } : undefined, limit: options.limit }
-                : undefined,
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: rows => rows
-            })
-        }),
+      where: whereRead,
       byIds: ids =>
         useLiveRead(
           () => ids.map(id => planes().entityState.read(id)).filter(Boolean),
