@@ -69,6 +69,7 @@
     "build": "bob build",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand --silent --forceExit",
+    "check:jsdoc": "node scripts/check-jsdoc.mjs",
     "clean": "rm -rf lib"
   },
   "peerDependencies": {
