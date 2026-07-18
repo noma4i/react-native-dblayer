@@ -314,11 +314,36 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const applyTarget = {
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
     readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
-    readScopeOrder: (scopeKey: string): string[] =>
-      planes()
-        .scopeIndex.read(scopeKey)
-        .entries.map(entry => entry.id),
+    readScopeOrder: (scopeKey: string): string[] => {
+      const separator = scopeKey.indexOf(`:`);
+      const scopeName = separator < 0 ? scopeKey : scopeKey.slice(0, separator);
+      const rawValue = separator < 0 ? `{}` : scopeKey.slice(separator + 1);
+      try {
+        return scopeSortedRows(scopeName, JSON.parse(rawValue)).map(row => String(row.id));
+      } catch {
+        return planes()
+          .scopeIndex.read(scopeKey)
+          .entries.map(entry => entry.id);
+      }
+    },
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
+    scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {
+      if (fields === null || !planes().scopeIndex.has(scopeKey, id)) return true;
+      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
+      const spec = (config.scopes as Record<string, ScopeSpec<any>> | undefined)?.[scopeName];
+      if (!spec) return false;
+      if (spec.sort && spec.sort !== `server-order` && `comparator` in spec.sort) return true;
+      const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
+      if (spec.sort && spec.sort !== `server-order` && `field` in spec.sort) relevant.add(String(spec.sort.field));
+      return fields.some(field => relevant.has(field));
+    },
+    scopeSortMeta: (scopeKey: string) => {
+      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
+      const sort = (config.scopes as Record<string, ScopeSpec<any>> | undefined)?.[scopeName]?.sort;
+      if (!sort || sort === `server-order`) return { kind: `server-order` as const };
+      if (`comparator` in sort) return { kind: `comparator` as const };
+      return { kind: `field` as const, field: String(sort.field), dir: sort.dir };
+    },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     upsert: writeRows,
     patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {

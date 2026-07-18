@@ -8,7 +8,8 @@ export type MembershipRow = {
   key: string;
   scopeKey: string;
   rowId: string;
-  order: number;
+  seq?: number;
+  sortValue?: unknown;
 };
 
 /** The synchronous writer callbacks supplied by a TanStack collection sync adapter. */

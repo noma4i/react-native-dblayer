@@ -14,6 +14,8 @@ export type ApplyTarget = {
   readAllRows(): Array<Record<string, unknown>>;
   readScopeOrder(scopeKey: string): string[];
   readScopeOrderRevision(scopeKey: string): number;
+  scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
+  scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
   readAllScopeKeys(): string[];
   upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
