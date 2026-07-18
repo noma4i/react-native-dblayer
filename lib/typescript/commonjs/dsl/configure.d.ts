@@ -4,34 +4,37 @@ import { type StoragePlane } from '../core/planes/storagePlane';
 import { type ApplyRuntime } from '../core/apply/transaction';
 import { type OperationState } from '../core/planes/operationState';
 export interface DbDefaults {
-    /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
-    staleTime?: number;
-    /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` results that omit their own. */
-    emptyStaleTime?: number;
-    /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
-    gcTime?: number;
-    /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
-    pageSize?: number;
-    /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
-    persistence?: {
-        checkpointDelayMs?: number;
-        maxPendingPlans?: number;
-    };
-    /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
-    onSyncError?: (error: Error, ctx: {
-        source: string;
-        model?: string;
-        scope?: unknown;
-        key?: string;
-        event?: string;
-    }) => void;
+  /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
+  staleTime?: number;
+  /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` results that omit their own. */
+  emptyStaleTime?: number;
+  /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
+  gcTime?: number;
+  /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
+  pageSize?: number;
+  /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
+  persistence?: {
+    checkpointDelayMs?: number;
+    maxPendingPlans?: number;
+  };
+  /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
+  onSyncError?: (
+    error: Error,
+    ctx: {
+      source: string;
+      model?: string;
+      scope?: unknown;
+      key?: string;
+      event?: string;
+    }
+  ) => void;
 }
 type RuntimeConfig = {
-    transport: DbTransport;
-    storage: StoragePlane;
-    queryClient?: QueryClient;
-    logger?: DbLogger;
-    defaults?: DbDefaults;
+  transport: DbTransport;
+  storage: StoragePlane;
+  queryClient?: QueryClient;
+  logger?: DbLogger;
+  defaults?: DbDefaults;
 };
 /**
  * Configure the injected runtime seams (transport, storage, query client, logger) and package-wide
@@ -48,9 +51,11 @@ type RuntimeConfig = {
  * @param options.logger Package logger seam; optional, defaults to the built-in logger.
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
  */
-export declare const configureDb: (options: Omit<RuntimeConfig, "storage"> & {
+export declare const configureDb: (
+  options: Omit<RuntimeConfig, 'storage'> & {
     storage?: StoragePlane;
-}) => void;
+  }
+) => void;
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
 export declare const isDbConfigured: () => boolean;
@@ -62,14 +67,26 @@ export declare const getRuntimeGeneration: () => number;
 /** Internal: establish a new generation before the reset fence tears down the old runtime. */
 export declare const advanceRuntimeGeneration: () => void;
 export declare const getCommitBus: () => {
-    subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch?: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
-    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
-    subscribeAll: (onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void) => (() => void);
-    publish: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void;
-    publishAll: () => void;
-    subscriberCount: () => number;
+  subscribe: (
+    notify: () => void,
+    deps?: ReadonlyArray<import('../core/apply/commitBus').Dependency>,
+    onBatch?: (batch: import('../core/apply/commitBus').IncrementalCommitBatch | null) => void
+  ) => import('../core/apply/commitBus').CommitSubscription;
+  subscribeIncremental: (
+    notify: () => void,
+    deps: ReadonlyArray<import('../core/apply/commitBus').Dependency>,
+    onBatch: (batch: import('../core/apply/commitBus').IncrementalCommitBatch | null) => void
+  ) => import('../core/apply/commitBus').CommitSubscription;
+  subscribeAll: (onBatch: (batch: import('../core/apply/commitBus').IncrementalCommitBatch) => void) => () => void;
+  publish: (batch: import('../core/apply/commitBus').IncrementalCommitBatch) => void;
+  publishAll: () => void;
+  subscriberCount: () => number;
 };
-/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
+/**
+ * App-owned TanStack QueryClient handed to configureDb; undefined until configured.
+ *
+ * @returns The configured TanStack QueryClient, or undefined if configureDb has not been called.
+ */
 export declare const getDbQueryClient: () => QueryClient | undefined;
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter
@@ -95,6 +112,8 @@ export declare const noteMaintenancePersistence: (models: ReadonlyArray<string>)
  * Most apps should call `bootDb(options)` instead, which runs this in the recommended startup order
  * (`configureDb` -> `replayJournal` -> `collectGarbage` -> `purgeForeignStorageKeys`) and surfaces this
  * function's return value as `{ replayed }`.
+ *
+ * @returns The number of journal records replayed.
  */
 export declare const replayJournal: () => number;
 /**
@@ -102,6 +121,8 @@ export declare const replayJournal: () => number;
  * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
  *
  * Most apps should call `bootDb(options)` instead, which runs this last in the recommended startup order.
+ *
+ * @returns The number of removed foreign storage keys.
  */
 export declare const purgeForeignStorageKeys: () => number;
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */

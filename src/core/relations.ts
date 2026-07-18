@@ -33,10 +33,15 @@ export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: st
  * @param options.counterCache Increment `field` on the parent when a NEW child first references it, decrement
  * on child destroy (or on an uncommitted increment being cancelled within the same plan); `filter` restricts
  * which children count.
+ * @returns A belongsTo relation declaration for a parent-model edge.
  */
 export const belongsTo = <TChild, TParent>(
   model: ModelRef<TParent>,
-  options: { foreignKey: keyof TChild & string; touch?: (child: TChild, parent: TParent) => Partial<TParent> | null; counterCache?: { field: keyof TParent & string; filter?: (child: TChild) => boolean } }
+  options: {
+    foreignKey: keyof TChild & string;
+    touch?: (child: TChild, parent: TParent) => Partial<TParent> | null;
+    counterCache?: { field: keyof TParent & string; filter?: (child: TChild) => boolean };
+  }
 ): RelationDecl => ({
   kind: 'belongsTo',
   model: model as ModelRef<StoredRow>,
@@ -55,11 +60,14 @@ export const belongsTo = <TChild, TParent>(
  * @param options.dependent `'destroy'` cascades a parent destroy to its live children in the same plan.
  * Omit for a query-only relation with no cascade. Optimistic destroy on the parent throws if this is set,
  * since a cascaded destroy cannot be rolled back.
+ * @returns A hasMany relation declaration for a child-collection edge.
  */
-export const hasMany = <TParent, TChild>(
-  model: ModelRef<TChild>,
-  options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }
-): RelationDecl => ({ kind: 'hasMany', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, dependent: options.dependent });
+export const hasMany = <TParent, TChild>(model: ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }): RelationDecl => ({
+  kind: 'hasMany',
+  model: model as ModelRef<StoredRow>,
+  foreignKey: options.foreignKey,
+  dependent: options.dependent
+});
 
 /**
  * Declare a query-only single child relation (parent -> one child), read through `model.related(id, name)`.
@@ -69,11 +77,17 @@ export const hasMany = <TParent, TChild>(
  * @param options.foreignKey Child field storing the parent id.
  * @param options.comparator Pick the "one" child when several match; the lowest-sorting row wins. Omit to
  * use the first match in read order.
+ * @returns A hasOne relation declaration for a single-child edge.
  */
 export const hasOne = <TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; comparator?: (left: TChild, right: TChild) => number }
-): RelationDecl => ({ kind: 'hasOne', model: model as ModelRef<StoredRow>, foreignKey: options.foreignKey, comparator: options.comparator as ((left: StoredRow, right: StoredRow) => number) | undefined });
+): RelationDecl => ({
+  kind: 'hasOne',
+  model: model as ModelRef<StoredRow>,
+  foreignKey: options.foreignKey,
+  comparator: options.comparator as ((left: StoredRow, right: StoredRow) => number) | undefined
+});
 
 /**
  * Declare a GC-only reference edge: ids extracted from the row keep the referenced target-model rows alive
@@ -82,11 +96,16 @@ export const hasOne = <TParent, TChild>(
  *
  * @param model The referenced model.
  * @param options.ids Extract the referenced id(s) from the row; a single id, an array, or nullish (no reference).
+ * @returns A references relation declaration for GC liveness edges.
  */
 export const references = <TChild, TRef>(
   model: ModelRef<TRef>,
   options: { ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined }
-): RelationDecl => ({ kind: 'references', model: model as ModelRef<StoredRow>, ids: options.ids as (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined });
+): RelationDecl => ({
+  kind: 'references',
+  model: model as ModelRef<StoredRow>,
+  ids: options.ids as (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined
+});
 
 /**
  * Model-side capabilities the plan expander needs. Registered once per defineModel; the registry
@@ -253,11 +272,8 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
       }
       if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
         const overlayRows = overlay.get(relation.model.modelId);
-        const liveChildren = relation.model
-          .getWhere({ [relation.foreignKey]: id })
-          .filter(child => !overlayRows?.has(String(child.id)));
-        const overlayChildren = [...(overlayRows?.values() ?? [])]
-          .filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
+        const liveChildren = relation.model.getWhere({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
+        const overlayChildren = [...(overlayRows?.values() ?? [])].filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
         const ids = [...liveChildren, ...overlayChildren]
           .map(child => String(child.id))
           .filter((childId, index, all) => all.indexOf(childId) === index)

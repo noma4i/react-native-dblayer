@@ -48,6 +48,11 @@ export const buildStableItems = <TSource, TEntry extends { item: TItem }, TItem>
  * list/thread/feed; deep-comparing the listed fields keeps the view object's identity stable so memoized
  * rows skip re-rendering. One helper for chat list, chat thread AND feed - add a rendered field to the key
  * array to track it.
+ *
+ * @param prev Previous value in the comparison.
+ * @param next Next value in the comparison.
+ * @param keys Keys to compare between values.
+ * @returns `true` when the selected fields of `prev` and `next` are deeply equal.
  */
 export const pickEqual = <T extends object>(prev: T | null | undefined, next: T | null | undefined, keys: Array<keyof T>): boolean => {
   if (prev == null || next == null) {
@@ -96,10 +101,7 @@ const resolveStableItemsConfig = <TSource, TEntry extends { item: TItem }, TItem
  * `{ item: source }`), `emptyItems`, and either `entriesEqual` or `renderKeys` for entry equality.
  * @returns The projected item array; the same array reference when nothing changed, a new array otherwise.
  */
-export function useStableProjection<TSource, TEntry extends { item: TItem }, TItem extends object>(
-  sources: TSource[],
-  config: StableItemsConfig<TSource, TEntry, TItem>
-): TItem[] {
+export function useStableProjection<TSource, TEntry extends { item: TItem }, TItem extends object>(sources: TSource[], config: StableItemsConfig<TSource, TEntry, TItem>): TItem[] {
   const cacheRef = useRef<Map<string, TEntry>>(new Map());
   const itemsRef = useRef<TItem[] | null>(null);
 

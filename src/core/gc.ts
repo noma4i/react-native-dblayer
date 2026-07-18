@@ -32,6 +32,8 @@ export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<
  *
  * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
  * directly only for a different sweep cadence.
+ *
+ * @returns Reachability report with evicted row and removed scope counts by model.
  */
 export const collectGarbage = (): GcReport => {
   const marked = new Map<string, Set<string>>();

@@ -100,7 +100,11 @@ export const advanceRuntimeGeneration = (): void => {
 
 export const getCommitBus = () => commitBus;
 
-/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
+/**
+ * App-owned TanStack QueryClient handed to configureDb; undefined until configured.
+ *
+ * @returns The configured TanStack QueryClient, or undefined if configureDb has not been called.
+ */
 export const getDbQueryClient = (): QueryClient | undefined => runtimeConfig?.queryClient;
 
 /**
@@ -153,6 +157,8 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
  * Most apps should call `bootDb(options)` instead, which runs this in the recommended startup order
  * (`configureDb` -> `replayJournal` -> `collectGarbage` -> `purgeForeignStorageKeys`) and surfaces this
  * function's return value as `{ replayed }`.
+ *
+ * @returns The number of journal records replayed.
  */
 export const replayJournal = (): number => {
   const runtime = getApplyRuntime();
@@ -218,6 +224,8 @@ export const replayJournal = (): number => {
  * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
  *
  * Most apps should call `bootDb(options)` instead, which runs this last in the recommended startup order.
+ *
+ * @returns The number of removed foreign storage keys.
  */
 export const purgeForeignStorageKeys = (): number => {
   const { storage } = getDbRuntimeConfig();
