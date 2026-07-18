@@ -44,3 +44,10 @@ export const TodoModel = defineModel({
   scopes: { byUser: scope({ by: { userId: 'userId' }, sort: 'server-order' }) },
   relations: () => ({ user: belongsTo(UserModel, { foreignKey: 'userId' }) }),
 });
+
+export const PerfModel = defineModel({
+  id: 'example-perf',
+  name: 'PerfModel',
+  fields: { id: f.id(), label: f.str(), counter: f.num() },
+  scopes: { all: scope({ sort: 'server-order' }) },
+});

@@ -32,8 +32,12 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+    const bootStart = Date.now();
     void bootDb({ transport: exampleTransport, storage: exampleStorage, queryClient, defaults: { pageSize: 20 } })
-      .then(() => mounted && setReady(true))
+      .then(() => {
+        (globalThis as { dblBootMs?: number }).dblBootMs = Date.now() - bootStart;
+        mounted && setReady(true);
+      })
       .catch(error => mounted && setBootError(error as Error));
     return () => {
       mounted = false;
