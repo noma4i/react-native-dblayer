@@ -369,13 +369,14 @@ cleanup does not need a maintenance entry: it is already handled by the replay o
 
 `dropIdleScopesAfterMs` is checked differently: every time `collectGarbage()` runs (at boot, in
 `suspendDb`, from an in-session GC-trigger sweep, or a direct call) - not just once at startup. A
-"read" is a mounted `use`/`useWindow`/`useCount` scope reader, or a `ScopeHandle.read(...)` snapshot
-call - both stamp the scope's last-access time. A currently-mounted reactive reader always survives
-regardless of that timestamp, since its live commit-bus subscription roots the scope directly. A
-scope restored from storage at hydration also gets a fresh access timestamp, so a session restart
-never makes an existing scope instantly idle-eligible before the app has had a chance to read it
-again. Idle removal is reflected in `GcReport.scopesRemoved` alongside ordinary dead/empty scope
-cleanup - the two are not counted separately.
+"read" is a mounted `use`/`useWindow`/`useCount` scope reader, a mounted `Model.view` reader over
+that scope (stamped once at mount time - re-renders never re-stamp), or a `ScopeHandle.read(...)`
+snapshot call - all three stamp the scope's last-access time. A currently-mounted reactive reader
+always survives regardless of that timestamp, since its live commit-bus subscription roots the
+scope directly. A scope restored from storage at hydration also gets a fresh access timestamp, so
+a session restart never makes an existing scope instantly idle-eligible before the app has had a
+chance to read it again. Idle removal is reflected in `GcReport.scopesRemoved` alongside ordinary
+dead/empty scope cleanup - the two are not counted separately.
 
 ## `Model.crud(sections)`
 

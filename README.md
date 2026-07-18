@@ -104,28 +104,28 @@ the library/maintenance channel - application code stays on scoped reads.
 ## Queries
 
 ```ts
-const threadQuery = defineQuery({
-  document: MessagesDocument,               // cache key = operation name
+const threadQuery = MessageModel.query('thread', {
+  document: MessagesDocument,               // cache key = `<modelId>:<name>`, e.g. 'messages:thread'
   vars: scope => ({ chatId: scope.chatId }),
   page: data => data.messages,              // infinite connection; or `select` for single reads
   into: MessageModel.scopes.thread,
   extract: ({ nodes }) => [{ into: UserModel, rows: authorsOf(nodes) }]
 });
 
-const { data, loadingState, hasNextPage, loadMore, refetch } = threadQuery.use({ chatId });
+const { data, loadingState, error, hasNextPage, fetchNextPage, refetch } = threadQuery.use({ chatId });
 ```
 
 TanStack Query is shared through DBLay package exports, while its cache remains hidden from model
 storage: it stores only page metadata (cursor, count) and rows live in DBLay planes. `extract` sinks
-apply in the same transaction as the main rows. `loadMore` failures land in `error`/`loadingState`,
-never as unhandled rejections. `emptyStaleTime` lets empty results expire faster than filled ones.
-`invalidate(scope)` targets one scope; `invalidate()` targets every scope of that query only. A
-disabled query with local rows stays `ready`.
+apply in the same transaction as the main rows. `fetchNextPage` failures land in
+`error`/`loadingState`, never as unhandled rejections. `emptyStaleTime` lets empty results expire
+faster than filled ones. `invalidate(scope)` targets one scope; `invalidate()` targets every scope
+of that query only. A disabled query with local rows stays `ready`.
 
 ## Mutations
 
 ```ts
-const sendMessage = defineMutation({
+const sendMessage = MessageModel.mutation('send', {
   document: MessageSendDocument,
   result: 'messageSend',
   optimistic: {
@@ -152,9 +152,9 @@ keeps it.
 ## Ingest (subscriptions)
 
 ```ts
-const messageIngest = defineIngest(MessageModel, {
-  messageCreated: payload => ({ upsert: payload.message, operationId: payload.clientKey }),
-  messageDeleted: payload => ({ destroy: payload.id })
+const messageIngest = MessageModel.ingest({
+  messageCreated: { handler: payload => ({ upsert: payload.message, operationId: payload.clientKey }) },
+  messageDeleted: { handler: payload => ({ destroy: payload.id }) }
 });
 messageIngest.apply(event.name, event.payload);
 ```
@@ -167,12 +167,12 @@ committed locally is skipped. Stale-version arbitration lives in the model's
 
 ## Maintenance and helpers
 
-`pruneOrphanedRows`, `pruneExpiredRows`, `trimRowsPerScope`, `resolveStaleTempRows`, and
-`reconcileOptimisticRows` consume any model via its maintenance channel. `patchWhenPresent` and
-`waitForRow` defer work until a row appears (commit-bus backed, TTL/abort aware).
-`createSingletonStatics` builds a reactive single-row facade. `useStableProjection`,
-`useJoinedEntities`, `useOrderedEntities`, and friends keep derived view arrays referentially
-stable.
+`trimRowsPerScope`, `resolveStaleTempRows`, and `reconcileOptimisticRows` consume any model via its
+maintenance channel. `patchWhenRowExists` and `waitForRow` defer work until a row appears
+(commit-bus backed, TTL/abort aware). `createSingletonStatics` builds a reactive single-row facade.
+For referential stability of derived arrays, `useStableProjection`, `useStableEntity`, and
+`useStableSorted` keep projected items and joined view rows identity-stable across renders, and
+`Model.view` composes a scope with its declared relations into one pinpoint-reactive projection.
 
 ## Performance contract
 
