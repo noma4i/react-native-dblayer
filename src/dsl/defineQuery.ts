@@ -240,7 +240,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       isSyncReady: true,
       isFetching: flags.isFetching,
       hasData,
-      isRefreshing: flags.isRefetching,
+      isRefreshing: flags.isRefetching || (flags.isFetching && hasData && !flags.isFetchingNextPage),
       isFetchingNextPage: flags.isFetchingNextPage,
       isError: flags.error != null,
       hasFetchedData: flags.isFetched
