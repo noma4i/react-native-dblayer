@@ -472,6 +472,34 @@ Returns a `ViewHandle`: `use(scopeValue) => TItem[]` and
 shape as `ScopeHandle.useWindow`. `Model.view` throws at call time if `source` names an unknown
 scope or `include` names an unknown/unsupported relation.
 
+### Required includes
+
+An include may gate on field completeness with `require: string[]`, following the same
+`undefined` = missing / `null` = present rule as row-level `require` (see
+[Required fields](#required-fields) above). Two forms carry it:
+
+- A declared relation written as an object instead of a bare string - the alias itself must equal
+  the relation name: `include: { author: { require: ['fullName'] } }`. Only the plain-string form
+  (`author: 'someOtherRelationName'`) can point an alias at a differently-named relation, and that
+  form cannot carry `require`.
+- A computed include written as `{ model, ids, require? }` instead of the `[model, idResolver]`
+  tuple form.
+
+```ts
+const withAuthor = ChatModel.view('withAuthor', {
+  source: 'feed',
+  include: { author: { require: ['fullName'] } },        // alias 'author' == declared relation name
+  select: (row, included) => ({ id: row.id, author: included.author })   // author: Author | null
+});
+```
+
+An incomplete related row is **dropped** from an array-shaped result (a `hasMany` include, or a
+`{ model, ids, require }` include whose `ids` resolver returns an array) and delivered as
+**`null`** for a single-shaped result (`belongsTo`, `hasOne`, or an `ids` resolver that returns one
+id) - `select` never sees a partial related row. Reactivity is pinpoint per item: when a required
+field on a related row arrives, only the view items that included that row re-render - other items
+keep their prior reference.
+
 ## `Model.ingest(entries)`
 
 Declares model-owned subscription handling: one entry per event name, applying rows, guards,
