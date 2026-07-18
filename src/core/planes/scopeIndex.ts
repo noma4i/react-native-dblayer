@@ -37,6 +37,7 @@ export type ScopeIndex = {
   keysOf(id: string): string[];
   /** Ephemeral read revision used by reactive scope subscribers; never persisted. */
   reactiveEpoch(key: string): number;
+  orderRevision(key: string): number;
   /** Bump the revisions of scopes that currently contain one of these rows. */
   touchMembers(ids: string[]): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
@@ -52,6 +53,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const memberSets = new Map<string, Set<string>>();
   const keysByRow = new Map<string, Set<string>>();
   const reactiveEpochs = new Map<string, number>();
+  const orderRevisions = new Map<string, number>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
   const touch = (key: string): void => {
@@ -81,6 +83,9 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   };
 
   const commit = (key: string, next: ScopeIndexValue): ScopeIndexValue => {
+    const previousOrder = (scopes.get(key)?.entries ?? []).map(entry => entry.id).join('\0');
+    const nextOrder = next.entries.map(entry => entry.id).join('\0');
+    if (previousOrder !== nextOrder) orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
     removed.delete(key);
     indexCommit(key, scopes.get(key), next);
     scopes.set(key, next);
@@ -183,6 +188,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     has: (key, id) => memberSets.get(key)?.has(id) ?? false,
     keysOf: id => [...(keysByRow.get(id) ?? [])],
     reactiveEpoch: key => reactiveEpochs.get(key) ?? 0,
+    orderRevision: key => orderRevisions.get(key) ?? 0,
     touchMembers: ids => {
       const touched = new Set<string>();
       for (const id of ids) {

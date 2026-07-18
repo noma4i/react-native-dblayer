@@ -38,6 +38,9 @@ describe('journalled transactions', () => {
     const unregister = registerApplyTarget('m', {
       readRow: () => undefined,
       readAllRows: () => [],
+      readScopeOrder: () => [],
+      readScopeOrderRevision: () => 0,
+      readAllScopeKeys: () => [],
       upsert: rows => {
         observedStatuses.push(JSON.parse(storage.get('dbl:test:journal:1')!).status);
         return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null }));
@@ -54,10 +57,7 @@ describe('journalled transactions', () => {
     runtime.apply([{ kind: 'upsert', model: 'm', rows: [{ id: '1' }] }]);
     expect(observedStatuses).toEqual(['pending']);
     expect(JSON.parse(storage.get('dbl:test:journal:1')!).status).toBe('committed');
-    expect(batches.map(entries => entries.map(entry => entry.key))).toEqual([
-      ['dbl:test:journal:1'],
-      ['dbl:test:applied:m', 'dbl:test:journal:1']
-    ]);
+    expect(batches.map(entries => entries.map(entry => entry.key))).toEqual([['dbl:test:journal:1'], ['dbl:test:applied:m', 'dbl:test:journal:1']]);
     expect(runtime.currentEpoch()).toBe(1);
     unregister();
   });
@@ -70,7 +70,13 @@ describe('journalled transactions', () => {
     const unregister = registerApplyTarget('m', {
       readRow: () => undefined,
       readAllRows: () => [],
-      upsert: rows => { applied += 1; return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null })); },
+      readScopeOrder: () => [],
+      readScopeOrderRevision: () => 0,
+      readAllScopeKeys: () => [],
+      upsert: rows => {
+        applied += 1;
+        return rows.map(row => ({ id: (row as { id: string }).id, changedFields: null }));
+      },
       patch: () => null,
       destroy: ids => ids,
       counter: () => false,
@@ -100,6 +106,9 @@ describe('journalled transactions', () => {
     const unregister = registerApplyTarget('m', {
       readRow: () => undefined,
       readAllRows: () => [],
+      readScopeOrder: () => [],
+      readScopeOrderRevision: () => 0,
+      readAllScopeKeys: () => [],
       upsert: () => [],
       patch: () => null,
       destroy: () => [],

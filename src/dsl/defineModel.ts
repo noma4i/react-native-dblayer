@@ -314,6 +314,12 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
   const applyTarget = {
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
     readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
+    readScopeOrder: (scopeKey: string): string[] =>
+      planes()
+        .scopeIndex.read(scopeKey)
+        .entries.map(entry => entry.id),
+    readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
+    readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     upsert: writeRows,
     patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {
       const current = planes().entityState.read(id);

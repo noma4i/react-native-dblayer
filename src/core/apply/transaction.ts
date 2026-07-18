@@ -12,6 +12,9 @@ import type { StoragePlane } from '../planes/storagePlane';
 export type ApplyTarget = {
   readRow(id: string): Record<string, unknown> | undefined;
   readAllRows(): Array<Record<string, unknown>>;
+  readScopeOrder(scopeKey: string): string[];
+  readScopeOrderRevision(scopeKey: string): number;
+  readAllScopeKeys(): string[];
   upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];
@@ -55,7 +58,7 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
     const key = `${model}:${scopeKey}`;
     const current = scopeChanges.get(key) ?? { model, scopeKey };
-    const mergeIds = (left?: string[], right?: string[]) => left || right ? [...new Set([...(left ?? []), ...(right ?? [])])] : undefined;
+    const mergeIds = (left?: string[], right?: string[]) => (left || right ? [...new Set([...(left ?? []), ...(right ?? [])])] : undefined);
     scopeChanges.set(key, {
       ...current,
       ids: mergeIds(current.ids, change.ids),
@@ -75,7 +78,11 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
     if (op.kind === 'upsert') {
       const changes = target.upsert(op.rows, op.origin);
       for (const change of changes) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
-      noteRows(op.model, target, changes.map(change => change.id));
+      noteRows(
+        op.model,
+        target,
+        changes.map(change => change.id)
+      );
       if (op.origin === 'replace') batch.mode = 'replace';
     }
     if (op.kind === 'patch') {
@@ -125,12 +132,7 @@ const recordCounterValues = (ops: JournalOp[]): JournalOp[] => {
   });
 };
 
-export const createApplyRuntime = (options: {
-  storage: StoragePlane;
-  prefix: () => string;
-  bus: CommitBus;
-  checkpoint?: CheckpointScheduler;
-}): ApplyRuntime => {
+export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () => string; bus: CommitBus; checkpoint?: CheckpointScheduler }): ApplyRuntime => {
   const { storage, prefix, bus, checkpoint } = options;
   const journal = createJournal(storage, prefix);
   let epoch = journal.lastEpoch();
