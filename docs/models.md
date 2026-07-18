@@ -351,19 +351,31 @@ Read a relation reactively with `use.related(id, 'chat')` (`belongsTo`/`hasOne`)
 maintenance: {
   maxRowsPerScope: [
     { scopeField: 'chatId', limit: 500, compare: (a, b) => Number(b.createdAt) - Number(a.createdAt) }
-  ]
+  ],
+  dropIdleScopesAfterMs: 30 * 60 * 1000
 }
 ```
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `maxRowsPerScope` | `Array<{ scopeField, limit, compare, protect? }>` | Groups rows by `scopeField`, keeps the first `limit` per group ordered by `compare` (newest/most-important first), and deletes the rest. `protect?: () => (row) => boolean` is evaluated at run time (may read other models) to exempt rows from the count. |
+| `dropIdleScopesAfterMs` | `number` (ms) | Opt-in idle scope collection: a scope with no read in this window is removed on the next `collectGarbage()` sweep, and its rows then follow normal reachability (evicted too, unless another scope/reference/reader still roots them). Omit to keep every scope alive until it empties on its own. |
 
-Maintenance declarations run once, at boot, as part of `bootDb` - not on every write. Temp-row
+`maxRowsPerScope` tasks run once, at boot, as part of `bootDb` - not on every write. Temp-row
 cleanup does not need a maintenance entry: it is already handled by the replay orphan sweep inside
-`replayJournal`. Each declared model surfaces one `MaintenanceReport` per task
+`replayJournal`. Each declared model surfaces one `MaintenanceReport` per `maxRowsPerScope` task
 (`{ model, task: 'maxRowsPerScope', affected }`) in `bootDb`'s return value; see
 [configuration.md](./configuration.md#bootdboptions--suspenddb).
+
+`dropIdleScopesAfterMs` is checked differently: every time `collectGarbage()` runs (at boot, in
+`suspendDb`, from an in-session GC-trigger sweep, or a direct call) - not just once at startup. A
+"read" is a mounted `use`/`useWindow`/`useCount` scope reader, or a `ScopeHandle.read(...)` snapshot
+call - both stamp the scope's last-access time. A currently-mounted reactive reader always survives
+regardless of that timestamp, since its live commit-bus subscription roots the scope directly. A
+scope restored from storage at hydration also gets a fresh access timestamp, so a session restart
+never makes an existing scope instantly idle-eligible before the app has had a chance to read it
+again. Idle removal is reflected in `GcReport.scopesRemoved` alongside ordinary dead/empty scope
+cleanup - the two are not counted separately.
 
 ## `Model.crud(sections)`
 

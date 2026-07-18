@@ -141,7 +141,7 @@ different sequencing need.
 | Function | Signature | Description |
 | --- | --- | --- |
 | `replayJournal` | `() => number` | Idempotently re-applies journal records not yet covered by each model's persisted applied-epoch marker. Call ONCE at startup, after `configureDb` and after every model module has been imported. Returns the replayed record count. |
-| `collectGarbage` | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations, and every mounted reader (`use.row` roots that row, a model-wide reader roots the whole model, a scope reader roots its members). Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, then persistence flushes. Safe to call during in-session UI rendering - a sweep never evicts a row any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
+| `collectGarbage` | `() => GcReport` | Reachability sweep over every registered model. Roots: scope members, `gc: 'exempt'` model rows, pending optimistic operations, and every mounted reader (`use.row` roots that row, a model-wide reader roots the whole model, a scope reader roots its members). Edges: `belongsTo`/`references` of live rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, opt-in idle scopes dropped (`maintenance.dropIdleScopesAfterMs`, see [models.md](./models.md#maintenance)), then persistence flushes. Safe to call during in-session UI rendering - a sweep never evicts a row any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model id. |
 | `purgeForeignStorageKeys` | `() => number` | Removes storage keys outside the library's `dbl:` namespace - startup housekeeping that clears pre-migration leftovers from the dedicated storage instance. Idempotent. Returns the removed key count. |
 | `flushPersistence` | `() => void` | Forces a checkpoint flush now - pending model snapshots hit storage in one batch. |
 
@@ -268,7 +268,8 @@ scheduler - the affected model snapshots plus a record marking the journal entry
 write (the app killed mid-flush) always leaves a replayable pending record rather than a corrupted
 snapshot, since the two storage batches are never interleaved with a partial snapshot in between.
 
-At boot, `replayJournal()` re-applies every pending record left over from the last session (the
+At boot, deferred definition validation runs first (see [bootDb](#bootdboptions--suspenddb) above),
+then `replayJournal()` re-applies every pending record left over from the last session (the
 recovery half of WAL), then `bootDb`'s `collectGarbage()` reclaims anything that replay left
 unreachable, `purgeForeignStorageKeys()` clears any non-`dbl:` keys, and declared model maintenance
 runs last - together, the boot compaction pass that brings persisted state back to exactly what a

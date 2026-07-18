@@ -53,9 +53,9 @@ Generated from `src/index.ts`, grouped by area.
 | --- | --- | --- |
 | `configureDb` | value | [configuration.md](./configuration.md#configuredboptions) |
 | `DbDefaults` | type | [configuration.md](./configuration.md#dbdefaults) |
-| `bootDb` | value | [configuration.md](./configuration.md#bootdboptions-suspenddb) |
-| `suspendDb` | value | [configuration.md](./configuration.md#bootdboptions-suspenddb) |
-| `MaintenanceReport` | type | [configuration.md](./configuration.md#bootdboptions-suspenddb) |
+| `bootDb` | value | [configuration.md](./configuration.md#bootdboptions--suspenddb) |
+| `suspendDb` | value | [configuration.md](./configuration.md#bootdboptions--suspenddb) |
+| `MaintenanceReport` | type | [configuration.md](./configuration.md#bootdboptions--suspenddb) |
 | `resetRuntime` | value | [configuration.md](./configuration.md#resetruntime-kill-switch) |
 | `registerReset` | value | [configuration.md](./configuration.md#resetruntime-kill-switch) |
 | `replayJournal` | value | [configuration.md](./configuration.md#composable-primitives) |
@@ -108,7 +108,7 @@ Generated from `src/index.ts`, grouped by area.
 | `QueryResult` | type | [queries.md](./queries.md#queryresult) |
 | `ExtractSink` | type | [queries.md](./queries.md#modelqueryname-config) |
 | `LiveQueryHandle` | type | [queries.md](./queries.md#live-subscription-colocation) |
-| `ScopeCoverage` | type | [queries.md](./queries.md#coverage-semantics) |
+| `ScopeCoverage` | type | [queries.md](./queries.md#scopecoverage-semantics) |
 | `defineFetch` | value | [queries.md](./queries.md#definefetchconfig) |
 | `FetchResult` | type | [queries.md](./queries.md#fetchresult) |
 
@@ -173,7 +173,7 @@ Generated from `src/index.ts`, grouped by area.
 | `createKeyedArrayPatcher` | value | [runtime-primitives.md](./runtime-primitives.md#array-patchers) |
 | `createIdArrayPatcher` | value | [runtime-primitives.md](./runtime-primitives.md#array-patchers) |
 | `createNestedObjectPatcher` | value | [runtime-primitives.md](./runtime-primitives.md#createnestedobjectpatchermodel-field-transform) |
-| `createSingletonStatics` | value | [runtime-primitives.md](./runtime-primitives.md#singletonstaticsmodel-recordid-defaults) |
+| `createSingletonStatics` | value | [runtime-primitives.md](./runtime-primitives.md#createsingletonstaticsmodel-recordid-defaults) |
 | `reconcileOptimisticRows` | value | [runtime-primitives.md](./runtime-primitives.md#reconcileoptimisticrowsmodel-nodes-options) |
 | `trimRowsPerScope` | value | [runtime-primitives.md](./runtime-primitives.md#cleanup-helpers) |
 | `resolveStaleTempRows` | value | [runtime-primitives.md](./runtime-primitives.md#cleanup-helpers) |

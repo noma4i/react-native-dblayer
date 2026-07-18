@@ -104,7 +104,7 @@ Returns a function that coalesces concurrent calls and suppresses calls inside t
 
 | Method | Parameters | Behavior |
 | --- | --- | --- |
-| `upsert` | `(ids, id, 'prepend' | 'append')` | Dedupes `id` and inserts it at the requested edge. Nullish `ids` are treated as `[]`. |
+| `upsert` | `(ids, id, 'prepend' \| 'append')` | Dedupes `id` and inserts it at the requested edge. Nullish `ids` are treated as `[]`. |
 | `remove` | `(ids, id)` | Removes `id`. Nullish `ids` are treated as `[]`. |
 
 ## `createNestedObjectPatcher(model, field, transform)`
