@@ -2,6 +2,7 @@ import type { DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
+import { useScopeLiveRows } from '../core/tanstack/liveScopeReads';
 import type { JournalOp } from '../core/apply/journal';
 import { registerGcHost } from '../core/gc';
 import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
@@ -474,25 +475,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       modelId: config.id,
       use: (scopeValue: unknown) => {
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
-        const signature = incrementalSignature('scope', config.id, scopeName, scopeValue);
-        return useIncrementalRead({
-          signature,
-          deps: scopeKey == null ? [] : memberDeps(scopeKey),
-          create: () =>
-            createScopeReadEngine({
-              signature,
-              model: config.id,
-              scopeKey: scopeKey ?? '',
-              initial: () => (scopeValue == null ? EMPTY_ROWS : scopeSortedRows(scopeName, scopeValue)),
-              read: id => planes().entityState.read(id),
-              sort:
-                spec?.sort === 'server-order' || spec?.sort == null
-                  ? 'server-order'
-                  : 'comparator' in spec.sort
-                    ? spec.sort
-                    : { field: String(spec.sort.field), direction: spec.sort.dir }
-            })
-        });
+        return useScopeLiveRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`));
       },
       useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;

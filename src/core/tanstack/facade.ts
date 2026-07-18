@@ -1,4 +1,10 @@
-import { createCollection, createTransaction, type Collection, type SyncConfig } from '@tanstack/db';
+import { BasicIndex, createCollection, createLiveQueryCollection, createTransaction, eq, type Collection, type SyncConfig } from '@tanstack/db';
+
+/** Creates a TanStack live query collection for internal data-layer projections. */
+export { createLiveQueryCollection };
+
+/** Builds an equality predicate for internal TanStack live query joins and filters. */
+export { eq };
 
 /** A stored row accepted by the TanStack collection facade. */
 export type StoredRowShape = { id: string } & Record<string, unknown>;
@@ -17,12 +23,19 @@ export type CollectionWriter = Pick<Parameters<SyncConfig<any, string>[`sync`]>[
 
 const writerRegistry = new Map<string, CollectionWriter>();
 const collectionRegistry = new Map<string, Collection<any, string>>();
+let resetLiveScopeReads: (() => void) | null = null;
+
+/** Registers the shared scope-live-read registry cleanup used by collection reset. */
+export function registerLiveScopeReadReset(reset: () => void): void {
+  resetLiveScopeReads = reset;
+}
 
 /** Creates an empty, ready TanStack collection for a model identifier. */
 export function createModelCollection(modelId: string) {
   const collection = createCollection<StoredRowShape, string>({
     id: modelId,
     getKey: row => row.id,
+    defaultIndexType: BasicIndex,
     startSync: true,
     sync: {
       sync: ({ begin, write, commit, markReady }) => {
@@ -33,14 +46,15 @@ export function createModelCollection(modelId: string) {
       }
     }
   });
+  collection.createIndex(row => row.id);
 
   collectionRegistry.set(modelId, collection);
   return collection;
 }
 
 /** Returns a model collection, creating its ready writer-backed instance when absent. */
-export function ensureModelCollection(modelId: string) {
-  return collectionRegistry.get(modelId) ?? createModelCollection(modelId);
+export function ensureModelCollection(modelId: string): Collection<StoredRowShape, string> {
+  return (collectionRegistry.get(modelId) ?? createModelCollection(modelId)) as Collection<StoredRowShape, string>;
 }
 
 /** Returns a model membership collection, creating its ready writer-backed instance when absent. */
@@ -88,6 +102,7 @@ export function hasWriter(modelId: string): boolean {
 export function resetCollectionRegistry(): void {
   writerRegistry.clear();
   collectionRegistry.clear();
+  resetLiveScopeReads?.();
 }
 
 /** Runs synchronous writes in one TanStack cross-collection transaction context. */
