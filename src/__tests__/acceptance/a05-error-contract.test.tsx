@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer'
-import { defineIngest, defineModel, defineMutation, defineQuery, f, scope } from '../../index'
+import { defineModel, defineMutation, defineQuery, f, scope } from '../../index'
 import { createAcceptanceTransport, renderCounted, setupAcceptanceRuntime } from './harness'
 
 const document = { kind: `Document`, definitions: [] } as never
@@ -9,9 +9,9 @@ describe(`A05 error contract`, () => {
     const onSyncError = jest.fn()
     setupAcceptanceRuntime({ defaults: { onSyncError } })
     const model = defineModel({ id: `A05Ingest`, name: `A05Ingest`, fields: { title: f.str() } })
-    const ingest = defineIngest(model, {
-      bad: () => { throw new Error(`bad event`) },
-      good: payload => ({ upsert: payload }),
+    const ingest = model.ingest({
+      bad: { handler: () => { throw new Error(`bad event`) } },
+      good: { handler: payload => ({ upsert: payload }) },
     })
     expect(() => ingest.apply(`bad`, {})).not.toThrow()
     act(() => { ingest.apply(`good`, { id: `good`, title: `good` }) })

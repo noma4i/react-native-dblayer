@@ -1,6 +1,5 @@
 import { act } from 'react-test-renderer'
 import {
-  defineIngest,
   defineModel,
   f,
   hasMany,
@@ -101,8 +100,8 @@ describe(`A03 mutation contract`, () => {
         selectServerNode: (data) => data.save,
       },
     })
-    const ingest = defineIngest(model, {
-      received: (payload) => ({ upsert: payload }),
+    const ingest = model.ingest({
+      received: { handler: (payload) => ({ upsert: payload }) },
     })
     const transitions: string[][] = []
     const reader = renderCounted(() => {

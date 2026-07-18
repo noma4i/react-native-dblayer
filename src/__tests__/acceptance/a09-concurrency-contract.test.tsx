@@ -1,7 +1,6 @@
 import { act } from 'react-test-renderer'
 import {
   belongsTo,
-  defineIngest,
   defineModel,
   defineMutation,
   defineQuery,
@@ -115,7 +114,7 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
         selectServerNode: data => data.save,
       },
     })
-    const ingest = defineIngest(rows, { received: payload => ({ upsert: payload }) })
+    const ingest = rows.ingest({ received: { handler: payload => ({ upsert: payload }) } })
     const reader = renderCounted(() => rows.scopes.feed.use(feed))
     const before = reader.renders()
     let pending!: Promise<{ save: Row } | null>
@@ -185,7 +184,7 @@ describe(`A09 concurrency and anti-storm contracts`, () => {
     act(() => {
       parent.insertStored({ id: `parent`, count: 0, title: `parent` })
     })
-    const ingest = defineIngest(child, { page: payload => ({ upsert: (payload as { rows: Row[]; side: { id: string; title: string }[] }).rows, extract: [{ into: extracted, rows: (payload as { rows: Row[]; side: { id: string; title: string }[] }).side }] }) })
+    const ingest = child.ingest({ page: { handler: payload => ({ upsert: (payload as { rows: Row[]; side: { id: string; title: string }[] }).rows, extract: [{ into: extracted, rows: (payload as { rows: Row[]; side: { id: string; title: string }[] }).side }] }) } })
     const scopeReader = renderCounted(() => child.scopes.feed.use(feed))
     const parentReader = renderCounted(() => parent.use.row(`parent`))
     const extractReader = renderCounted(() => extracted.use.row(`side`))

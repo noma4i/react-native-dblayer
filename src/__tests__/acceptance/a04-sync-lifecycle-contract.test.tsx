@@ -2,7 +2,6 @@ import { act } from 'react-test-renderer';
 import {
   belongsTo,
   collectGarbage,
-  defineIngest,
   defineModel,
   defineMutation,
   defineQuery,
@@ -40,7 +39,7 @@ describe(`A04 sync lifecycle contract`, () => {
         selectServerNode: data => data.save
       }
     });
-    const ingest = defineIngest(model, { received: payload => payload as { operationId: string; upsert: { id: string; title: string } } });
+    const ingest = model.ingest({ received: { handler: payload => payload as { operationId: string; upsert: { id: string; title: string } } } });
     const reader = renderCounted(() => model.use.row(`echo`));
 
     await act(async () => {
@@ -69,7 +68,7 @@ describe(`A04 sync lifecycle contract`, () => {
   it(`A04-2 applies a duplicate ingest upsert without visible change`, () => {
     setupAcceptanceRuntime();
     const model = defineModel({ id: `A04Idempotent`, name: `A04Idempotent`, fields: { title: f.str() } });
-    const ingest = defineIngest(model, { received: payload => ({ upsert: payload }) });
+    const ingest = model.ingest({ received: { handler: payload => ({ upsert: payload }) } });
     const reader = renderCounted(() => model.use.row(`row`));
 
     act(() => {
@@ -97,9 +96,9 @@ describe(`A04 sync lifecycle contract`, () => {
       fields: { parentId: f.id(), title: f.str() },
       relations: () => ({ parent: belongsTo(parent, { foreignKey: `parentId`, counterCache: { field: `count` } }) })
     });
-    const ingest = defineIngest(child, {
-      received: payload => ({ upsert: payload }),
-      deleted: payload => ({ destroy: (payload as { id: string }).id })
+    const ingest = child.ingest({
+      received: { handler: payload => ({ upsert: payload }) },
+      deleted: { handler: payload => ({ destroy: (payload as { id: string }).id }) }
     });
     act(() => {
       parent.insertStored({ id: `parent`, count: 0 });
@@ -138,7 +137,7 @@ describe(`A04 sync lifecycle contract`, () => {
         })
       })
     });
-    const ingest = defineIngest(child, { received: payload => ({ upsert: payload }) });
+    const ingest = child.ingest({ received: { handler: payload => ({ upsert: payload }) } });
     act(() => {
       parent.insertStored({ id: `parent`, lastTitle: `before` });
     });
@@ -403,7 +402,7 @@ describe(`A04 sync lifecycle contract`, () => {
     });
     expect(restarted.getAll().some(row => isTempId(row.id))).toBe(false);
     expect(reader.result()).toEqual([]);
-    const ingest = defineIngest(restarted, { received: payload => ({ upsert: payload }) });
+    const ingest = restarted.ingest({ received: { handler: payload => ({ upsert: payload }) } });
     act(() => {
       ingest.apply(`received`, { id: `server`, title: `server` });
     });

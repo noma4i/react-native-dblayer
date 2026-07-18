@@ -1,6 +1,5 @@
 import { act } from 'react-test-renderer'
 import {
-  defineIngest,
   defineModel,
   f,
   resetRuntime,
@@ -102,8 +101,8 @@ describe(`A01 model contract`, () => {
     expect(model.getAll()).toEqual([])
     expect(transport.calls.filter((call) => call.kind === `query`)).toHaveLength(2)
 
-    const ingest = defineIngest(model, {
-      received: (payload) => ({ upsert: payload }),
+    const ingest = model.ingest({
+      received: { handler: (payload) => ({ upsert: payload }) },
     })
     act(() => {
       ingest.apply(`received`, { id: `row-1`, title: `event` })

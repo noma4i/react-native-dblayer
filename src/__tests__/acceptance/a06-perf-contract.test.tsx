@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { collectGarbage, defineIngest, defineModel, f, flushPersistence, replayJournal, scope } from '../../index';
+import { collectGarbage, defineModel, f, flushPersistence, replayJournal, scope } from '../../index';
 import { createMemoryPlane, renderCounted, setupAcceptanceRuntime } from './harness';
 
 const median = (samples: number[]) => [...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
@@ -23,7 +23,7 @@ const rows = (count: number, chatId = `chat`) =>
     status: `sent`
   }));
 const seed = (model: ReturnType<typeof defineModel>, count: number, chatId = `chat`) => {
-  const ingest = defineIngest(model, { page: payload => ({ upsert: payload }) });
+  const ingest = model.ingest({ page: { handler: payload => ({ upsert: payload }) } });
   const values = rows(count, chatId);
   for (let offset = 0; offset < values.length; offset += 1000) ingest.apply(`page`, values.slice(offset, offset + 1000));
 };
