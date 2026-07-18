@@ -4,6 +4,7 @@ import { type RelationDecl } from '../core/relations';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery } from './defineQuery';
+import { type ViewConfig, type ViewHandle } from './defineView';
 import type { Coverage, ScopeSpec } from './scope';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
@@ -66,8 +67,9 @@ export type ScopeHandle<TStored extends {
     }>, coverage: Coverage, opts?: {
         resetOrder?: boolean;
     }): JournalOp[];
+    __key?(scopeValue: TScope): string;
 };
-type ModelCore<TStored extends {
+export type ModelCore<TStored extends {
     id: string;
     updatedAt?: string | null;
 }> = {
@@ -82,6 +84,8 @@ type ModelCore<TStored extends {
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
+    /** Define a reactive joined projection over one declared scope and its current related rows. */
+    view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
     get(id: string | null | undefined): TStored | undefined;
     getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
     /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
@@ -133,6 +137,7 @@ type ModelCore<TStored extends {
         order: number;
         edge?: Record<string, unknown>;
     }>): JournalOp[];
+    __relations?(): Record<string, RelationDecl>;
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */

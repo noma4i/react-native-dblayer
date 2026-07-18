@@ -19,6 +19,7 @@ import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix, hasReplayedJourn
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery } from './defineQuery';
+import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
 
@@ -68,9 +69,10 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   read(scopeValue: TScope): TStored[];
   __apply?(scopeValue: TScope, rows: TStored[], coverage: Coverage, opts?: { resetOrder?: boolean }): void;
   __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: Coverage, opts?: { resetOrder?: boolean }): JournalOp[];
+  __key?(scopeValue: TScope): string;
 };
 
-type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
+export type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   modelId: string;
   /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
@@ -78,6 +80,8 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   mutation<TData, TInput, TRow extends { id: string }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
   /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
+  /** Define a reactive joined projection over one declared scope and its current related rows. */
+  view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
   get(id: string | null | undefined): TStored | undefined;
   getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
@@ -115,6 +119,7 @@ type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
   __planReplace?(oldId: string, next: unknown): JournalOp[];
   __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
   __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
+  __relations?(): Record<string, RelationDecl>;
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -525,7 +530,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           )
         );
       },
-      __planApply: planApply
+      __planApply: planApply,
+      __key: (scopeValue: unknown) => keyForScope(scopeName, scopeValue)
     };
   };
 
@@ -585,6 +591,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       return defineMutation({ ...mutationConfig, dedupe });
     },
     fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
+    view: (name, viewConfig) => defineView(model, name, viewConfig),
     get: id => (id == null ? undefined : planes().entityState.read(id)),
     getWhere: (where, options) =>
       sortRows(
@@ -712,7 +719,8 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     __planRows: planRows,
     __planReplace: planReplace,
     __captureMembership: captureMembership,
-    __planRestore: planRestore
+    __planRestore: planRestore,
+    __relations: resolvedRelations
   };
 
   registerReset(() => {
