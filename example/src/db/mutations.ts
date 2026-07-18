@@ -23,6 +23,25 @@ export const addComment = CommentModel.mutation<{ createPost: { id: number } }, 
   optimistic: {
     model: CommentModel, tempIdPrefix: 'comment', build: input => ({ id: '', postId: input.postId, name: input.name, body: input.body, pending: true }),
     selectServerNode: data => ({ id: String(data.createPost.id), postId: '', name: '', body: '', pending: false }), preserveOnCommit: ['postId', 'name', 'body'],
+    prependTo: { scope: CommentModel.scopes.byPost, value: input => ({ postId: input.postId }) },
+  },
+});
+
+const createPostDocument = parse('mutation ExampleCreatePost($input: CreatePostInput!) { createPost(post: $input) { id title body user { id } } }');
+
+export const createPost = PostModel.mutation<
+  { createPost: { id: number | string; title: string; body: string; user?: { id: number | string } } },
+  { userId: string; title: string; body: string },
+  { id: string; userId: string; title: string; body: string },
+  { id: string; userId: string; title: string; body: string }
+>('create', {
+  document: createPostDocument, result: 'createPost',
+  mapInput: input => ({ title: input.title, body: input.body, userId: Number(input.userId) }),
+  optimistic: {
+    model: PostModel,
+    respond: input => ({ createPost: { id: '', title: input.title, body: input.body, user: { id: input.userId } } }),
+    selectServerNode: data => ({ id: String(data.createPost.id), userId: String(data.createPost.user?.id ?? ''), title: data.createPost.title, body: data.createPost.body }),
+    prependTo: { scope: PostModel.scopes.feed, value: () => ({}) },
   },
 });
 
