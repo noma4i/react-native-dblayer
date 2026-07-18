@@ -169,9 +169,9 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 | `get` | `(id) => TStored \| undefined` | Snapshot read of one row. |
 | `getWhere` | `(where, opts?) => TStored[]` | Snapshot read filtered by a `DbWhere` predicate, with optional `orderBy`/`limit`. |
 | `getAll` | `() => TStored[]` | Full snapshot. Library/maintenance channel - application code stays on scoped reads. |
-| `use.row` | `(id, opts?) => TStored \| undefined` | Reactive read of one row; `opts.select` narrows the field dependency. |
+| `use.row` | `(id, opts?) => TStored \| undefined` | Reactive read of one row; `opts.select` narrows the field dependency, `opts.require` gates on field completeness (see below). |
 | `use.field` | `(id, field) => TStored[K] \| undefined` | Reactive read of one field - nothing else re-renders it. |
-| `use.first` | `(where?, opts?) => TStored \| undefined` | Reactive read of the first row matching `where`. |
+| `use.first` | `(where?, opts?) => TStored \| undefined` | Reactive read of the first row matching `where`; `opts.require` gates on field completeness (see below). |
 | `use.where` | `(where) => ModelReadBuilder<TStored>` | Chainable reactive/snapshot read builder. See below. |
 | `use.byIds` | `(ids: string[]) => TStored[]` | Reactive read of several rows by id, in the order given. |
 | `use.count` | `(where?) => number` | Reactive count of matching rows. |
@@ -208,6 +208,62 @@ missing) always sorts after rows that have a value for it, on every declared key
 `orderBy` at all returns rows in natural storage order (only `limit` applied, no sort pass).
 `use.where(null)` reads as empty without subscribing, consistent with every other nullable-scope
 read in the DSL.
+
+### Required fields
+
+`use.row`, `use.first`, and the `use.where` builder's `.require(...)` stage all accept a set of
+stored field names that must be **present** before a row is returned; an incomplete row reads as
+absent instead of returning a partial value. Presence follows the same rule as everywhere else in
+the DSL: `undefined` (the field was never written) is missing, `null` (an explicit stored null) is
+present.
+
+```ts
+const contact = ContactModel.use.row(contactId, { require: ['bio', 'avatarUrl'] });
+// contact: (TStored & { bio: string; avatarUrl: string | null }) | undefined
+
+const recent = MessageModel.use.where({ chatId }).require('senderName').orderBy('createdAt', 'desc').rows();
+// recent: Array<TStored & { senderName: string }>
+```
+
+| Surface | Signature | Behavior |
+| --- | --- | --- |
+| `use.row(id, { require })` | `(id, { require: K[] }) => RequiredFields<TStored, K> \| undefined` | `undefined` when the row is missing or any required field on it is missing. |
+| `use.first(where, { require, ... })` | `(where, opts & { require: K[] }) => RequiredFields<TStored, K> \| undefined` | Same completeness gate applied to the first matching row - an incomplete leading row is skipped in favor of the next complete one. |
+| `use.where(where).require(...fields)` | `(...K[]) => ModelReadBuilder<RequiredFields<TStored, K>>` | Filters the whole builder result to complete rows; combine with `.orderBy`/`.limit`/`.rows()`/`.read()` as usual. |
+
+Each surface narrows the returned row type: every required key becomes non-optional -
+`RequiredFields<TStored, K> = TStored & { [P in K]-?: Exclude<TStored[P], undefined> }` - so reading
+`contact.bio` above needs no undefined-check (it can still be a real stored `null` if the field is
+nullable).
+
+Reactivity differs by surface. `use.row`'s dependency is the exact row plus its required (and
+`select`ed) fields, so completing the last required field on that row produces exactly one
+re-render, and writes to any other row or field never touch it. `use.first` and
+`use.where(...).require(...)` run through the same model-scoped incremental read engine as every
+other builder terminal: they recompute on writes to their own model (an unrelated model's writes
+never trigger a re-render), and re-render only when the value they actually return changes - so
+completing a row that becomes the new first match, or newly passes the builder's filter, still
+yields exactly one render.
+
+**Row-level only.** Scope and window reads (`ScopeHandle.use`/`useWindow`) have no `require` of
+their own on the source row - a scope's membership and `totalCount` are defined by *unfiltered*
+membership (see [Scopes](#scopes) below), and gating the source row itself would silently change
+what "being in the scope" means. `Model.view`'s `include` DOES support `require` on *included*
+related rows - see [`Model.view`](#modelviewname-config) below.
+
+**Motivating example** - a chat list synced from a sparse feed extract carries only `id`/`name` for
+each participant; a profile screen needs `bio`/`avatarUrl` too, which arrive later from a dedicated
+detail fetch:
+
+```ts
+function ProfileScreen({ contactId }: { contactId: string }) {
+  // Sparse rows from the feed extract have bio/avatarUrl as undefined until ContactModel.query
+  // ('detail', ...) or an extract sink fills them in - the screen renders a skeleton until then.
+  const contact = ContactModel.use.row(contactId, { require: ['bio', 'avatarUrl'] });
+  if (!contact) return <ProfileSkeleton />;
+  return <Profile bio={contact.bio} avatarUrl={contact.avatarUrl} />;
+}
+```
 
 ## Scopes
 
