@@ -24,7 +24,7 @@ export type GcReport = {
  * Reachability GC over all registered models. Roots: scope members, exempt models, pending
  * operations. Edges: belongsTo/references of live rows. Unreached rows are evicted (no
  * tombstones), dead scope entries detached, empty scope keys removed, then persistence flushes.
- * Run at startup after replayJournal - NOT while UI renders unscoped detail rows.
+ * Mounted readers are GC roots, so this is safe during in-session UI rendering.
  *
  * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
  * directly only for a different sweep cadence.

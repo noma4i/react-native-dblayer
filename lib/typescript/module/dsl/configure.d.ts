@@ -65,6 +65,7 @@ export declare const getCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch?: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
     subscribeIncremental: (notify: () => void, deps: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
     subscribeAll: (onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void) => (() => void);
+    activeDependencies: () => ReadonlyArray<import("../core/apply/commitBus").Dependency>;
     publish: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void;
     publishAll: () => void;
     subscriberCount: () => number;

@@ -58,6 +58,8 @@ export const createCommitBus = () => {
       allSubscribers.add(onBatch);
       return () => allSubscribers.delete(onBatch);
     },
+    /** Snapshot of live reader dependencies, used as garbage-collection roots. */
+    activeDependencies: (): ReadonlyArray<Dependency> => [...subscribers].flatMap(subscriber => subscriber.deps),
     publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length) return;
       for (const onBatch of [...allSubscribers]) onBatch(batch);

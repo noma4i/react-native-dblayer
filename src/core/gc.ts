@@ -28,7 +28,7 @@ export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<
  * Reachability GC over all registered models. Roots: scope members, exempt models, pending
  * operations. Edges: belongsTo/references of live rows. Unreached rows are evicted (no
  * tombstones), dead scope entries detached, empty scope keys removed, then persistence flushes.
- * Run at startup after replayJournal - NOT while UI renders unscoped detail rows.
+ * Mounted readers are GC roots, so this is safe during in-session UI rendering.
  *
  * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
  * directly only for a different sweep cadence.
@@ -76,6 +76,13 @@ export const collectGarbage = (): GcReport => {
   }
   for (const operation of getOperationState().pending()) {
     for (const id of operation.tempIds) mark(operation.model, id);
+  }
+  for (const dependency of getCommitBus().activeDependencies()) {
+    if (dependency.kind === 'row') mark(dependency.model, dependency.id);
+    if (dependency.kind === 'model') {
+      const host = hosts.get(dependency.model);
+      if (host) for (const id of host.rowIds()) mark(dependency.model, id);
+    }
   }
 
   while (queue.length > 0) {

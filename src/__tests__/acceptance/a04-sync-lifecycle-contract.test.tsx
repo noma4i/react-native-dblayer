@@ -1,16 +1,5 @@
 import { act } from 'react-test-renderer';
-import {
-  belongsTo,
-  collectGarbage,
-  defineModel,
-  f,
-  flushPersistence,
-  hasMany,
-  isTempId,
-  purgeForeignStorageKeys,
-  replayJournal,
-  scope
-} from '../../index';
+import { belongsTo, collectGarbage, defineModel, f, flushPersistence, hasMany, isTempId, purgeForeignStorageKeys, replayJournal, scope } from '../../index';
 import { createAcceptanceTransport, createMemoryPlane, renderCounted, setupAcceptanceRuntime } from './harness';
 
 const document = { kind: `Document`, definitions: [] } as never;
@@ -178,7 +167,7 @@ describe(`A04 sync lifecycle contract`, () => {
     reader.unmount();
   });
 
-  it(`A04-6 collects detached rows while retaining reachable and exempt rows`, async () => {
+  it(`A04-6 retains mounted detached rows with reachable and exempt rows`, async () => {
     const responses = [
       {
         children: [
@@ -249,9 +238,9 @@ describe(`A04 sync lifecycle contract`, () => {
     await act(async () => {
       await collectGarbage();
     });
-    expect(child.getAll().map(row => row.id)).toEqual([`live`]);
-    expect(detachedReader.result()).toBeUndefined();
-    expect(detachedReader.renders()).toBe(detachedRenders + 1);
+    expect(child.getAll().map(row => row.id)).toEqual([`live`, `detached`]);
+    expect(detachedReader.result()).toEqual({ id: `detached`, title: `detached` });
+    expect(detachedReader.renders()).toBe(detachedRenders);
     expect(deadScopeReader.result()).toEqual([]);
     expect(deadScopeReader.renders()).toBe(scopeRenders + 1);
     expect(unrelatedReader.renders()).toBe(unrelatedRenders);

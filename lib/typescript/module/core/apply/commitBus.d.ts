@@ -56,6 +56,8 @@ export declare const createCommitBus: () => {
     subscribe: (notify: () => void, deps?: ReadonlyArray<Dependency>, onBatch?: (batch: IncrementalCommitBatch | null) => void) => CommitSubscription;
     subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void) => CommitSubscription;
     subscribeAll: (onBatch: (batch: IncrementalCommitBatch) => void) => (() => void);
+    /** Snapshot of live reader dependencies, used as garbage-collection roots. */
+    activeDependencies: () => ReadonlyArray<Dependency>;
     publish: (batch: IncrementalCommitBatch) => void;
     publishAll: () => void;
     subscriberCount: () => number;
