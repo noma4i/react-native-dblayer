@@ -20,6 +20,11 @@ export declare const buildStableItems: <TSource, TEntry extends {
  * list/thread/feed; deep-comparing the listed fields keeps the view object's identity stable so memoized
  * rows skip re-rendering. One helper for chat list, chat thread AND feed - add a rendered field to the key
  * array to track it.
+ *
+ * @param prev Previous value in the comparison.
+ * @param next Next value in the comparison.
+ * @param keys Keys to compare between values.
+ * @returns `true` when the selected fields of `prev` and `next` are deeply equal.
  */
 export declare const pickEqual: <T extends object>(prev: T | null | undefined, next: T | null | undefined, keys: Array<keyof T>) => boolean;
 /**

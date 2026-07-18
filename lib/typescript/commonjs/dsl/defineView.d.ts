@@ -5,11 +5,20 @@ type Row = {
 };
 type Included = Record<string, unknown>;
 type ComputedInclude = [ModelCore<Row>, (row: Row) => string | string[] | null];
+type RelationInclude = {
+    require: readonly string[];
+};
+type IdInclude = {
+    model: ModelCore<Row>;
+    ids: (row: Row) => string | string[] | null;
+    require?: readonly string[];
+};
+type IncludeConfig = string | ComputedInclude | RelationInclude | IdInclude;
 export type ViewConfig<TItem> = {
     /** Declared scope name or scope handle on the model that owns the view. */
     source: string | ScopeHandle<Row, Record<string, unknown>>;
-    /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
-    include: Record<string, string | ComputedInclude>;
+    /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
+    include: Record<string, IncludeConfig>;
     /** Build one view item from a source row, resolved includes, and its source index. */
     select?: (row: Row, included: Included, ctx: {
         index: number;

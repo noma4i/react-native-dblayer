@@ -8,6 +8,7 @@ import { type ViewConfig, type ViewHandle } from './defineView';
 import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
+import type { RequiredFields } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 import type { InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
@@ -185,10 +186,22 @@ export type ModelCore<TStored extends {
     };
     invalidate(scope?: unknown): void;
     use: {
+        /** Read one row when all `require` fields are present. `undefined` is missing; `null` is present. Row-only because scope totals use unfiltered membership. */
+        row<K extends keyof TStored & string>(id: string | null | undefined, opts: {
+            select?: ReadonlyArray<keyof TStored>;
+            require: readonly K[];
+        }): RequiredFields<TStored, K> | undefined;
+        /** Read one stored row. */
         row(id: string | null | undefined, opts?: {
             select?: ReadonlyArray<keyof TStored>;
+            require?: never;
         }): TStored | undefined;
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
+        /** Read the first matching row complete for `require`; `undefined` is missing and `null` is present. Row-only because scope totals use unfiltered membership. */
+        first<K extends keyof TStored & string>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & {
+            require: readonly K[];
+        }): RequiredFields<TStored, K> | undefined;
+        /** Read the first matching stored row. */
         first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
         where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
         byIds(ids: string[]): TStored[];
@@ -214,6 +227,24 @@ export type ModelCore<TStored extends {
     }>): JournalOp[];
     __relations?(): Record<string, RelationDecl>;
     __revision?(): number;
+};
+type RequiredReadUse<TStored extends {
+    id: string;
+    updatedAt?: string | null;
+}, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first' | 'where'> & {
+    row<K extends TKey>(id: string | null | undefined, opts: {
+        select?: ReadonlyArray<keyof TStored>;
+        require: readonly K[];
+    }): RequiredFields<TStored, K> | undefined;
+    row(id: string | null | undefined, opts?: {
+        select?: ReadonlyArray<keyof TStored>;
+        require?: never;
+    }): TStored | undefined;
+    first<K extends TKey>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & {
+        require: readonly K[];
+    }): RequiredFields<TStored, K> | undefined;
+    first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
+    where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
@@ -281,7 +312,8 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export declare const defineModel: <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => ModelCore<any> & {
+export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => Omit<ModelCore<any>, "use"> & {
+    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | "id">;
     scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>; };
 } & TExt;
 export {};

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
 import type { RelationDecl } from '../core/relations';
 import { arraysShallowEqual, useLiveRead } from '../read/useLiveRead';
+import { hasRequiredFields } from '../read/requireFields';
 import { isRecord } from '../utils/normalizeHelpers';
 import { getDbRuntimeConfig } from './configure';
 import type { ModelCore, ScopeHandle } from './defineModel';
@@ -9,12 +10,15 @@ import type { ModelCore, ScopeHandle } from './defineModel';
 type Row = { id: string; [key: string]: unknown };
 type Included = Record<string, unknown>;
 type ComputedInclude = [ModelCore<Row>, (row: Row) => string | string[] | null];
+type RelationInclude = { require: readonly string[] };
+type IdInclude = { model: ModelCore<Row>; ids: (row: Row) => string | string[] | null; require?: readonly string[] };
+type IncludeConfig = string | ComputedInclude | RelationInclude | IdInclude;
 
 export type ViewConfig<TItem> = {
   /** Declared scope name or scope handle on the model that owns the view. */
   source: string | ScopeHandle<Row, Record<string, unknown>>;
-  /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
-  include: Record<string, string | ComputedInclude>;
+  /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
+  include: Record<string, IncludeConfig>;
   /** Build one view item from a source row, resolved includes, and its source index. */
   select?: (row: Row, included: Included, ctx: { index: number }) => TItem;
   /** Preserve an item reference while all listed projected keys are unchanged. */
@@ -53,7 +57,7 @@ const idsOf = (value: string | string[] | null): string[] =>
 const resolveRelation = (row: Row, relation: RelationDecl, rowsFor: (foreignKey: string, id: string) => Row[]): unknown => {
   if (relation.kind === 'belongsTo') {
     const id = row[relation.foreignKey];
-    return typeof id === 'string' ? relation.model.get(id) ?? null : null;
+    return typeof id === 'string' ? (relation.model.get(id) ?? null) : null;
   }
   if (relation.kind === 'references') throw new Error(`Model.view does not support ${relation.kind} includes`);
   const rows = rowsFor(relation.foreignKey, row.id);
@@ -79,8 +83,9 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
   const relations = model.__relations!();
   const relationIndexes = new Map<RelationDecl, RelationIndex>();
   for (const [alias, include] of Object.entries(config.include)) {
-    if (typeof include === 'string' && !relations[include]) throw new Error(`${model.modelId} has no relation ${include} for view ${name}.${alias}`);
-    if (typeof include === 'string' && relations[include]!.kind === 'references') throw new Error(`Model.view does not support references includes`);
+    const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
+    if (relationName && !relations[relationName]) throw new Error(`${model.modelId} has no relation ${relationName} for view ${name}.${alias}`);
+    if (relationName && relations[relationName]!.kind === 'references') throw new Error(`Model.view does not support references includes`);
   }
 
   const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
@@ -113,9 +118,16 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
         deps.push({ kind: 'row', model: model.modelId, id: row.id });
         const included: Included = {};
         for (const [alias, include] of Object.entries(config.include)) {
-          if (typeof include === 'string') {
-            const relation = relations[include]!;
-            included[alias] = resolveRelation(row, relation, (foreignKey, id) => rowsFor(relation, foreignKey, id));
+          const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
+          if (relationName) {
+            const relation = relations[relationName]!;
+            const required = typeof include === 'object' && !Array.isArray(include) ? include.require : undefined;
+            const resolved = resolveRelation(row, relation, (foreignKey, id) => rowsFor(relation, foreignKey, id));
+            included[alias] = Array.isArray(resolved)
+              ? resolved.filter(candidate => hasRequiredFields(candidate as Row | null, required ?? []))
+              : hasRequiredFields(resolved as Row | null, required ?? [])
+                ? resolved
+                : null;
             if (relation.kind === 'belongsTo') {
               const id = row[relation.foreignKey];
               if (typeof id === 'string') deps.push({ kind: 'row', model: relation.model.modelId, id });
@@ -123,11 +135,14 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
               deps.push({ kind: 'model', model: relation.model.modelId });
             }
           } else {
-            const [target, resolveIds] = include;
+            const idInclude = include as IdInclude;
+            const [target, resolveIds, required] = Array.isArray(include)
+              ? ([include[0], include[1], undefined] as const)
+              : ([idInclude.model, idInclude.ids, idInclude.require] as const);
             const rawIds = resolveIds(row);
             const ids = idsOf(rawIds);
-            const resolved = ids.map(id => target.get(id)).filter(Boolean);
-            included[alias] = Array.isArray(rawIds) ? resolved : resolved[0] ?? null;
+            const resolved = ids.map(id => target.get(id)).filter(candidate => hasRequiredFields(candidate, required ?? []));
+            included[alias] = Array.isArray(rawIds) ? resolved : (resolved[0] ?? null);
             for (const id of ids) deps.push({ kind: 'row', model: target.modelId, id });
           }
         }

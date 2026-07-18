@@ -1,30 +1,18 @@
 import type { StableItemsConfig, StableEntityConfig } from '../../types';
-type ResolvedStableProjectionConfig<
-  TSource,
-  TEntry extends {
+type ResolvedStableProjectionConfig<TSource, TEntry extends {
     item: TItem;
-  },
-  TItem
-> = {
-  getKey: (source: TSource) => string;
-  buildEntry: (source: TSource) => TEntry | null;
-  emptyItems: TItem[];
-  entriesEqual: (prev: TEntry, next: TEntry) => boolean;
+}, TItem> = {
+    getKey: (source: TSource) => string;
+    buildEntry: (source: TSource) => TEntry | null;
+    emptyItems: TItem[];
+    entriesEqual: (prev: TEntry, next: TEntry) => boolean;
 };
 /** Build stable projected items by reusing unchanged cached entries. */
-export declare const buildStableItems: <
-  TSource,
-  TEntry extends {
+export declare const buildStableItems: <TSource, TEntry extends {
     item: TItem;
-  },
-  TItem
->(
-  sources: TSource[],
-  config: ResolvedStableProjectionConfig<TSource, TEntry, TItem>,
-  previousCache: Map<string, TEntry>
-) => {
-  items: TItem[];
-  cache: Map<string, TEntry>;
+}, TItem>(sources: TSource[], config: ResolvedStableProjectionConfig<TSource, TEntry, TItem>, previousCache: Map<string, TEntry>) => {
+    items: TItem[];
+    cache: Map<string, TEntry>;
 };
 /**
  * Shared value-equality: reuse a prior view object when its rendered fields are unchanged. `useLiveQuery`
@@ -49,13 +37,9 @@ export declare const pickEqual: <T extends object>(prev: T | null | undefined, n
  * `{ item: source }`), `emptyItems`, and either `entriesEqual` or `renderKeys` for entry equality.
  * @returns The projected item array; the same array reference when nothing changed, a new array otherwise.
  */
-export declare function useStableProjection<
-  TSource,
-  TEntry extends {
+export declare function useStableProjection<TSource, TEntry extends {
     item: TItem;
-  },
-  TItem extends object
->(sources: TSource[], config: StableItemsConfig<TSource, TEntry, TItem>): TItem[];
+}, TItem extends object>(sources: TSource[], config: StableItemsConfig<TSource, TEntry, TItem>): TItem[];
 /**
  * React hook that reuses one entity reference while configured fields remain equal, so consumers memoized
  * on identity skip re-rendering for changes to fields they do not display.

@@ -51,6 +51,7 @@ export type MembershipDelta = {
  * @param options.counterCache Increment `field` on the parent when a NEW child first references it, decrement
  * on child destroy (or on an uncommitted increment being cancelled within the same plan); `filter` restricts
  * which children count.
+ * @returns A belongsTo relation declaration for a parent-model edge.
  */
 export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, options: {
     foreignKey: keyof TChild & string;
@@ -70,6 +71,7 @@ export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, opti
  * @param options.dependent `'destroy'` cascades a parent destroy to its live children in the same plan.
  * Omit for a query-only relation with no cascade. Optimistic destroy on the parent throws if this is set,
  * since a cascaded destroy cannot be rolled back.
+ * @returns A hasMany relation declaration for a child-collection edge.
  */
 export declare const hasMany: <TParent, TChild>(model: ModelRef<TChild>, options: {
     foreignKey: keyof TChild & string;
@@ -83,6 +85,7 @@ export declare const hasMany: <TParent, TChild>(model: ModelRef<TChild>, options
  * @param options.foreignKey Child field storing the parent id.
  * @param options.comparator Pick the "one" child when several match; the lowest-sorting row wins. Omit to
  * use the first match in read order.
+ * @returns A hasOne relation declaration for a single-child edge.
  */
 export declare const hasOne: <TParent, TChild>(model: ModelRef<TChild>, options: {
     foreignKey: keyof TChild & string;
@@ -95,6 +98,7 @@ export declare const hasOne: <TParent, TChild>(model: ModelRef<TChild>, options:
  *
  * @param model The referenced model.
  * @param options.ids Extract the referenced id(s) from the row; a single id, an array, or nullish (no reference).
+ * @returns A references relation declaration for GC liveness edges.
  */
 export declare const references: <TChild, TRef>(model: ModelRef<TRef>, options: {
     ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined;

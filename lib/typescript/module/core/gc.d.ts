@@ -28,6 +28,8 @@ export type GcReport = {
  *
  * `bootDb`/`suspendDb` call this for you as part of the recommended startup/teardown sequence; call it
  * directly only for a different sweep cadence.
+ *
+ * @returns Reachability report with evicted row and removed scope counts by model.
  */
 export declare const collectGarbage: () => GcReport;
 //# sourceMappingURL=gc.d.ts.map

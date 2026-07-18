@@ -69,7 +69,11 @@ export declare const getCommitBus: () => {
     publishAll: () => void;
     subscriberCount: () => number;
 };
-/** App-owned TanStack QueryClient handed to configureDb; undefined until configured. */
+/**
+ * App-owned TanStack QueryClient handed to configureDb; undefined until configured.
+ *
+ * @returns The configured TanStack QueryClient, or undefined if configureDb has not been called.
+ */
 export declare const getDbQueryClient: () => QueryClient | undefined;
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter
@@ -95,6 +99,8 @@ export declare const noteMaintenancePersistence: (models: ReadonlyArray<string>)
  * Most apps should call `bootDb(options)` instead, which runs this in the recommended startup order
  * (`configureDb` -> `replayJournal` -> `collectGarbage` -> `purgeForeignStorageKeys`) and surfaces this
  * function's return value as `{ replayed }`.
+ *
+ * @returns The number of journal records replayed.
  */
 export declare const replayJournal: () => number;
 /**
@@ -102,6 +108,8 @@ export declare const replayJournal: () => number;
  * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
  *
  * Most apps should call `bootDb(options)` instead, which runs this last in the recommended startup order.
+ *
+ * @returns The number of removed foreign storage keys.
  */
 export declare const purgeForeignStorageKeys: () => number;
 /** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */

@@ -23,6 +23,8 @@ import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
+import { hasRequiredFields } from '../read/requireFields';
+import type { RequiredFields } from './readBuilder';
 import type { Coverage, ScopeSpec } from './scope';
 import { useEffect, useState } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
@@ -178,8 +180,20 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   normalize(input: unknown): Partial<TStored> & { id: string };
   invalidate(scope?: unknown): void;
   use: {
-    row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored> }): TStored | undefined;
+    /** Read one row when all `require` fields are present. `undefined` is missing; `null` is present. Row-only because scope totals use unfiltered membership. */
+    row<K extends keyof TStored & string>(
+      id: string | null | undefined,
+      opts: { select?: ReadonlyArray<keyof TStored>; require: readonly K[] }
+    ): RequiredFields<TStored, K> | undefined;
+    /** Read one stored row. */
+    row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored>; require?: never }): TStored | undefined;
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
+    /** Read the first matching row complete for `require`; `undefined` is missing and `null` is present. Row-only because scope totals use unfiltered membership. */
+    first<K extends keyof TStored & string>(
+      where: DbWhere<TStored> | null | undefined,
+      opts: DbReadOptions<TStored> & { require: readonly K[] }
+    ): RequiredFields<TStored, K> | undefined;
+    /** Read the first matching stored row. */
     first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
     where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
     byIds(ids: string[]): TStored[];
@@ -195,6 +209,14 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
   __relations?(): Record<string, RelationDecl>;
   __revision?(): number;
+};
+
+type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first' | 'where'> & {
+  row<K extends TKey>(id: string | null | undefined, opts: { select?: ReadonlyArray<keyof TStored>; require: readonly K[] }): RequiredFields<TStored, K> | undefined;
+  row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored>; require?: never }): TStored | undefined;
+  first<K extends TKey>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & { require: readonly K[] }): RequiredFields<TStored, K> | undefined;
+  first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
+  where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -278,9 +300,9 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
+export const defineModel = <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
   config: ModelConfig<TFields, TScopes, TExt>
-): ModelCore<any> & { scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
+): Omit<ModelCore<any>, 'use'> & { use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>; scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt => {
   type ModelPlanes = { entityState: EntityState<any>; scopeIndex: ScopeIndex };
   let planesRef: ModelPlanes | null = null;
   let revision = 0;
@@ -549,7 +571,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
 
   function whereRead(where: DbWhere<any> | null): ModelReadBuilder<any> {
     return createReadBuilder(where, {
-      rows: (criteria, orders, limit) =>
+      rows: (criteria, orders, limit, required) =>
         useIncrementalRead({
           signature: incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit })),
           deps: criteria == null ? [] : [modelDep],
@@ -557,17 +579,17 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
             createModelReadEngine({
               signature: incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit })),
               model: config.id,
-              where: row => criteria != null && matchesDbWhere(row, criteria),
+              where: row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required),
               options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => rows
             })
         }),
-      read: (criteria, orders, limit) => {
+      read: (criteria, orders, limit, required) => {
         const rows = planes()
           .entityState.values()
-          .filter(row => criteria != null && matchesDbWhere(row, criteria));
+          .filter(row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required));
         if (orders.length > 0) return sortModelReadRows(rows, orders, limit);
         return limitRows(rows, limit);
       }
@@ -809,12 +831,19 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       invalidateModel(config.id, scope);
     },
     use: {
-      row: (id, options) => {
-        const select = options?.select as ReadonlyArray<string> | undefined;
-        return useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)), id == null ? [] : [rowDep(id, select)]);
+      row: (id: string | null | undefined, options: { select?: ReadonlyArray<string | number | symbol>; require?: readonly string[] } | undefined) => {
+        const select = options?.select?.map(String);
+        const required = options?.require ?? [];
+        return useLiveRead(
+          () => {
+            const row = id == null ? undefined : planes().entityState.read(id);
+            return hasRequiredFields(row, required) ? row : undefined;
+          },
+          id == null ? [] : [rowDep(id, select || required.length > 0 ? [...(select ?? []), ...required] : undefined)]
+        );
       },
       field: (id, field) => useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)?.[field]), id == null ? [] : [rowDep(id, [String(field)])]),
-      first: (where, options) =>
+      first: (where: DbWhere<any> | null | undefined, options: (DbReadOptions<any> & { require?: readonly string[] }) | undefined) =>
         useIncrementalRead({
           signature: incrementalSignature('first', config.id, where, options),
           deps: [modelDep],
@@ -822,7 +851,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
             createModelReadEngine({
               signature: incrementalSignature('first', config.id, where, options),
               model: config.id,
-              where: row => where == null || matchesDbWhere(row, where),
+              where: row => (where == null || matchesDbWhere(row, where)) && hasRequiredFields(row, options?.require ?? []),
               options: options
                 ? { orderBy: options.orderBy ? [{ field: String(options.orderBy.field), direction: options.orderBy.direction }] : undefined, limit: options.limit }
                 : undefined,
@@ -927,5 +956,5 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
       if (key in model) throw new Error(`${config.name} statics collide with base model key ${key}`);
     }
   }
-  return Object.assign(model, statics);
+  return Object.assign(model, statics) as Omit<ModelCore<any>, 'use'> & { use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>; scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> } } & TExt;
 };
