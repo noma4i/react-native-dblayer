@@ -24,11 +24,25 @@ type ModelMutationConfig<TData, TInput, TStored extends {
 type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & {
     key?: string;
 };
-type CrudSection = Record<string, any>;
+type CrudSection = Record<string, unknown>;
+type CrudQueryHandle = ReturnType<typeof defineQuery<unknown, unknown, unknown, {
+    id: string;
+}>>;
+type CrudCreateHandle = ReturnType<typeof defineMutation<unknown, unknown, {
+    id: string;
+}, unknown>>;
+type CrudIdMutationHandle = ReturnType<typeof defineMutation<unknown, {
+    id: string;
+} & Record<string, unknown>, {
+    id: string;
+}, unknown>>;
+type CrudHandle<K extends keyof CrudSections> = K extends 'list' | 'get' ? CrudQueryHandle : K extends 'update' | 'destroy' ? CrudIdMutationHandle : CrudCreateHandle;
 export type CrudSections = {
     /** List query configuration. `into` is required and must be a scope handle. */
     list?: CrudSection & {
-        into: ScopeHandle<any, any>;
+        into: ScopeHandle<{
+            id: string;
+        }, unknown>;
     };
     /** Get query configuration; destination defaults to this model. */
     get?: CrudSection;
@@ -105,8 +119,12 @@ export type ModelCore<TStored extends {
         id: string;
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
     /** Compose conventional list/get/create/update/destroy handles through this model's existing query and mutation builders. */
+    /** Compose conventional resource handles.
+     * @param sections Present resource sections and their builder-derived configuration.
+     * @returns Exactly the handles for the present section keys.
+     */
     crud<TSections extends CrudSections>(sections: TSections): {
-        [K in keyof TSections]: any;
+        [K in keyof TSections & keyof CrudSections]: CrudHandle<K>;
     };
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;

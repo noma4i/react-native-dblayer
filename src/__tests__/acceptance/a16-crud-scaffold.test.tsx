@@ -61,4 +61,20 @@ describe('A16 crud scaffold', () => {
     const model = defineModel({ id: 'A16Dedupe', name: 'A16Dedupe', fields: { title: f.str() } }); const crud = model.crud({ create: { document, result: 'create', respond: (input: { title: string }, context: { tempId: string }) => ({ create: { id: context.tempId, title: input.title } }), selectServerNode: (data: any) => data.create } });
     const first = crud.create.run({ title: 'same' }); await expect(crud.create.run({ title: 'same' })).resolves.toBeNull(); expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1); hold.resolve({ data: { create: { id: 'server', title: 'same' } } }); await first;
   });
+
+  it('throws at define time for a list without into', () => {
+    setupAcceptanceRuntime();
+    const model = defineModel({ id: 'A16ListRequired', name: 'A16ListRequired', fields: { title: f.str() } });
+    expect(() => model.crud({ list: { document, select: () => [] } as never })).toThrow('crud list requires an explicit into scope');
+  });
+
+  it('rejects conventional update input without id at compile time', () => {
+    const model = defineModel({ id: 'A16UpdateId', name: 'A16UpdateId', fields: { title: f.str() } });
+    const crud = model.crud({ update: { document, result: 'update' } });
+    if (false) {
+      // @ts-expect-error conventional update requires input.id
+      void crud.update.run({ title: 'x' });
+    }
+    expect(crud.update).toBeDefined();
+  });
 });
