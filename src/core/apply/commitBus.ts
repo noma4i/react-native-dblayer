@@ -2,13 +2,20 @@ export type RowChange = { model: string; id: string; fields: string[] | null };
 export type ScopeChange = { model: string; scopeKey: string };
 export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[] };
 export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
-export type IncrementalScopeChange = { model: string; scopeKey: string; ids?: string[]; appendIds?: string[]; detachIds?: string[]; rebuild?: boolean };
+export type IncrementalScopeChange = {
+  model: string;
+  scopeKey: string;
+  ids?: string[];
+  appendIds?: string[];
+  /** Sparse orders of appended rows, carried from scope-delta ops for O(delta) mirroring. */
+  appendEntries?: Array<{ id: string; order: number }>;
+  detachIds?: string[];
+  rebuild?: boolean;
+};
 export type IncrementalCommitBatch = CommitBatch & { mode?: IncrementalBatchMode; scopeChanges?: IncrementalScopeChange[]; maintenanceModels?: string[] };
 
 export type Dependency =
-  | { kind: 'row'; model: string; id: string; fields?: ReadonlyArray<string> }
-  | { kind: 'scope'; model: string; scopeKey: string }
-  | { kind: 'model'; model: string };
+  { kind: 'row'; model: string; id: string; fields?: ReadonlyArray<string> } | { kind: 'scope'; model: string; scopeKey: string } | { kind: 'model'; model: string };
 
 export type CommitSubscription = { setDeps(deps: ReadonlyArray<Dependency>): void; unsubscribe(): void };
 
@@ -45,7 +52,8 @@ export const createCommitBus = () => {
 
   return {
     subscribe,
-    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void): CommitSubscription => subscribe(notify, deps, onBatch),
+    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void): CommitSubscription =>
+      subscribe(notify, deps, onBatch),
     subscribeAll: (onBatch: (batch: IncrementalCommitBatch) => void): (() => void) => {
       allSubscribers.add(onBatch);
       return () => allSubscribers.delete(onBatch);

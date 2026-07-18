@@ -60,6 +60,24 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     reactiveEpochs.set(key, (reactiveEpochs.get(key) ?? 0) + 1);
   };
 
+  const boundaryAddFor = (
+    key: string,
+    previous: ScopeIndexValue,
+    coverage: Coverage,
+    incoming: IncomingScopeRow[],
+    opts?: { resetOrder?: boolean }
+  ): { side: 'head' | 'tail'; ids: string[] } | undefined => {
+    if ((coverage !== 'delta' && coverage !== 'page') || opts?.resetOrder || incoming.some(row => typeof row.order !== 'number')) return undefined;
+    const members = memberSets.get(key);
+    if (incoming.some(row => members?.has(row.id))) return undefined;
+    if (previous.entries.length === 0) return { side: 'tail', ids: incoming.map(row => row.id) };
+    const headOrder = previous.entries[0]!.order;
+    const tailOrder = previous.entries.at(-1)!.order;
+    if (incoming.every(row => row.order! < headOrder)) return { side: 'head', ids: incoming.map(row => row.id) };
+    if (incoming.every(row => row.order! > tailOrder)) return { side: 'tail', ids: incoming.map(row => row.id) };
+    return undefined;
+  };
+
   const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
     const nextIds = new Set(next.entries.map(entry => entry.id));
     if (previous) {
@@ -82,7 +100,29 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     memberSets.set(key, nextIds);
   };
 
-  const commit = (key: string, next: ScopeIndexValue): ScopeIndexValue => {
+  const commit = (key: string, next: ScopeIndexValue, fastAdd?: string[]): ScopeIndexValue => {
+    if (fastAdd) {
+      orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
+      let members = memberSets.get(key);
+      if (!members) {
+        members = new Set();
+        memberSets.set(key, members);
+      }
+      for (const id of fastAdd) {
+        members.add(id);
+        let keys = keysByRow.get(id);
+        if (!keys) {
+          keys = new Set();
+          keysByRow.set(id, keys);
+        }
+        keys.add(key);
+      }
+      removed.delete(key);
+      scopes.set(key, next);
+      dirty.add(key);
+      touch(key);
+      return next;
+    }
     const previousOrder = (scopes.get(key)?.entries ?? []).map(entry => entry.id).join('\0');
     const nextOrder = next.entries.map(entry => entry.id).join('\0');
     if (previousOrder !== nextOrder) orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
@@ -97,6 +137,13 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const reconcileNext = (key: string, coverage: Coverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
     const previous = scopes.get(key) ?? empty();
     const generation = previous.generation + 1;
+    const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
+
+    if (boundaryAdd) {
+      const sortedIncoming = [...incoming].sort((left, right) => left.order! - right.order!).map(row => ({ id: row.id, order: row.order!, seq: generation, edge: row.edge }));
+      const entries = boundaryAdd.side === 'head' ? [...sortedIncoming, ...previous.entries] : [...previous.entries, ...sortedIncoming];
+      return { next: { generation, coverage: previous.coverage === 'complete' ? 'complete' : coverage, entries }, detachedIds: [] };
+    }
 
     if (coverage === 'complete') {
       const incomingIds = new Set(incoming.map(row => row.id));
@@ -148,8 +195,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       commit(key, next);
     },
     reconcile: (key, coverage, incoming, opts) => {
+      const previous = scopes.get(key) ?? empty();
+      const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
       const result = reconcileNext(key, coverage, incoming, opts);
-      return { next: commit(key, result.next), detachedIds: result.detachedIds };
+      return { next: commit(key, result.next, boundaryAdd?.ids), detachedIds: result.detachedIds };
     },
     reconcileNext,
     detach: (key, ids) => {

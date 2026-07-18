@@ -69,10 +69,11 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           const structural = scopeChanges.reduce(
             (current, change) => ({
               appendIds: [...new Set([...current.appendIds, ...(change.appendIds ?? [])])],
+              appendEntries: [...new Map([...current.appendEntries, ...(change.appendEntries ?? [])].map(entry => [entry.id, entry])).values()],
               detachIds: [...new Set([...current.detachIds, ...(change.detachIds ?? [])])],
               rebuild: current.rebuild || change.rebuild === true
             }),
-            { appendIds: [] as string[], detachIds: [] as string[], rebuild: false }
+            { appendIds: [] as string[], appendEntries: [] as Array<{ id: string; order: number }>, detachIds: [] as string[], rebuild: false }
           );
           const meta = target.scopeSortMeta(scopeKey);
 
@@ -118,11 +119,33 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           const revision = target.readScopeOrderRevision(scopeKey);
           const modelCache = scopeOrderCache.get(modelId) ?? new Map<string, number>();
           scopeOrderCache.set(modelId, modelCache);
+          if (meta.kind === `server-order` && !structural.rebuild) {
+            const appendOrders = new Map(structural.appendEntries.map(entry => [entry.id, entry.order]));
+            if (structural.appendIds.every(rowId => appendOrders.has(rowId))) {
+              for (const rowId of structural.detachIds) membershipWriter.write({ type: `delete`, key: `${scopeKey}\0${rowId}` });
+              for (const rowId of structural.appendIds) {
+                const order = appendOrders.get(rowId)!;
+                const next = { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq: order };
+                const current = memberships.get(next.key);
+                if (!current) membershipWriter.write({ type: `insert`, value: next });
+                else if (hasChanged(current, next)) membershipWriter.write({ type: `update`, value: next });
+              }
+              modelCache.set(scopeKey, revision);
+              continue;
+            }
+          }
           const orderAffected = batch.rows.some(row => row.model === modelId && target.scopeOrderAffected(scopeKey, row.id, row.fields));
-          if (meta.kind === `comparator` && !structural.rebuild && structural.appendIds.length === 0 && structural.detachIds.length === 0 && modelCache.get(scopeKey) === revision && !orderAffected) continue;
+          if (
+            meta.kind === `comparator` &&
+            !structural.rebuild &&
+            structural.appendIds.length === 0 &&
+            structural.detachIds.length === 0 &&
+            modelCache.get(scopeKey) === revision &&
+            !orderAffected
+          )
+            continue;
 
-          const ids = target.readScopeOrder(scopeKey);
-          const expected = ids.map((rowId, seq) => ({ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }));
+          const expected = target.readScopeEntries(scopeKey).map(entry => ({ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }));
           const expectedKeys = new Set(expected.map(row => row.key));
           const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
           for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });
@@ -169,13 +192,17 @@ export function seedCollections(models: string[]): void {
       const membershipWriter = membershipWriterFor(modelId);
       membershipWriter.begin();
       for (const scopeKey of target.readAllScopeKeys()) {
-        const ids = target.readScopeOrder(scopeKey);
         const meta = target.scopeSortMeta(scopeKey);
-        const expected = ids.flatMap((rowId, seq) => {
-          const row = target.readRow(rowId);
-          if (!row) return [];
-          return [meta.kind === `field` ? { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] } : { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }];
-        });
+        const expected =
+          meta.kind === `field`
+            ? target.readScopeOrder(scopeKey).flatMap(rowId => {
+                const row = target.readRow(rowId);
+                return row ? [{ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] }] : [];
+              })
+            : target.readScopeEntries(scopeKey).flatMap(entry => {
+                const row = target.readRow(entry.id);
+                return row ? [{ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }] : [];
+              });
         const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
         const expectedKeys = new Set(expected.map(row => row.key));
         for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });

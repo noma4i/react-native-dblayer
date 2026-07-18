@@ -136,7 +136,7 @@ describe(`membership collection mirror`, () => {
     expectMembershipScope(`MembershipCascadeChild`, `feed:${JSON.stringify({ feed: `two` })}`, { kind: `server-order` }, child.scopes.feed.read({ feed: `two` }));
   });
 
-  it(`mirrors public scope trimming with contiguous order`, () => {
+  it(`mirrors public scope trimming with sparse order`, () => {
     createContractScenario();
     const model = defineModel({
       id: `MembershipTrim`,
@@ -148,7 +148,7 @@ describe(`membership collection mirror`, () => {
     trimRowsPerScope(model, `feedId`, 3, (left, right) => Number(right.rank) - Number(left.rank));
     const key = `feed:${JSON.stringify(feed)}`;
     expectMembershipScope(`MembershipTrim`, key, { kind: `server-order` }, model.scopes.feed.read(feed));
-    expect(membershipCollectionFor(`MembershipTrim`).toArray.filter(row => row.scopeKey === key).map(row => row.seq).sort()).toEqual([0, 1, 2]);
+    expect(membershipCollectionFor(`MembershipTrim`).toArray.filter(row => row.scopeKey === key).map(row => row.seq).sort()).toEqual([3, 4, 5]);
   });
 
   it(`deletes memberships when garbage collection removes a dead scope`, () => {

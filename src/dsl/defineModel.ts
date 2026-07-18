@@ -418,6 +418,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
           .entries.map(entry => entry.id);
       }
     },
+    readScopeEntries: (scopeKey: string): Array<{ id: string; order: number }> => planes().scopeIndex.read(scopeKey).entries,
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
     scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {
       if (fields === null || !planes().scopeIndex.has(scopeKey, id)) return true;

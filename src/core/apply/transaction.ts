@@ -13,6 +13,8 @@ export type ApplyTarget = {
   readRow(id: string): Record<string, unknown> | undefined;
   readAllRows(): Array<Record<string, unknown>>;
   readScopeOrder(scopeKey: string): string[];
+  /** Returns scope entries in visible order with their sparse scope-index order values. */
+  readScopeEntries(scopeKey: string): Array<{ id: string; order: number }>;
   readScopeOrderRevision(scopeKey: string): number;
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
   scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
@@ -61,10 +63,15 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
     const key = `${model}:${scopeKey}`;
     const current = scopeChanges.get(key) ?? { model, scopeKey };
     const mergeIds = (left?: string[], right?: string[]) => (left || right ? [...new Set([...(left ?? []), ...(right ?? [])])] : undefined);
+    const mergeAppendEntries = (left?: Array<{ id: string; order: number }>, right?: Array<{ id: string; order: number }>) => {
+      if (!left && !right) return undefined;
+      return [...new Map([...(left ?? []), ...(right ?? [])].map(entry => [entry.id, entry])).values()];
+    };
     scopeChanges.set(key, {
       ...current,
       ids: mergeIds(current.ids, change.ids),
       appendIds: mergeIds(current.appendIds, change.appendIds),
+      appendEntries: mergeAppendEntries(current.appendEntries, change.appendEntries),
       detachIds: mergeIds(current.detachIds, change.detachIds),
       rebuild: current.rebuild === true || change.rebuild === true
     });
@@ -111,7 +118,11 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
     if (op.kind === 'scope-delta') {
       target.scopeDelta(op.scopeKey, { append: op.append, detach: op.detach });
       batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
-      noteScope(op.model, op.scopeKey, { appendIds: op.append.map(row => row.id), detachIds: op.detach });
+      noteScope(op.model, op.scopeKey, {
+        appendIds: op.append.map(row => row.id),
+        appendEntries: op.append.filter(row => typeof row.order === 'number').map(row => ({ id: row.id, order: row.order! })),
+        detachIds: op.detach
+      });
     }
   }
   batch.scopeChanges = [...scopeChanges.values()];

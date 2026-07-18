@@ -17,6 +17,11 @@ export type IncrementalScopeChange = {
     scopeKey: string;
     ids?: string[];
     appendIds?: string[];
+    /** Sparse orders of appended rows, carried from scope-delta ops for O(delta) mirroring. */
+    appendEntries?: Array<{
+        id: string;
+        order: number;
+    }>;
     detachIds?: string[];
     rebuild?: boolean;
 };

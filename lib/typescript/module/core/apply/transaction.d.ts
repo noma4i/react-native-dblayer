@@ -11,6 +11,11 @@ export type ApplyTarget = {
     readRow(id: string): Record<string, unknown> | undefined;
     readAllRows(): Array<Record<string, unknown>>;
     readScopeOrder(scopeKey: string): string[];
+    /** Returns scope entries in visible order with their sparse scope-index order values. */
+    readScopeEntries(scopeKey: string): Array<{
+        id: string;
+        order: number;
+    }>;
     readScopeOrderRevision(scopeKey: string): number;
     scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
     scopeSortMeta(scopeKey: string): {

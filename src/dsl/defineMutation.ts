@@ -171,6 +171,25 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     if (placement && placement.scope.modelId !== optimisticConfig.model.modelId) throw new Error(`optimistic prependTo/appendTo scope must belong to the optimistic model`);
   }
 
+  /** Ensures auto membership deltas yield to explicit placement orders. */
+  const dedupePlacementAppends = (plan: JournalOp[], placementOps: JournalOp[]): JournalOp[] => {
+    const placementIds = new Map<string, Set<string>>();
+    for (const op of placementOps) {
+      if (op.kind !== 'scope-delta') continue;
+      const key = `${op.model}\0${op.scopeKey}`;
+      const ids = placementIds.get(key) ?? new Set<string>();
+      for (const row of op.append) ids.add(row.id);
+      placementIds.set(key, ids);
+    }
+    return plan.flatMap<JournalOp>(op => {
+      if (op.kind !== 'scope-delta') return [op];
+      const ids = placementIds.get(`${op.model}\0${op.scopeKey}`);
+      if (!ids) return [op];
+      const append = op.append.filter(row => row.order !== undefined || !ids.has(row.id));
+      return append.length > 0 || op.detach.length > 0 ? [{ ...op, append }] : [];
+    });
+  };
+
   const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[] => {
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
     if (payload == null) throw new Error(`${config.result} returned no data`);
@@ -183,8 +202,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined) ops.push(...(optimistic.model.__planReplace?.(context.tempId, row) ?? []));
       else ops.push(...(optimistic.model.__planRows?.([row]) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [row] }]));
       const placement = optimistic.prependTo ?? optimistic.appendTo;
-      if (placement && context.tempId && id === context.tempId)
-        ops.push(...(placement.scope.__planPlacement?.(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append') ?? []));
+      if (placement && context.tempId && id === context.tempId) ops.push(...(placement.scope.__planPlacement?.(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append') ?? []));
     }
     for (const sink of config.extract?.({ data }) ?? []) ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
     return ops;
@@ -227,7 +245,8 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const fabricated = optimistic.respond(input, { tempId, operationId });
       respondInverse = inverseFromRespond(fabricated, { tempId, operationId }, optimistic);
       const optimisticOps = planFromRespond(fabricated, { tempId, operationId }, optimistic, input);
-      if (optimisticOps.length > 0) getApplyRuntime().apply(expandPlan(optimisticOps));
+      const placementOps = optimisticOps.filter(op => op.kind === 'scope-delta' && op.append.some(row => row.order !== undefined));
+      if (optimisticOps.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(optimisticOps), placementOps));
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
       const reuseId = optimistic.existingTempId?.(input) ?? null;
       if (reuseId != null && optimistic.model.get(reuseId) !== undefined) {
@@ -242,8 +261,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const ops = optimistic.model.__planRows?.([{ ...(row as Record<string, unknown>), id: newTempId }]) ?? [
           { kind: 'upsert' as const, model: optimistic.model.modelId, rows: [{ ...(row as Record<string, unknown>), id: newTempId }] }
         ];
-        if (placement) ops.push(...(placement.scope.__planPlacement?.(placement.value(input), newTempId, position) ?? []));
-        getApplyRuntime().apply(expandPlan(ops));
+        let placementOps: JournalOp[] = [];
+        if (placement) {
+          placementOps = placement.scope.__planPlacement?.(placement.value(input), newTempId, position) ?? [];
+          ops.push(...placementOps);
+        }
+        getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
       }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
@@ -280,8 +303,11 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (payload == null) throw new Error(`${config.result} returned no data`);
 
       const ops: JournalOp[] = [];
+      let placementOps: JournalOp[] = [];
       if (optimistic && isRespondOptimistic(optimistic)) {
-        ops.push(...planFromRespond(data, context, optimistic, input));
+        const respondOps = planFromRespond(data, context, optimistic, input);
+        ops.push(...respondOps);
+        placementOps = respondOps.filter(op => op.kind === 'scope-delta' && op.append.some(row => row.order !== undefined));
       } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
         const node = optimistic.selectServerNode(data);
         if (node != null) {
@@ -303,7 +329,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       for (const sink of config.extract?.({ data }) ?? []) {
         ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
       }
-      if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
+      if (ops.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
 
       if (tracked) operations.close(operationId, 'committed');
     } catch (error) {
