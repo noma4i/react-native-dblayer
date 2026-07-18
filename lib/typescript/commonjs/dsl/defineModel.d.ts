@@ -5,6 +5,8 @@ import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery } from './defineQuery';
 import { type ViewConfig, type ViewHandle } from './defineView';
+import { type ModelIngestEntry } from './defineIngest';
+import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import type { Coverage, ScopeSpec } from './scope';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
@@ -86,6 +88,8 @@ export type ModelCore<TStored extends {
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
     /** Define a reactive joined projection over one declared scope and its current related rows. */
     view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
+    /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
+    ingest(entries: Record<string, ModelIngestEntry>): DbSubscriptionEntry[];
     get(id: string | null | undefined): TStored | undefined;
     getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
     /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */

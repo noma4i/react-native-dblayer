@@ -20,6 +20,8 @@ import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery } from './defineQuery';
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
+import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
+import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import type { Coverage, ScopeSpec } from './scope';
 import { useState } from 'react';
 
@@ -82,6 +84,8 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
   /** Define a reactive joined projection over one declared scope and its current related rows. */
   view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
+  /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
+  ingest(entries: Record<string, ModelIngestEntry>): DbSubscriptionEntry[];
   get(id: string | null | undefined): TStored | undefined;
   getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
@@ -592,6 +596,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     },
     fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
     view: (name, viewConfig) => defineView(model, name, viewConfig),
+    ingest: entries => defineModelIngest(model, entries),
     get: id => (id == null ? undefined : planes().entityState.read(id)),
     getWhere: (where, options) =>
       sortRows(
@@ -722,6 +727,7 @@ export const defineModel = <TFields extends ModelFieldSpecs, TScopes extends Rec
     __planRestore: planRestore,
     __relations: resolvedRelations
   };
+  registerIngestModel(config.name, model);
 
   registerReset(() => {
     planesRef?.entityState.reset();
