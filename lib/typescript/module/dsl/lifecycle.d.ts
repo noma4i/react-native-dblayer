@@ -21,9 +21,9 @@ import { type MaintenanceReport } from './maintenanceRegistry';
  * report for the post-replay sweep.
  */
 export declare const bootDb: (options: Parameters<typeof configureDb>[0]) => Promise<{
-  replayed: number;
-  gc: GcReport;
-  maintenance: MaintenanceReport[];
+    replayed: number;
+    gc: GcReport;
+    maintenance: MaintenanceReport[];
 }>;
 /**
  * Recommended app-background/teardown sequence: `flushPersistence()` to write pending checkpoint
