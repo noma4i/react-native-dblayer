@@ -138,6 +138,7 @@ output reference** unchanged when they match - so a memoized child component key
 reference skips re-rendering for changes it does not display. `use.byIds`'s array form applies the
 same per-item gate plus an outer array-level shallow-equal check, so an untouched row's projected
 entry keeps its reference inside the returned `rows` array too.
+Array-valued projection or `renderKeys` entries compare element-wise by reference, one level deep.
 
 ## Scope reads
 

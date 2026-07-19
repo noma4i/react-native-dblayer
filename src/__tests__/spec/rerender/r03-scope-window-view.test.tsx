@@ -8,6 +8,14 @@ type ScopedRow = {
   groupId: string;
   title: string;
   rank: number;
+  userIds: string[];
+  markers: Array<{ id: string }>;
+};
+
+type ViewUserRow = {
+  id: string;
+  fullName: string;
+  status: string;
 };
 
 type ScopeWindowResult<T> = {
@@ -32,7 +40,9 @@ const createScopedModel = () =>
     fields: {
       groupId: f.str(),
       title: f.str(),
-      rank: f.num()
+      rank: f.num(),
+      userIds: f.raw<string[]>(),
+      markers: f.raw<Array<{ id: string }>>()
     },
     scopes: {
       byGroup: scope<ScopedRow>({
@@ -48,10 +58,30 @@ const seedRows = (rows: ReturnType<typeof createScopedModel>) => {
       id: `row-${index}`,
       groupId: index < 15 ? 'g1' : 'g2',
       title: `row-${index}`,
-      rank: index
+      rank: index,
+      userIds: ['user-1'],
+      markers: [{ id: `marker-${index}` }]
     }))
   );
 };
+
+const createViewUserModel = () =>
+  defineModel({
+    id: 'SpecRerenderViewUser',
+    name: 'SpecRerenderViewUser',
+    fields: {
+      fullName: f.str(),
+      status: f.str()
+    }
+  });
+
+const createUsersView = (rows: ReturnType<typeof createScopedModel>, users: ReturnType<typeof createViewUserModel>) =>
+  rows.view<{ id: string; users: ViewUserRow[] }, { users: ViewUserRow[] }>('withUsers', {
+    source: rows.scopes.byGroup,
+    include: { users: { model: users, ids: row => row.userIds } },
+    select: (row, included) => ({ id: row.id, users: included.users }),
+    renderKeys: ['users']
+  });
 
 const idsOf = (rows: Array<{ id: string }>): string[] => rows.map(row => row.id);
 
@@ -133,6 +163,64 @@ describe('rerender matrix scope window view', () => {
     });
 
     expect(reader.renders() - before).toBe(0);
+    reader.unmount();
+  });
+
+  it('keeps a view item with an array render key stable for an unrelated source patch', () => {
+    setupSpecRuntime();
+    const rows = createScopedModel();
+    const users = createViewUserModel();
+    seedRows(rows);
+    users.insertStored({ id: 'user-1', fullName: 'User One', status: 'online' });
+    const view = createUsersView(rows, users);
+    const reader = renderCounted(() => view.use({ groupId: 'g1' }));
+    const beforeItem = reader.result()[0];
+    const beforeRenders = reader.renders();
+
+    act(() => {
+      rows.patch('row-0', { title: 'unrelated source patch' });
+    });
+
+    expect(reader.result()[0]).toBe(beforeItem);
+    expect(reader.renders() - beforeRenders).toBe(0);
+    reader.unmount();
+  });
+
+  it('rerenders a view item once when one included array row is replaced', () => {
+    setupSpecRuntime();
+    const rows = createScopedModel();
+    const users = createViewUserModel();
+    seedRows(rows);
+    users.insertStored({ id: 'user-1', fullName: 'User One', status: 'online' });
+    const view = createUsersView(rows, users);
+    const reader = renderCounted(() => view.use({ groupId: 'g1' }));
+    const beforeItem = reader.result()[0];
+    const beforeRenders = reader.renders();
+
+    act(() => {
+      users.patch('user-1', { status: 'away' });
+    });
+
+    expect(reader.result()[0]).not.toBe(beforeItem);
+    expect(reader.renders() - beforeRenders).toBe(1);
+    reader.unmount();
+  });
+
+  it('keeps a row render key stable when an array is rewritten with the same element references', () => {
+    setupSpecRuntime();
+    const rows = createScopedModel();
+    seedRows(rows);
+    const markers = rows.get('row-2')!.markers;
+    const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }, { renderKeys: ['markers'] }));
+    const beforeRow = reader.result()[2];
+    const beforeRenders = reader.renders();
+
+    act(() => {
+      rows.patch('row-2', { markers: [...markers] });
+    });
+
+    expect(reader.result()[2]).toBe(beforeRow);
+    expect(reader.renders() - beforeRenders).toBe(0);
     reader.unmount();
   });
 
@@ -408,7 +496,7 @@ describe('rerender matrix scope window view', () => {
     act(() => {
       rows.patch('row-20', { title: 'g2 changed' });
       rows.destroy('row-21');
-      rows.insertStored({ id: 'new-row', groupId: 'g2', title: 'g2 inserted', rank: 100 });
+      rows.insertStored({ id: 'new-row', groupId: 'g2', title: 'g2 inserted', rank: 100, userIds: [], markers: [] });
     });
 
     expect(reader.renders() - before).toBe(0);

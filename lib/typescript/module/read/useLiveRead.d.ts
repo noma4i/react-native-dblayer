@@ -1,7 +1,7 @@
 import type { Dependency } from '../core/apply/commitBus';
 /** Shallow element-identity equality; rows keep stable refs in EntityState until replaced. */
 export declare const arraysShallowEqual: <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>) => boolean;
-/** Shallow row equality across the union of both row key sets. */
+/** Shallow row equality across both key sets; array values compare element identity one level deep. */
 export declare const rowsShallowEqual: (left: object, right: object) => boolean;
 /**
  * Reactive read primitive with pinpoint emissions: the hook subscribes to the commit bus with an
