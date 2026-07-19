@@ -18,15 +18,10 @@ describe('public barrel exports', () => {
       'useStableSorted',
       'pickEqual',
       'computePhase',
-      'computeLoadingState'
+      'computeLoadingState',
+      'castNode',
+      'castNodes'
     ];
-
-    expect(Object.keys(barrel).filter(name => forbidden.includes(name))).toEqual([]);
-  });
-
-  // GATE-PENDING(G11): Remove low-level compatibility helpers from the public barrel.
-  test.failing('does not expose infrastructure or low-level helpers', () => {
-    const forbidden = ['castNode', 'castNodes'];
 
     expect(Object.keys(barrel).filter(name => forbidden.includes(name))).toEqual([]);
   });

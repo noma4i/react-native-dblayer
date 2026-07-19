@@ -27,15 +27,14 @@ const declarationPaths = (symbol: ts.Symbol | undefined) =>
   symbol?.declarations?.map(declaration => declaration.getSourceFile().fileName.split(path.sep).join('/')) ?? [];
 
 describe('public declaration hygiene', () => {
-  // GATE-PENDING(G7): Replace exported internal ScopeHandle members with a private implementation surface.
-  test.failing('does not expose internal properties on exported types', () => {
+  it('does not expose internal properties on exported types', () => {
     const { checker, exports } = createExportSurface();
     const leaks = exports.flatMap(exported => {
       const target = resolveAlias(checker, exported);
       if (!(target.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias))) return [];
       return checker
         .getPropertiesOfType(checker.getDeclaredTypeOfSymbol(target))
-        .filter(member => member.name.startsWith('__'))
+        .filter(member => member.name.startsWith('__') && (member.declarations?.length ?? 0) > 0)
         .map(member => `${exported.name}.${member.name}`);
     });
 

@@ -5,8 +5,6 @@ exports[`public barrel exports matches the reviewed runtime export allowlist 1`]
   "DbProvider",
   "belongsTo",
   "bootDb",
-  "castNode",
-  "castNodes",
   "collectGarbage",
   "configureDb",
   "createDbSubscriptionEffects",
