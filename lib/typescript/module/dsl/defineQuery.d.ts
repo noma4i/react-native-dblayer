@@ -40,7 +40,9 @@ export type QueryResult<T> = {
 };
 type PlanRowsSink = {
     modelId: string;
-    __planRows?: (rows: unknown[]) => JournalOp[];
+    __planRows?: (rows: unknown[], options?: {
+        includeMembership?: boolean;
+    }) => JournalOp[];
 };
 export type ExtractSink = {
     into: PlanRowsSink;
@@ -51,7 +53,9 @@ type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & {
 }, TScope>;
 type ModelDestination<TStored> = {
     modelId: string;
-    __planRows?: (rows: TStored[]) => JournalOp[];
+    __planRows?: (rows: TStored[], options?: {
+        includeMembership?: boolean;
+    }) => JournalOp[];
     get?: (id: string | null | undefined) => TStored | undefined;
 };
 type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope> | ModelDestination<TStored>;

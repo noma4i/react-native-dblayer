@@ -39,12 +39,16 @@ export type QueryResult<T> = {
   refetch: () => Promise<void>;
 };
 
-type PlanRowsSink = { modelId: string; __planRows?: (rows: unknown[]) => JournalOp[] };
+type PlanRowsSink = { modelId: string; __planRows?: (rows: unknown[], options?: { includeMembership?: boolean }) => JournalOp[] };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
 
 type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: string }, TScope>;
-type ModelDestination<TStored> = { modelId: string; __planRows?: (rows: TStored[]) => JournalOp[]; get?: (id: string | null | undefined) => TStored | undefined };
+type ModelDestination<TStored> = {
+  modelId: string;
+  __planRows?: (rows: TStored[], options?: { includeMembership?: boolean }) => JournalOp[];
+  get?: (id: string | null | undefined) => TStored | undefined;
+};
 type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope> | ModelDestination<TStored>;
 
 type QueryConfig<TResponse, TVars, TScope, TStored> = {
@@ -165,10 +169,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       const scopeRows = pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) }));
       ops.push(...(config.into.__planApply?.(scope, scopeRows, coverage, { resetOrder }) ?? []));
     } else {
-      ops.push(...(config.into.__planRows?.(nodes as TStored[]) ?? []));
+      ops.push(...(config.into.__planRows?.(nodes as TStored[], { includeMembership: true }) ?? []));
     }
     for (const sink of config.extract?.({ data, nodes }) ?? []) {
-      ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
+      ops.push(...(sink.into.__planRows?.(sink.rows, { includeMembership: true }) ?? []));
     }
     if (ops.length > 0) getApplyRuntime().apply(ops);
     return pageMetaOf(config.page ? config.page(data) : null);

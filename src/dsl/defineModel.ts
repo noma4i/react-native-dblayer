@@ -249,7 +249,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
   registerReset(fn: () => void): void;
   __applyRows?(rows: TStored[]): void;
-  __planRows?(rows: TStored[]): JournalOp[];
+  __planRows?(rows: TStored[], options?: { includeMembership?: boolean }): JournalOp[];
   __planReplace?(oldId: string, next: unknown): JournalOp[];
   __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
   __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
@@ -679,9 +679,12 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
-    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
-      const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
-      const scopeKey = keyForScope(scopeName, scopeValue);
+    const planScope = (
+      scopeKey: string,
+      liveRows: Array<{ row: any; edge?: Record<string, unknown> }>,
+      coverage: ScopeCoverage,
+      opts?: { resetOrder?: boolean }
+    ): JournalOp => {
       let { next } = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
@@ -730,9 +733,29 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         }
         next = planes().scopeIndex.trimValue(next, maxRows).next;
       }
+      return { kind: 'scope', model: config.id, scopeKey, next };
+    };
+    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
+      const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
+      const requestedScopeKey = keyForScope(scopeName, scopeValue);
+      const upsert: JournalOp = { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) };
+      if (!spec?.by) return [upsert, planScope(requestedScopeKey, liveRows, coverage, opts)];
+
+      const rowsByScope = new Map<string, Array<{ row: any; edge?: Record<string, unknown> }>>();
+      for (const entry of liveRows) {
+        const derivedValue = scopeValueFromRow(spec.by, entry.row);
+        if (!derivedValue) continue;
+        const derivedKey = keyForScope(scopeName, derivedValue);
+        const group = rowsByScope.get(derivedKey) ?? [];
+        group.push(entry);
+        rowsByScope.set(derivedKey, group);
+      }
+      const requestedRows = rowsByScope.get(requestedScopeKey) ?? [];
+      rowsByScope.delete(requestedScopeKey);
       return [
-        { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) },
-        { kind: 'scope', model: config.id, scopeKey, next }
+        upsert,
+        planScope(requestedScopeKey, requestedRows, coverage, opts),
+        ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))
       ];
     };
     return {
@@ -818,7 +841,29 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>;
   };
 
-  const planRows = (rows: any[]): JournalOp[] => [{ kind: 'upsert', model: config.id, rows: rows.filter(isPlanRow) }];
+  const planRows = (rows: any[], options?: { includeMembership?: boolean }): JournalOp[] => {
+    const accepted = rows.filter(isPlanRow);
+    const ops: JournalOp[] = [{ kind: 'upsert', model: config.id, rows: accepted }];
+    if (!options?.includeMembership) return ops;
+    for (const row of accepted) {
+      let stored;
+      try {
+        stored = normalize(row);
+      } catch {
+        continue;
+      }
+      for (const delta of membershipForUpsert(stored)) {
+        ops.push({
+          kind: 'scope-delta',
+          model: config.id,
+          scopeKey: delta.scopeKey,
+          append: (delta.append ?? []).map(id => ({ id })),
+          detach: delta.detach ?? []
+        });
+      }
+    }
+    return ops;
+  };
 
   const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
     planes()

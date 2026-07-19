@@ -271,7 +271,9 @@ export type ModelCore<TStored extends {
     scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
     registerReset(fn: () => void): void;
     __applyRows?(rows: TStored[]): void;
-    __planRows?(rows: TStored[]): JournalOp[];
+    __planRows?(rows: TStored[], options?: {
+        includeMembership?: boolean;
+    }): JournalOp[];
     __planReplace?(oldId: string, next: unknown): JournalOp[];
     __captureMembership?(id: string): Array<{
         id: string;
