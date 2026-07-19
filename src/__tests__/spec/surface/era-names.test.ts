@@ -36,8 +36,7 @@ describe('era-free repository naming', () => {
     expect(matches).toEqual([]);
   });
 
-  // GATE-PENDING(G9): Remove every era-qualified source path.
-  test.failing('contains no era references in source path segments', () => {
+  it('contains no era references in source path segments', () => {
     const matches = walk(srcRoot)
       .map(relative)
       .filter(file => file.split('/').some(segment => eraPattern.test(segment)));
