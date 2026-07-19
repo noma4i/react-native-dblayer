@@ -20,6 +20,10 @@ type FetchConfigBase<TData, TInput, TSelected> = {
   enabled?: (input: TInput) => boolean;
   /** Freshness window (ms) before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. */
   staleTime?: number;
+  /** Freshness window (ms) used instead of `staleTime` when `isEmpty` classifies the last selected result as empty. Defaults to `DbDefaults.emptyStaleTime`. */
+  emptyStaleTime?: number;
+  /** Classify a selected result as empty. Defaults to nullish values and empty arrays. */
+  isEmpty?: (data: TSelected) => boolean;
   /** TanStack Query cache garbage-collection time (ms). Defaults to `DbDefaults.gcTime`. */
   gcTime?: number;
 };
@@ -58,7 +62,7 @@ export type FetchResult<TSelected> = {
  * (pricing tables, country lists, SKU catalogs) where a `defineQuery` write destination would be pure
  * overhead.
  *
- * @param config Document, cache key, `select`, and optional `vars`/`enabled`/`staleTime`/`gcTime`.
+ * @param config Document, cache key, `select`, and optional variables, enablement, freshness, empty-result, and cache-lifetime policies.
  * @returns `{ use, fetch, remove }`. `use(input)` is a hook returning a `FetchResult`. `fetch(input)` runs
  * through the owned query client. `remove()` drops every cached input for this key.
  */
@@ -69,6 +73,14 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   registerBootValidation(() => {
     if (hasDocument === hasFetcher) throw new Error('defineFetch requires exactly one of document or fetcher');
   });
+  const isEmpty = config.isEmpty ?? ((data: TSelected) => data == null || (Array.isArray(data) && data.length === 0));
+  const resolveStaleTime = (): number | ((query: { state: { data: unknown; dataUpdatedAt: number } }) => number) => {
+    const defaults = getDbRuntimeConfig().defaults;
+    const staleTime = config.staleTime ?? defaults?.staleTime ?? 0;
+    const emptyStaleTime = config.emptyStaleTime ?? defaults?.emptyStaleTime;
+    if (emptyStaleTime == null) return staleTime;
+    return query => (query.state.dataUpdatedAt > 0 && isEmpty(query.state.data as TSelected) ? emptyStaleTime : staleTime);
+  };
 
   const execute = async (input: TInput): Promise<TSelected> => {
     const generationFence = createGenerationFence();
@@ -98,10 +110,10 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const fetch = async (input: TInput): Promise<TSelected> => {
     const generationFence = createGenerationFence();
     try {
-      return await getInternalQueryClient().fetchQuery({
+      return await getInternalQueryClient().fetchQuery<TSelected>({
         queryKey: queryKeyOf(input),
         queryFn: () => execute(input),
-        staleTime: config.staleTime ?? getDbRuntimeConfig().defaults?.staleTime ?? 0,
+        staleTime: resolveStaleTime(),
         gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime
       });
     } catch (error) {
@@ -122,7 +134,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       queryKey: queryKeyOf(input),
       enabled,
       queryFn: () => execute(input),
-      staleTime: config.staleTime ?? getDbRuntimeConfig().defaults?.staleTime ?? 0,
+      staleTime: resolveStaleTime(),
       gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime
     });
     const hasData = Array.isArray(request.data) ? request.data.length > 0 : request.data !== undefined;

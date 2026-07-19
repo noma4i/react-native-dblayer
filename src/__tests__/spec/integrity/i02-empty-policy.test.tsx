@@ -81,7 +81,7 @@ describe('empty result freshness policy', () => {
     expect(testCase.calls()).toBe(1);
   });
 
-  test.failing('GATE-PENDING(G8): refetches an empty standalone fetch immediately on the next mount', async () => {
+  it('refetches an empty standalone fetch immediately on the next mount', async () => {
     setupSpecRuntime();
     let calls = 0;
     const request = defineFetch<number[], void, number[]>({
@@ -94,7 +94,7 @@ describe('empty result freshness policy', () => {
       staleTime: 60 * 60 * 1000,
       emptyStaleTime: 0,
       isEmpty: (data: number[]) => data.length === 0
-    } as never);
+    });
     const Reader = () => {
       request.use(undefined);
       return null;
@@ -118,7 +118,7 @@ describe('empty result freshness policy', () => {
       staleTime: 60 * 60 * 1000,
       emptyStaleTime: 0,
       isEmpty: (data: number[]) => data.length === 0
-    } as never);
+    });
     const Reader = () => {
       request.use(undefined);
       return null;
@@ -137,7 +137,7 @@ describe('empty result freshness policy', () => {
     expect(testCase.calls()).toBe(2);
   });
 
-  test.failing('GATE-PENDING(G8): flows the configured empty stale default into standalone fetches', async () => {
+  it('flows the configured empty stale default into standalone fetches', async () => {
     const transport = createMockTransport();
     configureDb({ storage: createMemoryPlane(), transport, defaults: { staleTime: 60 * 60 * 1000, emptyStaleTime: 0 } });
     let calls = 0;

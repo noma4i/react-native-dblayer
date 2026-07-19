@@ -1,4 +1,4 @@
-export { configureDb, flushPersistence, purgeForeignStorageKeys, replayJournal } from './dsl/configure';
+export { configureDb, flushPersistence } from './dsl/configure';
 export { getDbTransport, setDbTransport } from './core/transport';
 export type { DbDefaults, DbRetryClass, DbRetryPolicy } from './dsl/configure';
 export { bootDb, suspendDb } from './dsl/lifecycle';
@@ -26,7 +26,6 @@ export type { LiveQueryHandle } from './dsl/defineModel';
 export { defineCommand } from './dsl/defineCommand';
 export type { IngestDecl } from './dsl/defineIngest';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
-export { emptyIds, dedupeIds } from './queries/base/uniqueIds';
 export type { LoadingState, DbTransport, DbWhere } from './types';
 export type { ModelInput, ModelStored } from './schema/infer';
 export type { InferShapeStored } from './schema/infer';
@@ -36,8 +35,7 @@ export { stringifyNullish } from './utils/normalizeHelpers';
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
-export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { createThrottledSingleFlight, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, createSingletonStatics } from './utils/runtimePrimitives';
-export { reconcileOptimisticRows, trimRowsPerScope, resolveStaleTempRows } from './utils/runtimePrimitives';
+export { reconcileOptimisticRows } from './utils/runtimePrimitives';
 export { patchWhenRowExists, waitForRow } from './core/rowWaiters';
 //# sourceMappingURL=index.d.ts.map

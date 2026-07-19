@@ -15,8 +15,8 @@ export type BootDbOptions = {
  * throw is intentionally loud here: `bootDb` does not catch or swallow validation or replay errors, since a
  * silent partial boot is worse than a startup crash.
  *
- * `replayJournal`, `collectGarbage`, and `purgeForeignStorageKeys` remain individually exported as
- * composable primitives for callers with a different startup sequencing need.
+ * Journal replay and foreign-key purging are internal boot steps; manual maintenance remains available
+ * through `flushPersistence` and `collectGarbage`.
  *
  * Pass `wipe: true` to discard all persisted and in-memory library state (the `resetRuntime`
  * kill-switch) between validation and replay - boot then starts from an empty store. Use it for

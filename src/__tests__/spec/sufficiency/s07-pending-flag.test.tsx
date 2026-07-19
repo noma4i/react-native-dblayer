@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { configureDb, defineModel, f, replayJournal, resetRuntime } from '../../../index';
+import { bootDb, configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -167,7 +167,7 @@ describe('model pending flag', () => {
     reader.unmount();
   });
 
-  it('reconciles a hydrated pending operation to an absent row and false flag during replay', () => {
+  it('reconciles a hydrated pending operation to an absent row and false flag during boot', async () => {
     const storage = createMemoryPlane();
     storage.set([
       {
@@ -188,7 +188,7 @@ describe('model pending flag', () => {
     configureDb({ storage, transport: createMockTransport() });
     const messages = defineModel({ id: 'SpecPendingReplay', name: 'SpecPendingReplay', fields: { text: f.str() } });
 
-    replayJournal();
+    await bootDb();
     const reader = renderCounted(() => messages.use.pending('temp-replay'));
 
     expect(reader.result()).toBe(false);
@@ -196,7 +196,7 @@ describe('model pending flag', () => {
     reader.unmount();
   });
 
-  it('closes a hydrated patch operation without treating its existing row as an orphan temp row', () => {
+  it('closes a hydrated patch operation without treating its existing row as an orphan temp row', async () => {
     const storage = createMemoryPlane();
     storage.set([
       {
@@ -216,10 +216,10 @@ describe('model pending flag', () => {
       }
     ]);
     configureDb({ storage, transport: createMockTransport() });
-    const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() } });
+    const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() }, gc: 'exempt' });
     messages.insertStored({ id: 'message-1', text: 'kept' });
 
-    replayJournal();
+    await bootDb();
     const reader = renderCounted(() => messages.use.pending('message-1'));
 
     expect(reader.result()).toBe(false);

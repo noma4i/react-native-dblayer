@@ -10,6 +10,10 @@ type FetchConfigBase<TData, TInput, TSelected> = {
     enabled?: (input: TInput) => boolean;
     /** Freshness window (ms) before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. */
     staleTime?: number;
+    /** Freshness window (ms) used instead of `staleTime` when `isEmpty` classifies the last selected result as empty. Defaults to `DbDefaults.emptyStaleTime`. */
+    emptyStaleTime?: number;
+    /** Classify a selected result as empty. Defaults to nullish values and empty arrays. */
+    isEmpty?: (data: TSelected) => boolean;
     /** TanStack Query cache garbage-collection time (ms). Defaults to `DbDefaults.gcTime`. */
     gcTime?: number;
 };
@@ -41,7 +45,7 @@ export type FetchResult<TSelected> = {
  * (pricing tables, country lists, SKU catalogs) where a `defineQuery` write destination would be pure
  * overhead.
  *
- * @param config Document, cache key, `select`, and optional `vars`/`enabled`/`staleTime`/`gcTime`.
+ * @param config Document, cache key, `select`, and optional variables, enablement, freshness, empty-result, and cache-lifetime policies.
  * @returns `{ use, fetch, remove }`. `use(input)` is a hook returning a `FetchResult`. `fetch(input)` runs
  * through the owned query client. `remove()` drops every cached input for this key.
  */

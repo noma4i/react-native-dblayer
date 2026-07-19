@@ -28,7 +28,7 @@ export type DbRetryPolicy = {
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
   staleTime?: number;
-  /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` results that omit their own. */
+  /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` and `defineFetch` results that omit their own. */
   emptyStaleTime?: number;
   /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
   gcTime?: number;
