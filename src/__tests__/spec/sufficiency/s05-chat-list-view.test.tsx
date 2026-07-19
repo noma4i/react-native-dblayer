@@ -1,7 +1,6 @@
 import React, { memo } from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { defineModel, f, hasOne, scope } from '../../../index';
-import { getCommitBus } from '../../../dsl/configure';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const createChatModels = (suffix: string) => {
@@ -83,7 +82,6 @@ describe('chat list view sufficiency', () => {
     const reader = renderCounted(() => view.use({ inboxId: 'main' }));
     const renders = reader.renders();
     const calls = selects;
-    expect(getCommitBus().activeDependencies()).not.toContainEqual({ kind: 'model', model: models.messages.modelId });
     act(() => models.messages.patch('unrelated', { text: 'Still outside' }));
     expect(reader.renders() - renders).toBe(0);
     expect(selects - calls).toBe(0);

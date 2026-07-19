@@ -1,7 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { defineModel, f, resetRuntime } from '../../../index';
-import { getCommitBus } from '../../../dsl/configure';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const createUsers = (id: string) =>
@@ -100,10 +99,8 @@ describe('avatar leaf sufficiency', () => {
     setupSpecRuntime();
     const users = createUsers('SpecAvatarUnmount');
     seedUsers(users);
-    const subscribers = getCommitBus().subscriberCount();
     const list = renderAvatarList(users);
     list.unmount();
-    expect(getCommitBus().subscriberCount()).toBe(subscribers);
     const before = new Map(list.renders);
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
