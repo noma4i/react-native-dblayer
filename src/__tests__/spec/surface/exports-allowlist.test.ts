@@ -20,7 +20,14 @@ describe('public barrel exports', () => {
       'computePhase',
       'computeLoadingState',
       'castNode',
-      'castNodes'
+      'castNodes',
+      'replayJournal',
+      'purgeForeignStorageKeys',
+      'emptyIds',
+      'dedupeIds',
+      'createModelStatusPoller',
+      'trimRowsPerScope',
+      'resolveStaleTempRows'
     ];
 
     expect(Object.keys(barrel).filter(name => forbidden.includes(name))).toEqual([]);
