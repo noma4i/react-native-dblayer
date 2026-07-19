@@ -6,6 +6,8 @@ call - compiles into one journalled apply pipeline: a pure plan, a single transa
 write-ahead commit, and one semantic publish. Reads subscribe to exactly the rows, fields, and
 scopes they consume, so an unrelated change never re-renders a component.
 
+Full reference: [docs/README.md](./docs/README.md).
+
 ## Architecture
 
 Three state planes hold everything:
@@ -25,21 +27,42 @@ The commit bus delivers pinpoint notifications keyed by `(model, id, fields)` an
 are built on `useSyncExternalStore`; a write is visible to readers in the same tick - there are
 no async hops, debounces, or query-cache round-trips on the write path.
 
-## Configure
+Full reference: [docs/runtime.md](./docs/runtime.md#persistence-model).
+
+## Configure and boot
 
 ```ts
-configureDb({ transport, queryClient });
+// models/index.ts - import every model module so it registers before boot
+export * from './MessageModel';
+
+// App entry point, before the first render
+import './models';
+import { configureDb } from '@noma4i/react-native-dblayer';
+
+configureDb({ transport });
 ```
 
-DBLay owns the `@tanstack/react-query` version and exports the shared `QueryClient`,
-`QueryClientProvider`, `focusManager`, `useQuery`, and `useQueryClient` primitives for the host app.
-Import them from `@noma4i/react-native-dblayer`. The DBLay query DSL still hides the Query cache from
-model storage: DB rows remain in DBLay planes, not in Query cache entries.
+```tsx
+import { DbProvider } from '@noma4i/react-native-dblayer';
+
+const Root = () => (
+  <DbProvider bootOptions={{ wipe: false }}>
+    <App />
+  </DbProvider>
+);
+```
+
+`DbProvider` owns the `@tanstack/react-query` `QueryClient` internally - it is never re-exported.
+On mount it runs `bootDb` (journal replay, garbage collection, foreign-key cleanup, declared model
+maintenance), gates `children` until boot completes, and wires app foreground/background events to
+query refetch-on-focus and `suspendDb()`.
 
 `transport` provides `query`, `mutation`, and `subscribe`. Storage defaults to MMKV and can be
 replaced with any `StoragePlane`. There is no partitioning and no per-user namespace: one flat
 database, and `resetRuntime()` is the kill-switch - it deletes every persisted key, clears all
 in-memory planes, and notifies live subscribers. Call it on logout; models keep working after it.
+
+Full reference: [docs/getting-started.md](./docs/getting-started.md).
 
 ## Models
 
@@ -87,6 +110,8 @@ scope without destroying the entities. Explicit destroy is the only entity delet
 Relation effects run for EVENT plans only (imperative writes, mutations, ingest). Snapshot plans
 (query pages, entity refreshes) apply verbatim - server data already carries derived state.
 
+Full reference: [docs/models.md](./docs/models.md).
+
 ## Reactive reads
 
 ```ts
@@ -99,7 +124,11 @@ const pager = MessageModel.scopes.thread.useWindow({ chatId }, { pageSize: 20 })
 
 Array reads keep referential identity: after a single-row patch, every untouched element keeps
 its previous reference. Snapshot reads (`get`, `getWhere`, `getAll`) never subscribe; `getAll` is
-the library/maintenance channel - application code stays on scoped reads.
+the library/maintenance channel - application code stays on scoped reads. `select`/`renderKeys`
+projections keep a row or item reference stable while the fields that matter stay unchanged, even
+as the rest of the row changes.
+
+Full reference: [docs/reading.md](./docs/reading.md).
 
 ## Queries
 
@@ -115,12 +144,15 @@ const threadQuery = MessageModel.query('thread', {
 const { data, loadingState, error, hasNextPage, fetchNextPage, refetch } = threadQuery.use({ chatId });
 ```
 
-TanStack Query is shared through DBLay package exports, while its cache remains hidden from model
-storage: it stores only page metadata (cursor, count) and rows live in DBLay planes. `extract` sinks
-apply in the same transaction as the main rows. `fetchNextPage` failures land in
+TanStack Query is owned internally and provided by `DbProvider` - its cache stays hidden from
+model storage: it stores only page metadata (cursor, count) and rows live in DBLay planes.
+`extract` sinks apply in the same transaction as the main rows. `fetchNextPage` failures land in
 `error`/`loadingState`, never as unhandled rejections. `emptyStaleTime` lets empty results expire
 faster than filled ones. `invalidate(scope)` targets one scope; `invalidate()` targets every scope
-of that query only. A disabled query with local rows stays `ready`.
+of that query only. A disabled query with local rows stays `ready`. `defineFetch` covers model-less
+reads (GraphQL or a custom `fetcher`), with no store destination of its own.
+
+Full reference: [docs/queries.md](./docs/queries.md).
 
 ## Mutations
 
@@ -147,7 +179,10 @@ The lifecycle is: optimistic write (synchronous, before transport) -> transport 
 commit (temp-to-server replace + preserved fields + extract sinks in a single epoch) or rollback.
 A committed dedupe key is never re-sent; a pending key blocks double-taps; a `null` key disables
 dedupe. `existingTempId` is the retry path: it reuses the failed optimistic row and a failed retry
-keeps it.
+keeps it. `Model.crud` composes conventional list/get/create/update/destroy handles from one call;
+`defineCommand` covers model-less RPC mutations with no local write of their own.
+
+Full reference: [docs/mutations.md](./docs/mutations.md).
 
 ## Ingest (subscriptions)
 
@@ -163,20 +198,28 @@ One event compiles into one plan: rows, destroys, and `extract` sinks apply with
 in a single epoch. Re-delivery is idempotent - an unchanged row emits no notifications and never
 re-increments counters. `operationId` is the echo guard: an event whose operation already
 committed locally is skipped. Stale-version arbitration lives in the model's
-`merge.shouldOverwrite` gate.
+`merge.shouldOverwrite` gate. `Model.query`'s `live` option colocates the identical entry shape,
+refcounted by mounted readers, for subscriptions scoped to one query instead of a manually-managed
+runtime.
+
+Full reference: [docs/ingest-live.md](./docs/ingest-live.md).
 
 ## Maintenance and helpers
 
-`trimRowsPerScope`, `resolveStaleTempRows`, and `reconcileOptimisticRows` consume any model via its
+`trimRowsPerScope`/`resolveStaleTempRows` (internal cleanup used by declared `maintenance.
+maxRowsPerScope` tasks and boot replay) and `reconcileOptimisticRows` consume any model via its
 maintenance channel. `patchWhenRowExists` and `waitForRow` defer work until a row appears
 (commit-bus backed, TTL/abort aware). `createSingletonStatics` builds a reactive single-row facade.
-For referential stability of derived arrays, `useStableProjection`, `useStableEntity`, and
-`useStableSorted` keep projected items and joined view rows identity-stable across renders, and
-`Model.view` composes a scope with its declared relations into one pinpoint-reactive projection.
+`collectGarbage` runs a reachability sweep (roots: scope members, `gc: 'exempt'` rows, pending
+optimistic operations, mounted readers); it runs automatically at boot, on `suspendDb`, and on an
+in-session pressure trigger. `Model.view` composes a scope with its declared relations into one
+pinpoint-reactive projection.
+
+Full reference: [docs/runtime.md](./docs/runtime.md).
 
 ## Performance contract
 
-Performance is spec'd, not hoped for: `src/__tests__/perf/` runs in the main suite and a perf
+Performance is spec'd, not hoped for: `src/__tests__/spec/perf/` runs in the main suite and a perf
 failure blocks release like a functional one.
 
 - Counted invariants: one plan = exactly two storage batches (WAL), one journal record, one
@@ -188,6 +231,8 @@ failure blocks release like a functional one.
 
 ## Testing
 
-Invariant suites (`src/__tests__/invariants/`) cover the planes, journal replay, cross-model
-transactions, relation effects, auto-membership, query/mutation/ingest lifecycles, and pinpoint
-reactivity with render counters, including property-based interleavings.
+`src/__tests__/spec/integrity/` covers the planes, journal replay, cross-model transactions,
+relation effects, auto-membership, and query/mutation/ingest lifecycles. `src/__tests__/spec/
+consumer/` and `src/__tests__/spec/sufficiency/` are consumer-behavior contracts mirroring real
+usage patterns, with pinpoint reactivity verified through render counters. `src/__tests__/spec/
+surface/` gates barrel exports, declaration hygiene, and docs coverage.

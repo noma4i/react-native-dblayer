@@ -6,6 +6,18 @@ optimistic write if anything throws. Dedupe, extract sinks, and lifecycle callba
 through the same path for both the hook and the direct call. `defineCommand(name, config)` is the
 model-less counterpart for mutations with no local write of their own.
 
+## Contents
+
+- [`Model.mutation(name, config)`](#modelmutationname-config)
+- [Optimistic write variants](#optimistic-write-variants)
+- [Dedupe](#dedupe)
+- [`operationId` echo wiring with `Model.ingest`](#operationid-echo-wiring-with-modelingest)
+- [`use()` result shape](#use-result-shape)
+- [`mergeOptimisticSnapshot`](#mergeoptimisticsnapshot)
+- [`defineCommand(name, config)`](#definecommandname-config)
+- [`Model.crud(sections)`](#modelcrudsections)
+- [Error policy](#error-policy)
+
 ## `Model.mutation(name, config)`
 
 ```ts
@@ -39,7 +51,7 @@ const sendMessage = MessageModel.mutation('send', {
 });
 
 const { mutate, mutateAsync, isPending, error } = sendMessage.use();
-await sendMessage.run(input);   // same lifecycle, imperatively
+await sendMessage.run(input); // same lifecycle, imperatively
 ```
 
 `name` sets the mutation's conventional dedupe key namespace (`<modelId>:<name>:<inputHash>`) -
@@ -47,30 +59,30 @@ see Dedupe below.
 
 ### `MutationConfig`
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `document` | GraphQL document | The mutation document. |
-| `result` | `string` | Response field owning the mutation payload; a null payload is treated as failure and rolls back. |
-| `mapInput` | `(input, ctx: OptimisticCtx) => Record<string, unknown>` | Build transport variables from the mutation input and its optimistic operation context. |
-| `optimistic` | insert / patch / destroy | Optimistic local write applied before the network call, undone on error/rollback. Omit for mutations with no local write of their own (pure side-effect calls). See below. |
-| `extract` | `(ctx: { data }) => ExtractSink[]` | Cross-model sideloads from the response, applied in the SAME transaction as the commit. |
-| `dedupe` | `{ key: (input) => string \| null } \| false` | Idempotency: ON by default with a conventional key (`<modelId>:<name>:<inputHash>`) - a committed key is never re-sent, a pending key blocks double-taps. Pass `false` to opt out entirely, or a custom `{ key }` to override the key derivation. A `null` key from either the default or a custom `key` skips dedupe for that call. See Dedupe below. |
-| `onMutate` | `(input, ctx) => void` | Called synchronously right after the optimistic write (if any), before the transport call starts. |
-| `onCommit` | `(data, ctx: OptimisticCtx & { input }) => void` | Called after the response commits successfully, after extract sinks and preserve-on-commit have applied. |
-| `onError` | `(error, ctx: OptimisticCtx & { input }) => void` | Called after a failed run has rolled back its optimistic write (if any) and closed the operation. |
-| `invalidate` | `(ctx: { input, data }) => void` | Called after a successful commit to invalidate related queries; errors are logged and do not fail the mutation. |
-| `track` | `(ctx: { input, data }) => void` | Called after a successful commit for analytics/tracking; errors are logged and do not fail the mutation. |
+| Option       | Type                                                     | Description                                                                                                                                                                                                                                                                                                                                            |
+| ------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `document`   | GraphQL document                                         | The mutation document.                                                                                                                                                                                                                                                                                                                                 |
+| `result`     | `string`                                                 | Response field owning the mutation payload; a null payload is treated as failure and rolls back.                                                                                                                                                                                                                                                       |
+| `mapInput`   | `(input, ctx: OptimisticCtx) => Record<string, unknown>` | Build transport variables from the mutation input and its optimistic operation context.                                                                                                                                                                                                                                                                |
+| `optimistic` | insert / patch / destroy                                 | Optimistic local write applied before the network call, undone on error/rollback. Omit for mutations with no local write of their own (pure side-effect calls). See below.                                                                                                                                                                             |
+| `extract`    | `(ctx: { data }) => ExtractSink[]`                       | Cross-model sideloads from the response, applied in the SAME transaction as the commit.                                                                                                                                                                                                                                                                |
+| `dedupe`     | `{ key: (input) => string \| null } \| false`            | Idempotency: ON by default with a conventional key (`<modelId>:<name>:<inputHash>`) - a committed key is never re-sent, a pending key blocks double-taps. Pass `false` to opt out entirely, or a custom `{ key }` to override the key derivation. A `null` key from either the default or a custom `key` skips dedupe for that call. See Dedupe below. |
+| `onMutate`   | `(input, ctx) => void`                                   | Called synchronously right after the optimistic write (if any), before the transport call starts.                                                                                                                                                                                                                                                      |
+| `onCommit`   | `(data, ctx: OptimisticCtx & { input }) => void`         | Called after the response commits successfully, after extract sinks and preserve-on-commit have applied.                                                                                                                                                                                                                                               |
+| `onError`    | `(error, ctx: OptimisticCtx & { input }) => void`        | Called after a failed run has rolled back its optimistic write (if any) and closed the operation.                                                                                                                                                                                                                                                      |
+| `invalidate` | `(ctx: { input, data }) => void`                         | Called after a successful commit to invalidate related queries; errors are logged and do not fail the mutation.                                                                                                                                                                                                                                        |
+| `track`      | `(ctx: { input, data }) => void`                         | Called after a successful commit for analytics/tracking; errors are logged and do not fail the mutation.                                                                                                                                                                                                                                               |
 
 ### Optimistic write variants
 
 `optimistic` is one of four shapes:
 
-| Variant | Shape | Behavior |
-| --- | --- | --- |
-| Insert | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
-| Respond | `{ model, selectServerNode, respond, prependTo?, appendTo? }` | Fabricates a full transport-shaped response and runs it through the exact same plan builder as the real one - see Respond variant below. |
-| Patch | `{ method: 'patch', model, selectId, selectPatch }` | Applies a partial update immediately, restoring the previous field values on error. |
-| Destroy | `{ method: 'destroy', model, selectId }` | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back. |
+| Variant | Shape                                                                                                          | Behavior                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
+| Respond | `{ model, selectServerNode, respond, prependTo?, appendTo? }`                                                  | Fabricates a full transport-shaped response and runs it through the exact same plan builder as the real one - see Respond variant below.                                                                                                                                                                                                                                                              |
+| Patch   | `{ method: 'patch', model, selectId, selectPatch }`                                                            | Applies a partial update immediately, restoring the previous field values on error.                                                                                                                                                                                                                                                                                                                   |
+| Destroy | `{ method: 'destroy', model, selectId }`                                                                       | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back.                                                                                                                                          |
 
 **Temp-id -> server replace.** On a successful insert commit, `selectServerNode(data)` picks the
 server-created node; the temp row is replaced by it in the same transaction as any `extract` sinks.
@@ -169,7 +181,7 @@ third press should replay an input already dedupe-committed by the first:
 
 ```ts
 const toggleRead = MessageModel.mutation('toggle-read', {
-  dedupe: false,   // resubmitting the same { messageId } must always re-run - it flips state each time
+  dedupe: false, // resubmitting the same { messageId } must always re-run - it flips state each time
   optimistic: { method: 'patch', model: MessageModel, selectId: input => input.messageId, selectPatch: input => ({ read: input.read }) },
   document: ToggleMessageReadDocument,
   result: 'messageToggleRead'
@@ -185,19 +197,19 @@ specific inputs.
 Every mutation run gets a fresh `operationId` (`OptimisticCtx.operationId`), independent of
 `dedupe`'s key. Send it to the server (typically via `mapInput`) so the server echoes it back on
 the subscription event the mutation itself triggers; pass it through as `operationId` in the
-declaration a `Model.ingest` handler returns (see [models.md](./models.md#modelingestentries)).
+declaration a `Model.ingest` handler returns (see [ingest-live.md](./ingest-live.md#modelingestentries)).
 `Model.ingest` skips the whole event when that `operationId` already committed locally - the
 mutation's own commit already applied the row, so the echoed subscription event is a no-op instead
 of a duplicate write.
 
 ### `use()` result shape
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `mutate` | `(input, callbacks?: MutateCallbacks) => void` | Fire-and-forget: runs the mutation, invoking `callbacks.onSuccess`/`onError`/`onSettled`. |
-| `mutateAsync` | `(input) => Promise<TData \| null>` | Runs the mutation and returns/rejects like `run`, while also reflecting `isPending`/`error` in hook state. |
-| `isPending` | `boolean` | `true` while a `mutate`/`mutateAsync` call from this hook instance is in flight. |
-| `error` | `Error \| null` | The last error thrown by this hook instance's calls. |
+| Field         | Type                                           | Description                                                                                                |
+| ------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `mutate`      | `(input, callbacks?: MutateCallbacks) => void` | Fire-and-forget: runs the mutation, invoking `callbacks.onSuccess`/`onError`/`onSettled`.                  |
+| `mutateAsync` | `(input) => Promise<TData \| null>`            | Runs the mutation and returns/rejects like `run`, while also reflecting `isPending`/`error` in hook state. |
+| `isPending`   | `boolean`                                      | `true` while a `mutate`/`mutateAsync` call from this hook instance is in flight.                           |
+| `error`       | `Error \| null`                                | The last error thrown by this hook instance's calls.                                                       |
 
 `MutateCallbacks<TData>`: `onSuccess?: (data: TData \| null) => void` (receives `null` when the call
 was skipped by dedupe), `onError?: (error: Error) => void` (called after rollback has already run),
@@ -249,11 +261,72 @@ Takes the same `MutationConfig` minus `optimistic`, returns the same `{ use, run
 gets the same dedupe defaults keyed by `<name>:<inputHash>` (`dedupe: false` to opt out, same as
 `Model.mutation`).
 
+## `Model.crud(sections)`
+
+Composes conventional resource handles from one call: `model.crud({ list?, get?, create?, update?,
+destroy? })`. Each PRESENT section builds one `Model.query`/`Model.mutation` handle under a fixed
+conventional name (`'list'`/`'get'`/`'create'`/`'update'`/`'destroy'`), so keys and dedupe follow
+the same conventions as calling `Model.query`/`Model.mutation` directly (see
+[queries.md](./queries.md#modelqueryname-config) and
+[`Model.mutation`](#modelmutationname-config) above). The returned object has exactly the present
+keys, typed as the real `Model.query`/`Model.mutation` handles - omitting a section from the call
+omits it from the return type too.
+
+```ts
+const todosCrud = TodoModel.crud({
+  list: { document: TodosDocument, select: data => data.todos, into: TodoModel.scopes.active },
+  create: {
+    document: TodoCreateDocument,
+    result: 'todoCreate',
+    respond: (input: { text: string }, ctx) => ({ todoCreate: { id: ctx.tempId, text: input.text, done: false } }),
+    selectServerNode: data => data.todoCreate,
+    prependTo: { scope: TodoModel.scopes.active, value: () => ({}) }
+  },
+  update: { document: TodoUpdateDocument, result: 'todoUpdate' },
+  destroy: { document: TodoDestroyDocument, result: 'todoDestroy' }
+});
+
+await todosCrud.create.run({ text: 'Buy milk' });
+await todosCrud.update.run({ id: 'row-1', text: 'Buy milk and eggs' });
+await todosCrud.destroy.run({ id: 'row-1' });
+```
+
+### Section conventions
+
+| Section   | Convention                                                  | Notes                                                                                                                                                                                                   |
+| --------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list`    | `model.query('list', section)` -> `<modelId>:list`          | `into` is **required** - `crud` throws `` `${modelId}: crud list requires an explicit into scope` `` at call time if omitted.                                                                           |
+| `get`     | `model.query('get', section)` -> `<modelId>:get`            | `into` defaults to the model itself when omitted.                                                                                                                                                       |
+| `create`  | `model.mutation('create', section)` -> `<modelId>:create`   | Requires `respond`, or `build` with `selectServerNode`, unless an explicit `optimistic` key is present - see below. `prependTo`/`appendTo` pass straight through to the conventional optimistic config. |
+| `update`  | `model.mutation('update', section)` -> `<modelId>:update`   | Default optimistic: `{ method: 'patch', selectId: input => input.id, selectPatch: input => omit(input, ['id']) }`.                                                                                      |
+| `destroy` | `model.mutation('destroy', section)` -> `<modelId>:destroy` | Default optimistic: `{ method: 'destroy', selectId: input => input.id }`.                                                                                                                               |
+
+Every mutation section keeps `Model.mutation`'s conventional dedupe on by default (see
+[Dedupe](#dedupe) above) - `dedupe: false` in a section config opts out the same way it would on a
+standalone `Model.mutation` call.
+
+**`create`'s requirement.** `model.crud({ create: {...} })` throws
+`` `${modelId}: crud create requires respond or build with selectServerNode` `` at call time unless
+the section supplies `respond` (see the Respond variant in
+[Optimistic write variants](#optimistic-write-variants) above), the `build`/`selectServerNode` pair
+(the Insert variant, same section), or an explicit `optimistic` key of its own - the check is
+presence-based, so an explicit `optimistic: undefined` still counts as present and skips it.
+
+**Overriding the convention.** An explicit `optimistic` in any section (`create`/`update`/`destroy`)
+replaces the conventional default ENTIRELY, not merged with it. `optimistic: false` disables the
+local write for that section outright - the mutation runs with no optimistic step, same as omitting
+`optimistic` on a standalone `Model.mutation` call.
+
+**Typed `id` requirement.** `update`/`destroy` handles are typed to require
+`input: { id: string } & Record<string, unknown>` regardless of the section's own config - passing
+an input without `id` is a compile-time error on the conventional path, since the default
+`selectId`/`selectPatch` closures read `input.id`.
+
 ## Error policy
 
 A thrown mutation error always rejects `run`/`mutateAsync` (and reaches `mutate`'s `onError`
 callback) after rollback has completed - errors are never swallowed. Independently, the same error
 is reported to `DbDefaults.onSyncError` with `{ source: 'mutation' }` (see
-[configuration.md](./configuration.md#onsyncerror-policy)), so app-wide error tracking does not need
+[getting-started.md](./getting-started.md#onsyncerror-policy)), so app-wide error tracking does not need
 to be wired into every call site. `onSyncError` observes the failure; it never changes whether the
 mutation rejects.
