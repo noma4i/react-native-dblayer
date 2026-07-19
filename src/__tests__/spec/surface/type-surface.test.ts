@@ -73,6 +73,9 @@ ScopeHandle: any
 ScopePlacement: any
 ScopeSpec: any
 StoragePlane: any
+ViewConfig: any
+ViewIncludeModel: any
+ViewIncludeSpec: any
 belongsTo: <TChild, TParent>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TParent>, options: { foreignKey: keyof TChild & string; touch?: ((child: TChild, parent: TParent) => Partial<TParent> | null) | undefined; counterCache?: { field: keyof TParent & string; filter?: ((child: TChild) => boolean) | undefined; } | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
 bootDb: (options?: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/lifecycle").BootDbOptions) => Promise<{ replayed: number; gc: import("/Users/noma4i/yupi/react-native-dblayer/src/core/gc").GcReport; maintenance: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/maintenanceRegistry").MaintenanceReport[]; }>
 collectGarbage: () => import("/Users/noma4i/yupi/react-native-dblayer/src/core/gc").GcReport

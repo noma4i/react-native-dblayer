@@ -79,4 +79,59 @@ describe('public type regressions', () => {
 
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
+
+  it('types view source rows, declared includes, include models, and render keys', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, f, scope } from '${entry}';
+      import type { ModelStored } from '${entry}';
+
+      const users = defineModel({
+        id: 'view-user-types',
+        name: 'ViewUserTypes',
+        fields: { id: f.id(), fullName: f.str() }
+      });
+      const chats = defineModel({
+        id: 'view-chat-types',
+        name: 'ViewChatTypes',
+        fields: { id: f.id(), title: f.str(), userIds: f.raw<string[]>() },
+        scopes: { list: scope({ sort: 'server-order' }) }
+      });
+      type UserRow = ModelStored<typeof users>;
+      type ChatItem = { id: string; title: string; userNames: string[] };
+
+      chats.view<ChatItem, { users: UserRow[] }>('typed', {
+        source: chats.scopes.list,
+        include: { users: { model: users, ids: row => row.userIds } },
+        select: (row, included) => ({ id: row.id, title: row.title, userNames: included.users.map(user => user.fullName) }),
+        renderKeys: ['title']
+      });
+    `);
+
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
+  it('rejects unknown view source fields and projected render keys', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, f, scope } from '${entry}';
+
+      const chats = defineModel({
+        id: 'invalid-view-types',
+        name: 'InvalidViewTypes',
+        fields: { id: f.id(), title: f.str() },
+        scopes: { list: scope({ sort: 'server-order' }) }
+      });
+      type ChatItem = { id: string; title: string };
+
+      chats.view<ChatItem, {}>('invalid', {
+        source: 'list',
+        include: {},
+        select: row => ({ id: row.id, title: row.notAField }),
+        renderKeys: ['notAKey']
+      });
+    `);
+    const messages = diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+
+    expect(messages.some(message => message.includes("Property 'notAField' does not exist"))).toBe(true);
+    expect(messages.some(message => message.includes('Type \'"notAKey"\' is not assignable'))).toBe(true);
+  });
 });

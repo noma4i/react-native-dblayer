@@ -11,6 +11,7 @@ export { mmkvStoragePlane } from './core/planes/storagePlane';
 export type { StoragePlane } from './core/planes/storagePlane';
 export { defineModel } from './dsl/defineModel';
 export type { ScopeHandle } from './dsl/defineModel';
+export type { ViewConfig, ViewIncludeModel, ViewIncludeSpec } from './dsl/defineView';
 export { scope } from './dsl/scope';
 export type { ScopeSpec, ScopeCoverage } from './dsl/scope';
 export { collectGarbage } from './core/gc';

@@ -179,26 +179,30 @@ computed cross-model lookups) into one item shape - the read-side counterpart to
 relations for writes (see [models.md](./models.md#relations)).
 
 ```ts
-const threadView = MessageModel.view('withAuthor', {
-  source: 'thread', // a declared scope name, or a ScopeHandle
+const listView = ChatModel.view<ChatListItem, { lastMessage: StoredMessage | null; users: UserData[] }>('list', {
+  source: 'list', // a declared scope name, or a ScopeHandle
   include: {
-    author: 'chat', // a declared relation name
-    reactions: [ReactionModel, message => message.id] // computed: [targetModel, idResolver]
+    lastMessage: 'lastMessage', // a declared relation name
+    users: { model: UserModel, ids: chat => chat.userIds } // computed target ids
   },
-  select: (message, included) => ({ ...message, author: included.author, reactions: included.reactions }),
-  renderKeys: ['text', 'author'] // preserve item identity while these stay equal
+  select: (chat, included) => ({ ...chat, lastMessage: included.lastMessage, users: included.users }),
+  renderKeys: ['title', 'lastMessage'] // checked against ChatListItem keys
 });
 
-const items = threadView.use({ chatId }, { keepPrevious: true });
-const window = threadView.useWindow({ chatId }, { pageSize: 20, keepPrevious: true });
+const items = listView.use({ status: 'primary' }, { keepPrevious: true });
+const window = listView.useWindow({ status: 'primary' }, { pageSize: 20, keepPrevious: true });
 ```
 
-| Option       | Type                                                                     | Description                                                                                                                                                                                                                                                                                                                                           |
-| ------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source`     | `string \| ScopeHandle`                                                          | A declared scope name on this model, or an explicit `ScopeHandle`.                                                                                                                                                                                                                                                                                    |
-| `include`    | `Record<string, string \| [Model, (row) => string \| string[] \| null]>`         | Per-alias include: a declared relation name (`belongsTo`/`hasMany`/`hasOne` only - `references` throws), or a computed `[targetModel, idResolver]` pair that resolves one or more ids off the source row against `targetModel`. Resolved includes subscribe to their pinpoint row dependencies, so unrelated target writes do not recompute the view. |
-| `select`     | `(row, included, ctx: { index }) => TItem`                                       | Build one view item. Defaults to `{ ...row, ...included }`.                                                                                                                                                                                                                                                                                           |
-| `renderKeys` | `string[]`                                                                        | Preserve an item's reference across recomputes while every listed key stays shallow-equal through the shared projection gate (see [Projections](#projections-select-and-renderkeys) above).                                                                                                                                                          |
+When an output type is explicit, declare the include map as the second type argument as shown;
+TypeScript does not partially infer later generic arguments. That declaration types `included`
+without coupling its related-row shapes to the structural model readers used by computed includes.
+
+| Option       | Type                                                | Description                                                                                                                                                                                                                                                                                                                  |
+| ------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`     | `string \| ScopeHandle`                             | A declared scope name on this model, or an explicit `ScopeHandle`.                                                                                                                                                                                                                                                           |
+| `include`    | `{ [K in keyof TIncluded]: ViewIncludeSpec<TRow> }` | Per-alias include: a declared relation name (`belongsTo`/`hasMany`/`hasOne` only - `references` throws), or a computed target model plus id resolver that resolves one or more ids off the source row. Resolved includes subscribe to their pinpoint row dependencies, so unrelated target writes do not recompute the view. |
+| `select`     | `(row, included, ctx: { index }) => TItem`          | Build one view item. Defaults to `{ ...row, ...included }`.                                                                                                                                                                                                                                                                  |
+| `renderKeys` | `readonly (keyof TItem & string)[]`                 | Preserve an item's reference across recomputes while every listed key stays shallow-equal through the shared projection gate (see [Projections](#projections-select-and-renderkeys) above).                                                                                                                                  |
 
 Returns a `ViewHandle`: `use(scopeValue, { keepPrevious? }?) => TItem[]` and
 `useWindow(scopeValue, opts?) => { rows, totalCount, hasMore, isPreviousData, fetchNextPage }` - the

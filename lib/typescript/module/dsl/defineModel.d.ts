@@ -170,8 +170,11 @@ export type ModelCore<TStored extends {
         maxAttempts: number;
         onSessionStop?: (id: string, reason: 'terminal-payload' | 'budget-exhausted' | 'stopped') => void;
     }): ModelStatusPoller;
-    /** Define a reactive joined projection over one declared scope and its current related rows. */
-    view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
+    /**
+     * Define a reactive joined projection over one declared scope and its current related rows.
+     * When declaring an output type explicitly, also declare the included-row map as the second type argument because TypeScript cannot partially infer it.
+     */
+    view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(name: string, config: ViewConfig<TStored, TIncluded, TItem>): ViewHandle<TItem, Record<string, unknown>>;
     /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
     ingest(entries: Record<string, ModelIngestEntry>): {
         entries: DbSubscriptionEntry[];
