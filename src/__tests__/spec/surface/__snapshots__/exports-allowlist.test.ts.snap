@@ -8,8 +8,6 @@ exports[`public barrel exports matches the reviewed runtime export allowlist 1`]
   "castNode",
   "castNodes",
   "collectGarbage",
-  "computeLoadingState",
-  "computePhase",
   "configureDb",
   "createDbSubscriptionEffects",
   "createDbSubscriptionRuntime",

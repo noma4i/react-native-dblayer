@@ -33,6 +33,7 @@ type RowEngineOptions<T extends Row, TValue> = {
     initial(): T[];
     read(id: string): T | undefined;
     select(rows: T[], count: number): TValue;
+    isEqual?: (left: TValue, right: TValue) => boolean;
     countOnly?: boolean;
 };
 /** Sort model read results by declared keys with NULLS LAST and an implicit id tie-breaker. */

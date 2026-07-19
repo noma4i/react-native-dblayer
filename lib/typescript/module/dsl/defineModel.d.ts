@@ -71,7 +71,14 @@ export type ScopeHandle<TStored extends {
 }, TScope> = {
     modelId: string;
     /** Reactive read of every row currently in the scope, in the scope's configured sort order. */
-    use(scopeValue: TScope | null | undefined): TStored[];
+    use<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
+        select: (row: TStored) => TProjection;
+        renderKeys?: never;
+    }): TProjection[];
+    use(scopeValue: TScope | null | undefined, opts?: {
+        select?: never;
+        renderKeys?: readonly (keyof TStored & string)[];
+    }): TStored[];
     /**
      * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
      * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
@@ -84,6 +91,8 @@ export type ScopeHandle<TStored extends {
      */
     useWindow(scopeValue: TScope | null | undefined, opts?: {
         pageSize?: number;
+        select?: never;
+        renderKeys?: readonly (keyof TStored & string)[];
     }): {
         /** The current window: the first `totalCount` rows up to the window size. */
         rows: TStored[];
@@ -92,6 +101,16 @@ export type ScopeHandle<TStored extends {
         /** `true` while `totalCount` exceeds the current window size. */
         hasMore: boolean;
         /** Grow the local window by `pageSize` more rows. Does not touch the network. */
+        fetchNextPage: () => void;
+    };
+    useWindow<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
+        pageSize?: number;
+        select: (row: TStored) => TProjection;
+        renderKeys?: never;
+    }): {
+        rows: TProjection[];
+        totalCount: number;
+        hasMore: boolean;
         fetchNextPage: () => void;
     };
     /** Reactive count of rows currently in the scope. */
@@ -188,27 +207,56 @@ export type ModelCore<TStored extends {
     };
     invalidate(scope?: unknown): void;
     use: {
-        /** Read one row when all `require` fields are present. `undefined` is missing; `null` is present. Row-only because scope totals use unfiltered membership. */
-        row<K extends keyof TStored & string>(id: string | null | undefined, opts: {
-            select?: ReadonlyArray<keyof TStored>;
-            require: readonly K[];
-        }): RequiredFields<TStored, K> | undefined;
-        /** Read one stored row. */
-        row(id: string | null | undefined, opts?: {
-            select?: ReadonlyArray<keyof TStored>;
-            require?: never;
-        }): TStored | undefined;
+        /** Read one field from one row. */
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
-        /** Read the first matching row complete for `require`; `undefined` is missing and `null` is present. Row-only because scope totals use unfiltered membership. */
-        first<K extends keyof TStored & string>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & {
-            require: readonly K[];
-        }): RequiredFields<TStored, K> | undefined;
-        /** Read the first matching stored row. */
-        first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
+        /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
+        row<TProjection extends Record<string, unknown>>(id: string | null | undefined, opts: {
+            select: (row: TStored) => TProjection;
+            renderKeys?: never;
+            require?: readonly (keyof TStored & string)[];
+        }): TProjection | undefined;
+        row(id: string | null | undefined, opts?: {
+            select?: never;
+            renderKeys?: readonly (keyof TStored & string)[];
+            require?: readonly (keyof TStored & string)[];
+        }): TStored | undefined;
+        /** Read the first matching row or a shallow-gated projection after ordering and required-field filtering. */
+        first<TProjection extends Record<string, unknown>>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & {
+            select: (row: TStored) => TProjection;
+            renderKeys?: never;
+            require?: readonly (keyof TStored & string)[];
+        }): TProjection | undefined;
+        first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored> & {
+            select?: never;
+            renderKeys?: readonly (keyof TStored & string)[];
+            require?: readonly (keyof TStored & string)[];
+        }): TStored | undefined;
         where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
-        byIds(ids: string[]): TStored[];
+        /** Read ids in input order with stable rows and an id-keyed map; nullish ids return an unsubscribed empty result. */
+        byIds<TProjection extends Record<string, unknown>>(ids: readonly string[] | null | undefined, opts: {
+            select: (row: TStored) => TProjection;
+            renderKeys?: never;
+        }): {
+            rows: TProjection[];
+            byId: ReadonlyMap<string, TProjection>;
+        };
+        byIds(ids: readonly string[] | null | undefined, opts?: {
+            select?: never;
+            renderKeys?: readonly (keyof TStored & string)[];
+        }): {
+            rows: TStored[];
+            byId: ReadonlyMap<string, TStored>;
+        };
         count(where?: DbWhere<TStored> | null): number;
-        related(id: string | null | undefined, relation: string): unknown;
+        /** Read a declared relation, optionally projecting row-valued relation results through the shared gate. */
+        related<TProjection extends Record<string, unknown>>(id: string | null | undefined, relation: string, opts: {
+            select: (row: TStored) => TProjection;
+            renderKeys?: never;
+        }): TProjection[];
+        related(id: string | null | undefined, relation: string, opts?: {
+            select?: never;
+            renderKeys?: readonly string[];
+        }): unknown;
     };
     scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
     registerReset(fn: () => void): void;
@@ -233,20 +281,37 @@ export type ModelCore<TStored extends {
 type RequiredReadUse<TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first' | 'where'> & {
+}, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first'> & {
+    row<TProjection extends Record<string, unknown>>(id: string | null | undefined, opts: {
+        select: (row: TStored) => TProjection;
+        renderKeys?: never;
+        require?: readonly TKey[];
+    }): TProjection | undefined;
     row<K extends TKey>(id: string | null | undefined, opts: {
-        select?: ReadonlyArray<keyof TStored>;
+        select?: never;
+        renderKeys?: readonly (keyof TStored & string)[];
         require: readonly K[];
     }): RequiredFields<TStored, K> | undefined;
     row(id: string | null | undefined, opts?: {
-        select?: ReadonlyArray<keyof TStored>;
+        select?: never;
+        renderKeys?: readonly (keyof TStored & string)[];
         require?: never;
     }): TStored | undefined;
+    first<TProjection extends Record<string, unknown>>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & {
+        select: (row: TStored) => TProjection;
+        renderKeys?: never;
+        require?: readonly TKey[];
+    }): TProjection | undefined;
     first<K extends TKey>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & {
+        select?: never;
+        renderKeys?: readonly (keyof TStored & string)[];
         require: readonly K[];
     }): RequiredFields<TStored, K> | undefined;
-    first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
-    where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
+    first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored> & {
+        select?: never;
+        renderKeys?: readonly (keyof TStored & string)[];
+        require?: never;
+    }): TStored | undefined;
 };
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */

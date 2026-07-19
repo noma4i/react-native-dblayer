@@ -2,14 +2,8 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ApplyTarget } from '../apply/transaction';
 import { getCommitBus } from '../../dsl/configure';
 import { arraysShallowEqual, rowsShallowEqual } from '../../read/useLiveRead';
-import {
-  createLiveQueryCollection,
-  ensureMembershipCollection,
-  ensureModelCollection,
-  eq,
-  registerLiveScopeReadReset,
-  type StoredRowShape
-} from './facade';
+import { createProjectionGate, type ProjectionOptions, validateProjectionOptions } from '../../read/projectionGate';
+import { createLiveQueryCollection, ensureMembershipCollection, ensureModelCollection, eq, registerLiveScopeReadReset, type StoredRowShape } from './facade';
 
 type ScopeSortMeta = ReturnType<ApplyTarget[`scopeSortMeta`]>;
 type LiveQuery = ReturnType<typeof createLiveQueryCollection>;
@@ -37,8 +31,7 @@ export function getScopeLiveReadRegistryStats(): { entryCount: number; refCount:
   };
 }
 
-const plainRow = (row: StoredRowShape): StoredRowShape =>
-  Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith(`$`))) as StoredRowShape;
+const plainRow = (row: StoredRowShape): StoredRowShape => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith(`$`))) as StoredRowShape;
 
 const updateSnapshot = (entry: ScopeLiveEntry): void => {
   const sourceRows = entry.liveQuery.toArray as StoredRowShape[];
@@ -81,9 +74,7 @@ const createEntry = (modelId: string, scopeKey: string, sortMeta: ScopeSortMeta)
         .orderBy(({ membership }) => membership.rowId)
         .select(({ entity }) => ({ ...entity }));
     }
-    return joined
-      .orderBy(({ membership }) => membership.seq)
-      .select(({ entity }) => ({ ...entity }));
+    return joined.orderBy(({ membership }) => membership.seq).select(({ entity }) => ({ ...entity }));
   });
   const entry = {
     scopeKey,
@@ -148,10 +139,19 @@ registerLiveScopeReadReset(clearEntries);
  * @param sortMeta Membership sort metadata supplied by the model apply target.
  * @returns Ordered stored rows with stable identities until their content changes.
  */
-export function useScopeLiveRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta): StoredRowShape[] {
+export function useScopeLiveRows<TOutput extends Record<string, unknown> = StoredRowShape>(
+  modelId: string,
+  scopeKey: string | null,
+  sortMeta: ScopeSortMeta,
+  options: ProjectionOptions<StoredRowShape, TOutput> = {}
+): TOutput[] {
+  validateProjectionOptions(options, `${modelId}.scope.use`);
+  const optionsRef = useRef(options);
+  const gateRef = useRef(createProjectionGate<StoredRowShape, TOutput>());
+  optionsRef.current = options;
   const { entry, subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
   const getSnapshot = useCallback(
-    () => (scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot),
+    () => gateRef.current.projectRows(scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot, optionsRef.current),
     [modelId, scopeKey, sortMeta]
   );
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -170,8 +170,13 @@ export function useScopeLiveWindowRows(
   modelId: string,
   scopeKey: string | null,
   sortMeta: ScopeSortMeta,
-  windowSize: number
+  windowSize: number,
+  options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}
 ): ScopeLiveWindowSnapshot {
+  validateProjectionOptions(options, `${modelId}.scope.useWindow`);
+  const optionsRef = useRef(options);
+  const gateRef = useRef(createProjectionGate<StoredRowShape, Record<string, unknown>>());
+  optionsRef.current = options;
   const { subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
   const windowRef = useRef<{ source: StoredRowShape[]; size: number; snapshot: ScopeLiveWindowSnapshot }>({
     source: EMPTY_ROWS,
@@ -179,7 +184,8 @@ export function useScopeLiveWindowRows(
     snapshot: { rows: EMPTY_ROWS, totalCount: 0 }
   });
   const getSnapshot = useCallback(() => {
-    const source = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
+    const stored = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
+    const source = gateRef.current.projectRows(stored, optionsRef.current) as StoredRowShape[];
     if (windowRef.current.source === source && windowRef.current.size === windowSize) return windowRef.current.snapshot;
     const rows = source.slice(0, windowSize);
     const previous = windowRef.current.snapshot;

@@ -5,74 +5,69 @@ import { type ApplyRuntime } from '../core/apply/transaction';
 import { type OperationState } from '../core/planes/operationState';
 export type DbRetryClass = 'network' | 'server' | 'retriable' | 'fatal';
 export type DbRetryPolicy = {
-  /** Classify one failure before its retry budget is consulted. Omit for no retries. */
-  classify?: (error: unknown) => DbRetryClass;
-  /** Maximum retry attempts for each non-fatal class. Defaults to zero. */
-  budgets?: Partial<Record<Exclude<DbRetryClass, 'fatal'>, number>>;
-  /** Exponential retry delay bounds in milliseconds. Defaults to 1000 and 30000. */
-  backoff?: {
-    baseMs: number;
-    maxMs: number;
-  };
+    /** Classify one failure before its retry budget is consulted. Omit for no retries. */
+    classify?: (error: unknown) => DbRetryClass;
+    /** Maximum retry attempts for each non-fatal class. Defaults to zero. */
+    budgets?: Partial<Record<Exclude<DbRetryClass, 'fatal'>, number>>;
+    /** Exponential retry delay bounds in milliseconds. Defaults to 1000 and 30000. */
+    backoff?: {
+        baseMs: number;
+        maxMs: number;
+    };
 };
 export interface DbDefaults {
-  /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
-  staleTime?: number;
-  /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` results that omit their own. */
-  emptyStaleTime?: number;
-  /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
-  gcTime?: number;
-  /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
-  pageSize?: number;
-  /** Retry policies for query and mutation work. Missing classifiers disable retries. */
-  retry?: {
-    query?: DbRetryPolicy;
-    mutation?: DbRetryPolicy;
-  };
-  /** Network behavior for internally owned query and mutation work. Defaults to `offlineFirst`. */
-  networkMode?: 'offlineFirst' | 'online';
-  /** Whether queries refetch after network reconnection. Defaults to true. */
-  refetchOnReconnect?: boolean;
-  /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
-  refetchOnMount?: boolean;
-  /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
-  persistence?: {
-    checkpointDelayMs?: number;
-    maxPendingPlans?: number;
-  };
-  /**
-   * In-session garbage-collection trigger tuning. ON by default (`threshold: 500`,
-   * `debounceMs: 1000`) - a burst of destroys/inserts crossing the pressure threshold schedules one
-   * debounced `collectGarbage()` sweep. Set `false` to disable the trigger entirely; `bootDb`'s
-   * startup sweep and manual `collectGarbage()` calls are unaffected either way.
-   */
-  inSessionGc?:
-    | false
-    | {
+    /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
+    staleTime?: number;
+    /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` results that omit their own. */
+    emptyStaleTime?: number;
+    /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
+    gcTime?: number;
+    /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
+    pageSize?: number;
+    /** Retry policies for query and mutation work. Missing classifiers disable retries. */
+    retry?: {
+        query?: DbRetryPolicy;
+        mutation?: DbRetryPolicy;
+    };
+    /** Network behavior for internally owned query and mutation work. Defaults to `offlineFirst`. */
+    networkMode?: 'offlineFirst' | 'online';
+    /** Whether queries refetch after network reconnection. Defaults to true. */
+    refetchOnReconnect?: boolean;
+    /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
+    refetchOnMount?: boolean;
+    /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
+    persistence?: {
+        checkpointDelayMs?: number;
+        maxPendingPlans?: number;
+    };
+    /**
+     * In-session garbage-collection trigger tuning. ON by default (`threshold: 500`,
+     * `debounceMs: 1000`) - a burst of destroys/inserts crossing the pressure threshold schedules one
+     * debounced `collectGarbage()` sweep. Set `false` to disable the trigger entirely; `bootDb`'s
+     * startup sweep and manual `collectGarbage()` calls are unaffected either way.
+     */
+    inSessionGc?: false | {
         threshold?: number;
         debounceMs?: number;
-      };
-  /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
-  onSyncError?: (
-    error: Error,
-    ctx: {
-      source: string;
-      model?: string;
-      scope?: unknown;
-      key?: string;
-      event?: string;
-    }
-  ) => void;
+    };
+    /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
+    onSyncError?: (error: Error, ctx: {
+        source: string;
+        model?: string;
+        scope?: unknown;
+        key?: string;
+        event?: string;
+    }) => void;
 }
 export type ConfigureDbOptions = {
-  transport: DbTransport;
-  storage?: StoragePlane;
-  logger?: DbLogger;
-  defaults?: DbDefaults;
+    transport: DbTransport;
+    storage?: StoragePlane;
+    logger?: DbLogger;
+    defaults?: DbDefaults;
 };
 type RuntimeConfig = Omit<ConfigureDbOptions, 'storage'> & {
-  storage: StoragePlane;
-  queryClient: QueryClient;
+    storage: StoragePlane;
+    queryClient: QueryClient;
 };
 /**
  * Configure the injected runtime seams (transport, storage, logger) and package-wide
@@ -98,21 +93,13 @@ export declare const getRuntimeGeneration: () => number;
 /** Internal: establish a new generation before the reset fence tears down the old runtime. */
 export declare const advanceRuntimeGeneration: () => void;
 export declare const getCommitBus: () => {
-  subscribe: (
-    notify: () => void,
-    deps?: ReadonlyArray<import('../core/apply/commitBus').Dependency>,
-    onBatch?: (batch: import('../core/apply/commitBus').IncrementalCommitBatch | null) => void
-  ) => import('../core/apply/commitBus').CommitSubscription;
-  subscribeIncremental: (
-    notify: () => void,
-    deps: ReadonlyArray<import('../core/apply/commitBus').Dependency>,
-    onBatch: (batch: import('../core/apply/commitBus').IncrementalCommitBatch | null) => void
-  ) => import('../core/apply/commitBus').CommitSubscription;
-  subscribeAll: (onBatch: (batch: import('../core/apply/commitBus').IncrementalCommitBatch) => void) => () => void;
-  activeDependencies: () => ReadonlyArray<import('../core/apply/commitBus').Dependency>;
-  publish: (batch: import('../core/apply/commitBus').IncrementalCommitBatch) => void;
-  publishAll: () => void;
-  subscriberCount: () => number;
+    subscribe: (notify: () => void, deps?: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch?: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
+    subscribeIncremental: (notify: () => void, deps: ReadonlyArray<import("../core/apply/commitBus").Dependency>, onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch | null) => void) => import("../core/apply/commitBus").CommitSubscription;
+    subscribeAll: (onBatch: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void) => (() => void);
+    activeDependencies: () => ReadonlyArray<import("../core/apply/commitBus").Dependency>;
+    publish: (batch: import("../core/apply/commitBus").IncrementalCommitBatch) => void;
+    publishAll: () => void;
+    subscriberCount: () => number;
 };
 /** Internal: return the library-owned QueryClient for provider and query modules. */
 export declare const getInternalQueryClient: () => QueryClient;

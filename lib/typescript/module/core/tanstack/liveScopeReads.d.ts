@@ -1,4 +1,5 @@
 import type { ApplyTarget } from '../apply/transaction';
+import { type ProjectionOptions } from '../../read/projectionGate';
 import { type StoredRowShape } from './facade';
 type ScopeSortMeta = ReturnType<ApplyTarget[`scopeSortMeta`]>;
 type ScopeLiveWindowSnapshot = {
@@ -18,7 +19,7 @@ export declare function getScopeLiveReadRegistryStats(): {
  * @param sortMeta Membership sort metadata supplied by the model apply target.
  * @returns Ordered stored rows with stable identities until their content changes.
  */
-export declare function useScopeLiveRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta): StoredRowShape[];
+export declare function useScopeLiveRows<TOutput extends Record<string, unknown> = StoredRowShape>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, options?: ProjectionOptions<StoredRowShape, TOutput>): TOutput[];
 /**
  * Reads a stable local window from one shared TanStack live query projection.
  *
@@ -28,6 +29,6 @@ export declare function useScopeLiveRows(modelId: string, scopeKey: string | nul
  * @param windowSize Number of leading rows included in the local window.
  * @returns Stable window rows and the complete shared scope count.
  */
-export declare function useScopeLiveWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number): ScopeLiveWindowSnapshot;
+export declare function useScopeLiveWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number, options?: ProjectionOptions<StoredRowShape, Record<string, unknown>>): ScopeLiveWindowSnapshot;
 export {};
 //# sourceMappingURL=liveScopeReads.d.ts.map

@@ -102,6 +102,7 @@ type RowEngineOptions<T extends Row, TValue> = {
   initial(): T[];
   read(id: string): T | undefined;
   select(rows: T[], count: number): TValue;
+  isEqual?: (left: TValue, right: TValue) => boolean;
   countOnly?: boolean;
 };
 
@@ -193,7 +194,7 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
     if (requiresRebuild) {
       const previous = engine.value;
       rebuild();
-      if (!engineValuesEqual(previous, engine.value)) engine.version += 1;
+      if (!(options.isEqual ?? engineValuesEqual)(previous, engine.value)) engine.version += 1;
       else engine.value = previous;
       return true;
     }
@@ -220,7 +221,7 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
     if (!changed) return false;
     const previous = engine.value;
     render();
-    if (engineValuesEqual(previous, engine.value)) {
+    if ((options.isEqual ?? engineValuesEqual)(previous, engine.value)) {
       engine.value = previous;
       return false;
     }

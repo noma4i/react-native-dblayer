@@ -14,6 +14,7 @@ import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDe
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
+import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import { createModelReadEngine, createScopeReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
@@ -26,7 +27,7 @@ import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
 import type { InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
@@ -80,7 +81,8 @@ export type CrudSections = {
 export type ScopeHandle<TStored extends { id: string }, TScope> = {
   modelId: string;
   /** Reactive read of every row currently in the scope, in the scope's configured sort order. */
-  use(scopeValue: TScope | null | undefined): TStored[];
+  use<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: { select: (row: TStored) => TProjection; renderKeys?: never }): TProjection[];
+  use(scopeValue: TScope | null | undefined, opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[] }): TStored[];
   /**
    * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
    * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
@@ -93,7 +95,7 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
    */
   useWindow(
     scopeValue: TScope | null | undefined,
-    opts?: { pageSize?: number }
+    opts?: { pageSize?: number; select?: never; renderKeys?: readonly (keyof TStored & string)[] }
   ): {
     /** The current window: the first `totalCount` rows up to the window size. */
     rows: TStored[];
@@ -104,6 +106,10 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
     /** Grow the local window by `pageSize` more rows. Does not touch the network. */
     fetchNextPage: () => void;
   };
+  useWindow<TProjection extends Record<string, unknown>>(
+    scopeValue: TScope | null | undefined,
+    opts: { pageSize?: number; select: (row: TStored) => TProjection; renderKeys?: never }
+  ): { rows: TProjection[]; totalCount: number; hasMore: boolean; fetchNextPage: () => void };
   /** Reactive count of rows currently in the scope. */
   useCount(scopeValue: TScope | null | undefined): number;
   /** Clear this scope's fetch-state and invalidate its derived React Query key(s). */
@@ -182,25 +188,44 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   normalize(input: unknown): Partial<TStored> & { id: string };
   invalidate(scope?: unknown): void;
   use: {
-    /** Read one row when all `require` fields are present. `undefined` is missing; `null` is present. Row-only because scope totals use unfiltered membership. */
-    row<K extends keyof TStored & string>(
-      id: string | null | undefined,
-      opts: { select?: ReadonlyArray<keyof TStored>; require: readonly K[] }
-    ): RequiredFields<TStored, K> | undefined;
-    /** Read one stored row. */
-    row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored>; require?: never }): TStored | undefined;
+    /** Read one field from one row. */
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
-    /** Read the first matching row complete for `require`; `undefined` is missing and `null` is present. Row-only because scope totals use unfiltered membership. */
-    first<K extends keyof TStored & string>(
+    /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
+    row<TProjection extends Record<string, unknown>>(
+      id: string | null | undefined,
+      opts: { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly (keyof TStored & string)[] }
+    ): TProjection | undefined;
+    row(
+      id: string | null | undefined,
+      opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
+    ): TStored | undefined;
+    /** Read the first matching row or a shallow-gated projection after ordering and required-field filtering. */
+    first<TProjection extends Record<string, unknown>>(
       where: DbWhere<TStored> | null | undefined,
-      opts: DbReadOptions<TStored> & { require: readonly K[] }
-    ): RequiredFields<TStored, K> | undefined;
-    /** Read the first matching stored row. */
-    first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
+      opts: DbReadOptions<TStored> & { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly (keyof TStored & string)[] }
+    ): TProjection | undefined;
+    first(
+      where?: DbWhere<TStored> | null,
+      opts?: DbReadOptions<TStored> & { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
+    ): TStored | undefined;
     where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
-    byIds(ids: string[]): TStored[];
+    /** Read ids in input order with stable rows and an id-keyed map; nullish ids return an unsubscribed empty result. */
+    byIds<TProjection extends Record<string, unknown>>(
+      ids: readonly string[] | null | undefined,
+      opts: { select: (row: TStored) => TProjection; renderKeys?: never }
+    ): { rows: TProjection[]; byId: ReadonlyMap<string, TProjection> };
+    byIds(
+      ids: readonly string[] | null | undefined,
+      opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[] }
+    ): { rows: TStored[]; byId: ReadonlyMap<string, TStored> };
     count(where?: DbWhere<TStored> | null): number;
-    related(id: string | null | undefined, relation: string): unknown;
+    /** Read a declared relation, optionally projecting row-valued relation results through the shared gate. */
+    related<TProjection extends Record<string, unknown>>(
+      id: string | null | undefined,
+      relation: string,
+      opts: { select: (row: TStored) => TProjection; renderKeys?: never }
+    ): TProjection[];
+    related(id: string | null | undefined, relation: string, opts?: { select?: never; renderKeys?: readonly string[] }): unknown;
   };
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
   registerReset(fn: () => void): void;
@@ -213,15 +238,28 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   __revision?(): number;
 };
 
-type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<
-  ModelCore<TStored>['use'],
-  'row' | 'first' | 'where'
-> & {
-  row<K extends TKey>(id: string | null | undefined, opts: { select?: ReadonlyArray<keyof TStored>; require: readonly K[] }): RequiredFields<TStored, K> | undefined;
-  row(id: string | null | undefined, opts?: { select?: ReadonlyArray<keyof TStored>; require?: never }): TStored | undefined;
-  first<K extends TKey>(where: DbWhere<TStored> | null | undefined, opts: DbReadOptions<TStored> & { require: readonly K[] }): RequiredFields<TStored, K> | undefined;
-  first(where?: DbWhere<TStored> | null, opts?: DbReadOptions<TStored>): TStored | undefined;
-  where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
+type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first'> & {
+  row<TProjection extends Record<string, unknown>>(
+    id: string | null | undefined,
+    opts: { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly TKey[] }
+  ): TProjection | undefined;
+  row<K extends TKey>(
+    id: string | null | undefined,
+    opts: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require: readonly K[] }
+  ): RequiredFields<TStored, K> | undefined;
+  row(id: string | null | undefined, opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: never }): TStored | undefined;
+  first<TProjection extends Record<string, unknown>>(
+    where: DbWhere<TStored> | null | undefined,
+    opts: DbReadOptions<TStored> & { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly TKey[] }
+  ): TProjection | undefined;
+  first<K extends TKey>(
+    where: DbWhere<TStored> | null | undefined,
+    opts: DbReadOptions<TStored> & { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require: readonly K[] }
+  ): RequiredFields<TStored, K> | undefined;
+  first(
+    where?: DbWhere<TStored> | null,
+    opts?: DbReadOptions<TStored> & { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: never }
+  ): TStored | undefined;
 };
 
 type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
@@ -588,27 +626,34 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
 
   function whereRead(where: DbWhere<any> | null): ModelReadBuilder<any> {
     return createReadBuilder(where, {
-      rows: (criteria, orders, limit, required) =>
-        useIncrementalRead({
-          signature: incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit })),
+      rows: (criteria, orders, limit, required, projection) => {
+        validateProjectionOptions(projection, `${config.id}.use.where`);
+        const projectionRef = useRef(projection);
+        const gateRef = useRef(createProjectionGate<any, any>());
+        projectionRef.current = projection;
+        const signature = incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit, required }));
+        return useIncrementalRead({
+          signature,
           deps: criteria == null ? [] : [modelDep],
           create: () =>
             createModelReadEngine({
-              signature: incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit })),
+              signature,
               model: config.id,
               where: row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required),
               options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
-              select: rows => rows
+              select: rows => gateRef.current.projectRows(rows, projectionRef.current),
+              isEqual: arraysShallowEqual
             })
-        }),
-      read: (criteria, orders, limit, required) => {
+        });
+      },
+      read: (criteria, orders, limit, required, projection) => {
         const rows = planes()
           .entityState.values()
           .filter(row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required));
-        if (orders.length > 0) return sortModelReadRows(rows, orders, limit);
-        return limitRows(rows, limit);
+        const selected = orders.length > 0 ? sortModelReadRows(rows, orders, limit) : limitRows(rows, limit);
+        return projection.select ? selected.map(projection.select) : selected;
       }
     });
   }
@@ -635,19 +680,19 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     };
     return {
       modelId: config.id,
-      use: (scopeValue: unknown) => {
+      use: (scopeValue: unknown, options: ProjectionOptions<any, any> = {}) => {
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
         useScopeAccess(scopeKey);
-        return useScopeLiveRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`));
+        return useScopeLiveRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`), options);
       },
-      useWindow: (scopeValue: unknown, options?: { pageSize?: number }) => {
+      useWindow: (scopeValue: unknown, options: { pageSize?: number } & ProjectionOptions<any, any> = {}) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
         const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
         const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
         if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
         useScopeAccess(scopeKey);
-        const window = useScopeLiveWindowRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`), windowSize);
+        const window = useScopeLiveWindowRows(config.id, scopeKey, applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`), windowSize, options);
         return {
           rows: window.rows,
           totalCount: window.totalCount,
@@ -861,42 +906,56 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       invalidateModel(config.id, scope);
     },
     use: {
-      row: (id: string | null | undefined, options: { select?: ReadonlyArray<string | number | symbol>; require?: readonly string[] } | undefined) => {
-        const select = options?.select?.map(String);
+      row: (id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<any, any> = {}) => {
         const required = options?.require ?? [];
-        return useLiveRead(
+        return useProjectedLiveRow(
           () => {
             const row = id == null ? undefined : planes().entityState.read(id);
             return hasRequiredFields(row, required) ? row : undefined;
           },
-          id == null ? [] : [rowDep(id, select || required.length > 0 ? [...(select ?? []), ...required] : undefined)]
+          id == null ? [] : [rowDep(id, required.length > 0 ? required : undefined)],
+          options,
+          `${config.id}.use.row`
         );
       },
       field: (id, field) => useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)?.[field]), id == null ? [] : [rowDep(id, [String(field)])]),
-      first: (where: DbWhere<any> | null | undefined, options: (DbReadOptions<any> & { require?: readonly string[] }) | undefined) =>
-        useIncrementalRead({
-          signature: incrementalSignature('first', config.id, where, options),
+      first: (where: DbWhere<any> | null | undefined, options: DbReadOptions<any> & { require?: readonly string[] } & ProjectionOptions<any, any> = {}) => {
+        validateProjectionOptions(options, `${config.id}.use.first`);
+        const optionsRef = useRef(options);
+        const gateRef = useRef(createProjectionGate<any, any>());
+        optionsRef.current = options;
+        const signature = incrementalSignature('first', config.id, where, options.orderBy, options.limit, options.require);
+        return useIncrementalRead({
+          signature,
           deps: [modelDep],
           create: () =>
             createModelReadEngine({
-              signature: incrementalSignature('first', config.id, where, options),
+              signature,
               model: config.id,
-              where: row => (where == null || matchesDbWhere(row, where)) && hasRequiredFields(row, options?.require ?? []),
-              options: options
-                ? { orderBy: options.orderBy ? [{ field: String(options.orderBy.field), direction: options.orderBy.direction }] : undefined, limit: options.limit }
-                : undefined,
+              where: row => (where == null || matchesDbWhere(row, where)) && hasRequiredFields(row, optionsRef.current.require ?? []),
+              options: options.orderBy
+                ? { orderBy: [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], limit: options.limit }
+                : { limit: options.limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
-              select: rows => rows[0]
+              select: rows => (rows[0] ? gateRef.current.project(rows[0], optionsRef.current) : undefined),
+              isEqual: Object.is
             })
-        }),
+        });
+      },
       where: whereRead,
-      byIds: ids =>
-        useLiveRead(
-          () => ids.map(id => planes().entityState.read(id)).filter(Boolean),
-          ids.map(id => rowDep(id)),
-          arraysShallowEqual
-        ),
+      byIds: (ids: readonly string[] | null | undefined, options: ProjectionOptions<any, any> = {}) => {
+        const resolvedIds = ids ?? [];
+        const rows = useProjectedLiveRows(
+          () => resolvedIds.map(id => planes().entityState.read(id)).filter(Boolean),
+          resolvedIds.map(id => rowDep(id)),
+          options,
+          `${config.id}.use.byIds`
+        );
+        const resultRef = useRef<{ rows: any[]; byId: ReadonlyMap<string, any> } | null>(null);
+        if (resultRef.current?.rows !== rows) resultRef.current = { rows, byId: new Map(rows.map((row, index) => [resolvedIds[index]!, row])) };
+        return resultRef.current!;
+      },
       count: where =>
         useIncrementalRead({
           signature: incrementalSignature('count', config.id, where),
@@ -912,9 +971,17 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
               countOnly: true
             })
         }),
-      related: (id, relationName) => {
+      related: (id: string | null | undefined, relationName: string, options: ProjectionOptions<any, any> = {}): any => {
         const relation = resolvedRelations()[relationName];
         if (!relation) throw new Error(`${config.name} has no relation ${relationName}`);
+        if (relation.kind === 'hasMany') {
+          return useProjectedLiveRows(
+            () => (id == null ? EMPTY_ROWS : relation.model.getWhere({ [relation.foreignKey]: id })),
+            id == null ? [] : [{ kind: 'model', model: relation.model.modelId }],
+            options,
+            `${config.id}.use.related`
+          );
+        }
         let compute: () => unknown;
         let deps: Dependency[];
         let isEqual: (a: unknown, b: unknown) => boolean = Object.is;
@@ -930,10 +997,6 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
           };
           const parentId = parentIdOf();
           deps = id == null ? [] : [rowDep(id, [relation.foreignKey]), ...(parentId ? [{ kind: 'row' as const, model: relation.model.modelId, id: parentId }] : [])];
-        } else if (relation.kind === 'hasMany') {
-          compute = () => (id == null ? EMPTY_ROWS : relation.model.getWhere({ [relation.foreignKey]: id }));
-          deps = id == null ? [] : [{ kind: 'model', model: relation.model.modelId }];
-          isEqual = (a, b) => arraysShallowEqual(a as unknown[], b as unknown[]);
         } else if (relation.kind === 'hasOne') {
           const comparator = relation.comparator;
           compute = () => {

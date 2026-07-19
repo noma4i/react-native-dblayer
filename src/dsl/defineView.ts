@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
 import type { RelationDecl } from '../core/relations';
 import { arraysShallowEqual, useLiveRead } from '../read/useLiveRead';
+import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
-import { isRecord } from '../utils/normalizeHelpers';
 import { getDbRuntimeConfig } from './configure';
 import type { ModelCore, ScopeHandle } from './defineModel';
 
@@ -17,7 +17,7 @@ type IncludeConfig = string | ComputedInclude | RelationInclude | IdInclude;
 export type ViewConfig<TItem> = {
   /** Declared scope name or scope handle on the model that owns the view. */
   source: string | ScopeHandle<Row, Record<string, unknown>>;
-  /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. `hasMany` and `hasOne` use a model-wide discovery dependency so newly matching rows are found; unrelated target writes recompute but preserve item identities and do not re-render readers. */
+  /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. */
   include: Record<string, IncludeConfig>;
   /** Build one view item from a source row, resolved includes, and its source index. */
   select?: (row: Row, included: Included, ctx: { index: number }) => TItem;
@@ -37,18 +37,14 @@ type RelationIndex = { revision: number; rowsByForeignKey: Map<string, Row[]> };
 type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
 type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number };
 
-const valuesEqual = (left: unknown, right: unknown): boolean => {
-  if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length && left.every((value, index) => valuesEqual(value, right[index]));
-  if (isRecord(left) && isRecord(right)) {
-    const keys = Object.keys(left);
-    return keys.length === Object.keys(right).length && keys.every(key => Object.is(left[key], right[key]));
-  }
-  return Object.is(left, right);
-};
-
 const includesEqual = (left: Included, right: Included): boolean => {
   const keys = Object.keys(left);
-  return keys.length === Object.keys(right).length && keys.every(key => valuesEqual(left[key], right[key]));
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every(key =>
+      Array.isArray(left[key]) && Array.isArray(right[key]) ? arraysShallowEqual(left[key] as unknown[], right[key] as unknown[]) : Object.is(left[key], right[key])
+    )
+  );
 };
 
 const idsOf = (value: string | string[] | null): string[] =>
@@ -80,35 +76,36 @@ const resolveRelation = (row: Row, relation: RelationDecl, rowsFor: (foreignKey:
 export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, config: ViewConfig<TItem>): ViewHandle<TItem, TScope> => {
   const source = (typeof config.source === 'string' ? model.scopes[config.source] : config.source) as ScopeHandle<Row, TScope> | undefined;
   if (!source || source.modelId !== model.modelId) throw new Error(`${model.modelId} has no scope ${typeof config.source === 'string' ? config.source : name} for view ${name}`);
+  validateProjectionOptions(config, `${model.modelId}.view.${name}`);
   const relations = model.__relations!();
-  const relationIndexes = new Map<RelationDecl, RelationIndex>();
   for (const [alias, include] of Object.entries(config.include)) {
     const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
     if (relationName && !relations[relationName]) throw new Error(`${model.modelId} has no relation ${relationName} for view ${name}.${alias}`);
     if (relationName && relations[relationName]!.kind === 'references') throw new Error(`Model.view does not support references includes`);
   }
 
-  const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
-    const target = relation.model as ModelCore<Row>;
-    const revision = target.__revision?.() ?? 0;
-    let index = relationIndexes.get(relation);
-    if (!index || index.revision !== revision) {
-      const rowsByForeignKey = new Map<string, Row[]>();
-      for (const row of target.getAll()) {
-        const value = row[foreignKey];
-        if (typeof value !== 'string') continue;
-        const rows = rowsByForeignKey.get(value) ?? [];
-        rows.push(row);
-        rowsByForeignKey.set(value, rows);
-      }
-      index = { revision, rowsByForeignKey };
-      relationIndexes.set(relation, index);
-    }
-    return index.rowsByForeignKey.get(id) ?? [];
-  };
-
   const useItems = (scopeValue: TScope | null | undefined, limit: number | null): ItemSnapshot<TItem> => {
     const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
+    const projectionGateRef = useRef(createProjectionGate<Row, Row>());
+    const relationIndexesRef = useRef(new Map<RelationDecl, RelationIndex>());
+    const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
+      const target = relation.model as ModelCore<Row>;
+      const revision = target.__revision?.() ?? 0;
+      let index = relationIndexesRef.current.get(relation);
+      if (!index || index.revision !== revision) {
+        const rowsByForeignKey = new Map<string, Row[]>();
+        for (const row of target.getAll()) {
+          const value = row[foreignKey];
+          if (typeof value !== 'string') continue;
+          const rows = rowsByForeignKey.get(value) ?? [];
+          rows.push(row);
+          rowsByForeignKey.set(value, rows);
+        }
+        index = { revision, rowsByForeignKey };
+        relationIndexesRef.current.set(relation, index);
+      }
+      return index.rowsByForeignKey.get(id) ?? [];
+    };
     const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
     useEffect(() => {
       if (scopeKey != null) source.__noteAccess!(scopeValue as TScope);
@@ -136,7 +133,8 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
               const id = row[relation.foreignKey];
               if (typeof id === 'string') deps.push({ kind: 'row', model: relation.model.modelId, id });
             } else {
-              deps.push({ kind: 'model', model: relation.model.modelId });
+              const relatedRows = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
+              for (const relatedRow of relatedRows) deps.push({ kind: 'row', model: relation.model.modelId, id: (relatedRow as Row).id });
             }
           } else {
             const idInclude = include as IdInclude;
@@ -152,11 +150,8 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
         }
         const current = cacheRef.current.get(row.id);
         if (current && current.row === row && includesEqual(current.included, included)) return current.item;
-        const item = config.select ? config.select(row, included, { index }) : ({ ...row, ...included } as TItem);
-        if (current && config.renderKeys?.every(key => valuesEqual((current.item as Record<string, unknown>)[key], (item as Record<string, unknown>)[key]))) {
-          cacheRef.current.set(row.id, { row, included, item: current.item });
-          return current.item;
-        }
+        const candidate = (config.select ? config.select(row, included, { index }) : { ...row, ...included }) as Row;
+        const item = projectionGateRef.current.projectValue(row.id, candidate, candidate, config.renderKeys) as TItem;
         cacheRef.current.set(row.id, { row, included, item });
         return item;
       });

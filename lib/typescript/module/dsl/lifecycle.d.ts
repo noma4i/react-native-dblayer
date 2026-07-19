@@ -1,8 +1,8 @@
 import type { GcReport } from '../core/gc';
 import { type MaintenanceReport } from './maintenanceRegistry';
 export type BootDbOptions = {
-  /** Discard all persisted and in-memory library state before journal replay. */
-  wipe?: boolean;
+    /** Discard all persisted and in-memory library state before journal replay. */
+    wipe?: boolean;
 };
 /**
  * Recommended data-startup sequence after `configureDb`: deferred definition validation, then
@@ -27,9 +27,9 @@ export type BootDbOptions = {
  * report for the post-replay sweep.
  */
 export declare const bootDb: (options?: BootDbOptions) => Promise<{
-  replayed: number;
-  gc: GcReport;
-  maintenance: MaintenanceReport[];
+    replayed: number;
+    gc: GcReport;
+    maintenance: MaintenanceReport[];
 }>;
 /**
  * Recommended app-background/teardown sequence: `flushPersistence()` to write pending checkpoint
