@@ -238,7 +238,18 @@ are `& Record<string, unknown>`.
 
 `react-native-mmkv` (`>=4.0.0`) is a peer dependency, required whenever the default storage plane
 is used - pass a custom `StoragePlane` to `configureDb` to avoid it entirely. `react`, `react-native`,
-`graphql`, and `@graphql-typed-document-node/core` are the remaining peer dependencies. The library
-does not use `crypto`/`randomUUID` anywhere in its own code - `generateTempId` (see
-[runtime.md](./runtime.md#scalar-and-id-utility-helpers)) derives ids from `Date.now()` plus a
-counter, so no crypto polyfill is required by the library itself.
+`graphql`, and `@graphql-typed-document-node/core` are the remaining peer dependencies.
+
+React Native/Hermes consumers MUST install `react-native-get-random-values` (for example, with
+`yarn add react-native-get-random-values`) and import it before the library boots, as the first
+import in the app entry. This is a transitive `@tanstack/db` runtime requirement verified on-device:
+without the polyfill Hermes throws `No secure random number generator available`. If the React
+Native version does not provide `crypto.randomUUID`, add the `crypto.getRandomValues`-based shim
+from the canonical [`example/index.js`](../example/index.js) entry implementation.
+
+```js
+import 'react-native-get-random-values';
+if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
+  // Copy the getRandomValues-based shim body from example/index.js.
+}
+```
