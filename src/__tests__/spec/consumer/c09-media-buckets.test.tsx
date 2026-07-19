@@ -149,22 +149,20 @@ describe('media scope bucket behavior', () => {
     bucketAReader.unmount();
   });
 
-  it.failing('writes query rows to matching composite buckets in destination scope', async () => {
-    // GAP: query destination writes are still assigned by query scope, so mixed-bucket payloads can be added to the requested bucket.
+  it('writes query rows to matching composite buckets in destination scope', async () => {
     const transport = createMockTransport({
-      query: async <TData,>() =>
-        ({
-          data: {
-            mediaItems: {
-              nodes: [
-                { id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 30, label: 'bucket-a' },
-                { id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 28, label: 'bucket-b' },
-                { id: 'a-2', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 22, label: 'bucket-a-2' }
-              ],
-              pageInfo: { hasNextPage: false, endCursor: null }
-            }
-              } as TData
-            })
+      query: async <TData,>() => ({
+        data: {
+          mediaItems: {
+            nodes: [
+              { id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 30, label: 'bucket-a' },
+              { id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 28, label: 'bucket-b' },
+              { id: 'a-2', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 22, label: 'bucket-a-2' }
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null }
+          }
+        } as TData
+      })
     });
 
     configureDb({ storage: createMemoryPlane(), transport });
@@ -188,5 +186,98 @@ describe('media scope bucket behavior', () => {
     expect(bucketB.map(row => row.id).sort()).toEqual(['b-1']);
 
     queryReader.unmount();
+  });
+
+  it('derives composite membership for query extract sinks', async () => {
+    type ExtractResponse = { carrier: { id: string; label: string }; media: MediaRow[] };
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        ({
+          data: {
+            carrier: { id: 'carrier-1', label: 'carrier' },
+            media: [{ id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 10, label: 'bucket-b' }]
+          } as TData
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createMediaModel();
+    const carriers = defineModel({ id: 'SpecCompositeCarrierQuery', name: 'SpecCompositeCarrierQuery', fields: { label: f.str() } });
+    const query = carriers.query<ExtractResponse, Record<string, never>, Record<string, never>, { id: string; label: string }>('with-media', {
+      document,
+      vars: value => value,
+      select: data => data.carrier,
+      into: carriers,
+      extract: ({ data }) => [{ into: media, rows: data.media }]
+    });
+
+    await query.fetch({});
+
+    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.id)).toEqual(['b-1']);
+  });
+
+  it('keeps composite membership derivation for mutation extract sinks', async () => {
+    type MutationResponse = { save: { id: string; label: string }; media: MediaRow[] };
+    const transport = createMockTransport({
+      mutation: async <TData,>() =>
+        ({
+          data: {
+            save: { id: 'carrier-1', label: 'carrier' },
+            media: [{ id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 10, label: 'bucket-a' }]
+          } as TData
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createMediaModel();
+    const carriers = defineModel({ id: 'SpecCompositeCarrierMutation', name: 'SpecCompositeCarrierMutation', fields: { label: f.str() } });
+    const mutation = carriers.mutation<MutationResponse, Record<string, never>, { id: string; label: string }, never>('with-media', {
+      document,
+      result: 'save',
+      extract: ({ data }) => [{ into: media, rows: data.media }]
+    });
+
+    await mutation.run({});
+
+    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'A' }).map(row => row.id)).toEqual(['a-1']);
+  });
+
+  it('keeps composite membership derivation for ingest upserts', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const media = createMediaModel();
+    const ingest = media.ingest({ mediaReceived: { apply: 'upsert' } });
+
+    ingest.apply('mediaReceived', { id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 10, label: 'bucket-b' });
+
+    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.id)).toEqual(['b-1']);
+  });
+
+  it('places optimistic rows into the selected composite server-order scope', () => {
+    const transport = createMockTransport({ mutation: () => new Promise(() => undefined) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = defineModel({
+      id: 'SpecCompositePlacement',
+      name: 'SpecCompositePlacement',
+      fields: { chatId: f.str(), mediaBucket: f.str(), label: f.str() },
+      scopes: { media: scope<{ id: string; chatId: string; mediaBucket: string; label: string }>({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: 'server-order' }) }
+    });
+    const mutation = media.mutation<
+      { save: { id: string; chatId: string; mediaBucket: string; label: string } },
+      MediaScopeValue,
+      { id: string; chatId: string; mediaBucket: string; label: string },
+      { id: string; chatId: string; mediaBucket: string; label: string }
+    >('create', {
+      document,
+      result: 'save',
+      optimistic: {
+        model: media,
+        build: input => ({ id: '', chatId: input.chatId, mediaBucket: input.mediaBucket, label: 'pending' }),
+        selectServerNode: data => data.save,
+        prependTo: { scope: media.scopes.media, value: input => input }
+      }
+    });
+
+    void mutation.run({ chatId: 'chat-1', mediaBucket: 'B' });
+
+    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'A' })).toEqual([]);
+    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.label)).toEqual(['pending']);
   });
 });
