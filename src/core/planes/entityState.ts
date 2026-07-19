@@ -1,3 +1,4 @@
+import { stableSerialize } from '../serialize';
 import type { StoragePlane } from './storagePlane';
 
 export type EntityClock = { next(): number; current(): number; restore(value: number): void };
@@ -108,8 +109,10 @@ export const createEntityState = <T extends { id: string }>(options: {
     values: () => [...rows.values()],
     upsert: row => {
       const previous = rows.get(row.id);
+      if (previous === row) return { seq: clock.current(), changedFields: [] };
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { seq: clock.current(), changedFields };
+      if (previous && stableSerialize(previous) === stableSerialize(row)) return { seq: clock.current(), changedFields: [] };
       const seq = clock.next();
       rows.set(row.id, row);
       writes.set(row.id, seq);
