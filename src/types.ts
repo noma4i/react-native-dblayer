@@ -2,10 +2,6 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
 import type { FieldSpec } from './schema/fieldSpec';
 
-declare global {
-  const __DEV__: boolean;
-}
-
 export type StorageAdapter = {
   /** Read a persisted value synchronously. */
   getItem(key: string): string | null;
@@ -72,11 +68,7 @@ export type DbTransport = {
 
 export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any, any>>;
 
-export type DbWhere<T> =
-  | Partial<T>
-  | { and: Array<DbWhere<T>> }
-  | { or: Array<DbWhere<T>> }
-  | { not: DbWhere<T> };
+export type DbWhere<T> = Partial<T> | { and: Array<DbWhere<T>> } | { or: Array<DbWhere<T>> } | { not: DbWhere<T> };
 
 export interface DbReadOptions<T> {
   orderBy?: { field: keyof T & string; direction: 'asc' | 'desc' };
@@ -92,15 +84,15 @@ type StableProjectionBaseConfig<TSource, TEntry extends { item: TItem }, TItem> 
 
 type StableProjectionKeyConfig<TSource, TEntry extends { item: TItem }, TItem> =
   | (StableProjectionBaseConfig<TSource, TEntry, TItem> & {
-    /** Stable key for a source value. */
-    getKey: (source: TSource) => string;
-  })
+      /** Stable key for a source value. */
+      getKey: (source: TSource) => string;
+    })
   | (TSource extends { id: string }
-    ? StableProjectionBaseConfig<TSource, TEntry, TItem> & {
-      /** Omit to use the source item's string `id`. */
-      getKey?: undefined;
-    }
-    : never);
+      ? StableProjectionBaseConfig<TSource, TEntry, TItem> & {
+          /** Omit to use the source item's string `id`. */
+          getKey?: undefined;
+        }
+      : never);
 
 export type StableProjectionConfig<TSource, TEntry extends { item: TItem }, TItem> = StableProjectionKeyConfig<TSource, TEntry, TItem> & {
   /** Compare projection entries for stability. */
@@ -117,8 +109,7 @@ type StableProjectionRenderKeysConfig<TSource, TEntry extends { item: TItem }, T
 };
 
 export type StableItemsConfig<TSource, TEntry extends { item: TItem }, TItem extends object> =
-  | StableProjectionConfig<TSource, TEntry, TItem>
-  | StableProjectionRenderKeysConfig<TSource, TEntry, TItem>;
+  StableProjectionConfig<TSource, TEntry, TItem> | StableProjectionRenderKeysConfig<TSource, TEntry, TItem>;
 
 type StableEntityVolatileKeysConfig<TItem extends object> = {
   /** Fields ignored when comparing the current entity with the previous one. */

@@ -4,9 +4,11 @@ import TestRenderer, { act } from 'react-test-renderer';
 import * as dbl from '../../../index';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
-const DbProvider = (dbl as unknown as {
-  DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
-}).DbProvider;
+const DbProvider = (
+  dbl as unknown as {
+    DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
+  }
+).DbProvider;
 const document = { kind: 'Document', definitions: [] } as never;
 const settle = async () => {
   await act(async () => {
@@ -16,6 +18,7 @@ const settle = async () => {
 };
 
 describe('provider-owned query runtime', () => {
+  // Performance scale guarantee: N/A because provider lifecycle has no scale-dependent input.
   let appStateHandler: ((state: string) => void) | undefined;
   let removeAppStateListener: jest.Mock;
 
@@ -112,9 +115,10 @@ describe('provider-owned query runtime', () => {
   it('drops an in-flight response that lands after reset', async () => {
     let resolve!: (value: { data: { value: string } }) => void;
     const transport = createMockTransport({
-      query: <TData,>() => new Promise<{ data: TData }>(done => {
-        resolve = done as never;
-      })
+      query: <TData,>() =>
+        new Promise<{ data: TData }>(done => {
+          resolve = done as never;
+        })
     });
     dbl.configureDb({ storage: createMemoryPlane(), transport } as never);
     const request = dbl.defineFetch<{ value: string }, void, string>({ document, key: 'spec-provider-fence', select: data => data.value });
@@ -189,7 +193,10 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
     });
     await settle();
-    act(() => root.unmount());
+    act(() => {
+      jest.runOnlyPendingTimers();
+      root.unmount();
+    });
 
     expect(removeAppStateListener).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(0);

@@ -825,7 +825,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       }
       return handles as { [K in keyof typeof sections]: any };
     },
-    fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` }),
+    fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` } as any),
     poller: (name, pollerConfig) =>
       createModelStatusPoller({
         ...pollerConfig,

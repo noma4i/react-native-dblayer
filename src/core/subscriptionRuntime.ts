@@ -45,10 +45,10 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
   onData: (payload: TPayload) => void;
 };
 
-type TypedDbSubscriptionEntry<
-  TDocument extends TypedDocumentNode<any, any>,
-  TKey extends Extract<keyof ResultOf<TDocument>, string>
-> = Omit<DbSubscriptionEntry<ResultOf<TDocument>[TKey]>, 'key' | 'query' | 'vars'> & {
+type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<any, any>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<
+  DbSubscriptionEntry<ResultOf<TDocument>[TKey]>,
+  'key' | 'query' | 'vars'
+> & {
   key: TKey;
   query: TDocument;
   vars?: VariablesOf<TDocument>;
@@ -62,10 +62,7 @@ type TypedDbSubscriptionEntry<
  * @param entry Typed subscription document, root-field key, variables, debounce, and payload handler.
  * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
  */
-export const defineDbSubscriptionEntry = <
-  TDocument extends TypedDocumentNode<any, any>,
-  TKey extends Extract<keyof ResultOf<TDocument>, string>
->(
+export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<any, any>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(
   entry: TypedDbSubscriptionEntry<TDocument, TKey>
 ): DbSubscriptionEntry => entry as unknown as DbSubscriptionEntry;
 
@@ -233,6 +230,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   }));
   const byKey = new Map(states.map(state => [state.entry.key, state]));
   let active = false;
+  let activationEpoch = 0;
   const generationFence = createGenerationFence({ lazy: true });
   const isCurrentGeneration = (): boolean => generationFence.isCurrent();
 
@@ -274,8 +272,8 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     state.debounceBuckets.set(bucketKey, { timer, payload });
   };
 
-  const handleTransportNext = (state: EntryState, data: unknown): void => {
-    if (!active) return;
+  const handleTransportNext = (state: EntryState, data: unknown, epoch: number): void => {
+    if (!active || epoch !== activationEpoch) return;
     if (!isNonArrayRecord(data)) {
       getDbLogger().debug(LOG_PREFIX, 'response skipped', { key: state.entry.key });
       return;
@@ -292,14 +290,17 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       throw new Error('react-native-dblayer: transport.subscribe is required before activating subscription runtime');
     }
 
+    const epoch = activationEpoch;
     state.unsubscribe = subscribe(
       {
         query: state.entry.query,
         variables: state.entry.vars
       },
       {
-        next: data => handleTransportNext(state, data),
-        error: error => handleEntryError(state, error)
+        next: data => handleTransportNext(state, data, epoch),
+        error: error => {
+          if (epoch === activationEpoch) handleEntryError(state, error);
+        }
       }
     );
   };
@@ -330,6 +331,13 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     }
   };
 
+  const reset = (): void => {
+    active = false;
+    activationEpoch += 1;
+    deactivateAll();
+  };
+  const unregisterReset = registerReset(reset);
+
   return {
     setActive(nextActive) {
       if (nextActive === active) return;
@@ -345,6 +353,7 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       }
 
       active = true;
+      activationEpoch += 1;
       generationFence.captureNow();
       for (const state of states) {
         subscribeEntry(state);
@@ -372,8 +381,8 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       }));
     },
     stop() {
-      active = false;
-      deactivateAll();
+      reset();
+      unregisterReset();
     }
   };
 };

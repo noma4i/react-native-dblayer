@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
 import type { DbLogger, DbTransport } from '../types';
 import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
@@ -14,6 +14,17 @@ import { resetCollectionRegistry } from '../core/tanstack/facade';
 import { seedCollections, startCollectionMirror } from '../core/tanstack/mirror';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 
+export type DbRetryClass = 'network' | 'server' | 'retriable' | 'fatal';
+
+export type DbRetryPolicy = {
+  /** Classify one failure before its retry budget is consulted. Omit for no retries. */
+  classify?: (error: unknown) => DbRetryClass;
+  /** Maximum retry attempts for each non-fatal class. Defaults to zero. */
+  budgets?: Partial<Record<Exclude<DbRetryClass, 'fatal'>, number>>;
+  /** Exponential retry delay bounds in milliseconds. Defaults to 1000 and 30000. */
+  backoff?: { baseMs: number; maxMs: number };
+};
+
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
   staleTime?: number;
@@ -23,6 +34,14 @@ export interface DbDefaults {
   gcTime?: number;
   /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
   pageSize?: number;
+  /** Retry policies for query and mutation work. Missing classifiers disable retries. */
+  retry?: { query?: DbRetryPolicy; mutation?: DbRetryPolicy };
+  /** Network behavior for internally owned query and mutation work. Defaults to `offlineFirst`. */
+  networkMode?: 'offlineFirst' | 'online';
+  /** Whether queries refetch after network reconnection. Defaults to true. */
+  refetchOnReconnect?: boolean;
+  /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
+  refetchOnMount?: boolean;
   /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
   persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
   /**
@@ -36,7 +55,8 @@ export interface DbDefaults {
   onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown; key?: string; event?: string }) => void;
 }
 
-type RuntimeConfig = { transport: DbTransport; storage: StoragePlane; queryClient?: QueryClient; logger?: DbLogger; defaults?: DbDefaults };
+export type ConfigureDbOptions = { transport: DbTransport; storage?: StoragePlane; logger?: DbLogger; defaults?: DbDefaults };
+type RuntimeConfig = Omit<ConfigureDbOptions, 'storage'> & { storage: StoragePlane; queryClient: QueryClient };
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
@@ -48,35 +68,66 @@ let stopCollectionMirror: (() => void) | null = null;
 let collectionRegistryResetRegistered = false;
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
+let queryClientResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
 
 /**
- * Configure the injected runtime seams (transport, storage, query client, logger) and package-wide
+ * Configure the injected runtime seams (transport, storage, logger) and package-wide
  * defaults. Must be called once before any model, query, or mutation runs; calling it again advances the
  * runtime generation, discards cached apply/operation runtimes, and re-applies transport/logger.
  *
- * Most apps should call `bootDb(options)` instead: it wraps this call with the recommended
- * `replayJournal`/`collectGarbage`/`purgeForeignStorageKeys` startup sequence. `configureDb` stays
- * exported directly for callers with a different startup sequencing need.
+ * Call this before rendering `DbProvider`; the provider owns the subsequent `bootDb` data lifecycle.
  *
  * @param options.transport GraphQL transport (`query`/`mutation`) used by `defineQuery`/`defineMutation`.
  * @param options.storage Synchronous key/value seam for persistence; defaults to `mmkvStoragePlane()`.
- * @param options.queryClient TanStack Query client shared with `defineQuery`'s hooks; optional.
  * @param options.logger Package logger seam; optional, defaults to the built-in logger.
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
  */
-export const configureDb = (options: Omit<RuntimeConfig, 'storage'> & { storage?: StoragePlane }): void => {
+export const configureDb = (options: ConfigureDbOptions): void => {
+  runtimeConfig?.queryClient.clear();
   runtimeGeneration += 1;
   replayCompleted = false;
-  runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane() };
+  const defaults = options.defaults;
+  const retryOptions = (policy: DbRetryPolicy | undefined) => ({
+    retry: policy?.classify
+      ? (failureCount: number, error: unknown) => {
+          const classification = policy.classify?.(error) ?? 'fatal';
+          if (classification === 'fatal') return false;
+          return failureCount < (policy.budgets?.[classification] ?? 0);
+        }
+      : false,
+    retryDelay: (attempt: number) => {
+      const baseMs = policy?.backoff?.baseMs ?? 1000;
+      const maxMs = policy?.backoff?.maxMs ?? 30000;
+      return Math.min(baseMs * Math.pow(2, attempt), maxMs);
+    }
+  });
+  const networkMode = defaults?.networkMode ?? 'offlineFirst';
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        ...retryOptions(defaults?.retry?.query),
+        networkMode,
+        refetchOnReconnect: defaults?.refetchOnReconnect ?? true,
+        refetchOnMount: defaults?.refetchOnMount ?? true,
+        refetchOnWindowFocus: false
+      },
+      mutations: { ...retryOptions(defaults?.retry?.mutation), networkMode }
+    }
+  });
+  runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane(), queryClient };
   applyRuntime = null;
   operationState = null;
   checkpointScheduler?.cancel();
   checkpointScheduler = null;
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
+  if (!queryClientResetRegistered) {
+    registerReset(() => runtimeConfig?.queryClient.clear());
+    queryClientResetRegistered = true;
+  }
   getApplyRuntime();
   stopCollectionMirror?.();
   resetCollectionRegistry();
@@ -119,12 +170,8 @@ export const advanceRuntimeGeneration = (): void => {
 
 export const getCommitBus = () => commitBus;
 
-/**
- * App-owned TanStack QueryClient handed to configureDb; undefined until configured.
- *
- * @returns The configured TanStack QueryClient, or undefined if configureDb has not been called.
- */
-export const getDbQueryClient = (): QueryClient | undefined => runtimeConfig?.queryClient;
+/** Internal: return the library-owned QueryClient for provider and query modules. */
+export const getInternalQueryClient = (): QueryClient => getDbRuntimeConfig().queryClient;
 
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter
@@ -173,9 +220,8 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
  * module has been imported (apply targets registered) - records touching unregistered models throw.
  * Returns the number of replayed records.
  *
- * Most apps should call `bootDb(options)` instead, which runs this in the recommended startup order
- * (`configureDb` -> `replayJournal` -> `collectGarbage` -> `purgeForeignStorageKeys`) and surfaces this
- * function's return value as `{ replayed }`.
+ * `bootDb` calls this before garbage collection and foreign-key cleanup and surfaces the result as
+ * `{ replayed }`.
  *
  * @returns The number of journal records replayed.
  */

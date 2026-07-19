@@ -1,7 +1,10 @@
-export { configureDb, flushPersistence, getDbQueryClient, purgeForeignStorageKeys, replayJournal } from './dsl/configure';
+export { configureDb, flushPersistence, purgeForeignStorageKeys, replayJournal } from './dsl/configure';
 export { getDbTransport, setDbTransport } from './core/transport';
-export type { DbDefaults } from './dsl/configure';
+export type { DbDefaults, DbRetryClass, DbRetryPolicy } from './dsl/configure';
 export { bootDb, suspendDb } from './dsl/lifecycle';
+export type { BootDbOptions } from './dsl/lifecycle';
+export { DbProvider } from './dsl/DbProvider';
+export type { DbProviderProps } from './dsl/DbProvider';
 export type { MaintenanceReport } from './dsl/maintenanceRegistry';
 export { resetRuntime, registerReset } from './core/reset';
 export { mmkvStoragePlane } from './core/planes/storagePlane';
@@ -40,4 +43,3 @@ export { createModelStatusPoller } from './utils/modelStatusPoller';
 export { createThrottledSingleFlight, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, createSingletonStatics } from './utils/runtimePrimitives';
 export { reconcileOptimisticRows, trimRowsPerScope, resolveStaleTempRows } from './utils/runtimePrimitives';
 export { patchWhenRowExists, waitForRow } from './core/rowWaiters';
-export { focusManager, QueryClient, QueryClientProvider, useQuery, useQueryClient } from './queryRuntime';

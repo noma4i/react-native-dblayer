@@ -1,8 +1,11 @@
 import type { GcReport } from '../core/gc';
-import { configureDb } from './configure';
 import { type MaintenanceReport } from './maintenanceRegistry';
+export type BootDbOptions = {
+  /** Discard all persisted and in-memory library state before journal replay. */
+  wipe?: boolean;
+};
 /**
- * Recommended app-startup sequence: `configureDb(options)`, then deferred definition validation, then
+ * Recommended data-startup sequence after `configureDb`: deferred definition validation, then
  * `replayJournal()` to recover any WAL-only writes from a crash, then `collectGarbage()` to reclaim
  * unreachable rows left over from that replay, then `purgeForeignStorageKeys()` to clear any
  * pre-migration/foreign storage keys - in exactly that order, once, before the first render that reads a model.
@@ -12,27 +15,21 @@ import { type MaintenanceReport } from './maintenanceRegistry';
  * throw is intentionally loud here: `bootDb` does not catch or swallow validation or replay errors, since a
  * silent partial boot is worse than a startup crash.
  *
- * `configureDb`, `replayJournal`, `collectGarbage`, and `purgeForeignStorageKeys` remain individually
- * exported as composable primitives for callers with a different startup sequencing need; `bootDb` is the
- * recommended path for the common case.
+ * `replayJournal`, `collectGarbage`, and `purgeForeignStorageKeys` remain individually exported as
+ * composable primitives for callers with a different startup sequencing need.
  *
  * Pass `wipe: true` to discard all persisted and in-memory library state (the `resetRuntime`
  * kill-switch) between validation and replay - boot then starts from an empty store. Use it for
  * consumer-side schema/cache-version bumps where stale persisted rows must not be rehydrated.
  *
- * @param options The exact `configureDb` options (transport, storage, queryClient, logger, defaults),
- * plus the boot-only `wipe` flag.
+ * @param options Boot-only data lifecycle options. Runtime seams must already be configured.
  * @returns `replayed` - the journal record count `replayJournal` recovered; `gc` - the `collectGarbage`
  * report for the post-replay sweep.
  */
-export declare const bootDb: (options: Parameters<typeof configureDb>[0] & {
-    /** Discard all persisted and in-memory library state (the `resetRuntime` kill-switch) after
-     * configuration and validations but before journal replay, so boot starts from an empty store. */
-    wipe?: boolean;
-}) => Promise<{
-    replayed: number;
-    gc: GcReport;
-    maintenance: MaintenanceReport[];
+export declare const bootDb: (options?: BootDbOptions) => Promise<{
+  replayed: number;
+  gc: GcReport;
+  maintenance: MaintenanceReport[];
 }>;
 /**
  * Recommended app-background/teardown sequence: `flushPersistence()` to write pending checkpoint

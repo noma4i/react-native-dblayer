@@ -2,8 +2,7 @@
 
 exports[`public barrel exports matches the reviewed runtime export allowlist 1`] = `
 [
-  "QueryClient",
-  "QueryClientProvider",
+  "DbProvider",
   "belongsTo",
   "bootDb",
   "castNode",
@@ -29,9 +28,7 @@ exports[`public barrel exports matches the reviewed runtime export allowlist 1`]
   "emptyIds",
   "f",
   "flushPersistence",
-  "focusManager",
   "generateTempId",
-  "getDbQueryClient",
   "getDbTransport",
   "hasMany",
   "hasOne",
@@ -59,8 +56,6 @@ exports[`public barrel exports matches the reviewed runtime export allowlist 1`]
   "stringifyNullish",
   "suspendDb",
   "trimRowsPerScope",
-  "useQuery",
-  "useQueryClient",
   "useStableEntity",
   "useStableProjection",
   "useStableSorted",

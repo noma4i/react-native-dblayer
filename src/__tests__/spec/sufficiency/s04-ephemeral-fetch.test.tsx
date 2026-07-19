@@ -3,14 +3,17 @@ import TestRenderer, { act } from 'react-test-renderer';
 import * as dbl from '../../../index';
 import { setupSpecRuntime } from '../helpers/harness';
 
-const DbProvider = (dbl as unknown as {
-  DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
-}).DbProvider;
+const DbProvider = (
+  dbl as unknown as {
+    DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
+  }
+).DbProvider;
 const settle = async () => {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
+  for (let tick = 0; tick < 4; tick += 1) {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
 };
 
 describe('ephemeral fetch sufficiency', () => {
@@ -57,8 +60,6 @@ describe('ephemeral fetch sufficiency', () => {
       select: (data: { value: string }) => data.value
     } as never);
 
-    await expect((dbl.bootDb as unknown as (options?: { wipe?: boolean }) => Promise<unknown>)()).rejects.toThrow(
-      'defineFetch requires exactly one of document or fetcher'
-    );
+    await expect((dbl.bootDb as unknown as (options?: { wipe?: boolean }) => Promise<unknown>)()).rejects.toThrow('defineFetch requires exactly one of document or fetcher');
   });
 });

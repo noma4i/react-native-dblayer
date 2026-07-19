@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { configureDb, QueryClient, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
+import { configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
   const values = new Map<string, string>();
@@ -50,9 +50,8 @@ export function createMockTransport(handlers: Partial<DbTransport> = {}) {
 export function setupSpecRuntime() {
   const storage = createMemoryPlane();
   const transport = createMockTransport();
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  configureDb({ storage, transport, queryClient });
-  return { storage, transport, queryClient };
+  configureDb({ storage, transport });
+  return { storage, transport };
 }
 
 export function renderCounted<T>(useHook: () => T) {

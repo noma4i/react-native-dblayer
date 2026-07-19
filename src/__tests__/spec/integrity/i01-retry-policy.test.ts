@@ -1,8 +1,9 @@
 import { configureDb, defineFetch } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
-const configureRetry = (classify?: (error: unknown) => 'network' | 'server' | 'retriable' | 'fatal') => {
-  const transport = createMockTransport();
+const document = { kind: 'Document', definitions: [] } as never;
+
+const configureRetry = (transport: ReturnType<typeof createMockTransport>, classify?: (error: unknown) => 'network' | 'server' | 'retriable' | 'fatal') => {
   configureDb({
     storage: createMemoryPlane(),
     transport,
@@ -14,49 +15,58 @@ const configureRetry = (classify?: (error: unknown) => 'network' | 'server' | 'r
 
 describe('query retry policy', () => {
   it('retries a classified network failure within its budget', async () => {
-    configureRetry(() => 'network');
     let calls = 0;
-    const request = defineFetch<number, void, number>({
-      key: 'retry-network',
-      fetcher: async () => {
+    const transport = createMockTransport({
+      query: async <TData>() => {
         calls += 1;
         if (calls < 3) throw new Error('offline');
-        return 42;
-      },
+        return { data: 42 as TData };
+      }
+    });
+    configureRetry(transport, () => 'network');
+    const request = defineFetch<number, void, number>({
+      key: 'retry-network',
+      document,
       select: (data: number) => data
-    } as never);
+    });
 
     await expect(request.fetch(undefined)).resolves.toBe(42);
     expect(calls).toBe(3);
   });
 
   it('does not retry a fatal failure', async () => {
-    configureRetry(() => 'fatal');
     let calls = 0;
-    const request = defineFetch<number, void, number>({
-      key: 'retry-fatal',
-      fetcher: async () => {
+    const transport = createMockTransport({
+      query: async () => {
         calls += 1;
         throw new Error('fatal');
-      },
+      }
+    });
+    configureRetry(transport, () => 'fatal');
+    const request = defineFetch<number, void, number>({
+      key: 'retry-fatal',
+      document,
       select: (data: number) => data
-    } as never);
+    });
 
     await expect(request.fetch(undefined)).rejects.toThrow('fatal');
     expect(calls).toBe(1);
   });
 
   it('does not retry when no classifier is configured', async () => {
-    configureRetry();
     let calls = 0;
-    const request = defineFetch<number, void, number>({
-      key: 'retry-safe-default',
-      fetcher: async () => {
+    const transport = createMockTransport({
+      query: async () => {
         calls += 1;
         throw new Error('unclassified');
-      },
+      }
+    });
+    configureRetry(transport);
+    const request = defineFetch<number, void, number>({
+      key: 'retry-safe-default',
+      document,
       select: (data: number) => data
-    } as never);
+    });
 
     await expect(request.fetch(undefined)).rejects.toThrow('unclassified');
     expect(calls).toBe(1);
