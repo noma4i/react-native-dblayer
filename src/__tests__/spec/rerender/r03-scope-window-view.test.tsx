@@ -63,10 +63,7 @@ const createGroupView = (rows: ReturnType<typeof createScopedModel>) =>
   });
 
 const renderWindow = (
-  useWindow: (
-    scopeValue: { groupId: string },
-    options?: { pageSize?: number; keepPrevious?: boolean }
-  ) => ScopeWindowResult<{ id: string; title: string }>,
+  useWindow: (scopeValue: { groupId: string }, options?: { pageSize?: number; keepPrevious?: boolean }) => ScopeWindowResult<{ id: string; title: string }>,
   initialGroupId: string,
   keepPrevious = false
 ): WindowReader<{ id: string; title: string }> => {
@@ -144,10 +141,13 @@ describe('rerender matrix scope window view', () => {
     const rows = createScopedModel();
     seedRows(rows);
 
-    const reader = renderWindow(rows.scopes.byGroup.useWindow as unknown as (
-      scopeValue: { groupId: string },
-      options?: { pageSize?: number; keepPrevious?: boolean }
-    ) => ScopeWindowResult<{ id: string; title: string }>, 'g1');
+    const reader = renderWindow(
+      rows.scopes.byGroup.useWindow as unknown as (
+        scopeValue: { groupId: string },
+        options?: { pageSize?: number; keepPrevious?: boolean }
+      ) => ScopeWindowResult<{ id: string; title: string }>,
+      'g1'
+    );
     const before = reader.renders();
 
     act(() => {
@@ -164,10 +164,13 @@ describe('rerender matrix scope window view', () => {
     const rows = createScopedModel();
     seedRows(rows);
 
-    const reader = renderWindow(rows.scopes.byGroup.useWindow as unknown as (
-      scopeValue: { groupId: string },
-      options?: { pageSize?: number; keepPrevious?: boolean }
-    ) => ScopeWindowResult<{ id: string; title: string }>, 'g1');
+    const reader = renderWindow(
+      rows.scopes.byGroup.useWindow as unknown as (
+        scopeValue: { groupId: string },
+        options?: { pageSize?: number; keepPrevious?: boolean }
+      ) => ScopeWindowResult<{ id: string; title: string }>,
+      'g1'
+    );
     const before = reader.renders();
 
     act(() => {
@@ -184,10 +187,13 @@ describe('rerender matrix scope window view', () => {
     const rows = createScopedModel();
     seedRows(rows);
 
-    const reader = renderWindow(rows.scopes.byGroup.useWindow as unknown as (
-      scopeValue: { groupId: string },
-      options?: { pageSize?: number; keepPrevious?: boolean }
-    ) => ScopeWindowResult<{ id: string; title: string }>, 'g1');
+    const reader = renderWindow(
+      rows.scopes.byGroup.useWindow as unknown as (
+        scopeValue: { groupId: string },
+        options?: { pageSize?: number; keepPrevious?: boolean }
+      ) => ScopeWindowResult<{ id: string; title: string }>,
+      'g1'
+    );
     const before = reader.renders();
 
     act(() => {
@@ -199,24 +205,28 @@ describe('rerender matrix scope window view', () => {
     reader.unmount();
   });
 
-  test.failing('keeps useWindow(g1, pageSize: 5) stable for off-window destroy', () => {
+  it('rerenders useWindow(g1, pageSize: 5) once for off-window destroy totalCount', () => {
     setupSpecRuntime();
     const rows = createScopedModel();
     seedRows(rows);
 
-    const reader = renderWindow(rows.scopes.byGroup.useWindow as unknown as (
-      scopeValue: { groupId: string },
-      options?: { pageSize?: number; keepPrevious?: boolean }
-    ) => ScopeWindowResult<{ id: string; title: string }>, 'g1');
+    const reader = renderWindow(
+      rows.scopes.byGroup.useWindow as unknown as (
+        scopeValue: { groupId: string },
+        options?: { pageSize?: number; keepPrevious?: boolean }
+      ) => ScopeWindowResult<{ id: string; title: string }>,
+      'g1'
+    );
     const before = reader.renders();
 
     act(() => {
       rows.destroy('row-12');
     });
 
-    // GAP: off-window destroy changes totalCount and emits one rerender
-    expect(reader.renders() - before).toBe(0);
+    expect(reader.renders() - before).toBe(1);
     expect(idsOf(reader.result().rows)).toEqual(['row-0', 'row-1', 'row-2', 'row-3', 'row-4']);
+    expect(reader.result().totalCount).toBe(14);
+    expect(reader.result().hasMore).toBe(true);
     reader.unmount();
   });
 
@@ -276,7 +286,23 @@ describe('rerender matrix scope window view', () => {
     });
 
     expect(reader.renders() - before).toBe(1);
-    expect(reader.result().map(item => item.id)).toEqual(['row-0', 'row-1', 'row-3', 'row-4', 'row-5', 'row-6', 'row-7', 'row-8', 'row-9', 'row-10', 'row-11', 'row-12', 'row-13', 'row-14', 'row-2']);
+    expect(reader.result().map(item => item.id)).toEqual([
+      'row-0',
+      'row-1',
+      'row-3',
+      'row-4',
+      'row-5',
+      'row-6',
+      'row-7',
+      'row-8',
+      'row-9',
+      'row-10',
+      'row-11',
+      'row-12',
+      'row-13',
+      'row-14',
+      'row-2'
+    ]);
     reader.unmount();
   });
 
@@ -297,7 +323,7 @@ describe('rerender matrix scope window view', () => {
     reader.unmount();
   });
 
-  test.failing('holds retained g1 window on keepPrevious while switching to empty g3 and freezes retained patch', () => {
+  it('holds retained g1 window on keepPrevious while switching to empty g3 and freezes retained patch', () => {
     const rows = createScopedModel();
     setupSpecRuntime();
     seedRows(rows);
@@ -323,16 +349,23 @@ describe('rerender matrix scope window view', () => {
       rows.patch('row-1', { title: 'retained mutation while previous' });
     });
 
-    // GAP: keepPrevious retention does not currently resolve an explicit empty seed in this matrix path
     expect(reader.renders() - beforePatch).toBe(0);
-    rows.scopes.byGroup.seed({ groupId: 'g3' }, []);
+    act(() => {
+      rows.scopes.byGroup.seed({ groupId: 'g3' }, []);
+    });
     const resolvedRenders = reader.renders();
-    expect(reader.result().rows).toEqual([]);
-    expect(reader.result().isPreviousData).toBe(false);
-    expect(resolvedRenders - beforePatch).toBe(1);
+    expect({
+      ids: idsOf(reader.result().rows),
+      isPreviousData: reader.result().isPreviousData,
+      totalCount: reader.result().totalCount,
+      renders: resolvedRenders - beforePatch
+    }).toEqual({
+      ids: [],
+      isPreviousData: false,
+      totalCount: 0,
+      renders: 1
+    });
     reader.unmount();
-
-    // GAP: keepPrevious should resolve an empty key after network resolution and keep freeze in place
   });
 
   it('rerenders count reader when g1 membership changes', () => {

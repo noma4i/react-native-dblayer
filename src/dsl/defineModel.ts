@@ -796,9 +796,10 @@ export const defineModel = <
       useWindow: (scopeValue: unknown, options: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
-        const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
-        const windowSize = windowState.scopeKey === scopeKey ? windowState.size : pageSize;
-        if (windowState.scopeKey !== scopeKey) setWindowState({ scopeKey, size: pageSize });
+        const windowStateRef = useRef({ scopeKey, size: pageSize });
+        const [, setWindowRevision] = useState(0);
+        if (windowStateRef.current.scopeKey !== scopeKey) windowStateRef.current = { scopeKey, size: pageSize };
+        const windowSize = windowStateRef.current.size;
         useScopeAccess(scopeKey);
         const window = useScopeLiveWindowRows(
           config.id,
@@ -813,7 +814,11 @@ export const defineModel = <
           totalCount: window.totalCount,
           hasMore: window.totalCount > windowSize,
           isPreviousData: window.isPreviousData,
-          fetchNextPage: () => setWindowState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
+          fetchNextPage: () => {
+            windowStateRef.current =
+              windowStateRef.current.scopeKey === scopeKey ? { ...windowStateRef.current, size: windowStateRef.current.size + pageSize } : { scopeKey, size: pageSize + pageSize };
+            setWindowRevision(current => current + 1);
+          }
         };
       },
       useCount: (scopeValue: unknown) => {
