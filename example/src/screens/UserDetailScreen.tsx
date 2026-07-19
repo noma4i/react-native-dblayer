@@ -6,7 +6,7 @@ import { userPostsQuery, userTodosQuery } from '../db/queries';
 
 export function UserDetailScreen({ route, navigation }: { route: any; navigation: any }) {
   const userId = route.params.userId as string;
-  const user = UserModel.use.row(userId);
+  const user = UserModel.use.row(userId, { renderKeys: ['name', 'email'] });
   const [name, setName] = useState(user?.name ?? '');
   userPostsQuery.use({ userId });
   userTodosQuery.use({ userId });

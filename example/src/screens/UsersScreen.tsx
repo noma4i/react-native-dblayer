@@ -1,4 +1,4 @@
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PostModel, TodoModel, UserModel } from '../db/models';
 import { USERS_SCOPE, usersQuery } from '../db/queries';
 
@@ -11,7 +11,7 @@ function UserRow({ user, navigation }: { user: { id: string; name: string; usern
 export function UsersScreen({ navigation }: { navigation: any }) {
   const result = usersQuery.use(USERS_SCOPE);
   const window = UserModel.scopes.list.useWindow(USERS_SCOPE, { pageSize: 10 });
-  return <View style={styles.container}><Text style={styles.caption}>Complete coverage user list. Open a profile, toggle a todo, then return to see the reactive completed count.</Text>{result.error && <Text style={styles.error}>{result.error.message}</Text>}<FlatList data={window.rows} keyExtractor={item => item.id} renderItem={({ item }) => <UserRow user={item} navigation={navigation} />} /></View>;
+  return <View style={styles.container}><Text style={styles.caption}>Complete coverage user list. Open a profile, toggle a todo, then return to see the reactive completed count.</Text>{result.error && <Text style={styles.error}>{result.error.message}</Text>}{result.loadingState.showSkeleton && <Text style={styles.caption}>Loading users...</Text>}{result.loadingState.showEmptyState && <Text style={styles.caption}>No users yet.</Text>}{result.loadingState.showRefreshIndicator && <ActivityIndicator />}{result.loadingState.showData && <FlatList data={window.rows} keyExtractor={item => item.id} renderItem={({ item }) => <UserRow user={item} navigation={navigation} />} />}</View>;
 }
 
 const styles = StyleSheet.create({ container: { flex: 1, padding: 16 }, caption: { color: '#4b5563', marginBottom: 12 }, row: { borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#d1d5db', paddingVertical: 14 }, name: { fontSize: 17, fontWeight: '700' }, counts: { marginTop: 4, color: '#2563eb' }, error: { color: '#b91c1c' } });

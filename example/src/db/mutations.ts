@@ -21,8 +21,8 @@ export const toggleTodo = TodoModel.mutation<{ updatePost: { id: number } }, { i
 export const addComment = CommentModel.mutation<{ createPost: { id: number } }, { postId: string; userId: string; name: string; body: string }, CommentNode, CommentNode>('add', {
   document: createDocument, result: 'createPost', mapInput: input => ({ title: input.name, body: input.body, userId: Number(input.userId) }),
   optimistic: {
-    model: CommentModel, tempIdPrefix: 'comment', build: input => ({ id: '', postId: input.postId, name: input.name, body: input.body, pending: true }),
-    selectServerNode: data => ({ id: String(data.createPost.id), postId: '', name: '', body: '', pending: false }), preserveOnCommit: ['postId', 'name', 'body'],
+    model: CommentModel, tempIdPrefix: 'comment', build: input => ({ id: '', postId: input.postId, name: input.name, body: input.body }),
+    selectServerNode: data => ({ id: String(data.createPost.id), postId: '', name: '', body: '' }), preserveOnCommit: ['postId', 'name', 'body'],
     prependTo: { scope: CommentModel.scopes.byPost, value: input => ({ postId: input.postId }) },
   },
 });

@@ -2,7 +2,7 @@ import { belongsTo, defineModel, f, hasMany, scope } from '@noma4i/react-native-
 
 export type UserNode = { id: string; name: string; username: string; email: string };
 export type PostNode = { id: string; userId: string; title: string; body: string };
-export type CommentNode = { id: string; postId: string; name: string; body: string; pending?: boolean };
+export type CommentNode = { id: string; postId: string; name: string; body: string };
 export type TodoNode = { id: string; userId: string; title: string; completed: boolean };
 
 export const UserModel = defineModel({
@@ -32,7 +32,7 @@ PostModel = defineModel({
 CommentModel = defineModel({
   id: 'example-comments',
   name: 'CommentModel',
-  fields: { id: f.id(), postId: f.id(), name: f.str(), body: f.str(), pending: f.bool().optional() },
+  fields: { id: f.id(), postId: f.id(), name: f.str(), body: f.str() },
   scopes: { byPost: scope({ by: { postId: 'postId' }, sort: 'server-order' }) },
   relations: () => ({ post: belongsTo(PostModel, { foreignKey: 'postId' }) }),
 });
