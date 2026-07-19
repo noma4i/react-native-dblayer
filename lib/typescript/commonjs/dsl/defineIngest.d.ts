@@ -1,4 +1,3 @@
-import type { JournalOp } from '../core/apply/journal';
 import { getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
 import { type DbSubscriptionEntry } from '../core/subscriptionRuntime';
@@ -20,7 +19,6 @@ type IngestModel = {
     get(id: string | null | undefined): unknown;
     insertStored(row: unknown): void;
     invalidate(scope?: unknown): void;
-    __planRows?(rows: unknown[]): JournalOp[];
 };
 /** Register a model for the named-model lookup exposed to fused custom ingest handlers. */
 export declare const registerIngestModel: (name: string, model: IngestModel) => void;

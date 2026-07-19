@@ -9,6 +9,7 @@ import { isRecord } from '../utils/normalizeHelpers';
 import { registerBootValidation } from './bootValidations';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
+import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 
 type MutationModel = {
   modelId: string;
@@ -17,16 +18,10 @@ type MutationModel = {
   insertStored(row: { id: string }): void;
   patch(id: string, patch: Record<string, unknown>): void;
   destroy(id: string): void;
-  __planReplace?(oldId: string, next: unknown): JournalOp[];
-  __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
-  __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
-  __planRows?(rows: unknown[]): JournalOp[];
 };
 
 type ScopePlacementHandle = {
   modelId: string;
-  __isServerOrder?: () => boolean;
-  __planPlacement?: (scopeValue: any, id: string, position: 'prepend' | 'append') => JournalOp[];
 };
 
 /** A server-order scope plus the mutation-input mapping that selects its concrete scope value. */
@@ -175,7 +170,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
   if (optimisticConfig && !isMethodOptimistic(optimisticConfig)) {
     if (optimisticConfig.prependTo && optimisticConfig.appendTo) throw new Error(`optimistic prependTo and appendTo are mutually exclusive`);
     const placement = optimisticConfig.prependTo ?? optimisticConfig.appendTo;
-    if (placement && placement.scope.__isServerOrder?.() !== true) throw new Error(`optimistic prependTo/appendTo requires a server-order scope`);
+    if (placement && !getInternalScopeHandle(placement.scope).isServerOrder()) throw new Error(`optimistic prependTo/appendTo requires a server-order scope`);
     if (placement && placement.scope.modelId !== optimisticConfig.model.modelId) throw new Error(`optimistic prependTo/appendTo scope must belong to the optimistic model`);
   }
 
@@ -207,13 +202,13 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const raw = node as Record<string, unknown>;
       const id = raw.id === `` || raw.id == null ? context.tempId : String(raw.id);
       const row = { ...raw, id };
-      if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined) ops.push(...(optimistic.model.__planReplace?.(context.tempId, row) ?? []));
-      else ops.push(...(optimistic.model.__planRows?.([row]) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [row] }]));
+      if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined) ops.push(...getInternalModelHandle(optimistic.model).planReplace(context.tempId, row));
+      else ops.push(...getInternalModelHandle(optimistic.model).planRows([row]));
       const placement = optimistic.prependTo ?? optimistic.appendTo;
       if (placement && context.tempId && id === context.tempId)
-        ops.push(...(placement.scope.__planPlacement?.(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append') ?? []));
+        ops.push(...getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append'));
     }
-    for (const sink of config.extract?.({ data }) ?? []) ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
+    for (const sink of config.extract?.({ data }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
     return ops;
   };
   const inverseFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[] => {
@@ -227,8 +222,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     return targets.flatMap(({ model, id }) => {
       const previous = model.get?.(id);
       if (previous === undefined) return [{ kind: 'destroy' as const, model: model.modelId, ids: [id], tombstone: false }];
-      const memberships = model.__captureMembership?.(id) ?? [];
-      return model.__planRestore?.(previous, memberships) ?? [{ kind: 'upsert' as const, model: model.modelId, rows: [previous], origin: 'replace' as const }];
+      const internal = getInternalModelHandle(model);
+      const memberships = internal.captureMembership(id);
+      return internal.planRestore(previous, memberships);
     });
   };
 
@@ -267,12 +263,10 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const row = optimistic.build(input, { tempId: newTempId, operationId });
         const placement = optimistic.prependTo ?? optimistic.appendTo;
         const position = optimistic.prependTo ? 'prepend' : 'append';
-        const ops = optimistic.model.__planRows?.([{ ...(row as Record<string, unknown>), id: newTempId }]) ?? [
-          { kind: 'upsert' as const, model: optimistic.model.modelId, rows: [{ ...(row as Record<string, unknown>), id: newTempId }] }
-        ];
+        const ops = getInternalModelHandle(optimistic.model).planRows([{ ...(row as Record<string, unknown>), id: newTempId }]);
         let placementOps: JournalOp[] = [];
         if (placement) {
-          placementOps = placement.scope.__planPlacement?.(placement.value(input), newTempId, position) ?? [];
+          placementOps = getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), newTempId, position);
           ops.push(...placementOps);
         }
         getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
@@ -287,7 +281,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       }
       const id = optimistic.selectId(input);
       previous = optimistic.model.get(id);
-      previousMemberships = optimistic.model.__captureMembership?.(id) ?? [];
+      previousMemberships = getInternalModelHandle(optimistic.model).captureMembership(id);
       optimistic.model.destroy(id);
     }
     if (tracked) {
@@ -322,7 +316,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
         const node = optimistic.selectServerNode(data);
         if (node != null) {
-          ops.push(...(optimistic.model.__planReplace?.(tempId, node) ?? []));
+          ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
           if (optimistic.preserveOnCommit?.length) {
             const current = optimistic.model.get(tempId) as Record<string, unknown> | undefined;
             if (current) {
@@ -338,7 +332,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         }
       }
       for (const sink of config.extract?.({ data }) ?? []) {
-        ops.push(...(sink.into.__planRows?.(sink.rows) ?? []));
+        ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
       }
       if (ops.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
 
@@ -360,7 +354,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         getApplyRuntime().apply(
-          expandPlan(optimistic.model.__planRestore?.(previous, previousMemberships) ?? [{ kind: 'upsert', model: optimistic.model.modelId, rows: [previous], origin: 'replace' }])
+          expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships))
         );
       }
       if (tracked) operations.close(operationId, 'rolledback');

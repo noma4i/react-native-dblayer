@@ -32,7 +32,6 @@ export type { ModelInput, ModelStored } from './schema/infer';
 export type { InferShapeStored } from './schema/infer';
 export { generateTempId, isTempId } from './utils/generateTempId';
 export { isIncomingNewer } from './core/invariants';
-export { castNode, castNodes } from './utils/typeBoundary';
 export { stringifyNullish } from './utils/normalizeHelpers';
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';

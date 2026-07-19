@@ -18,6 +18,7 @@ export declare const defineShape: <TInput = unknown>() => <TFields extends Shape
  *
  * Shape reads are dense row projections: field-level null defaults and other
  * reader defaults are applied to build a full shape object.
+ * Use this as the canonical runtime boundary validator for untyped payloads; TypedDocumentNode select paths remain the compile-time alternative.
  *
  * @param shape Shape created by `defineShape`.
  * @param input Candidate object payload; non-objects and arrays return `undefined`.

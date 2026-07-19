@@ -1,1 +1,0 @@
-{"version":3,"names":["castNodes","nodes","castNode","node"],"sourceRoot":"../../../src","sources":["utils/typeBoundary.ts"],"mappings":";;AAAA;AACA;AACA;AACA;AACA;AACA;AACA;AACA,OAAO,MAAMA,SAAS,GAAOC,KAAgB,IAAUA,KAAY;AACnE;AACA;AACA;AACA;AACA;AACA;AACA;AACA,OAAO,MAAMC,QAAQ,GAAOC,IAAa,IAAQA,IAAS","ignoreList":[]}

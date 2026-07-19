@@ -1,5 +1,4 @@
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
-import type { JournalOp } from '../core/apply/journal';
 import { type RelationDecl } from '../core/relations';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { defineFetch } from './defineFetch';
@@ -10,8 +9,8 @@ import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
 import type { RequiredFields } from './readBuilder';
-import type { ScopeCoverage, ScopeSpec } from './scope';
-import type { InferStoredFields } from '../schema/infer';
+import type { ScopeSpec } from './scope';
+import type { InferBuildStoredInput, InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 type ScopeWindowResult<T> = {
@@ -81,7 +80,7 @@ export type CrudSections = {
  */
 export type ScopeHandle<TStored extends {
     id: string;
-}, TScope> = {
+}, TScope, TInput = TStored> = {
     modelId: string;
     /** Reactive scope rows. `keepPrevious` opt-in retains the prior non-empty key until this key resolves. */
     use<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
@@ -118,26 +117,21 @@ export type ScopeHandle<TStored extends {
     invalidate(scopeValue?: TScope): void;
     /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
     read(scopeValue: TScope): TStored[];
-    __apply?(scopeValue: TScope, rows: TStored[], coverage: ScopeCoverage, opts?: {
-        resetOrder?: boolean;
-    }): void;
-    __planApply?(scopeValue: TScope, rows: Array<{
-        row: TStored;
-        edge?: Record<string, unknown>;
-    }>, coverage: ScopeCoverage, opts?: {
-        resetOrder?: boolean;
-    }): JournalOp[];
-    __key?(scopeValue: TScope): string;
-    __isServerOrder?(): boolean;
-    __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
-    __readRows?(scopeValue: TScope): TStored[];
-    __isResolved?(scopeValue: TScope): boolean;
-    __noteAccess?(scopeValue: TScope): void;
+    /**
+     * Seed dev/test rows and replace this scope's explicit membership in the provided order.
+     * Rows still normalize and upsert through the journalled apply pipeline, including automatic
+     * membership. Production data flows should use queries, mutations, or ingest instead.
+     *
+     * @param scopeValue Explicit scope key receiving the seeded membership.
+     * @param rows Raw model inputs to normalize and seed.
+     * @returns Nothing.
+     */
+    seed(scopeValue: TScope, rows: TInput[]): void;
 };
 export type ModelCore<TStored extends {
     id: string;
     updatedAt?: string | null;
-}> = {
+}, TInput = TStored> = {
     modelId: string;
     /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
     query<TResponse, TVars, TScope, TRow extends {
@@ -268,27 +262,16 @@ export type ModelCore<TStored extends {
             renderKeys?: readonly string[];
         }): unknown;
     };
-    scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
+    /**
+     * Seed dev/test rows through one normal journalled apply transaction with automatic membership.
+     * Production data flows should use queries, mutations, or ingest instead.
+     *
+     * @param rows Raw model inputs to normalize and seed.
+     * @returns Nothing.
+     */
+    seed(rows: TInput[]): void;
+    scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>, TInput>>;
     registerReset(fn: () => void): void;
-    __applyRows?(rows: TStored[]): void;
-    __planRows?(rows: TStored[], options?: {
-        includeMembership?: boolean;
-    }): JournalOp[];
-    __planReplace?(oldId: string, next: unknown): JournalOp[];
-    __captureMembership?(id: string): Array<{
-        id: string;
-        scopeKey: string;
-        order: number;
-        edge?: Record<string, unknown>;
-    }>;
-    __planRestore?(next: unknown, memberships: Array<{
-        id: string;
-        scopeKey: string;
-        order: number;
-        edge?: Record<string, unknown>;
-    }>): JournalOp[];
-    __relations?(): Record<string, RelationDecl>;
-    __revision?(): number;
 };
 type RequiredReadUse<TStored extends {
     id: string;
@@ -393,9 +376,9 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => Omit<ModelCore<any>, "use"> & {
+export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, "use" | "scopes"> & {
     use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | "id">;
-    scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>; };
+    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>>; };
 } & TExt;
 export {};
 //# sourceMappingURL=defineModel.d.ts.map

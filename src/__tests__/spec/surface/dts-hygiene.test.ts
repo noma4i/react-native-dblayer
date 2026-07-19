@@ -34,7 +34,11 @@ describe('public declaration hygiene', () => {
       if (!(target.flags & (ts.SymbolFlags.Interface | ts.SymbolFlags.TypeAlias))) return [];
       return checker
         .getPropertiesOfType(checker.getDeclaredTypeOfSymbol(target))
-        .filter(member => member.name.startsWith('__') && (member.declarations?.length ?? 0) > 0)
+        .filter(
+          member =>
+            member.name.startsWith('__') &&
+            (member.declarations ?? []).some(declaration => /(^|\/)src\//.test(declaration.getSourceFile().fileName.split(path.sep).join('/')))
+        )
         .map(member => `${exported.name}.${member.name}`);
     });
 

@@ -7,6 +7,7 @@ import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetenti
 import { hasRequiredFields } from '../read/requireFields';
 import { getDbRuntimeConfig } from './configure';
 import type { ModelCore, ScopeHandle } from './defineModel';
+import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 
 type Row = { id: string; [key: string]: unknown };
 type Included = Record<string, unknown>;
@@ -91,7 +92,8 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
   const source = (typeof config.source === 'string' ? model.scopes[config.source] : config.source) as ScopeHandle<Row, TScope> | undefined;
   if (!source || source.modelId !== model.modelId) throw new Error(`${model.modelId} has no scope ${typeof config.source === 'string' ? config.source : name} for view ${name}`);
   validateProjectionOptions(config, `${model.modelId}.view.${name}`);
-  const relations = model.__relations!();
+  const relations = getInternalModelHandle(model).relations();
+  const sourceInternal = getInternalScopeHandle(source);
   for (const [alias, include] of Object.entries(config.include)) {
     const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
     if (relationName && !relations[relationName]) throw new Error(`${model.modelId} has no relation ${relationName} for view ${name}.${alias}`);
@@ -104,7 +106,7 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
     const relationIndexesRef = useRef(new Map<RelationDecl, RelationIndex>());
     const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
       const target = relation.model as ModelCore<Row>;
-      const revision = target.__revision?.() ?? 0;
+      const revision = getInternalModelHandle(target).revision();
       let index = relationIndexesRef.current.get(relation);
       if (!index || index.revision !== revision) {
         const rowsByForeignKey = new Map<string, Row[]>();
@@ -120,14 +122,14 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
       }
       return index.rowsByForeignKey.get(id) ?? [];
     };
-    const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
+    const scopeKey = scopeValue == null ? null : sourceInternal.key(scopeValue);
     useEffect(() => {
-      if (scopeKey != null) source.__noteAccess!(scopeValue as TScope);
+      if (scopeKey != null) sourceInternal.noteAccess(scopeValue as TScope);
     }, [scopeKey]);
     const evaluate = (): { items: TItem[]; totalCount: number; resolved: boolean; deps: Dependency[] } => {
-      const rows = scopeValue == null ? [] : source.__readRows!(scopeValue);
+      const rows = scopeValue == null ? [] : sourceInternal.readRows(scopeValue);
       const visibleRows = limit === null ? rows : rows.slice(0, limit);
-      const deps: Dependency[] = scopeValue == null ? [] : [{ kind: 'scope', model: source.modelId, scopeKey: source.__key!(scopeValue) }];
+      const deps: Dependency[] = scopeValue == null ? [] : [{ kind: 'scope', model: source.modelId, scopeKey: sourceInternal.key(scopeValue) }];
       const liveIds = new Set(rows.map(row => row.id));
       const items = visibleRows.map((row, index) => {
         deps.push({ kind: 'row', model: model.modelId, id: row.id });
@@ -170,7 +172,7 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
         return item;
       });
       for (const id of cacheRef.current.keys()) if (!liveIds.has(id)) cacheRef.current.delete(id);
-      return { items, totalCount: rows.length, resolved: scopeValue == null || source.__isResolved!(scopeValue), deps };
+      return { items, totalCount: rows.length, resolved: scopeValue == null || sourceInternal.isResolved(scopeValue), deps };
     };
     const initial = evaluate();
     return useLiveRead(
@@ -186,12 +188,12 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
   return {
     use: (scopeValue, options) => {
       const snapshot = useItems(scopeValue, null);
-      const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
+      const scopeKey = scopeValue == null ? null : sourceInternal.key(scopeValue);
       return useScopeRetention(scopeKey, { rows: snapshot.items, totalCount: snapshot.totalCount }, snapshot.resolved, options?.keepPrevious === true).snapshot.rows;
     },
     useWindow: (scopeValue, options) => {
       const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
-      const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
+      const scopeKey = scopeValue == null ? null : sourceInternal.key(scopeValue);
       const [state, setState] = useState({ scopeKey, size: pageSize });
       const size = state.scopeKey === scopeKey ? state.size : pageSize;
       if (state.scopeKey !== scopeKey) setState({ scopeKey, size: pageSize });

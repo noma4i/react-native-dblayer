@@ -163,8 +163,6 @@ Generated from `src/index.ts`, grouped by area.
 | `generateTempId` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `isTempId` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `isIncomingNewer` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
-| `castNode` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
-| `castNodes` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `stringifyNullish` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `pickDefined` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |
 | `pickPresent` | value | [runtime-primitives.md](./runtime-primitives.md#utility-helpers) |

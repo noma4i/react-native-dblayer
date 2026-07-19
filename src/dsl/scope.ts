@@ -15,7 +15,7 @@ export interface ScopeSpec<TStored> {
    * When set, a row's membership in this scope is derived from its field values on every write: the row
    * joins the scope instance matching its current field values and leaves any scope instance it no longer
    * matches, in the same apply transaction as the write. Omit for scopes populated only by `defineQuery`
-   * (via a `ScopeHandle` destination) or by direct `__apply`/`__planApply` calls.
+   * (via a `ScopeHandle` destination) or explicit `ScopeHandle.seed` calls.
    */
   by?: Record<string, keyof TStored & string>;
   /**

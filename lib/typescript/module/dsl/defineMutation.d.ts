@@ -1,5 +1,4 @@
 import type { DbGraphQLDocument } from '../types';
-import type { JournalOp } from '../core/apply/journal';
 import type { ExtractSink } from './defineQuery';
 type MutationModel = {
     modelId: string;
@@ -12,25 +11,9 @@ type MutationModel = {
     }): void;
     patch(id: string, patch: Record<string, unknown>): void;
     destroy(id: string): void;
-    __planReplace?(oldId: string, next: unknown): JournalOp[];
-    __captureMembership?(id: string): Array<{
-        id: string;
-        scopeKey: string;
-        order: number;
-        edge?: Record<string, unknown>;
-    }>;
-    __planRestore?(next: unknown, memberships: Array<{
-        id: string;
-        scopeKey: string;
-        order: number;
-        edge?: Record<string, unknown>;
-    }>): JournalOp[];
-    __planRows?(rows: unknown[]): JournalOp[];
 };
 type ScopePlacementHandle = {
     modelId: string;
-    __isServerOrder?: () => boolean;
-    __planPlacement?: (scopeValue: any, id: string, position: 'prepend' | 'append') => JournalOp[];
 };
 /** A server-order scope plus the mutation-input mapping that selects its concrete scope value. */
 export type ScopePlacement<TInput> = {

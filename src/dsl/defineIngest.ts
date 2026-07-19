@@ -4,6 +4,7 @@ import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './config
 import { getDbLogger } from '../core/logger';
 import type { ExtractSink } from './defineQuery';
 import { getDbSubscriptionEffect, type DbSubscriptionEntry } from '../core/subscriptionRuntime';
+import { getInternalModelHandle } from '../core/internalHandles';
 
 export type IngestDecl = {
   upsert?: unknown | unknown[];
@@ -23,7 +24,6 @@ type IngestModel = {
   get(id: string | null | undefined): unknown;
   insertStored(row: unknown): void;
   invalidate(scope?: unknown): void;
-  __planRows?(rows: unknown[]): JournalOp[];
 };
 
 const modelsByName = new Map<string, IngestModel>();
@@ -157,11 +157,11 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
       const ids = declaration.destroy == null ? [] : Array.isArray(declaration.destroy) ? declaration.destroy : [declaration.destroy];
       const ops: JournalOp[] = [];
       if (rows.length > 0) {
-        ops.push(...(model.__planRows?.(rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)) ?? []));
+        ops.push(...getInternalModelHandle(model).planRows(rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)));
       }
       if (ids.length > 0) ops.push({ kind: 'destroy', model: model.modelId, ids });
       for (const sink of declaration.extract ?? []) {
-        ops.push(...(sink.into.__planRows?.(sink.rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)) ?? []));
+        ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)));
       }
       if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
       if (declaration.invalidate) model.invalidate();

@@ -30,13 +30,14 @@ import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
-import type { InferStoredFields } from '../schema/infer';
+import type { InferBuildStoredInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
 import { trimRowsPerScope } from '../utils/runtimePrimitives';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { omit } from 'es-toolkit';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
+import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
@@ -92,7 +93,7 @@ export type CrudSections = {
  * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ chatId }`); `null`/`undefined`
  * reads as empty without subscribing.
  */
-export type ScopeHandle<TStored extends { id: string }, TScope> = {
+export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored> = {
   modelId: string;
   /** Reactive scope rows. `keepPrevious` opt-in retains the prior non-empty key until this key resolves. */
   use<TProjection extends Record<string, unknown>>(
@@ -124,17 +125,19 @@ export type ScopeHandle<TStored extends { id: string }, TScope> = {
   invalidate(scopeValue?: TScope): void;
   /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
   read(scopeValue: TScope): TStored[];
-  __apply?(scopeValue: TScope, rows: TStored[], coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): void;
-  __planApply?(scopeValue: TScope, rows: Array<{ row: TStored; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp[];
-  __key?(scopeValue: TScope): string;
-  __isServerOrder?(): boolean;
-  __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
-  __readRows?(scopeValue: TScope): TStored[];
-  __isResolved?(scopeValue: TScope): boolean;
-  __noteAccess?(scopeValue: TScope): void;
+  /**
+   * Seed dev/test rows and replace this scope's explicit membership in the provided order.
+   * Rows still normalize and upsert through the journalled apply pipeline, including automatic
+   * membership. Production data flows should use queries, mutations, or ingest instead.
+   *
+   * @param scopeValue Explicit scope key receiving the seeded membership.
+   * @param rows Raw model inputs to normalize and seed.
+   * @returns Nothing.
+   */
+  seed(scopeValue: TScope, rows: TInput[]): void;
 };
 
-export type ModelCore<TStored extends { id: string; updatedAt?: string | null }> = {
+export type ModelCore<TStored extends { id: string; updatedAt?: string | null }, TInput = TStored> = {
   modelId: string;
   /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
@@ -246,15 +249,16 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
     ): TProjection[];
     related(id: string | null | undefined, relation: string, opts?: { select?: never; renderKeys?: readonly string[] }): unknown;
   };
-  scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>>>;
+  /**
+   * Seed dev/test rows through one normal journalled apply transaction with automatic membership.
+   * Production data flows should use queries, mutations, or ingest instead.
+   *
+   * @param rows Raw model inputs to normalize and seed.
+   * @returns Nothing.
+   */
+  seed(rows: TInput[]): void;
+  scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>, TInput>>;
   registerReset(fn: () => void): void;
-  __applyRows?(rows: TStored[]): void;
-  __planRows?(rows: TStored[], options?: { includeMembership?: boolean }): JournalOp[];
-  __planReplace?(oldId: string, next: unknown): JournalOp[];
-  __captureMembership?(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
-  __planRestore?(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
-  __relations?(): Record<string, RelationDecl>;
-  __revision?(): number;
 };
 
 type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first'> & {
@@ -366,9 +370,9 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
  */
 export const defineModel = <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
   config: ModelConfig<TFields, TScopes, TExt>
-): Omit<ModelCore<any>, 'use'> & {
+): Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
   use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
-  scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
+  scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
 } & TExt => {
   type ModelPlanes = { entityState: EntityState<any>; scopeIndex: ScopeIndex };
   let planesRef: ModelPlanes | null = null;
@@ -679,12 +683,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
-    const planScope = (
-      scopeKey: string,
-      liveRows: Array<{ row: any; edge?: Record<string, unknown> }>,
-      coverage: ScopeCoverage,
-      opts?: { resetOrder?: boolean }
-    ): JournalOp => {
+    const planScope = (scopeKey: string, liveRows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp => {
       let { next } = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
@@ -752,13 +751,9 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       }
       const requestedRows = rowsByScope.get(requestedScopeKey) ?? [];
       rowsByScope.delete(requestedScopeKey);
-      return [
-        upsert,
-        planScope(requestedScopeKey, requestedRows, coverage, opts),
-        ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))
-      ];
+      return [upsert, planScope(requestedScopeKey, requestedRows, coverage, opts), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
     };
-    return {
+    const scopeHandle: ScopeHandle<any, Record<string, unknown>, any> = {
       modelId: config.id,
       use: (scopeValue: unknown, options: ProjectionOptions<any, any> = {}) => {
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
@@ -810,31 +805,44 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         planes().scopeIndex.noteAccess(scopeKey);
         return scopeSortedRows(scopeName, scopeValue);
       },
-      __apply: (scopeValue: unknown, rows: any[], coverage: ScopeCoverage, opts?: { resetOrder?: boolean }) => {
+      seed: (scopeValue: unknown, rows: any[]) => {
+        const liveRows = rows
+          .filter(isPlanRow)
+          .filter(row => !planes().entityState.isTombstoned(String(row.id)))
+          .map(row => ({ row }));
+        applyEvent([
+          { kind: 'upsert', model: config.id, rows: liveRows.map(entry => entry.row) },
+          planScope(keyForScope(scopeName, scopeValue), liveRows, 'complete', { resetOrder: true })
+        ]);
+      }
+    };
+    registerInternalScopeHandle(scopeHandle, {
+      apply: (scopeValue, rows, coverage, options) => {
         applySnapshot(
           planApply(
             scopeValue,
             rows.map(row => ({ row })),
             coverage,
-            opts
+            options
           )
         );
       },
-      __planApply: planApply,
-      __key: (scopeValue: unknown) => keyForScope(scopeName, scopeValue),
-      __isServerOrder: () => !spec?.sort || spec.sort === 'server-order',
-      __planPlacement: (scopeValue: unknown, id: string, position: 'prepend' | 'append') => {
+      planApply,
+      key: scopeValue => keyForScope(scopeName, scopeValue),
+      isServerOrder: () => !spec?.sort || spec.sort === 'server-order',
+      planPlacement: (scopeValue, id, position) => {
         const scopeKey = keyForScope(scopeName, scopeValue);
         const entries = planes().scopeIndex.read(scopeKey).entries;
         const order = position === 'prepend' ? Math.min(0, ...entries.map(entry => entry.order)) - 1 : Math.max(-1, ...entries.map(entry => entry.order)) + 1;
         return [{ kind: 'scope-delta', model: config.id, scopeKey, append: [{ id, order }], detach: [] }];
       },
-      __readRows: (scopeValue: unknown) => scopeSortedRows(scopeName, scopeValue),
-      __isResolved: (scopeValue: unknown) => planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).generation > 0,
-      __noteAccess: (scopeValue: unknown) => {
+      readRows: scopeValue => scopeSortedRows(scopeName, scopeValue),
+      isResolved: scopeValue => planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).generation > 0,
+      noteAccess: scopeValue => {
         planes().scopeIndex.noteAccess(keyForScope(scopeName, scopeValue));
       }
-    };
+    });
+    return scopeHandle;
   };
 
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
@@ -1016,6 +1024,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),
     insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
     insertStoredMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
+    seed: rows => applyEvent(planRows(rows)),
     replaceRaw: (oldId, next) => applyEvent(planReplace(oldId, next)),
     buildStored: input => normalize(input, true),
     normalize: input => normalize(input),
@@ -1152,15 +1161,17 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     scopes: scopeHandles,
     registerReset: fn => {
       registerReset(fn);
-    },
-    __applyRows: rows => applySnapshot(planRows(rows)),
-    __planRows: planRows,
-    __planReplace: planReplace,
-    __captureMembership: captureMembership,
-    __planRestore: planRestore,
-    __relations: resolvedRelations,
-    __revision: () => revision
+    }
   };
+  registerInternalModelHandle(model, {
+    applyRows: rows => applySnapshot(planRows(rows)),
+    planRows,
+    planReplace,
+    captureMembership,
+    planRestore,
+    relations: resolvedRelations,
+    revision: () => revision
+  });
   registerIngestModel(config.name, model);
   if (config.maintenance) {
     registerModelMaintenance(config.id, () => {
@@ -1185,8 +1196,8 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       if (key in model) throw new Error(`${config.name} statics collide with base model key ${key}`);
     }
   }
-  return Object.assign(model, statics) as Omit<ModelCore<any>, 'use'> & {
+  return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
     use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
-    scopes: { [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>> };
+    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
   } & TExt;
 };
