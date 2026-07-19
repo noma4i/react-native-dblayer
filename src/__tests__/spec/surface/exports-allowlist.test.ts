@@ -6,14 +6,27 @@ describe('public barrel exports', () => {
   });
 
   it('does not expose TanStack runtime infrastructure', () => {
-    const forbidden = ['focusManager', 'QueryClient', 'QueryClientProvider', 'useQuery', 'useQueryClient', 'getDbQueryClient'];
+    const forbidden = [
+      'focusManager',
+      'QueryClient',
+      'QueryClientProvider',
+      'useQuery',
+      'useQueryClient',
+      'getDbQueryClient',
+      'useStableProjection',
+      'useStableEntity',
+      'useStableSorted',
+      'pickEqual',
+      'computePhase',
+      'computeLoadingState'
+    ];
 
     expect(Object.keys(barrel).filter(name => forbidden.includes(name))).toEqual([]);
   });
 
   // GATE-PENDING(G11): Remove low-level compatibility helpers from the public barrel.
   test.failing('does not expose infrastructure or low-level helpers', () => {
-    const forbidden = ['castNode', 'castNodes', 'useStableProjection', 'useStableEntity', 'useStableSorted', 'pickEqual', 'computePhase', 'computeLoadingState'];
+    const forbidden = ['castNode', 'castNodes'];
 
     expect(Object.keys(barrel).filter(name => forbidden.includes(name))).toEqual([]);
   });

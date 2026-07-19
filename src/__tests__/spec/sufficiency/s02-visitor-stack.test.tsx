@@ -10,7 +10,6 @@ const createUsers = (id: string) =>
   });
 
 type Users = ReturnType<typeof createUsers>;
-type User = NonNullable<ReturnType<Users['get']>>;
 
 const seedUsers = (users: Users) => {
   users.insertStoredMany(
@@ -25,8 +24,7 @@ describe('visitor avatar stack sufficiency', () => {
     seedUsers(users);
     const ids = ['0', '1', '2'];
     const stack = renderCounted(() => {
-      const rows = users.use.byIds(ids);
-      const byId = new Map(rows.map(row => [row.id, row]));
+      const { byId } = users.use.byIds(ids);
       return ids.map(id => byId.get(id)?.avatarUrl);
     });
     const initial = stack.result();
@@ -41,13 +39,12 @@ describe('visitor avatar stack sufficiency', () => {
     stack.unmount();
   });
 
-  // GATE-PENDING(G6): Return stable rows and byId projections from byIds.
-  test.failing('provides a stable byId map that changes with a member row', () => {
+  it('provides a stable byId map that changes with a member row', () => {
     setupSpecRuntime();
     const users = createUsers('SpecVisitorMap');
     seedUsers(users);
     const ids = ['0', '1', '2'];
-    const stack = renderCounted(() => users.use.byIds(ids) as unknown as { rows: User[]; byId: Map<string, User> });
+    const stack = renderCounted(() => users.use.byIds(ids));
     const initial = stack.result();
 
     expect(initial.rows.map(row => row.id)).toEqual(ids);
@@ -64,13 +61,11 @@ describe('visitor avatar stack sufficiency', () => {
     stack.unmount();
   });
 
-  // GATE-PENDING(G6): Treat nullish id collections as an unsubscribed empty read.
-  test.failing('reads nullish ids as empty without subscribing', () => {
+  it('reads nullish ids as empty without subscribing', () => {
     setupSpecRuntime();
     const users = createUsers('SpecVisitorNullish');
     seedUsers(users);
-    const readByIds = users.use.byIds as unknown as (ids: string[] | null | undefined) => { rows: User[]; byId: Map<string, User> };
-    const stack = renderCounted(() => readByIds(undefined));
+    const stack = renderCounted(() => users.use.byIds(undefined));
 
     expect(stack.result().rows).toEqual([]);
     expect(stack.result().byId).toEqual(new Map());
@@ -79,6 +74,16 @@ describe('visitor avatar stack sufficiency', () => {
       users.patch('1', { avatarUrl: 'ignored' });
     });
     expect(stack.renders() - before).toBe(0);
+    stack.unmount();
+  });
+
+  it('indexes projections that omit the stored id', () => {
+    setupSpecRuntime();
+    const users = createUsers('SpecVisitorProjectionMap');
+    seedUsers(users);
+    const stack = renderCounted(() => users.use.byIds(['0', '1'], { select: row => ({ avatarUrl: row.avatarUrl }) }));
+    expect(stack.result().byId.get('1')).toEqual({ avatarUrl: 'avatar-1' });
+    expect(stack.result().byId.has('undefined')).toBe(false);
     stack.unmount();
   });
 });

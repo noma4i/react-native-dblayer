@@ -1,7 +1,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { defineModel, f } from '../../../index';
-import { setupSpecRuntime } from '../helpers/harness';
+import { defineModel, f, resetRuntime } from '../../../index';
+import { getCommitBus } from '../../../dsl/configure';
+import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const createUsers = (id: string) =>
   defineModel({
@@ -17,6 +18,7 @@ const createUsers = (id: string) =>
   });
 
 type Users = ReturnType<typeof createUsers>;
+type User = NonNullable<ReturnType<Users['get']>>;
 type Projection = { avatarUrl: string; connectionStatus: string };
 
 const seedUsers = (users: Users) => {
@@ -39,10 +41,12 @@ const renderAvatarList = (users: Users, targetProjection = false) => {
 
   const AvatarLeaf = ({ id }: { id: string }) => {
     const value = targetProjection
-      ? (users.use.row as unknown as (rowId: string, options: { select: (row: NonNullable<ReturnType<Users['get']>>) => Projection }) => Projection | undefined)(id, {
+      ? users.use.row(id, {
           select: row => ({ avatarUrl: row.avatarUrl, connectionStatus: row.connectionStatus })
         })
-      : users.use.row(id, { select: ['avatarUrl', 'connectionStatus'] });
+      : users.use.row(id, {
+          renderKeys: ['avatarUrl', 'connectionStatus']
+        });
     renders.set(id, (renders.get(id) ?? 0) + 1);
     values.set(id, value as Projection | undefined);
     return React.createElement('avatar', { source: value?.avatarUrl, status: value?.connectionStatus });
@@ -75,8 +79,7 @@ describe('avatar leaf sufficiency', () => {
     list.unmount();
   });
 
-  // GATE-PENDING(G1): Make row selectors return stable projection objects instead of whole rows.
-  test.failing('returns a stable field projection across unrelated row patches', () => {
+  it('returns a stable field projection across unrelated row patches', () => {
     setupSpecRuntime();
     const users = createUsers('SpecAvatarProjection');
     seedUsers(users);
@@ -97,8 +100,10 @@ describe('avatar leaf sufficiency', () => {
     setupSpecRuntime();
     const users = createUsers('SpecAvatarUnmount');
     seedUsers(users);
+    const subscribers = getCommitBus().subscriberCount();
     const list = renderAvatarList(users);
     list.unmount();
+    expect(getCommitBus().subscriberCount()).toBe(subscribers);
     const before = new Map(list.renders);
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -112,5 +117,65 @@ describe('avatar leaf sufficiency', () => {
     expect(error).not.toHaveBeenCalled();
     warn.mockRestore();
     error.mockRestore();
+  });
+
+  it('projects the first matching row with a stable reference', () => {
+    setupSpecRuntime();
+    const users = createUsers('SpecFirstProjection');
+    seedUsers(users);
+    const reader = renderCounted(() => users.use.first({ id: '7' }, { select: row => ({ avatarUrl: row.avatarUrl }) }));
+    const initial = reader.result();
+    const renders = reader.renders();
+    act(() => users.patch('7', { fullName: 'Ignored rename' }));
+    expect(reader.renders() - renders).toBe(0);
+    expect(reader.result()).toBe(initial);
+    reader.unmount();
+  });
+
+  it('projects builder rows with stable item and array references', () => {
+    setupSpecRuntime();
+    const users = createUsers('SpecBuilderProjection');
+    seedUsers(users);
+    const reader = renderCounted(() => users.use.where({ online: true }).select(row => ({ id: row.id, avatarUrl: row.avatarUrl })).rows());
+    const initial = reader.result();
+    const item = initial[0];
+    const renders = reader.renders();
+    act(() => users.patch('0', { fullName: 'Ignored builder rename' }));
+    expect(reader.renders() - renders).toBe(0);
+    expect(reader.result()).toBe(initial);
+    expect(reader.result()[0]).toBe(item);
+    reader.unmount();
+  });
+
+  it('rejects simultaneous select and render keys', () => {
+    setupSpecRuntime();
+    const users = createUsers('SpecProjectionValidation');
+    seedUsers(users);
+    const invalid = users.use.row as unknown as (id: string, options: { select: (row: User) => Projection; renderKeys: readonly string[] }) => Projection;
+    expect(() => renderCounted(() => invalid('0', { select: row => ({ avatarUrl: row.avatarUrl, connectionStatus: row.connectionStatus }), renderKeys: ['avatarUrl'] }))).toThrow(
+      'cannot use select and renderKeys together'
+    );
+  });
+
+  it('recomputes a fresh projection after runtime reset', () => {
+    setupSpecRuntime();
+    const users = createUsers('SpecProjectionReset');
+    seedUsers(users);
+    const reader = renderCounted(() => users.use.row('7', { select: row => ({ avatarUrl: row.avatarUrl }) }));
+    const initial = reader.result();
+    act(() => {
+      resetRuntime();
+      users.insertStored({
+        id: '7',
+        fullName: 'Fresh User',
+        avatarUrl: 'fresh-avatar',
+        connectionStatus: 'online',
+        online: true,
+        lastInteraction: 1
+      });
+    });
+    expect(reader.result()).not.toBe(initial);
+    expect(reader.result()).toEqual({ avatarUrl: 'fresh-avatar' });
+    reader.unmount();
   });
 });

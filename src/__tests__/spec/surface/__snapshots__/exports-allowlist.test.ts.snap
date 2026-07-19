@@ -39,7 +39,6 @@ exports[`public barrel exports matches the reviewed runtime export allowlist 1`]
   "mmkvStoragePlane",
   "patchWhenRowExists",
   "pickDefined",
-  "pickEqual",
   "pickPresent",
   "projectShape",
   "purgeForeignStorageKeys",
@@ -56,9 +55,6 @@ exports[`public barrel exports matches the reviewed runtime export allowlist 1`]
   "stringifyNullish",
   "suspendDb",
   "trimRowsPerScope",
-  "useStableEntity",
-  "useStableProjection",
-  "useStableSorted",
   "waitForRow",
 ]
 `;
