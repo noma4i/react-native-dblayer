@@ -1,6 +1,6 @@
 import { getDbStorageAdapter } from '../storage';
 
-/** Atomic-enough synchronous storage seam used by all v6 state planes. */
+/** Atomic-enough synchronous storage seam used by all state planes. */
 export interface StoragePlane {
   get(key: string): string | undefined;
   set(entries: Array<{ key: string; value: string | null }>): void;

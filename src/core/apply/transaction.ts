@@ -45,7 +45,7 @@ export type ApplyRuntime = {
 
 const targets = new Map<string, ApplyTarget>();
 
-/** Register one model-owned application target for v6 plans. */
+/** Register one model-owned application target for model application plans. */
 export const registerApplyTarget = (model: string, target: ApplyTarget): (() => void) => {
   targets.set(model, target);
   return () => targets.delete(model);

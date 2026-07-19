@@ -285,8 +285,8 @@ export const replayJournal = (): number => {
 };
 
 /**
- * Remove storage keys outside the library namespace - startup housekeeping that clears pre-v6
- * leftovers from the dedicated storage instance. Idempotent: a second run finds nothing.
+ * Remove storage keys outside the library namespace during startup housekeeping for the dedicated
+ * storage instance. Idempotent: a second run finds nothing.
  *
  * Most apps should call `bootDb(options)` instead, which runs this last in the recommended startup order.
  *

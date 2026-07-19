@@ -18,8 +18,7 @@ const walk = (directory: string): string[] =>
 const relative = (file: string) => path.relative(root, file).split(path.sep).join('/');
 
 describe('era-free repository naming', () => {
-  // GATE-PENDING(G9): Reword all production and documentation era references.
-  test.failing('contains no era references in source or documentation', () => {
+  it('contains no era references in source or documentation', () => {
     const files = [
       ...walk(srcRoot).filter(file => /\.tsx?$/.test(file)),
       ...walk(docsRoot).filter(file => file.endsWith('.md'))

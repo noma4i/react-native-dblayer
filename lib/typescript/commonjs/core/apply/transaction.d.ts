@@ -65,7 +65,7 @@ export type ApplyRuntime = {
     replay(): number;
     currentEpoch(): number;
 };
-/** Register one model-owned application target for v6 plans. */
+/** Register one model-owned application target for model application plans. */
 export declare const registerApplyTarget: (model: string, target: ApplyTarget) => (() => void);
 export declare const getApplyTarget: (model: string) => ApplyTarget;
 export declare const createApplyRuntime: (options: {
