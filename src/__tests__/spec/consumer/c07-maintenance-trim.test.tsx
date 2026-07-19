@@ -1,9 +1,12 @@
 import { act } from 'react-test-renderer';
-import { bootDb, defineModel, f, scope } from '../../../index';
-import { renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { bootDb, configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
 type MessageScope = MessageRow;
+type MessageResponse = { rows: MessageRow[] };
+
+const document = { kind: 'Document', definitions: [] } as never;
 
 const settle = async () => {
   for (let tick = 0; tick < 6; tick += 1) {
@@ -76,14 +79,17 @@ describe('maintenance trim contracts', () => {
     messages.insertStored({ id: 'chat-a-2', chatId: 'chat-a', sequence: 2, payload: 'new-2' });
     messages.insertStored({ id: 'chat-a-3', chatId: 'chat-a', sequence: 3, payload: 'new-3' });
     messages.insertStored({ id: 'chat-a-4', chatId: 'chat-a', sequence: 4, payload: 'new-4' });
+    const reader = renderCounted(() => messages.scopes.byChat.use({ chatId: 'chat-a' }));
 
     await bootDb();
+    await settle();
 
     expect(messages.scopes.byChat.read({ chatId: 'chat-a' }).map(row => row.id)).toEqual(['chat-a-4', 'chat-a-3', 'chat-a-protected']);
+    expect(reader.result().map(row => row.id)).toEqual(['chat-a-4', 'chat-a-3', 'chat-a-protected']);
+    reader.unmount();
   });
 
-  it.failing('rerenders a mounted scope reader exactly once for a trim batch', async () => {
-    // GAP: runtime currently keeps only one row for a scope trim batch when limit is 2.
+  it('rerenders a mounted scope reader exactly once for a trim batch', async () => {
     setupSpecRuntime();
     const messages = createMessageModel(2);
     for (let sequence = 1; sequence <= 4; sequence += 1) {
@@ -98,5 +104,43 @@ describe('maintenance trim contracts', () => {
     expect(scopeReader.renders() - before).toBe(1);
     expect(scopeReader.result().map(row => row.id)).toEqual(['chat-a-4', 'chat-a-3']);
     scopeReader.unmount();
+  });
+
+  it('keeps the comparator-first rows when scope retention trims a complete snapshot', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          rows: [1, 4, 2, 3].map(sequence => ({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` }))
+        } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const messages = defineModel({
+      id: 'SpecConsumerMessagesRetention',
+      name: 'SpecConsumerMessagesRetention',
+      fields: { id: f.str(), chatId: f.str(), sequence: f.num(), payload: f.str() },
+      scopes: {
+        byChat: scope<MessageScope>({
+          by: { chatId: 'chatId' },
+          sort: { comparator: (left, right) => right.sequence - left.sequence },
+          retention: { maxRows: 2 }
+        })
+      }
+    });
+    const query = messages.query<MessageResponse, { chatId: string }, { chatId: string }, MessageRow>('retention', {
+      document,
+      vars: value => value,
+      select: data => data.rows,
+      into: messages.scopes.byChat,
+      coverage: 'complete'
+    });
+    const reader = renderCounted(() => messages.scopes.byChat.use({ chatId: 'chat-a' }));
+    const before = reader.renders();
+
+    await act(async () => query.fetch({ chatId: 'chat-a' }));
+
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result().map(row => row.id)).toEqual(['chat-a-4', 'chat-a-3']);
+    reader.unmount();
   });
 });

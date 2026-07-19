@@ -690,6 +690,44 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       );
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (opts?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
+        if (spec.sort && spec.sort !== 'server-order') {
+          const scopeSort = spec.sort;
+          const incomingById = new Map(
+            liveRows.flatMap(({ row }) => {
+              try {
+                const stored = normalize(row);
+                return [[String(stored.id), stored] as const];
+              } catch {
+                return [];
+              }
+            })
+          );
+          const rowsById = new Map(
+            next.entries.flatMap(entry => {
+              const row = incomingById.get(entry.id) ?? planes().entityState.read(entry.id);
+              return row ? [[entry.id, row] as const] : [];
+            })
+          );
+          if ('comparator' in scopeSort) {
+            next = {
+              ...next,
+              entries: [...next.entries].sort((left, right) => {
+                const leftRow = rowsById.get(left.id);
+                const rightRow = rowsById.get(right.id);
+                if (!leftRow) return rightRow ? 1 : 0;
+                if (!rightRow) return -1;
+                return scopeSort.comparator(leftRow, rightRow);
+              })
+            };
+          } else {
+            const ordered = sortModelReadRows([...rowsById.values()], [{ field: String(scopeSort.field), direction: scopeSort.dir }]);
+            const positions = new Map(ordered.map((row, index) => [String(row.id), index]));
+            next = {
+              ...next,
+              entries: [...next.entries].sort((left, right) => (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER))
+            };
+          }
+        }
         next = planes().scopeIndex.trimValue(next, maxRows).next;
       }
       return [

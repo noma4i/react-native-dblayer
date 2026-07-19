@@ -143,7 +143,10 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           )
             continue;
 
-          const expected = target.readScopeEntries(scopeKey).map(entry => ({ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }));
+          const expected =
+            meta.kind === `comparator`
+              ? target.readScopeOrder(scopeKey).map((rowId, seq) => ({ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }))
+              : target.readScopeEntries(scopeKey).map(entry => ({ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }));
           const expectedKeys = new Set(expected.map(row => row.key));
           const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
           for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });
@@ -197,10 +200,15 @@ export function seedCollections(models: string[]): void {
                 const row = target.readRow(rowId);
                 return row ? [{ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] }] : [];
               })
-            : target.readScopeEntries(scopeKey).flatMap(entry => {
-                const row = target.readRow(entry.id);
-                return row ? [{ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }] : [];
-              });
+            : meta.kind === `comparator`
+              ? target.readScopeOrder(scopeKey).flatMap((rowId, seq) => {
+                  const row = target.readRow(rowId);
+                  return row ? [{ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }] : [];
+                })
+              : target.readScopeEntries(scopeKey).flatMap(entry => {
+                  const row = target.readRow(entry.id);
+                  return row ? [{ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }] : [];
+                });
         const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
         const expectedKeys = new Set(expected.map(row => row.key));
         for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });
