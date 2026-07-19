@@ -149,7 +149,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
   ): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
-  /** Define a model-owned mutation with conventional input-sensitive deduplication; pass `dedupe: false` to opt out. */
+  /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
   mutation<TData, TInput, TRow extends { id: string }, TNode>(
     name: string,
     config: ModelMutationConfig<TData, TInput, TRow, TNode>
@@ -953,7 +953,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       };
     }) as ModelCore<any>['query'],
     mutation: (name, mutationConfig) => {
-      const dedupe = mutationConfig.dedupe === false ? undefined : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
+      const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });
     },
     crud: sections => {

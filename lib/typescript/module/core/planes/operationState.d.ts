@@ -9,13 +9,15 @@ export type OperationRecord = {
     intent: OperationIntent;
     status: OperationStatus;
     idempotencyKey?: string;
+    /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
+    once?: boolean;
     createdAt: number;
 };
 export type OperationState = {
     begin(operation: Omit<OperationRecord, 'status'>): void;
     close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
     get(operationId: string): OperationRecord | undefined;
-    /** True when an idempotency key already committed - callers must skip re-applying. */
+    /** True when a retained `once` key or exact operation id already committed. */
     hasCommitted(idempotencyKey: string): boolean;
     /** True while an idempotency key has a pending operation - blocks double-taps. */
     hasPending(idempotencyKey: string): boolean;

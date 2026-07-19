@@ -13,7 +13,7 @@ const createCommand = (suffix: string, transport: ReturnType<typeof createMockTr
     document,
     result: 'action',
     ...options
-  } as never);
+  });
 };
 
 const deferredMutation = () => {
@@ -21,7 +21,7 @@ const deferredMutation = () => {
   const promise = new Promise<{ data: Result }>(nextResolve => {
     resolve = nextResolve;
   });
-  const transport = createMockTransport({ mutation: async <TData,>() => (await promise) as { data: TData } });
+  const transport = createMockTransport({ mutation: async <TData>() => (await promise) as { data: TData } });
   return { transport, resolve: () => resolve({ data: response }) };
 };
 
@@ -39,8 +39,8 @@ describe('mutation dedupe semantics', () => {
     await first;
   });
 
-  test.failing('GATE-PENDING(G12): sends the same default key again after commit', async () => {
-    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: response as TData }) });
+  it('sends the same default key again after commit', async () => {
+    const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     const command = createCommand('AfterCommit', transport);
 
     const first = await command.run({ value: 'same' });
@@ -54,7 +54,7 @@ describe('mutation dedupe semantics', () => {
   it('sends the same default key again after rollback', async () => {
     let calls = 0;
     const transport = createMockTransport({
-      mutation: async <TData,>() => {
+      mutation: async <TData>() => {
         calls += 1;
         if (calls === 1) throw new Error('failed');
         return { data: response as TData };
@@ -68,7 +68,7 @@ describe('mutation dedupe semantics', () => {
   });
 
   it('keeps a committed once key blocked until runtime reset', async () => {
-    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: response as TData }) });
+    const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     const command = createCommand('OnceReset', transport, { once: true });
 
     await command.run({ value: 'same' });
@@ -80,21 +80,27 @@ describe('mutation dedupe semantics', () => {
 
   it('keeps a committed once key blocked across configure and boot replay', async () => {
     const storage = createMemoryPlane();
-    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: response as TData }) });
+    const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     configureDb({ storage, transport });
-    const firstCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true } as never);
+    const firstCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true });
     await firstCommand.run({ value: 'same' });
     flushPersistence();
 
-    configureDb({ storage, transport });
-    const restartedCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true } as never);
-    await bootDb();
+    const restartTime = Date.now() + 2 * 60 * 60 * 1000;
+    const now = jest.spyOn(Date, 'now').mockReturnValue(restartTime);
+    try {
+      configureDb({ storage, transport });
+      const restartedCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true });
+      await bootDb();
 
-    expect(await restartedCommand.run({ value: 'same' })).toBeNull();
-    expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1);
+      expect(await restartedCommand.run({ value: 'same' })).toBeNull();
+      expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
-  test.failing('GATE-PENDING(G12): rejects once with dedupe false at definition time', () => {
+  it('rejects once with dedupe false at definition time', () => {
     const transport = createMockTransport();
 
     expect(() => createCommand('InvalidOnce', transport, { once: true, dedupe: false })).toThrow('once cannot be combined with dedupe: false');
@@ -117,12 +123,12 @@ describe('mutation dedupe semantics', () => {
     reader.unmount();
   });
 
-  test.failing('GATE-PENDING(G12): persists closed dedupe keys only for once operations', async () => {
+  it('persists closed dedupe keys only for once operations', async () => {
     const storage = createMemoryPlane();
-    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: response as TData }) });
+    const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     configureDb({ storage, transport });
     const regular = defineCommand<Result, Input>('specDedupeStoredRegular', { document, result: 'action' });
-    const once = defineCommand<Result, Input>('specDedupeStoredOnce', { document, result: 'action', once: true } as never);
+    const once = defineCommand<Result, Input>('specDedupeStoredOnce', { document, result: 'action', once: true });
 
     await regular.run({ value: 'regular' });
     await once.run({ value: 'once' });

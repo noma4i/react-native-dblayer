@@ -10,6 +10,8 @@ export type OperationRecord = {
   intent: OperationIntent;
   status: OperationStatus;
   idempotencyKey?: string;
+  /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
+  once?: boolean;
   createdAt: number;
 };
 
@@ -20,7 +22,7 @@ export type OperationState = {
   begin(operation: Omit<OperationRecord, 'status'>): void;
   close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
   get(operationId: string): OperationRecord | undefined;
-  /** True when an idempotency key already committed - callers must skip re-applying. */
+  /** True when a retained `once` key or exact operation id already committed. */
   hasCommitted(idempotencyKey: string): boolean;
   /** True while an idempotency key has a pending operation - blocks double-taps. */
   hasPending(idempotencyKey: string): boolean;
@@ -47,7 +49,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     if (!record.idempotencyKey) return;
     if (record.status === 'pending') pendingKeys.add(record.idempotencyKey);
     else pendingKeys.delete(record.idempotencyKey);
-    if (record.status === 'committed') committedKeys.add(record.idempotencyKey);
+    if (record.status === 'committed' && record.once === true) committedKeys.add(record.idempotencyKey);
   };
   const rebuildIndexes = (): void => {
     committedKeys.clear();
@@ -77,14 +79,16 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const operation = operations.get(operationId);
       if (!operation) return;
       hydratedPendingIds.delete(operationId);
-      const record: OperationRecord = { ...operation, status };
+      if (operation.idempotencyKey) pendingKeys.delete(operation.idempotencyKey);
+      const retainKey = status === 'committed' && operation.once === true;
+      const record: OperationRecord = { ...operation, status, idempotencyKey: retainKey ? operation.idempotencyKey : undefined };
       operations.set(operationId, record);
       indexOperation(record);
       storage.set(persistEntries());
       notify?.(record);
     },
     get: operationId => operations.get(operationId),
-    hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),
+    hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey) || operations.get(idempotencyKey)?.status === 'committed',
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
     hydratedPending: () =>
@@ -96,7 +100,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const cutoff = now() - CLOSED_TTL_MS;
       let pruned = 0;
       for (const [operationId, operation] of operations) {
-        if (operation.status !== 'pending' && operation.createdAt < cutoff) {
+        const retainedOnce = operation.status === 'committed' && operation.once === true;
+        if (operation.status !== 'pending' && !retainedOnce && operation.createdAt < cutoff) {
           operations.delete(operationId);
           pruned += 1;
         }
@@ -125,8 +130,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (rawOps) {
         try {
           for (const [operationId, record] of Object.entries(JSON.parse(rawOps) as Record<string, OperationRecord>)) {
-            operations.set(operationId, record);
-            if (record.status === 'pending') hydratedPendingIds.add(operationId);
+            const retainKey = record.status === 'pending' || (record.status === 'committed' && record.once === true);
+            const hydratedRecord = retainKey ? record : { ...record, idempotencyKey: undefined };
+            operations.set(operationId, hydratedRecord);
+            if (hydratedRecord.status === 'pending') hydratedPendingIds.add(operationId);
           }
         } catch {
           storage.set([{ key: opsKey(), value: null }]);

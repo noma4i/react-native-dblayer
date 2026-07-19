@@ -40,7 +40,7 @@ export type ScopePlacement<TInput> = {
 export type OptimisticCtx = { tempId: string | null; operationId: string };
 
 export type MutateCallbacks<TData> = {
-  /** Receives null when the call was skipped by dedupe (already committed / pending). */
+  /** Receives null when the call was skipped by a pending duplicate or a committed `once` key. */
   onSuccess?: (data: TData | null) => void;
   /** Called with the thrown error after rollback has already run. */
   onError?: (error: Error) => void;
@@ -119,8 +119,10 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
   optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | RespondOptimistic<TData, TInput, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
   /** Cross-model sideloads from the response, applied in the SAME transaction as the commit. */
   extract?: (ctx: { data: TData }) => ExtractSink[];
-  /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps; null skips dedupe. */
-  dedupe?: { key: (input: TInput) => string | null };
+  /** Double-tap guard key. Pending duplicates are skipped; null skips dedupe for that input. Pass false through model/command builders to disable the guard. */
+  dedupe?: false | { key: (input: TInput) => string | null };
+  /** Retain a committed dedupe key until runtime reset instead of releasing it after commit. */
+  once?: boolean;
   /** Called synchronously right after the optimistic write (if any), before the transport call starts. */
   onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
   /** Called after the response commits successfully, after extract sinks and preserve-on-commit have applied. */
@@ -147,12 +149,13 @@ const isRespondOptimistic = <TData, TInput, TStored, TNode>(
  * sinks, and lifecycle callbacks (`onMutate`/`onCommit`/`onError`/`invalidate`/`track`) all run through
  * the same `run` path for both the hook and the direct call.
  *
- * @param config Document, result field, optional optimistic write, dedupe key, extract sinks, and lifecycle callbacks.
+ * @param config Document, result field, optional optimistic write, in-flight dedupe key, `once` retention, extract sinks, and lifecycle callbacks.
  * @returns `{ run, use }`. `run(input)` executes one mutation outside React, resolving to the response data,
  * or `null` when dedupe skipped it. `use()` is a hook returning `{ mutate, mutateAsync, isPending, error }`,
  * where `mutate` fires-and-forgets with optional `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
  */
 export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
+  if (config.once && config.dedupe === false) throw new Error('once cannot be combined with dedupe: false');
   const optimisticConfig = config.optimistic;
   if (optimisticConfig && isRespondOptimistic(optimisticConfig) && (`build` in optimisticConfig || `method` in optimisticConfig)) {
     throw new Error(`optimistic respond cannot be combined with build or method`);
@@ -202,7 +205,8 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const raw = node as Record<string, unknown>;
       const id = raw.id === `` || raw.id == null ? context.tempId : String(raw.id);
       const row = { ...raw, id };
-      if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined) ops.push(...getInternalModelHandle(optimistic.model).planReplace(context.tempId, row));
+      if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined)
+        ops.push(...getInternalModelHandle(optimistic.model).planReplace(context.tempId, row));
       else ops.push(...getInternalModelHandle(optimistic.model).planRows([row]));
       const placement = optimistic.prependTo ?? optimistic.appendTo;
       if (placement && context.tempId && id === context.tempId)
@@ -230,9 +234,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
 
   const run = async (input: TInput): Promise<TData | null> => {
     const operations = getOperationState();
-    const dedupeKey = config.dedupe?.key(input);
+    const dedupeKey = config.dedupe === false ? undefined : config.dedupe?.key(input);
     if (dedupeKey != null) {
-      if (operations.hasCommitted(dedupeKey)) return null;
+      if (config.once && operations.hasCommitted(dedupeKey)) return null;
       if (operations.hasPending(dedupeKey)) return null;
     }
     const optimistic = config.optimistic;
@@ -293,6 +297,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         rowIds: operationIds,
         intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
         idempotencyKey: dedupeKey ?? operationId,
+        once: config.once === true,
         createdAt: Date.now()
       });
     }
@@ -353,9 +358,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         optimistic.model.patch(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
-        getApplyRuntime().apply(
-          expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships))
-        );
+        getApplyRuntime().apply(expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships)));
       }
       if (tracked) operations.close(operationId, 'rolledback');
       const reported = error instanceof Error ? error : new Error(String(error));

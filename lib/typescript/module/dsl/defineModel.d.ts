@@ -145,7 +145,7 @@ export type ModelCore<TStored extends {
     query<TResponse, TVars, TScope, TRow extends {
         id: string;
     }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
-    /** Define a model-owned mutation with conventional input-sensitive deduplication; pass `dedupe: false` to opt out. */
+    /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
     mutation<TData, TInput, TRow extends {
         id: string;
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;

@@ -32,7 +32,7 @@ export type OptimisticCtx = {
     operationId: string;
 };
 export type MutateCallbacks<TData> = {
-    /** Receives null when the call was skipped by dedupe (already committed / pending). */
+    /** Receives null when the call was skipped by a pending duplicate or a committed `once` key. */
     onSuccess?: (data: TData | null) => void;
     /** Called with the thrown error after rollback has already run. */
     onError?: (error: Error) => void;
@@ -114,10 +114,12 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
     extract?: (ctx: {
         data: TData;
     }) => ExtractSink[];
-    /** Idempotency: a committed key is never re-sent; a pending key blocks double-taps; null skips dedupe. */
-    dedupe?: {
+    /** Double-tap guard key. Pending duplicates are skipped; null skips dedupe for that input. Pass false through model/command builders to disable the guard. */
+    dedupe?: false | {
         key: (input: TInput) => string | null;
     };
+    /** Retain a committed dedupe key until runtime reset instead of releasing it after commit. */
+    once?: boolean;
     /** Called synchronously right after the optimistic write (if any), before the transport call starts. */
     onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
     /** Called after the response commits successfully, after extract sinks and preserve-on-commit have applied. */
@@ -145,7 +147,7 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
  * sinks, and lifecycle callbacks (`onMutate`/`onCommit`/`onError`/`invalidate`/`track`) all run through
  * the same `run` path for both the hook and the direct call.
  *
- * @param config Document, result field, optional optimistic write, dedupe key, extract sinks, and lifecycle callbacks.
+ * @param config Document, result field, optional optimistic write, in-flight dedupe key, `once` retention, extract sinks, and lifecycle callbacks.
  * @returns `{ run, use }`. `run(input)` executes one mutation outside React, resolving to the response data,
  * or `null` when dedupe skipped it. `use()` is a hook returning `{ mutate, mutateAsync, isPending, error }`,
  * where `mutate` fires-and-forgets with optional `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
