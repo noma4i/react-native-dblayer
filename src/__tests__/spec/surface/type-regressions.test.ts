@@ -47,4 +47,36 @@ describe('public type regressions', () => {
 
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
+
+  it('accepts concrete codegen variables across typed document entry surfaces', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineDbSubscriptionEntry, defineFetch, defineModel, f } from '${entry}';
+
+      type CounterData = { userCounters: { unread: number } };
+      type ExactVariables = { __brand?: 'Exact<{}>' };
+      declare const counterDocument: TypedDocumentNode<CounterData, ExactVariables>;
+
+      defineDbSubscriptionEntry({
+        key: 'userCounters',
+        query: counterDocument,
+        onData: payload => payload.unread
+      });
+
+      const counters = defineModel({
+        id: 'counter-types',
+        name: 'CounterTypes',
+        fields: { id: f.id(), unread: f.num() }
+      });
+      counters.ingest({ userCounters: { document: counterDocument, apply: 'upsert' } });
+
+      defineFetch<CounterData, void, number>({
+        key: 'counter-fetch',
+        document: counterDocument,
+        select: data => data.userCounters.unread
+      });
+    `);
+
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
 });

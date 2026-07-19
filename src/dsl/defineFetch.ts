@@ -32,7 +32,7 @@ type FetchConfig<TData, TInput, TSelected> = FetchConfigBase<TData, TInput, TSel
   (
     | {
         /** The GraphQL query document. `TData` flows from a `TypedDocumentNode`. */
-        document: DbGraphQLDocument<TData, Record<string, unknown>>;
+        document: DbGraphQLDocument<TData, never>;
         fetcher?: never;
       }
     | {

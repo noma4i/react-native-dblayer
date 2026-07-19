@@ -19,7 +19,7 @@ type FetchConfigBase<TData, TInput, TSelected> = {
 };
 type FetchConfig<TData, TInput, TSelected> = FetchConfigBase<TData, TInput, TSelected> & ({
     /** The GraphQL query document. `TData` flows from a `TypedDocumentNode`. */
-    document: DbGraphQLDocument<TData, Record<string, unknown>>;
+    document: DbGraphQLDocument<TData, never>;
     fetcher?: never;
 } | {
     /** Execute a store-free request without a GraphQL transport operation. */

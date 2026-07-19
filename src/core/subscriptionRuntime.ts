@@ -45,7 +45,7 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
   onData: (payload: TPayload) => void;
 };
 
-type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, unknown>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<
+type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<
   DbSubscriptionEntry<ResultOf<TDocument>[TKey]>,
   'key' | 'query' | 'vars'
 > & {
@@ -62,7 +62,7 @@ type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, unkno
  * @param entry Typed subscription document, root-field key, variables, debounce, and payload handler.
  * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
  */
-export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<unknown, unknown>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(
+export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(
   entry: TypedDbSubscriptionEntry<TDocument, TKey>
 ): DbSubscriptionEntry => {
   /** Typed-document variance is intentionally erased at the heterogeneous runtime registry boundary. */

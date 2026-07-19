@@ -20,7 +20,7 @@ export type DbLogger = {
     error: (...args: unknown[]) => void;
 };
 /** GraphQL document accepted by the transport adapter. */
-export type DbGraphQLDocument<TData = unknown, TVariables = Record<string, unknown>> = TypedDocumentNode<TData, TVariables> | DocumentNode;
+export type DbGraphQLDocument<TData = unknown, TVariables = never> = TypedDocumentNode<TData, TVariables> | DocumentNode;
 type DbQueryOperation<TData = unknown, TVariables = Record<string, unknown>> = {
     /** GraphQL query document to execute. */
     query: DbGraphQLDocument<TData, TVariables>;

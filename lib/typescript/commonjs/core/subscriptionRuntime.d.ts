@@ -26,7 +26,7 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
     /** Handler invoked with a validated payload after debounce, if configured. */
     onData: (payload: TPayload) => void;
 };
-type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, unknown>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<DbSubscriptionEntry<ResultOf<TDocument>[TKey]>, 'key' | 'query' | 'vars'> & {
+type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<DbSubscriptionEntry<ResultOf<TDocument>[TKey]>, 'key' | 'query' | 'vars'> & {
     key: TKey;
     query: TDocument;
     vars?: VariablesOf<TDocument>;
@@ -39,7 +39,7 @@ type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, unkno
  * @param entry Typed subscription document, root-field key, variables, debounce, and payload handler.
  * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
  */
-export declare const defineDbSubscriptionEntry: <TDocument extends TypedDocumentNode<unknown, unknown>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(entry: TypedDbSubscriptionEntry<TDocument, TKey>) => DbSubscriptionEntry;
+export declare const defineDbSubscriptionEntry: <TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(entry: TypedDbSubscriptionEntry<TDocument, TKey>) => DbSubscriptionEntry;
 /** Function table of UI effects invoked by subscription entries. */
 export type DbSubscriptionEffectsTable = Record<string, (...args: never[]) => void>;
 /** Effects channel returned by `createDbSubscriptionEffects`. */
