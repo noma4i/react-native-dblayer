@@ -35,6 +35,16 @@ export interface ScopeSpec<TStored> {
         maxRows: number;
     };
 }
+type StructuralScopeSpec = {
+    by?: Record<string, string>;
+    sort?: {
+        field: string;
+        dir: 'asc' | 'desc';
+    } | 'server-order';
+    retention?: {
+        maxRows: number;
+    };
+};
 /**
  * Declare a model scope configuration for `defineModel`'s `scopes` map. Purely a typed identity marker -
  * it validates and returns `spec` unchanged; `defineModel` builds the actual `ScopeHandle` runtime from it.
@@ -42,5 +52,7 @@ export interface ScopeSpec<TStored> {
  * @param spec Membership mapping (`by`), member order (`sort`), and optional retention cap.
  * @returns `spec`, unchanged.
  */
-export declare const scope: <TStored>(spec: ScopeSpec<TStored>) => ScopeSpec<TStored>;
+export declare function scope<const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec;
+export declare function scope<TStored>(spec: ScopeSpec<TStored>): ScopeSpec<TStored>;
+export {};
 //# sourceMappingURL=scope.d.ts.map

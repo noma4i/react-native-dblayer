@@ -110,7 +110,7 @@ reconcileOptimisticRows: <TStored extends CreatedAtRow, TNode extends CreatedAtR
 references: <TChild, TRef>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TRef>, options: { ids: (child: TChild) => string | readonly (string | null | undefined)[] | null | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
 registerReset: (reset: () => void | Promise<void>) => () => void
 resetRuntime: () => void
-scope: <TStored>(spec: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>) => import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>
+scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>): import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>; }
 setDbTransport: (transport: import("/Users/noma4i/yupi/react-native-dblayer/src/types").DbTransport) => void
 stringifyNullish: (v: unknown) => string | null | undefined
 suspendDb: () => void
