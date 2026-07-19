@@ -3,6 +3,7 @@ import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
+import type { StoredRowShape } from '../core/tanstack/facade';
 import { seedCollections } from '../core/tanstack/mirror';
 import type { JournalOp } from '../core/apply/journal';
 import { registerGcHost } from '../core/gc';
@@ -24,7 +25,7 @@ import { defineQuery } from './defineQuery';
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
-import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
+import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
 import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
@@ -285,7 +286,7 @@ type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, 
   ): TStored | undefined;
 };
 
-type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>>, TExt extends Record<string, unknown>> = {
+type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>> = {
   /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
   id: string;
   /** Human-readable model name; prefixes normalize/apply error and log messages. */
@@ -342,17 +343,17 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
    * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
    * `defineModel` time if any returned key collides with a base model key.
    */
-  statics?: (model: ModelCore<any>) => TExt;
+  statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>) => TExt;
 };
 
 const keyForScope = (scopeName: string, scopeValue: unknown): string => `${scopeName}:${buildScopeKey(scopeValue)}`;
 
-const EMPTY_ROWS: any[] = [];
+const EMPTY_ROWS: never[] = [];
 
-const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: string, complete: boolean): unknown => {
-  const value = complete
-    ? field.read(input, key)
-    : (field as FieldSpec<any, any, any, any> & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown })[fieldSpecSparseRead](input, key);
+type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
+
+const readField = (field: ModelFieldSpecs[string], input: unknown, key: string, complete: boolean): unknown => {
+  const value = complete ? field.read(input, key) : (field as SparseModelField)[fieldSpecSparseRead](input, key);
   if (value !== undefined) return value;
   if (complete && field.factoryDefault !== undefined) return typeof field.factoryDefault === 'function' ? field.factoryDefault() : field.factoryDefault;
   if (complete && (field.mode === 'nullable' || field.mode === 'optionalNullable')) return null;
@@ -368,20 +369,26 @@ const readField = (field: FieldSpec<any, any, any, any>, input: unknown, key: st
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export const defineModel = <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<any>> = {}, TExt extends Record<string, unknown> = {}>(
+export const defineModel = <
+  const TFields extends ModelFieldSpecs,
+  TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {},
+  TExt extends Record<string, unknown> = {}
+>(
   config: ModelConfig<TFields, TScopes, TExt>
 ): Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
   use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
   scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
 } & TExt => {
-  type ModelPlanes = { entityState: EntityState<any>; scopeIndex: ScopeIndex };
+  type Stored = InferStoredFields<TFields> & Record<string, unknown>;
+  type Input = InferBuildStoredInput<TFields>;
+  type ModelPlanes = { entityState: EntityState<Stored>; scopeIndex: ScopeIndex };
   let planesRef: ModelPlanes | null = null;
   let revision = 0;
   /** Planes are created and hydrated on first touch, so models can be defined before configureDb. */
   const planes = (): ModelPlanes => {
     if (planesRef) return planesRef;
     const runtime = getDbRuntimeConfig();
-    const entityState = createEntityState<any>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix: getStoragePrefix });
+    const entityState = createEntityState<Stored>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix: getStoragePrefix });
     const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
     entityState.hydrate();
     scopeIndex.hydrate();
@@ -389,7 +396,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     return planesRef;
   };
 
-  const normalize = (input: unknown, complete = false): any => {
+  const normalize = (input: unknown, complete = false): Stored => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
     const id = config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined);
     if (typeof id !== 'string' || id.length === 0) throw new Error(`${config.name} requires id`);
@@ -398,7 +405,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       const value = readField(field, input, key, complete);
       if (value !== undefined) output[key] = value;
     }
-    return output;
+    return output as Stored;
   };
 
   /** Plan-build validation: raw rows stay in the op (normalize is shape-sensitive); invalid rows drop here. */
@@ -415,9 +422,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
   let relationCache: Record<string, RelationDecl> | null = null;
   const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
 
-  const membershipScopes = Object.entries(config.scopes ?? {}).filter((entry): entry is [string, ScopeSpec<any> & { by: Record<string, string> }] =>
-    Boolean((entry[1] as ScopeSpec<any>).by)
-  );
+  const membershipScopes = Object.entries(config.scopes ?? {}).flatMap(([name, spec]) => (spec.by ? [[name, { ...spec, by: spec.by }] as const] : []));
 
   const scopeValueFromRow = (by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null => {
     const value: Record<string, unknown> = {};
@@ -478,7 +483,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
   const writeRows = (rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
-      let incoming: any;
+      let incoming: Stored;
       try {
         incoming = normalize(value);
       } catch (error) {
@@ -516,7 +521,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {
       if (fields === null || !planes().scopeIndex.has(scopeKey, id)) return true;
       const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
-      const spec = (config.scopes as Record<string, ScopeSpec<any>> | undefined)?.[scopeName];
+      const spec = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName];
       if (!spec) return false;
       if (spec.sort && spec.sort !== `server-order` && `comparator` in spec.sort) return true;
       const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
@@ -525,7 +530,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     },
     scopeSortMeta: (scopeKey: string) => {
       const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
-      const sort = (config.scopes as Record<string, ScopeSpec<any>> | undefined)?.[scopeName]?.sort;
+      const sort = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName]?.sort;
       if (!sort || sort === `server-order`) return { kind: `server-order` as const };
       if (`comparator` in sort) return { kind: `comparator` as const };
       return { kind: `field` as const, field: String(sort.field), dir: sort.dir };
@@ -627,10 +632,10 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     getApplyRuntime().apply(expandPlan(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { ...op, origin: 'event' as const } : op))));
   };
 
-  const scopeSortedRows = (scopeName: string, scopeValue: unknown): any[] => {
-    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
+  const scopeSortedRows = (scopeName: string, scopeValue: unknown): Stored[] => {
+    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<Stored>>)[scopeName];
     const value = planes().scopeIndex.read(keyForScope(scopeName, scopeValue));
-    const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter(Boolean);
+    const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is Stored => row !== undefined);
     if (!spec?.sort || spec.sort === 'server-order') return rows;
     if ('comparator' in spec.sort) return [...rows].sort(spec.sort.comparator);
     const { field, dir } = spec.sort;
@@ -647,12 +652,18 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     }, [scopeKey]);
   };
 
-  function whereRead(where: DbWhere<any> | null): ModelReadBuilder<any> {
+  function whereRead(where: DbWhere<Stored> | null): ModelReadBuilder<Stored> {
     return createReadBuilder(where, {
-      rows: (criteria, orders, limit, required, projection) => {
+      rows: <TOutput extends Record<string, unknown>>(
+        criteria: DbWhere<Stored> | null,
+        orders: readonly ReadOrder<Stored>[],
+        limit: number | undefined,
+        required: readonly string[],
+        projection: ProjectionOptions<Stored, TOutput>
+      ): TOutput[] => {
         validateProjectionOptions(projection, `${config.id}.use.where`);
         const projectionRef = useRef(projection);
-        const gateRef = useRef(createProjectionGate<any, any>());
+        const gateRef = useRef(createProjectionGate<Stored, TOutput>());
         projectionRef.current = projection;
         const signature = incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit, required }));
         return useIncrementalRead({
@@ -671,23 +682,34 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
             })
         });
       },
-      read: (criteria, orders, limit, required, projection) => {
+      read: <TOutput extends Record<string, unknown>>(
+        criteria: DbWhere<Stored> | null,
+        orders: readonly { field: keyof Stored & string; direction: 'asc' | 'desc' }[],
+        limit: number | undefined,
+        required: readonly string[],
+        projection: ProjectionOptions<Stored, TOutput>
+      ): TOutput[] => {
         const rows = planes()
           .entityState.values()
           .filter(row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required));
         const selected = orders.length > 0 ? sortModelReadRows(rows, orders, limit) : limitRows(rows, limit);
-        return projection.select ? selected.map(projection.select) : selected;
+        return projection.select ? selected.map(projection.select) : (selected as TOutput[]);
       }
     });
   }
 
-  const makeScopeHandle = (scopeName: string): ScopeHandle<any, Record<string, unknown>> => {
-    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<any>>)[scopeName];
-    const planScope = (scopeKey: string, liveRows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp => {
+  const makeScopeHandle = (scopeName: string): ScopeHandle<Stored, Record<string, unknown>, Input> => {
+    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<Stored>>)[scopeName];
+    const planScope = (
+      scopeKey: string,
+      liveRows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
+      coverage: ScopeCoverage,
+      opts?: { resetOrder?: boolean }
+    ): JournalOp => {
       let { next } = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
-        liveRows.map(({ row, edge }) => ({ id: row.id, edge })),
+        liveRows.map(({ row, edge }) => ({ id: row.id as string, edge })),
         opts
       );
       const maxRows = spec?.retention?.maxRows;
@@ -734,13 +756,18 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       }
       return { kind: 'scope', model: config.id, scopeKey, next };
     };
-    const planApply = (scopeValue: unknown, rows: Array<{ row: any; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, opts?: { resetOrder?: boolean }): JournalOp[] => {
+    const planApply = (
+      scopeValue: unknown,
+      rows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
+      coverage: ScopeCoverage,
+      opts?: { resetOrder?: boolean }
+    ): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const requestedScopeKey = keyForScope(scopeName, scopeValue);
       const upsert: JournalOp = { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) };
       if (!spec?.by) return [upsert, planScope(requestedScopeKey, liveRows, coverage, opts)];
 
-      const rowsByScope = new Map<string, Array<{ row: any; edge?: Record<string, unknown> }>>();
+      const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();
       for (const entry of liveRows) {
         const derivedValue = scopeValueFromRow(spec.by, entry.row);
         if (!derivedValue) continue;
@@ -753,9 +780,9 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       rowsByScope.delete(requestedScopeKey);
       return [upsert, planScope(requestedScopeKey, requestedRows, coverage, opts), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
     };
-    const scopeHandle: ScopeHandle<any, Record<string, unknown>, any> = {
+    const scopeHandle = {
       modelId: config.id,
-      use: (scopeValue: unknown, options: ProjectionOptions<any, any> = {}) => {
+      use: (scopeValue: unknown, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
         useScopeAccess(scopeKey);
         return useScopeLiveRows(
@@ -766,7 +793,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
           options
         );
       },
-      useWindow: (scopeValue: unknown, options: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<any, any> = {}) => {
+      useWindow: (scopeValue: unknown, options: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
         const [windowState, setWindowState] = useState({ scopeKey, size: pageSize });
@@ -805,23 +832,23 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         planes().scopeIndex.noteAccess(scopeKey);
         return scopeSortedRows(scopeName, scopeValue);
       },
-      seed: (scopeValue: unknown, rows: any[]) => {
+      seed: (scopeValue: unknown, rows: Input[]) => {
         const liveRows = rows
           .filter(isPlanRow)
           .filter(row => !planes().entityState.isTombstoned(String(row.id)))
-          .map(row => ({ row }));
+          .map(row => ({ row: row as Record<string, unknown> }));
         applyEvent([
           { kind: 'upsert', model: config.id, rows: liveRows.map(entry => entry.row) },
           planScope(keyForScope(scopeName, scopeValue), liveRows, 'complete', { resetOrder: true })
         ]);
       }
-    };
+    } as ScopeHandle<Stored, Record<string, unknown>, Input>;
     registerInternalScopeHandle(scopeHandle, {
       apply: (scopeValue, rows, coverage, options) => {
         applySnapshot(
           planApply(
             scopeValue,
-            rows.map(row => ({ row })),
+            rows.map(row => ({ row: row as Record<string, unknown> })),
             coverage,
             options
           )
@@ -846,10 +873,10 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
   };
 
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
-    [K in keyof TScopes]: ScopeHandle<any, ScopeValueOf<TScopes[K]>>;
+    [K in keyof TScopes]: ScopeHandle<Stored, ScopeValueOf<TScopes[K]>, Input>;
   };
 
-  const planRows = (rows: any[], options?: { includeMembership?: boolean }): JournalOp[] => {
+  const planRows = (rows: unknown[], options?: { includeMembership?: boolean }): JournalOp[] => {
     const accepted = rows.filter(isPlanRow);
     const ops: JournalOp[] = [{ kind: 'upsert', model: config.id, rows: accepted }];
     if (!options?.includeMembership) return ops;
@@ -915,12 +942,16 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
     return [{ kind: 'upsert', model: config.id, rows: [next], origin: 'replace' }, ...(nextId == null ? [] : restoreMembership(nextId, memberships))];
   };
 
-  const model: ModelCore<any> & { scopes: typeof scopeHandles } = {
+  const model: ModelCore<Stored, Input> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
     // The runtime branch adds `live` exactly when the overload's live config is present.
     query: ((name, queryConfig) => {
       const { live, ...queryOptions } = queryConfig;
-      const handle = defineQuery({ ...queryOptions, key: queryConfig.key ?? `${config.id}:${name}`, into: queryConfig.into ?? model });
+      const handle = defineQuery({
+        ...queryOptions,
+        key: queryConfig.key ?? `${config.id}:${name}`,
+        into: queryConfig.into ?? (model as NonNullable<typeof queryConfig.into>)
+      });
       if (!live) return handle;
       const compiled = defineModelIngest(model, live);
       let runtime: ReturnType<typeof createDbSubscriptionRuntime> | null = null;
@@ -951,7 +982,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         },
         live: { apply: compiled.apply }
       };
-    }) as ModelCore<any>['query'],
+    }) as ModelCore<Stored, Input>['query'],
     mutation: (name, mutationConfig) => {
       const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });
@@ -960,9 +991,9 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       const handles: Record<string, unknown> = {};
       if (sections.list) {
         if (!sections.list.into) throw new Error(`${config.id}: crud list requires an explicit into scope`);
-        handles.list = model.query('list', sections.list as any);
+        handles.list = model.query('list', sections.list as Parameters<typeof model.query>[1]);
       }
-      if (sections.get) handles.get = model.query('get', { ...sections.get, into: sections.get.into ?? model } as any);
+      if (sections.get) handles.get = model.query('get', { ...sections.get, into: sections.get.into ?? model } as Parameters<typeof model.query>[1]);
       if (sections.create) {
         const { respond, build, selectServerNode, prependTo, appendTo, optimistic, ...create } = sections.create;
         const hasOptimistic = Object.prototype.hasOwnProperty.call(sections.create, 'optimistic');
@@ -974,7 +1005,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
           : respond
             ? { model, respond, selectServerNode, prependTo, appendTo }
             : { model, build, selectServerNode, prependTo, appendTo };
-        handles.create = model.mutation('create', { ...create, optimistic: createOptimistic } as any);
+        handles.create = model.mutation('create', { ...create, optimistic: createOptimistic } as Parameters<typeof model.mutation>[1]);
       }
       if (sections.update) {
         const { optimistic, ...update } = sections.update;
@@ -984,24 +1015,27 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
             optimistic === false
               ? undefined
               : (optimistic ?? { method: 'patch', model, selectId: (input: { id: string }) => input.id, selectPatch: (input: { id: string }) => omit(input, ['id']) })
-        } as any);
+        } as Parameters<typeof model.mutation>[1]);
       }
       if (sections.destroy) {
         const { optimistic, ...destroy } = sections.destroy;
         handles.destroy = model.mutation('destroy', {
           ...destroy,
           optimistic: optimistic === false ? undefined : (optimistic ?? { method: 'destroy', model, selectId: (input: { id: string }) => input.id })
-        } as any);
+        } as Parameters<typeof model.mutation>[1]);
       }
-      return handles as { [K in keyof typeof sections]: any };
+      return handles as { [K in keyof typeof sections]: CrudHandle<K & keyof CrudSections> };
     },
-    fetch: (name, fetchConfig) => defineFetch({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` } as any),
+    fetch: <TData, TFetchInput, TSelected>(name: string, fetchConfig: ModelFetchConfig<TData, TFetchInput, TSelected>) =>
+      defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` } as Parameters<
+        typeof defineFetch<TData, TFetchInput, TSelected>
+      >[0]),
     poller: (name, pollerConfig) =>
       createModelStatusPoller({
         ...pollerConfig,
         fetch: async id => {
           try {
-            return (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data as any;
+            return (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data;
           } catch (error) {
             getDbLogger().error('Model.poller', 'fetch failed', { key: `${config.id}:${name}`, id, error });
             throw error;
@@ -1051,7 +1085,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
         );
         return useSyncExternalStore(subscribePending, readPending, readPending);
       },
-      row: (id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<any, any> = {}) => {
+      row: ((id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const required = options?.require ?? [];
         return useProjectedLiveRow(
           () => {
@@ -1062,12 +1096,15 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
           options,
           `${config.id}.use.row`
         );
-      },
+      }) as ModelCore<Stored, Input>['use']['row'],
       field: (id, field) => useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)?.[field]), id == null ? [] : [rowDep(id, [String(field)])]),
-      first: (where: DbWhere<any> | null | undefined, options: DbReadOptions<any> & { require?: readonly string[] } & ProjectionOptions<any, any> = {}) => {
+      first: ((
+        where: DbWhere<Stored> | null | undefined,
+        options: DbReadOptions<Stored> & { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}
+      ) => {
         validateProjectionOptions(options, `${config.id}.use.first`);
         const optionsRef = useRef(options);
-        const gateRef = useRef(createProjectionGate<any, any>());
+        const gateRef = useRef(createProjectionGate<Stored, Record<string, unknown>>());
         optionsRef.current = options;
         const signature = incrementalSignature('first', config.id, where, options.orderBy, options.limit, options.require);
         return useIncrementalRead({
@@ -1087,20 +1124,20 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
               isEqual: Object.is
             })
         });
-      },
+      }) as ModelCore<Stored, Input>['use']['first'],
       where: whereRead,
-      byIds: (ids: readonly string[] | null | undefined, options: ProjectionOptions<any, any> = {}) => {
+      byIds: ((ids: readonly string[] | null | undefined, options: ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const resolvedIds = ids ?? [];
         const rows = useProjectedLiveRows(
-          () => resolvedIds.map(id => planes().entityState.read(id)).filter(Boolean),
+          () => resolvedIds.map(id => planes().entityState.read(id)).filter((row): row is Stored => row !== undefined),
           resolvedIds.map(id => rowDep(id)),
           options,
           `${config.id}.use.byIds`
         );
-        const resultRef = useRef<{ rows: any[]; byId: ReadonlyMap<string, any> } | null>(null);
+        const resultRef = useRef<{ rows: Record<string, unknown>[]; byId: ReadonlyMap<string, Record<string, unknown>> } | null>(null);
         if (resultRef.current?.rows !== rows) resultRef.current = { rows, byId: new Map(rows.map((row, index) => [resolvedIds[index]!, row])) };
         return resultRef.current!;
-      },
+      }) as ModelCore<Stored, Input>['use']['byIds'],
       count: where =>
         useIncrementalRead({
           signature: incrementalSignature('count', config.id, where),
@@ -1116,12 +1153,12 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
               countOnly: true
             })
         }),
-      related: (id: string | null | undefined, relationName: string, options: ProjectionOptions<any, any> = {}): any => {
+      related: ((id: string | null | undefined, relationName: string, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}): unknown => {
         const relation = resolvedRelations()[relationName];
         if (!relation) throw new Error(`${config.name} has no relation ${relationName}`);
         if (relation.kind === 'hasMany') {
           return useProjectedLiveRows(
-            () => (id == null ? EMPTY_ROWS : relation.model.getWhere({ [relation.foreignKey]: id })),
+            () => (id == null ? EMPTY_ROWS : (relation.model.getWhere({ [relation.foreignKey]: id }) as StoredRowShape[])),
             id == null ? [] : [{ kind: 'model', model: relation.model.modelId }],
             options,
             `${config.id}.use.related`
@@ -1156,7 +1193,7 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
           deps = [];
         }
         return useLiveRead(compute, deps, isEqual);
-      }
+      }) as ModelCore<Stored, Input>['use']['related']
     },
     scopes: scopeHandles,
     registerReset: fn => {

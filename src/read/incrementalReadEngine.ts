@@ -20,9 +20,8 @@ const semanticValue = (value: unknown): string => {
   if (value === undefined) return 'undefined';
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
   if (typeof value === 'function') {
-    const object = value as unknown as object;
-    const token = identityTokens.get(object) ?? nextIdentityToken++;
-    identityTokens.set(object, token);
+    const token = identityTokens.get(value) ?? nextIdentityToken++;
+    identityTokens.set(value, token);
     return `function:${token}`;
   }
   if (Array.isArray(value)) return `[${value.map(semanticValue).join(',')}]`;

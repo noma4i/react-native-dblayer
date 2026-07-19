@@ -43,20 +43,11 @@ const rules: PatternRule[] = [
 ];
 
 const allowlist: AllowedViolation[] = [
-  { file: 'src/core/subscriptionRuntime.ts', pattern: ': any', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/core/subscriptionRuntime.ts', pattern: 'any[]', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/core/subscriptionRuntime.ts', pattern: '<any>', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/core/subscriptionRuntime.ts', pattern: 'as unknown as', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/core/tanstack/facade.ts', pattern: 'as unknown as', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/core/tanstack/liveScopeReads.ts', pattern: 'as unknown as', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/core/tanstack/mirror.ts', pattern: 'as unknown as', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/dsl/defineModel.ts', pattern: ': any', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/dsl/defineModel.ts', pattern: 'any[]', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/dsl/defineModel.ts', pattern: '<any>', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/dsl/defineModel.ts', pattern: 'as any', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/read/incrementalReadEngine.ts', pattern: 'as unknown as', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/schema/shape.ts', pattern: '<any>', reason: 'pre-existing - scheduled for T8 sweep' },
-  { file: 'src/utils/pickDefined.ts', pattern: 'as unknown as', reason: 'pre-existing - scheduled for T8 sweep' }
+  {
+    file: 'src/core/subscriptionRuntime.ts',
+    pattern: 'as unknown as',
+    reason: 'TypedDocumentNode variance plus Object.fromEntries, dynamic-key tuple, and runtime payload erasure at external type boundaries'
+  }
 ];
 
 const relative = (file: string) => path.relative(root, file).split(path.sep).join('/');
@@ -85,5 +76,6 @@ describe('type discipline', () => {
     const stale = allowlist.filter(item => !violations.some(entry => key(entry) === key(item)));
 
     expect(unexpected).toEqual([]);
-    expect(stale).toEqual([]);  });
+    expect(stale).toEqual([]);
+  });
 });

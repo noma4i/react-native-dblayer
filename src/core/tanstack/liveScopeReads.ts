@@ -11,8 +11,8 @@ type LiveQuery = ReturnType<typeof createLiveQueryCollection>;
 type ScopeLiveEntry = {
   scopeKey: string;
   liveQuery: LiveQuery;
-  subscription: { unsubscribe(): void };
-  scopeSubscription: { unsubscribe(): void };
+  subscription: { unsubscribe(): void } | null;
+  scopeSubscription: { unsubscribe(): void } | null;
   refCount: number;
   snapshot: StoredRowShape[];
   rowCache: Map<string, StoredRowShape>;
@@ -80,17 +80,17 @@ const createEntry = (modelId: string, scopeKey: string, sortMeta: ScopeSortMeta)
     }
     return joined.orderBy(({ membership }) => membership.seq).select(({ entity }) => ({ ...entity }));
   });
-  const entry = {
+  const entry: ScopeLiveEntry = {
     scopeKey,
     liveQuery,
-    subscription: null as unknown as { unsubscribe(): void },
-    scopeSubscription: null as unknown as { unsubscribe(): void },
+    subscription: null,
+    scopeSubscription: null,
     refCount: 0,
     snapshot: EMPTY_ROWS,
     rowCache: new Map<string, StoredRowShape>(),
     sourceCache: new WeakMap<StoredRowShape, StoredRowShape>(),
     listeners: new Set<() => void>()
-  } satisfies ScopeLiveEntry;
+  };
   entry.subscription = liveQuery.subscribeChanges(() => updateSnapshot(entry));
   entry.scopeSubscription = getCommitBus().subscribeIncremental(
     () => notifyEmptyScope(entry),
@@ -113,8 +113,8 @@ const entryFor = (modelId: string, scopeKey: string, sortMeta: ScopeSortMeta): S
 const releaseEntry = (modelId: string, scopeKey: string, entry: ScopeLiveEntry): void => {
   entry.refCount -= 1;
   if (entry.refCount > 0) return;
-  entry.subscription.unsubscribe();
-  entry.scopeSubscription.unsubscribe();
+  entry.subscription?.unsubscribe();
+  entry.scopeSubscription?.unsubscribe();
   void entry.liveQuery.cleanup();
   if (entries.get(entryKey(modelId, scopeKey)) === entry) entries.delete(entryKey(modelId, scopeKey));
 };
@@ -127,8 +127,8 @@ const clearEntries = (): void => {
     entry.rowCache.clear();
     entry.sourceCache = new WeakMap<StoredRowShape, StoredRowShape>();
     for (const listener of entry.listeners) listener();
-    entry.subscription.unsubscribe();
-    entry.scopeSubscription.unsubscribe();
+    entry.subscription?.unsubscribe();
+    entry.scopeSubscription?.unsubscribe();
     void entry.liveQuery.cleanup();
   }
 };

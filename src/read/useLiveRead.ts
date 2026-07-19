@@ -15,9 +15,9 @@ export const arraysShallowEqual = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>):
   a === b || (a.length === b.length && a.every((item, index) => Object.is(item, b[index])));
 
 /** Shallow row equality across the union of both row key sets. */
-export const rowsShallowEqual = (left: Record<string, unknown>, right: Record<string, unknown>): boolean => {
+export const rowsShallowEqual = (left: object, right: object): boolean => {
   const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  return [...keys].every(key => left[key] === right[key]);
+  return [...keys].every(key => Reflect.get(left, key) === Reflect.get(right, key));
 };
 
 /**

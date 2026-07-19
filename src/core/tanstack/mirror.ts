@@ -3,8 +3,7 @@ import { getApplyTarget } from '../apply/transaction';
 import { ensureModelCollection, ensureMembershipCollection, membershipWriterFor, runInWriteBatch, writerFor } from './facade';
 import { uniq, uniqBy } from 'es-toolkit';
 import { rowsShallowEqual } from '../../read/useLiveRead';
-/** Typed adapter over the canonical rowsShallowEqual for mirror row/membership objects. */
-const rowsDiffer = (current: object, next: object): boolean => !rowsShallowEqual(current as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>);
+const rowsDiffer = (current: object, next: object): boolean => !rowsShallowEqual(current, next);
 const scopeOrderCache = new Map<string, Map<string, number>>();
 
 /** Starts synchronously mirroring every commit-bus row batch into TanStack model collections. */

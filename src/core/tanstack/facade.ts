@@ -19,10 +19,12 @@ export type MembershipRow = {
 };
 
 /** The synchronous writer callbacks supplied by a TanStack collection sync adapter. */
-export type CollectionWriter = Pick<Parameters<SyncConfig<any, string>[`sync`]>[0], `begin` | `write` | `commit` | `markReady`>;
+export type CollectionWriter<TRow extends object = StoredRowShape> = Pick<Parameters<SyncConfig<TRow, string>[`sync`]>[0], `begin` | `write` | `commit` | `markReady`>;
 
-const writerRegistry = new Map<string, CollectionWriter>();
-const collectionRegistry = new Map<string, Collection<any, string>>();
+const modelWriterRegistry = new Map<string, CollectionWriter>();
+const membershipWriterRegistry = new Map<string, CollectionWriter<MembershipRow>>();
+const modelCollectionRegistry = new Map<string, Collection<StoredRowShape, string>>();
+const membershipCollectionRegistry = new Map<string, Collection<MembershipRow, string>>();
 let resetLiveScopeReads: (() => void) | null = null;
 
 /** Registers the shared scope-live-read registry cleanup used by collection reset. */
@@ -39,7 +41,7 @@ export function createModelCollection(modelId: string) {
     startSync: true,
     sync: {
       sync: ({ begin, write, commit, markReady }) => {
-        writerRegistry.set(modelId, { begin, write, commit, markReady });
+        modelWriterRegistry.set(modelId, { begin, write, commit, markReady });
         begin();
         commit();
         markReady();
@@ -48,40 +50,40 @@ export function createModelCollection(modelId: string) {
   });
   collection.createIndex(row => row.id);
 
-  collectionRegistry.set(modelId, collection);
+  modelCollectionRegistry.set(modelId, collection);
   return collection;
 }
 
 /** Returns a model collection, creating its ready writer-backed instance when absent. */
 export function ensureModelCollection(modelId: string): Collection<StoredRowShape, string> {
-  return (collectionRegistry.get(modelId) ?? createModelCollection(modelId)) as Collection<StoredRowShape, string>;
+  return modelCollectionRegistry.get(modelId) ?? createModelCollection(modelId);
 }
 
 /** Returns a model membership collection, creating its ready writer-backed instance when absent. */
 export function ensureMembershipCollection(modelId: string) {
   const id = `${modelId}::membership`;
-  const existing = collectionRegistry.get(id);
-  if (existing) return existing as unknown as Collection<MembershipRow, string>;
+  const existing = membershipCollectionRegistry.get(id);
+  if (existing) return existing;
   const collection = createCollection<MembershipRow, string>({
     id,
     getKey: row => row.key,
     startSync: true,
     sync: {
       sync: ({ begin, write, commit, markReady }) => {
-        writerRegistry.set(id, { begin, write, commit, markReady });
+        membershipWriterRegistry.set(id, { begin, write, commit, markReady });
         begin();
         commit();
         markReady();
       }
     }
   });
-  collectionRegistry.set(id, collection);
+  membershipCollectionRegistry.set(id, collection);
   return collection;
 }
 
 /** Returns the registered synchronous writer for a model identifier. */
 export function writerFor(modelId: string): CollectionWriter {
-  const writer = writerRegistry.get(modelId);
+  const writer = modelWriterRegistry.get(modelId);
   if (!writer) {
     throw new Error(`Missing writer for ${modelId}`);
   }
@@ -89,19 +91,24 @@ export function writerFor(modelId: string): CollectionWriter {
 }
 
 /** Returns the registered synchronous membership writer for a model identifier. */
-export function membershipWriterFor(modelId: string): CollectionWriter {
-  return writerFor(`${modelId}::membership`);
+export function membershipWriterFor(modelId: string): CollectionWriter<MembershipRow> {
+  const id = `${modelId}::membership`;
+  const writer = membershipWriterRegistry.get(id);
+  if (!writer) throw new Error(`Missing writer for ${id}`);
+  return writer;
 }
 
 /** Reports whether a synchronous writer is registered for a model identifier. */
 export function hasWriter(modelId: string): boolean {
-  return writerRegistry.has(modelId);
+  return modelWriterRegistry.has(modelId);
 }
 
 /** Clears the TanStack collection and writer registries. */
 export function resetCollectionRegistry(): void {
-  writerRegistry.clear();
-  collectionRegistry.clear();
+  modelWriterRegistry.clear();
+  membershipWriterRegistry.clear();
+  modelCollectionRegistry.clear();
+  membershipCollectionRegistry.clear();
   resetLiveScopeReads?.();
 }
 
@@ -121,7 +128,7 @@ export function runInWriteBatch<T>(fn: () => T): T {
 
 /** Returns the registered TanStack collection for a model identifier. */
 export function collectionFor(modelId: string) {
-  const collection = collectionRegistry.get(modelId);
+  const collection = modelCollectionRegistry.get(modelId);
   if (!collection) {
     throw new Error(`Missing collection for ${modelId}`);
   }
@@ -130,7 +137,7 @@ export function collectionFor(modelId: string) {
 
 /** Returns the registered membership collection for a model identifier. */
 export function membershipCollectionFor(modelId: string) {
-  const collection = collectionRegistry.get(`${modelId}::membership`);
+  const collection = membershipCollectionRegistry.get(`${modelId}::membership`);
   if (!collection) throw new Error(`Missing membership collection for ${modelId}`);
-  return collection as unknown as Collection<MembershipRow, string>;
+  return collection;
 }

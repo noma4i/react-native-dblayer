@@ -8,7 +8,7 @@ import { isNotNil, isUndefined, omitBy, pick, pickBy } from 'es-toolkit';
  * @returns Sparse source-key patch with undefined values removed.
  */
 export const pickDefined = <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]): Partial<Pick<TSource, TKey>> =>
-  omitBy(pick(source as Record<string, unknown>, keys as unknown as string[]), isUndefined) as Partial<Pick<TSource, TKey>>;
+  omitBy(pick(source, [...keys]), isUndefined) as Partial<Pick<TSource, TKey>>;
 
 type PresentPick<TSource extends object, TKey extends keyof TSource> = Partial<{
   [K in TKey]: NonNullable<TSource[K]>;
@@ -22,4 +22,4 @@ type PresentPick<TSource extends object, TKey extends keyof TSource> = Partial<{
  * @returns Sparse source-key patch whose value types exclude null and undefined.
  */
 export const pickPresent = <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]): PresentPick<TSource, TKey> =>
-  pickBy(pick(source as Record<string, unknown>, keys as unknown as string[]), isNotNil) as PresentPick<TSource, TKey>;
+  pickBy(pick(source, [...keys]), isNotNil) as PresentPick<TSource, TKey>;

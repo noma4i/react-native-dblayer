@@ -1,15 +1,14 @@
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import type { FieldSpec } from './fieldSpec';
 import type { DefinedFields } from './fields';
-import type { InferShapeStored } from './infer';
+import type { AnyFields, InferShapeStored } from './infer';
 
-type ShapeFields<TInput> = Record<string, FieldSpec<TInput, any, any, any>>;
+type ShapeFields<_TInput> = AnyFields;
 
 export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
   fields: TFields;
 };
 
-export type AnyDbShape = DbShape<any, ShapeFields<any>>;
+export type AnyDbShape = DbShape<unknown, AnyFields>;
 
 /**
  * Define a reusable field group for model fields, object fields, and array items.
@@ -57,7 +56,11 @@ export const readShape = <TInput, TFields extends ShapeFields<TInput>>(shape: Db
  * @param label Error prefix used when the payload is unreadable.
  * @returns The normalized shape object.
  */
-export const readShapeOrThrow = <TInput, TFields extends ShapeFields<TInput>>(shape: DbShape<TInput, TFields>, input: unknown, label: string): InferShapeStored<DbShape<TInput, TFields>> => {
+export const readShapeOrThrow = <TInput, TFields extends ShapeFields<TInput>>(
+  shape: DbShape<TInput, TFields>,
+  input: unknown,
+  label: string
+): InferShapeStored<DbShape<TInput, TFields>> => {
   const result = readShape(shape, input);
   if (result == null) {
     throw new Error(`${label}: invalid shape payload`);

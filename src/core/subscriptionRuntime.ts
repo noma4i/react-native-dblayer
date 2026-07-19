@@ -45,7 +45,7 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
   onData: (payload: TPayload) => void;
 };
 
-type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<any, any>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<
+type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, unknown>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<
   DbSubscriptionEntry<ResultOf<TDocument>[TKey]>,
   'key' | 'query' | 'vars'
 > & {
@@ -62,15 +62,18 @@ type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<any, any>, TKe
  * @param entry Typed subscription document, root-field key, variables, debounce, and payload handler.
  * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
  */
-export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<any, any>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(
+export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<unknown, unknown>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(
   entry: TypedDbSubscriptionEntry<TDocument, TKey>
-): DbSubscriptionEntry => entry as unknown as DbSubscriptionEntry;
+): DbSubscriptionEntry => {
+  /** Typed-document variance is intentionally erased at the heterogeneous runtime registry boundary. */
+  return entry as unknown as DbSubscriptionEntry;
+};
 
 /** Function table of UI effects invoked by subscription entries. */
-export type DbSubscriptionEffectsTable = Record<string, (...args: any[]) => void>;
+export type DbSubscriptionEffectsTable = Record<string, (...args: never[]) => void>;
 
 /** Effects channel returned by `createDbSubscriptionEffects`. */
-export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: any[]) => void>> = {
+export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: never[]) => void>> = {
   /**
    * Stable wrapper table with the same keys as the noop table. Each wrapper forwards to the currently
    * configured effect. The table and every wrapper keep one identity for the channel's lifetime, so
@@ -92,17 +95,19 @@ export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects,
  * @param noopEffects Complete effect table with no-op implementations; defines the channel's keys.
  * @returns Stable `effects` table plus `configure`/`reset` controls.
  */
-export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffects, (...args: any[]) => void>>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
+export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffects, (...args: never[]) => void>>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
   let activeEffects: TEffects = noopEffects;
 
+  /** Object.fromEntries cannot preserve the keyed function correlation represented by TEffects. */
   const effects = Object.fromEntries(
     Object.keys(noopEffects).map(key => [
       key,
       (...args: unknown[]) => {
-        (activeEffects[key as keyof TEffects] as (...forwarded: unknown[]) => void)(...args);
+        /** Dynamic key iteration loses each effect's parameter tuple before invocation. */
+        (activeEffects[key as keyof TEffects] as unknown as (...forwarded: unknown[]) => void)(...args);
       }
     ])
-  ) as TEffects;
+  ) as unknown as TEffects;
   namedEffects.clear();
   for (const [name, effect] of Object.entries(effects)) namedEffects.set(name, effect as (...args: unknown[]) => void);
 
@@ -171,7 +176,7 @@ export type DbSubscriptionRuntime = {
   stop(): void;
 };
 
-type RuntimeEntry = DbSubscriptionEntry<any>;
+type RuntimeEntry = DbSubscriptionEntry;
 
 type DebounceBucket = {
   timer: ReturnType<typeof setTimeout>;
@@ -218,7 +223,9 @@ const unsubscribeEntry = (state: EntryState): void => {
  * @returns Runtime controller for activation, manual dispatch, inspection, and teardown.
  */
 export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonly DbSubscriptionEntry<TPayload>[]): DbSubscriptionRuntime => {
-  const states = entries.map(entry => ({
+  /** Runtime validation narrows every dispatched payload before the heterogeneous state table invokes it. */
+  const runtimeEntries = entries as unknown as readonly DbSubscriptionEntry[];
+  const states = runtimeEntries.map(entry => ({
     entry,
     unsubscribe: null,
     debounceBuckets: new Map<string, DebounceBucket>(),
