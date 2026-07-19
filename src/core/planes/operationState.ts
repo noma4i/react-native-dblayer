@@ -6,6 +6,7 @@ export type OperationRecord = {
   operationId: string;
   model: string;
   tempIds: string[];
+  rowIds?: string[];
   intent: OperationIntent;
   status: OperationStatus;
   idempotencyKey?: string;
@@ -34,8 +35,8 @@ export type OperationState = {
   reset(): void;
 };
 
-export const createOperationState = (options: { storage: StoragePlane; prefix: () => string; now: () => number }): OperationState => {
-  const { storage, prefix, now } = options;
+export const createOperationState = (options: { storage: StoragePlane; prefix: () => string; now: () => number; notify?: (record: OperationRecord) => void }): OperationState => {
+  const { storage, prefix, now, notify } = options;
   const operations = new Map<string, OperationRecord>();
   const sequences = new Map<string, number>();
   const committedKeys = new Set<string>();
@@ -70,6 +71,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       operations.set(operation.operationId, record);
       indexOperation(record);
       storage.set(persistEntries());
+      notify?.(record);
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
@@ -79,6 +81,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       operations.set(operationId, record);
       indexOperation(record);
       storage.set(persistEntries());
+      notify?.(record);
     },
     get: operationId => operations.get(operationId),
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),

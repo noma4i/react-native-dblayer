@@ -1,6 +1,7 @@
 export type RowChange = { model: string; id: string; fields: string[] | null };
 export type ScopeChange = { model: string; scopeKey: string };
-export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[] };
+export type PendingChange = { model: string; id: string };
+export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[]; pending?: PendingChange[] };
 export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 export type IncrementalScopeChange = {
   model: string;
@@ -15,7 +16,10 @@ export type IncrementalScopeChange = {
 export type IncrementalCommitBatch = CommitBatch & { mode?: IncrementalBatchMode; scopeChanges?: IncrementalScopeChange[]; maintenanceModels?: string[] };
 
 export type Dependency =
-  { kind: 'row'; model: string; id: string; fields?: ReadonlyArray<string> } | { kind: 'scope'; model: string; scopeKey: string } | { kind: 'model'; model: string };
+  | { kind: 'row'; model: string; id: string; fields?: ReadonlyArray<string> }
+  | { kind: 'scope'; model: string; scopeKey: string }
+  | { kind: 'model'; model: string }
+  | { kind: 'pending'; model: string; id: string };
 
 export type CommitSubscription = { setDeps(deps: ReadonlyArray<Dependency>): void; unsubscribe(): void };
 
@@ -28,12 +32,13 @@ const rowMatches = (dep: { model: string; id: string; fields?: ReadonlyArray<str
 const depMatches = (dep: Dependency, batch: CommitBatch): boolean => {
   if (dep.kind === 'model') return batch.rows.some(change => change.model === dep.model) || batch.scopes.some(change => change.model === dep.model);
   if (dep.kind === 'scope') return batch.scopes.some(change => change.model === dep.model && change.scopeKey === dep.scopeKey);
+  if (dep.kind === 'pending') return batch.pending?.some(change => change.model === dep.model && change.id === dep.id) === true;
   return batch.rows.some(change => rowMatches(dep, change));
 };
 
 /**
  * Semantic commit bus: one batched publish per applied plan; each subscriber declares a dependency
- * set (per-row, per-field, per-scope, or whole-model) and is notified at most once per batch,
+ * set (per-row, per-field, per-scope, per-pending-id, or whole-model) and is notified at most once per batch,
  * only when the batch intersects its dependencies.
  */
 export const createCommitBus = () => {
@@ -61,7 +66,7 @@ export const createCommitBus = () => {
     /** Snapshot of live reader dependencies, used as garbage-collection roots. */
     activeDependencies: (): ReadonlyArray<Dependency> => [...subscribers].flatMap(subscriber => subscriber.deps),
     publish: (batch: IncrementalCommitBatch): void => {
-      if (!batch.rows.length && !batch.scopes.length) return;
+      if (!batch.rows.length && !batch.scopes.length && !batch.pending?.length) return;
       for (const onBatch of [...allSubscribers]) onBatch(batch);
       for (const subscriber of [...subscribers]) {
         if (subscriber.deps.some(dep => depMatches(dep, batch))) {

@@ -17,7 +17,7 @@ import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, createScopeReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
-import { getApplyRuntime, getDbRuntimeConfig, getStoragePrefix, hasReplayedJournal } from './configure';
+import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery } from './defineQuery';
@@ -28,7 +28,7 @@ import { createReadBuilder, type ModelReadBuilder } from './readBuilder';
 import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { isRecord } from '../utils/normalizeHelpers';
 import type { InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
@@ -165,10 +165,10 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
       document: DbGraphQLDocument<TData, { id: string }>;
       vars?: (id: string) => Record<string, unknown>;
       apply: (id: string, data: TData) => void;
-      isTerminal: (data: TData) => boolean;
+      classify?: (data: TData) => 'ready' | 'failed' | null;
       intervalMs: number;
       maxAttempts: number;
-      onSessionStop?: (id: string, reason: 'terminal' | 'budget') => void;
+      onSessionStop?: (id: string, reason: 'terminal-payload' | 'budget-exhausted' | 'stopped') => void;
     }
   ): ModelStatusPoller;
   /** Define a reactive joined projection over one declared scope and its current related rows. */
@@ -197,6 +197,16 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null }>
   normalize(input: unknown): Partial<TStored> & { id: string };
   invalidate(scope?: unknown): void;
   use: {
+    /**
+     * Return whether one row id belongs to an open optimistic operation.
+     *
+     * Nullish ids return false without subscribing. Boot replay rolls hydrated pending operations
+     * back before completing, so reconciled orphan temp rows are absent and report false.
+     *
+     * @param id Row id to inspect, or a nullish value for an unsubscribed false result.
+     * @returns True only while that exact model row id belongs to an open operation.
+     */
+    pending(id: string | null | undefined): boolean;
     /** Read one field from one row. */
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
     /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
@@ -930,6 +940,25 @@ export const defineModel = <const TFields extends ModelFieldSpecs, TScopes exten
       invalidateModel(config.id, scope);
     },
     use: {
+      pending: id => {
+        const readPending = useCallback(
+          () =>
+            id != null &&
+            getOperationState()
+              .pending()
+              .some(operation => operation.model === config.id && (operation.rowIds ?? operation.tempIds).includes(id)),
+          [id]
+        );
+        const subscribePending = useCallback(
+          (listener: () => void) => {
+            if (id == null) return () => {};
+            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id }]);
+            return () => subscription.unsubscribe();
+          },
+          [id]
+        );
+        return useSyncExternalStore(subscribePending, readPending, readPending);
+      },
       row: (id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<any, any> = {}) => {
         const required = options?.require ?? [];
         return useProjectedLiveRow(

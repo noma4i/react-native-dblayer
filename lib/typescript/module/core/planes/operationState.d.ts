@@ -5,6 +5,7 @@ export type OperationRecord = {
     operationId: string;
     model: string;
     tempIds: string[];
+    rowIds?: string[];
     intent: OperationIntent;
     status: OperationStatus;
     idempotencyKey?: string;
@@ -35,5 +36,6 @@ export declare const createOperationState: (options: {
     storage: StoragePlane;
     prefix: () => string;
     now: () => number;
+    notify?: (record: OperationRecord) => void;
 }) => OperationState;
 //# sourceMappingURL=operationState.d.ts.map

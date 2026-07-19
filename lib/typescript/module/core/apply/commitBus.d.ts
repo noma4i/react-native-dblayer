@@ -7,9 +7,14 @@ export type ScopeChange = {
     model: string;
     scopeKey: string;
 };
+export type PendingChange = {
+    model: string;
+    id: string;
+};
 export type CommitBatch = {
     rows: RowChange[];
     scopes: ScopeChange[];
+    pending?: PendingChange[];
 };
 export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 export type IncrementalScopeChange = {
@@ -42,6 +47,10 @@ export type Dependency = {
 } | {
     kind: 'model';
     model: string;
+} | {
+    kind: 'pending';
+    model: string;
+    id: string;
 };
 export type CommitSubscription = {
     setDeps(deps: ReadonlyArray<Dependency>): void;
@@ -49,7 +58,7 @@ export type CommitSubscription = {
 };
 /**
  * Semantic commit bus: one batched publish per applied plan; each subscriber declares a dependency
- * set (per-row, per-field, per-scope, or whole-model) and is notified at most once per batch,
+ * set (per-row, per-field, per-scope, per-pending-id, or whole-model) and is notified at most once per batch,
  * only when the batch intersects its dependencies.
  */
 export declare const createCommitBus: () => {

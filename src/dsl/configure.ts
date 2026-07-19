@@ -316,7 +316,16 @@ export const resetPersistenceRuntime = (): void => {
 export const getOperationState = (): OperationState => {
   if (!operationState) {
     const { storage } = getDbRuntimeConfig();
-    operationState = createOperationState({ storage, prefix: getStoragePrefix, now: () => Date.now() });
+    operationState = createOperationState({
+      storage,
+      prefix: getStoragePrefix,
+      now: () => Date.now(),
+      notify: operation => {
+        const rowIds = operation.rowIds ?? operation.tempIds;
+        if (operation.model === '' || rowIds.length === 0) return;
+        commitBus.publish({ rows: [], scopes: [], pending: rowIds.map(id => ({ model: operation.model, id })) });
+      }
+    });
     operationState.hydrate();
   }
   return operationState;

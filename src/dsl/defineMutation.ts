@@ -291,10 +291,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       optimistic.model.destroy(id);
     }
     if (tracked) {
+      const operationIds = tempId ? [tempId] : optimistic && isMethodOptimistic(optimistic) ? [optimistic.selectId(input)] : [];
       operations.begin({
         operationId,
         model: optimistic?.model.modelId ?? '',
         tempIds: tempId ? [tempId] : [],
+        rowIds: operationIds,
         intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
         idempotencyKey: dedupeKey ?? operationId,
         createdAt: Date.now()

@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, replayJournal, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -95,7 +95,10 @@ describe('model pending flag', () => {
     const { messages, patch } = createMessages(pending.transport);
     messages.insertStored({ id: 'message-1', text: 'before' });
     const reader = renderCounted(() => messages.use.pending('message-1'));
-    const promise = patch.run({ id: 'message-1', text: 'during' });
+    let promise!: Promise<Payload | null>;
+    act(() => {
+      promise = patch.run({ id: 'message-1', text: 'during' });
+    });
     expect(reader.result()).toBe(true);
 
     await act(async () => {
@@ -119,7 +122,10 @@ describe('model pending flag', () => {
     const unrelated = renderCounted(() => messages.use.pending('message-2'));
     const targetBefore = target.renders();
     const unrelatedBefore = unrelated.renders();
-    const promise = patch.run({ id: 'message-1', text: 'during' });
+    let promise!: Promise<Payload | null>;
+    act(() => {
+      promise = patch.run({ id: 'message-1', text: 'during' });
+    });
 
     expect(target.renders() - targetBefore).toBe(1);
     expect(unrelated.renders() - unrelatedBefore).toBe(0);
@@ -158,6 +164,66 @@ describe('model pending flag', () => {
     act(() => resetRuntime());
 
     expect(reader.result()).toBe(false);
+    reader.unmount();
+  });
+
+  it('reconciles a hydrated pending operation to an absent row and false flag during replay', () => {
+    const storage = createMemoryPlane();
+    storage.set([
+      {
+        key: 'dbl:ops',
+        value: JSON.stringify({
+          'operation-1': {
+            operationId: 'operation-1',
+            model: 'SpecPendingReplay',
+            tempIds: ['temp-replay'],
+            intent: 'insert',
+            status: 'pending',
+            idempotencyKey: 'operation-1',
+            createdAt: 1
+          }
+        })
+      }
+    ]);
+    configureDb({ storage, transport: createMockTransport() });
+    const messages = defineModel({ id: 'SpecPendingReplay', name: 'SpecPendingReplay', fields: { text: f.str() } });
+
+    replayJournal();
+    const reader = renderCounted(() => messages.use.pending('temp-replay'));
+
+    expect(reader.result()).toBe(false);
+    expect(messages.get('temp-replay')).toBeUndefined();
+    reader.unmount();
+  });
+
+  it('closes a hydrated patch operation without treating its existing row as an orphan temp row', () => {
+    const storage = createMemoryPlane();
+    storage.set([
+      {
+        key: 'dbl:ops',
+        value: JSON.stringify({
+          'operation-1': {
+            operationId: 'operation-1',
+            model: 'SpecPendingPatchReplay',
+            tempIds: [],
+            rowIds: ['message-1'],
+            intent: 'patch',
+            status: 'pending',
+            idempotencyKey: 'operation-1',
+            createdAt: 1
+          }
+        })
+      }
+    ]);
+    configureDb({ storage, transport: createMockTransport() });
+    const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() } });
+    messages.insertStored({ id: 'message-1', text: 'kept' });
+
+    replayJournal();
+    const reader = renderCounted(() => messages.use.pending('message-1'));
+
+    expect(reader.result()).toBe(false);
+    expect(messages.get('message-1')?.text).toBe('kept');
     reader.unmount();
   });
 

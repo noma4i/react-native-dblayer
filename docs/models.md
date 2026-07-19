@@ -181,6 +181,7 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 | `get`         | `(id) => TStored \| undefined`            | Snapshot read of one row.                                                                                                     |
 | `getWhere`    | `(where, opts?) => TStored[]`             | Snapshot read filtered by a `DbWhere` predicate, with optional `orderBy`/`limit`.                                             |
 | `getAll`      | `() => TStored[]`                         | Full snapshot. Library/maintenance channel - application code stays on scoped reads.                                          |
+| `use.pending` | `(id) => boolean`                         | True only while that exact row id belongs to an open optimistic operation; nullish ids return false without subscribing.      |
 | `use.row`     | `(id, opts?) => TStored \| undefined`     | Reactive read of one row; `opts.select` narrows the field dependency, `opts.require` gates on field completeness (see below). |
 | `use.field`   | `(id, field) => TStored[K] \| undefined`  | Reactive read of one field - nothing else re-renders it.                                                                      |
 | `use.first`   | `(where?, opts?) => TStored \| undefined` | Reactive read of the first row matching `where`; `opts.require` gates on field completeness (see below).                      |
@@ -452,19 +453,48 @@ const messagePoller = MessageModel.poller('delivery-status', {
   document: MessageStatusDocument,
   vars: id => ({ messageId: id }),
   apply: (id, data) => MessageModel.patch(id, { deliveryStatus: data.messageStatus.status }),
-  isTerminal: data => data.messageStatus.status === 'delivered' || data.messageStatus.status === 'failed',
+  classify: data => {
+    if (data.messageStatus.status === 'delivered') return 'ready';
+    if (data.messageStatus.status === 'failed') return 'failed';
+    return null;
+  },
   intervalMs: 3000,
   maxAttempts: 20
 });
 
 const detach = messagePoller.attach(messageId); // starts polling; call on unmount to stop
+const phase = messagePoller.usePhase(messageId);
 ```
 
 `config` is the same shape `createModelStatusPoller` takes (`fetch` is wired for you from
 `document`/`vars` over the configured transport), plus `document`/`vars` replacing `fetch`. Fetch
 failures log as `<modelId>:<name>` and consume an attempt like any other failed poll. See
 [runtime-primitives.md](./runtime-primitives.md#createmodelstatuspollerconfig) for the full
-`ModelStatusPoller` surface (`attach`/`subscribe`/`refresh`/`isPolling`/`isSessionTerminal`).
+`ModelStatusPoller` surface (`attach`/`subscribe`/`refresh`/`isPolling`/`getPhase`/`usePhase`).
+
+`classify` is the only terminal classifier. It returns `'ready'` or `'failed'` for a terminal
+payload and `null` to keep polling. `getPhase(id)` returns a stable snapshot; `usePhase(id)` reacts
+only to phase or attempt changes for that id. The phase machine is:
+
+| Phase     | Reason               | Meaning                                             |
+| --------- | -------------------- | --------------------------------------------------- |
+| `idle`    | omitted or `stopped` | Never attached, reset, or already detached.         |
+| `polling` | omitted              | Active, with attempt budget remaining.              |
+| `ready`   | `terminal-payload`   | `classify` reported successful completion.          |
+| `failed`  | `terminal-payload`   | `classify` reported terminal failure.               |
+| `stalled` | `budget-exhausted`   | `maxAttempts` completed without a terminal payload. |
+
+## `Model.use.pending(id)`
+
+Returns true while the exact row id belongs to an open optimistic operation. Insert readers switch
+to true for the temp id and back to false when commit swaps it for the server id or rollback removes
+it. Patch readers switch to true for the existing id and back to false after commit or rollback.
+Readers for other ids are not notified, row objects are unchanged, and a nullish id returns false
+without subscribing.
+
+During boot replay, hydrated pending operations follow the existing orphan reconciliation path:
+their temp rows are removed and the operations are rolled back before replay completes. The removed
+temp id therefore reports false after boot.
 
 ## `Model.view(name, config)`
 

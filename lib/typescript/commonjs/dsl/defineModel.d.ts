@@ -171,10 +171,10 @@ export type ModelCore<TStored extends {
         }>;
         vars?: (id: string) => Record<string, unknown>;
         apply: (id: string, data: TData) => void;
-        isTerminal: (data: TData) => boolean;
+        classify?: (data: TData) => 'ready' | 'failed' | null;
         intervalMs: number;
         maxAttempts: number;
-        onSessionStop?: (id: string, reason: 'terminal' | 'budget') => void;
+        onSessionStop?: (id: string, reason: 'terminal-payload' | 'budget-exhausted' | 'stopped') => void;
     }): ModelStatusPoller;
     /** Define a reactive joined projection over one declared scope and its current related rows. */
     view<TItem = TStored & Record<string, unknown>>(name: string, config: ViewConfig<TItem>): ViewHandle<TItem, Record<string, unknown>>;
@@ -207,6 +207,16 @@ export type ModelCore<TStored extends {
     };
     invalidate(scope?: unknown): void;
     use: {
+        /**
+         * Return whether one row id belongs to an open optimistic operation.
+         *
+         * Nullish ids return false without subscribing. Boot replay rolls hydrated pending operations
+         * back before completing, so reconciled orphan temp rows are absent and report false.
+         *
+         * @param id Row id to inspect, or a nullish value for an unsubscribed false result.
+         * @returns True only while that exact model row id belongs to an open operation.
+         */
+        pending(id: string | null | undefined): boolean;
         /** Read one field from one row. */
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
         /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
