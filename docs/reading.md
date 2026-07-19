@@ -202,6 +202,7 @@ without coupling its related-row shapes to the structural model readers used by 
 | ------------ | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `source`     | `string \| ScopeHandle`                             | A declared scope name on this model, or an explicit `ScopeHandle`.                                                                                                                                                                                                                                                           |
 | `include`    | `{ [K in keyof TIncluded]: ViewIncludeSpec<TRow> }` | Per-alias include: a declared relation name (`belongsTo`/`hasMany`/`hasOne` only - `references` throws), or a computed target model plus id resolver that resolves one or more ids off the source row. Resolved includes subscribe to their pinpoint row dependencies, so unrelated target writes do not recompute the view. |
+| `include.*.renderKeys` | `readonly (keyof TIncludedRow & string)[]` | On an object-form declared-relation or computed include, preserve each delivered related-row reference while the listed stored keys remain shallow-equal. Dependencies remain pinpoint row dependencies; an unlisted target-field update recomputes the read but does not change the included value or view item identity. |
 | `select`     | `(row, included, ctx: { index }) => TItem`          | Build one view item. Defaults to `{ ...row, ...included }`.                                                                                                                                                                                                                                                                  |
 | `renderKeys` | `readonly (keyof TItem & string)[]`                 | Preserve an item's reference across recomputes while every listed key stays shallow-equal through the shared projection gate (see [Projections](#projections-select-and-renderkeys) above).                                                                                                                                  |
 
@@ -222,10 +223,11 @@ An include may gate on field completeness with `require: string[]`, following th
 [Required fields](#required-fields) above). Two forms carry it:
 
 - A declared relation written as an object instead of a bare string - the alias itself must equal
-  the relation name: `include: { author: { require: ['fullName'] } }`. Only the plain-string form
+  the relation name: `include: { author: { require: ['fullName'] } }`. The same object may carry
+  `renderKeys` with or without `require`. Only the plain-string form
   (`author: 'someOtherRelationName'`) can point an alias at a differently-named relation, and that
-  form cannot carry `require`.
-- A computed include written as `{ model, ids, require? }` instead of the `[model, idResolver]`
+  form cannot carry `require` or `renderKeys`.
+- A computed include written as `{ model, ids, require?, renderKeys? }` instead of the `[model, idResolver]`
   tuple form.
 
 ```ts

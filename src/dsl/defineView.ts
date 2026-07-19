@@ -12,8 +12,8 @@ import { getInternalModelHandle, getInternalScopeHandle } from '../core/internal
 type Row = { id: string; [key: string]: unknown };
 type Included = Record<string, unknown>;
 type InternalComputedInclude = [ViewIncludeModel, (row: Row) => string | string[] | null];
-type InternalRelationInclude = { require: readonly string[] };
-type InternalIdInclude = { model: ViewIncludeModel; ids: (row: Row) => string | string[] | null; require?: readonly string[] };
+type InternalRelationInclude = { require?: readonly string[]; renderKeys?: readonly string[] };
+type InternalIdInclude = { model: ViewIncludeModel; ids: (row: Row) => string | string[] | null; require?: readonly string[]; renderKeys?: readonly string[] };
 type InternalIncludeConfig = string | InternalComputedInclude | InternalRelationInclude | InternalIdInclude;
 type InternalViewConfig<TItem> = {
   source: string | ScopeHandle<Row, Record<string, unknown>>;
@@ -30,11 +30,21 @@ export type ViewIncludeModel = {
 };
 
 /** One declared-relation or computed-id include specification for a typed view source row. */
-export type ViewIncludeSpec<TRow> =
+export type ViewIncludeSpec<TRow, TIncluded = Record<string, unknown>> =
   | string
-  | { require: readonly string[] }
+  | {
+      require?: readonly string[];
+      /** Preserve delivered related-row references while these stored keys remain shallow-equal. */
+      renderKeys?: readonly (keyof (NonNullable<TIncluded> extends readonly (infer TElement)[] ? NonNullable<TElement> : NonNullable<TIncluded>) & string)[];
+    }
   | [ViewIncludeModel, (row: TRow) => string | string[] | null]
-  | { model: ViewIncludeModel; ids: (row: TRow) => string | string[] | null; require?: readonly string[] };
+  | {
+      model: ViewIncludeModel;
+      ids: (row: TRow) => string | string[] | null;
+      require?: readonly string[];
+      /** Preserve delivered target-row references while these stored keys remain shallow-equal. */
+      renderKeys?: readonly (keyof (NonNullable<TIncluded> extends readonly (infer TElement)[] ? NonNullable<TElement> : NonNullable<TIncluded>) & string)[];
+    };
 
 /**
  * Typed configuration for a model-owned joined projection.
@@ -47,7 +57,7 @@ export type ViewConfig<TRow extends { id: string }, TIncluded extends Record<str
   /** Declared scope name or scope handle on the model that owns the view. */
   source: string | ScopeHandle<TRow, Record<string, unknown>>;
   /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. */
-  include: { [K in keyof TIncluded & string]: ViewIncludeSpec<TRow> };
+  include: { [K in keyof TIncluded & string]: ViewIncludeSpec<TRow, TIncluded[K]> };
   /** Build one view item from a source row, resolved includes, and its source index. With `renderKeys`, identity is gated by those keys on this selected output. */
   select?: (row: TRow, included: TIncluded, ctx: { index: number }) => TItem;
   /** Preserve an item reference while all listed keys of the selected output, or the whole row when `select` is absent, are unchanged. */
@@ -140,7 +150,17 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
   const useItems = (scopeValue: TScope | null | undefined, limit: number | null): ItemSnapshot<TItem> => {
     const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
     const projectionGateRef = useRef(createProjectionGate<Row, Row>());
+    const includeProjectionGatesRef = useRef(new Map<string, ReturnType<typeof createProjectionGate<Row, Row>>>());
     const relationIndexesRef = useRef(new Map<RelationDecl, RelationIndex>());
+    const projectIncludedRow = (alias: string, row: Row, renderKeys: readonly string[] | undefined): Row => {
+      if (!renderKeys) return row;
+      let gate = includeProjectionGatesRef.current.get(alias);
+      if (!gate) {
+        gate = createProjectionGate<Row, Row>();
+        includeProjectionGatesRef.current.set(alias, gate);
+      }
+      return gate.projectValue(row.id, row, row, renderKeys);
+    };
     const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
       const target = relation.model as ModelCore<Row>;
       const revision = getInternalModelHandle(target).revision();
@@ -173,14 +193,15 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
         const included: Included = {};
         for (const [alias, include] of Object.entries(config.include)) {
           const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
+          const includeRenderKeys = typeof include === 'object' && !Array.isArray(include) ? include.renderKeys : undefined;
           if (relationName) {
             const relation = relations[relationName]!;
             const required = typeof include === 'object' && !Array.isArray(include) ? include.require : undefined;
             const resolved = resolveRelation(row, relation, (foreignKey, id) => rowsFor(relation, foreignKey, id));
             included[alias] = Array.isArray(resolved)
-              ? resolved.filter(candidate => hasRequiredFields(candidate as Row | null, required ?? []))
+              ? resolved.filter(candidate => hasRequiredFields(candidate as Row | null, required ?? [])).map(candidate => projectIncludedRow(alias, candidate as Row, includeRenderKeys))
               : hasRequiredFields(resolved as Row | null, required ?? [])
-                ? resolved
+                ? projectIncludedRow(alias, resolved as Row, includeRenderKeys)
                 : null;
             if (relation.kind === 'belongsTo') {
               const id = row[relation.foreignKey];
@@ -196,7 +217,10 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
               : ([idInclude.model, idInclude.ids, idInclude.require] as const);
             const rawIds = resolveIds(row);
             const ids = idsOf(rawIds);
-            const resolved = ids.map(id => target.get(id)).filter(candidate => hasRequiredFields(candidate, required ?? []));
+            const resolved = ids
+              .map(id => target.get(id))
+              .filter(candidate => hasRequiredFields(candidate, required ?? []))
+              .map(candidate => projectIncludedRow(alias, candidate as Row, includeRenderKeys));
             included[alias] = Array.isArray(rawIds) ? resolved : (resolved[0] ?? null);
             for (const id of ids) deps.push({ kind: 'row', model: target.modelId, id });
           }

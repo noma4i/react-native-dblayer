@@ -15,12 +15,16 @@ export type ViewIncludeModel = {
     }>;
 };
 /** One declared-relation or computed-id include specification for a typed view source row. */
-export type ViewIncludeSpec<TRow> = string | {
-    require: readonly string[];
+export type ViewIncludeSpec<TRow, TIncluded = Record<string, unknown>> = string | {
+    require?: readonly string[];
+    /** Preserve delivered related-row references while these stored keys remain shallow-equal. */
+    renderKeys?: readonly (keyof (NonNullable<TIncluded> extends readonly (infer TElement)[] ? NonNullable<TElement> : NonNullable<TIncluded>) & string)[];
 } | [ViewIncludeModel, (row: TRow) => string | string[] | null] | {
     model: ViewIncludeModel;
     ids: (row: TRow) => string | string[] | null;
     require?: readonly string[];
+    /** Preserve delivered target-row references while these stored keys remain shallow-equal. */
+    renderKeys?: readonly (keyof (NonNullable<TIncluded> extends readonly (infer TElement)[] ? NonNullable<TElement> : NonNullable<TIncluded>) & string)[];
 };
 /**
  * Typed configuration for a model-owned joined projection.
@@ -36,7 +40,7 @@ export type ViewConfig<TRow extends {
     source: string | ScopeHandle<TRow, Record<string, unknown>>;
     /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. */
     include: {
-        [K in keyof TIncluded & string]: ViewIncludeSpec<TRow>;
+        [K in keyof TIncluded & string]: ViewIncludeSpec<TRow, TIncluded[K]>;
     };
     /** Build one view item from a source row, resolved includes, and its source index. With `renderKeys`, identity is gated by those keys on this selected output. */
     select?: (row: TRow, included: TIncluded, ctx: {

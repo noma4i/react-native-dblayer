@@ -15,6 +15,9 @@ type ScopedRow = {
 type ViewUserRow = {
   id: string;
   fullName: string;
+  avatarUrl: string;
+  online: boolean;
+  lastSeenAt: string | null;
   status: string;
 };
 
@@ -71,6 +74,9 @@ const createViewUserModel = () =>
     name: 'SpecRerenderViewUser',
     fields: {
       fullName: f.str(),
+      avatarUrl: f.str(),
+      online: f.bool(),
+      lastSeenAt: f.str().nullable(),
       status: f.str()
     }
   });
@@ -82,6 +88,28 @@ const createUsersView = (rows: ReturnType<typeof createScopedModel>, users: Retu
     select: (row, included) => ({ id: row.id, users: included.users }),
     renderKeys: ['users']
   });
+
+const createProjectedUsersView = (rows: ReturnType<typeof createScopedModel>, users: ReturnType<typeof createViewUserModel>) => {
+  const usersInclude = { model: users, ids: (row: ScopedRow) => row.userIds, renderKeys: ['id', 'fullName', 'avatarUrl'] as const };
+  return rows.view<{ id: string; users: ViewUserRow[] }, { users: ViewUserRow[] }>('withProjectedUsers', {
+    source: rows.scopes.byGroup,
+    include: { users: usersInclude },
+    select: (row, included) => ({ id: row.id, users: included.users }),
+    renderKeys: ['users']
+  });
+};
+
+const seedProjectedUsersView = (rows: ReturnType<typeof createScopedModel>, users: ReturnType<typeof createViewUserModel>): void => {
+  users.insertStoredMany([
+    { id: 'user-1', fullName: 'User One', avatarUrl: 'one.jpg', online: true, lastSeenAt: null, status: 'online' },
+    { id: 'user-2', fullName: 'User Two', avatarUrl: 'two.jpg', online: true, lastSeenAt: null, status: 'online' }
+  ]);
+  rows.insertStoredMany([
+    { id: 'row-1', groupId: 'g1', title: 'First', rank: 1, userIds: ['user-1'], markers: [] },
+    { id: 'row-2', groupId: 'g1', title: 'Second', rank: 2, userIds: ['user-1'], markers: [] },
+    { id: 'row-3', groupId: 'g1', title: 'Third', rank: 3, userIds: ['user-2'], markers: [] }
+  ]);
+};
 
 const idsOf = (rows: Array<{ id: string }>): string[] => rows.map(row => row.id);
 
@@ -171,7 +199,7 @@ describe('rerender matrix scope window view', () => {
     const rows = createScopedModel();
     const users = createViewUserModel();
     seedRows(rows);
-    users.insertStored({ id: 'user-1', fullName: 'User One', status: 'online' });
+    users.insertStored({ id: 'user-1', fullName: 'User One', avatarUrl: 'one.jpg', online: true, lastSeenAt: null, status: 'online' });
     const view = createUsersView(rows, users);
     const reader = renderCounted(() => view.use({ groupId: 'g1' }));
     const beforeItem = reader.result()[0];
@@ -191,7 +219,7 @@ describe('rerender matrix scope window view', () => {
     const rows = createScopedModel();
     const users = createViewUserModel();
     seedRows(rows);
-    users.insertStored({ id: 'user-1', fullName: 'User One', status: 'online' });
+    users.insertStored({ id: 'user-1', fullName: 'User One', avatarUrl: 'one.jpg', online: true, lastSeenAt: null, status: 'online' });
     const view = createUsersView(rows, users);
     const reader = renderCounted(() => view.use({ groupId: 'g1' }));
     const beforeItem = reader.result()[0];
@@ -202,6 +230,48 @@ describe('rerender matrix scope window view', () => {
     });
 
     expect(reader.result()[0]).not.toBe(beforeItem);
+    expect(reader.renders() - beforeRenders).toBe(1);
+    reader.unmount();
+  });
+
+  it('keeps included rows and view items stable when only unlisted include fields change', () => {
+    setupSpecRuntime();
+    const rows = createScopedModel();
+    const users = createViewUserModel();
+    seedProjectedUsersView(rows, users);
+    const view = createProjectedUsersView(rows, users);
+    const reader = renderCounted(() => view.use({ groupId: 'g1' }));
+    const beforeItems = reader.result();
+    const beforeIncludedUsers = beforeItems.map(item => item.users[0]);
+    const beforeRenders = reader.renders();
+
+    act(() => {
+      users.patch('user-1', { online: false, lastSeenAt: '2026-07-20T00:00:00.000Z' });
+    });
+
+    expect(reader.result()).toBe(beforeItems);
+    expect(reader.result().every((item, index) => item === beforeItems[index])).toBe(true);
+    expect(reader.result().every((item, index) => item.users[0] === beforeIncludedUsers[index])).toBe(true);
+    expect(reader.renders() - beforeRenders).toBe(0);
+    reader.unmount();
+  });
+
+  it('changes exactly the view items that include a listed field update', () => {
+    setupSpecRuntime();
+    const rows = createScopedModel();
+    const users = createViewUserModel();
+    seedProjectedUsersView(rows, users);
+    const view = createProjectedUsersView(rows, users);
+    const reader = renderCounted(() => view.use({ groupId: 'g1' }));
+    const beforeItems = reader.result();
+    const beforeRenders = reader.renders();
+
+    act(() => {
+      users.patch('user-1', { avatarUrl: 'one-updated.jpg' });
+    });
+
+    expect(reader.result().map((item, index) => item === beforeItems[index])).toEqual([false, false, true]);
+    expect(reader.result().slice(0, 2).every(item => item.users[0]?.avatarUrl === 'one-updated.jpg')).toBe(true);
     expect(reader.renders() - beforeRenders).toBe(1);
     reader.unmount();
   });
