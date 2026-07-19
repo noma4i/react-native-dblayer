@@ -70,6 +70,49 @@ describe('chat list view sufficiency', () => {
     act(() => root.unmount());
   });
 
+  it('gates selected view output by render keys while row-level reads keep both options exclusive', () => {
+    setupSpecRuntime();
+    const models = createChatModels('CombinedProjection');
+    seedChats(models);
+    const view = models.chats.view<{ id: string; title: string; computed: string }>('combinedProjection', {
+      source: 'list',
+      include: {},
+      select: row => ({ id: row.id, title: row.title as string, computed: row.muted ? 'muted' : 'active' }),
+      renderKeys: ['title']
+    });
+    let itemRenders = 0;
+    const Item = memo(({ item }: { item: { id: string; title: string; computed: string } }) => {
+      itemRenders += 1;
+      return React.createElement('item', { title: item.title, computed: item.computed });
+    });
+    let root!: TestRenderer.ReactTestRenderer;
+    let latestItem!: { id: string; title: string; computed: string };
+    const Reader = () => {
+      latestItem = view.use({ inboxId: 'main' })[0]!;
+      return React.createElement(Item, { item: latestItem });
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    const initialItem = latestItem;
+    const initialRenders = itemRenders;
+
+    act(() => models.chats.patch('chat-0', { muted: true }));
+    expect(latestItem).toBe(initialItem);
+    expect(itemRenders - initialRenders).toBe(0);
+
+    act(() => models.chats.patch('chat-0', { title: 'Updated title' }));
+    expect(latestItem).not.toBe(initialItem);
+    expect(itemRenders - initialRenders).toBe(1);
+    act(() => root.unmount());
+
+    const rowOptions = {
+      select: (row: { id: string; title: string }) => ({ id: row.id, title: row.title }),
+      renderKeys: ['title']
+    };
+    expect(() => renderCounted(() => models.chats.use.row('chat-0', rowOptions as never))).toThrow('cannot use select and renderKeys together');
+  });
+
   it('does not recompute or rerender for an unrelated included-model row', () => {
     setupSpecRuntime();
     const models = createChatModels('Pinpoint');

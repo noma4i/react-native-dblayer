@@ -205,6 +205,11 @@ Returns a `ViewHandle`: `use(scopeValue, { keepPrevious? }?) => TItem[]` and
 same opt-in key-handoff and window semantics as `ScopeHandle`. `Model.view` throws at call time if
 `source` names an unknown scope or `include` names an unknown/unsupported relation.
 
+Unlike row-level reads, a view may combine `select` with `renderKeys`. The selected object remains
+the returned item, while its reference is preserved when every listed key on that selected output
+is shallow-equal; `select` alone compares the full projection, and `renderKeys` alone gates the
+unselected row. Row-level reads continue to require `select` or `renderKeys`, never both.
+
 ### Required includes
 
 An include may gate on field completeness with `require: string[]`, following the same

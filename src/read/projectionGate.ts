@@ -25,9 +25,13 @@ const equalityValue = <TStored extends Row, TOutput extends Record<string, unkno
   return output;
 };
 
-/** Throw when a read declares both mutually exclusive projection modes. */
-export const validateProjectionOptions = (options: { select?: unknown; renderKeys?: readonly string[] } | undefined, surface: string): void => {
-  if (options?.select && options.renderKeys) throw new Error(`${surface} cannot use select and renderKeys together`);
+/** Throw when a row-level read declares both mutually exclusive projection modes. Views may explicitly allow render keys over selected output. */
+export const validateProjectionOptions = (
+  options: { select?: unknown; renderKeys?: readonly string[] } | undefined,
+  surface: string,
+  validation?: { allowCombined?: boolean }
+): void => {
+  if (!validation?.allowCombined && options?.select && options.renderKeys) throw new Error(`${surface} cannot use select and renderKeys together`);
 };
 
 /** Create one hook-local row projection gate with stable item and array references. */

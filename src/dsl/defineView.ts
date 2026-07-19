@@ -21,9 +21,9 @@ export type ViewConfig<TItem> = {
   source: string | ScopeHandle<Row, Record<string, unknown>>;
   /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. */
   include: Record<string, IncludeConfig>;
-  /** Build one view item from a source row, resolved includes, and its source index. */
+  /** Build one view item from a source row, resolved includes, and its source index. With `renderKeys`, identity is gated by those keys on this selected output. */
   select?: (row: Row, included: Included, ctx: { index: number }) => TItem;
-  /** Preserve an item reference while all listed projected keys are unchanged. */
+  /** Preserve an item reference while all listed keys of the selected output, or the whole row when `select` is absent, are unchanged. */
   renderKeys?: string[];
 };
 
@@ -91,7 +91,7 @@ const resolveRelation = (row: Row, relation: RelationDecl, rowsFor: (foreignKey:
 export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, config: ViewConfig<TItem>): ViewHandle<TItem, TScope> => {
   const source = (typeof config.source === 'string' ? model.scopes[config.source] : config.source) as ScopeHandle<Row, TScope> | undefined;
   if (!source || source.modelId !== model.modelId) throw new Error(`${model.modelId} has no scope ${typeof config.source === 'string' ? config.source : name} for view ${name}`);
-  validateProjectionOptions(config, `${model.modelId}.view.${name}`);
+  validateProjectionOptions(config, `${model.modelId}.view.${name}`, { allowCombined: true });
   const relations = getInternalModelHandle(model).relations();
   const sourceInternal = getInternalScopeHandle(source);
   for (const [alias, include] of Object.entries(config.include)) {

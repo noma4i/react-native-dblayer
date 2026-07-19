@@ -20,11 +20,11 @@ export type ViewConfig<TItem> = {
     source: string | ScopeHandle<Row, Record<string, unknown>>;
     /** Declared relation names or explicit target-model id resolvers keyed by the projection alias. An include may require stored fields: `undefined` is missing and `null` is present; incomplete related rows are delivered as absent. */
     include: Record<string, IncludeConfig>;
-    /** Build one view item from a source row, resolved includes, and its source index. */
+    /** Build one view item from a source row, resolved includes, and its source index. With `renderKeys`, identity is gated by those keys on this selected output. */
     select?: (row: Row, included: Included, ctx: {
         index: number;
     }) => TItem;
-    /** Preserve an item reference while all listed projected keys are unchanged. */
+    /** Preserve an item reference while all listed keys of the selected output, or the whole row when `select` is absent, are unchanged. */
     renderKeys?: string[];
 };
 export type ViewHandle<TItem, TScope> = {

@@ -13,11 +13,13 @@ export type ProjectionOptions<TStored extends Row, TProjection extends Record<st
     select?: never;
     renderKeys?: never;
 };
-/** Throw when a read declares both mutually exclusive projection modes. */
+/** Throw when a row-level read declares both mutually exclusive projection modes. Views may explicitly allow render keys over selected output. */
 export declare const validateProjectionOptions: (options: {
     select?: unknown;
     renderKeys?: readonly string[];
-} | undefined, surface: string) => void;
+} | undefined, surface: string, validation?: {
+    allowCombined?: boolean;
+}) => void;
 /** Create one hook-local row projection gate with stable item and array references. */
 export declare const createProjectionGate: <TStored extends Row, TOutput extends Record<string, unknown>>() => {
     projectValue(id: string, source: unknown, output: TOutput, renderKeys?: readonly string[]): TOutput;
