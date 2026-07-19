@@ -3,6 +3,7 @@ import type { ApplyTarget } from '../apply/transaction';
 import { getCommitBus } from '../../dsl/configure';
 import { arraysShallowEqual, rowsShallowEqual } from '../../read/useLiveRead';
 import { createProjectionGate, type ProjectionOptions, validateProjectionOptions } from '../../read/projectionGate';
+import { useScopeRetention } from '../../read/scopeRetention';
 import { createLiveQueryCollection, ensureMembershipCollection, ensureModelCollection, eq, registerLiveScopeReadReset, type StoredRowShape } from './facade';
 
 type ScopeSortMeta = ReturnType<ApplyTarget[`scopeSortMeta`]>;
@@ -18,7 +19,10 @@ type ScopeLiveEntry = {
   sourceCache: WeakMap<StoredRowShape, StoredRowShape>;
   listeners: Set<() => void>;
 };
-type ScopeLiveWindowSnapshot = { rows: StoredRowShape[]; totalCount: number };
+type ScopeLiveWindowSnapshot = { rows: StoredRowShape[]; totalCount: number; isPreviousData: boolean };
+type ScopeStoreSnapshot<T> = { rows: T[]; resolved: boolean };
+type ScopeWindowStoreSnapshot = ScopeLiveWindowSnapshot & { resolved: boolean };
+type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & { keepPrevious?: boolean };
 
 const EMPTY_ROWS: StoredRowShape[] = [];
 const entries = new Map<string, ScopeLiveEntry>();
@@ -143,18 +147,26 @@ export function useScopeLiveRows<TOutput extends Record<string, unknown> = Store
   modelId: string,
   scopeKey: string | null,
   sortMeta: ScopeSortMeta,
-  options: ProjectionOptions<StoredRowShape, TOutput> = {}
+  isResolved: () => boolean,
+  options: ScopeProjectionOptions<TOutput> = {}
 ): TOutput[] {
   validateProjectionOptions(options, `${modelId}.scope.use`);
   const optionsRef = useRef(options);
   const gateRef = useRef(createProjectionGate<StoredRowShape, TOutput>());
+  const storeRef = useRef<ScopeStoreSnapshot<TOutput>>({ rows: [], resolved: false });
+  const isResolvedRef = useRef(isResolved);
   optionsRef.current = options;
+  isResolvedRef.current = isResolved;
   const { entry, subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
-  const getSnapshot = useCallback(
-    () => gateRef.current.projectRows(scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot, optionsRef.current),
-    [modelId, scopeKey, sortMeta]
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const getSnapshot = useCallback(() => {
+    const rows = gateRef.current.projectRows(scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot, optionsRef.current);
+    const resolved = isResolvedRef.current();
+    if (storeRef.current.rows === rows && storeRef.current.resolved === resolved) return storeRef.current;
+    storeRef.current = { rows, resolved };
+    return storeRef.current;
+  }, [modelId, scopeKey, sortMeta]);
+  const store = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return useScopeRetention(scopeKey, { rows: store.rows, totalCount: store.rows.length }, store.resolved, options.keepPrevious === true).snapshot.rows;
 }
 
 /**
@@ -171,33 +183,42 @@ export function useScopeLiveWindowRows(
   scopeKey: string | null,
   sortMeta: ScopeSortMeta,
   windowSize: number,
-  options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}
+  isResolved: () => boolean,
+  options: ScopeProjectionOptions<Record<string, unknown>> = {}
 ): ScopeLiveWindowSnapshot {
   validateProjectionOptions(options, `${modelId}.scope.useWindow`);
   const optionsRef = useRef(options);
   const gateRef = useRef(createProjectionGate<StoredRowShape, Record<string, unknown>>());
   optionsRef.current = options;
   const { subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
-  const windowRef = useRef<{ source: StoredRowShape[]; size: number; snapshot: ScopeLiveWindowSnapshot }>({
+  const isResolvedRef = useRef(isResolved);
+  isResolvedRef.current = isResolved;
+  const windowRef = useRef<{ source: StoredRowShape[]; size: number; resolved: boolean; snapshot: ScopeWindowStoreSnapshot }>({
     source: EMPTY_ROWS,
     size: 0,
-    snapshot: { rows: EMPTY_ROWS, totalCount: 0 }
+    resolved: false,
+    snapshot: { rows: EMPTY_ROWS, totalCount: 0, isPreviousData: false, resolved: false }
   });
   const getSnapshot = useCallback(() => {
     const stored = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
     const source = gateRef.current.projectRows(stored, optionsRef.current) as StoredRowShape[];
-    if (windowRef.current.source === source && windowRef.current.size === windowSize) return windowRef.current.snapshot;
+    const resolved = isResolvedRef.current();
+    if (windowRef.current.source === source && windowRef.current.size === windowSize && windowRef.current.resolved === resolved) return windowRef.current.snapshot;
     const rows = source.slice(0, windowSize);
     const previous = windowRef.current.snapshot;
-    if (previous.totalCount === source.length && arraysShallowEqual(previous.rows, rows)) {
-      windowRef.current = { source, size: windowSize, snapshot: previous };
+    if (previous.resolved === resolved && previous.totalCount === source.length && arraysShallowEqual(previous.rows, rows)) {
+      windowRef.current = { source, size: windowSize, resolved, snapshot: previous };
       return previous;
     }
-    const snapshot = { rows, totalCount: source.length };
-    windowRef.current = { source, size: windowSize, snapshot };
+    const snapshot = { rows, totalCount: source.length, isPreviousData: false, resolved };
+    windowRef.current = { source, size: windowSize, resolved, snapshot };
     return snapshot;
   }, [modelId, scopeKey, sortMeta, windowSize]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const retained = useScopeRetention(scopeKey, snapshot, snapshot.resolved, options.keepPrevious === true);
+  return retained.snapshot === snapshot
+    ? { rows: snapshot.rows, totalCount: snapshot.totalCount, isPreviousData: false }
+    : { ...retained.snapshot, isPreviousData: retained.isPreviousData };
 }
 
 const useScopeLiveEntry = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {

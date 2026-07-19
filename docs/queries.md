@@ -12,7 +12,7 @@ shared client/provider live in [configuration.md](./configuration.md#react-query
 const threadQuery = MessageModel.query('thread', {
   document: MessagesDocument,
   vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
-  page: data => data.messages,               // infinite connection; use `select` for a single fetch
+  page: data => data.messages, // infinite connection; use `select` for a single fetch
   into: MessageModel.scopes.thread,
   edge: node => ({ deliveredAt: node.deliveredAt }),
   extract: ({ nodes }) => [{ into: UserModel, rows: authorsOf(nodes) }],
@@ -20,11 +20,10 @@ const threadQuery = MessageModel.query('thread', {
   emptyStaleTime: 5_000
 });
 
-const { data, loadingState, error, hasNextPage, isFetchingNextPage, fetchNextPage, refetch } =
-  threadQuery.use({ chatId });
+const { data, loadingState, error, hasNextPage, isFetchingNextPage, fetchNextPage, refetch } = threadQuery.use({ chatId });
 
-await threadQuery.fetch({ chatId });      // one fetch outside React
-threadQuery.invalidate({ chatId });       // clear the React Query cache for one scope
+await threadQuery.fetch({ chatId }); // one fetch outside React
+threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 ```
 
 `name` sets the query's conventional cache-key namespace (`<modelId>:<name>`, overridable via
@@ -32,29 +31,29 @@ threadQuery.invalidate({ chatId });       // clear the React Query cache for one
 
 ### `QueryConfig`
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `document` | GraphQL document | The query document. `TResponse`/`TVars` are inferred from a `TypedDocumentNode`. |
-| `key` | `string` | Stable cache-key namespace. Defaults to `<modelId>:<name>`. |
-| `vars` | `(scope) => TVars` | Derive GraphQL variables from the scope value passed to `use`/`fetch`. |
-| `page` | `(data) => { nodes \| edges, pageInfo }` | Infinite-connection selector for cursor pagination. Mutually exclusive with `select` - setting `page` makes `use` an infinite-query hook (`hasNextPage`/`fetchNextPage` become live). |
-| `select` | `(data) => unknown` | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`. |
-| `into` | `ScopeHandle \| Model` | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. Defaults to the owning model. |
-| `coverage` | `ScopeCoverage` | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See ScopeCoverage semantics below. |
-| `edge` | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists). |
-| `extract` | `(ctx: { data, nodes }) => ExtractSink[]` | Cross-model sideloads applied in the SAME transaction as the main rows. |
-| `map` | `(selected) => unknown` | Transform the selected/paged payload before it is split into nodes and written. Runs after `select`/`page`. |
-| `enabled` | `(scope) => boolean` | Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled. |
-| `staleTime` | `number` (ms) | Freshness window before a scope with data is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. |
-| `emptyStaleTime` | `number` (ms) | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows. |
-| `gcTime` | `number` (ms) | TanStack Query cache garbage-collection time for this query's cache entries. |
-| `maxPages` | `number` | Bounded page window retained by the underlying infinite query; older pages are dropped past this count. |
-| `refetchOnMount` | `boolean` | Whether TanStack Query refetches on hook remount. |
-| `direction` | `'forward' \| 'backward'` | Cursor pagination direction; `'backward'` reads `hasPreviousPage`/`startCursor` instead of the forward pair. |
-| `cursorVar` | `string` | GraphQL variable carrying the page cursor; defaults to `'after'` (`'before'` when backward). |
-| `getCursor` | `(page) => string \| null` | Override cursor extraction from a page; defaults to reading `pageInfo.endCursor`/`startCursor` per `direction`. |
-| `mapCursor` | `(cursor: string) => unknown` | Transform the raw string cursor before it is substituted into the cursor variable (e.g. `Number` for numeric cursors). |
-| `live` | `Record<string, ModelIngestEntry>` | Colocated live subscription entries, activated while a reader is mounted. See Live subscription colocation below. |
+| Option           | Type                                                   | Description                                                                                                                                                                           |
+| ---------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `document`       | GraphQL document                                       | The query document. `TResponse`/`TVars` are inferred from a `TypedDocumentNode`.                                                                                                      |
+| `key`            | `string`                                               | Stable cache-key namespace. Defaults to `<modelId>:<name>`.                                                                                                                           |
+| `vars`           | `(scope) => TVars`                                     | Derive GraphQL variables from the scope value passed to `use`/`fetch`.                                                                                                                |
+| `page`           | `(data) => { nodes \| edges, pageInfo }`               | Infinite-connection selector for cursor pagination. Mutually exclusive with `select` - setting `page` makes `use` an infinite-query hook (`hasNextPage`/`fetchNextPage` become live). |
+| `select`         | `(data) => unknown`                                    | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`.                                                                                              |
+| `into`           | `ScopeHandle \| Model`                                 | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. Defaults to the owning model.                                                      |
+| `coverage`       | `ScopeCoverage`                                        | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See ScopeCoverage semantics below.                                 |
+| `edge`           | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists).                                                                |
+| `extract`        | `(ctx: { data, nodes }) => ExtractSink[]`              | Cross-model sideloads applied in the SAME transaction as the main rows.                                                                                                               |
+| `map`            | `(selected) => unknown`                                | Transform the selected/paged payload before it is split into nodes and written. Runs after `select`/`page`.                                                                           |
+| `enabled`        | `(scope) => boolean`                                   | Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled.                                                               |
+| `staleTime`      | `number` (ms)                                          | Freshness window before a scope with data is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.                                                            |
+| `emptyStaleTime` | `number` (ms)                                          | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows.                                                                                 |
+| `gcTime`         | `number` (ms)                                          | TanStack Query cache garbage-collection time for this query's cache entries.                                                                                                          |
+| `maxPages`       | `number`                                               | Bounded page window retained by the underlying infinite query; older pages are dropped past this count.                                                                               |
+| `refetchOnMount` | `boolean`                                              | Whether TanStack Query refetches on hook remount.                                                                                                                                     |
+| `direction`      | `'forward' \| 'backward'`                              | Cursor pagination direction; `'backward'` reads `hasPreviousPage`/`startCursor` instead of the forward pair.                                                                          |
+| `cursorVar`      | `string`                                               | GraphQL variable carrying the page cursor; defaults to `'after'` (`'before'` when backward).                                                                                          |
+| `getCursor`      | `(page) => string \| null`                             | Override cursor extraction from a page; defaults to reading `pageInfo.endCursor`/`startCursor` per `direction`.                                                                       |
+| `mapCursor`      | `(cursor: string) => unknown`                          | Transform the raw string cursor before it is substituted into the cursor variable (e.g. `Number` for numeric cursors).                                                                |
+| `live`           | `Record<string, ModelIngestEntry>`                     | Colocated live subscription entries, activated while a reader is mounted. See Live subscription colocation below.                                                                     |
 
 `Model.query` returns `{ use, fetch, invalidate }`:
 
@@ -64,17 +63,27 @@ threadQuery.invalidate({ chatId });       // clear the React Query cache for one
 - `invalidate(scope?)` clears the React Query cache for one scope, or every registered scope when
   `scope` is omitted.
 
+### Vibe switch with previous scope rows
+
+For a feed-style key switch, keep the network query and local rendering responsibilities separate:
+the query continues writing each response into its keyed scope, while the screen reads
+`Model.scopes.feed.useWindow({ vibeId }, { keepPrevious: true })`. Until the new vibe produces rows
+or confirms an empty response, the window returns the prior non-empty rows with
+`isPreviousData: true`; the first resolved snapshot switches permanently to the new key. This option
+is deliberately off by default and must not be used for account or detail switches where previous
+identity data would be unsafe.
+
 ### `QueryResult`
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `data` | `T[] \| T \| undefined` | Reactive read of the write destination (`config.into`); `undefined` before any successful write. |
-| `loadingState` | `LoadingState` | UI loading-state machine derived from fetch status and whether `data` has rows. |
-| `error` | `Error \| null` | The last fetch/next-page error, or `null`. Cleared on the next successful fetch. |
-| `hasNextPage` | `boolean` | `true` when another page is available. Always `false` for single (non-`page`) queries. |
-| `isFetchingNextPage` | `boolean` | `true` while a next-page fetch is in flight. Always `false` for single (non-`page`) queries. |
-| `fetchNextPage` | `() => void` | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).fetchNextPage` (local window growth over already-synced rows; see [models.md](./models.md#scopehandle)), even though both surfaces share the `fetchNextPage` name. A paginated list typically wires both. |
-| `refetch` | `() => Promise<void>` | Re-run the query from the first page, replacing `data`. |
+| Field                | Type                    | Description                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data`               | `T[] \| T \| undefined` | Reactive read of the write destination (`config.into`); `undefined` before any successful write.                                                                                                                                                                                                                                                                                          |
+| `loadingState`       | `LoadingState`          | UI loading-state machine derived from fetch status and whether `data` has rows.                                                                                                                                                                                                                                                                                                           |
+| `error`              | `Error \| null`         | The last fetch/next-page error, or `null`. Cleared on the next successful fetch.                                                                                                                                                                                                                                                                                                          |
+| `hasNextPage`        | `boolean`               | `true` when another page is available. Always `false` for single (non-`page`) queries.                                                                                                                                                                                                                                                                                                    |
+| `isFetchingNextPage` | `boolean`               | `true` while a next-page fetch is in flight. Always `false` for single (non-`page`) queries.                                                                                                                                                                                                                                                                                              |
+| `fetchNextPage`      | `() => void`            | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).fetchNextPage` (local window growth over already-synced rows; see [models.md](./models.md#scopehandle)), even though both surfaces share the `fetchNextPage` name. A paginated list typically wires both. |
+| `refetch`            | `() => Promise<void>`   | Re-run the query from the first page, replacing `data`.                                                                                                                                                                                                                                                                                                                                   |
 
 ### Live subscription colocation
 
@@ -89,8 +98,8 @@ const threadQuery = MessageModel.query('thread', {
   }
 });
 
-const { data } = threadQuery.use({ chatId });             // mounting subscribes; unmounting may stop
-threadQuery.live.apply('messageCreated', { message });    // manual injection, same pipeline
+const { data } = threadQuery.use({ chatId }); // mounting subscribes; unmounting may stop
+threadQuery.live.apply('messageCreated', { message }); // manual injection, same pipeline
 ```
 
 `live` is a `Record<string, ModelIngestEntry>` - the identical entry shape
@@ -124,11 +133,11 @@ rows for identical entries. Handy for tests, or for a transport delivering live 
 
 `ScopeCoverage` controls how an incoming batch of rows reconciles against a scope's existing membership:
 
-| ScopeCoverage | Behavior |
-| --- | --- |
-| `'complete'` | Incoming rows become the exact membership, in server order; previous members absent from the response are detached (their entity rows are untouched, only scope membership drops). |
-| `'page'` | Incoming rows upsert into membership - existing members keep their order, new ones append in server order; nothing is detached. A first-page refetch (`resetOrder`) makes incoming rows the new head order, with previous members kept, in their relative order, after them. |
-| `'delta'` | Same merge semantics as `'page'`, used for single-row/subscription-driven updates. |
+| ScopeCoverage | Behavior                                                                                                                                                                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'complete'`  | Incoming rows become the exact membership, in server order; previous members absent from the response are detached (their entity rows are untouched, only scope membership drops).                                                                                           |
+| `'page'`      | Incoming rows upsert into membership - existing members keep their order, new ones append in server order; nothing is detached. A first-page refetch (`resetOrder`) makes incoming rows the new head order, with previous members kept, in their relative order, after them. |
+| `'delta'`     | Same merge semantics as `'page'`, used for single-row/subscription-driven updates.                                                                                                                                                                                           |
 
 ### Error surfacing
 
@@ -158,32 +167,32 @@ const skuPricing = defineFetch({
 });
 
 const { data, loadingState, error, refetch } = skuPricing.use({ sku });
-const pricing = await skuPricing.fetch({ sku });   // one fetch outside React, throws on failure
+const pricing = await skuPricing.fetch({ sku }); // one fetch outside React, throws on failure
 ```
 
 ### `FetchConfig`
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `document` | GraphQL document | The query document. `TData` is inferred from a `TypedDocumentNode`. |
-| `key` | `string` | Stable cache-key namespace for this fetch, combined with a hash of the input. |
-| `select` | `(data: TData) => TSelected` | Pick the payload to expose as `data`; the raw response is never returned. |
-| `vars` | `(input: TInput) => Record<string, unknown>` | Derive GraphQL variables from the hook/imperative call input. Omit for input-less queries. |
-| `enabled` | `(input: TInput) => boolean` | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`. |
-| `staleTime` | `number` (ms) | Freshness window before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. |
-| `gcTime` | `number` (ms) | TanStack Query cache garbage-collection time. Defaults to `DbDefaults.gcTime`. |
+| Option      | Type                                         | Description                                                                                                       |
+| ----------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `document`  | GraphQL document                             | The query document. `TData` is inferred from a `TypedDocumentNode`.                                               |
+| `key`       | `string`                                     | Stable cache-key namespace for this fetch, combined with a hash of the input.                                     |
+| `select`    | `(data: TData) => TSelected`                 | Pick the payload to expose as `data`; the raw response is never returned.                                         |
+| `vars`      | `(input: TInput) => Record<string, unknown>` | Derive GraphQL variables from the hook/imperative call input. Omit for input-less queries.                        |
+| `enabled`   | `(input: TInput) => boolean`                 | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`. |
+| `staleTime` | `number` (ms)                                | Freshness window before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. |
+| `gcTime`    | `number` (ms)                                | TanStack Query cache garbage-collection time. Defaults to `DbDefaults.gcTime`.                                    |
 
 `defineFetch` returns `{ use, fetch }`: `use(input)` is a hook returning a `FetchResult`; `fetch(input)`
 runs one fetch outside React and resolves to the selected payload, throwing on transport failure.
 
 ### `FetchResult`
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `data` | `TSelected \| undefined` | The selected payload; `undefined` before the first successful fetch. |
-| `loadingState` | `LoadingState` | UI loading-state machine derived from fetch status and whether `data` is present. |
-| `error` | `unknown` | The last fetch error, or `null`. |
-| `refetch` | `() => void` | Re-run the fetch, replacing `data` on success. Does not return a promise - `await fetch(input)` instead. |
+| Field          | Type                     | Description                                                                                              |
+| -------------- | ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `data`         | `TSelected \| undefined` | The selected payload; `undefined` before the first successful fetch.                                     |
+| `loadingState` | `LoadingState`           | UI loading-state machine derived from fetch status and whether `data` is present.                        |
+| `error`        | `unknown`                | The last fetch error, or `null`.                                                                         |
+| `refetch`      | `() => void`             | Re-run the fetch, replacing `data` on success. Does not return a promise - `await fetch(input)` instead. |
 
 `defineFetch` reports transport failures to `DbDefaults.onSyncError` with `{ source: 'query' }`,
 same as `Model.query`.
@@ -208,16 +217,16 @@ const unreadSummary = MessageModel.fetch('unread-summary', {
 Read helpers that keep derived arrays and view objects referentially stable across renders, so
 components memoized on identity skip re-rendering for changes they do not display.
 
-| Export | Signature | Role |
-| --- | --- | --- |
-| `useStableProjection` | `(sources, config) => TItem[]` | Projects a stable item list: owns an entry cache keyed by `getKey` (defaults to `source.id`), reuses cached entries whose `entriesEqual` (or `renderKeys`) still holds, and returns the previous array reference when every item is unchanged. |
-| `useStableEntity` | `(value, config) => TItem \| null \| undefined` | Reuses one entity reference while configured fields (`renderKeys` or all-but-`volatileKeys`) remain equal. |
-| `useStableSorted` | `(source, compare, invalidationKey?) => T[]` | Memoizes sorted output and reuses it for element-identical input arrays, resorting only when `source` or `invalidationKey` changes. |
-| `pickEqual` | `(prev, next, keys) => boolean` | Shared value-equality: deep-compares only the listed keys. The building block behind `useStableProjection`'s `renderKeys` and `useStableEntity`'s `renderKeys`. |
-| `emptyIds` | `string[]` | Shared immutable empty id list for stable fallback reads. |
-| `dedupeIds` | `(ids) => string[]` | Returns unique non-empty ids in first-seen order. |
-| `computeLoadingState` | `(phase, hasData) => LoadingState` | Converts a loading phase plus data presence into UI display flags (`showSkeleton`, `showEmptyState`, `showRefreshIndicator`, ...). Exported so a screen composing a custom loading state from multiple hook results can reuse the package's own derivation. |
-| `computePhase` | `(input: ComputePhaseInput) => LoadingPhase` | Computes the current loading phase (`'idle' \| 'hydrating' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) from query and collection state. |
+| Export                | Signature                                       | Role                                                                                                                                                                                                                                                        |
+| --------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useStableProjection` | `(sources, config) => TItem[]`                  | Projects a stable item list: owns an entry cache keyed by `getKey` (defaults to `source.id`), reuses cached entries whose `entriesEqual` (or `renderKeys`) still holds, and returns the previous array reference when every item is unchanged.              |
+| `useStableEntity`     | `(value, config) => TItem \| null \| undefined` | Reuses one entity reference while configured fields (`renderKeys` or all-but-`volatileKeys`) remain equal.                                                                                                                                                  |
+| `useStableSorted`     | `(source, compare, invalidationKey?) => T[]`    | Memoizes sorted output and reuses it for element-identical input arrays, resorting only when `source` or `invalidationKey` changes.                                                                                                                         |
+| `pickEqual`           | `(prev, next, keys) => boolean`                 | Shared value-equality: deep-compares only the listed keys. The building block behind `useStableProjection`'s `renderKeys` and `useStableEntity`'s `renderKeys`.                                                                                             |
+| `emptyIds`            | `string[]`                                      | Shared immutable empty id list for stable fallback reads.                                                                                                                                                                                                   |
+| `dedupeIds`           | `(ids) => string[]`                             | Returns unique non-empty ids in first-seen order.                                                                                                                                                                                                           |
+| `computeLoadingState` | `(phase, hasData) => LoadingState`              | Converts a loading phase plus data presence into UI display flags (`showSkeleton`, `showEmptyState`, `showRefreshIndicator`, ...). Exported so a screen composing a custom loading state from multiple hook results can reuse the package's own derivation. |
+| `computePhase`        | `(input: ComputePhaseInput) => LoadingPhase`    | Computes the current loading phase (`'idle' \| 'hydrating' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) from query and collection state.                                                                                  |
 
 `LoadingState`, `DbWhere<T>`, and `StableProjectionConfig` are the corresponding public types:
 `LoadingState` is the object `computeLoadingState` returns and every query/`FetchResult` status

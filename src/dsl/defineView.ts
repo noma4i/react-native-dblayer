@@ -3,6 +3,7 @@ import type { Dependency } from '../core/apply/commitBus';
 import type { RelationDecl } from '../core/relations';
 import { arraysShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
+import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
 import { getDbRuntimeConfig } from './configure';
 import type { ModelCore, ScopeHandle } from './defineModel';
@@ -26,16 +27,29 @@ export type ViewConfig<TItem> = {
 };
 
 export type ViewHandle<TItem, TScope> = {
-  /** Reactively read every projected item in the source scope. */
-  use(scopeValue: TScope | null | undefined): TItem[];
+  /** Reactively read every projected item; `keepPrevious` is opt-in for unresolved key handoffs. */
+  use(scopeValue: TScope | null | undefined, opts?: KeepPreviousOption): TItem[];
   /** Reactively read a local window over the projected source scope. */
-  useWindow(scopeValue: TScope | null | undefined, opts?: { pageSize?: number }): { rows: TItem[]; totalCount: number; hasMore: boolean; fetchNextPage: () => void };
+  useWindow(scopeValue: TScope | null | undefined, opts?: { pageSize?: number } & KeepPreviousOption): ViewWindowResult<TItem>;
+};
+
+type ViewWindowResult<TItem> = {
+  /** Current-key items, or retained previous-key items while `isPreviousData` is true. */
+  rows: TItem[];
+  /** Total count for the snapshot represented by `rows`. */
+  totalCount: number;
+  /** Whether more locally-synced items exist beyond the current window. */
+  hasMore: boolean;
+  /** Grow the local view window by one page without fetching from the network. */
+  fetchNextPage: () => void;
+  /** True only while rows belong to the previous scope key and the current key is unresolved. */
+  isPreviousData: boolean;
 };
 
 type CacheEntry<TItem> = { row: Row; included: Included; item: TItem };
 type RelationIndex = { revision: number; rowsByForeignKey: Map<string, Row[]> };
 type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
-type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number };
+type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number; resolved: boolean };
 
 const includesEqual = (left: Included, right: Included): boolean => {
   const keys = Object.keys(left);
@@ -110,7 +124,7 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
     useEffect(() => {
       if (scopeKey != null) source.__noteAccess!(scopeValue as TScope);
     }, [scopeKey]);
-    const evaluate = (): { items: TItem[]; totalCount: number; deps: Dependency[] } => {
+    const evaluate = (): { items: TItem[]; totalCount: number; resolved: boolean; deps: Dependency[] } => {
       const rows = scopeValue == null ? [] : source.__readRows!(scopeValue);
       const visibleRows = limit === null ? rows : rows.slice(0, limit);
       const deps: Dependency[] = scopeValue == null ? [] : [{ kind: 'scope', model: source.modelId, scopeKey: source.__key!(scopeValue) }];
@@ -156,21 +170,25 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
         return item;
       });
       for (const id of cacheRef.current.keys()) if (!liveIds.has(id)) cacheRef.current.delete(id);
-      return { items, totalCount: rows.length, deps };
+      return { items, totalCount: rows.length, resolved: scopeValue == null || source.__isResolved!(scopeValue), deps };
     };
     const initial = evaluate();
     return useLiveRead(
       () => {
         const next = evaluate();
-        return { items: next.items, totalCount: next.totalCount };
+        return { items: next.items, totalCount: next.totalCount, resolved: next.resolved };
       },
       initial.deps,
-      (left, right) => left.totalCount === right.totalCount && arraysShallowEqual(left.items, right.items)
+      (left, right) => left.resolved === right.resolved && left.totalCount === right.totalCount && arraysShallowEqual(left.items, right.items)
     );
   };
 
   return {
-    use: scopeValue => useItems(scopeValue, null).items,
+    use: (scopeValue, options) => {
+      const snapshot = useItems(scopeValue, null);
+      const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
+      return useScopeRetention(scopeKey, { rows: snapshot.items, totalCount: snapshot.totalCount }, snapshot.resolved, options?.keepPrevious === true).snapshot.rows;
+    },
     useWindow: (scopeValue, options) => {
       const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
       const scopeKey = scopeValue == null ? null : source.__key!(scopeValue);
@@ -183,10 +201,12 @@ export const defineView = <TItem, TScope>(model: ModelCore<Row>, name: string, c
       const cached = windowRef.current;
       const rows = cached && cached.items === items && cached.size === size ? cached.rows : items.slice(0, size);
       windowRef.current = { items, size, rows };
+      const retained = useScopeRetention(scopeKey, { rows, totalCount: snapshot.totalCount }, snapshot.resolved, options?.keepPrevious === true);
       return {
-        rows,
-        totalCount: snapshot.totalCount,
-        hasMore: snapshot.totalCount > size,
+        rows: retained.snapshot.rows,
+        totalCount: retained.snapshot.totalCount,
+        hasMore: retained.snapshot.totalCount > size,
+        isPreviousData: retained.isPreviousData,
         fetchNextPage: () => setState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
       };
     }

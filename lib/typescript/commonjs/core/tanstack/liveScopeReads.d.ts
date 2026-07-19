@@ -5,6 +5,10 @@ type ScopeSortMeta = ReturnType<ApplyTarget[`scopeSortMeta`]>;
 type ScopeLiveWindowSnapshot = {
     rows: StoredRowShape[];
     totalCount: number;
+    isPreviousData: boolean;
+};
+type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & {
+    keepPrevious?: boolean;
 };
 /** Returns internal shared-live-query registry totals for contract tests. */
 export declare function getScopeLiveReadRegistryStats(): {
@@ -19,7 +23,7 @@ export declare function getScopeLiveReadRegistryStats(): {
  * @param sortMeta Membership sort metadata supplied by the model apply target.
  * @returns Ordered stored rows with stable identities until their content changes.
  */
-export declare function useScopeLiveRows<TOutput extends Record<string, unknown> = StoredRowShape>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, options?: ProjectionOptions<StoredRowShape, TOutput>): TOutput[];
+export declare function useScopeLiveRows<TOutput extends Record<string, unknown> = StoredRowShape>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean, options?: ScopeProjectionOptions<TOutput>): TOutput[];
 /**
  * Reads a stable local window from one shared TanStack live query projection.
  *
@@ -29,6 +33,6 @@ export declare function useScopeLiveRows<TOutput extends Record<string, unknown>
  * @param windowSize Number of leading rows included in the local window.
  * @returns Stable window rows and the complete shared scope count.
  */
-export declare function useScopeLiveWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number, options?: ProjectionOptions<StoredRowShape, Record<string, unknown>>): ScopeLiveWindowSnapshot;
+export declare function useScopeLiveWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number, isResolved: () => boolean, options?: ScopeProjectionOptions<Record<string, unknown>>): ScopeLiveWindowSnapshot;
 export {};
 //# sourceMappingURL=liveScopeReads.d.ts.map

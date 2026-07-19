@@ -1,3 +1,4 @@
+import { type KeepPreviousOption } from '../read/scopeRetention';
 import type { ModelCore, ScopeHandle } from './defineModel';
 type Row = {
     id: string;
@@ -27,17 +28,24 @@ export type ViewConfig<TItem> = {
     renderKeys?: string[];
 };
 export type ViewHandle<TItem, TScope> = {
-    /** Reactively read every projected item in the source scope. */
-    use(scopeValue: TScope | null | undefined): TItem[];
+    /** Reactively read every projected item; `keepPrevious` is opt-in for unresolved key handoffs. */
+    use(scopeValue: TScope | null | undefined, opts?: KeepPreviousOption): TItem[];
     /** Reactively read a local window over the projected source scope. */
     useWindow(scopeValue: TScope | null | undefined, opts?: {
         pageSize?: number;
-    }): {
-        rows: TItem[];
-        totalCount: number;
-        hasMore: boolean;
-        fetchNextPage: () => void;
-    };
+    } & KeepPreviousOption): ViewWindowResult<TItem>;
+};
+type ViewWindowResult<TItem> = {
+    /** Current-key items, or retained previous-key items while `isPreviousData` is true. */
+    rows: TItem[];
+    /** Total count for the snapshot represented by `rows`. */
+    totalCount: number;
+    /** Whether more locally-synced items exist beyond the current window. */
+    hasMore: boolean;
+    /** Grow the local view window by one page without fetching from the network. */
+    fetchNextPage: () => void;
+    /** True only while rows belong to the previous scope key and the current key is unresolved. */
+    isPreviousData: boolean;
 };
 /**
  * Compose a model scope with declared relations or computed target ids into one pinpoint-reactive view.

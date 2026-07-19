@@ -1,6 +1,7 @@
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import type { JournalOp } from '../core/apply/journal';
 import { type RelationDecl } from '../core/relations';
+import type { KeepPreviousOption } from '../read/scopeRetention';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery } from './defineQuery';
@@ -13,6 +14,18 @@ import type { ScopeCoverage, ScopeSpec } from './scope';
 import type { InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
+type ScopeWindowResult<T> = {
+    /** Current-key rows, or retained previous-key rows while `isPreviousData` is true. */
+    rows: T[];
+    /** Total count for the snapshot represented by `rows`. */
+    totalCount: number;
+    /** Whether more locally-synced rows exist beyond the current window. */
+    hasMore: boolean;
+    /** Grow the local window by one page without fetching from the network. */
+    fetchNextPage: () => void;
+    /** True only while rows belong to the previous scope key and the current key is unresolved. */
+    isPreviousData: boolean;
+};
 /** Manual injection surface for a query's colocated live entries. */
 export type LiveQueryHandle = {
     /** Inject a payload into the same guarded pipeline transport events use for this query's live entries. */
@@ -70,15 +83,15 @@ export type ScopeHandle<TStored extends {
     id: string;
 }, TScope> = {
     modelId: string;
-    /** Reactive read of every row currently in the scope, in the scope's configured sort order. */
+    /** Reactive scope rows. `keepPrevious` opt-in retains the prior non-empty key until this key resolves. */
     use<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
         select: (row: TStored) => TProjection;
         renderKeys?: never;
-    }): TProjection[];
+    } & KeepPreviousOption): TProjection[];
     use(scopeValue: TScope | null | undefined, opts?: {
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
-    }): TStored[];
+    } & KeepPreviousOption): TStored[];
     /**
      * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
      * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
@@ -93,26 +106,12 @@ export type ScopeHandle<TStored extends {
         pageSize?: number;
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
-    }): {
-        /** The current window: the first `totalCount` rows up to the window size. */
-        rows: TStored[];
-        /** Total rows currently in the scope, independent of the window size. */
-        totalCount: number;
-        /** `true` while `totalCount` exceeds the current window size. */
-        hasMore: boolean;
-        /** Grow the local window by `pageSize` more rows. Does not touch the network. */
-        fetchNextPage: () => void;
-    };
+    } & KeepPreviousOption): ScopeWindowResult<TStored>;
     useWindow<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
         pageSize?: number;
         select: (row: TStored) => TProjection;
         renderKeys?: never;
-    }): {
-        rows: TProjection[];
-        totalCount: number;
-        hasMore: boolean;
-        fetchNextPage: () => void;
-    };
+    } & KeepPreviousOption): ScopeWindowResult<TProjection>;
     /** Reactive count of rows currently in the scope. */
     useCount(scopeValue: TScope | null | undefined): number;
     /** Clear this scope's fetch-state and invalidate its derived React Query key(s). */
@@ -132,6 +131,7 @@ export type ScopeHandle<TStored extends {
     __isServerOrder?(): boolean;
     __planPlacement?(scopeValue: TScope, id: string, position: 'prepend' | 'append'): JournalOp[];
     __readRows?(scopeValue: TScope): TStored[];
+    __isResolved?(scopeValue: TScope): boolean;
     __noteAccess?(scopeValue: TScope): void;
 };
 export type ModelCore<TStored extends {
