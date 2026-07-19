@@ -42,8 +42,7 @@ describe('public declaration hygiene', () => {
     expect(leaks).toEqual([]);
   });
 
-  // GATE-PENDING(G5): Remove every TanStack-owned symbol from the public barrel.
-  test.failing('does not expose symbols owned by TanStack packages', () => {
+  it('does not expose symbols owned by TanStack packages', () => {
     const { checker, exports } = createExportSurface();
     const leaks = exports.flatMap(exported => {
       const target = resolveAlias(checker, exported);
