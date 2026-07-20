@@ -242,6 +242,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       ops.push(...getInternalScopeHandle(config.into).planApply(scope, scopeRows, coverage, { resetOrder }));
       committedIds = committedIdsOf(scopeRows.map(scopeRow => scopeRow.row));
     } else {
+      // An ensured fetch is an authoritative read-back: it must re-insert a row that was destroyed
+      // locally (GC, trim, rollback), so it writes with event origin to bypass the delete-before-create
+      // tombstone that protects ordinary out-of-order applies.
       ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], { includeMembership: true, ...(resurrectDestroyed ? { origin: 'event' as const } : {}) }));
       committedIds = committedIdsOf(nodes);
     }
