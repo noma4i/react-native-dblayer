@@ -20,6 +20,7 @@ that belongs to a chat and lives in a per-chat `thread` scope.
 
 - [`defineModel(config)`](#definemodelconfig)
 - [Fields (`f`)](#fields-f)
+- [Merge policy](#merge-policy)
 - [Writes](#writes)
 - [Scopes](#scopes)
 - [Relations](#relations)
@@ -79,11 +80,49 @@ const MessageModel = defineModel({
 | `gc`                    | `'exempt'`                                     | Keeps this model's rows out of garbage-collection sweeps even when unreferenced by any scope. See [runtime.md](./runtime.md#garbage-collection).                                                                                        |
 | `maintenance`           | `{ maxRowsPerScope?, dropIdleScopesAfterMs? }` | Boot-time/in-session maintenance declarations. See [runtime.md](./runtime.md#maintenance).                                                                                                                                              |
 | `merge.shouldOverwrite` | `(existing, incoming) => boolean`              | Acceptance gate for an incoming write when a row with the same id already exists. Return `false` to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo). Omit to always accept incoming writes. |
+| `mergePolicy.groups`    | `{ fields, allowWrite }[]`                      | Per-field cross-writer guards. A rejected group keeps only its current fields while unguarded fields in the same write still apply. |
 | `statics`               | `(model: ModelCore) => TExt`                   | Build extra static members merged onto the returned model. Receives the base model so statics can call back into `get`/`patch`/`use`/etc. Throws at `defineModel` time if a returned key collides with a base model key.                |
 
 `normalize`/`buildStored` read every configured field from raw input on every write; invalid rows
 (a failed `guard`, an unresolved `rowId`, or a field that throws) are rejected and logged, never
 thrown into the apply pipeline - a single bad row in a batch never fails the rest of the batch.
+
+## Merge policy
+
+`mergePolicy` protects selected fields when one row has several writers. Every existing-row write
+passes through the same entity apply gate: query rows and extracts, ingest, sync, relation touches,
+mutation commits, and `patch` all use the policy. A rejected group keeps its current field values;
+unrelated fields from that write still update. New rows bypass groups because they have no current
+value to preserve.
+
+```ts
+import { defineModel, f, isIncomingNewer } from '@noma4i/react-native-dblayer';
+
+const ChatModel = defineModel({
+  id: 'chats',
+  name: 'ChatModel',
+  fields: {
+    name: f.str(),
+    updatedAt: f.str(),
+    lastMessageId: f.str().nullable(),
+    lastMessageAt: f.str().nullable(),
+    lastSequenceNumber: f.num().nullable()
+  },
+  mergePolicy: {
+    groups: [
+      {
+        fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'],
+        allowWrite: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt)
+      }
+    ]
+  }
+});
+```
+
+This prevents an older list snapshot from regressing the chat preview after a newer message socket
+event or relation touch. Each group must contain at least one declared schema field, and a field can
+appear in only one group; invalid or overlapping declarations throw at `defineModel` time. When all
+changed groups allow their writes, the incoming row is reused without an extra allocation.
 
 ## Fields (`f`)
 

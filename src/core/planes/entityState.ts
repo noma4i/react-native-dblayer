@@ -63,8 +63,9 @@ export const createEntityState = <T extends { id: string }>(options: {
   now: () => number;
   storage: StoragePlane;
   prefix: () => string;
+  mergeGate?: (previous: T, incoming: T) => T;
 }): EntityState<T> => {
-  const { modelId, clock, now, storage, prefix } = options;
+  const { modelId, clock, now, storage, prefix, mergeGate } = options;
   const rows = new Map<string, T>();
   const writes = new Map<string, number>();
   const tombstones = new Map<string, Tombstone>();
@@ -110,6 +111,7 @@ export const createEntityState = <T extends { id: string }>(options: {
     upsert: row => {
       const previous = rows.get(row.id);
       if (previous === row) return { seq: clock.current(), changedFields: [] };
+      if (previous && mergeGate) row = mergeGate(previous, row);
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { seq: clock.current(), changedFields };
       if (previous && stableSerialize(previous) === stableSerialize(row)) return { seq: clock.current(), changedFields: [] };

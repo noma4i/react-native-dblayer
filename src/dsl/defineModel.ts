@@ -174,10 +174,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { live: Record<string, ModelIngestEntry> }
   ): EnsuredRowQueryHandle<TRow, TScope> & { live: LiveQueryHandle };
   /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
-  query<TResponse, TVars, TScope, TRow extends { id: string }>(
-    name: string,
-    config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
-  ): EnsuredRowQueryHandle<TRow, TScope>;
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): EnsuredRowQueryHandle<TRow, TScope>;
   /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
   mutation<TData, TInput, TRow extends { id: string }, TNode>(
     name: string,
@@ -373,6 +370,20 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
   };
   /**
+   * Cross-writer merge guards. Each group protects a set of fields behind one acceptance predicate:
+   * when a row already exists and an incoming write (any writer - query extract, ingest, sync, touch,
+   * mutation commit, patch) would change at least one group field, the group's fields are written only
+   * if `allowWrite(incoming, current)` returns true; otherwise the group's fields KEEP their current
+   * values while all non-group fields of the same write still apply. New rows (no current) bypass
+   * guards. Use `isIncomingNewer(current.updatedAt, incoming.updatedAt)` for timestamp guards.
+   */
+  mergePolicy?: {
+    groups: Array<{
+      fields: readonly (keyof InferStoredFields<TFields> & string)[];
+      allowWrite: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>) => boolean;
+    }>;
+  };
+  /**
    * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
    * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
    * `defineModel` time if any returned key collides with a base model key.
@@ -416,13 +427,44 @@ export const defineModel = <
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
   type Input = InferBuildStoredInput<TFields>;
   type ModelPlanes = { entityState: EntityState<Stored>; scopeIndex: ScopeIndex };
+  const mergeGate = (() => {
+    const groups = config.mergePolicy?.groups;
+    if (!groups) return undefined;
+    if (groups.length === 0) throw new Error(`${config.name} mergePolicy groups must not be empty`);
+    const declaredFields = new Set(Object.keys(config.fields));
+    const groupedFields = new Set<string>();
+    for (const group of groups) {
+      if (group.fields.length === 0) throw new Error(`${config.name} mergePolicy groups must not be empty`);
+      for (const field of group.fields) {
+        if (!declaredFields.has(field)) throw new Error(`${config.name} mergePolicy field ${field} is not declared`);
+        if (groupedFields.has(field)) throw new Error(`${config.name} mergePolicy field ${field} appears in more than one group`);
+        groupedFields.add(field);
+      }
+    }
+    return (previous: Stored, incoming: Stored): Stored => {
+      let merged: Stored | undefined;
+      for (const group of groups) {
+        if (!group.fields.some(field => !Object.is(incoming[field], previous[field])) || group.allowWrite(incoming, previous)) continue;
+        merged ??= { ...incoming };
+        for (const field of group.fields) merged[field] = previous[field];
+      }
+      return merged ?? incoming;
+    };
+  })();
   let planesRef: ModelPlanes | null = null;
   let revision = 0;
   /** Planes are created and hydrated on first touch, so models can be defined before configureDb. */
   const planes = (): ModelPlanes => {
     if (planesRef) return planesRef;
     const runtime = getDbRuntimeConfig();
-    const entityState = createEntityState<Stored>({ modelId: config.id, clock: createEntityClock(), now: () => Date.now(), storage: runtime.storage, prefix: getStoragePrefix });
+    const entityState = createEntityState<Stored>({
+      modelId: config.id,
+      clock: createEntityClock(),
+      now: () => Date.now(),
+      storage: runtime.storage,
+      prefix: getStoragePrefix,
+      mergeGate
+    });
     const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
     entityState.hydrate();
     scopeIndex.hydrate();

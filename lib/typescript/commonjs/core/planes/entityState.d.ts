@@ -45,6 +45,7 @@ export declare const createEntityState: <T extends {
     now: () => number;
     storage: StoragePlane;
     prefix: () => string;
+    mergeGate?: (previous: T, incoming: T) => T;
 }) => EntityState<T>;
 export declare const createEntityClock: () => EntityClock;
 //# sourceMappingURL=entityState.d.ts.map

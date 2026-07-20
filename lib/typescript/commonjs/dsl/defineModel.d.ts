@@ -391,6 +391,20 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
         shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
     };
     /**
+     * Cross-writer merge guards. Each group protects a set of fields behind one acceptance predicate:
+     * when a row already exists and an incoming write (any writer - query extract, ingest, sync, touch,
+     * mutation commit, patch) would change at least one group field, the group's fields are written only
+     * if `allowWrite(incoming, current)` returns true; otherwise the group's fields KEEP their current
+     * values while all non-group fields of the same write still apply. New rows (no current) bypass
+     * guards. Use `isIncomingNewer(current.updatedAt, incoming.updatedAt)` for timestamp guards.
+     */
+    mergePolicy?: {
+        groups: Array<{
+            fields: readonly (keyof InferStoredFields<TFields> & string)[];
+            allowWrite: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>) => boolean;
+        }>;
+    };
+    /**
      * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
      * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
      * `defineModel` time if any returned key collides with a base model key.
