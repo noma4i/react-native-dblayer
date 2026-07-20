@@ -20,19 +20,10 @@ export type ModelReadBuilder<TStored extends { id: string }, TOutput extends Rec
   select<TProjection extends Record<string, unknown>>(selector: (row: TStored) => TProjection): ModelReadBuilder<TStored, TProjection>;
   /** Reactively read rows for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
   rows(): TOutput[];
-  /** Read one non-reactive snapshot for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
-  read(): TOutput[];
 };
 
 type ReadBuilderTerminals<TStored extends { id: string }> = {
   rows<TOutput extends Record<string, unknown>>(
-    where: DbWhere<TStored> | null,
-    orders: ReadonlyArray<ReadOrder<TStored>>,
-    limit: number | undefined,
-    required: readonly string[],
-    projection: ProjectionOptions<TStored, TOutput>
-  ): TOutput[];
-  read<TOutput extends Record<string, unknown>>(
     where: DbWhere<TStored> | null,
     orders: ReadonlyArray<ReadOrder<TStored>>,
     limit: number | undefined,
@@ -54,6 +45,5 @@ export const createReadBuilder = <TStored extends { id: string }>(
   limit: nextCount => createReadBuilder(where, terminals, orders, nextCount, required, projection),
   require: (...fields) => createReadBuilder(where, terminals, orders, count, [...required, ...fields], projection) as never,
   select: selector => createReadBuilder(where, terminals, orders, count, required, { select: selector } as never) as never,
-  rows: () => terminals.rows(where, orders, count, required, projection),
-  read: () => terminals.read(where, orders, count, required, projection)
+  rows: () => terminals.rows(where, orders, count, required, projection)
 });

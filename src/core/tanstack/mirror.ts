@@ -1,10 +1,13 @@
 import type { CommitBus } from '../apply/commitBus';
 import { getApplyTarget } from '../apply/transaction';
 import { ensureModelCollection, ensureMembershipCollection, membershipWriterFor, runInWriteBatch, writerFor } from './facade';
+import { registerReset } from '../reset';
 import { uniq, uniqBy } from 'es-toolkit';
 import { rowsShallowEqual } from '../../read/useLiveRead';
 const rowsDiffer = (current: object, next: object): boolean => !rowsShallowEqual(current, next);
 const scopeOrderCache = new Map<string, Map<string, number>>();
+// Reset contract: clear cross-generation order-revision cache so a post-reset scope never matches a stale revision.
+registerReset(() => scopeOrderCache.clear());
 
 /** Starts synchronously mirroring every commit-bus row batch into TanStack model collections. */
 export function startCollectionMirror(bus: CommitBus): () => void {

@@ -19,10 +19,7 @@ const relative = (file: string) => path.relative(root, file).split(path.sep).joi
 
 describe('era-free repository naming', () => {
   it('contains no era references in source or documentation', () => {
-    const files = [
-      ...walk(srcRoot).filter(file => /\.tsx?$/.test(file)),
-      ...walk(docsRoot).filter(file => file.endsWith('.md'))
-    ];
+    const files = [...walk(srcRoot).filter(file => /\.tsx?$/.test(file)), ...walk(docsRoot).filter(file => file.endsWith('.md'))];
     const matches = files.flatMap(file => {
       const name = relative(file);
       if (name.startsWith('src/__tests__/') && !name.startsWith('src/__tests__/spec/')) return [];
@@ -44,7 +41,7 @@ describe('era-free repository naming', () => {
   });
 
   it('contains no legacy compatibility terminology in production source', () => {
-    const forbidden = /\b(legacy|shim|compat)\b/i;
+    const forbidden = /(legacy|shim|compat|Legacy|Shim|Compat)(?![a-z])/;
     const matches = walk(srcRoot)
       .filter(file => /\.tsx?$/.test(file) && !relative(file).startsWith('src/__tests__/'))
       .flatMap(file =>

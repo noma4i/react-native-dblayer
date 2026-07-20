@@ -73,7 +73,6 @@ export const createEntityState = <T extends { id: string }>(options: {
   let tombstonesDirty = false;
   const rowKey = (id: string) => `${prefix()}row:${modelId}:${id}`;
   const rowsPrefix = () => `${prefix()}row:${modelId}:`;
-  const legacyRowsKey = () => `${prefix()}rows:${modelId}`;
   const tombstonesKey = () => `${prefix()}tombstones:${modelId}`;
   const prune = (): number => {
     const cutoff = now() - TOMBSTONE_TTL_MS;
@@ -163,20 +162,6 @@ export const createEntityState = <T extends { id: string }>(options: {
       tombstones.clear();
       dirty.clear();
       tombstonesDirty = false;
-      const legacyRaw = storage.get(legacyRowsKey());
-      if (legacyRaw) {
-        try {
-          const migrated: Array<{ key: string; value: string | null }> = [];
-          for (const row of JSON.parse(legacyRaw) as T[]) {
-            rows.set(row.id, row);
-            migrated.push({ key: rowKey(row.id), value: JSON.stringify(row) });
-          }
-          migrated.push({ key: legacyRowsKey(), value: null });
-          storage.set(migrated);
-        } catch {
-          storage.set([{ key: legacyRowsKey(), value: null }]);
-        }
-      }
       for (const fullKey of storage.keys(rowsPrefix())) {
         const raw = storage.get(fullKey);
         if (!raw) continue;

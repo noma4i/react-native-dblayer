@@ -24,14 +24,11 @@ export type ModelReadBuilder<TStored extends {
     select<TProjection extends Record<string, unknown>>(selector: (row: TStored) => TProjection): ModelReadBuilder<TStored, TProjection>;
     /** Reactively read rows for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
     rows(): TOutput[];
-    /** Read one non-reactive snapshot for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
-    read(): TOutput[];
 };
 type ReadBuilderTerminals<TStored extends {
     id: string;
 }> = {
     rows<TOutput extends Record<string, unknown>>(where: DbWhere<TStored> | null, orders: ReadonlyArray<ReadOrder<TStored>>, limit: number | undefined, required: readonly string[], projection: ProjectionOptions<TStored, TOutput>): TOutput[];
-    read<TOutput extends Record<string, unknown>>(where: DbWhere<TStored> | null, orders: ReadonlyArray<ReadOrder<TStored>>, limit: number | undefined, required: readonly string[], projection: ProjectionOptions<TStored, TOutput>): TOutput[];
 };
 /** Create a plain immutable read builder whose terminals delegate to the model read engine. */
 export declare const createReadBuilder: <TStored extends {

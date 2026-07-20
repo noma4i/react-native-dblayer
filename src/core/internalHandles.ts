@@ -1,6 +1,6 @@
 import type { JournalOp } from './apply/journal';
 import type { RelationDecl } from './relations';
-import type { ScopeCoverage } from '../dsl/scope';
+import type { ScopeCoverage } from './planes/scopeIndex';
 
 export type InternalModelHandle = {
   readRow(id: string): { id: string; [key: string]: unknown } | undefined;
@@ -15,12 +15,7 @@ export type InternalModelHandle = {
 
 export type InternalScopeHandle = {
   apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: { resetOrder?: boolean }): void;
-  planApply(
-    scopeValue: unknown,
-    rows: Array<{ row: unknown; edge?: Record<string, unknown> }>,
-    coverage: ScopeCoverage,
-    options?: { resetOrder?: boolean }
-  ): JournalOp[];
+  planApply(scopeValue: unknown, rows: Array<{ row: unknown; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, options?: { resetOrder?: boolean }): JournalOp[];
   key(scopeValue: unknown): string;
   isServerOrder(): boolean;
   planPlacement(scopeValue: unknown, id: string, position: 'prepend' | 'append'): JournalOp[];

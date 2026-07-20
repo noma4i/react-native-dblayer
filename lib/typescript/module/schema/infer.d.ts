@@ -1,5 +1,4 @@
-import type { FieldMode, FieldSpec } from './fieldSpec';
-import type { DbSchema } from './schema';
+import type { FieldSpec } from './fieldSpec';
 import type { DbShape } from './shape';
 type Simplify<T> = {
     [K in keyof T]: T[K];
@@ -21,7 +20,6 @@ type RequiredKeysWithoutDefaults<TFields extends AnyFields> = {
 }[FieldKeys<TFields>];
 type RequiredFieldValue<TField> = FieldSpecMode<TField> extends 'nullable' ? FieldValue<TField> | null : FieldValue<TField>;
 type OptionalFieldValue<TField> = FieldSpecMode<TField> extends 'optionalNullable' ? FieldValue<TField> | null : FieldValue<TField>;
-export type FieldModeValue<TValue, TMode extends FieldMode> = TMode extends 'nullable' ? TValue | null : TMode extends 'optionalNullable' ? TValue | null : TValue;
 type InferFieldObject<TFields extends AnyFields> = Simplify<{
     [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>;
 } & {
@@ -32,13 +30,7 @@ export type InferStoredFields<TFields extends AnyFields> = Simplify<{
 } & InferFieldObject<TFields>>;
 type BuildStoredRequiredKeys<TFields extends AnyFields> = 'id' | Extract<RequiredKeysWithoutDefaults<TFields>, keyof InferStoredFields<TFields>>;
 export type InferBuildStoredInput<TFields extends AnyFields> = Simplify<Partial<InferStoredFields<TFields>> & Pick<InferStoredFields<TFields>, BuildStoredRequiredKeys<TFields>>>;
-export type AnyDbSchema = DbSchema<any, AnyFields>;
 export type AnyDbShape = DbShape<any, AnyFields>;
-export type InferStored<S extends AnyDbSchema> = S extends DbSchema<any, infer TFields> ? InferStoredFields<TFields> : never;
-export type InferInput<S extends AnyDbSchema> = S extends DbSchema<infer TInput, any> ? TInput : never;
-export type InferSparseInput<S extends AnyDbSchema> = Simplify<Partial<InferStored<S>> & {
-    id: string;
-}>;
 export type InferShapeStored<S extends AnyDbShape> = S extends DbShape<any, infer TFields> ? InferFieldObject<TFields> : never;
 export type ModelStored<M> = M extends {
     getAll: () => Array<infer TStored>;

@@ -7,7 +7,7 @@
  *   head order, with previous members kept, in their relative order, after them.
  * - `'delta'`: same merge semantics as `'page'`, used for single-row/subscription-driven updates.
  */
-export type ScopeCoverage = 'complete' | 'page' | 'delta';
+export type { ScopeCoverage } from '../core/planes/scopeIndex';
 export interface ScopeSpec<TStored> {
     /**
      * Automatic membership mapping from scope-value fields to stored row fields (e.g. `{ chatId: 'chatId' }`).
@@ -54,5 +54,4 @@ type StructuralScopeSpec = {
  */
 export declare function scope<const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec;
 export declare function scope<TStored>(spec: ScopeSpec<TStored>): ScopeSpec<TStored>;
-export {};
 //# sourceMappingURL=scope.d.ts.map

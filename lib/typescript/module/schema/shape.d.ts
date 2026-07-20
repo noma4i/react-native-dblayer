@@ -4,7 +4,6 @@ type ShapeFields<_TInput> = AnyFields;
 export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
     fields: TFields;
 };
-export type AnyDbShape = DbShape<unknown, AnyFields>;
 /**
  * Define a reusable field group for model fields, object fields, and array items.
  *

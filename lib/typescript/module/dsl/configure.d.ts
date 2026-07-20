@@ -148,8 +148,6 @@ export declare const replayJournal: () => number;
  * @returns The number of removed foreign storage keys.
  */
 export declare const purgeForeignStorageKeys: () => number;
-/** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
-export declare const cancelPersistence: () => void;
 /** Internal: discard per-runtime WAL/checkpoint caches after storage has been wiped. */
 export declare const resetPersistenceRuntime: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */

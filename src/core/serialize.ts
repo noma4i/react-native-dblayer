@@ -1,9 +1,4 @@
-import { isRecord } from '../utils/normalizeHelpers';
-
-const isPlainObject = (value: object): boolean => {
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-};
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 
 /**
  * Serialize a value with stable object-key ordering; total and injective for scalar/temporal scope-key values.
@@ -18,7 +13,7 @@ export const stableSerialize = (value: unknown): string => {
   if (type === 'string' || type === 'boolean') return JSON.stringify(value);
   if (value instanceof Date) return `Date(${value.getTime()})`;
   if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
-  if (isRecord(value) && isPlainObject(value)) {
+  if (isNonArrayRecord(value)) {
     const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
     return `{${entries.map(([key, nested]) => `${JSON.stringify(key)}:${stableSerialize(nested)}`).join(',')}}`;
   }

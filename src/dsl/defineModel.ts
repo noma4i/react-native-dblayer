@@ -395,8 +395,6 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>) => TExt;
 };
 
-const keyForScope = (scopeName: string, scopeValue: unknown): string => `${scopeName}:${buildScopeKey(scopeValue)}`;
-
 const EMPTY_ROWS: never[] = [];
 
 type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
@@ -514,6 +512,20 @@ export const defineModel = <
     }
     return value;
   };
+  const scopeByFieldMap = new Map(membershipScopes.map(([name, spec]) => [name, spec.by] as const));
+  const coerceScopeValueForKey = (scopeName: string, scopeValue: unknown): unknown => {
+    if (!isRecord(scopeValue)) return scopeValue;
+    const by = scopeByFieldMap.get(scopeName);
+    if (!by) return scopeValue;
+    const out: Record<string, unknown> = {};
+    for (const [scopeField, raw] of Object.entries(scopeValue)) {
+      const rowField = by[scopeField];
+      const fieldSpec = rowField ? config.fields[rowField] : undefined;
+      out[scopeField] = fieldSpec && raw !== undefined && raw !== null ? fieldSpec.readValue(raw) : raw;
+    }
+    return out;
+  };
+  const keyForScope = (scopeName: string, scopeValue: unknown): string => `${scopeName}:${buildScopeKey(coerceScopeValueForKey(scopeName, scopeValue))}`;
   const criteriaCache = new WeakMap<object, DbWhere<Stored>>();
   const normalizeCriteria = (where: DbWhere<Stored>): DbWhere<Stored> => {
     if (typeof where !== 'object' || where === null || Array.isArray(where)) return where;
@@ -523,6 +535,10 @@ export const defineModel = <
     if ('not' in record) return { not: normalizeCriteria(record.not as DbWhere<Stored>) } as DbWhere<Stored>;
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(record)) {
+      if (key === 'id' && value !== undefined && value !== null) {
+        out.id = stringifyNullish(value);
+        continue;
+      }
       const fieldSpec = config.fields[key];
       const normalized = fieldSpec && value !== undefined && value !== null ? fieldSpec.readValue(value) : undefined;
       out[key] = normalized === undefined || normalized === null ? value : normalized;
@@ -794,19 +810,6 @@ export const defineModel = <
               isEqual: arraysShallowEqual
             })
         });
-      },
-      read: <TOutput extends Record<string, unknown>>(
-        criteria: DbWhere<Stored> | null,
-        orders: readonly { field: keyof Stored & string; direction: 'asc' | 'desc' }[],
-        limit: number | undefined,
-        required: readonly string[],
-        projection: ProjectionOptions<Stored, TOutput>
-      ): TOutput[] => {
-        const rows = planes()
-          .entityState.values()
-          .filter(row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required));
-        const selected = orders.length > 0 ? sortModelReadRows(rows, orders, limit) : limitRows(rows, limit);
-        return projection.select ? selected.map(projection.select) : (selected as TOutput[]);
       }
     });
   }

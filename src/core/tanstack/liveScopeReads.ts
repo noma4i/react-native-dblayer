@@ -27,14 +27,6 @@ type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = Projectio
 const EMPTY_ROWS: StoredRowShape[] = [];
 const entries = new Map<string, ScopeLiveEntry>();
 
-/** Returns internal shared-live-query registry totals for contract tests. */
-export function getScopeLiveReadRegistryStats(): { entryCount: number; refCount: number } {
-  return {
-    entryCount: entries.size,
-    refCount: [...entries.values()].reduce((count, entry) => count + entry.refCount, 0)
-  };
-}
-
 const plainRow = (row: StoredRowShape): StoredRowShape => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith(`$`))) as StoredRowShape;
 
 const updateSnapshot = (entry: ScopeLiveEntry): void => {

@@ -69,9 +69,6 @@ export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<un
   return entry as unknown as DbSubscriptionEntry;
 };
 
-/** Function table of UI effects invoked by subscription entries. */
-export type DbSubscriptionEffectsTable = Record<string, (...args: never[]) => void>;
-
 /** Effects channel returned by `createDbSubscriptionEffects`. */
 export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: never[]) => void>> = {
   /**

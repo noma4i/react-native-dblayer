@@ -33,7 +33,7 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 | `use.row`     | `(id, opts?) => TStored \| TProjection \| undefined`                          | Reactive read of one row; `opts.select`/`opts.renderKeys` project (see [below](#projections-select-and-renderkeys)), `opts.require` gates on field completeness (see [Required fields](#required-fields)). |
 | `use.field`   | `(id, field) => TStored[K] \| undefined`                                       | Reactive read of one field - nothing else re-renders it.                                                                     |
 | `use.first`   | `(where?, opts?) => TStored \| TProjection \| undefined`                       | Reactive read of the first row matching `where`; same `select`/`renderKeys`/`require` options as `use.row`.                  |
-| `use.where`   | `(where) => ModelReadBuilder<TStored>`                                         | Chainable reactive/snapshot read builder. See below.                                                                          |
+| `use.where`   | `(where) => ModelReadBuilder<TStored>`                                         | Chainable reactive read builder (`.rows()`); for a synchronous snapshot use `getWhere`. See below.                           |
 | `use.byIds`   | `(ids, opts?) => { rows: TStored[] \| TProjection[]; byId: ReadonlyMap<string, TStored \| TProjection> }` | Reactive read of several rows by id: `rows` preserves input order, `byId` is an id-keyed lookup map. Nullish `ids` return an unsubscribed empty result (`{ rows: [], byId: <empty map> }`). |
 | `use.count`   | `(where?) => number`                                                            | Reactive count of matching rows.                                                                                              |
 | `use.related` | `(id, relationName, opts?) => unknown`                                          | Reactive read through a declared relation (see [models.md](./models.md#relations)); same `select`/`renderKeys` projection options. |
@@ -78,8 +78,6 @@ The query runs only when its own `enabled(scope)` predicate permits it, `rowId` 
 
 ```ts
 const recent = MessageModel.use.where({ chatId }).orderBy('createdAt', 'desc').limit(20).rows(); // reactive; subscribes to this model
-
-const snapshot = MessageModel.use.where({ chatId }).orderBy('createdAt', 'desc').read(); // synchronous snapshot; safe outside React
 ```
 
 `use.where(criteria)` returns a `ModelReadBuilder<TStored>` instead of an array directly:
@@ -89,12 +87,11 @@ const snapshot = MessageModel.use.where({ chatId }).orderBy('createdAt', 'desc')
 | `orderBy` | `(field, direction?) => ModelReadBuilder<TStored>`       | Adds one ordering key (default `'asc'`); later calls become deterministic tie-break keys before the implicit id key. Returns a new builder - chain freely. |
 | `limit`   | `(count: number) => ModelReadBuilder<TStored>`           | Keeps only the leading `count` rows after filtering and ordering.                                                                                          |
 | `rows`    | `() => TStored[]`                                        | Reactive terminal - subscribes to this model.                                                                                                              |
-| `read`    | `() => TStored[]`                                        | Snapshot terminal - synchronous, safe outside React.                                                                                                       |
 
 Sorting is **NULLS LAST**: a row missing a sort field (`null` or `undefined` - both count as
 missing) always sorts after rows that have a value for it, on every declared key, regardless of
 `asc`/`desc`. Rows tied on every declared key (or when no `orderBy` is called) fall back to an
-**implicit `id` tie-break** for a fully deterministic order. Calling `.rows()`/`.read()` with no
+**implicit `id` tie-break** for a fully deterministic order. Calling `.rows()` with no
 `orderBy` at all returns rows in natural storage order (only `limit` applied, no sort pass).
 `use.where(null)` reads as empty without subscribing, consistent with every other nullable-scope
 read in the DSL.
@@ -119,7 +116,7 @@ const recent = MessageModel.use.where({ chatId }).require('senderName').orderBy(
 | -------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `use.row(id, { require })`             | `(id, { require: K[] }) => RequiredFields<TStored, K> \| undefined`                 | `undefined` when the row is missing or any required field on it is missing.                                                        |
 | `use.first(where, { require, ... })`   | `(where, opts & { require: K[] }) => RequiredFields<TStored, K> \| undefined`        | Same completeness gate applied to the first matching row - an incomplete leading row is skipped in favor of the next complete one. |
-| `use.where(where).require(...fields)`  | `(...K[]) => ModelReadBuilder<RequiredFields<TStored, K>>`                          | Filters the whole builder result to complete rows; combine with `.orderBy`/`.limit`/`.rows()`/`.read()` as usual.                  |
+| `use.where(where).require(...fields)`  | `(...K[]) => ModelReadBuilder<RequiredFields<TStored, K>>`                          | Filters the whole builder result to complete rows; combine with `.orderBy`/`.limit`/`.rows()` as usual.                          |
 
 Each surface narrows the returned row type: every required key becomes non-optional -
 `RequiredFields<TStored, K> = TStored & { [P in K]-?: Exclude<TStored[P], undefined> }` - so reading

@@ -1,5 +1,37 @@
 # Changelog
 
+## 7.0.0-beta.8 - 2026-07-21
+
+### Breaking changes and migration
+
+- BREAKING: the `use.where(...)` builder is now reactive-only. Its synchronous `.read()` terminal is removed; the builder exposes `.orderBy`/`.limit`/`.require`/`.select`/`.rows()` (reactive) only. For a synchronous filtered snapshot use `getWhere(where, opts?)`, the single canonical imperative sync read.
+
+### Reads and correctness
+
+- Numeric-id criteria now match. `getWhere({ id: 54 })`, `use.where({ id: 54 }).rows()`, and `use.first({ id: 54 })` resolve rows whose stored `id` is the normalized string `'54'`, closing the last read paths where a numeric `Int` id was compared raw against a string-keyed row. Extends the beta.7 id-key normalization to `DbWhere` criteria on the primary `id` key.
+- Numeric scope values now read the correct bucket. `scopes.x.use({ chatId: 54 })` (and `useWindow`/`useCount`/`read`) resolve the same membership bucket the write side files a row under, because the scope key is now built by coercing scope-value fields through the same field readers the membership derivation uses (read-write scope-key symmetry). A scope read with a numeric value no longer returns empty against string-keyed membership.
+
+### Internals and correctness
+
+- `defineFetch` validates `document` XOR `fetcher` at define time (fail-fast), matching `defineModel`/`defineMutation`, instead of deferring the check to `bootDb`.
+- The scope order-revision cache is cleared by `resetRuntime` (reset-contract completeness): it was the only module-level runtime cache outside the reset contract. No reachable behaviour change - the stale entry was overwritten by the next structural resync before it could skip a rebuild - but a cross-generation cache no longer survives a runtime reset.
+- `ScopeCoverage` is defined once and re-exported, removing a duplicate literal type and a core-to-dsl type import.
+- Internal helper dedup: `stableSerialize`'s plain-object guard, cascade-destroy id de-duplication, and `dedupeIds` reuse the canonical `isNonArrayRecord` / es-toolkit `uniq` instead of hand-rolled copies.
+
+### Removed (dead code)
+
+- Removed unreachable schema/inference surface with zero consumers: `createSchema` and `DbSchema` (the `schema.ts` module), `AnyDbSchema`, `InferStored`, `InferInput`, `InferSparseInput`, `FieldModeValue`, `InferFieldsInput`, and a duplicate `AnyDbShape`. Public inference types (`ModelStored`, `ModelInput`, `InferShapeStored`) are unchanged.
+- Removed seven unused internal declarations (`setDbStorageAdapter`, `cancelPersistence`, `hasWriter`, `collectionFor`, `membershipCollectionFor`, `getScopeLiveReadRegistryStats`, `DbSubscriptionEffectsTable`).
+- Removed the legacy persisted-blob (`rows:<model>`) migration path; per-row storage keys have been the only write format for several releases. A device still holding the old blob re-fetches those rows on next sync (local-first, no data loss).
+
+### Known limitations
+
+- Unchanged from 7.0.0-beta.7: concurrent optimistic patches on the SAME field that ALL fail can briefly settle to the last optimistic value before the next server sync corrects it; a concurrent optimistic `destroy` + `patch` on the same row has undefined field ordering on destroy rollback; `Symbol` values are not distinguishable as ids or scope-key values.
+
+### Testing
+
+- Red-first contracts added for the numeric-id criteria and numeric scope-value read paths (both previously returned empty), the define-time `defineFetch` validation, and the scope order-cache reset contract; the full suite stays green.
+
 ## 7.0.0-beta.7 - 2026-07-20
 
 ### Breaking changes and migration

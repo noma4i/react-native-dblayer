@@ -7,7 +7,6 @@ import { getDbTransport } from '../core/transport';
 import { getDbLogger } from '../core/logger';
 import { createGenerationFence } from '../utils/runtimePrimitives';
 import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
-import { registerBootValidation } from './bootValidations';
 
 type FetchConfigBase<TData, TInput, TSelected> = {
   /** Stable cache-key namespace for this fetch, combined with a hash of `input`. */
@@ -70,9 +69,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const queryKeyOf = (input: TInput): unknown[] => ['dbl-fetch', config.key, buildScopeKey(input)];
   const hasDocument = config.document !== undefined;
   const hasFetcher = config.fetcher !== undefined;
-  registerBootValidation(() => {
-    if (hasDocument === hasFetcher) throw new Error('defineFetch requires exactly one of document or fetcher');
-  });
+  if (hasDocument === hasFetcher) throw new Error('defineFetch requires exactly one of document or fetcher');
   const isEmpty = config.isEmpty ?? ((data: TSelected) => data == null || (Array.isArray(data) && data.length === 0));
   const resolveStaleTime = (): number | ((query: { state: { data: unknown; dataUpdatedAt: number } }) => number) => {
     const defaults = getDbRuntimeConfig().defaults;

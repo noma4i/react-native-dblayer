@@ -7,7 +7,7 @@
  *   head order, with previous members kept, in their relative order, after them.
  * - `'delta'`: same merge semantics as `'page'`, used for single-row/subscription-driven updates.
  */
-export type ScopeCoverage = 'complete' | 'page' | 'delta';
+export type { ScopeCoverage } from '../core/planes/scopeIndex';
 
 export interface ScopeSpec<TStored> {
   /**

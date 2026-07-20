@@ -11,11 +11,6 @@ type ScopeLiveWindowSnapshot = {
 type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & {
     keepPrevious?: boolean;
 };
-/** Returns internal shared-live-query registry totals for contract tests. */
-export declare function getScopeLiveReadRegistryStats(): {
-    entryCount: number;
-    refCount: number;
-};
 /**
  * Reads one scope through a shared TanStack live query projection.
  *

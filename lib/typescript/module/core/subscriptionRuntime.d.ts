@@ -40,8 +40,6 @@ type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, never
  * @returns Runtime subscription entry accepted by `createDbSubscriptionRuntime`.
  */
 export declare const defineDbSubscriptionEntry: <TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(entry: TypedDbSubscriptionEntry<TDocument, TKey>) => DbSubscriptionEntry;
-/** Function table of UI effects invoked by subscription entries. */
-export type DbSubscriptionEffectsTable = Record<string, (...args: never[]) => void>;
 /** Effects channel returned by `createDbSubscriptionEffects`. */
 export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: never[]) => void>> = {
     /**

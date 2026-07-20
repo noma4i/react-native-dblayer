@@ -51,15 +51,16 @@ describe('ephemeral fetch sufficiency', () => {
     act(() => root.unmount());
   });
 
-  it('rejects a definition with both document and fetcher during boot validation', async () => {
+  it('rejects a definition with both document and fetcher at define time', () => {
     setupSpecRuntime();
-    dbl.defineFetch({
-      key: 'spec-invalid-fetch',
-      document: { kind: 'Document', definitions: [] } as never,
-      fetcher: async () => ({ value: 'invalid' }),
-      select: (data: { value: string }) => data.value
-    } as never);
 
-    await expect((dbl.bootDb as unknown as (options?: { wipe?: boolean }) => Promise<unknown>)()).rejects.toThrow('defineFetch requires exactly one of document or fetcher');
+    expect(() =>
+      dbl.defineFetch({
+        key: 'spec-invalid-fetch',
+        document: { kind: 'Document', definitions: [] } as never,
+        fetcher: async () => ({ value: 'invalid' }),
+        select: (data: { value: string }) => data.value
+      } as never)
+    ).toThrow('defineFetch requires exactly one of document or fetcher');
   });
 });

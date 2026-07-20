@@ -29,14 +29,8 @@ export declare function ensureMembershipCollection(modelId: string): Collection<
 export declare function writerFor(modelId: string): CollectionWriter;
 /** Returns the registered synchronous membership writer for a model identifier. */
 export declare function membershipWriterFor(modelId: string): CollectionWriter<MembershipRow>;
-/** Reports whether a synchronous writer is registered for a model identifier. */
-export declare function hasWriter(modelId: string): boolean;
 /** Clears the TanStack collection and writer registries. */
 export declare function resetCollectionRegistry(): void;
 /** Runs synchronous writes in one TanStack cross-collection transaction context. */
 export declare function runInWriteBatch<T>(fn: () => T): T;
-/** Returns the registered TanStack collection for a model identifier. */
-export declare function collectionFor(modelId: string): Collection<StoredRowShape, string, import("@tanstack/db").UtilsRecord, import("@standard-schema/spec").StandardSchemaV1<unknown, unknown>, StoredRowShape>;
-/** Returns the registered membership collection for a model identifier. */
-export declare function membershipCollectionFor(modelId: string): Collection<MembershipRow, string, import("@tanstack/db").UtilsRecord, import("@standard-schema/spec").StandardSchemaV1<unknown, unknown>, MembershipRow>;
 //# sourceMappingURL=facade.d.ts.map

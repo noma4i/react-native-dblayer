@@ -73,6 +73,9 @@ somewhere under `docs/`.
 | `ScopeSpec`   | type  | [models.md](./models.md#scopespec)         |
 | `ModelInput`  | type  | [models.md](./models.md#fields-f)          |
 | `ModelStored` | type  | [models.md](./models.md#fields-f)          |
+| `ViewConfig` | type | [reading.md](./reading.md#modelviewname-config) |
+| `ViewIncludeModel` | type | [reading.md](./reading.md#modelviewname-config) |
+| `ViewIncludeSpec` | type | [reading.md](./reading.md#modelviewname-config) |
 
 ### Schema DSL
 
@@ -100,6 +103,7 @@ somewhere under `docs/`.
 | -------------- | ---- | ----------------------------------------------------- |
 | `DbWhere`      | type | [reading.md](./reading.md#snapshot-vs-reactive-reads) |
 | `LoadingState` | type | [queries.md](./queries.md#loading-state)              |
+| `EnsuredRowResult` | type | [reading.md](./reading.md#ensured-point-reads) |
 
 `use.*`, `Model.view`, and `ScopeHandle.use`/`useWindow` are methods, not separate barrel exports -
 see [reading.md](./reading.md).

@@ -305,11 +305,6 @@ export const purgeForeignStorageKeys = (): number => {
   return foreign.length;
 };
 
-/** Internal: kill-switch discards pending snapshots (storage is being wiped anyway). */
-export const cancelPersistence = (): void => {
-  checkpointScheduler?.cancel();
-};
-
 /** Internal: discard per-runtime WAL/checkpoint caches after storage has been wiped. */
 export const resetPersistenceRuntime = (): void => {
   checkpointScheduler?.cancel();

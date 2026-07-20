@@ -1,6 +1,6 @@
 import type { JournalOp } from './apply/journal';
 import type { RelationDecl } from './relations';
-import type { ScopeCoverage } from '../dsl/scope';
+import type { ScopeCoverage } from './planes/scopeIndex';
 export type InternalModelHandle = {
     readRow(id: string): {
         id: string;

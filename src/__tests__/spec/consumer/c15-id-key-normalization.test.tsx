@@ -238,4 +238,30 @@ describe('id-key normalization contracts (LC20)', () => {
 
     expect(moments.get('54')).toBeUndefined();
   });
+
+  it('matches a numeric where filter against the primary id key when id is not a declared field', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const widgets = defineModel({
+      id: 'SpecConsumerIdKeyWidget',
+      name: 'SpecConsumerIdKeyWidget',
+      fields: { label: f.str() }
+    });
+    widgets.insertStored({ id: '54', label: 'w' } as never);
+
+    const reader = renderCounted(() => widgets.use.where({ id: 54 as unknown as string }).rows());
+
+    expect(reader.result().map(row => (row as { id: string }).id)).toEqual(['54']);
+    reader.unmount();
+  });
+
+  it('reads a scope bucket when the scope value arrives numeric (read-write key symmetry)', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const moments = createMoments();
+    moments.insertStored({ id: 'moment-1', userId: '54', status: 'active' });
+
+    const reader = renderCounted(() => moments.scopes.byUser.use({ userId: 54 as unknown as string }));
+
+    expect(reader.result().map(row => row.id)).toEqual(['moment-1']);
+    reader.unmount();
+  });
 });

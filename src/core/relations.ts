@@ -1,3 +1,4 @@
+import { uniq } from 'es-toolkit';
 import type { JournalOp } from './apply/journal';
 
 /** Structural reference to a defined model; relation thunks resolve it after both models exist. */
@@ -274,9 +275,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
         const overlayRows = overlay.get(relation.model.modelId);
         const liveChildren = relation.model.getWhere({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
         const overlayChildren = [...(overlayRows?.values() ?? [])].filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
-        const ids = [...liveChildren, ...overlayChildren]
-          .map(child => String(child.id))
-          .filter((childId, index, all) => all.indexOf(childId) === index)
+        const ids = uniq([...liveChildren, ...overlayChildren].map(child => String(child.id)))
           .filter(childId => !destroyed.has(`${relation.model.modelId}:${childId}`));
         if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
       }

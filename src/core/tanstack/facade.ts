@@ -98,11 +98,6 @@ export function membershipWriterFor(modelId: string): CollectionWriter<Membershi
   return writer;
 }
 
-/** Reports whether a synchronous writer is registered for a model identifier. */
-export function hasWriter(modelId: string): boolean {
-  return modelWriterRegistry.has(modelId);
-}
-
 /** Clears the TanStack collection and writer registries. */
 export function resetCollectionRegistry(): void {
   modelWriterRegistry.clear();
@@ -124,20 +119,4 @@ export function runInWriteBatch<T>(fn: () => T): T {
   });
 
   return result as T;
-}
-
-/** Returns the registered TanStack collection for a model identifier. */
-export function collectionFor(modelId: string) {
-  const collection = modelCollectionRegistry.get(modelId);
-  if (!collection) {
-    throw new Error(`Missing collection for ${modelId}`);
-  }
-  return collection;
-}
-
-/** Returns the registered membership collection for a model identifier. */
-export function membershipCollectionFor(modelId: string) {
-  const collection = membershipCollectionRegistry.get(`${modelId}::membership`);
-  if (!collection) throw new Error(`Missing membership collection for ${modelId}`);
-  return collection;
 }
