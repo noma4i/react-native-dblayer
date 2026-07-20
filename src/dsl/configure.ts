@@ -282,7 +282,7 @@ export const replayJournal = (): number => {
   }
   const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {
-    const orphanIds = [...ids].filter(id => !pendingTempIds.has(id));
+    const orphanIds = [...ids].filter(id => !pendingTempIds.has(id) && !operations.failedFor(model, id));
     if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
   flushPersistence();

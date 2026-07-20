@@ -1,5 +1,7 @@
 import type { DbGraphQLDocument } from '../types';
 import type { ExtractSink } from './defineQuery';
+/** Internal shared replacement seam for mutation commits and `Model.replaceRaw` reconciliation. */
+export declare const clearFailedOptimisticMutation: (model: string, tempId: string) => void;
 type MutationModel = {
     modelId: string;
     get(id: string | null | undefined): unknown;
@@ -56,6 +58,16 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
     preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
     /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
     existingTempId?: (input: TInput) => string | null;
+    /**
+     * Failure handling for the optimistic row. 'keep' (default): the row stays visible, `onFailurePatch`
+     * is applied, the operation is marked failed, and the mutation handle's `retry`/`discard` become
+     * available for it. 'rollback': destroy the temp row (pre-7.1 behavior).
+     */
+    failure?: 'keep' | 'rollback';
+    /** Patch applied to the kept row when the mutation fails (e.g. a Failed status flag). */
+    onFailurePatch?: (input: TInput) => Partial<TStored>;
+    /** Patch applied to the kept row when `retry` re-runs the mutation (e.g. back to a Sending status). */
+    onRetryPatch?: (input: TInput) => Partial<TStored>;
     /** Place the temp row at the top of this server-order scope; `value` derives that scope's value from the mutation input. */
     prependTo?: ScopePlacement<TInput>;
     /** Place the temp row at the bottom of this server-order scope; `value` derives that scope's value from the mutation input. */
@@ -156,6 +168,10 @@ export declare const defineMutation: <TData, TInput, TStored extends {
     id: string;
 }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
     run: (input: TInput) => Promise<TData | null>;
+    /** Re-run a failed optimistic mutation for its kept temp row. Returns null when no failed input is known (e.g. after an app restart). */
+    retry: (tempId: string) => Promise<TData | null>;
+    /** Destroy a kept failed row and clear its failure record. */
+    discard: (tempId: string) => void;
     use: () => {
         mutate: (input: TInput, callbacks?: MutateCallbacks<TData>) => void;
         mutateAsync: (input: TInput) => Promise<TData | null>;

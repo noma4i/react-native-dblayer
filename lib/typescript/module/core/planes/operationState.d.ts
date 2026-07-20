@@ -1,5 +1,5 @@
 import type { StoragePlane } from './storagePlane';
-export type OperationStatus = 'pending' | 'committed' | 'rolledback';
+export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
 export type OperationRecord = {
     operationId: string;
@@ -22,6 +22,10 @@ export type OperationState = {
     /** True while an idempotency key has a pending operation - blocks double-taps. */
     hasPending(idempotencyKey: string): boolean;
     pending(): OperationRecord[];
+    /** Most recent retained failed operation for one model row. */
+    failedFor(model: string, rowId: string): OperationRecord | undefined;
+    /** Remove one retained failed operation after retry, discard, or reconciliation. */
+    clearFailed(operationId: string): void;
     /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
     hydratedPending(): OperationRecord[];
     prune(): number;

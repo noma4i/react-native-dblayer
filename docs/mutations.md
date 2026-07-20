@@ -10,6 +10,7 @@ model-less counterpart for mutations with no local write of their own.
 
 - [`Model.mutation(name, config)`](#modelmutationname-config)
 - [Optimistic write variants](#optimistic-write-variants)
+- [Failure handling](#failure-handling)
 - [Dedupe](#dedupe)
 - [`operationId` echo wiring with `Model.ingest`](#operationid-echo-wiring-with-modelingest)
 - [`use()` result shape](#use-result-shape)
@@ -69,7 +70,7 @@ see Dedupe below.
 | `dedupe`     | `{ key: (input) => string \| null } \| false`            | Idempotency: ON by default with a conventional key (`<modelId>:<name>:<inputHash>`) - a committed key is never re-sent, a pending key blocks double-taps. Pass `false` to opt out entirely, or a custom `{ key }` to override the key derivation. A `null` key from either the default or a custom `key` skips dedupe for that call. See Dedupe below. |
 | `onMutate`   | `(input, ctx) => void`                                   | Called synchronously right after the optimistic write (if any), before the transport call starts.                                                                                                                                                                                                                                                      |
 | `onCommit`   | `(data, ctx: OptimisticCtx & { input }) => void`         | Called after the response commits successfully, after extract sinks and preserve-on-commit have applied.                                                                                                                                                                                                                                               |
-| `onError`    | `(error, ctx: OptimisticCtx & { input }) => void`        | Called after a failed run has rolled back its optimistic write (if any) and closed the operation.                                                                                                                                                                                                                                                      |
+| `onError`    | `(error, ctx: OptimisticCtx & { input }) => void`        | Called after a failed run has applied its configured failure policy and closed the operation.                                                                                                                                                                                                                                                           |
 | `invalidate` | `(ctx: { input, data }) => void`                         | Called after a successful commit to invalidate related queries; errors are logged and do not fail the mutation.                                                                                                                                                                                                                                        |
 | `track`      | `(ctx: { input, data }) => void`                         | Called after a successful commit for analytics/tracking; errors are logged and do not fail the mutation.                                                                                                                                                                                                                                               |
 
@@ -79,7 +80,7 @@ see Dedupe below.
 
 | Variant | Shape                                                                                                          | Behavior                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit (or removes it on error/rollback). `existingTempId(input)` is the retry path: reuse a failed row's temp id instead of inserting a new one; a failed retry keeps it. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
+| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, existingTempId?, failure?, onFailurePatch?, onRetryPatch?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit. Its default failure policy retains the row for retry; `failure: 'rollback'` removes it. `existingTempId(input)` can reuse a supplied temp id. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
 | Respond | `{ model, selectServerNode, respond, prependTo?, appendTo? }`                                                  | Fabricates a full transport-shaped response and runs it through the exact same plan builder as the real one - see Respond variant below.                                                                                                                                                                                                                                                              |
 | Patch   | `{ method: 'patch', model, selectId, selectPatch }`                                                            | Applies a partial update immediately, restoring the previous field values on error.                                                                                                                                                                                                                                                                                                                   |
 | Destroy | `{ method: 'destroy', model, selectId }`                                                                       | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back.                                                                                                                                          |
@@ -89,6 +90,30 @@ server-created node; the temp row is replaced by it in the same transaction as a
 `preserveOnCommit` names client-only fields (visual state, local uris) copied from the optimistic
 row onto the committed server row before it lands - use it for fields the server response does not
 carry, like `localEcho` above.
+
+### Failure handling
+
+An Insert optimistic write keeps its temp row by default when transport fails. The failed operation
+is closed for dedupe, the row remains visible, and `Model.use.failed(tempId)` becomes `true` while
+`Model.use.pending(tempId)` becomes `false`. Configure the retained row with `onFailurePatch(input)`
+and its retry appearance with `onRetryPatch(input)`:
+
+```ts
+optimistic: {
+  model: MessageModel,
+  build: (input, ctx) => ({ id: ctx.tempId!, text: input.text, status: 'Sending', createdAt: new Date().toISOString() }),
+  selectServerNode: data => data.messageSend.message,
+  onFailurePatch: () => ({ status: 'Failed' }),
+  onRetryPatch: () => ({ status: 'Sending' })
+}
+```
+
+`mutation.retry(tempId)` reuses that exact temp id and retained input. It returns `null` after an
+app restart because input is intentionally in-memory only. `mutation.discard(tempId)` destroys a
+retained failed row and clears its failure state. A server replacement through either mutation
+commit or `Model.replaceRaw(tempId, serverRow)` also clears the retained failure state. Use
+`failure: 'rollback'` when the previous insert rollback behavior is required; Patch, Destroy, and
+Respond optimistic variants always roll back on failure.
 
 **Ordering at the new edge.** For a comparator-sorted scope such as a newest-first message thread,
 build an optimistic row with `issueSequence` instead of maintaining a preview-derived counter. The

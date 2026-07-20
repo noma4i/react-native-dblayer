@@ -1,6 +1,6 @@
 import type { StoragePlane } from './storagePlane';
 
-export type OperationStatus = 'pending' | 'committed' | 'rolledback';
+export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
 export type OperationRecord = {
   operationId: string;
@@ -27,6 +27,10 @@ export type OperationState = {
   /** True while an idempotency key has a pending operation - blocks double-taps. */
   hasPending(idempotencyKey: string): boolean;
   pending(): OperationRecord[];
+  /** Most recent retained failed operation for one model row. */
+  failedFor(model: string, rowId: string): OperationRecord | undefined;
+  /** Remove one retained failed operation after retry, discard, or reconciliation. */
+  clearFailed(operationId: string): void;
   /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
   hydratedPending(): OperationRecord[];
   prune(): number;
@@ -91,6 +95,22 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey) || operations.get(idempotencyKey)?.status === 'committed',
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
+    failedFor: (model, rowId) => {
+      let latest: OperationRecord | undefined;
+      for (const operation of operations.values()) {
+        if (operation.status !== 'failed' || operation.model !== model || ![...operation.tempIds, ...(operation.rowIds ?? [])].includes(rowId)) continue;
+        if (!latest || operation.createdAt >= latest.createdAt) latest = operation;
+      }
+      return latest;
+    },
+    clearFailed: operationId => {
+      const operation = operations.get(operationId);
+      if (!operation || operation.status !== 'failed') return;
+      operations.delete(operationId);
+      rebuildIndexes();
+      storage.set(persistEntries());
+      notify?.(operation);
+    },
     hydratedPending: () =>
       [...hydratedPendingIds].flatMap(operationId => {
         const operation = operations.get(operationId);
@@ -101,7 +121,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       let pruned = 0;
       for (const [operationId, operation] of operations) {
         const retainedOnce = operation.status === 'committed' && operation.once === true;
-        if (operation.status !== 'pending' && !retainedOnce && operation.createdAt < cutoff) {
+        if (operation.status !== 'pending' && operation.status !== 'failed' && !retainedOnce && operation.createdAt < cutoff) {
           operations.delete(operationId);
           pruned += 1;
         }

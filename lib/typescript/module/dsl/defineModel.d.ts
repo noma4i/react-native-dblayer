@@ -239,8 +239,10 @@ export type ModelCore<TStored extends {
          *
          * @param id Row id to inspect, or a nullish value for an unsubscribed false result.
          * @returns True only while that exact model row id belongs to an open operation.
-         */
+        */
         pending(id: string | null | undefined): boolean;
+        /** Return whether one row id belongs to a retained failed optimistic operation. */
+        failed(id: string | null | undefined): boolean;
         /** Read one field from one row. */
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
         /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */

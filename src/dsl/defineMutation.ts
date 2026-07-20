@@ -10,6 +10,21 @@ import { registerBootValidation } from './bootValidations';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
+import { registerReset } from '../core/reset';
+
+const failedInputsByTempId = new Map<string, unknown>();
+
+registerReset(() => {
+  failedInputsByTempId.clear();
+});
+
+/** Internal shared replacement seam for mutation commits and `Model.replaceRaw` reconciliation. */
+export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
+  const operations = getOperationState();
+  const operation = operations.failedFor(model, tempId);
+  if (operation) operations.clearFailed(operation.operationId);
+  failedInputsByTempId.delete(tempId);
+};
 
 type MutationModel = {
   modelId: string;
@@ -65,6 +80,16 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
   preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
   /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
   existingTempId?: (input: TInput) => string | null;
+  /**
+   * Failure handling for the optimistic row. 'keep' (default): the row stays visible, `onFailurePatch`
+   * is applied, the operation is marked failed, and the mutation handle's `retry`/`discard` become
+   * available for it. 'rollback': destroy the temp row (pre-7.1 behavior).
+   */
+  failure?: 'keep' | 'rollback';
+  /** Patch applied to the kept row when the mutation fails (e.g. a Failed status flag). */
+  onFailurePatch?: (input: TInput) => Partial<TStored>;
+  /** Patch applied to the kept row when `retry` re-runs the mutation (e.g. back to a Sending status). */
+  onRetryPatch?: (input: TInput) => Partial<TStored>;
   /** Place the temp row at the top of this server-order scope; `value` derives that scope's value from the mutation input. */
   prependTo?: ScopePlacement<TInput>;
   /** Place the temp row at the bottom of this server-order scope; `value` derives that scope's value from the mutation input. */
@@ -232,7 +257,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     });
   };
 
-  const run = async (input: TInput): Promise<TData | null> => {
+  const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<TData | null> => {
     const operations = getOperationState();
     const dedupeKey = config.dedupe === false ? undefined : config.dedupe?.key(input);
     if (dedupeKey != null) {
@@ -257,8 +282,8 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const placementOps = optimisticOps.filter(op => op.kind === 'scope-delta' && op.append.some(row => row.order !== undefined));
       if (optimisticOps.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(optimisticOps), placementOps));
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
-      const reuseId = optimistic.existingTempId?.(input) ?? null;
-      if (reuseId != null && optimistic.model.get(reuseId) !== undefined) {
+      const reuseId = forcedTempId ?? (optimistic.existingTempId?.(input) ?? null);
+      if (reuseId != null && (forcedTempId != null || optimistic.model.get(reuseId) !== undefined)) {
         tempId = reuseId;
       } else {
         const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
@@ -346,8 +371,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (!generationFence.isCurrent()) return null;
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
         if (respondInverse.length > 0) getApplyRuntime().apply(expandPlan(respondInverse));
-      } else if (optimistic && !isMethodOptimistic(optimistic) && insertedTempId) {
-        getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
+      } else if (optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic)) {
+        if (optimistic.failure === 'rollback') {
+          if (insertedTempId) getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
+        } else if (tempId) {
+          const patch = optimistic.onFailurePatch?.(input);
+          if (patch) optimistic.model.patch(tempId, patch as Record<string, unknown>);
+          failedInputsByTempId.set(tempId, input);
+        }
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
         const previousRecord = previous as Record<string, unknown>;
@@ -360,7 +391,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         getApplyRuntime().apply(expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships)));
       }
-      if (tracked) operations.close(operationId, 'rolledback');
+      if (tracked) operations.close(operationId, optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback');
       const reported = error instanceof Error ? error : new Error(String(error));
       try {
         getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
@@ -392,8 +423,28 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     return data;
   };
 
+  const run = (input: TInput): Promise<TData | null> => runWithTempId(input);
+  const retry = async (tempId: string): Promise<TData | null> => {
+    const input = failedInputsByTempId.get(tempId) as TInput | undefined;
+    if (input === undefined || !optimisticConfig || isMethodOptimistic(optimisticConfig) || isRespondOptimistic(optimisticConfig)) return null;
+    clearFailedOptimisticMutation(optimisticConfig.model.modelId, tempId);
+    const patch = optimisticConfig.onRetryPatch?.(input);
+    if (patch) optimisticConfig.model.patch(tempId, patch as Record<string, unknown>);
+    return runWithTempId(input, tempId);
+  };
+  const discard = (tempId: string): void => {
+    if (!optimisticConfig || isMethodOptimistic(optimisticConfig) || isRespondOptimistic(optimisticConfig)) return;
+    if (!getOperationState().failedFor(optimisticConfig.model.modelId, tempId)) return;
+    optimisticConfig.model.destroy(tempId);
+    clearFailedOptimisticMutation(optimisticConfig.model.modelId, tempId);
+  };
+
   return {
     run,
+    /** Re-run a failed optimistic mutation for its kept temp row. Returns null when no failed input is known (e.g. after an app restart). */
+    retry,
+    /** Destroy a kept failed row and clear its failure record. */
+    discard,
     use: () => {
       const runRef = useRef(run);
       runRef.current = run;

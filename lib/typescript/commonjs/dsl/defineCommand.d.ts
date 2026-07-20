@@ -19,6 +19,8 @@ export declare const defineCommand: <TData, TInput, TStored extends {
     id: string;
 }, TNode = TStored>(name: string, config: CommandConfig<TData, TInput, TStored, TNode>) => {
     run: (input: TInput) => Promise<TData | null>;
+    retry: (tempId: string) => Promise<TData | null>;
+    discard: (tempId: string) => void;
     use: () => {
         mutate: (input: TInput, callbacks?: import("./defineMutation").MutateCallbacks<TData> | undefined) => void;
         mutateAsync: (input: TInput) => Promise<TData | null>;

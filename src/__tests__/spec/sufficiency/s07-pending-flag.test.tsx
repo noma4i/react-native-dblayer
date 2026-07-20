@@ -28,6 +28,7 @@ const createMessages = (transport: ReturnType<typeof createMockTransport>) => {
     result: 'saveMessage',
     optimistic: {
       model: messages,
+      failure: 'rollback',
       build: input => ({ id: '', text: input.text }),
       selectServerNode: data => data.saveMessage
     },

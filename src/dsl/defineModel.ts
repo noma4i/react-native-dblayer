@@ -20,7 +20,7 @@ import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, createScopeReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
-import { defineMutation, type MutationConfig } from './defineMutation';
+import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
@@ -240,8 +240,10 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
      *
      * @param id Row id to inspect, or a nullish value for an unsubscribed false result.
      * @returns True only while that exact model row id belongs to an open operation.
-     */
+    */
     pending(id: string | null | undefined): boolean;
+    /** Return whether one row id belongs to a retained failed optimistic operation. */
+    failed(id: string | null | undefined): boolean;
     /** Read one field from one row. */
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
     /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
@@ -1023,6 +1025,8 @@ export const defineModel = <
   };
 
   const planReplace = (oldId: string, next: unknown): JournalOp[] => {
+    // Reconciliation and mutation commit share this replacement seam, so both clear retained failure state.
+    clearFailedOptimisticMutation(config.id, oldId);
     const memberships = captureMembership(oldId);
     const nextId = replacementId(next);
     return [
@@ -1179,6 +1183,18 @@ export const defineModel = <
           [id]
         );
         return useSyncExternalStore(subscribePending, readPending, readPending);
+      },
+      failed: id => {
+        const readFailed = useCallback(() => id != null && getOperationState().failedFor(config.id, id) !== undefined, [id]);
+        const subscribeFailed = useCallback(
+          (listener: () => void) => {
+            if (id == null) return () => {};
+            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id }]);
+            return () => subscription.unsubscribe();
+          },
+          [id]
+        );
+        return useSyncExternalStore(subscribeFailed, readFailed, readFailed);
       },
       row: ((id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const required = options?.require ?? [];
