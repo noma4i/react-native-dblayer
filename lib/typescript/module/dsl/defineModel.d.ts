@@ -3,7 +3,7 @@ import { type RelationDecl } from '../core/relations';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
-import { defineQuery } from './defineQuery';
+import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
 import { type ViewConfig, type ViewHandle } from './defineView';
 import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
@@ -45,9 +45,9 @@ type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineF
     key?: string;
 };
 type CrudSection = Record<string, unknown>;
-type CrudQueryHandle = ReturnType<typeof defineQuery<unknown, unknown, unknown, {
+type CrudQueryHandle = QueryHandle<{
     id: string;
-}>>;
+}, unknown>;
 type CrudCreateHandle = ReturnType<typeof defineMutation<unknown, unknown, {
     id: string;
 }, unknown>>;
@@ -145,18 +145,33 @@ export type ModelCore<TStored extends {
     updatedAt?: string | null;
 }, TInput = TStored> = {
     modelId: string;
+    /** Define a model-owned scope query with colocated live subscription entries; point materialization is unavailable for scope destinations. */
+    query<TResponse, TVars, TScope, TRow extends {
+        id: string;
+    }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & {
+        into: ScopeHandle<TRow, TScope>;
+        live: Record<string, ModelIngestEntry>;
+    }): QueryHandle<TRow, TScope> & {
+        live: LiveQueryHandle;
+    };
+    /** Define a model-owned scope query; point materialization is unavailable for scope destinations. */
+    query<TResponse, TVars, TScope, TRow extends {
+        id: string;
+    }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & {
+        into: ScopeHandle<TRow, TScope>;
+    }): QueryHandle<TRow, TScope>;
     /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
     query<TResponse, TVars, TScope, TRow extends {
         id: string;
     }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & {
         live: Record<string, ModelIngestEntry>;
-    }): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>> & {
+    }): EnsuredRowQueryHandle<TRow, TScope> & {
         live: LiveQueryHandle;
     };
     /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
     query<TResponse, TVars, TScope, TRow extends {
         id: string;
-    }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
+    }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): EnsuredRowQueryHandle<TRow, TScope>;
     /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
     mutation<TData, TInput, TRow extends {
         id: string;

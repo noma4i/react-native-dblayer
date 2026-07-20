@@ -56,6 +56,7 @@ DbRetryClass: any
 DbRetryPolicy: any
 DbTransport: any
 DbWhere: any
+EnsuredRowResult: any
 ExtractSink: any
 FetchResult: any
 GcReport: any

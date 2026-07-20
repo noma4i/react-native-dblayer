@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
-import type { DbGraphQLDocument, LoadingState } from '../types';
+import type { DbGraphQLDocument, DbReadOptions, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
@@ -41,6 +41,43 @@ export type QueryResult<T> = {
   refetch: () => Promise<void>;
 };
 
+/** Reactive result of `query.useRowEnsured(scope, rowId, readOpts?)`. */
+export type EnsuredRowResult<TStored> = {
+  /** Reactive destination-model row, or `undefined` while it is unknown or terminally absent. */
+  row: TStored | undefined;
+  /** UI loading-state machine for the guaranteed materialization request. */
+  loadingState: LoadingState;
+  /** The last materialization error, or `null`. Cleared on the next successful fetch. */
+  error: Error | null;
+  /** Re-run the detail request for this scope. */
+  refetch: () => Promise<void>;
+};
+
+export type QueryHandle<TStored, TScope> = {
+  use(scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored>;
+  fetch(scope: TScope): Promise<void>;
+  invalidate(scope?: TScope): void;
+};
+
+export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope> & {
+  /**
+   * Read one destination-model row and fetch this query only while that row is absent.
+   *
+   * A terminal not-found result is represented only by `loadingState.showEmptyState`; `row: undefined`
+   * alone remains unknown because the request may still be loading or disabled by a nullish `rowId`.
+   *
+   * @param scope Query scope used for variables and the shared TanStack Query key.
+   * @param rowId Destination-model row id to ensure, or a nullish value for an inactive read.
+   * @param readOpts Destination row projection options; `renderKeys` keeps unrelated field writes from rerendering.
+   * @returns The reactive row plus its materialization loading state and refetch action.
+   */
+  useRowEnsured(
+    scope: TScope,
+    rowId: string | null | undefined,
+    readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }
+  ): EnsuredRowResult<TStored>;
+};
+
 type PlanRowsSink = { modelId: string };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
@@ -49,6 +86,9 @@ type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: string }, T
 type ModelDestination<TStored> = {
   modelId: string;
   get?: (id: string | null | undefined) => TStored | undefined;
+  use: {
+    row(id: string | null | undefined, opts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined;
+  };
 };
 type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope> | ModelDestination<TStored>;
 
@@ -145,7 +185,7 @@ const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => typ
  * runs one fetch outside React. `invalidate(scope?)` clears the React Query cache for one scope, or every
  * registered scope when `scope` is omitted.
  */
-export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => {
+export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>): QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope> => {
   const keyName = operationKey(config.document, config.key);
   const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
   const registeredScopes = new Map<string, TScope>();
@@ -190,7 +230,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     return { endCursor: cursor, hasNextPage, count };
   };
 
-  const applyResponse = (scope: TScope, data: TResponse, resetOrder: boolean): PageMeta => {
+  const applyResponse = (scope: TScope, data: TResponse, resetOrder: boolean, resurrectDestroyed: boolean): PageMeta => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
     const mapped = config.map ? config.map(selected) : selected;
     const pairs = nodePairsOf(mapped);
@@ -202,7 +242,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       ops.push(...getInternalScopeHandle(config.into).planApply(scope, scopeRows, coverage, { resetOrder }));
       committedIds = committedIdsOf(scopeRows.map(scopeRow => scopeRow.row));
     } else {
-      ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], { includeMembership: true }));
+      ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], { includeMembership: true, ...(resurrectDestroyed ? { origin: 'event' as const } : {}) }));
       committedIds = committedIdsOf(nodes);
     }
     for (const sink of config.extract?.({ data, nodes }) ?? []) {
@@ -213,7 +253,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     return pageMetaOf(config.page ? config.page(data) : null);
   };
 
-  const runFetch = async (scope: TScope, cursor: string | null): Promise<PageMeta> => {
+  const runFetch = async (scope: TScope, cursor: string | null, resurrectDestroyed = false): Promise<PageMeta> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = {
       ...((config.vars?.(scope) ?? {}) as Record<string, unknown>),
@@ -233,7 +273,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       throw error;
     }
     if (!generationFence.isCurrent()) return { endCursor: null, hasNextPage: false, count: 0 };
-    return applyResponse(scope, data, cursor == null);
+    return applyResponse(scope, data, cursor == null, resurrectDestroyed);
   };
 
   const fetch = async (scope: TScope): Promise<void> => {
@@ -376,5 +416,46 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     });
   };
 
-  return { use: config.page ? useInfiniteResult : useSingleResult, fetch, invalidate };
+  const handle: QueryHandle<TStored, TScope> = { use: config.page ? useInfiniteResult : useSingleResult, fetch, invalidate };
+  if (isScopeDestination(config.into)) return handle;
+
+  const destination = config.into as ModelDestination<TStored>;
+  const useRowEnsured = (
+    scope: TScope,
+    rowId: string | null | undefined,
+    readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }
+  ): EnsuredRowResult<TStored> => {
+    const row = destination.use.row(rowId, readOpts);
+    const enabled = (config.enabled?.(scope) ?? true) && rowId != null && row === undefined;
+    const request = useQuery({
+      queryKey: queryKeyOf(scope),
+      enabled,
+      queryFn: () => runFetch(scope, null, true),
+      staleTime: resolveStaleTime(),
+      gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
+      refetchOnMount: config.refetchOnMount
+    });
+    const hasData = row !== undefined;
+    const phase = computePhase({
+      isInactive: !enabled && !hasData,
+      isRestoring: false,
+      isSyncReady: true,
+      isFetching: request.isFetching,
+      hasData,
+      isRefreshing: false,
+      isFetchingNextPage: false,
+      isError: request.error != null,
+      hasFetchedData: request.isFetched || request.isSuccess || request.data !== undefined
+    });
+    return {
+      row,
+      loadingState: computeLoadingState(phase, hasData),
+      error: (request.error as Error | null) ?? null,
+      refetch: async () => {
+        await request.refetch();
+      }
+    };
+  };
+
+  return { ...handle, useRowEnsured };
 };

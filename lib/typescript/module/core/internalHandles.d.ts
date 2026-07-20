@@ -9,6 +9,7 @@ export type InternalModelHandle = {
     applyRows(rows: unknown[]): void;
     planRows(rows: unknown[], options?: {
         includeMembership?: boolean;
+        origin?: 'event';
     }): JournalOp[];
     planReplace(oldId: string, next: unknown): JournalOp[];
     captureMembership(id: string): Array<{

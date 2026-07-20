@@ -21,7 +21,7 @@ import { createModelReadEngine, createScopeReadEngine, incrementalSignature, lim
 import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
-import { defineQuery } from './defineQuery';
+import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
@@ -78,7 +78,7 @@ type ModelMutationConfig<TData, TInput, TStored extends { id: string }, TNode> =
 };
 type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & { key?: string };
 type CrudSection = Record<string, unknown>;
-type CrudQueryHandle = ReturnType<typeof defineQuery<unknown, unknown, unknown, { id: string }>>;
+type CrudQueryHandle = QueryHandle<{ id: string }, unknown>;
 type CrudCreateHandle = ReturnType<typeof defineMutation<unknown, unknown, { id: string }, unknown>>;
 type CrudIdMutationHandle = ReturnType<typeof defineMutation<unknown, { id: string } & Record<string, unknown>, { id: string }, unknown>>;
 type CrudHandle<K extends keyof CrudSections> = K extends 'list' | 'get' ? CrudQueryHandle : K extends 'update' | 'destroy' ? CrudIdMutationHandle : CrudCreateHandle;
@@ -158,16 +158,26 @@ export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored
 
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }, TInput = TStored> = {
   modelId: string;
+  /** Define a model-owned scope query with colocated live subscription entries; point materialization is unavailable for scope destinations. */
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { into: ScopeHandle<TRow, TScope>; live: Record<string, ModelIngestEntry> }
+  ): QueryHandle<TRow, TScope> & { live: LiveQueryHandle };
+  /** Define a model-owned scope query; point materialization is unavailable for scope destinations. */
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { into: ScopeHandle<TRow, TScope> }
+  ): QueryHandle<TRow, TScope>;
   /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { live: Record<string, ModelIngestEntry> }
-  ): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>> & { live: LiveQueryHandle };
+  ): EnsuredRowQueryHandle<TRow, TScope> & { live: LiveQueryHandle };
   /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
-  ): ReturnType<typeof defineQuery<TResponse, TVars, TScope, TRow>>;
+  ): EnsuredRowQueryHandle<TRow, TScope>;
   /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
   mutation<TData, TInput, TRow extends { id: string }, TNode>(
     name: string,
@@ -919,9 +929,9 @@ export const defineModel = <
     [K in keyof TScopes]: ScopeHandle<Stored, ScopeValueOf<TScopes[K]>, Input>;
   };
 
-  const planRows = (rows: unknown[], options?: { includeMembership?: boolean }): JournalOp[] => {
+  const planRows = (rows: unknown[], options?: { includeMembership?: boolean; origin?: 'event' }): JournalOp[] => {
     const accepted = rows.filter(isPlanRow);
-    const ops: JournalOp[] = [{ kind: 'upsert', model: config.id, rows: accepted }];
+    const ops: JournalOp[] = [{ kind: 'upsert', model: config.id, rows: accepted, ...(options?.origin ? { origin: options.origin } : {}) }];
     if (!options?.includeMembership) return ops;
     for (const row of accepted) {
       let stored;

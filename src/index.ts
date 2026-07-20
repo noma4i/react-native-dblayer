@@ -19,7 +19,7 @@ export type { GcReport } from './core/gc';
 export { belongsTo, hasMany, hasOne, references } from './core/relations';
 export { f } from './schema/f';
 export { defineShape, projectShape, readShape, readShapeOrThrow } from './schema/shape';
-export type { QueryResult, ExtractSink } from './dsl/defineQuery';
+export type { EnsuredRowResult, QueryResult, ExtractSink } from './dsl/defineQuery';
 export { defineFetch } from './dsl/defineFetch';
 export type { FetchResult } from './dsl/defineFetch';
 export type { MutateCallbacks, ScopePlacement } from './dsl/defineMutation';

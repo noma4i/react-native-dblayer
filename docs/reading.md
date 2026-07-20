@@ -10,6 +10,7 @@ page: [queries.md](./queries.md).
 
 - [Snapshot vs reactive reads](#snapshot-vs-reactive-reads)
 - [Query freshness and row survival](#query-freshness-and-row-survival)
+- [Ensured point reads](#ensured-point-reads)
 - [`use.where` chainable builder](#usewhere-chainable-builder)
 - [Required fields](#required-fields)
 - [Projections: `select` and `renderKeys`](#projections-select-and-renderkeys)
@@ -42,6 +43,36 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 ## Query freshness and row survival
 
 `Model.query` freshness also requires that at least one row committed by its most recent primary-destination fetch still survives. If every committed row has been removed, the query is stale regardless of `staleTime` and refetches at its next TanStack staleness evaluation, such as remount, invalidation, or foreground resume; an already mounted reactive read becomes a miss immediately but is not proactively refetched until one of those evaluations.
+
+## Ensured point reads
+
+`query.useRowEnsured(scope, rowId, readOpts?)` composes a destination model's reactive `use.row` with the query that materializes a missing detail row. The read and request share the query's normal scope key, freshness, cache lifetime, and invalidation behavior.
+
+```ts
+const chatDetail = ChatModel.query('detail', {
+  document: ChatDetailDocument,
+  vars: ({ chatId }) => ({ chatId }),
+  select: data => data.chat
+});
+
+function ChatDetailsScreen({ chatId }: { chatId: string | null }) {
+  const { row: chat, loadingState, error, refetch } = chatDetail.useRowEnsured(
+    { chatId },
+    chatId,
+    { renderKeys: ['title', 'avatarUrl', 'memberCount'] }
+  );
+
+  if (loadingState.showSkeleton) return <ChatDetailsSkeleton />;
+  if (loadingState.showEmptyState) return <ChatNotFound />;
+  if (error) return <RetryButton onPress={refetch} />;
+  if (!chat) return null;
+  return <ChatDetails chat={chat} />;
+}
+```
+
+The query runs only when its own `enabled(scope)` predicate permits it, `rowId` is non-nullish, and the destination row is currently absent. A present row keeps the request idle while its `loadingState` remains data-ready. A nullish `rowId` reads nothing, starts no request, and returns an inactive state. `row: undefined` alone means only that the row is not currently available: treat a terminal not-found result exclusively as `loadingState.showEmptyState`.
+
+`readOpts` follows `Model.use.row` options. In particular, `renderKeys` limits re-renders to the listed stored fields while preserving the full row return value. This method exists only on queries whose `into` destination is a model; scope-destination queries have no point-read materialization surface.
 
 ## `use.where` chainable builder
 
