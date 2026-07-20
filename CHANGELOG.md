@@ -1,5 +1,11 @@
 # Changelog
 
+## 7.0.0-beta.5 - 2026-07-20
+
+### Scopes
+
+- Add `scope.issueSequence(scopeValue, field)` - synchronously reserves the next optimistic numeric value at a comparator-sorted scope's new edge. The result is one more than the larger of the current scope snapshot's maximum numeric `field` value and the largest value already issued for the same model, scope key, and field in this runtime session, so an uncommitted send burst stays strictly monotonic even when denormalized previews lag. Issued state is cleared by `resetRuntime`; nullish scope values throw. Replaces hand-rolled optimistic ordering floors in consumers.
+
 ## 7.0.0-beta.4 - 2026-07-20
 
 ### Breaking changes and migration
