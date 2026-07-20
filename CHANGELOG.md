@@ -1,5 +1,25 @@
 # Changelog
 
+## 7.0.0-beta.6 - 2026-07-20
+
+### Breaking changes and migration
+
+- BREAKING: optimistic insert mutations now KEEP their row on transport failure (marked failed, `onFailurePatch` applied) instead of destroying it. Declare `failure: 'rollback'` on any mutation that relied on the row vanishing.
+
+### Freshness
+
+- Queries become vacuously stale when their committed destination rows no longer exist locally: a detail query under `staleTime: Infinity` refetches on mount after its rows were destroyed, GC'd, or reset instead of serving a permanent miss.
+- Add `DbDefaults.resumeStaleTime` (default 60000 ms): on foreground resume, every db query whose data is older than the window is invalidated - active hooks refetch immediately, inactive cache entries refetch on next mount. Set `null` to disable.
+
+### Reads
+
+- Add `query.useRowEnsured(scope, rowId, readOpts?)` on model-destination query handles - a reactive point read that fetches only while the row is absent and reports a unified `loadingState`; `showEmptyState` is the only terminal not-found signal. Ensured fetches resurrect locally destroyed rows (an authoritative read-back bypasses the delete tombstone).
+
+### Writes
+
+- Add `mergePolicy.groups` on `defineModel` - per-field cross-writer merge guards enforced at the entity apply choke point for EVERY writer (query extracts, ingest, sync, relation touch, mutations, patches). Rejected group fields keep their current values while the rest of the same write applies; fully rejected writes emit no commit wave.
+- Optimistic failure surface: mutation handles gain `retry(tempId)` / `discard(tempId)`, models gain `use.failed(id)`; `onFailurePatch`/`onRetryPatch` declare the row's visible failure/retry state. Failed operations survive journal replay; `retry` after an app restart returns null (input is session-scoped).
+
 ## 7.0.0-beta.5 - 2026-07-20
 
 ### Scopes
