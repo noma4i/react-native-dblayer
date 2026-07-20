@@ -80,11 +80,12 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
   map?: (selected: unknown) => unknown;
   /** Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled. */
   enabled?: (scope: TScope) => boolean;
-  /** Freshness window (ms) before a scope with data is considered stale and refetched. Passed to TanStack Query unchanged. */
   /**
-   * A query whose most recently committed destination rows no longer survive becomes stale regardless of this
-   * value. Survival is checked only at TanStack staleness evaluation points (mount, invalidation, resume), so a
-   * mounted reactive read becomes a miss immediately after destruction but refetches at the next such evaluation.
+   * Freshness window (ms) before a scope with data is considered stale and refetched. Passed to TanStack Query
+   * unchanged. A query whose most recently committed destination rows no longer survive becomes stale regardless
+   * of this value. Survival is checked only at TanStack staleness evaluation points (mount, invalidation,
+   * resume), so a mounted reactive read becomes a miss immediately after destruction but refetches at the next
+   * such evaluation.
    */
   staleTime?: number;
   /** Freshness window (ms) used instead of `staleTime` only when the last fetch for a scope returned zero rows. */
@@ -115,9 +116,7 @@ registerReset(() => {
 
 const operationKey = (document: DbGraphQLDocument<any, any>, override?: string): string => {
   if (override) return override;
-  const operation = (document as DocumentNode).definitions?.find(
-    (definition): definition is OperationDefinitionNode => definition.kind === 'OperationDefinition'
-  );
+  const operation = (document as DocumentNode).definitions?.find((definition): definition is OperationDefinitionNode => definition.kind === 'OperationDefinition');
   const name = operation?.name?.value;
   if (!name) throw new Error('defineQuery requires a named operation or an explicit key');
   return name;
@@ -132,8 +131,7 @@ const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown
   return [{ node: value, edgeSource: value }];
 };
 
-const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> =>
-  typeof into === 'object' && into !== null && hasInternalScopeHandle(into);
+const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => typeof into === 'object' && into !== null && hasInternalScopeHandle(into);
 
 /**
  * Define a query that runs a GraphQL document, compiles the response into one apply-pipeline transaction
@@ -172,7 +170,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     if (isScopeDestination(config.into)) {
       const scope = registeredScopes.get(scopeKey);
       if (scope === undefined) return true;
-      const survivingIds = new Set(getInternalScopeHandle(config.into).readRows(scope).map(row => row.id));
+      const survivingIds = new Set(
+        getInternalScopeHandle(config.into)
+          .readRows(scope)
+          .map(row => row.id)
+      );
       return ids.some(id => survivingIds.has(id));
     }
     return ids.some(id => getInternalModelHandle(config.into).readRow(id) !== undefined);
@@ -213,14 +215,21 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
 
   const runFetch = async (scope: TScope, cursor: string | null): Promise<PageMeta> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
-    const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {}) };
+    const variables = {
+      ...((config.vars?.(scope) ?? {}) as Record<string, unknown>),
+      ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {})
+    };
     const generationFence = createGenerationFence();
     let data: TResponse;
     try {
       data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
     } catch (error) {
       const reported = error instanceof Error ? error : new Error(String(error));
-      try { getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'query', model: destinationModelId, key: keyName }); } catch (observerError) { getDbLogger().error('defineQuery onSyncError failed', { error: observerError }); }
+      try {
+        getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'query', model: destinationModelId, key: keyName });
+      } catch (observerError) {
+        getDbLogger().error('defineQuery onSyncError failed', { error: observerError });
+      }
       throw error;
     }
     if (!generationFence.isCurrent()) return { endCursor: null, hasNextPage: false, count: 0 };
@@ -273,7 +282,17 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
 
   const buildResult = (
     rows: TStored[] | undefined,
-    flags: { enabled: boolean; isFetching: boolean; isRefetching: boolean; isFetchingNextPage: boolean; isFetched: boolean; error: Error | null; hasNextPage: boolean; fetchNextPage: () => void; refetch: () => Promise<void> }
+    flags: {
+      enabled: boolean;
+      isFetching: boolean;
+      isRefetching: boolean;
+      isFetchingNextPage: boolean;
+      isFetched: boolean;
+      error: Error | null;
+      hasNextPage: boolean;
+      fetchNextPage: () => void;
+      refetch: () => Promise<void>;
+    }
   ): QueryResult<TStored> => {
     const hasData = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
     const phase = computePhase({
