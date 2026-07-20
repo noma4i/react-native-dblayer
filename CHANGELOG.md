@@ -1,5 +1,69 @@
 # Changelog
 
+## 7.0.0-beta.4 - 2026-07-20
+
+### Breaking changes and migration
+
+- BREAKING: `DbProvider` and `configureDb` now own the TanStack Query client entirely. The package no longer re-exports any TanStack Query API - `QueryClient`, `QueryClientProvider`, `useQuery`, `useQueryClient`, `focusManager`, and `getDbQueryClient` are all removed, and `configureDb` no longer accepts a `queryClient` option (it constructs and owns its own client internally). Render `DbProvider` once at the app root instead of your own `QueryClientProvider`, and stop passing `queryClient` into `configureDb`. Configure retries through the new `DbDefaults.retry: { query?, mutation? }` (a `DbRetryPolicy`: `classify`/`budgets`/`backoff`) instead of a raw TanStack retry function.
+- BREAKING: the projection contract is unified across every row-shaped read surface. `select` changes meaning on `use.row`/`use.first`: it is now a projector function `(row) => TProjection`, not an array of field names - the previous array-of-keys form is renamed `renderKeys`. Passing both `select` and `renderKeys` on the same call throws `` `${surface} cannot use select and renderKeys together` ``. The same mutually-exclusive `select`/`renderKeys` pair is extended to `use.byIds` and `use.related` (neither had a projection option before).
+- BREAKING: `use.byIds(ids)` returns `{ rows, byId }` instead of a bare array - `rows` preserves input order, `byId` is a `ReadonlyMap<string, TStored | TProjection>` keyed lookup. Update destructuring at every call site: `const { rows, byId } = Model.use.byIds(ids)`. Nullish `ids` return `{ rows: [], byId: <empty map> }` without subscribing.
+- BREAKING: `Model.mutation`'s conventional dedupe now guards in-flight duplicates only by default - a committed key is released immediately, so the same input can be resubmitted right after it commits. Pass `once: true` to retain the previous "committed key never re-sent" behavior; combining `once: true` with `dedupe: false` throws at define time (`'once cannot be combined with dedupe: false'`).
+- BREAKING: internal handle plumbing is no longer visible on public objects. `ScopeHandle` and ingest declarations no longer carry `__`-prefixed members in their generated types - plan/apply internals moved to a private `WeakMap`-backed registry, resolving the beta.3 known limitation. The public type-boundary casts `castNode`/`castNodes` are removed along with the escape hatch they existed for.
+- BREAKING: `purgeForeignStorageKeys` and `replayJournal` are no longer exported as standalone primitives - both are now internal `bootDb()` boot steps (see beta.3's `wipe` option for a pre-replay reset). Manual maintenance stays available through `flushPersistence` and `collectGarbage`.
+- BREAKING: dead/superseded exports are removed from the public barrel: `emptyIds`, `dedupeIds`, `createModelStatusPoller`, `trimRowsPerScope`, `resolveStaleTempRows`. Replace `emptyIds` with a local stable empty-array constant, and `dedupeIds` with a local nullish-filter-plus-`uniq()` (or an equivalent inline reduction); status polling is `Model.poller` (see below); per-scope row trimming is the declarative `maintenance: { maxRowsPerScope }` model option (already available since beta.2).
+
+### Provider and configuration
+
+- Add `DbProvider` - the library-owned `QueryClientProvider` plus boot gate. Render it with optional `bootOptions` (forwarded to `bootDb`); it renders `children` only after boot completes. It also drives `AppState`-based lifecycle internally (query focus tracking, and `suspendDb()` on backgrounding) - none of this needs manual wiring on the consumer side.
+- Add `DbRetryPolicy` (`classify`, `budgets`, `backoff`) on `configureDb({ defaults: { retry: { query?, mutation? } } })` - `classify` buckets a failure into `'network' | 'server' | 'retriable' | 'fatal'`, `budgets` caps retry attempts per non-fatal class, `backoff` tunes the exponential delay bounds (defaults 1000ms/30000ms). Omitting `classify` disables retries for that policy.
+
+### Reading and projections
+
+- Unify the `select`/`renderKeys` projection pair across `use.row`, `use.first`, `use.byIds`, and `use.related` (see Breaking changes above). Both options run through one shared per-hook projection gate that returns the previous output reference when the equality value (the selector's output for `select`, the listed keys' values for `renderKeys`) is unchanged.
+- `use.byIds(ids, opts?)` applies the same per-item projection gate plus an outer array-level shallow-equal check, so an untouched row's projected entry keeps its reference inside the returned `rows` array too.
+- Array-valued `select`/`renderKeys` fields now compare element-wise by reference instead of by whole-array identity, so a freshly-constructed array of the SAME element references (e.g. a `[...row.userIds]` spread) no longer defeats the stability gate.
+- Add `keepPrevious` on `ScopeHandle.use`/`useWindow` and `Model.view`'s `use`/`useWindow` - opt in to retaining the prior non-empty key's snapshot until the new key resolves (its first non-empty result, or a confirmed-empty read). `useWindow` additionally reports `isPreviousData: boolean`, so a screen can distinguish retained content from current-key content without guessing from row count. Not recommended for account/detail identity switches where showing the previous entity would be unsafe.
+- Add `Model.use.pending(id)` - true only while that exact row id belongs to an open optimistic operation (an insert's temp id, or a patch's existing id), false for every other row and for nullish ids, without subscribing on the nullish path. Boot replay reconciles hydrated pending operations before it completes, so a resurrected temp id reports false once boot settles.
+
+### Seeding
+
+- Add dev/test-only seed primitives: `Model.seed(rows)` and `Model.scopes.<scope>.seed(scopeValue, rows)`. Both normalize and upsert through the normal journalled apply pipeline, including automatic membership; the scope form also replaces that scope's complete explicit membership in the supplied order. Subscribers receive at most one commit wave.
+
+### Views
+
+- `Model.view` accepts explicit `ViewConfig<TRow, TIncluded, TItem>` generics - declare the include map as the second type argument (`ChatModel.view<ChatListItem, { lastMessage: StoredMessage | null; users: UserData[] }>('list', { ... })`) to type `included` without coupling related-row shapes to the underlying model readers. `ViewIncludeSpec`/`ViewIncludeModel` are exported for typing computed includes directly.
+- A view may now combine `select` with `renderKeys` - unlike row-level reads, which still require exactly one. The selected object from `select` remains the returned item; its reference is preserved when every listed `renderKeys` field on that selected output stays shallow-equal.
+
+### Status polling
+
+- `Model.poller(name, config)`'s boolean `isTerminal` classifier is replaced by `classify: (data) => 'ready' | 'failed' | null` (`null` keeps polling), and the reader surface gains a full phase machine: `getPhase`/`usePhase` return `{ phase: 'idle' | 'polling' | 'ready' | 'failed' | 'stalled', reason?, attempts }` instead of the removed `isSessionTerminal(id): boolean`. Migrate a removed `isSessionTerminal(id)` check to `phase === 'ready' || phase === 'failed'`. `onSessionStop`'s reason strings are also renamed: `'terminal-payload'`/`'budget-exhausted'`/`'stopped'` replace `'terminal'`/`'budget'` (a detach on an active session now reports too). The standalone `createModelStatusPoller` this ran on top of is no longer exported - status polling is `Model.poller`-only.
+
+### Ephemeral fetches
+
+- `defineFetch` gains `emptyStaleTime`/`isEmpty`, mirroring `Model.query`'s empty-result freshness policy: a selected result classified as empty (nullish or empty array by default, or per a custom `isEmpty`) uses `emptyStaleTime` instead of `staleTime`, so a confirmed-empty ephemeral fetch (e.g. an empty search result) is not treated as fresh for as long as real data would be.
+- `DbDefaults.emptyStaleTime` now applies to `defineFetch` results too, not only `Model.query`.
+
+### Maintenance
+
+- Fix scope retention: a `maxRows`-capped scope declared with a `sort` (field or `comparator`) now re-sorts by that order before trimming, so retention keeps the true top-N instead of an arbitrary subset when a bulk write pushes the scope over its cap.
+
+### Example app
+
+- The example app runs entirely on the big-bang surface: `DbProvider`, `Model.query`/`Model.mutation`/`Model.fetch`, projected reads, and the poller phase machine replace every pre-migration pattern.
+
+### Documentation
+
+- Restructure the reference into one topic-owning page per surface - `getting-started.md`, `models.md`, `reading.md`, `queries.md`, `mutations.md`, `ingest-live.md`, `runtime.md` - replacing `configuration.md` and `runtime-primitives.md`. `docs/README.md` indexes every public export to its home page, and the project `README.md` cross-links into it. A coverage gate fails when a barrel export is undocumented.
+- Document the Hermes crypto polyfill prerequisite as verified on-device (previously stated but unconfirmed).
+
+### Test coverage
+
+- `src/__tests__/spec/` is now the only specification - the superseded `acceptance/` suite is removed. 38 suites, 178 tests at this tag, covering consumer behavior contracts, rerender/render-count matrices, integrity, sufficiency, performance scale gates, and public surface/type gates.
+
+### Known limitations
+
+- Array-aware projection equality (see Reading and projections) compares array elements by reference, one level deep. A `select`-derived array of FRESH per-run objects (not stable row references) still produces a new element reference on every recompute and defeats the `renderKeys`/`select` stability gate for that field; a row-level array of stable references, or an array of primitives, is unaffected. Deeper (per-element field) comparison is a planned follow-up.
+
 ## 7.0.0-beta.3 - 2026-07-19
 
 ### Boot lifecycle
