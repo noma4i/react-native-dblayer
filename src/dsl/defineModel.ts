@@ -40,6 +40,12 @@ import { omit } from 'es-toolkit';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
 
+const issuedScopeSequenceByKey = new Map<string, number>();
+
+registerReset(() => {
+  issuedScopeSequenceByKey.clear();
+});
+
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
 type ScopeWindowResult<T> = {
@@ -126,6 +132,18 @@ export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored
   invalidate(scopeValue?: TScope): void;
   /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
   read(scopeValue: TScope): TStored[];
+  /**
+   * Issue the next numeric value at this scope's new edge. The result is `max(0, maxFieldValue,
+   * maxIssuedThisSession) + 1`, where `maxFieldValue` is the largest numeric field value in the
+   * current scope snapshot and `maxIssuedThisSession` is the largest value previously issued for
+   * this model, scope key, and field in this runtime session. `resetRuntime` clears issued values;
+   * `scopeValue` must be non-nullish.
+   *
+   * @param scopeValue Concrete scope instance receiving the optimistic row.
+   * @param field Stored numeric field used for the scope ordering floor.
+   * @returns The next strictly monotonic optimistic sequence value.
+   */
+  issueSequence(scopeValue: TScope, field: keyof TStored & string): number;
   /**
    * Seed dev/test rows and replace this scope's explicit membership in the provided order.
    * Rows still normalize and upsert through the journalled apply pipeline, including automatic
@@ -842,6 +860,20 @@ export const defineModel = <
         const scopeKey = keyForScope(scopeName, scopeValue);
         planes().scopeIndex.noteAccess(scopeKey);
         return scopeSortedRows(scopeName, scopeValue);
+      },
+      issueSequence: (scopeValue: unknown, field: keyof Stored & string) => {
+        if (scopeValue == null) throw new Error(`${config.name}.${scopeName}.issueSequence requires a scope value`);
+        const scopeKey = keyForScope(scopeName, scopeValue);
+        planes().scopeIndex.noteAccess(scopeKey);
+        const maxFieldValue = scopeSortedRows(scopeName, scopeValue).reduce((maximum, row) => {
+          const value = row[field];
+          return typeof value === 'number' && value > maximum ? value : maximum;
+        }, 0);
+        const issuedKey = `${config.id}\0${scopeKey}\0${field}`;
+        const maxIssuedThisSession = issuedScopeSequenceByKey.get(issuedKey) ?? 0;
+        const next = Math.max(maxFieldValue, maxIssuedThisSession) + 1;
+        issuedScopeSequenceByKey.set(issuedKey, next);
+        return next;
       },
       seed: (scopeValue: unknown, rows: Input[]) => {
         const liveRows = rows

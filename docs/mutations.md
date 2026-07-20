@@ -90,6 +90,21 @@ server-created node; the temp row is replaced by it in the same transaction as a
 row onto the committed server row before it lands - use it for fields the server response does not
 carry, like `localEcho` above.
 
+**Ordering at the new edge.** For a comparator-sorted scope such as a newest-first message thread,
+build an optimistic row with `issueSequence` instead of maintaining a preview-derived counter. The
+scope snapshot contributes the current local maximum, while the scope handle preserves monotonic
+values for an uncommitted burst:
+
+```ts
+build: (input: SendMessageInput, ctx) => ({
+  id: ctx.tempId!,
+  chatId: input.chatId,
+  text: input.text,
+  createdAt: new Date().toISOString(),
+  sequenceNumber: MessageModel.scopes.thread.issueSequence({ chatId: input.chatId }, 'sequenceNumber')
+})
+```
+
 **Respond variant.** `respond(input, { tempId, operationId })` fabricates a full `TData` response -
 shaped exactly like the real mutation response, keyed under the same `result` field - instead of
 building one row. The fabricated response is run through the SAME plan builder later used for the

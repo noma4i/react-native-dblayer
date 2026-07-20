@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
+import { belongsTo, configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/MessageModel.ts: thread scope by chatId, custom comparator
@@ -34,8 +34,7 @@ const isNewerThanChatPreview = (message: MessageRow, chat: ChatRow): boolean =>
     sequenceNumber: chat.lastSequenceNumber
   }) < 0;
 
-const createModels = (suffix: string) => {
-  const issuedSequenceByChat = new Map<string, number>();
+const createModels = (suffix: string, options?: { threadRetention?: number }) => {
   const chats = defineModel({
     id: `SpecConsumerChatsThread${suffix}`,
     name: `SpecConsumerChatsThread${suffix}`,
@@ -70,34 +69,39 @@ const createModels = (suffix: string) => {
       })
     }),
     scopes: {
-      thread: scope<MessageRow>({ by: { chatId: 'chatId' }, sort: { comparator: compareNewestFirst } })
+      thread: scope<MessageRow>({
+        by: { chatId: 'chatId' },
+        sort: { comparator: compareNewestFirst },
+        retention: options?.threadRetention == null ? undefined : { maxRows: options.threadRetention }
+      })
     }
   });
-  const nextOptimisticSequence = (chatId: string): number => {
-    const lastKnown = chats.get(chatId)?.lastSequenceNumber ?? 0;
-    const issued = issuedSequenceByChat.get(chatId) ?? 0;
-    const next = Math.max(lastKnown, issued) + 1;
-    issuedSequenceByChat.set(chatId, next);
-    return next;
-  };
-  return { chats, messages, nextOptimisticSequence };
+  return { chats, messages };
 };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
 describe('thread send consumer contracts', () => {
-  it('optimistic send inserts the temp row at the top of the thread scope, newest-first', () => {
+  it('issues above the local thread maximum when the chat preview is stale, before commit', () => {
     setupSpecRuntime();
     const { chats, messages } = createModels('Insert');
-    chats.insertStored({ id: 'chat-1', unreadCount: 0, lastActivityAt: 1, lastMessageId: 'm-old', lastMessageAt: new Date(1000).toISOString(), lastSequenceNumber: 5 });
+    chats.insertStored({ id: 'chat-1', unreadCount: 0, lastActivityAt: 1, lastMessageId: 'm-old', lastMessageAt: new Date(1000).toISOString(), lastSequenceNumber: 3 });
     messages.insertStored({ id: 'm-old', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'older', createdAt: new Date(1000).toISOString(), sequenceNumber: 5 });
+    messages.insertStored({ id: 'm-new', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'newest', createdAt: new Date(2000).toISOString(), sequenceNumber: 10 });
 
     const reader = renderCounted(() => messages.scopes.thread.use({ chatId: 'chat-1' }));
     act(() => {
-      messages.insertStored({ id: 'temp-1', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'hi', createdAt: new Date().toISOString(), sequenceNumber: 6 });
+      messages.insertStored({
+        id: 'temp-1',
+        chatId: 'chat-1',
+        userId: CURRENT_USER_ID,
+        body: 'hi',
+        createdAt: new Date().toISOString(),
+        sequenceNumber: messages.scopes.thread.issueSequence({ chatId: 'chat-1' }, 'sequenceNumber')
+      });
     });
 
-    expect(reader.result().map(row => row.id)).toEqual(['temp-1', 'm-old']);
+    expect(reader.result().map(row => row.id)).toEqual(['temp-1', 'm-new', 'm-old']);
     reader.unmount();
   });
 
@@ -109,7 +113,7 @@ describe('thread send consumer contracts', () => {
         }) as { data: TData }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const { chats, messages, nextOptimisticSequence } = createModels('Swap');
+    const { chats, messages } = createModels('Swap');
     chats.insertStored({ id: 'chat-1', unreadCount: 0, lastActivityAt: 1, lastMessageId: 'm-old', lastMessageAt: new Date(1000).toISOString(), lastSequenceNumber: 5 });
     messages.insertStored({ id: 'm-old', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'older', createdAt: new Date(1000).toISOString(), sequenceNumber: 5 });
 
@@ -125,7 +129,7 @@ describe('thread send consumer contracts', () => {
           userId: CURRENT_USER_ID,
           body: input.text,
           createdAt: new Date().toISOString(),
-          sequenceNumber: nextOptimisticSequence(input.chatId)
+          sequenceNumber: messages.scopes.thread.issueSequence({ chatId: input.chatId }, 'sequenceNumber')
         }),
         selectServerNode: data => data.messageSend.message
       }
@@ -151,19 +155,58 @@ describe('thread send consumer contracts', () => {
     reader.unmount();
   });
 
-  it('keeps two optimistic sends in send order among server rows (sequence floors)', () => {
+  it('issues strictly increasing values for a burst before any optimistic row applies', () => {
     setupSpecRuntime();
-    const { chats, messages, nextOptimisticSequence } = createModels('Burst');
+    const { chats, messages } = createModels('Burst');
     chats.insertStored({ id: 'chat-1', unreadCount: 0, lastActivityAt: 1, lastMessageId: 'm-old', lastMessageAt: new Date(1000).toISOString(), lastSequenceNumber: 5 });
     messages.insertStored({ id: 'm-old', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'older', createdAt: new Date(1000).toISOString(), sequenceNumber: 5 });
 
     const sameInstant = new Date(9999).toISOString();
+    const issued = [
+      messages.scopes.thread.issueSequence({ chatId: 'chat-1' }, 'sequenceNumber'),
+      messages.scopes.thread.issueSequence({ chatId: 'chat-1' }, 'sequenceNumber'),
+      messages.scopes.thread.issueSequence({ chatId: 'chat-1' }, 'sequenceNumber')
+    ];
+    expect(issued).toEqual([6, 7, 8]);
     act(() => {
-      messages.insertStored({ id: 'temp-1', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'first', createdAt: sameInstant, sequenceNumber: nextOptimisticSequence('chat-1') });
-      messages.insertStored({ id: 'temp-2', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'second', createdAt: sameInstant, sequenceNumber: nextOptimisticSequence('chat-1') });
+      messages.insertStored({ id: 'temp-1', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'first', createdAt: sameInstant, sequenceNumber: issued[0] });
+      messages.insertStored({ id: 'temp-2', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'second', createdAt: sameInstant, sequenceNumber: issued[1] });
+      messages.insertStored({ id: 'temp-3', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'third', createdAt: sameInstant, sequenceNumber: issued[2] });
     });
 
-    expect(messages.scopes.thread.read({ chatId: 'chat-1' }).map(row => row.id)).toEqual(['temp-2', 'temp-1', 'm-old']);
+    expect(messages.scopes.thread.read({ chatId: 'chat-1' }).map(row => row.id)).toEqual(['temp-3', 'temp-2', 'temp-1', 'm-old']);
+  });
+
+  it('clears issued values on resetRuntime and recomputes from the restored scope rows', () => {
+    setupSpecRuntime();
+    const { messages } = createModels('Reset');
+    messages.insertStored({ id: 'm-10', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'latest', createdAt: new Date(10000).toISOString(), sequenceNumber: 10 });
+
+    expect(messages.scopes.thread.issueSequence({ chatId: 'chat-1' }, 'sequenceNumber')).toBe(11);
+    resetRuntime();
+    messages.insertStored({ id: 'm-10', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'latest', createdAt: new Date(10000).toISOString(), sequenceNumber: 10 });
+
+    expect(messages.scopes.thread.issueSequence({ chatId: 'chat-1' }, 'sequenceNumber')).toBe(11);
+  });
+
+  it('rejects a nullish scope value before issuing a sequence', () => {
+    setupSpecRuntime();
+    const { messages } = createModels('Nullish');
+
+    expect(() => messages.scopes.thread.issueSequence(null as never, 'sequenceNumber')).toThrow('requires a scope value');
+  });
+
+  it('keeps the issued maximum after scope retention trims rows below it', () => {
+    setupSpecRuntime();
+    const { messages } = createModels('Trim', { threadRetention: 1 });
+    const scopeValue = { chatId: 'chat-1' };
+    messages.insertStored({ id: 'm-10', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'latest', createdAt: new Date(10000).toISOString(), sequenceNumber: 10 });
+    const first = messages.scopes.thread.issueSequence(scopeValue, 'sequenceNumber');
+    messages.insertStored({ id: 'temp-11', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'optimistic', createdAt: new Date(11000).toISOString(), sequenceNumber: first });
+    messages.scopes.thread.seed(scopeValue, [{ id: 'm-10', chatId: 'chat-1', userId: CURRENT_USER_ID, body: 'latest', createdAt: new Date(10000).toISOString(), sequenceNumber: 10 }]);
+
+    expect(messages.scopes.thread.read(scopeValue).map(row => row.id)).toEqual(['m-10']);
+    expect(messages.scopes.thread.issueSequence(scopeValue, 'sequenceNumber')).toBe(12);
   });
 
   it('increments chat.unreadCount for an incoming other-user message, not for an own message', () => {

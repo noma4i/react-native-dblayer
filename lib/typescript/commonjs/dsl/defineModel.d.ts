@@ -118,6 +118,18 @@ export type ScopeHandle<TStored extends {
     /** Synchronous snapshot read of the scope's rows, in sort order; safe to call outside React. */
     read(scopeValue: TScope): TStored[];
     /**
+     * Issue the next numeric value at this scope's new edge. The result is `max(0, maxFieldValue,
+     * maxIssuedThisSession) + 1`, where `maxFieldValue` is the largest numeric field value in the
+     * current scope snapshot and `maxIssuedThisSession` is the largest value previously issued for
+     * this model, scope key, and field in this runtime session. `resetRuntime` clears issued values;
+     * `scopeValue` must be non-nullish.
+     *
+     * @param scopeValue Concrete scope instance receiving the optimistic row.
+     * @param field Stored numeric field used for the scope ordering floor.
+     * @returns The next strictly monotonic optimistic sequence value.
+     */
+    issueSequence(scopeValue: TScope, field: keyof TStored & string): number;
+    /**
      * Seed dev/test rows and replace this scope's explicit membership in the provided order.
      * Rows still normalize and upsert through the journalled apply pipeline, including automatic
      * membership. Production data flows should use queries, mutations, or ingest instead.
