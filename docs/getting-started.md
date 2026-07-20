@@ -104,6 +104,10 @@ matching `QueryClientProvider`; `Model.query`/`defineFetch` hooks read it from t
 (defaults `baseMs: 1000`, `maxMs: 30000`, exponential in between). Omitting `classify` disables
 retries entirely for that half; a `'fatal'` classification never retries regardless of budget.
 
+Query and fetch `loadingState` exposes `isRetrying`, `retryAttempt`, and `isOffline`, so a screen
+can render retry or offline state and call `refetch()` for a manual retry. See
+[queries.md](./queries.md#loading-state) for the full state contract.
+
 ## `onSyncError` policy
 
 `onSyncError` is called for a caught failure in exactly one of three independent pipelines. It

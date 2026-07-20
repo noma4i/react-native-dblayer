@@ -159,7 +159,7 @@ internally from the current fetch phase and whether `data` has rows:
 
 | Field                  | Type                                                                                                                  | True when                                                                         |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `phase`                | `LoadingPhase` (`'idle' \| 'hydrating' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) | The underlying fetch state machine's current phase.                               |
+| `phase`                | `LoadingPhase` (`'idle' \| 'initial_loading' \| 'ready' \| 'refreshing' \| 'loading_more' \| 'error'`) | The underlying fetch state machine's current phase.                               |
 | `hasData`              | `boolean`                                                                                                             | `data` has at least one row (array results) or is defined (single results).       |
 | `isReady`              | `boolean`                                                                                                             | The UI can show ready data - `hasData` and not in an error/initial-loading phase. |
 | `showSkeleton`         | `boolean`                                                                                                             | The initial empty-and-loading state - show a skeleton, not a spinner.             |
@@ -168,6 +168,13 @@ internally from the current fetch phase and whether `data` has rows:
 | `showRefreshIndicator` | `boolean`                                                                                                             | A pull/refresh indicator should be visible (refetch of already-loaded data).      |
 | `showFooterSpinner`    | `boolean`                                                                                                             | `phase === 'loading_more'` - a pagination footer spinner should be visible.       |
 | `showErrorBanner`      | `boolean`                                                                                                             | A non-blocking error banner should be visible alongside stale data.               |
+| `isRetrying`           | `boolean`                                                                                                             | A failed request is being retried (`retryAttempt > 0` while fetching).            |
+| `retryAttempt`         | `number`                                                                                                              | Consecutive failed fetch attempts for the current request (`react-query` `failureCount`). |
+| `isOffline`            | `boolean`                                                                                                             | The request is paused because the network is offline.                              |
+
+`showEmptyState` is terminal: it is true only after a completed empty fetch. It is false during
+idle, initial loading, retry, an offline pause, or an imminent refetch after committed rows
+disappear. Choose empty versus loading UI from `showEmptyState`, never from raw row count.
 
 ## Error surfacing
 
