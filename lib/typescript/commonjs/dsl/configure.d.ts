@@ -35,6 +35,12 @@ export interface DbDefaults {
     refetchOnReconnect?: boolean;
     /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
     refetchOnMount?: boolean;
+    /**
+     * Foreground-resume freshness window (ms). When the app returns to the active AppState, every db
+     * query whose data is older than this window is invalidated (active hooks refetch immediately,
+     * inactive cache entries refetch on next mount). `null` disables resume invalidation. Default 60000.
+     */
+    resumeStaleTime?: number | null;
     /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
     persistence?: {
         checkpointDelayMs?: number;
@@ -65,9 +71,12 @@ export type ConfigureDbOptions = {
     logger?: DbLogger;
     defaults?: DbDefaults;
 };
-type RuntimeConfig = Omit<ConfigureDbOptions, 'storage'> & {
+type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults'> & {
     storage: StoragePlane;
     queryClient: QueryClient;
+    defaults: DbDefaults & {
+        resumeStaleTime: number | null;
+    };
 };
 /**
  * Configure the injected runtime seams (transport, storage, logger) and package-wide

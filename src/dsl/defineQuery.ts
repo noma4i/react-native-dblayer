@@ -12,6 +12,7 @@ import { getDbLogger } from '../core/logger';
 import type { ScopeHandle } from './defineModel';
 import type { ScopeCoverage } from './scope';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
+import { registerReset } from '../core/reset';
 
 type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
 type ConnectionLike = { nodes?: unknown[]; edges?: Array<{ node?: unknown } & Record<string, unknown>>; pageInfo?: PageInfoLike };
@@ -80,6 +81,11 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
   /** Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled. */
   enabled?: (scope: TScope) => boolean;
   /** Freshness window (ms) before a scope with data is considered stale and refetched. Passed to TanStack Query unchanged. */
+  /**
+   * A query whose most recently committed destination rows no longer survive becomes stale regardless of this
+   * value. Survival is checked only at TanStack staleness evaluation points (mount, invalidation, resume), so a
+   * mounted reactive read becomes a miss immediately after destruction but refetches at the next such evaluation.
+   */
   staleTime?: number;
   /** Freshness window (ms) used instead of `staleTime` only when the last fetch for a scope returned zero rows. */
   emptyStaleTime?: number;
@@ -100,6 +106,12 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
 };
 
 type PageMeta = { endCursor: string | null; hasNextPage: boolean; count: number };
+
+const committedRowIdsByQueryScope = new Map<string, string[]>();
+
+registerReset(() => {
+  committedRowIdsByQueryScope.clear();
+});
 
 const operationKey = (document: DbGraphQLDocument<any, any>, override?: string): string => {
   if (override) return override;
@@ -139,6 +151,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
   const keyName = operationKey(config.document, config.key);
   const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
   const registeredScopes = new Map<string, TScope>();
+  const committedRowsKey = (scopeKey: string): string => `${keyName}\0${scopeKey}`;
   const registerScope = (scope: TScope): void => {
     registeredScopes.set(buildScopeKey(scope), scope);
   };
@@ -148,6 +161,22 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
   };
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
+  const committedIdsOf = (rows: unknown[]): string[] => rows.flatMap(row => (isRecord(row) && typeof row.id === 'string' ? [row.id] : []));
+  const recordCommittedRows = (scope: TScope, resetOrder: boolean, ids: string[]): void => {
+    const key = committedRowsKey(buildScopeKey(scope));
+    committedRowIdsByQueryScope.set(key, resetOrder ? [...new Set(ids)] : [...new Set([...(committedRowIdsByQueryScope.get(key) ?? []), ...ids])]);
+  };
+  const rowsSurvive = (scopeKey: string): boolean => {
+    const ids = committedRowIdsByQueryScope.get(committedRowsKey(scopeKey));
+    if (!ids || ids.length === 0) return true;
+    if (isScopeDestination(config.into)) {
+      const scope = registeredScopes.get(scopeKey);
+      if (scope === undefined) return true;
+      const survivingIds = new Set(getInternalScopeHandle(config.into).readRows(scope).map(row => row.id));
+      return ids.some(id => survivingIds.has(id));
+    }
+    return ids.some(id => getInternalModelHandle(config.into).readRow(id) !== undefined);
+  };
 
   const pageMetaOf = (connection: ConnectionLike | null): PageMeta => {
     if (!connection) return { endCursor: null, hasNextPage: false, count: 0 };
@@ -165,16 +194,20 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     const pairs = nodePairsOf(mapped);
     const nodes = pairs.map(pair => pair.node);
     const ops: JournalOp[] = [];
+    let committedIds: string[];
     if (isScopeDestination(config.into)) {
       const scopeRows = pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) }));
       ops.push(...getInternalScopeHandle(config.into).planApply(scope, scopeRows, coverage, { resetOrder }));
+      committedIds = committedIdsOf(scopeRows.map(scopeRow => scopeRow.row));
     } else {
       ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], { includeMembership: true }));
+      committedIds = committedIdsOf(nodes);
     }
     for (const sink of config.extract?.({ data, nodes }) ?? []) {
       ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows, { includeMembership: true }));
     }
     if (ops.length > 0) getApplyRuntime().apply(ops);
+    recordCommittedRows(scope, resetOrder, committedIds);
     return pageMetaOf(config.page ? config.page(data) : null);
   };
 
@@ -223,12 +256,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     return (data as PageMeta).count === 0;
   };
 
-  const resolveStaleTime = (): number | ((query: { state: { data: unknown } }) => number) => {
+  const resolveStaleTime = (): ((query: { queryKey: readonly unknown[]; state: { data: unknown } }) => number) => {
     const defaults = getDbRuntimeConfig().defaults;
     const base = config.staleTime ?? defaults?.staleTime ?? 0;
     const empty = config.emptyStaleTime ?? defaults?.emptyStaleTime;
-    if (empty == null) return base;
-    return query => (isEmptyMeta(query.state.data) ? empty : base);
+    return query => {
+      const scopeKey = query.queryKey[2];
+      if (typeof scopeKey === 'string' && !rowsSurvive(scopeKey)) return 0;
+      return empty != null && isEmptyMeta(query.state.data) ? empty : base;
+    };
   };
 
   const useDestinationRows: (scope: TScope) => TStored[] | undefined = isScopeDestination(config.into)

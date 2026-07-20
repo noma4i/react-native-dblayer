@@ -42,6 +42,12 @@ export interface DbDefaults {
   refetchOnReconnect?: boolean;
   /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
   refetchOnMount?: boolean;
+  /**
+   * Foreground-resume freshness window (ms). When the app returns to the active AppState, every db
+   * query whose data is older than this window is invalidated (active hooks refetch immediately,
+   * inactive cache entries refetch on next mount). `null` disables resume invalidation. Default 60000.
+   */
+  resumeStaleTime?: number | null;
   /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
   persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
   /**
@@ -56,7 +62,7 @@ export interface DbDefaults {
 }
 
 export type ConfigureDbOptions = { transport: DbTransport; storage?: StoragePlane; logger?: DbLogger; defaults?: DbDefaults };
-type RuntimeConfig = Omit<ConfigureDbOptions, 'storage'> & { storage: StoragePlane; queryClient: QueryClient };
+type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults'> & { storage: StoragePlane; queryClient: QueryClient; defaults: DbDefaults & { resumeStaleTime: number | null } };
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
@@ -89,7 +95,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   runtimeConfig?.queryClient.clear();
   runtimeGeneration += 1;
   replayCompleted = false;
-  const defaults = options.defaults;
+  const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
   const retryOptions = (policy: DbRetryPolicy | undefined) => ({
     retry: policy?.classify
       ? (failureCount: number, error: unknown) => {
@@ -117,7 +123,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
       mutations: { ...retryOptions(defaults?.retry?.mutation), networkMode }
     }
   });
-  runtimeConfig = { ...options, storage: options.storage ?? mmkvStoragePlane(), queryClient };
+  runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), queryClient };
   applyRuntime = null;
   operationState = null;
   checkpointScheduler?.cancel();
@@ -137,7 +143,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
     collectionRegistryResetRegistered = true;
   }
   stopMaintenanceScheduler?.();
-  stopMaintenanceScheduler = options.defaults?.inSessionGc === false ? null : startMaintenanceScheduler(options.defaults?.inSessionGc);
+  stopMaintenanceScheduler = defaults.inSessionGc === false ? null : startMaintenanceScheduler(defaults.inSessionGc);
   if (!maintenanceSchedulerResetRegistered) {
     registerReset(() => {
       stopMaintenanceScheduler?.();

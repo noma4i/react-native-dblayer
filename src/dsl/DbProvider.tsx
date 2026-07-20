@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider } from '@tanstack/react-query';
-import { getInternalQueryClient } from './configure';
+import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
 import { bootDb, suspendDb, type BootDbOptions } from './lifecycle';
 
 export type DbProviderProps = {
@@ -21,6 +21,7 @@ export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
   const [booted, setBooted] = useState(false);
   const queryClient = getInternalQueryClient();
   const bootPromise = useRef<ReturnType<typeof bootDb> | null>(null);
+  const previousAppState = useRef(AppState.currentState);
 
   useEffect(() => {
     let mounted = true;
@@ -36,12 +37,21 @@ export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
   useEffect(() => {
     focusManager.setFocused(AppState.currentState === 'active');
     const subscription = AppState.addEventListener('change', state => {
+      const previousState = previousAppState.current;
       if (state === 'active') {
         focusManager.setFocused(true);
+        const resumeStaleTime = getDbRuntimeConfig().defaults.resumeStaleTime;
+        if ((previousState === 'background' || previousState === 'inactive') && resumeStaleTime !== null) {
+          void queryClient.invalidateQueries({
+            predicate: query => query.queryKey[0] === 'dbl' && Date.now() - query.state.dataUpdatedAt > resumeStaleTime,
+            refetchType: 'active'
+          });
+        }
       } else if (state === 'background') {
         focusManager.setFocused(false);
         suspendDb();
       }
+      previousAppState.current = state;
     });
     return () => subscription.remove();
   }, []);

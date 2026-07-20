@@ -1244,6 +1244,7 @@ export const defineModel = <
     }
   };
   registerInternalModelHandle(model, {
+    readRow: id => planes().entityState.read(id),
     applyRows: rows => applySnapshot(planRows(rows)),
     planRows,
     planReplace,

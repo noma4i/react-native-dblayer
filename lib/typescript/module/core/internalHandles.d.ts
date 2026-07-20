@@ -2,6 +2,10 @@ import type { JournalOp } from './apply/journal';
 import type { RelationDecl } from './relations';
 import type { ScopeCoverage } from '../dsl/scope';
 export type InternalModelHandle = {
+    readRow(id: string): {
+        id: string;
+        [key: string]: unknown;
+    } | undefined;
     applyRows(rows: unknown[]): void;
     planRows(rows: unknown[], options?: {
         includeMembership?: boolean;

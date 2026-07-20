@@ -84,6 +84,11 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
     /** Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled. */
     enabled?: (scope: TScope) => boolean;
     /** Freshness window (ms) before a scope with data is considered stale and refetched. Passed to TanStack Query unchanged. */
+    /**
+     * A query whose most recently committed destination rows no longer survive becomes stale regardless of this
+     * value. Survival is checked only at TanStack staleness evaluation points (mount, invalidation, resume), so a
+     * mounted reactive read becomes a miss immediately after destruction but refetches at the next such evaluation.
+     */
     staleTime?: number;
     /** Freshness window (ms) used instead of `staleTime` only when the last fetch for a scope returned zero rows. */
     emptyStaleTime?: number;

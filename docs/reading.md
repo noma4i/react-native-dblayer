@@ -9,6 +9,7 @@ page: [queries.md](./queries.md).
 ## Contents
 
 - [Snapshot vs reactive reads](#snapshot-vs-reactive-reads)
+- [Query freshness and row survival](#query-freshness-and-row-survival)
 - [`use.where` chainable builder](#usewhere-chainable-builder)
 - [Required fields](#required-fields)
 - [Projections: `select` and `renderKeys`](#projections-select-and-renderkeys)
@@ -37,6 +38,10 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 | `use.related` | `(id, relationName, opts?) => unknown`                                          | Reactive read through a declared relation (see [models.md](./models.md#relations)); same `select`/`renderKeys` projection options. |
 
 `DbWhere<T>` is `Partial<T>` or a composed `{ and }` / `{ or }` / `{ not }` predicate tree.
+
+## Query freshness and row survival
+
+`Model.query` freshness also requires that at least one row committed by its most recent primary-destination fetch still survives. If every committed row has been removed, the query is stale regardless of `staleTime` and refetches at its next TanStack staleness evaluation, such as remount, invalidation, or foreground resume; an already mounted reactive read becomes a miss immediately but is not proactively refetched until one of those evaluations.
 
 ## `use.where` chainable builder
 
