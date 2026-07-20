@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
+import { useEffect, useRef } from 'react';
 import type { DbGraphQLDocument, DbReadOptions, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import type { JournalOp } from '../core/apply/journal';
@@ -185,10 +186,18 @@ const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => typ
  * runs one fetch outside React. `invalidate(scope?)` clears the React Query cache for one scope, or every
  * registered scope when `scope` is omitted.
  */
-export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>): QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope> => {
+export const defineQuery = <TResponse, TVars, TScope, TStored>(
+  config: QueryConfig<TResponse, TVars, TScope, TStored>
+): QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope> => {
   const keyName = operationKey(config.document, config.key);
   const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
   const registeredScopes = new Map<string, TScope>();
+  const issuedResetSeqByScope = new Map<string, number>();
+  const appliedResetSeqByScope = new Map<string, number>();
+  registerReset(() => {
+    issuedResetSeqByScope.clear();
+    appliedResetSeqByScope.clear();
+  });
   const committedRowsKey = (scopeKey: string): string => `${keyName}\0${scopeKey}`;
   const registerScope = (scope: TScope): void => {
     registeredScopes.set(buildScopeKey(scope), scope);
@@ -199,7 +208,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
   };
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
-  const committedIdsOf = (rows: unknown[]): string[] => rows.flatMap(row => (isRecord(row) && typeof row.id === 'string' ? [row.id] : []));
+  const committedIdsOf = (rows: unknown[]): string[] => rows.flatMap(row => (isRecord(row) && row.id != null ? [String(row.id)] : []));
   const recordCommittedRows = (scope: TScope, resetOrder: boolean, ids: string[]): void => {
     const key = committedRowsKey(buildScopeKey(scope));
     committedRowIdsByQueryScope.set(key, resetOrder ? [...new Set(ids)] : [...new Set([...(committedRowIdsByQueryScope.get(key) ?? []), ...ids])]);
@@ -262,6 +271,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       ...((config.vars?.(scope) ?? {}) as Record<string, unknown>),
       ...(cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(cursor) : cursor } : {})
     };
+    const isReset = cursor == null;
+    const scopeKey = buildScopeKey(scope);
+    let issueSeq: number;
+    if (isReset) {
+      issueSeq = (issuedResetSeqByScope.get(scopeKey) ?? 0) + 1;
+      issuedResetSeqByScope.set(scopeKey, issueSeq);
+    } else {
+      issueSeq = issuedResetSeqByScope.get(scopeKey) ?? 0;
+    }
     const generationFence = createGenerationFence();
     let data: TResponse;
     try {
@@ -276,6 +294,13 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       throw error;
     }
     if (!generationFence.isCurrent()) return { endCursor: null, hasNextPage: false, count: 0 };
+    const appliedReset = appliedResetSeqByScope.get(scopeKey) ?? 0;
+    if (isReset) {
+      if (issueSeq < appliedReset) return { endCursor: null, hasNextPage: false, count: 0 };
+      appliedResetSeqByScope.set(scopeKey, issueSeq);
+    } else if (issueSeq < (issuedResetSeqByScope.get(scopeKey) ?? 0)) {
+      return { endCursor: null, hasNextPage: false, count: 0 };
+    }
     return applyResponse(scope, data, cursor == null, resurrectDestroyed);
   };
 
@@ -328,6 +353,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     flags: {
       enabled: boolean;
       isFetching: boolean;
+      committedRowsDied: boolean;
+      isPaused: boolean;
+      retryAttempt: number;
       isRefetching: boolean;
       isFetchingNextPage: boolean;
       isFetched: boolean;
@@ -338,20 +366,22 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     }
   ): QueryResult<TStored> => {
     const hasData = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
-    const phase = computePhase({
+    const phaseInput = {
       isInactive: !flags.enabled && !hasData,
-      isRestoring: false,
-      isSyncReady: true,
       isFetching: flags.isFetching,
+      committedRowsDied: flags.committedRowsDied,
+      isPaused: flags.isPaused,
+      retryAttempt: flags.retryAttempt,
       hasData,
       isRefreshing: flags.isRefetching || (flags.isFetching && hasData && !flags.isFetchingNextPage),
       isFetchingNextPage: flags.isFetchingNextPage,
       isError: flags.error != null,
       hasFetchedData: flags.isFetched
-    });
+    };
+    const phase = computePhase(phaseInput);
     return {
       data: rows,
-      loadingState: computeLoadingState(phase, hasData),
+      loadingState: computeLoadingState(phase, phaseInput),
       error: flags.error,
       hasNextPage: flags.hasNextPage,
       isFetchingNextPage: flags.isFetchingNextPage,
@@ -375,9 +405,17 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       refetchOnMount: config.refetchOnMount
     });
     const rows = useDestinationRows(scope);
+    const hasRows = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
+    const committedRowsDied = !hasRows && isScopeDestination(config.into) && !rowsSurvive(buildScopeKey(scope));
+    useEffect(() => {
+      if (committedRowsDied && !request.isFetching) void request.refetch();
+    }, [committedRowsDied, request.isFetching]);
     return buildResult(rows, {
       enabled,
       isFetching: request.isFetching,
+      committedRowsDied,
+      isPaused: request.fetchStatus === 'paused',
+      retryAttempt: request.failureCount ?? 0,
       isRefetching: request.isRefetching,
       isFetchingNextPage: request.isFetchingNextPage,
       isFetched: request.isFetched,
@@ -404,9 +442,17 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       refetchOnMount: config.refetchOnMount
     });
     const rows = useDestinationRows(scope);
+    const hasRows = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
+    const committedRowsDied = !hasRows && isScopeDestination(config.into) && !rowsSurvive(buildScopeKey(scope));
+    useEffect(() => {
+      if (committedRowsDied && !request.isFetching) void request.refetch();
+    }, [committedRowsDied, request.isFetching]);
     return buildResult(rows, {
       enabled,
       isFetching: request.isFetching,
+      committedRowsDied,
+      isPaused: request.fetchStatus === 'paused',
+      retryAttempt: request.failureCount ?? 0,
       isRefetching: request.isRefetching,
       isFetchingNextPage: false,
       isFetched: request.isFetched,
@@ -429,7 +475,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
     readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }
   ): EnsuredRowResult<TStored> => {
     const row = destination.use.row(rowId, readOpts);
-    const enabled = (config.enabled?.(scope) ?? true) && rowId != null && row === undefined;
+    const present = row !== undefined;
+    const enabled = (config.enabled?.(scope) ?? true) && rowId != null && !present;
     const request = useQuery({
       queryKey: queryKeyOf(scope),
       enabled,
@@ -438,21 +485,37 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(config: QueryConf
       gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
       refetchOnMount: config.refetchOnMount
     });
-    const hasData = row !== undefined;
-    const phase = computePhase({
+    const ensureKey = `${buildScopeKey(scope)}\0${rowId ?? ''}`;
+    const refetchedForAbsenceRef = useRef(false);
+    const ensureKeyRef = useRef(ensureKey);
+    if (ensureKeyRef.current !== ensureKey) {
+      ensureKeyRef.current = ensureKey;
+      refetchedForAbsenceRef.current = false;
+    }
+    if (present) refetchedForAbsenceRef.current = false;
+    useEffect(() => {
+      if (enabled && request.isFetched && !request.isFetching && !refetchedForAbsenceRef.current) {
+        refetchedForAbsenceRef.current = true;
+        void request.refetch();
+      }
+    }, [enabled, ensureKey, request.isFetched, request.isFetching]);
+    const hasData = present;
+    const phaseInput = {
       isInactive: !enabled && !hasData,
-      isRestoring: false,
-      isSyncReady: true,
       isFetching: request.isFetching,
+      committedRowsDied: false,
+      isPaused: request.fetchStatus === 'paused',
+      retryAttempt: request.failureCount ?? 0,
       hasData,
       isRefreshing: false,
       isFetchingNextPage: false,
       isError: request.error != null,
       hasFetchedData: request.isFetched || request.isSuccess || request.data !== undefined
-    });
+    };
+    const phase = computePhase(phaseInput);
     return {
       row,
-      loadingState: computeLoadingState(phase, hasData),
+      loadingState: computeLoadingState(phase, phaseInput),
       error: (request.error as Error | null) ?? null,
       refetch: async () => {
         await request.refetch();

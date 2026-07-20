@@ -77,7 +77,7 @@ export interface DbReadOptions<T> {
     limit?: number;
 }
 /** UI loading-state phase. */
-export type LoadingPhase = 'idle' | 'hydrating' | 'initial_loading' | 'ready' | 'refreshing' | 'loading_more' | 'error';
+export type LoadingPhase = 'idle' | 'initial_loading' | 'ready' | 'refreshing' | 'loading_more' | 'error';
 /** UI state machine derived from query and collection state. */
 export type LoadingState = {
     /** Current loading phase. */
@@ -98,16 +98,24 @@ export type LoadingState = {
     showFooterSpinner: boolean;
     /** Whether a non-blocking error banner should be visible. */
     showErrorBanner: boolean;
+    /** Whether an automatic retry attempt is currently in flight (failureCount > 0 and fetching). */
+    isRetrying: boolean;
+    /** Number of consecutive failed fetch attempts for the current request (react-query failureCount). */
+    retryAttempt: number;
+    /** Whether the request is paused because the device is offline (react-query fetchStatus === 'paused'). */
+    isOffline: boolean;
 };
 export type ComputePhaseInput = {
     /** Whether the owning screen is inactive. */
     isInactive?: boolean;
-    /** Whether persisted data is hydrating. */
-    isRestoring: boolean;
-    /** Whether collection sync is ready. */
-    isSyncReady: boolean;
     /** Whether a query request is in flight. */
     isFetching: boolean;
+    /** Whether the query's previously-committed destination rows have died locally (destroy/GC/trim) and a refetch is imminent - distinct from a genuinely empty completed fetch. */
+    committedRowsDied: boolean;
+    /** Whether the request is paused (offline): react-query fetchStatus === 'paused'. */
+    isPaused: boolean;
+    /** Consecutive failed attempts for the current request: react-query failureCount. */
+    retryAttempt: number;
     /** Whether any data is available. */
     hasData: boolean;
     /** Whether a refresh is in flight. */

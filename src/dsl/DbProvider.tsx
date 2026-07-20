@@ -43,7 +43,7 @@ export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
         const resumeStaleTime = getDbRuntimeConfig().defaults.resumeStaleTime;
         if ((previousState === 'background' || previousState === 'inactive') && resumeStaleTime !== null) {
           void queryClient.invalidateQueries({
-            predicate: query => query.queryKey[0] === 'dbl' && Date.now() - query.state.dataUpdatedAt > resumeStaleTime,
+            predicate: query => (query.queryKey[0] === 'dbl' || query.queryKey[0] === 'dbl-fetch') && Date.now() - query.state.dataUpdatedAt > resumeStaleTime,
             refetchType: 'active'
           });
         }

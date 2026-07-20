@@ -170,7 +170,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
     });
 
     expect(primaryReader.result().map(row => row.id)).toEqual(['p-1']);
-    expect(primaryReader.renders() - before).toBeGreaterThanOrEqual(1);
+    expect(primaryReader.renders() - before).toBe(1);
     expect(primary.get('p-1')?.status).toBe('ready');
 
     primaryReader.unmount();

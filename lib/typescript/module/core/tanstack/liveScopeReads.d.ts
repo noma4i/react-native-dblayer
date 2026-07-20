@@ -6,6 +6,7 @@ type ScopeLiveWindowSnapshot = {
     rows: StoredRowShape[];
     totalCount: number;
     isPreviousData: boolean;
+    resolved: boolean;
 };
 type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & {
     keepPrevious?: boolean;

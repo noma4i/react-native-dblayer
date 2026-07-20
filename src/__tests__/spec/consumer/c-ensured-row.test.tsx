@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
+import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; name: string; status: string; updatedAt: string };
@@ -84,7 +84,12 @@ describe('useRowEnsured', () => {
 
   it('fetches a missing row and materializes it after initial loading', async () => {
     let resolve!: (value: { data: Response }) => void;
-    const transport = createMockTransport({ query: <TData,>() => new Promise<{ data: TData }>(promiseResolve => { resolve = promiseResolve as unknown as (value: { data: Response }) => void; }) });
+    const transport = createMockTransport({
+      query: <TData,>() =>
+        new Promise<{ data: TData }>(promiseResolve => {
+          resolve = promiseResolve as unknown as (value: { data: Response }) => void;
+        })
+    });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createRowsModel('EnsuredMiss');
     const query = createDetailQuery(rows, 'ensured-miss');
@@ -104,32 +109,28 @@ describe('useRowEnsured', () => {
     reader.unmount();
   });
 
-  it('shows empty state only after a null detail response settles', async () => {
-    let resolve!: (value: { data: Response }) => void;
-    const transport = createMockTransport({ query: <TData,>() => new Promise<{ data: TData }>(promiseResolve => { resolve = promiseResolve as unknown as (value: { data: Response }) => void; }) });
+  it('settles a genuinely absent row without refetching in a loop', async () => {
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: null } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createRowsModel('EnsuredEmpty');
     const query = createDetailQuery(rows, 'ensured-empty');
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'missing' }, 'missing'));
 
     await settle();
-    expect(reader.result().loadingState.showEmptyState).toBe(false);
-    expect(reader.result().loadingState.phase).toBe('initial_loading');
-    await act(async () => {
-      resolve({ data: { detail: null } });
-      await Promise.resolve();
-    });
     await settle();
 
     expect(reader.result().row).toBeUndefined();
-    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls).toHaveLength(2);
     expect(reader.result().loadingState.phase).toBe('ready');
+    expect(reader.result().loadingState.showEmptyState).toBe(true);
     reader.unmount();
   });
 
   it('recovers a destroyed row on remount even with staleTime Infinity', async () => {
     let calls = 0;
-    const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: { id: `row-${++calls}`, name: 'Server', status: 'ready', updatedAt: `2026-07-20T00:00:0${calls}Z` } } as TData }) });
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { detail: { id: `row-${++calls}`, name: 'Server', status: 'ready', updatedAt: `2026-07-20T00:00:0${calls}Z` } } as TData })
+    });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createRowsModel('EnsuredRemount');
     const query = createDetailQuery(rows, 'ensured-remount');
@@ -162,7 +163,9 @@ describe('useRowEnsured', () => {
   });
 
   it('reenables fetching when a mounted present row is destroyed', async () => {
-    const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: { id: 'row-1', name: 'Recovered', status: 'ready', updatedAt: '2026-07-20T00:00:01Z' } } as TData }) });
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { detail: { id: 'row-1', name: 'Recovered', status: 'ready', updatedAt: '2026-07-20T00:00:01Z' } } as TData })
+    });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createRowsModel('EnsuredDestroyed');
     const query = createDetailQuery(rows, 'ensured-destroyed');
@@ -176,6 +179,73 @@ describe('useRowEnsured', () => {
     expect(transport.calls).toHaveLength(1);
     expect(reader.result().row).toMatchObject({ id: 'row-1', name: 'Recovered' });
     reader.unmount();
+  });
+
+  it('refetches a fresh detail query when its ensured row changes', async () => {
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          detail: { id: calls++ === 0 ? 'row-1' : 'row-2', name: calls === 1 ? 'Initial' : 'Recovered', status: 'ready', updatedAt: '2026-07-20T00:00:01Z' }
+        } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRowsModel('EnsuredFreshDestroyed');
+    const query = createDetailQuery(rows, 'ensured-fresh-destroyed');
+    const first = renderEnsured(() => query.useRowEnsured({ id: 'shared' }, 'row-1'));
+
+    await settle();
+    expect(first.result().row).toMatchObject({ id: 'row-1', name: 'Initial' });
+    expect(first.result().loadingState.showEmptyState).toBe(false);
+    expect(transport.calls).toHaveLength(1);
+    first.unmount();
+
+    const second = renderEnsured(() => query.useRowEnsured({ id: 'shared' }, 'row-2'));
+    await settle();
+
+    expect(transport.calls).toHaveLength(2);
+    expect(second.result().row).toMatchObject({ id: 'row-2', name: 'Recovered' });
+    expect(second.result().loadingState.showEmptyState).toBe(false);
+    second.unmount();
+  });
+
+  it('rearms one forced refetch when the ensured scope changes', async () => {
+    const calls: string[] = [];
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
+        calls.push(((operation.variables ?? {}) as { id: string }).id);
+        return { data: { detail: null } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRowsModel('EnsuredScopeRearm');
+    const query = createDetailQuery(rows, 'ensured-scope-rearm');
+    const warm = renderEnsured(() => query.use({ id: 'S2' }));
+    await settle();
+    warm.unmount();
+
+    let latest!: ReturnType<typeof query.useRowEnsured>;
+    const Reader = ({ scopeId }: { scopeId: string }) => {
+      latest = query.useRowEnsured({ id: scopeId }, 'missing');
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader, { scopeId: 'S1' })));
+    });
+    await settle();
+    expect(calls.filter(id => id === 'S1')).toHaveLength(2);
+    expect(latest.loadingState.showEmptyState).toBe(true);
+
+    act(() => {
+      root.update(React.createElement(DbProvider, null, React.createElement(Reader, { scopeId: 'S2' })));
+    });
+    await settle();
+
+    expect(calls.filter(id => id === 'S2')).toHaveLength(2);
+    expect(latest.loadingState.showEmptyState).toBe(true);
+    act(() => root.unmount());
   });
 
   it('does not rerender for an unrelated field outside renderKeys', async () => {

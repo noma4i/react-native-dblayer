@@ -137,19 +137,21 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       staleTime: resolveStaleTime(),
       gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime
     });
-    const hasData = Array.isArray(request.data) ? request.data.length > 0 : request.data !== undefined;
-    const phase = computePhase({
+    const hasData = request.data !== undefined && !isEmpty(request.data as TSelected);
+    const phaseInput = {
       isInactive: !enabled && !hasData,
-      isRestoring: false,
-      isSyncReady: true,
       isFetching: request.isFetching,
+      committedRowsDied: false,
+      isPaused: request.fetchStatus === 'paused',
+      retryAttempt: request.failureCount ?? 0,
       hasData,
       isRefreshing: request.isRefetching,
       isFetchingNextPage: false,
       isError: request.error != null,
       hasFetchedData: request.isFetched
-    });
-    const loadingState = useMemo(() => computeLoadingState(phase, hasData), [phase, hasData]);
+    };
+    const phase = computePhase(phaseInput);
+    const loadingState = useMemo(() => computeLoadingState(phase, phaseInput), [phase, phaseInput.hasData, phaseInput.isFetching, phaseInput.isPaused, phaseInput.retryAttempt]);
     const refetch = useCallback(() => {
       void request.refetch();
     }, [request.refetch]);

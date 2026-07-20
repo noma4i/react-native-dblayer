@@ -65,8 +65,11 @@ export type ModelIngestEntry = {
 
 const idOf = (payload: unknown): string | null => {
   if (typeof payload === 'string') return payload;
+  if (typeof payload === 'number') return String(payload);
   const id = (payload as { id?: unknown } | null)?.id;
-  return typeof id === 'string' ? id : null;
+  if (typeof id === 'string') return id;
+  if (typeof id === 'number') return String(id);
+  return null;
 };
 
 const reportModelIngestError = (model: IngestModel, event: string, error: unknown): void => {
@@ -157,11 +160,19 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
       const ids = declaration.destroy == null ? [] : Array.isArray(declaration.destroy) ? declaration.destroy : [declaration.destroy];
       const ops: JournalOp[] = [];
       if (rows.length > 0) {
-        ops.push(...getInternalModelHandle(model).planRows(rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)));
+        ops.push(
+          ...getInternalModelHandle(model)
+            .planRows(rows)
+            .map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op))
+        );
       }
       if (ids.length > 0) ops.push({ kind: 'destroy', model: model.modelId, ids });
       for (const sink of declaration.extract ?? []) {
-        ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows).map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op)));
+        ops.push(
+          ...getInternalModelHandle(sink.into)
+            .planRows(sink.rows)
+            .map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op))
+        );
       }
       if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
       if (declaration.invalidate) model.invalidate();

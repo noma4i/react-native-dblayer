@@ -30,7 +30,7 @@ import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { isRecord } from '../utils/normalizeHelpers';
+import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
 import type { InferBuildStoredInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
@@ -59,6 +59,8 @@ type ScopeWindowResult<T> = {
   fetchNextPage: () => void;
   /** True only while rows belong to the previous scope key and the current key is unresolved. */
   isPreviousData: boolean;
+  /** True once this scope has been reconciled at least once (its membership generation > 0). Use this (or a query's `loadingState`) - never raw `rows.length` - to tell an ingest-only scope's "waiting for first sync" from "synced and genuinely empty". */
+  resolved: boolean;
 };
 
 /** Manual injection surface for a query's colocated live entries. */
@@ -240,7 +242,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
      *
      * @param id Row id to inspect, or a nullish value for an unsubscribed false result.
      * @returns True only while that exact model row id belongs to an open operation.
-    */
+     */
     pending(id: string | null | undefined): boolean;
     /** Return whether one row id belongs to a retained failed optimistic operation. */
     failed(id: string | null | undefined): boolean;
@@ -476,7 +478,7 @@ export const defineModel = <
 
   const normalize = (input: unknown, complete = false): Stored => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
-    const id = config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined);
+    const id = stringifyNullish(config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined));
     if (typeof id !== 'string' || id.length === 0) throw new Error(`${config.name} requires id`);
     const output: Record<string, unknown> = { id };
     for (const [key, field] of Object.entries(config.fields)) {
@@ -505,11 +507,36 @@ export const defineModel = <
   const scopeValueFromRow = (by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null => {
     const value: Record<string, unknown> = {};
     for (const [scopeField, rowField] of Object.entries(by)) {
-      const fieldValue = row[rowField];
+      const fieldSpec = config.fields[rowField];
+      const fieldValue = fieldSpec ? readField(fieldSpec, row, rowField, false) : row[rowField];
       if (fieldValue === undefined || fieldValue === null) return null;
       value[scopeField] = fieldValue;
     }
     return value;
+  };
+  const criteriaCache = new WeakMap<object, DbWhere<Stored>>();
+  const normalizeCriteria = (where: DbWhere<Stored>): DbWhere<Stored> => {
+    if (typeof where !== 'object' || where === null || Array.isArray(where)) return where;
+    const record = where as Record<string, unknown>;
+    if ('and' in record) return { and: (record.and as Array<DbWhere<Stored>>).map(normalizeCriteria) } as DbWhere<Stored>;
+    if ('or' in record) return { or: (record.or as Array<DbWhere<Stored>>).map(normalizeCriteria) } as DbWhere<Stored>;
+    if ('not' in record) return { not: normalizeCriteria(record.not as DbWhere<Stored>) } as DbWhere<Stored>;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      const fieldSpec = config.fields[key];
+      const normalized = fieldSpec && value !== undefined && value !== null ? fieldSpec.readValue(value) : undefined;
+      out[key] = normalized === undefined || normalized === null ? value : normalized;
+    }
+    return out as DbWhere<Stored>;
+  };
+  const matchesCriteria = (row: Stored, where: DbWhere<Stored>): boolean => {
+    if (typeof where !== 'object' || where === null) return matchesDbWhere(row, where);
+    let normalized = criteriaCache.get(where);
+    if (!normalized) {
+      normalized = normalizeCriteria(where);
+      criteriaCache.set(where, normalized);
+    }
+    return matchesDbWhere(row, normalized);
   };
 
   const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.has(scopeKey, id);
@@ -571,7 +598,12 @@ export const defineModel = <
       if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
-      const result = planes().entityState.upsert({ ...current, ...incoming });
+      let merged: Stored = { ...current, ...incoming };
+      if (current && origin !== 'replace') {
+        const owned = getOperationState().ownedFields(config.id, incoming.id);
+        if (owned.size > 0) for (const field of owned) if (field in current) (merged as Record<string, unknown>)[field] = (current as Record<string, unknown>)[field];
+      }
+      const result = planes().entityState.upsert(merged);
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
@@ -616,27 +648,30 @@ export const defineModel = <
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     upsert: writeRows,
     patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {
-      const current = planes().entityState.read(id);
+      const key = String(id);
+      const current = planes().entityState.read(key);
       if (!current) return null;
-      const result = planes().entityState.upsert({ ...current, ...patch, id });
+      const result = planes().entityState.upsert({ ...current, ...patch, id: key });
       if (result.changedFields !== null && result.changedFields.length === 0) return null;
       revision += 1;
-      return { id, changedFields: result.changedFields };
+      return { id: key, changedFields: result.changedFields };
     },
     destroy: (ids: string[], tombstone?: boolean): string[] => {
       const removed: string[] = [];
       for (const id of ids) {
-        const existed = planes().entityState.read(id) !== undefined;
-        planes().entityState.destroy(id, { tombstone });
-        if (existed) removed.push(id);
+        const key = String(id);
+        const existed = planes().entityState.read(key) !== undefined;
+        planes().entityState.destroy(key, { tombstone });
+        if (existed) removed.push(key);
       }
       if (removed.length > 0) revision += 1;
       return removed;
     },
     counter: (id: string, field: string, delta: number, next?: number): boolean => {
-      const row = planes().entityState.read(id);
+      const key = String(id);
+      const row = planes().entityState.read(key);
       if (!row) return false;
-      planes().entityState.upsert({ ...row, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
+      planes().entityState.upsert({ ...row, id: key, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
       revision += 1;
       return true;
     },
@@ -751,7 +786,7 @@ export const defineModel = <
             createModelReadEngine({
               signature,
               model: config.id,
-              where: row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required),
+              where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
               options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
@@ -769,7 +804,7 @@ export const defineModel = <
       ): TOutput[] => {
         const rows = planes()
           .entityState.values()
-          .filter(row => criteria != null && matchesDbWhere(row, criteria) && hasRequiredFields(row, required));
+          .filter(row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required));
         const selected = orders.length > 0 ? sortModelReadRows(rows, orders, limit) : limitRows(rows, limit);
         return projection.select ? selected.map(projection.select) : (selected as TOutput[]);
       }
@@ -787,7 +822,7 @@ export const defineModel = <
       let { next } = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
-        liveRows.map(({ row, edge }) => ({ id: row.id as string, edge })),
+        liveRows.map(({ row, edge }) => ({ id: String(row.id), edge })),
         opts
       );
       const maxRows = spec?.retention?.maxRows;
@@ -892,6 +927,7 @@ export const defineModel = <
           totalCount: window.totalCount,
           hasMore: window.totalCount > windowSize,
           isPreviousData: window.isPreviousData,
+          resolved: window.resolved,
           fetchNextPage: () => {
             windowStateRef.current =
               windowStateRef.current.scopeKey === scopeKey ? { ...windowStateRef.current, size: windowStateRef.current.size + pageSize } : { scopeKey, size: pageSize + pageSize };
@@ -1143,22 +1179,22 @@ export const defineModel = <
       }),
     view: (name, viewConfig) => defineView(model, name, viewConfig),
     ingest: entries => defineModelIngest(model, entries),
-    get: id => (id == null ? undefined : planes().entityState.read(id)),
+    get: id => (id == null ? undefined : planes().entityState.read(String(id))),
     getWhere: (where, options) => {
       const rows = planes()
         .entityState.values()
-        .filter(row => matchesDbWhere(row, where));
+        .filter(row => matchesCriteria(row, where));
       if (!options?.orderBy) return limitRows(rows, options?.limit);
       return sortModelReadRows(rows, [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], options.limit);
     },
     getAll: () => planes().entityState.values(),
-    patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id, patch: patch as Record<string, unknown> }]),
-    destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [id] }]),
-    destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids }]),
+    patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id: String(id), patch: patch as Record<string, unknown> }]),
+    destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [String(id)] }]),
+    destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids: ids.map(id => String(id)) }]),
     insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
     insertStoredMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
     seed: rows => applyEvent(planRows(rows)),
-    replaceRaw: (oldId, next) => applyEvent(planReplace(oldId, next)),
+    replaceRaw: (oldId, next) => applyEvent(planReplace(String(oldId), next)),
     buildStored: input => normalize(input, true),
     normalize: input => normalize(input),
     invalidate: scope => {
@@ -1166,49 +1202,55 @@ export const defineModel = <
     },
     use: {
       pending: id => {
+        const key = id == null ? null : String(id);
         const readPending = useCallback(
           () =>
-            id != null &&
+            key != null &&
             getOperationState()
               .pending()
-              .some(operation => operation.model === config.id && (operation.rowIds ?? operation.tempIds).includes(id)),
-          [id]
+              .some(operation => operation.model === config.id && (operation.rowIds ?? operation.tempIds).includes(key)),
+          [key]
         );
         const subscribePending = useCallback(
           (listener: () => void) => {
-            if (id == null) return () => {};
-            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id }]);
+            if (key == null) return () => {};
+            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id: key }]);
             return () => subscription.unsubscribe();
           },
-          [id]
+          [key]
         );
         return useSyncExternalStore(subscribePending, readPending, readPending);
       },
       failed: id => {
-        const readFailed = useCallback(() => id != null && getOperationState().failedFor(config.id, id) !== undefined, [id]);
+        const key = id == null ? null : String(id);
+        const readFailed = useCallback(() => key != null && getOperationState().failedFor(config.id, key) !== undefined, [key]);
         const subscribeFailed = useCallback(
           (listener: () => void) => {
-            if (id == null) return () => {};
-            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id }]);
+            if (key == null) return () => {};
+            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id: key }]);
             return () => subscription.unsubscribe();
           },
-          [id]
+          [key]
         );
         return useSyncExternalStore(subscribeFailed, readFailed, readFailed);
       },
       row: ((id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const required = options?.require ?? [];
+        const key = id == null ? undefined : String(id);
         return useProjectedLiveRow(
           () => {
-            const row = id == null ? undefined : planes().entityState.read(id);
+            const row = key == null ? undefined : planes().entityState.read(key);
             return hasRequiredFields(row, required) ? row : undefined;
           },
-          id == null ? [] : [rowDep(id, required.length > 0 ? required : undefined)],
+          key == null ? [] : [rowDep(key, required.length > 0 ? required : undefined)],
           options,
           `${config.id}.use.row`
         );
       }) as ModelCore<Stored, Input>['use']['row'],
-      field: (id, field) => useLiveRead(() => (id == null ? undefined : planes().entityState.read(id)?.[field]), id == null ? [] : [rowDep(id, [String(field)])]),
+      field: (id, field) => {
+        const key = id == null ? undefined : String(id);
+        return useLiveRead(() => (key == null ? undefined : planes().entityState.read(key)?.[field]), key == null ? [] : [rowDep(key, [String(field)])]);
+      },
       first: ((
         where: DbWhere<Stored> | null | undefined,
         options: DbReadOptions<Stored> & { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}
@@ -1225,7 +1267,7 @@ export const defineModel = <
             createModelReadEngine({
               signature,
               model: config.id,
-              where: row => (where == null || matchesDbWhere(row, where)) && hasRequiredFields(row, optionsRef.current.require ?? []),
+              where: row => (where == null || matchesCriteria(row, where)) && hasRequiredFields(row, optionsRef.current.require ?? []),
               options: options.orderBy
                 ? { orderBy: [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], limit: options.limit }
                 : { limit: options.limit },
@@ -1238,7 +1280,7 @@ export const defineModel = <
       }) as ModelCore<Stored, Input>['use']['first'],
       where: whereRead,
       byIds: ((ids: readonly string[] | null | undefined, options: ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
-        const resolvedIds = ids ?? [];
+        const resolvedIds = (ids ?? []).map(id => String(id));
         const rows = useProjectedLiveRows(
           () => resolvedIds.map(id => planes().entityState.read(id)).filter((row): row is Stored => row !== undefined),
           resolvedIds.map(id => rowDep(id)),
@@ -1257,7 +1299,7 @@ export const defineModel = <
             createModelReadEngine({
               signature: incrementalSignature('count', config.id, where),
               model: config.id,
-              where: row => where == null || matchesDbWhere(row, where),
+              where: row => where == null || matchesCriteria(row, where),
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: (_rows, count) => count,

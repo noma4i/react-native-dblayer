@@ -77,7 +77,7 @@ describe('scope byUuid contracts', () => {
 
     await settle();
 
-    expect((queryReader.result().data as MomentRow[] | undefined)?.length ?? 0).toBeGreaterThanOrEqual(0);
+    expect((queryReader.result().data as MomentRow[] | undefined)?.map(row => row.id)).toEqual(['moment-1']);
     expect(scopeReader.result().map(row => row.id)).toEqual(['moment-1']);
     expect(scopeReader.renders() - before).toBe(1);
     expect((transport.calls[0] as CallEntry | undefined)?.kind).toBe('query');

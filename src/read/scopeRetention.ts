@@ -8,22 +8,22 @@ export type KeepPreviousOption = {
   keepPrevious?: boolean;
 };
 
-type RetentionState<T> = {
+type RetentionState<T, TSnapshot extends RetainedScopeSnapshot<T>> = {
   generation: number;
   scopeKey: string | null;
   currentResolved: boolean;
-  lastNonEmpty: RetainedScopeSnapshot<T> | null;
+  lastNonEmpty: TSnapshot | null;
 };
 
 /** Retain one hook's last non-empty scope snapshot only while a new key remains unresolved. */
-export const useScopeRetention = <T>(
+export const useScopeRetention = <T, TSnapshot extends RetainedScopeSnapshot<T>>(
   scopeKey: string | null,
-  snapshot: RetainedScopeSnapshot<T>,
+  snapshot: TSnapshot,
   resolved: boolean,
   keepPrevious: boolean
-): { snapshot: RetainedScopeSnapshot<T>; isPreviousData: boolean } => {
+): { snapshot: TSnapshot; isPreviousData: boolean } => {
   const generation = getRuntimeGeneration();
-  const stateRef = useRef<RetentionState<T>>({ generation, scopeKey, currentResolved: resolved, lastNonEmpty: null });
+  const stateRef = useRef<RetentionState<T, TSnapshot>>({ generation, scopeKey, currentResolved: resolved, lastNonEmpty: null });
   const state = stateRef.current;
   if (state.generation !== generation) {
     state.generation = generation;

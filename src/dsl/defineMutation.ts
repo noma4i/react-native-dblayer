@@ -246,7 +246,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     if (node) targets.push({ model: optimistic.model, id: node.id === `` || node.id == null ? context.tempId! : String(node.id) });
     for (const sink of config.extract?.({ data }) ?? []) {
       const model = sink.into as MutationModel;
-      for (const row of sink.rows) if (isRecord(row) && typeof row.id === 'string') targets.push({ model, id: row.id });
+      for (const row of sink.rows) if (isRecord(row) && row.id != null) targets.push({ model, id: String(row.id) });
     }
     return targets.flatMap(({ model, id }) => {
       const previous = model.get?.(id);
@@ -282,7 +282,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const placementOps = optimisticOps.filter(op => op.kind === 'scope-delta' && op.append.some(row => row.order !== undefined));
       if (optimisticOps.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(optimisticOps), placementOps));
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
-      const reuseId = forcedTempId ?? (optimistic.existingTempId?.(input) ?? null);
+      const reuseId = forcedTempId ?? optimistic.existingTempId?.(input) ?? null;
       if (reuseId != null && (forcedTempId != null || optimistic.model.get(reuseId) !== undefined)) {
         tempId = reuseId;
       } else {
@@ -314,7 +314,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       optimistic.model.destroy(id);
     }
     if (tracked) {
-      const operationIds = tempId ? [tempId] : optimistic && isMethodOptimistic(optimistic) ? [optimistic.selectId(input)] : [];
+      const operationIds = tempId ? [tempId] : optimistic && isMethodOptimistic(optimistic) ? [String(optimistic.selectId(input))] : [];
       operations.begin({
         operationId,
         model: optimistic?.model.modelId ?? '',
@@ -323,6 +323,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
         idempotencyKey: dedupeKey ?? operationId,
         once: config.once === true,
+        ...(optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch'
+          ? (() => {
+              const patch = optimistic.selectPatch(input) as Record<string, unknown>;
+              return { patchedFields: Object.keys(patch), patchedValues: patch };
+            })()
+          : {}),
         createdAt: Date.now()
       });
     }
@@ -364,9 +370,10 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       for (const sink of config.extract?.({ data }) ?? []) {
         ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
       }
+      const isMethodPatch = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
+      if (tracked && isMethodPatch) operations.close(operationId, 'committed');
       if (ops.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
-
-      if (tracked) operations.close(operationId, 'committed');
+      if (tracked && !isMethodPatch) operations.close(operationId, 'committed');
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
@@ -382,16 +389,30 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
         const previousRecord = previous as Record<string, unknown>;
-        const restore: Record<string, unknown> = { ...previousRecord };
-        for (const key of Object.keys(optimistic.selectPatch(input) as Record<string, unknown>)) {
-          if (!(key in previousRecord)) restore[key] = undefined;
+        const patchValues = optimistic.selectPatch(input) as Record<string, unknown>;
+        const current = optimistic.model.get(optimistic.selectId(input)) as Record<string, unknown> | undefined;
+        const rowId = String(optimistic.selectId(input));
+        const operations = getOperationState();
+        const restore: Record<string, unknown> = {};
+        for (const key of Object.keys(patchValues)) {
+          const other = operations.latestPendingValue(optimistic.model.modelId, rowId, key, operationId);
+          if (other.found) {
+            restore[key] = other.value;
+            continue;
+          }
+          if (current && !Object.is(current[key], patchValues[key])) continue;
+          restore[key] = key in previousRecord ? previousRecord[key] : undefined;
         }
-        optimistic.model.patch(optimistic.selectId(input), restore);
+        if (Object.keys(restore).length > 0) optimistic.model.patch(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         getApplyRuntime().apply(expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships)));
       }
-      if (tracked) operations.close(operationId, optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback');
+      if (tracked)
+        operations.close(
+          operationId,
+          optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback'
+        );
       const reported = error instanceof Error ? error : new Error(String(error));
       try {
         getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });

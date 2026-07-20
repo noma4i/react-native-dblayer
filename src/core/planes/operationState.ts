@@ -12,6 +12,10 @@ export type OperationRecord = {
   idempotencyKey?: string;
   /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
   once?: boolean;
+  /** Top-level fields an optimistic method-patch owns while pending; incoming non-optimistic writes keep the current (optimistic) value for these until the op closes. */
+  patchedFields?: string[];
+  /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
+  patchedValues?: Record<string, unknown>;
   createdAt: number;
 };
 
@@ -36,6 +40,10 @@ export type OperationState = {
   prune(): number;
   /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
   nextSequence(key: string, floor: number): number;
+  /** Union of fields owned by still-pending optimistic patch ops on one model row (empty when none). */
+  ownedFields(model: string, rowId: string, excludeOpId?: string): ReadonlySet<string>;
+  /** The value the latest still-pending patch op (excluding `excludeOpId`) wrote for one field of one model row, or `{ found: false }` when no other pending patch owns it. */
+  latestPendingValue(model: string, rowId: string, field: string, excludeOpId?: string): { found: boolean; value: unknown };
   persistEntries(): Array<{ key: string; value: string | null }>;
   hydrate(): void;
   reset(): void;
@@ -49,6 +57,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const pendingKeys = new Set<string>();
   const hydratedPendingIds = new Set<string>();
   let sequencesDirty = false;
+  let pendingPatchCount = 0;
   const indexOperation = (record: OperationRecord): void => {
     if (!record.idempotencyKey) return;
     if (record.status === 'pending') pendingKeys.add(record.idempotencyKey);
@@ -70,23 +79,27 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     }
     return entries;
   };
+  const EMPTY_OWNED: ReadonlySet<string> = new Set();
 
   return {
     begin: operation => {
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
       indexOperation(record);
+      if (record.status === 'pending' && record.intent === 'patch' && record.patchedFields && record.patchedFields.length > 0) pendingPatchCount += 1;
       storage.set(persistEntries());
       notify?.(record);
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
       if (!operation) return;
+      const wasPatchOwner = operation.status === 'pending' && operation.intent === 'patch' && !!operation.patchedFields && operation.patchedFields.length > 0;
       hydratedPendingIds.delete(operationId);
       if (operation.idempotencyKey) pendingKeys.delete(operation.idempotencyKey);
       const retainKey = status === 'committed' && operation.once === true;
       const record: OperationRecord = { ...operation, status, idempotencyKey: retainKey ? operation.idempotencyKey : undefined };
       operations.set(operationId, record);
+      if (wasPatchOwner) pendingPatchCount -= 1;
       indexOperation(record);
       storage.set(persistEntries());
       notify?.(record);
@@ -140,6 +153,28 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       sequencesDirty = true;
       return next;
     },
+    ownedFields: (model, rowId, excludeOpId) => {
+      if (pendingPatchCount === 0) return EMPTY_OWNED;
+      let owned: Set<string> | undefined;
+      for (const operation of operations.values()) {
+        if (operation.status !== 'pending' || operation.intent !== 'patch' || !operation.patchedFields || operation.patchedFields.length === 0) continue;
+        if (operation.operationId === excludeOpId) continue;
+        if (operation.model !== model || !(operation.rowIds ?? []).includes(rowId)) continue;
+        owned ??= new Set<string>();
+        for (const field of operation.patchedFields) owned.add(field);
+      }
+      return owned ?? EMPTY_OWNED;
+    },
+    latestPendingValue: (model, rowId, field, excludeOpId) => {
+      if (pendingPatchCount === 0) return { found: false, value: undefined };
+      let result: { found: boolean; value: unknown } = { found: false, value: undefined };
+      for (const operation of operations.values()) {
+        if (operation.status !== 'pending' || operation.intent !== 'patch' || operation.operationId === excludeOpId) continue;
+        if (operation.model !== model || !(operation.rowIds ?? []).includes(rowId)) continue;
+        if (operation.patchedValues && field in operation.patchedValues) result = { found: true, value: operation.patchedValues[field] };
+      }
+      return result;
+    },
     persistEntries,
     hydrate: () => {
       operations.clear();
@@ -168,6 +203,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         }
       }
       rebuildIndexes();
+      pendingPatchCount = 0;
+      for (const op of operations.values()) if (op.status === 'pending' && op.intent === 'patch' && op.patchedFields && op.patchedFields.length > 0) pendingPatchCount += 1;
     },
     reset: () => {
       operations.clear();
@@ -176,6 +213,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       pendingKeys.clear();
       hydratedPendingIds.clear();
       sequencesDirty = false;
+      pendingPatchCount = 0;
     }
   };
 };

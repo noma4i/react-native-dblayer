@@ -1,6 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
+import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
   const values = new Map<string, string>();
@@ -72,6 +72,56 @@ export function renderCounted<T>(useHook: () => T) {
   return {
     result: () => value,
     renders: () => renderCount,
+    unmount: () => act(() => root.unmount())
+  };
+}
+
+/**
+ * Record every rendered value of a hook in order, so a test can assert the FRAME SEQUENCE
+ * (not just the final value). Use for transient-state contracts: e.g. a loading hook must never
+ * emit an empty-state frame while a fetch is in flight.
+ */
+export function recordTimeline<T>(useHook: () => T) {
+  const frames: T[] = [];
+  let root!: TestRenderer.ReactTestRenderer;
+
+  const Reader = () => {
+    frames.push(useHook());
+    return null;
+  };
+
+  act(() => {
+    root = TestRenderer.create(React.createElement(Reader));
+  });
+
+  return {
+    frames: () => frames,
+    last: () => frames[frames.length - 1],
+    unmount: () => act(() => root.unmount())
+  };
+}
+
+/**
+ * Same as `recordTimeline` but renders the hook inside `DbProvider`, for hooks that require the
+ * owned QueryClient / boot gate (query/fetch/ensured-row reads). Frames begin once the boot gate
+ * releases children.
+ */
+export function recordTimelineInProvider<T>(useHook: () => T) {
+  const frames: T[] = [];
+  let root!: TestRenderer.ReactTestRenderer;
+
+  const Reader = () => {
+    frames.push(useHook());
+    return null;
+  };
+
+  act(() => {
+    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+  });
+
+  return {
+    frames: () => frames,
+    last: () => frames[frames.length - 1],
     unmount: () => act(() => root.unmount())
   };
 }

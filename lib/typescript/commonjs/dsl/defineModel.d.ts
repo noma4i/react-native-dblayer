@@ -24,6 +24,8 @@ type ScopeWindowResult<T> = {
     fetchNextPage: () => void;
     /** True only while rows belong to the previous scope key and the current key is unresolved. */
     isPreviousData: boolean;
+    /** True once this scope has been reconciled at least once (its membership generation > 0). Use this (or a query's `loadingState`) - never raw `rows.length` - to tell an ingest-only scope's "waiting for first sync" from "synced and genuinely empty". */
+    resolved: boolean;
 };
 /** Manual injection surface for a query's colocated live entries. */
 export type LiveQueryHandle = {
@@ -239,7 +241,7 @@ export type ModelCore<TStored extends {
          *
          * @param id Row id to inspect, or a nullish value for an unsubscribed false result.
          * @returns True only while that exact model row id belongs to an open operation.
-        */
+         */
         pending(id: string | null | undefined): boolean;
         /** Return whether one row id belongs to a retained failed optimistic operation. */
         failed(id: string | null | undefined): boolean;

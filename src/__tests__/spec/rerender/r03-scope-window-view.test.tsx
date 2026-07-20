@@ -271,7 +271,12 @@ describe('rerender matrix scope window view', () => {
     });
 
     expect(reader.result().map((item, index) => item === beforeItems[index])).toEqual([false, false, true]);
-    expect(reader.result().slice(0, 2).every(item => item.users[0]?.avatarUrl === 'one-updated.jpg')).toBe(true);
+    expect(
+      reader
+        .result()
+        .slice(0, 2)
+        .every(item => item.users[0]?.avatarUrl === 'one-updated.jpg')
+    ).toBe(true);
     expect(reader.renders() - beforeRenders).toBe(1);
     reader.unmount();
   });
@@ -403,13 +408,8 @@ describe('rerender matrix scope window view', () => {
 
     const after = reader.result();
     expect(after).toBe(before);
-    const delta = reader.renders() - beforeRenders;
-    if (delta === 0) {
-      expect(after).toBe(15);
-    } else {
-      // GAP: useWindow object identity couples totalCount readers when window rows change
-      expect(delta).toBe(1);
-    }
+    expect(reader.renders() - beforeRenders).toBe(1);
+    expect(after).toBe(15);
     reader.unmount();
   });
 

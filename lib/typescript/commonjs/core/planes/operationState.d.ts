@@ -11,6 +11,10 @@ export type OperationRecord = {
     idempotencyKey?: string;
     /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
     once?: boolean;
+    /** Top-level fields an optimistic method-patch owns while pending; incoming non-optimistic writes keep the current (optimistic) value for these until the op closes. */
+    patchedFields?: string[];
+    /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
+    patchedValues?: Record<string, unknown>;
     createdAt: number;
 };
 export type OperationState = {
@@ -31,6 +35,13 @@ export type OperationState = {
     prune(): number;
     /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
     nextSequence(key: string, floor: number): number;
+    /** Union of fields owned by still-pending optimistic patch ops on one model row (empty when none). */
+    ownedFields(model: string, rowId: string, excludeOpId?: string): ReadonlySet<string>;
+    /** The value the latest still-pending patch op (excluding `excludeOpId`) wrote for one field of one model row, or `{ found: false }` when no other pending patch owns it. */
+    latestPendingValue(model: string, rowId: string, field: string, excludeOpId?: string): {
+        found: boolean;
+        value: unknown;
+    };
     persistEntries(): Array<{
         key: string;
         value: string | null;

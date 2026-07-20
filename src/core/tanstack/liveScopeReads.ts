@@ -19,9 +19,9 @@ type ScopeLiveEntry = {
   sourceCache: WeakMap<StoredRowShape, StoredRowShape>;
   listeners: Set<() => void>;
 };
-type ScopeLiveWindowSnapshot = { rows: StoredRowShape[]; totalCount: number; isPreviousData: boolean };
+type ScopeLiveWindowSnapshot = { rows: StoredRowShape[]; totalCount: number; isPreviousData: boolean; resolved: boolean };
 type ScopeStoreSnapshot<T> = { rows: T[]; resolved: boolean };
-type ScopeWindowStoreSnapshot = ScopeLiveWindowSnapshot & { resolved: boolean };
+type ScopeWindowStoreSnapshot = ScopeLiveWindowSnapshot;
 type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & { keepPrevious?: boolean };
 
 const EMPTY_ROWS: StoredRowShape[] = [];
@@ -74,7 +74,7 @@ const createEntry = (modelId: string, scopeKey: string, sortMeta: ScopeSortMeta)
       .join({ entity: entities }, ({ membership, entity }) => eq(membership.rowId, entity.id));
     if (sortMeta.kind === `field`) {
       return joined
-        .orderBy(({ membership }) => membership.sortValue, sortMeta.dir)
+        .orderBy(({ membership }) => membership.sortValue, { direction: sortMeta.dir, nulls: `last` })
         .orderBy(({ membership }) => membership.rowId)
         .select(({ entity }) => ({ ...entity }));
     }
@@ -217,8 +217,8 @@ export function useScopeLiveWindowRows(
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const retained = useScopeRetention(scopeKey, snapshot, snapshot.resolved, options.keepPrevious === true);
   return retained.snapshot === snapshot
-    ? { rows: snapshot.rows, totalCount: snapshot.totalCount, isPreviousData: false }
-    : { ...retained.snapshot, isPreviousData: retained.isPreviousData };
+    ? { rows: snapshot.rows, totalCount: snapshot.totalCount, isPreviousData: false, resolved: snapshot.resolved }
+    : { ...retained.snapshot, isPreviousData: retained.isPreviousData, resolved: snapshot.resolved };
 }
 
 const useScopeLiveEntry = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {

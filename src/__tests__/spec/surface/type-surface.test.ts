@@ -49,6 +49,8 @@ describe('public type surface', () => {
     const second = printSurface();
 
     expect(first).toEqual(second);
+    // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
+    expect(first.split('\n')).toHaveLength(71);
     expect(first).toMatchInlineSnapshot(`
 "BootDbOptions: any
 DbDefaults: any

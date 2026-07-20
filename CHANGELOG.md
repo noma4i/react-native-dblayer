@@ -1,5 +1,45 @@
 # Changelog
 
+## 7.0.0-beta.7 - 2026-07-20
+
+### Breaking changes and migration
+
+- BREAKING: `LoadingPhase` no longer includes `'hydrating'`. The phase was never emitted (hydration is synchronous behind `DbProvider`'s boot gate), so no read ever produced it; remove any dead `case 'hydrating'` from an exhaustive switch over `loadingState.phase`.
+
+### Reads and loading state
+
+- Row ids are normalized to strings consistently across every read AND write path: `get`, `use.row`, `use.field`, `use.byIds`, `use.first`, scope reads, `DbWhere` criteria, AND `patch`, `destroy`, `destroyMany`, `replaceRaw`, optimistic operation ids (`use.pending`/`use.failed`), and ingest payloads (`apply: 'destroy'`/`'existing'` guard). A model whose GraphQL ids are numeric (`Int`) no longer silently reads empty, nor silently drops a `patch(54, ...)` / `destroy(54)` / a subscription `{ id: 54 }` delete, when a value of the other type is passed - the write side, the read side, and the operation ledger now always agree on the string key. This fixes reads and mutations that succeeded on the backend but appeared to do nothing on device.
+- `showEmptyState` is now provably terminal: it is true only after a fetch has completed with zero rows, never while a fetch, an automatic retry, an offline pause, or an imminent refetch is in flight. A query whose previously-committed destination rows die locally (destroy / GC / trim) holds `initial_loading` and refetches instead of flashing an empty/not-found frame before the refetch lands.
+- `query.useRowEnsured` refetches when its ensured row is absent despite a completed, still-fresh fetch (a detail row present-then-destroyed, or addressed under a warm cache), instead of resolving to a terminal not-found. A genuinely absent row settles into `showEmptyState` after one bounded refetch - it does not loop.
+- `LoadingState` gains `isRetrying` (a failed request is being retried), `retryAttempt` (consecutive failure count), and `isOffline` (the request is paused because the device is offline). A screen can show a "retrying" or "offline" affordance while data or the skeleton is held, without an empty/error flash between attempts.
+- `defineFetch`: a fetched `null` or empty result is now classified as empty (`showEmptyState`), not treated as present data - `hasData` respects the fetch's `isEmpty` predicate.
+
+### Scopes
+
+- `ScopeWindowResult` (`scope.useWindow`) gains `resolved: boolean` - true once the scope has been reconciled at least once (membership generation > 0), reactive even when the reconcile produces zero rows. An ingest-only (socket-fed) scope can now tell "waiting for the first sync" from "synced and genuinely empty". Decide empty-vs-loading from `resolved` (or a query's `loadingState`), never from raw `rows.length`. With `keepPrevious`, `resolved` reports the CURRENT key's reconciliation (false while the retained prior rows are shown), not the retained snapshot's. Mirrors the existing `ViewWindowResult.resolved`.
+- Field-sorted scope reads place null/undefined sort values last with a stable `id` tiebreak, so a reactive field sort matches the server order contract (nulls last) and never reorders equal-key rows.
+- A stale in-flight next-page fetch that completes after a newer reset/refetch of the same scope is dropped instead of appending its stale rows onto the replaced scope.
+
+### Writes (optimistic causality)
+
+- Optimistic method-`patch` rollback reverts a field only while that patch still owns it: it restores only the fields the patch changed, and only when the current stored value is still the one it wrote. A second concurrent optimistic patch survives an earlier patch's rollback - both when it wrote a different field and when it overwrote the same field.
+- A stale non-optimistic write (a query snapshot or ingest event created before an optimistic patch) no longer overwrites a field held by a still-pending optimistic patch. The optimistic value holds until that operation commits or rolls back, so there is no visible flip-then-flip-back (e.g. pin -> unpin -> pin) while the mutation is in flight. A committing patch's OWN authoritative server value (via its `extract`) still wins once it commits - the overlay releases before the commit applies. Out-of-order successful commits remain the domain of `mergePolicy` (declare a monotonic guard group for fields that must not regress).
+
+### Internals and correctness
+
+- `stableSerialize` is now total and injective across `null`, `undefined`, numbers (including `NaN`), `bigint`, strings, booleans, `Date`, arrays, plain objects, and other objects, so identity and dedup gates keyed on it no longer collide two structurally different values.
+- Foreground-resume invalidation covers `defineFetch` results (`dbl-fetch`), not only `Model.query` scopes.
+
+### Known limitations
+
+- Rolling back one of several concurrent optimistic patches on the same field of the same row now restores that field to the latest still-pending patch's value (or its pre-patch base). One residual edge remains: if MULTIPLE concurrent patches write the SAME field and ALL of them fail, the field can briefly settle to the last optimistic value rather than the committed base; the next server sync of that row corrects it. Avoid firing overlapping optimistic patches on the same field where a stale flash would be unacceptable.
+- Combining an optimistic `destroy` and another optimistic write (a `patch`) on the SAME row concurrently has undefined field ordering when the `destroy` later rolls back: the destroy's row-restore may overwrite a value the concurrent write committed. Avoid overlapping an optimistic `destroy` with other optimistic writes on the same row; a fully causal per-operation overlay is planned for a later release.
+- `stableSerialize` distinguishes every JSON-representable value this layer carries; JavaScript `Symbol` values are not distinguishable from one another and must not be used as ids or scope-key values (GraphQL scalars never produce them).
+
+### Testing
+
+- Add behavioural contracts covering every class above, recorded as frame-sequence timelines where a transient matters (so a mid-flight empty/error/flip frame fails the suite, not just the final state): id-key normalization across reads AND writes/ingest/pending, the loading-phase machine (empty-state terminality, retry/offline observability), transport realism (numeric-id round trips, reset and page ordering fences, nulls-last sort), total serialization, fetch empty results, write causality (rollback field-ownership, stale-write overlay, own-commit authority, out-of-order commit via `mergePolicy`), scope-window `resolved` reactivity and keep-previous correctness, ensured-row survival refetch, and network resilience (retry / offline / manual `refetch`).
+
 ## 7.0.0-beta.6 - 2026-07-20
 
 ### Breaking changes and migration
