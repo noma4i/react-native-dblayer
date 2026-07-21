@@ -311,11 +311,16 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
       opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[] }
     ): { rows: TStored[]; byId: ReadonlyMap<string, TStored> };
     count(where?: DbWhere<TStored> | null): number;
-    /** Read a declared relation, optionally projecting row-valued relation results through the shared gate. */
+    /**
+     * Read a declared relation reactively. `hasMany` returns the target model's rows (projection
+     * options apply); `belongsTo`/`hasOne` return one target row or `undefined` (projection
+     * options are ignored). Rows belong to the TARGET model, so the select callback receives a
+     * generic record - narrow it to the target stored type at the call site.
+     */
     related<TProjection extends Record<string, unknown>>(
       id: string | null | undefined,
       relation: string,
-      opts: { select: (row: TStored) => TProjection; renderKeys?: never }
+      opts: { select: (row: Record<string, unknown>) => TProjection; renderKeys?: never }
     ): TProjection[];
     related(id: string | null | undefined, relation: string, opts?: { select?: never; renderKeys?: readonly string[] }): unknown;
   };

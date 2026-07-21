@@ -284,4 +284,6 @@ relations: () => ({
 
 Read a relation reactively with `use.related(id, 'chat')` (`belongsTo`/`hasOne`) or
 `use.related(id, 'messages')` (`hasMany`, returns an array) - see
-[reading.md](./reading.md#snapshot-vs-reactive-reads).
+[reading.md](./reading.md#snapshot-vs-reactive-reads). Projection options apply only to `hasMany`;
+single-row relations return the target row as-is, and a `hasMany` select callback receives a generic
+record that callers narrow to the target stored type.
