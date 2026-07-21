@@ -80,8 +80,9 @@ runtimes, clears the internally-owned `QueryClient`, and re-applies the transpor
 | `defaults`  | `DbDefaults`   | `{}`                  | Package-wide freshness/pagination/retry/error-observation defaults. See `DbDefaults` below.        |
 
 `configureDb` owns a `@tanstack/react-query` `QueryClient` internally - it is never passed in and
-never re-exported. `DbProvider` reads it through an internal accessor and wraps the app in the
-matching `QueryClientProvider`; `Model.query`/`defineFetch` hooks read it from that context.
+never re-exported. `DbProvider` reads it through an internal accessor and makes it available to
+the app internally - no extra provider is needed; `Model.query`/`defineFetch` hooks read it from
+that context.
 
 ## `DbDefaults`
 
@@ -135,12 +136,12 @@ import { DbProvider } from '@noma4i/react-native-dblayer';
 </DbProvider>;
 ```
 
-The library-owned React provider: renders the internal `QueryClientProvider` unconditionally, and
-renders `children` only once boot completes. On mount it calls `bootDb(bootOptions)` exactly once
-(a re-render never re-triggers it) and gates `children` behind the resulting promise - render
-nothing (or a splash screen conditioned on the same signal your app already uses) above it while
-booting. It also wires `react-native`'s `AppState`: foreground sets TanStack Query's `focusManager`
-active (enabling refetch-on-focus), and background sets it inactive and calls `suspendDb()`.
+The library-owned React provider: owns the query runtime internally - no extra provider is
+needed - and renders `children` only once boot completes. On mount it calls `bootDb(bootOptions)`
+exactly once (a re-render never re-triggers it) and gates `children` behind the resulting promise -
+render nothing (or a splash screen conditioned on the same signal your app already uses) above it
+while booting. It also wires `react-native`'s `AppState` for automatic focus-based refresh:
+foreground enables refetch-on-focus, and background calls `suspendDb()`.
 
 `bootOptions` is `BootDbOptions` (`{ wipe? }`) - see [`bootDb`](#bootdboptions--suspenddb) below.
 `configureDb` must already have run before `DbProvider` mounts; `DbProvider` does not call it.
