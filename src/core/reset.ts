@@ -1,4 +1,4 @@
-import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, resetPersistenceRuntime } from '../dsl/configure';
+import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, isDbConfigured, resetPersistenceRuntime } from '../dsl/configure';
 
 const resetters = new Set<() => void | Promise<void>>();
 
@@ -20,9 +20,11 @@ export const registerReset = (reset: () => void | Promise<void>): (() => void) =
  * every live subscriber. There is no partial/per-model variant - the host app decides when to pull
  * it (e.g. on logout). Fully synchronous by design: state is clean the moment the call returns, with
  * no deferred teardown to await - seeding and subsequent reads can rely on it immediately. An async
- * resetter is a registration error and throws.
+ * resetter is a registration error and throws. No-ops when `configureDb` has never run - an
+ * unconfigured runtime is trivially clean.
  */
 export const resetRuntime = (): void => {
+  if (!isDbConfigured()) return;
   advanceRuntimeGeneration();
   resetPersistenceRuntime();
   const { storage } = getDbRuntimeConfig();
