@@ -579,7 +579,7 @@ export const defineModel = <
     const value: Record<string, unknown> = {};
     for (const [scopeField, rowField] of Object.entries(by)) {
       const fieldSpec = config.fields[rowField];
-      const fieldValue = fieldSpec?.derived === true && row[rowField] !== undefined ? row[rowField] : fieldSpec ? readField(fieldSpec, row, rowField, false) : row[rowField];
+      const fieldValue = fieldSpec ? readField(fieldSpec, row, rowField, false) : row[rowField];
       if (fieldValue === undefined || fieldValue === null) return null;
       value[scopeField] = fieldValue;
     }

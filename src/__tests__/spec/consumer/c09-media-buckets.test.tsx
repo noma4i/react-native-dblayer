@@ -187,6 +187,33 @@ describe('media scope bucket behavior', () => {
     expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['visual-1']);
   });
 
+  it('recomputes a legacy derived null from incoming source fields', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        ({
+          data: {
+            mediaItems: {
+              nodes: [{ id: 'audio-1', chatId: 'chat-1', bucket: null, media: { kind: 'audio' as const }, sequenceNumber: 20, label: 'audio' }],
+              pageInfo: { hasNextPage: false, endCursor: null }
+            }
+          } as TData
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createDerivedMediaModel();
+    const query = media.query<{ mediaItems: { nodes: DerivedMediaInput[] } }, DerivedMediaScopeValue, DerivedMediaScopeValue, DerivedMediaRow>('derived-media-legacy-null', {
+      document,
+      vars: value => value,
+      select: data => data.mediaItems.nodes,
+      into: media.scopes.media
+    });
+    const audio = { chatId: 'chat-1', bucket: 'audio' } as const;
+
+    await query.fetch(audio);
+
+    expect(media.scopes.media.read(audio).map(row => row.id)).toEqual(['audio-1']);
+  });
+
   it('preserves derived behavior through nullable custom field chaining', () => {
     const field = f.custom<'audio' | 'visual' | null, DerivedMediaInput>(input => (input.media?.kind === 'audio' ? 'audio' : input.media?.kind ? 'visual' : null)).nullable();
 
