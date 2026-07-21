@@ -36,6 +36,14 @@ export const readNullableNumber = (value: unknown): number | null | undefined =>
 /** Read a boolean or return undefined for missing or malformed values. */
 export const readBoolean = (value: unknown): boolean | undefined => (typeof value === 'boolean' ? value : undefined);
 
+/** Read an ISO date-time string from a string, `Date`, or epoch-milliseconds value; `undefined` for unparseable input. */
+export const readIsoDate = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return Number.isNaN(Date.parse(value)) ? undefined : value;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString();
+  return undefined;
+};
+
 /** Read an id as a string; non-empty string/number pass through, anything else (empty string/boolean/object/array/null/undefined) returns undefined. */
 export const readId = (value: unknown): string | undefined => {
   if (typeof value !== 'string' && typeof value !== 'number') return undefined;

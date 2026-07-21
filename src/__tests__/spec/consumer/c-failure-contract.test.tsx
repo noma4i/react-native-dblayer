@@ -10,7 +10,7 @@ const document = { kind: 'Document', definitions: [] } as never;
 
 const createMessages = (id: string, transport: ReturnType<typeof createMockTransport>, configure = true) => {
   if (configure) configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(), createdAt: f.str() } });
+  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() } });
   let latestTempId: string | null = null;
   const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
     document,
@@ -96,7 +96,12 @@ describe('optimistic failure contract', () => {
   it('failure rollback opt-out restores destroy-on-error', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const messages = defineModel({ id: 'FailureRollback', name: 'FailureRollback', gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(), createdAt: f.str() } });
+    const messages = defineModel({
+      id: 'FailureRollback',
+      name: 'FailureRollback',
+      gc: 'exempt',
+      fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }
+    });
     let id = '';
     const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
       document,
@@ -165,7 +170,9 @@ describe('optimistic failure contract', () => {
     const persisted = storage.snapshotKeys().map(key => ({ key, value: storage.get(key)! }));
     resetRuntime();
     storage.set(persisted);
-    const restartedTransport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', text: 'hello', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } as TData }) });
+    const restartedTransport = createMockTransport({
+      mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', text: 'hello', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } as TData })
+    });
     configureDb({ storage, transport: restartedTransport });
     const restarted = createMessages('FailureRestart', restartedTransport, false);
     await bootDb();

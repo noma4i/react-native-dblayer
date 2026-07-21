@@ -34,7 +34,7 @@ const MessageSchema = defineShape<MessageNode>()({
   id: f.id(),
   chatId: f.id(),
   text: f.str(),
-  kind: f.enum<MessageKind>(),
+  kind: f.enum<MessageKind>(Object.values(MessageKind)),
   createdAt: f.str(),
   localEcho: f.bool().optional()
 });
@@ -73,7 +73,7 @@ const MessageModel = defineModel({
 | `id`                    | `string`                                       | Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets.                                                                                                                                        |
 | `name`                  | `string`                                       | Human-readable name; prefixes normalize/apply error and log messages, and is the key `Model.ingest`'s fused custom handlers use to look up other models (see [ingest-live.md](./ingest-live.md)).                                       |
 | `fields`                | field spec map                                 | Field specs (built with `f.*`, typically via `defineShape`) that drive every normalize/build read.                                                                                                                                      |
-| `defaultOrder`          | `{ field, direction }`                         | Implicit order for order-less reads. An explicit `orderBy` fully replaces it; tied values use the implicit id tie-break. |
+| `defaultOrder`          | `{ field, direction }`                         | Implicit order for order-less reads. An explicit `orderBy` fully replaces it; tied values use the implicit id tie-break.                                                                                                                |
 | `rowId`                 | `(input: unknown) => string`                   | Derive the row id from raw input. Defaults to `input.id`. Returning anything other than a non-empty string makes `normalize` throw `${name} requires id`.                                                                               |
 | `guard`                 | `(input: unknown) => boolean`                  | Row-level filter run before id resolution. Returning `false` throws `${name} rejected input`, handled the same way as an unresolved `rowId`.                                                                                            |
 | `relations`             | `() => Record<string, RelationDecl>`           | Lazily-evaluated relation declarations (`belongsTo`/`hasMany`/`hasOne`/`references`). Evaluated once on first access, so relation targets defined later in the same module do not need to exist yet at `defineModel` call time.         |
@@ -81,7 +81,7 @@ const MessageModel = defineModel({
 | `gc`                    | `'exempt'`                                     | Keeps this model's rows out of garbage-collection sweeps even when unreferenced by any scope. See [runtime.md](./runtime.md#garbage-collection).                                                                                        |
 | `maintenance`           | `{ maxRowsPerScope?, dropIdleScopesAfterMs? }` | Boot-time/in-session maintenance declarations. See [runtime.md](./runtime.md#maintenance).                                                                                                                                              |
 | `merge.shouldOverwrite` | `(existing, incoming) => boolean`              | Acceptance gate for an incoming write when a row with the same id already exists. Return `false` to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo). Omit to always accept incoming writes. |
-| `mergePolicy.groups`    | `{ fields, allowWrite }[]`                      | Per-field cross-writer guards. A rejected group keeps only its current fields while unguarded fields in the same write still apply. |
+| `mergePolicy.groups`    | `{ fields, allowWrite }[]`                     | Per-field cross-writer guards. A rejected group keeps only its current fields while unguarded fields in the same write still apply.                                                                                                     |
 | `statics`               | `(model: ModelCore) => TExt`                   | Build extra static members merged onto the returned model. Receives the base model so statics can call back into `get`/`patch`/`use`/etc. Throws at `defineModel` time if a returned key collides with a base model key.                |
 
 `normalize`/`buildStored` read every configured field from raw input on every write; invalid rows
@@ -130,17 +130,18 @@ changed groups allow their writes, the incoming row is reused without an extra a
 Field specs describe how one stored field is read from raw input. Build them with `f.*`, chain
 modifiers, and group them into a reusable shape with `defineShape`.
 
-| Builder           | Reads                                                                        | Stores                             |
-| ----------------- | ---------------------------------------------------------------------------- | ---------------------------------- |
-| `f.str()`         | string values only                                                           | `string`                           |
-| `f.num()`         | number values only                                                           | `number`                           |
-| `f.bool()`        | boolean values only                                                          | `boolean`                          |
-| `f.id()`          | string or number ids, normalized to string; empty/nullish/non-scalar skipped | `string`                           |
-| `f.enum<T>()`     | any non-nullish value, passed through as `T` (no runtime validation)         | `T`                                |
-| `f.raw<T>()`      | any non-nullish value, passed through as `T` (JSON blobs, arrays)            | `T`                                |
-| `f.custom(read)`  | `read(input)` over the whole input object                                    | the selector's return type         |
-| `f.object(shape)` | a nested object read through a `defineShape` shape                           | the shape's stored object type     |
-| `f.array(item)`   | an array of shapes or scalar field specs; unreadable elements are dropped    | an array of the item's stored type |
+| Builder           | Reads                                                                                                                  | Stores                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `f.str()`         | string values only                                                                                                     | `string`                           |
+| `f.num()`         | number values only                                                                                                     | `number`                           |
+| `f.bool()`        | boolean values only                                                                                                    | `boolean`                          |
+| `f.id()`          | string or number ids, normalized to string; empty/nullish/non-scalar skipped                                           | `string`                           |
+| `f.enum(values)`  | declared string values only; other values are dropped. For codegen enums use `f.enum<GqlKind>(Object.values(GqlKind))` | declared string-literal union      |
+| `f.date()`        | parseable ISO strings as-is; `Date` and epoch-milliseconds values as ISO strings; unparseable values are dropped       | ISO-8601 `string`                  |
+| `f.raw<T>()`      | any non-nullish value, passed through as `T` (JSON blobs, arrays)                                                      | `T`                                |
+| `f.custom(read)`  | `read(input)` over the whole input object                                                                              | the selector's return type         |
+| `f.object(shape)` | a nested object read through a `defineShape` shape                                                                     | the shape's stored object type     |
+| `f.array(item)`   | an array of shapes or scalar field specs; unreadable elements are dropped                                              | an array of the item's stored type |
 
 Every builder reads `input[key]` by default. Chain these modifiers to change presence, nullability,
 or the read source:
@@ -159,7 +160,7 @@ const UserSchema = defineShape<UserNode>()({
   id: f.id(),
   name: f.str(),
   avatarUrl: f.str().nullable(),
-  role: f.enum<UserRole>().default('member'),
+  role: f.enum<UserRole>(Object.values(UserRole)).default('member'),
   bio: f.str().optional()
 });
 ```
