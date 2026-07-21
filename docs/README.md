@@ -7,7 +7,7 @@ the [project README](../README.md).
 
 | #   | Page                                       | Covers                                                                                                                                                                                                                  |
 | --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | [getting-started.md](./getting-started.md) | Boot sequence: register models, `configureDb`, `DbProvider`, `bootDb`/`suspendDb` (incl. `wipe`), storage/transport seams, runtime prerequisites. Start here.                                                           |
+| 1   | [getting-started.md](./getting-started.md) | Boot sequence: register models, `configureDb`, `DbProvider`, `bootDb` (incl. `wipe`) and automatic background suspension, storage/transport seams, runtime prerequisites. Start here.                                                           |
 | 2   | [models.md](./models.md)                   | `defineModel` itself: the `f`/`defineShape` field DSL, writes, scopes (`sort`/`server-order`/`coverage`/`retention`), relations (`touch`/`counterCache`/`dependent`).                                                   |
 | 3   | [reading.md](./reading.md)                 | Every read surface: `use.row`/`field`/`first`/`where`/`byIds`/`count`/`related`, `select`/`renderKeys` projections and their identity guarantees, scope `use`/`useWindow`, `keepPrevious`, `use.pending`, `Model.view`. |
 | 4   | [queries.md](./queries.md)                 | `Model.query` (network reads into a model/scope, pagination, coverage semantics, loading state), `defineFetch` (`document`\|`fetcher`, `remove()`), `Model.fetch`.                                                      |
@@ -51,16 +51,12 @@ somewhere under `docs/`.
 | `DbDefaults`        | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryClass`      | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryPolicy`     | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `bootDb`            | value | [getting-started.md](./getting-started.md#bootdboptions--suspenddb) |
-| `suspendDb`         | value | [getting-started.md](./getting-started.md#bootdboptions--suspenddb) |
-| `BootDbOptions`     | type  | [getting-started.md](./getting-started.md#bootdboptions--suspenddb) |
-| `MaintenanceReport` | type  | [getting-started.md](./getting-started.md#bootdboptions--suspenddb) |
+| `bootDb`            | value | [getting-started.md](./getting-started.md#bootdboptions)            |
+| `BootDbOptions`     | type  | [getting-started.md](./getting-started.md#bootdboptions)            |
+| `MaintenanceReport` | type  | [getting-started.md](./getting-started.md#bootdboptions)            |
 | `DbProvider`        | value | [getting-started.md](./getting-started.md#dbprovider)               |
 | `DbProviderProps`   | type  | [getting-started.md](./getting-started.md#dbprovider)               |
-| `mmkvStoragePlane`  | value | [getting-started.md](./getting-started.md#storage-seam)             |
 | `StoragePlane`      | type  | [getting-started.md](./getting-started.md#storage-seam)             |
-| `getDbTransport`    | value | [getting-started.md](./getting-started.md#transport-seam)           |
-| `setDbTransport`    | value | [getting-started.md](./getting-started.md#transport-seam)           |
 | `DbTransport`       | type  | [getting-started.md](./getting-started.md#transport-seam)           |
 
 ### Model DSL

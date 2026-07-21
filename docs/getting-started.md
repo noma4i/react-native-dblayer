@@ -10,7 +10,7 @@ down.
 - [`DbDefaults`](#dbdefaults)
 - [`onSyncError` policy](#onsyncerror-policy)
 - [`DbProvider`](#dbprovider)
-- [`bootDb(options)` / `suspendDb()`](#bootdboptions--suspenddb)
+- [`bootDb(options)`](#bootdboptions)
 - [Storage seam](#storage-seam)
 - [Transport seam](#transport-seam)
 - [Runtime prerequisites](#runtime-prerequisites)
@@ -27,7 +27,7 @@ Three steps, in this order, once per app process:
 3. **Render `<DbProvider bootOptions={{ wipe }}>`** around the app subtree. On mount it runs
    `bootDb(bootOptions)` itself (journal replay, garbage collection, foreign-key cleanup, declared
    model maintenance), gates `children` until that completes, and wires app-foreground/background
-   events to query refetch-on-focus and `suspendDb()`.
+   events to query refetch-on-focus and automatic background suspension.
 
 ```ts
 // models/index.ts
@@ -47,7 +47,7 @@ configureDb({
     mutation: op => apolloClient.mutate({ mutation: op.mutation, variables: op.variables }).then(r => ({ data: r.data }))
   },
   defaults: { staleTime: 30_000, pageSize: 20, onSyncError: (error, ctx) => reportSyncError(error, ctx) }
-  // storage defaults to mmkvStoragePlane(), logger to no-op.
+  // storage defaults to the built-in MMKV-backed plane, logger to no-op.
 });
 ```
 
@@ -75,7 +75,7 @@ runtimes, clears the internally-owned `QueryClient`, and re-applies the transpor
 | Option      | Type           | Default              | Description                                                                                       |
 | ----------- | -------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
 | `transport` | `DbTransport`  | **required**          | GraphQL transport (`query`/`mutation`/optional `subscribe`) used by `Model.query`/`Model.mutation`/subscription runtimes. See [Transport seam](#transport-seam) below. |
-| `storage`   | `StoragePlane` | `mmkvStoragePlane()`  | Synchronous key/value seam for persistence. See [Storage seam](#storage-seam) below.               |
+| `storage`   | `StoragePlane` | built-in MMKV plane  | Synchronous key/value seam for persistence. See [Storage seam](#storage-seam) below.               |
 | `logger`    | `DbLogger`     | no-op                 | Package logger seam: `{ debug, error }`.                                                           |
 | `defaults`  | `DbDefaults`   | `{}`                  | Package-wide freshness/pagination/retry/error-observation defaults. See `DbDefaults` below.        |
 
@@ -141,27 +141,25 @@ needed - and renders `children` only once boot completes. On mount it calls `boo
 exactly once (a re-render never re-triggers it) and gates `children` behind the resulting promise -
 render nothing (or a splash screen conditioned on the same signal your app already uses) above it
 while booting. It also wires `react-native`'s `AppState` for automatic focus-based refresh:
-foreground enables refetch-on-focus, and background calls `suspendDb()`.
+foreground enables refetch-on-focus, and background flushes persistence and suspends the runtime
+automatically.
 
-`bootOptions` is `BootDbOptions` (`{ wipe? }`) - see [`bootDb`](#bootdboptions--suspenddb) below.
+`bootOptions` is `BootDbOptions` (`{ wipe? }`) - see [`bootDb`](#bootdboptions) below.
 `configureDb` must already have run before `DbProvider` mounts; `DbProvider` does not call it.
 
-## `bootDb(options)` / `suspendDb()`
+## `bootDb(options)`
 
-The recommended data-lifecycle pair, run for you by `DbProvider` and available standalone for a
+The recommended boot sequence, run for you by `DbProvider` and available standalone for a
 custom boot sequence.
 
 ```ts
-import { bootDb, suspendDb } from '@noma4i/react-native-dblayer';
+import { bootDb } from '@noma4i/react-native-dblayer';
 
 async function start() {
   const { replayed, gc, maintenance } = await bootDb({ wipe: false });
   console.log(`replayed ${replayed} journal records, evicted`, gc.evicted);
   console.log('ran maintenance', maintenance);
 }
-
-// On app background / before logout teardown:
-suspendDb();
 ```
 
 `bootDb(options)` assumes `configureDb` already ran, and runs, in order: deferred definition
@@ -190,18 +188,20 @@ restore cascaded children`, since such a cascade cannot be rolled back if the ne
 The same guard also fires at the mutation's actual `run()` call time regardless of whether `bootDb`
 ran - the boot-time copy exists purely to fail at startup instead of on first use.
 
-`suspendDb()` flushes pending checkpoint snapshots then runs a `collectGarbage()` sweep (skipped if
-`configureDb` never ran). Safe to call repeatedly; it never clears state - a full wipe still goes
-through `resetRuntime`'s kill-switch.
+**Background suspension.** `DbProvider` performs it automatically when the app backgrounds: it
+flushes pending checkpoint snapshots, then runs a `collectGarbage()` sweep (skipped if
+`configureDb` never ran). It never clears state - a full wipe still goes through `resetRuntime`'s
+kill-switch. Headless callers with no `DbProvider` in the tree can get the flush half with
+`flushPersistence()`.
 
 ## Storage seam
 
 ```ts
 import type { StoragePlane } from '@noma4i/react-native-dblayer';
-import { mmkvStoragePlane } from '@noma4i/react-native-dblayer';
-
-const storage: StoragePlane = mmkvStoragePlane(); // default; pass a custom StoragePlane to configureDb to replace it
 ```
+
+The default storage is the built-in MMKV-backed plane (no import needed). To replace it,
+implement the `StoragePlane` type and pass it to `configureDb({ storage })`.
 
 `StoragePlane` is the atomic-enough synchronous seam every state plane persists through:
 
@@ -211,22 +211,14 @@ const storage: StoragePlane = mmkvStoragePlane(); // default; pass a custom Stor
 | `set`  | `(entries: Array<{ key, value: string \| null }>) => void`   | Apply entries in order; a `null` value removes the key, any other value writes it.  |
 | `keys` | `(prefix: string) => string[]`                                | List every stored key starting with `prefix`.                                       |
 
-`mmkvStoragePlane()` builds a `StoragePlane` backed by the configured MMKV storage adapter,
-resolved lazily on every call so it always reads whichever adapter is configured at call time.
+The built-in plane is backed by the configured MMKV storage adapter, resolved lazily on every
+read so it always uses whichever adapter is configured at that time.
 
 ## Transport seam
 
-```ts
-import { getDbTransport, setDbTransport } from '@noma4i/react-native-dblayer';
-
-setDbTransport(nextTransport); // swap after initial configuration, e.g. re-authenticating
-getDbTransport(); // the transport passed to configureDb/setDbTransport; throws if none configured
-```
-
 The library never talks to the network itself - every query, mutation, and subscription call goes
-through the configured `DbTransport`. `setDbTransport`/`getDbTransport` are normally unnecessary:
-`configureDb({ transport })` sets it once. Call `setDbTransport` directly only to swap the
-transport after initial configuration.
+through the configured `DbTransport`. The transport is injected once via `configureDb({ transport })`;
+all queries, mutations, and subscriptions flow through it.
 
 ### `DbTransport`
 

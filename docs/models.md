@@ -217,8 +217,8 @@ delete-before-create race window a fresh destroy needs, so cap pressure alone ca
 if a burst pushes the count past 20,000 (twice the cap) in one tick, an overflow valve prunes
 oldest-first straight down to the cap, ignoring the 10-minute floor entirely for the overflow - an
 extreme burst is a bigger memory/storage risk than the narrow race window the floor exists to
-protect. Decay runs for every model on each flush (`flushPersistence`/`suspendDb`/background
-checkpoint), including a quiescent model with no new writes since the last flush - tombstones age
+protect. Decay runs for every model on each flush (`flushPersistence`/automatic background
+suspension/background checkpoint), including a quiescent model with no new writes since the last flush - tombstones age
 out even without fresh activity on that model.
 
 ## Scopes

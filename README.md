@@ -55,7 +55,7 @@ const Root = () => (
 `DbProvider` owns the `@tanstack/react-query` `QueryClient` internally - it is never re-exported.
 On mount it runs `bootDb` (journal replay, garbage collection, foreign-key cleanup, declared model
 maintenance), gates `children` until boot completes, and wires app foreground/background events to
-query refetch-on-focus and `suspendDb()`.
+query refetch-on-focus and automatic background suspension.
 
 `transport` provides `query`, `mutation`, and `subscribe`. Storage defaults to MMKV and can be
 replaced with any `StoragePlane`. There is no partitioning and no per-user namespace: one flat
@@ -212,7 +212,7 @@ any model via its maintenance channel. `patchWhenRowExists` and `waitForRow` def
 row appears (commit-bus backed, TTL/abort aware). `createSingletonStatics` builds a reactive
 single-row facade.
 `collectGarbage` runs a reachability sweep (roots: scope members, `gc: 'exempt'` rows, pending
-optimistic operations, mounted readers); it runs automatically at boot, on `suspendDb`, and on an
+optimistic operations, mounted readers); it runs automatically at boot, on background suspension, and on an
 in-session pressure trigger. `Model.view` composes a scope with its declared relations into one
 pinpoint-reactive projection.
 

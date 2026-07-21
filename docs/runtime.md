@@ -38,13 +38,13 @@ Declared on `ModelConfig.maintenance` (see [models.md](./models.md#definemodelco
 | `dropIdleScopesAfterMs`   | `number` (ms)                                          | Opt-in idle scope collection: a scope with no read in this window is removed on the next `collectGarbage()` sweep, and its rows then follow normal reachability (evicted too, unless another scope/reference/reader still roots them). Omit to keep every scope alive until it empties on its own. |
 
 `maxRowsPerScope` tasks run once, at boot, as part of `bootDb` (see
-[getting-started.md](./getting-started.md#bootdboptions--suspenddb)) - not on every write. Temp-row
+[getting-started.md](./getting-started.md#bootdboptions)) - not on every write. Temp-row
 cleanup does not need a maintenance entry: it is already handled by the replay orphan sweep during
 boot. Each declared model surfaces one `MaintenanceReport` per `maxRowsPerScope` task
 (`{ model, task: 'maxRowsPerScope', affected }`) in `bootDb`'s return value.
 
-`dropIdleScopesAfterMs` is checked differently: every time `collectGarbage()` runs (at boot, in
-`suspendDb`, from an in-session GC-trigger sweep, or a direct call) - not just once at startup. A
+`dropIdleScopesAfterMs` is checked differently: every time `collectGarbage()` runs (at boot, on
+background suspension, from an in-session GC-trigger sweep, or a direct call) - not just once at startup. A
 "read" is a mounted `use`/`useWindow`/`useCount` scope reader, a mounted `Model.view` reader over
 that scope (stamped once at mount time - re-renders never re-stamp), or a `ScopeHandle.read(...)`
 snapshot call - all three stamp the scope's last-access time. A currently-mounted reactive reader
@@ -73,8 +73,8 @@ then persistence flushes. Safe to call during in-session UI rendering - a sweep 
 any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model
 id.
 
-`collectGarbage` runs automatically as part of `bootDb`'s startup sequence and `suspendDb`'s
-teardown sequence (see [getting-started.md](./getting-started.md#bootdboptions--suspenddb)); most
+`collectGarbage` runs automatically as part of `bootDb`'s startup sequence and the automatic
+background suspension's teardown sequence (see [getting-started.md](./getting-started.md#bootdboptions)); most
 apps never call it directly.
 
 ### In-session GC trigger
@@ -124,7 +124,7 @@ write (the app killed mid-flush) always leaves a replayable pending record rathe
 snapshot, since the two storage batches are never interleaved with a partial snapshot in between.
 
 At boot, deferred definition validation runs first (see
-[getting-started.md](./getting-started.md#bootdboptions--suspenddb)), then journal replay
+[getting-started.md](./getting-started.md#bootdboptions)), then journal replay
 re-applies every pending record left over from the last session (the recovery half of WAL), then a
 `collectGarbage()` sweep reclaims anything that replay left unreachable, foreign storage keys
 (outside the library's `dbl:` namespace - pre-migration leftovers) are cleared, and declared model
@@ -132,8 +132,8 @@ maintenance runs last - together, the boot compaction pass that brings persisted
 exactly what a live session would have produced.
 
 `flushPersistence(): void` forces a checkpoint flush now - pending model snapshots hit storage in
-one batch. `suspendDb()` calls it as part of the recommended background/teardown sequence; call it
-directly only for a different flush timing need.
+one batch. The automatic background suspension calls it as part of the recommended
+background/teardown sequence; call it directly only for a different flush timing need.
 
 ```ts
 import { flushPersistence } from '@noma4i/react-native-dblayer';
