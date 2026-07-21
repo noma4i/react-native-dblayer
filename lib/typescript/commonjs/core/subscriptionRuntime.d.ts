@@ -1,7 +1,5 @@
 import type { ResultOf, TypedDocumentNode, VariablesOf } from '@graphql-typed-document-node/core';
 import type { DbGraphQLDocument } from '../types';
-/** Clear injected effect wrappers during runtime teardown. */
-export declare const resetSubscriptionRuntimeEffects: () => void;
 /** Resolve an injected subscription effect by its stable application name. */
 export declare const getDbSubscriptionEffect: (name: string) => ((...args: unknown[]) => void) | undefined;
 /**

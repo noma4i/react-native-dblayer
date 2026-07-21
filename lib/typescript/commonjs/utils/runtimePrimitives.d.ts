@@ -78,7 +78,7 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
  * existed in the model.
  */
 export declare const reconcileOptimisticRows: <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(model: SnapshotModel<TStored>, nodes: TNode[], options: ReconcileOptimisticRowsOptions<TStored, TNode>) => TNode[];
-export type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
+type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
 /**
  * Keep at most `maxPerScope` unprotected rows in each scope.
  *
@@ -92,7 +92,7 @@ export type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | Re
  * @returns Number of rows deleted.
  */
 export declare const trimRowsPerScope: <TStored extends RowId, TScopeField extends Extract<keyof TStored, string>>(model: DestroyManyModel<TStored>, scopeField: TScopeField, maxPerScope: number, compare: (left: TStored, right: TStored) => number, protect?: RowProtect<TStored>) => number;
-export type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
+type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
     maxAgeMs: number;
     protectedIds?: ReadonlySet<string> | readonly string[];
     onStale: (row: TStored) => void;

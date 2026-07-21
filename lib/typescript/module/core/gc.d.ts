@@ -1,4 +1,4 @@
-export type GcHost = {
+type GcHost = {
     modelId: string;
     exempt: boolean;
     rowIds(): string[];
@@ -34,4 +34,5 @@ export type GcReport = {
  * @returns Reachability report with evicted row and removed scope counts by model.
  */
 export declare const collectGarbage: () => GcReport;
+export {};
 //# sourceMappingURL=gc.d.ts.map

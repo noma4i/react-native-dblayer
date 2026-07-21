@@ -1,5 +1,46 @@
 # Changelog
 
+## 7.0.0-beta.9 - 2026-07-21
+
+### Breaking changes and migration
+
+- BREAKING: deep subpath imports are removed - `react-native-dblayer/core/*`, `react-native-dblayer/utils/*`, and `react-native-dblayer/types` no longer resolve. Import everything from the package root barrel.
+- BREAKING: `f.enum` now takes the allowed value list and validates at runtime: `f.enum(['a', 'b'] as const)` (or `f.enum(Object.values(SomeCodegenEnum))`). Values outside the list are skipped like any other rejected field read. The old type-only `f.enum<T>()` passthrough form is removed - migrate each call site by passing the enum's values.
+- BREAKING: pruned barrel exports with zero consumers: `getDbTransport`, `setDbTransport`, `suspendDb`, and `mmkvStoragePlane` are no longer exported (`bootDb` is unchanged). Internal-only symbols and unused type exports are removed from the public type surface.
+- BREAKING: the `use.related` select overload types the callback row as a generic record - relation rows belong to the TARGET model, so narrow to the target stored type at the call site. Projection options apply only to `hasMany`; `belongsTo`/`hasOne` return the single target row as-is.
+
+### ActiveRecord ergonomics
+
+- `DbWhere` leaves accept comparison operators: `{ score: { gte: 5 } }` with `gt`/`gte`/`lt`/`lte`/`in`/`notIn`/`contains` (`contains` is string-only). Plain values keep exact-match semantics and the exact-match fast path; operator operands go through the same id coercion as plain criteria.
+- Read-builder terminals: `.last()`, `.pluck(field)`, and `.exists()` (count-only, no row materialization) on `use.where(...)` builders.
+- Batch writes: `patchWhere(where, partial)` and `destroyWhere(where)` apply one journaled multi-op plan against a snapshot of matching rows and return the matched count.
+- `defaultOrder` model config: `{ field, direction }` orders every order-less read (`getWhere`, `use.first`, builders without `.orderBy`). An explicit order fully replaces it.
+- `queryScopes` model config: named reusable local predicates exposed as `model.use.<name>(extra?)` returning the standard read builder (the fragment's `where` composed with `extra` via `and`, optional `orderBy`/`limit` pre-applied, terminals included). A name colliding with a built-in `use` key throws at define time. Distinct from membership `scopes`.
+- `use.unsyncedChanges(id)`: reactive partial of stored fields currently owned by still-pending optimistic patch operations on the row - `undefined` when none are pending. Identity stays stable while the unsynced values are shallow-equal.
+- `f.date()`: ISO-8601 string field - accepts parseable strings as-is, converts `Date` and epoch-ms numbers via `toISOString`, skips invalid values.
+
+### Consumer helpers
+
+- `fromNodes(connection)`: unwrap a GraphQL connection into a dense node array (nullish connections, node lists, and entries tolerated).
+- `sinkIf(into, row)`: build an extract sink list from one optional node - `[]` for nullish, one sink otherwise. Collapses the `x ? [{ into, rows: [x] }] : []` pattern.
+- `bridgeWindowPagination(window, query)`: combine a scope window (local pagination) with its backing query (network pagination) into one list-ready surface with window-first `fetchNextPage` and OR-ed `hasNextPage`. New `WindowPaginationBridge` type; `ScopeWindowResult` is now exported.
+- `ScopeHandle.useFirst(scopeValue, opts?)`: reactive first scope row or `undefined`; nullish scope values stay unsubscribed.
+
+### Reads and correctness
+
+- Row ordering is locale-independent everywhere: every sort tie-break now compares ids by codepoint (`localeCompare` is gone from all read paths), so equal-key row order is deterministic across devices and locales.
+- `resetRuntime()` is a safe no-op before `configureDb` has ever run (previously threw), so defensive teardown paths can call it unconditionally.
+- `use.related` now carries behavioral contracts for `belongsTo`/`hasMany`/`hasOne` reads (reactive parent tracking, comparator-best `hasOne`, nullish-id empties, unknown-relation throw).
+
+### Removed (dead code)
+
+- Dropped the unused incremental scope read engine path - the live scope-read implementation is the only one.
+- Dropped the dead `uniqueIds` module and duplicate equality/guard/comparator copies in favor of the canonical shared helpers.
+
+### Testing
+
+- Every new surface landed red-first with consumer-shaped contracts, and the earlier-landed features were retroactively proven red against their parent commits. Named behavioral contracts now cover the previously untested exports (id/patch utils, shape readers, row waiters, optimistic merge, runtime patchers, gc/reset/subscription utils). New perf gates cover the operator scan and the unified sort comparator. Full suite: 73 suites, 364 tests, green.
+
 ## 7.0.0-beta.8 - 2026-07-21
 
 ### Breaking changes and migration

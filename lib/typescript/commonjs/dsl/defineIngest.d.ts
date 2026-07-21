@@ -10,7 +10,7 @@ export type IngestDecl = {
     /** Cross-model sideloads applied in the SAME transaction as the event rows. */
     extract?: ExtractSink[];
 };
-export type IngestHandle = {
+type IngestHandle = {
     apply(event: string, payload: unknown): IngestDecl | null;
 };
 type IngestModel = {

@@ -109,7 +109,7 @@ export declare const references: <TChild, TRef>(model: ModelRef<TRef>, options: 
  * Membership hooks derive declarative scope membership from ScopeSpec.by so event rows join and
  * leave their scopes in the SAME plan (same-tick visibility for optimistic/ingest rows).
  */
-export type RelationHost = {
+type RelationHost = {
     relations(): Record<string, RelationDecl>;
     has(id: string): boolean;
     read(id: string): StoredRow | undefined;

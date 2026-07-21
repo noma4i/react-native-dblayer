@@ -1,5 +1,5 @@
 import type { StoragePlane } from '../planes/storagePlane';
-export type CheckpointTarget = {
+type CheckpointTarget = {
     persistEntries(): Array<{
         key: string;
         value: string | null;
@@ -40,4 +40,5 @@ export declare const createCheckpointScheduler: (options: {
         value: string | null;
     }>;
 }) => CheckpointScheduler;
+export {};
 //# sourceMappingURL=checkpoint.d.ts.map

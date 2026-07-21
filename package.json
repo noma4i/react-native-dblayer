@@ -1,6 +1,6 @@
 {
   "name": "@noma4i/react-native-dblayer",
-  "version": "7.0.0-beta.8",
+  "version": "7.0.0-beta.9",
   "description": "Reactive, persistent data-layer DSL for React Native with injectable storage and transport",
   "author": "Alexander Tsirel",
   "license": "MIT",

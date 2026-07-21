@@ -4,7 +4,7 @@ export type ModelStatusPollerPhase = {
     attempts: number;
 };
 type ModelStatusPollerStopReason = NonNullable<ModelStatusPollerPhase['reason']>;
-export type ModelStatusPollerConfig<TResult> = {
+type ModelStatusPollerConfig<TResult> = {
     /** Fetch the latest status payload for an id. */
     fetch: (id: string) => Promise<TResult>;
     /** Apply a fetched status payload to the owning model. */

@@ -1,8 +1,7 @@
 import type { DbWhere } from '../types';
+/** True when a leaf value is an operator record: a non-empty plain object whose every key is a comparison operator. */
+export declare const isWhereOperatorValue: (value: unknown) => value is Record<string, unknown>;
 export declare const matchesDbWhere: <TStored>(row: TStored, where: DbWhere<TStored> | undefined) => boolean;
-export declare const normalizeDbCondition: <TStored>(condition?: Partial<TStored>) => Partial<TStored> | undefined;
-/** Sentinel scope key shared by every fetch-state read/write for an empty or missing filter. */
-export declare const ROOT_SCOPE_KEY = "__root__";
 /**
  * Derive the stable scope key for a filter/scope value.
  *

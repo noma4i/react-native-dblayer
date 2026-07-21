@@ -36,7 +36,7 @@ type RowEngineOptions<T extends Row, TValue> = {
     isEqual?: (left: TValue, right: TValue) => boolean;
     countOnly?: boolean;
 };
-/** Sort model read results by declared keys with NULLS LAST and an implicit id tie-breaker. */
+/** Sort model read results by declared keys with NULLS LAST and an implicit locale-independent id tie-breaker. */
 export declare const sortModelReadRows: <T extends Row>(rows: T[], orderBy: ReadonlyArray<{
     field: string;
     direction: "asc" | "desc";
@@ -45,21 +45,5 @@ export declare const sortModelReadRows: <T extends Row>(rows: T[], orderBy: Read
 export declare const limitRows: <T>(rows: T[], limit: number | undefined) => T[];
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
 export declare const createModelReadEngine: <T extends Row, TValue>(options: RowEngineOptions<T, TValue>) => Engine<TValue>;
-type ScopeEngineOptions<T extends Row> = {
-    signature: string;
-    model: string;
-    scopeKey: string;
-    initial(): T[];
-    read(id: string): T | undefined;
-    sort?: {
-        field: string;
-        direction: 'asc' | 'desc';
-    } | 'server-order' | {
-        comparator: (left: T, right: T) => number;
-    };
-    windowSize?: number;
-};
-/** P5 state: one scope subscription, ephemeral epochs, and conservative comparator rebuilds. */
-export declare const createScopeReadEngine: <T extends Row>(options: ScopeEngineOptions<T>) => Engine<T[]>;
 export {};
 //# sourceMappingURL=incrementalReadEngine.d.ts.map

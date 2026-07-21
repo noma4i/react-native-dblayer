@@ -1,6 +1,6 @@
 import type { StoragePlane } from './storagePlane';
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
-export type ScopeEntry = {
+type ScopeEntry = {
     id: string;
     order: number;
     seq: number;
@@ -11,12 +11,12 @@ export type ScopeIndexValue = {
     coverage: ScopeCoverage;
     entries: ScopeEntry[];
 };
-export type IncomingScopeRow = {
+type IncomingScopeRow = {
     id: string;
     edge?: Record<string, unknown>;
     order?: number;
 };
-export type ReconcileResult = {
+type ReconcileResult = {
     next: ScopeIndexValue;
     detachedIds: string[];
 };
@@ -77,4 +77,5 @@ export declare const createScopeIndex: (options: {
     storage: StoragePlane;
     prefix: () => string;
 }) => ScopeIndex;
+export {};
 //# sourceMappingURL=scopeIndex.d.ts.map

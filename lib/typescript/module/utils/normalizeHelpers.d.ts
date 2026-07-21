@@ -20,6 +20,8 @@ export declare const readNumber: (value: unknown) => number | undefined;
 export declare const readNullableNumber: (value: unknown) => number | null | undefined;
 /** Read a boolean or return undefined for missing or malformed values. */
 export declare const readBoolean: (value: unknown) => boolean | undefined;
+/** Read an ISO date-time string from a string, `Date`, or epoch-milliseconds value; `undefined` for unparseable input. */
+export declare const readIsoDate: (value: unknown) => string | undefined;
 /** Read an id as a string; non-empty string/number pass through, anything else (empty string/boolean/object/array/null/undefined) returns undefined. */
 export declare const readId: (value: unknown) => string | undefined;
 //# sourceMappingURL=normalizeHelpers.d.ts.map

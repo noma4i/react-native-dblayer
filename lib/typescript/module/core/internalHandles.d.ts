@@ -1,7 +1,7 @@
 import type { JournalOp } from './apply/journal';
 import type { RelationDecl } from './relations';
 import type { ScopeCoverage } from './planes/scopeIndex';
-export type InternalModelHandle = {
+type InternalModelHandle = {
     readRow(id: string): {
         id: string;
         [key: string]: unknown;
@@ -27,7 +27,7 @@ export type InternalModelHandle = {
     relations(): Record<string, RelationDecl>;
     revision(): number;
 };
-export type InternalScopeHandle = {
+type InternalScopeHandle = {
     apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: {
         resetOrder?: boolean;
     }): void;
@@ -52,4 +52,5 @@ export declare const registerInternalScopeHandle: (scope: object, handle: Intern
 export declare const getInternalModelHandle: (model: object) => InternalModelHandle;
 export declare const getInternalScopeHandle: (scope: object) => InternalScopeHandle;
 export declare const hasInternalScopeHandle: (scope: object) => boolean;
+export {};
 //# sourceMappingURL=internalHandles.d.ts.map

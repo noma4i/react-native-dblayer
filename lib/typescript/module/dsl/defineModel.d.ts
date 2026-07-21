@@ -13,7 +13,8 @@ import type { ScopeSpec } from './scope';
 import type { InferBuildStoredInput, InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
-type ScopeWindowResult<T> = {
+/** Result of ScopeHandle.useWindow: locally-windowed scope rows plus paging/resolution flags. */
+export type ScopeWindowResult<T> = {
     /** Current-key rows, or retained previous-key rows while `isPreviousData` is true. */
     rows: T[];
     /** Total count for the snapshot represented by `rows`. */
@@ -93,6 +94,14 @@ export type ScopeHandle<TStored extends {
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
     } & KeepPreviousOption): TStored[];
+    /**
+     * Reactive first row of the scope; `undefined` when empty or when `scopeValue` is nullish (nullish
+     * reads stay unsubscribed). Sugar for single-row scopes (e.g. byUuid lookups) over `use(...)[0]`;
+     * re-renders follow the scope's row set.
+     */
+    useFirst(scopeValue: TScope | null | undefined, opts?: {
+        renderKeys?: readonly (keyof TStored & string)[];
+    } & KeepPreviousOption): TStored | undefined;
     /**
      * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
      * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
@@ -216,6 +225,25 @@ export type ModelCore<TStored extends {
     patch(id: string, patch: Partial<TStored>): void;
     destroy(id: string): void;
     destroyMany(ids: string[]): void;
+    /**
+     * Patch every row matching `where` in ONE journal plan: single transaction, single commit publish,
+     * one render per mounted reader. Snapshot semantics - the match set is computed once against
+     * current rows before applying; rows that start matching because of the patch itself are not
+     * re-visited.
+     *
+     * @param where Local `DbWhere` predicate (equality leaves, `DbWhereOp` operators, and/or/not).
+     * @param patch Partial stored-field update applied to every matched row.
+     * @returns Number of rows matched and patched.
+     */
+    patchWhere(where: DbWhere<TStored>, patch: Partial<TStored>): number;
+    /**
+     * Destroy every row matching `where` in ONE journal plan: single transaction, single commit
+     * publish. Snapshot semantics as in `patchWhere`.
+     *
+     * @param where Local `DbWhere` predicate selecting the rows to destroy.
+     * @returns Number of rows destroyed.
+     */
+    destroyWhere(where: DbWhere<TStored>): number;
     insertStored(row: TStored): void;
     /**
      * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
@@ -245,6 +273,14 @@ export type ModelCore<TStored extends {
         pending(id: string | null | undefined): boolean;
         /** Return whether one row id belongs to a retained failed optimistic operation. */
         failed(id: string | null | undefined): boolean;
+        /**
+         * Reactive partial of stored fields currently owned by still-pending optimistic patch operations
+         * on this row - the local changes not yet confirmed by the server. `undefined` when none are
+         * pending (and for nullish ids, without subscribing). When several pending patches touch the
+         * same field, the later operation wins. Identity stays stable while the unsynced values remain
+         * shallow-equal.
+         */
+        unsyncedChanges(id: string | null | undefined): Partial<TStored> | undefined;
         /** Read one field from one row. */
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
         /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
@@ -286,9 +322,14 @@ export type ModelCore<TStored extends {
             byId: ReadonlyMap<string, TStored>;
         };
         count(where?: DbWhere<TStored> | null): number;
-        /** Read a declared relation, optionally projecting row-valued relation results through the shared gate. */
+        /**
+         * Read a declared relation reactively. `hasMany` returns the target model's rows (projection
+         * options apply); `belongsTo`/`hasOne` return one target row or `undefined` (projection
+         * options are ignored). Rows belong to the TARGET model, so the select callback receives a
+         * generic record - narrow it to the target stored type at the call site.
+         */
         related<TProjection extends Record<string, unknown>>(id: string | null | undefined, relation: string, opts: {
-            select: (row: TStored) => TProjection;
+            select: (row: Record<string, unknown>) => TProjection;
             renderKeys?: never;
         }): TProjection[];
         related(id: string | null | undefined, relation: string, opts?: {
@@ -342,13 +383,49 @@ type RequiredReadUse<TStored extends {
         require?: never;
     }): TStored | undefined;
 };
-type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>> = {
+type QueryScopeSpec<TStored extends {
+    id: string;
+}> = {
+    /** Reusable local predicate fragment for this named read. */
+    where: DbWhere<TStored>;
+    /** Optional explicit order; without it the read falls back to the model defaultOrder like any builder. */
+    orderBy?: {
+        field: keyof TStored & string;
+        direction: 'asc' | 'desc';
+    };
+    /** Optional leading-rows limit. */
+    limit?: number;
+};
+type QueryScopeReads<TStored extends {
+    id: string;
+}, TQueryScopes> = {
+    [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
+};
+type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
     id: string;
     /** Human-readable model name; prefixes normalize/apply error and log messages. */
     name: string;
     /** Field spec map (built with `f.*`) that drives normalize/build reads for every stored field. */
     fields: TFields;
+    /**
+     * Named reusable predicate reads: each entry appears as `model.use.<name>(extra?)` returning the
+     * standard read builder with the fragment's `where` (composed with `extra` via `and`), optional
+     * `orderBy`, and optional `limit` pre-applied. A name colliding with a built-in `use` key throws
+     * at define time. Distinct from membership `scopes`: queryScopes are local predicates, not
+     * server-order membership indexes.
+     */
+    queryScopes?: TQueryScopes;
+    /**
+     * Implicit ordering for reads that declare no explicit order: `getWhere` without `opts.orderBy`,
+     * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
+     * An explicit order fully replaces it. Without `defaultOrder`, unordered reads keep natural
+     * storage order. Ties break by the implicit locale-independent id key as usual.
+     */
+    defaultOrder?: {
+        field: keyof InferStoredFields<TFields> & string;
+        direction: 'asc' | 'desc';
+    };
     /**
      * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
      * returning anything else makes `normalize` throw `${name} requires id` for that input, which
@@ -424,8 +501,8 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {}, TExt extends Record<string, unknown> = {}>(config: ModelConfig<TFields, TScopes, TExt>) => Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, "use" | "scopes"> & {
-    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | "id">;
+export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {}, TExt extends Record<string, unknown> = {}, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}>(config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>) => Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, "use" | "scopes"> & {
+    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | "id"> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
     scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>>; };
 } & TExt;
 export {};

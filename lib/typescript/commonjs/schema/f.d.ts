@@ -26,6 +26,13 @@ export declare const f: {
      */
     num: () => FieldSpec<unknown, number, "required", false>;
     /**
+     * ISO-8601 date-time string field. Strings are kept as-is when parseable; `Date` instances and
+     * epoch-milliseconds numbers are stored as `toISOString()`; unparseable values are dropped.
+     * Stored as a string, so codepoint ordering (orderBy, DbWhereOp gt/lt) is chronological for
+     * same-format ISO values.
+     */
+    date: () => FieldSpec<unknown, string, "required", false>;
+    /**
      * Read boolean values and skip every other input type.
      *
      * `null` is skipped until `.nullable()` is applied.
@@ -42,13 +49,11 @@ export declare const f: {
      */
     id: () => FieldSpec<unknown, string, "required", false>;
     /**
-     * Pass through non-nullish enum values as the supplied TypeScript enum type.
-     *
-     * Runtime validation is intentionally delegated to the caller or GraphQL types.
-     *
-     * @returns A field spec that stores the supplied enum type.
+     * Enum field with runtime validation: only the declared string values are stored; any other value
+     * is dropped like other unreadable values. The stored type is the union of the declared literals -
+     * pass an explicit generic for codegen enums: `f.enum<GqlKind>(Object.values(GqlKind))`.
      */
-    enum: <T>() => FieldSpec<unknown, T, "required", false>;
+    enum: <TValue extends string>(values: readonly TValue[]) => FieldSpec<unknown, TValue, "required", false>;
     /**
      * Pass through any non-nullish raw value as the supplied TypeScript type.
      *

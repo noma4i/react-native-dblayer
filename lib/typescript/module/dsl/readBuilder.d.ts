@@ -24,11 +24,26 @@ export type ModelReadBuilder<TStored extends {
     select<TProjection extends Record<string, unknown>>(selector: (row: TStored) => TProjection): ModelReadBuilder<TStored, TProjection>;
     /** Reactively read rows for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
     rows(): TOutput[];
+    /** Reactively read the last row of the ordered (and limited) result; `undefined` when empty. */
+    last(): TOutput | undefined;
+    /**
+     * Reactively read one field from every matching row in declared order. Render-gated by the plucked
+     * values only: the returned array keeps its identity until some plucked value or the row set changes.
+     * With `select`, plucks from the projected rows. Selector identity is not a dependency.
+     */
+    pluck<K extends keyof TOutput & string>(field: K): Array<TOutput[K]>;
+    /**
+     * Reactively read whether at least one row matches this builder's criteria and `require` fields.
+     * Re-renders only when the answer flips. `orderBy`/`limit`/`select` do not affect the result.
+     */
+    exists(): boolean;
 };
 type ReadBuilderTerminals<TStored extends {
     id: string;
 }> = {
     rows<TOutput extends Record<string, unknown>>(where: DbWhere<TStored> | null, orders: ReadonlyArray<ReadOrder<TStored>>, limit: number | undefined, required: readonly string[], projection: ProjectionOptions<TStored, TOutput>): TOutput[];
+    pluck(where: DbWhere<TStored> | null, orders: ReadonlyArray<ReadOrder<TStored>>, limit: number | undefined, required: readonly string[], projection: ProjectionOptions<TStored, Record<string, unknown>>, field: string): unknown[];
+    exists(where: DbWhere<TStored> | null, required: readonly string[]): boolean;
 };
 /** Create a plain immutable read builder whose terminals delegate to the model read engine. */
 export declare const createReadBuilder: <TStored extends {

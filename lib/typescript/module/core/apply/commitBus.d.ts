@@ -3,11 +3,11 @@ export type RowChange = {
     id: string;
     fields: string[] | null;
 };
-export type ScopeChange = {
+type ScopeChange = {
     model: string;
     scopeKey: string;
 };
-export type PendingChange = {
+type PendingChange = {
     model: string;
     id: string;
 };
@@ -16,7 +16,7 @@ export type CommitBatch = {
     scopes: ScopeChange[];
     pending?: PendingChange[];
 };
-export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
+type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 export type IncrementalScopeChange = {
     model: string;
     scopeKey: string;
@@ -72,4 +72,5 @@ export declare const createCommitBus: () => {
     subscriberCount: () => number;
 };
 export type CommitBus = ReturnType<typeof createCommitBus>;
+export {};
 //# sourceMappingURL=commitBus.d.ts.map

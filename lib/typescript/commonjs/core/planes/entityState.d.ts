@@ -1,14 +1,10 @@
 import type { StoragePlane } from './storagePlane';
-export type EntityClock = {
+type EntityClock = {
     next(): number;
     current(): number;
     restore(value: number): void;
 };
-export type Tombstone = {
-    seq: number;
-    at: number;
-};
-export type UpsertResult = {
+type UpsertResult = {
     seq: number;
     changedFields: string[] | null;
 };
@@ -48,4 +44,5 @@ export declare const createEntityState: <T extends {
     mergeGate?: (previous: T, incoming: T) => T;
 }) => EntityState<T>;
 export declare const createEntityClock: () => EntityClock;
+export {};
 //# sourceMappingURL=entityState.d.ts.map

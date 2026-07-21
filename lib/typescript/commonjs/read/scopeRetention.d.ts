@@ -1,4 +1,4 @@
-export type RetainedScopeSnapshot<T> = {
+type RetainedScopeSnapshot<T> = {
     rows: T[];
     totalCount: number;
 };
@@ -11,4 +11,5 @@ export declare const useScopeRetention: <T, TSnapshot extends RetainedScopeSnaps
     snapshot: TSnapshot;
     isPreviousData: boolean;
 };
+export {};
 //# sourceMappingURL=scopeRetention.d.ts.map

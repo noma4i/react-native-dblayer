@@ -78,7 +78,7 @@ export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = '
 /** Read a selected raw value into a stored field value. */
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
 /** Select the raw source value for a field from an input object and key. */
-export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
+type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
 export declare const fieldSpecSparseRead: unique symbol;
 type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
     mode: TMode;
@@ -90,8 +90,6 @@ type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
 };
 /** Read `input[key]` when input is an object, otherwise return undefined. */
 export declare const readObjectField: <TInput>(input: TInput, key: string) => unknown;
-/** Read an own key from a source object, otherwise return undefined. */
-export declare const readSourceKey: (source: unknown, key: string) => unknown;
 /** Wrap a value reader so explicit null is preserved. */
 export declare const preserveNull: <TOut>(readValue: FieldValueReader<TOut>) => FieldValueReader<TOut>;
 /** Create a chainable field spec from low-level reader functions. */
