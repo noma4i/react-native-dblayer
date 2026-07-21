@@ -25,6 +25,7 @@ const customField = <TInput, TOut>(readValue: FieldValueReader<TOut>): FieldSpec
     selectSource: input => input,
     readValue,
     readNullableValue: preserveNull(readValue),
+    derived: true,
     defaultNull: false
   });
 

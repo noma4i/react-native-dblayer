@@ -7,6 +7,8 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
     read: (input: TInput, key: string) => TOut | null | undefined;
     /** Read this field from an already-selected raw value. */
     readValue: FieldValueReader<TOut>;
+    /** Reader derives the value from a whole input object; readValue is not idempotent on stored values, so key coercion must not re-apply it. */
+    derived?: boolean;
     /** Current presence mode used by normalize and buildStored. */
     mode: TMode;
     /** Factory-time default used by buildStored when the caller omits this key. */
@@ -85,6 +87,7 @@ type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
     selectSource: FieldSourceSelector<TInput>;
     readValue: FieldValueReader<TOut>;
     readNullableValue: FieldValueReader<TOut>;
+    derived?: boolean;
     defaultNull: boolean;
     factoryDefault?: FieldDefault<TOut>;
 };

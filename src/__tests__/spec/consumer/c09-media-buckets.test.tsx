@@ -5,6 +5,9 @@ import { createMemoryPlane, createMockTransport, renderCounted } from '../helper
 
 type MediaRow = { id: string; chatId: string; mediaBucket: string; sequenceNumber: number; label: string };
 type MediaScopeValue = { chatId: string; mediaBucket: string };
+type DerivedMediaInput = { id: string; chatId: string; media?: { kind?: 'audio' | 'video' | null } | null; sequenceNumber: number; label: string };
+type DerivedMediaRow = { id: string; chatId: string; bucket: 'audio' | 'visual' | null; sequenceNumber: number; label: string };
+type DerivedMediaScopeValue = { chatId: string; bucket: 'audio' | 'visual' };
 type MediaResponse = {
   mediaItems: {
     nodes: Array<MediaRow>;
@@ -38,6 +41,25 @@ const createMediaModel = () =>
     scopes: {
       media: scope<MediaRow>({
         by: { chatId: 'chatId', mediaBucket: 'mediaBucket' },
+        sort: { field: 'sequenceNumber', dir: 'desc' }
+      })
+    }
+  });
+
+const createDerivedMediaModel = () =>
+  defineModel({
+    id: 'SpecConsumerDerivedMediaBuckets',
+    name: 'SpecConsumerDerivedMediaBuckets',
+    fields: {
+      id: f.str(),
+      chatId: f.str(),
+      bucket: f.custom<'audio' | 'visual' | null, DerivedMediaInput>(input => (input.media?.kind === 'audio' ? 'audio' : input.media?.kind ? 'visual' : null)).nullable(),
+      sequenceNumber: f.num(),
+      label: f.str()
+    },
+    scopes: {
+      media: scope<DerivedMediaRow>({
+        by: { chatId: 'chatId', bucket: 'bucket' },
         sort: { field: 'sequenceNumber', dir: 'desc' }
       })
     }
@@ -77,6 +99,100 @@ const renderCountedInProvider = <T,>(useHook: () => T) => {
 };
 
 describe('media scope bucket behavior', () => {
+  it('keeps derived custom bucket membership instances distinct', async () => {
+    const responses = [
+      { mediaItems: { nodes: [{ id: 'audio-1', chatId: 'chat-1', media: { kind: 'audio' as const }, sequenceNumber: 20, label: 'audio' }] } },
+      { mediaItems: { nodes: [{ id: 'visual-1', chatId: 'chat-1', media: { kind: 'video' as const }, sequenceNumber: 10, label: 'visual' }] } }
+    ];
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: responses.shift() as TData }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createDerivedMediaModel();
+    const query = media.query<{ mediaItems: { nodes: DerivedMediaInput[] } }, DerivedMediaScopeValue, DerivedMediaScopeValue, DerivedMediaRow>('derived-media-membership', {
+      document,
+      vars: value => value,
+      select: data => data.mediaItems.nodes,
+      into: media.scopes.media
+    });
+    const audio = { chatId: 'chat-1', bucket: 'audio' } as const;
+    const visual = { chatId: 'chat-1', bucket: 'visual' } as const;
+
+    await query.fetch(audio);
+    await query.fetch(visual);
+
+    expect(media.scopes.media.read(audio).map(row => row.id)).toEqual(['audio-1']);
+    expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['visual-1']);
+  });
+
+  it('counts only rows from the selected derived custom bucket', async () => {
+    const responses = [
+      { mediaItems: { nodes: [{ id: 'audio-1', chatId: 'chat-1', media: { kind: 'audio' as const }, sequenceNumber: 20, label: 'audio' }] } },
+      { mediaItems: { nodes: [{ id: 'visual-1', chatId: 'chat-1', media: { kind: 'video' as const }, sequenceNumber: 10, label: 'visual' }] } }
+    ];
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: responses.shift() as TData }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createDerivedMediaModel();
+    const query = media.query<{ mediaItems: { nodes: DerivedMediaInput[] } }, DerivedMediaScopeValue, DerivedMediaScopeValue, DerivedMediaRow>('derived-media-count', {
+      document,
+      vars: value => value,
+      select: data => data.mediaItems.nodes,
+      into: media.scopes.media
+    });
+    const audio = { chatId: 'chat-1', bucket: 'audio' } as const;
+    const visual = { chatId: 'chat-1', bucket: 'visual' } as const;
+
+    await query.fetch(audio);
+    await query.fetch(visual);
+
+    const audioCount = renderCounted(() => media.scopes.media.useCount(audio));
+    const visualCount = renderCounted(() => media.scopes.media.useCount(visual));
+    expect(audioCount.result()).toBe(1);
+    expect(visualCount.result()).toBe(1);
+    audioCount.unmount();
+    visualCount.unmount();
+  });
+
+  it('matches derived custom query destination keys with row membership keys', async () => {
+    const responses = [
+      {
+        mediaItems: {
+          nodes: [{ id: 'audio-1', chatId: 'chat-1', media: { kind: 'audio' as const }, sequenceNumber: 20, label: 'audio' }],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      },
+      {
+        mediaItems: {
+          nodes: [{ id: 'visual-1', chatId: 'chat-1', media: { kind: 'video' as const }, sequenceNumber: 10, label: 'visual' }],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      }
+    ];
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: responses.shift() as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createDerivedMediaModel();
+    const query = media.query<{ mediaItems: { nodes: DerivedMediaInput[] } }, DerivedMediaScopeValue, DerivedMediaScopeValue, DerivedMediaRow>('derived-media', {
+      document,
+      vars: value => value,
+      select: data => data.mediaItems.nodes,
+      into: media.scopes.media
+    });
+    const audio = { chatId: 'chat-1', bucket: 'audio' } as const;
+    const visual = { chatId: 'chat-1', bucket: 'visual' } as const;
+
+    await query.fetch(audio);
+    await query.fetch(visual);
+
+    expect(media.scopes.media.read(audio).map(row => row.id)).toEqual(['audio-1']);
+    expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['visual-1']);
+  });
+
+  it('preserves derived behavior through nullable custom field chaining', () => {
+    const field = f.custom<'audio' | 'visual' | null, DerivedMediaInput>(input => (input.media?.kind === 'audio' ? 'audio' : input.media?.kind ? 'visual' : null)).nullable();
+
+    expect(field.derived).toBe(true);
+  });
+
   it('isolates composite bucket scope by chatId and mediaBucket', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const media = createMediaModel();
