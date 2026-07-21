@@ -50,7 +50,7 @@ describe('public type surface', () => {
 
     expect(first).toEqual(second);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(68);
+    expect(first.split('\n')).toHaveLength(73);
     expect(first).toMatchInlineSnapshot(`
 "BootDbOptions: any
 DbDefaults: any
@@ -76,12 +76,15 @@ ScopeCoverage: any
 ScopeHandle: any
 ScopePlacement: any
 ScopeSpec: any
+ScopeWindowResult: any
 StoragePlane: any
 ViewConfig: any
 ViewIncludeModel: any
 ViewIncludeSpec: any
+WindowPaginationBridge: any
 belongsTo: <TChild, TParent>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TParent>, options: { foreignKey: keyof TChild & string; touch?: ((child: TChild, parent: TParent) => Partial<TParent> | null) | undefined; counterCache?: { field: keyof TParent & string; filter?: ((child: TChild) => boolean) | undefined; } | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
 bootDb: (options?: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/lifecycle").BootDbOptions) => Promise<{ replayed: number; gc: import("/Users/noma4i/yupi/react-native-dblayer/src/core/gc").GcReport; maintenance: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/maintenanceRegistry").MaintenanceReport[]; }>
+bridgeWindowPagination: <T>(window: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/defineModel").ScopeWindowResult<T>, query: Pick<import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/defineQuery").QueryResult<unknown>, "hasNextPage" | "isFetchingNextPage" | "fetchNextPage" | "loadingState" | "error">) => import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/pagination").WindowPaginationBridge<T>
 collectGarbage: () => import("/Users/noma4i/yupi/react-native-dblayer/src/core/gc").GcReport
 configureDb: (options: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/configure").ConfigureDbOptions) => void
 createDbSubscriptionEffects: <TEffects extends Record<keyof TEffects, (...args: never[]) => void>>(noopEffects: TEffects) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/subscriptionRuntime").DbSubscriptionEffectsChannel<TEffects>
@@ -98,6 +101,7 @@ defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<stri
 defineShape: <TInput = unknown>() => <TFields extends ShapeFields<TInput>>(fields: TFields) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/shape").DbShape<TInput, import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fields").DefinedFields<TInput, TFields>>
 f: { str: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, string, "required", false>; num: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, number, "required", false>; date: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, string, "required", false>; bool: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, boolean, "required", false>; id: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, string, "required", false>; enum: <TValue extends string>(values: readonly TValue[]) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, TValue, "required", false>; raw: <T>() => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, T, "required", false>; custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<TInput, TOut, "required", false>; object: <TShape extends AnyDbShape>(shape: TShape) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").EmptyDefaultFieldSpec<unknown, import("/Users/noma4i/yupi/react-native-dblayer/src/schema/infer").InferShapeStored<TShape>, "required", false>; array: <TItem extends ArrayItem>(item: TItem) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, ArrayItemOut<TItem>[], "required", false>; }
 flushPersistence: () => void
+fromNodes: <T>(connection: { nodes?: readonly (T | null | undefined)[] | null | undefined; } | null | undefined) => T[]
 generateTempId: (prefix?: string | undefined) => string
 hasMany: <TParent, TChild>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: "destroy" | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
 hasOne: <TParent, TChild>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TChild>, options: { foreignKey: keyof TChild & string; comparator?: ((left: TChild, right: TChild) => number) | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
@@ -116,6 +120,7 @@ references: <TChild, TRef>(model: import("/Users/noma4i/yupi/react-native-dblaye
 registerReset: (reset: () => void | Promise<void>) => () => void
 resetRuntime: () => void
 scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>): import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>; }
+sinkIf: (into: PlanRowsSink, row: unknown) => import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/defineQuery").ExtractSink[]
 stringifyNullish: (v: unknown) => string | null | undefined
 unknown: any
 unknown: any

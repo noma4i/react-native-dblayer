@@ -67,6 +67,21 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 | `mapCursor`      | `(cursor: string) => unknown`                          | Transform the raw string cursor before it is substituted into the cursor variable (e.g. `Number` for numeric cursors).                                                                |
 | `live`           | `Record<string, ModelIngestEntry>`                     | Colocated live subscription entries, activated while a reader is mounted. See [Live subscription colocation](#live-subscription-colocation) below.                                    |
 
+### Connection and extract helpers
+
+`fromNodes(connection)` unwraps a GraphQL connection into a dense node array: it returns
+`connection.nodes` in order while dropping `null` and `undefined`, and returns `[]` for a nullish
+connection or node list. Use it in `select`, `map`, or extract code when a nested connection must
+be converted into rows before it is written or sideloaded.
+
+`sinkIf(into, row)` builds an extract-sink list from one optional row: it returns `[]` for a
+nullish row and otherwise `[{ into, rows: [row] }]`. It keeps optional nested nodes out of an
+extract without conditional array construction:
+
+```ts
+extract: ({ data }) => sinkIf(UserModel, data.viewer)
+```
+
 `Model.query` returns `{ use, fetch, invalidate }`:
 
 - `use(scope, opts?)` is a hook - a single-fetch hook when `page` is omitted, an infinite-query hook
@@ -96,6 +111,12 @@ and must not be used for account or detail switches where previous identity data
 | `isFetchingNextPage` | `boolean`               | `true` while a next-page fetch is in flight. Always `false` for single (non-`page`) queries.                                                                                                                                                                                                                                                                                                |
 | `fetchNextPage`      | `() => void`            | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).fetchNextPage` (local window growth over already-synced rows; see [reading.md](./reading.md#scope-reads)), even though both surfaces share the `fetchNextPage` name. A paginated list typically wires both. |
 | `refetch`            | `() => Promise<void>`   | Re-run the query from the first page, replacing `data`.                                                                                                                                                                                                                                                                                                                                     |
+
+For a list that needs both pagination layers, `bridgeWindowPagination(window, query)` is the
+canonical combiner. It reveals the scope window's already-synced rows first and calls the backing
+query's network `fetchNextPage()` only when the local window has no more rows. Its returned
+container and `fetchNextPage` closure are fresh on every render - destructure its fields and do
+not memoize on container identity.
 
 ### Live subscription colocation
 

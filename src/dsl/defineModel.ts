@@ -48,7 +48,8 @@ registerReset(() => {
 
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 
-type ScopeWindowResult<T> = {
+/** Result of ScopeHandle.useWindow: locally-windowed scope rows plus paging/resolution flags. */
+export type ScopeWindowResult<T> = {
   /** Current-key rows, or retained previous-key rows while `isPreviousData` is true. */
   rows: T[];
   /** Total count for the snapshot represented by `rows`. */
@@ -110,6 +111,12 @@ export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored
     opts: { select: (row: TStored) => TProjection; renderKeys?: never } & KeepPreviousOption
   ): TProjection[];
   use(scopeValue: TScope | null | undefined, opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[] } & KeepPreviousOption): TStored[];
+  /**
+   * Reactive first row of the scope; `undefined` when empty or when `scopeValue` is nullish (nullish
+   * reads stay unsubscribed). Sugar for single-row scopes (e.g. byUuid lookups) over `use(...)[0]`;
+   * re-renders follow the scope's row set.
+   */
+  useFirst(scopeValue: TScope | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] } & KeepPreviousOption): TStored | undefined;
   /**
    * Reactive, render-windowed read of the scope: renders only the first `pageSize` (default from
    * `configureDb`'s `defaults.pageSize`, else 20) rows locally, growing the window on demand via the
@@ -998,19 +1005,22 @@ export const defineModel = <
       rowsByScope.delete(requestedScopeKey);
       return [upsert, planScope(requestedScopeKey, requestedRows, coverage, opts), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
     };
+    const readScopeRows = (scopeValue: unknown, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
+      const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+      useScopeAccess(scopeKey);
+      return useScopeLiveRows(
+        config.id,
+        scopeKey,
+        applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`),
+        () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
+        options
+      );
+    };
     const scopeHandle = {
       modelId: config.id,
-      use: (scopeValue: unknown, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
-        const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
-        useScopeAccess(scopeKey);
-        return useScopeLiveRows(
-          config.id,
-          scopeKey,
-          applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`),
-          () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
-          options
-        );
-      },
+      use: readScopeRows,
+      useFirst: (scopeValue: unknown, options: { renderKeys?: readonly string[] } & KeepPreviousOption = {}) =>
+        readScopeRows(scopeValue ?? null, options as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
       useWindow: (scopeValue: unknown, options: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
         const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);

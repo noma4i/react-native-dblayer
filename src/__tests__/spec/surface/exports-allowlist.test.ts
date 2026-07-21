@@ -4,6 +4,7 @@ const runtimeExportAllowlist = [
   'DbProvider',
   'belongsTo',
   'bootDb',
+  'bridgeWindowPagination',
   'collectGarbage',
   'configureDb',
   'createDbSubscriptionEffects',
@@ -20,6 +21,7 @@ const runtimeExportAllowlist = [
   'defineShape',
   'f',
   'flushPersistence',
+  'fromNodes',
   'generateTempId',
   'hasMany',
   'hasOne',
@@ -38,6 +40,7 @@ const runtimeExportAllowlist = [
   'registerReset',
   'resetRuntime',
   'scope',
+  'sinkIf',
   'stringifyNullish',
   'waitForRow'
 ];

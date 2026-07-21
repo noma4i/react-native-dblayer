@@ -65,6 +65,7 @@ somewhere under `docs/`.
 | ------------- | ----- | ------------------------------------------ |
 | `defineModel` | value | [models.md](./models.md#definemodelconfig) |
 | `ScopeHandle` | type  | [models.md](./models.md#scopes)            |
+| `ScopeWindowResult` | type | [reading.md](./reading.md#scope-reads) |
 | `scope`       | value | [models.md](./models.md#scopes)            |
 | `ScopeSpec`   | type  | [models.md](./models.md#scopespec)         |
 | `ModelInput`  | type  | [models.md](./models.md#fields-f)          |
@@ -112,6 +113,10 @@ see [reading.md](./reading.md).
 | `FetchResult`     | type  | [queries.md](./queries.md#fetchresult)                  |
 | `QueryResult`     | type  | [queries.md](./queries.md#queryresult)                  |
 | `ExtractSink`     | type  | [queries.md](./queries.md#modelqueryname-config)        |
+| `fromNodes`       | value | [queries.md](./queries.md#connection-and-extract-helpers) |
+| `sinkIf`          | value | [queries.md](./queries.md#connection-and-extract-helpers) |
+| `bridgeWindowPagination` | value | [queries.md](./queries.md#queryresult) |
+| `WindowPaginationBridge` | type | [queries.md](./queries.md#queryresult) |
 | `LiveQueryHandle` | type  | [queries.md](./queries.md#live-subscription-colocation) |
 | `ScopeCoverage`   | type  | [queries.md](./queries.md#scopecoverage-semantics)      |
 

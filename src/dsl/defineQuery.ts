@@ -83,6 +83,16 @@ type PlanRowsSink = { modelId: string };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
 
+/**
+ * Build an extract sink list from one optional node: `[]` for nullish, otherwise a single sink
+ * writing the node into `into`. Collapses the ubiquitous `x ? [{ into, rows: [x] }] : []` pattern.
+ *
+ * @param into Extract destination (model or scope handle).
+ * @param row Candidate node; `null`/`undefined` produce no sink.
+ * @returns Zero or one `ExtractSink`.
+ */
+export const sinkIf = (into: ExtractSink['into'], row: unknown): ExtractSink[] => (row == null ? [] : [{ into, rows: [row] }]);
+
 type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: string }, TScope>;
 type ModelDestination<TStored> = {
   modelId: string;
