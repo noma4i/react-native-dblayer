@@ -348,6 +348,13 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
   /** Field spec map (built with `f.*`) that drives normalize/build reads for every stored field. */
   fields: TFields;
   /**
+   * Implicit ordering for reads that declare no explicit order: `getWhere` without `opts.orderBy`,
+   * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
+   * An explicit order fully replaces it. Without `defaultOrder`, unordered reads keep natural
+   * storage order. Ties break by the implicit locale-independent id key as usual.
+   */
+  defaultOrder?: { field: keyof InferStoredFields<TFields> & string; direction: 'asc' | 'desc' };
+  /**
    * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
    * returning anything else makes `normalize` throw `${name} requires id` for that input, which
    * plan-building paths (writes, apply) catch and log as a rejected row, and direct `buildStored`/
@@ -808,6 +815,7 @@ export const defineModel = <
   };
 
   function whereRead(where: DbWhere<Stored> | null): ModelReadBuilder<Stored> {
+    const defaultOrders: ReadonlyArray<ReadOrder<Stored>> = config.defaultOrder ? [config.defaultOrder] : [];
     return createReadBuilder(where, {
       rows: <TOutput extends Record<string, unknown>>(
         criteria: DbWhere<Stored> | null,
@@ -816,11 +824,12 @@ export const defineModel = <
         required: readonly string[],
         projection: ProjectionOptions<Stored, TOutput>
       ): TOutput[] => {
+        const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
         validateProjectionOptions(projection, `${config.id}.use.where`);
         const projectionRef = useRef(projection);
         const gateRef = useRef(createProjectionGate<Stored, TOutput>());
         projectionRef.current = projection;
-        const signature = incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders, limit, required }));
+        const signature = incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders: effectiveOrders, limit, required }));
         return useIncrementalRead({
           signature,
           deps: criteria == null ? [] : [modelDep],
@@ -829,7 +838,7 @@ export const defineModel = <
               signature,
               model: config.id,
               where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
+              options: { orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => gateRef.current.projectRows(rows, projectionRef.current),
@@ -838,9 +847,10 @@ export const defineModel = <
         });
       },
       pluck: (criteria, orders, limit, required, projection, field) => {
+        const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
         const projectionRef = useRef(projection);
         projectionRef.current = projection;
-        const signature = incrementalSignature('where-pluck', config.id, buildScopeKey({ criteria, orders, limit, required, field }));
+        const signature = incrementalSignature('where-pluck', config.id, buildScopeKey({ criteria, orders: effectiveOrders, limit, required, field }));
         return useIncrementalRead({
           signature,
           deps: criteria == null ? [] : [modelDep],
@@ -849,7 +859,7 @@ export const defineModel = <
               signature,
               model: config.id,
               where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
+              options: { orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => {
@@ -1244,8 +1254,9 @@ export const defineModel = <
       const rows = planes()
         .entityState.values()
         .filter(row => matchesCriteria(row, where));
-      if (!options?.orderBy) return limitRows(rows, options?.limit);
-      return sortModelReadRows(rows, [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], options.limit);
+      const order = options?.orderBy ?? config.defaultOrder;
+      if (!order) return limitRows(rows, options?.limit);
+      return sortModelReadRows(rows, [{ field: String(order.field), direction: order.direction }], options?.limit);
     },
     getAll: () => planes().entityState.values(),
     patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id: String(id), patch: patch as Record<string, unknown> }]),
@@ -1336,7 +1347,8 @@ export const defineModel = <
         const optionsRef = useRef(options);
         const gateRef = useRef(createProjectionGate<Stored, Record<string, unknown>>());
         optionsRef.current = options;
-        const signature = incrementalSignature('first', config.id, where, options.orderBy, options.limit, options.require);
+        const order = options.orderBy ?? config.defaultOrder;
+        const signature = incrementalSignature('first', config.id, where, order, options.limit, options.require);
         return useIncrementalRead({
           signature,
           deps: [modelDep],
@@ -1345,9 +1357,7 @@ export const defineModel = <
               signature,
               model: config.id,
               where: row => (where == null || matchesCriteria(row, where)) && hasRequiredFields(row, optionsRef.current.require ?? []),
-              options: options.orderBy
-                ? { orderBy: [{ field: String(options.orderBy.field), direction: options.orderBy.direction }], limit: options.limit }
-                : { limit: options.limit },
+              options: order ? { orderBy: [{ field: String(order.field), direction: order.direction }], limit: options.limit } : { limit: options.limit },
               initial: () => planes().entityState.values(),
               read: id => planes().entityState.read(id),
               select: rows => (rows[0] ? gateRef.current.project(rows[0], optionsRef.current) : undefined),

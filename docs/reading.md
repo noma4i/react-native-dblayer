@@ -116,7 +116,8 @@ Sorting is **NULLS LAST**: a row missing a sort field (`null` or `undefined` - b
 missing) always sorts after rows that have a value for it, on every declared key, regardless of
 `asc`/`desc`. Rows tied on every declared key (or when no `orderBy` is called) fall back to an
 **implicit `id` tie-break** for a fully deterministic order. Calling `.rows()` with no
-`orderBy` at all returns rows in natural storage order (only `limit` applied, no sort pass).
+`orderBy` at all returns rows in natural storage order, or the model's `defaultOrder` when declared;
+`limit` applies after that ordering.
 `use.where(null)` reads as empty without subscribing, consistent with every other nullable-scope
 read in the DSL.
 
