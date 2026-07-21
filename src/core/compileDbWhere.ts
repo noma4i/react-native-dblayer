@@ -1,6 +1,6 @@
 import type { DbWhere } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import { stableSerialize } from './serialize';
+import { compareCodepoints, stableSerialize } from './serialize';
 
 type QueryRow = Record<string, unknown>;
 type DbWhereOperator<T> = { and: Array<DbWhere<T>> } | { or: Array<DbWhere<T>> } | { not: DbWhere<T> };
@@ -27,7 +27,7 @@ export const normalizeDbCondition = <TStored>(condition?: Partial<TStored>): Par
   if (!condition) return undefined;
   const entries = Object.entries(condition).filter(([, value]) => value !== undefined) as Array<[keyof TStored & string, unknown]>;
   if (entries.length === 0) return undefined;
-  entries.sort(([a], [b]) => a.localeCompare(b));
+  entries.sort(([a], [b]) => compareCodepoints(a, b));
   return Object.fromEntries(entries) as Partial<TStored>;
 };
 

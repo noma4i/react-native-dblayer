@@ -17,7 +17,7 @@ import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
-import { createModelReadEngine, createScopeReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
+import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
 import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
