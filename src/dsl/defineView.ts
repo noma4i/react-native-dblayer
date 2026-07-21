@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
 import type { RelationDecl } from '../core/relations';
-import { arraysShallowEqual, useLiveRead } from '../read/useLiveRead';
+import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
@@ -88,16 +88,6 @@ type CacheEntry<TItem> = { row: Row; included: Included; item: TItem };
 type RelationIndex = { revision: number; rowsByForeignKey: Map<string, Row[]> };
 type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
 type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number; resolved: boolean };
-
-const includesEqual = (left: Included, right: Included): boolean => {
-  const keys = Object.keys(left);
-  return (
-    keys.length === Object.keys(right).length &&
-    keys.every(key =>
-      Array.isArray(left[key]) && Array.isArray(right[key]) ? arraysShallowEqual(left[key] as unknown[], right[key] as unknown[]) : Object.is(left[key], right[key])
-    )
-  );
-};
 
 const idsOf = (value: string | string[] | null): string[] =>
   (Array.isArray(value) ? value : value == null ? [] : [value]).filter((id): id is string => typeof id === 'string' && id.length > 0);
@@ -226,7 +216,7 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
           }
         }
         const current = cacheRef.current.get(row.id);
-        if (current && current.row === row && includesEqual(current.included, included)) return current.item;
+        if (current && current.row === row && rowsShallowEqual(current.included, included)) return current.item;
         const candidate = (config.select ? config.select(row, included, { index }) : { ...row, ...included }) as Row;
         const item = projectionGateRef.current.projectValue(row.id, candidate, candidate, config.renderKeys) as TItem;
         cacheRef.current.set(row.id, { row, included, item });

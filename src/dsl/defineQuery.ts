@@ -172,7 +172,7 @@ const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown
   return [{ node: value, edgeSource: value }];
 };
 
-const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => typeof into === 'object' && into !== null && hasInternalScopeHandle(into);
+const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
 
 /**
  * Define a query that runs a GraphQL document, compiles the response into one apply-pipeline transaction
