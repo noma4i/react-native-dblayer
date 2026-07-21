@@ -12,6 +12,7 @@ page: [queries.md](./queries.md).
 - [Query freshness and row survival](#query-freshness-and-row-survival)
 - [Ensured point reads](#ensured-point-reads)
 - [`use.where` chainable builder](#usewhere-chainable-builder)
+- [Named query scopes](#named-query-scopes)
 - [DbWhere leaf operators](#dbwhere-leaf-operators)
 - [Required fields](#required-fields)
 - [Projections: `select` and `renderKeys`](#projections-select-and-renderkeys)
@@ -120,6 +121,16 @@ missing) always sorts after rows that have a value for it, on every declared key
 `limit` applies after that ordering.
 `use.where(null)` reads as empty without subscribing, consistent with every other nullable-scope
 read in the DSL.
+
+## Named query scopes
+
+`queryScopes` names reusable local `DbWhere` fragments, exposed as
+`model.use.<name>(extra?)` builders. They are not membership `scopes`: query scopes do not create
+server-order membership indexes. The optional `extra` criteria compose with the named `where` via
+`and`; a scope's `orderBy` and `limit` apply before the standard builder terminals
+(`rows`/`last`/`pluck`/`exists`). An explicit builder `.orderBy()` or `.limit()` extends the
+pre-applied builder state. `defineModel` throws when a queryScope name collides with a built-in
+`use` key.
 
 ## Required fields
 

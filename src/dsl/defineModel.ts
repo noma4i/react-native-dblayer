@@ -348,13 +348,39 @@ type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, 
   ): TStored | undefined;
 };
 
-type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>> = {
+type QueryScopeSpec<TStored extends { id: string }> = {
+  /** Reusable local predicate fragment for this named read. */
+  where: DbWhere<TStored>;
+  /** Optional explicit order; without it the read falls back to the model defaultOrder like any builder. */
+  orderBy?: { field: keyof TStored & string; direction: 'asc' | 'desc' };
+  /** Optional leading-rows limit. */
+  limit?: number;
+};
+
+type QueryScopeReads<TStored extends { id: string }, TQueryScopes> = {
+  [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
+};
+
+type ModelConfig<
+  TFields extends ModelFieldSpecs,
+  TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>,
+  TExt extends Record<string, unknown>,
+  TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}
+> = {
   /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
   id: string;
   /** Human-readable model name; prefixes normalize/apply error and log messages. */
   name: string;
   /** Field spec map (built with `f.*`) that drives normalize/build reads for every stored field. */
   fields: TFields;
+  /**
+   * Named reusable predicate reads: each entry appears as `model.use.<name>(extra?)` returning the
+   * standard read builder with the fragment's `where` (composed with `extra` via `and`), optional
+   * `orderBy`, and optional `limit` pre-applied. A name colliding with a built-in `use` key throws
+   * at define time. Distinct from membership `scopes`: queryScopes are local predicates, not
+   * server-order membership indexes.
+   */
+  queryScopes?: TQueryScopes;
   /**
    * Implicit ordering for reads that declare no explicit order: `getWhere` without `opts.orderBy`,
    * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
@@ -453,11 +479,12 @@ const readField = (field: ModelFieldSpecs[string], input: unknown, key: string, 
 export const defineModel = <
   const TFields extends ModelFieldSpecs,
   TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {},
-  TExt extends Record<string, unknown> = {}
+  TExt extends Record<string, unknown> = {},
+  TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}
 >(
-  config: ModelConfig<TFields, TScopes, TExt>
+  config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>
 ): Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
-  use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
+  use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
   scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
 } & TExt => {
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
@@ -1505,6 +1532,17 @@ export const defineModel = <
     // The apply target stays registered: a model must keep working after the kill-switch.
   });
 
+  for (const [scopeName, spec] of Object.entries(config.queryScopes ?? {})) {
+    if (scopeName in model.use) throw new Error(`${config.name} queryScope '${scopeName}' collides with a built-in use key`);
+    (model.use as Record<string, unknown>)[scopeName] = (extra?: DbWhere<Stored>) => {
+      const criteria = extra ? ({ and: [spec.where, extra] } as DbWhere<Stored>) : spec.where;
+      let builder = whereRead(criteria);
+      if (spec.orderBy) builder = builder.orderBy(spec.orderBy.field, spec.orderBy.direction);
+      if (spec.limit !== undefined) builder = builder.limit(spec.limit);
+      return builder;
+    };
+  }
+
   const statics = config.statics?.(model);
   if (statics) {
     for (const key of Object.keys(statics)) {
@@ -1512,7 +1550,7 @@ export const defineModel = <
     }
   }
   return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
-    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'>;
+    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
     scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
   } & TExt;
 };
