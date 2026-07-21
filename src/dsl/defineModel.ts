@@ -219,6 +219,25 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
   patch(id: string, patch: Partial<TStored>): void;
   destroy(id: string): void;
   destroyMany(ids: string[]): void;
+  /**
+   * Patch every row matching `where` in ONE journal plan: single transaction, single commit publish,
+   * one render per mounted reader. Snapshot semantics - the match set is computed once against
+   * current rows before applying; rows that start matching because of the patch itself are not
+   * re-visited.
+   *
+   * @param where Local `DbWhere` predicate (equality leaves, `DbWhereOp` operators, and/or/not).
+   * @param patch Partial stored-field update applied to every matched row.
+   * @returns Number of rows matched and patched.
+   */
+  patchWhere(where: DbWhere<TStored>, patch: Partial<TStored>): number;
+  /**
+   * Destroy every row matching `where` in ONE journal plan: single transaction, single commit
+   * publish. Snapshot semantics as in `patchWhere`.
+   *
+   * @param where Local `DbWhere` predicate selecting the rows to destroy.
+   * @returns Number of rows destroyed.
+   */
+  destroyWhere(where: DbWhere<TStored>): number;
   insertStored(row: TStored): void;
   /**
    * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
@@ -1232,6 +1251,23 @@ export const defineModel = <
     patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id: String(id), patch: patch as Record<string, unknown> }]),
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [String(id)] }]),
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids: ids.map(id => String(id)) }]),
+    patchWhere: (where, patch) => {
+      const rows = planes()
+        .entityState.values()
+        .filter(row => matchesCriteria(row, where));
+      if (rows.length === 0) return 0;
+      applyEvent(rows.map(row => ({ kind: 'patch', model: config.id, id: String(row.id), patch: patch as Record<string, unknown> })));
+      return rows.length;
+    },
+    destroyWhere: where => {
+      const ids = planes()
+        .entityState.values()
+        .filter(row => matchesCriteria(row, where))
+        .map(row => String(row.id));
+      if (ids.length === 0) return 0;
+      applyEvent([{ kind: 'destroy', model: config.id, ids }]);
+      return ids.length;
+    },
     insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
     insertStoredMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
     seed: rows => applyEvent(planRows(rows)),
