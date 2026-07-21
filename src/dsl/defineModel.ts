@@ -14,7 +14,7 @@ import { getDbLogger } from '../core/logger';
 import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
-import { useLiveRead, arraysShallowEqual } from '../read/useLiveRead';
+import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
@@ -265,6 +265,14 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     pending(id: string | null | undefined): boolean;
     /** Return whether one row id belongs to a retained failed optimistic operation. */
     failed(id: string | null | undefined): boolean;
+    /**
+     * Reactive partial of stored fields currently owned by still-pending optimistic patch operations
+     * on this row - the local changes not yet confirmed by the server. `undefined` when none are
+     * pending (and for nullish ids, without subscribing). When several pending patches touch the
+     * same field, the later operation wins. Identity stays stable while the unsynced values remain
+     * shallow-equal.
+     */
+    unsyncedChanges(id: string | null | undefined): Partial<TStored> | undefined;
     /** Read one field from one row. */
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
     /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
@@ -1321,6 +1329,35 @@ export const defineModel = <
           [key]
         );
         return useSyncExternalStore(subscribeFailed, readFailed, readFailed);
+      },
+      unsyncedChanges: (id: string | null | undefined) => {
+        const key = id == null ? null : String(id);
+        const cacheRef = useRef<Partial<Stored> | undefined>(undefined);
+        const readChanges = useCallback(() => {
+          if (key == null) return undefined;
+          let merged: Record<string, unknown> | undefined;
+          for (const operation of getOperationState().pending()) {
+            if (operation.model !== config.id) continue;
+            if (operation.intent !== 'patch') continue;
+            if (!(operation.rowIds ?? operation.tempIds).includes(key)) continue;
+            if (!operation.patchedValues) continue;
+            merged = { ...(merged ?? {}), ...operation.patchedValues };
+          }
+          const next = merged as Partial<Stored> | undefined;
+          const previous = cacheRef.current;
+          if (previous && next && rowsShallowEqual(previous, next)) return previous;
+          cacheRef.current = next;
+          return next;
+        }, [key]);
+        const subscribeChanges = useCallback(
+          (listener: () => void) => {
+            if (key == null) return () => {};
+            const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: config.id, id: key }]);
+            return () => subscription.unsubscribe();
+          },
+          [key]
+        );
+        return useSyncExternalStore(subscribeChanges, readChanges, readChanges);
       },
       row: ((id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const required = options?.require ?? [];

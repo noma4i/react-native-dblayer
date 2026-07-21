@@ -98,6 +98,11 @@ is closed for dedupe, the row remains visible, and `Model.use.failed(tempId)` be
 `Model.use.pending(tempId)` becomes `false`. Configure the retained row with `onFailurePatch(input)`
 and its retry appearance with `onRetryPatch(input)`:
 
+`Model.use.unsyncedChanges(id)` reactively returns the partial stored fields owned by pending
+optimistic Patch operations for that row. It returns `undefined` when none are pending or the id is
+nullish; when several patches write the same field, the later operation wins, and shallow-equal
+values retain their reference identity.
+
 ```ts
 optimistic: {
   model: MessageModel,
