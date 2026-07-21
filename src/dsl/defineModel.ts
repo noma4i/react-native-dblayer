@@ -817,6 +817,47 @@ export const defineModel = <
               isEqual: arraysShallowEqual
             })
         });
+      },
+      pluck: (criteria, orders, limit, required, projection, field) => {
+        const projectionRef = useRef(projection);
+        projectionRef.current = projection;
+        const signature = incrementalSignature('where-pluck', config.id, buildScopeKey({ criteria, orders, limit, required, field }));
+        return useIncrementalRead({
+          signature,
+          deps: criteria == null ? [] : [modelDep],
+          create: () =>
+            createModelReadEngine<Stored, unknown[]>({
+              signature,
+              model: config.id,
+              where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
+              options: { orderBy: orders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
+              initial: () => planes().entityState.values(),
+              read: id => planes().entityState.read(id),
+              select: rows => {
+                const selector = projectionRef.current.select;
+                const projected: readonly object[] = selector ? rows.map(row => selector(row)) : rows;
+                return projected.map(row => Reflect.get(row, field));
+              },
+              isEqual: arraysShallowEqual
+            })
+        });
+      },
+      exists: (criteria, required) => {
+        const signature = incrementalSignature('where-exists', config.id, buildScopeKey({ criteria, required }));
+        return useIncrementalRead({
+          signature,
+          deps: criteria == null ? [] : [modelDep],
+          create: () =>
+            createModelReadEngine<Stored, boolean>({
+              signature,
+              model: config.id,
+              where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
+              initial: () => planes().entityState.values(),
+              read: id => planes().entityState.read(id),
+              select: (_rows, count) => count > 0,
+              countOnly: true
+            })
+        });
       }
     });
   }

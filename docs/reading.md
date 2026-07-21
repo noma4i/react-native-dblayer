@@ -39,7 +39,7 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 | `use.count`   | `(where?) => number`                                                                                      | Reactive count of matching rows.                                                                                                                                                                           |
 | `use.related` | `(id, relationName, opts?) => unknown`                                                                    | Reactive read through a declared relation (see [models.md](./models.md#relations)); same `select`/`renderKeys` projection options.                                                                         |
 
-`DbWhere<T>` is `Partial<T>` or a composed `{ and }` / `{ or }` / `{ not }` predicate tree.
+`DbWhere<T>` is a leaf record (field equality or `DbWhereOp` comparison operators - see below) or a composed `{ and }` / `{ or }` / `{ not }` predicate tree.
 
 ## DbWhere leaf operators
 
@@ -108,6 +108,9 @@ const recent = MessageModel.use.where({ chatId }).orderBy('createdAt', 'desc').l
 | `orderBy` | `(field, direction?) => ModelReadBuilder<TStored>` | Adds one ordering key (default `'asc'`); later calls become deterministic tie-break keys before the implicit id key. Returns a new builder - chain freely. |
 | `limit`   | `(count: number) => ModelReadBuilder<TStored>`     | Keeps only the leading `count` rows after filtering and ordering.                                                                                          |
 | `rows`    | `() => TStored[]`                                  | Reactive terminal - subscribes to this model.                                                                                                              |
+| `last`    | `() => TStored \| undefined`                       | Reactively reads the last row after ordering and limit; `undefined` when empty.                                                                            |
+| `pluck`   | `(field) => Array<TStored[K]>`                     | Reactively reads one field in declared order; identity is gated by plucked values and row set only, and it plucks projected rows after `select`.           |
+| `exists`  | `() => boolean`                                    | Reactively reads whether any row matches and passes `require`; re-renders only when the answer flips and ignores `orderBy`/`limit`/`select`.               |
 
 Sorting is **NULLS LAST**: a row missing a sort field (`null` or `undefined` - both count as
 missing) always sorts after rows that have a value for it, on every declared key, regardless of

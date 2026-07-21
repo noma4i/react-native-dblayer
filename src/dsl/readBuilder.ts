@@ -20,6 +20,19 @@ export type ModelReadBuilder<TStored extends { id: string }, TOutput extends Rec
   select<TProjection extends Record<string, unknown>>(selector: (row: TStored) => TProjection): ModelReadBuilder<TStored, TProjection>;
   /** Reactively read rows for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
   rows(): TOutput[];
+  /** Reactively read the last row of the ordered (and limited) result; `undefined` when empty. */
+  last(): TOutput | undefined;
+  /**
+   * Reactively read one field from every matching row in declared order. Render-gated by the plucked
+   * values only: the returned array keeps its identity until some plucked value or the row set changes.
+   * With `select`, plucks from the projected rows. Selector identity is not a dependency.
+   */
+  pluck<K extends keyof TOutput & string>(field: K): Array<TOutput[K]>;
+  /**
+   * Reactively read whether at least one row matches this builder's criteria and `require` fields.
+   * Re-renders only when the answer flips. `orderBy`/`limit`/`select` do not affect the result.
+   */
+  exists(): boolean;
 };
 
 type ReadBuilderTerminals<TStored extends { id: string }> = {
@@ -30,6 +43,15 @@ type ReadBuilderTerminals<TStored extends { id: string }> = {
     required: readonly string[],
     projection: ProjectionOptions<TStored, TOutput>
   ): TOutput[];
+  pluck(
+    where: DbWhere<TStored> | null,
+    orders: ReadonlyArray<ReadOrder<TStored>>,
+    limit: number | undefined,
+    required: readonly string[],
+    projection: ProjectionOptions<TStored, Record<string, unknown>>,
+    field: string
+  ): unknown[];
+  exists(where: DbWhere<TStored> | null, required: readonly string[]): boolean;
 };
 
 /** Create a plain immutable read builder whose terminals delegate to the model read engine. */
@@ -45,5 +67,11 @@ export const createReadBuilder = <TStored extends { id: string }>(
   limit: nextCount => createReadBuilder(where, terminals, orders, nextCount, required, projection),
   require: (...fields) => createReadBuilder(where, terminals, orders, count, [...required, ...fields], projection) as never,
   select: selector => createReadBuilder(where, terminals, orders, count, required, { select: selector } as never) as never,
-  rows: () => terminals.rows(where, orders, count, required, projection)
+  rows: () => terminals.rows(where, orders, count, required, projection),
+  last: () => {
+    const rows = terminals.rows(where, orders, count, required, projection);
+    return rows[rows.length - 1];
+  },
+  pluck: field => terminals.pluck(where, orders, count, required, projection as ProjectionOptions<TStored, Record<string, unknown>>, field) as never,
+  exists: () => terminals.exists(where, required)
 });
