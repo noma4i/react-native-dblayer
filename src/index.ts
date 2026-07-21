@@ -25,7 +25,7 @@ export type { LiveQueryHandle } from './dsl/defineModel';
 export { defineCommand } from './dsl/defineCommand';
 export type { IngestDecl } from './dsl/defineIngest';
 export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubscriptionEntry } from './core/subscriptionRuntime';
-export type { LoadingState, DbTransport, DbWhere } from './types';
+export type { LoadingState, DbTransport, DbWhere, DbWhereOp } from './types';
 export type { ModelInput, ModelStored } from './schema/infer';
 export type { InferShapeStored } from './schema/infer';
 export { generateTempId, isTempId } from './utils/generateTempId';

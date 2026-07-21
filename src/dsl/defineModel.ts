@@ -1,5 +1,5 @@
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
-import { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
+import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
@@ -535,13 +535,20 @@ export const defineModel = <
     if ('not' in record) return { not: normalizeCriteria(record.not as DbWhere<Stored>) } as DbWhere<Stored>;
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(record)) {
-      if (key === 'id' && value !== undefined && value !== null) {
-        out.id = stringifyNullish(value);
+      const fieldSpec = config.fields[key];
+      const normalizeOperand = (operand: unknown): unknown => {
+        if (operand === undefined || operand === null) return operand;
+        if (key === 'id') return stringifyNullish(operand);
+        const normalized = fieldSpec ? fieldSpec.readValue(operand) : undefined;
+        return normalized === undefined || normalized === null ? operand : normalized;
+      };
+      if (isWhereOperatorValue(value)) {
+        out[key] = Object.fromEntries(
+          Object.entries(value).map(([operator, operand]) => [operator, Array.isArray(operand) ? operand.map(normalizeOperand) : normalizeOperand(operand)])
+        );
         continue;
       }
-      const fieldSpec = config.fields[key];
-      const normalized = fieldSpec && value !== undefined && value !== null ? fieldSpec.readValue(value) : undefined;
-      out[key] = normalized === undefined || normalized === null ? value : normalized;
+      out[key] = normalizeOperand(value);
     }
     return out as DbWhere<Stored>;
   };

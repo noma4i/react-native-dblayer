@@ -50,7 +50,7 @@ describe('public type surface', () => {
 
     expect(first).toEqual(second);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(67);
+    expect(first.split('\n')).toHaveLength(68);
     expect(first).toMatchInlineSnapshot(`
 "BootDbOptions: any
 DbDefaults: any
@@ -58,6 +58,7 @@ DbRetryClass: any
 DbRetryPolicy: any
 DbTransport: any
 DbWhere: any
+DbWhereOp: any
 EnsuredRowResult: any
 ExtractSink: any
 FetchResult: any

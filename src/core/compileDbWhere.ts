@@ -10,10 +10,38 @@ const isOperatorNode = <TStored>(where: DbWhere<TStored>): where is DbWhereOpera
   return 'and' in where || 'or' in where || 'not' in where;
 };
 
+const WHERE_OPERATORS = new Set(['gt', 'gte', 'lt', 'lte', 'in', 'notIn', 'contains']);
+
+/** True when a leaf value is an operator record: a non-empty plain object whose every key is a comparison operator. */
+export const isWhereOperatorValue = (value: unknown): value is Record<string, unknown> => {
+  if (!isNonArrayRecord(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length > 0 && keys.every(key => WHERE_OPERATORS.has(key));
+};
+
+const compareOrderedValues = (rowValue: unknown, operand: unknown): number | undefined => {
+  if (typeof rowValue === 'number' && typeof operand === 'number') return rowValue - operand;
+  if (typeof rowValue === 'string' && typeof operand === 'string') return compareCodepoints(rowValue, operand);
+  return undefined;
+};
+
+const operatorMatches = (rowValue: unknown, operators: Record<string, unknown>): boolean =>
+  Object.entries(operators).every(([operator, operand]) => {
+    if (operator === 'in') return Array.isArray(operand) && operand.some(candidate => rowValue === candidate);
+    if (operator === 'notIn') return Array.isArray(operand) && !operand.some(candidate => rowValue === candidate);
+    if (operator === 'contains') return typeof rowValue === 'string' && typeof operand === 'string' && rowValue.includes(operand);
+    const compared = compareOrderedValues(rowValue, operand);
+    if (compared === undefined || Number.isNaN(compared)) return false;
+    if (operator === 'gt') return compared > 0;
+    if (operator === 'gte') return compared >= 0;
+    if (operator === 'lt') return compared < 0;
+    return compared <= 0;
+  });
+
 const leafMatches = <TStored>(row: TStored, condition: Partial<TStored>): boolean =>
   Object.entries(condition)
     .filter(([, value]) => value !== undefined)
-    .every(([key, value]) => (row as QueryRow)[key] === value);
+    .every(([key, value]) => (isWhereOperatorValue(value) ? operatorMatches((row as QueryRow)[key], value) : (row as QueryRow)[key] === value));
 
 export const matchesDbWhere = <TStored>(row: TStored, where: DbWhere<TStored> | undefined): boolean => {
   if (!where) return true;
