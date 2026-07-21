@@ -2,7 +2,7 @@ import type { JournalOp } from './apply/journal';
 import type { RelationDecl } from './relations';
 import type { ScopeCoverage } from './planes/scopeIndex';
 
-export type InternalModelHandle = {
+type InternalModelHandle = {
   readRow(id: string): { id: string; [key: string]: unknown } | undefined;
   applyRows(rows: unknown[]): void;
   planRows(rows: unknown[], options?: { includeMembership?: boolean; origin?: 'event' }): JournalOp[];
@@ -13,7 +13,7 @@ export type InternalModelHandle = {
   revision(): number;
 };
 
-export type InternalScopeHandle = {
+type InternalScopeHandle = {
   apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: { resetOrder?: boolean }): void;
   planApply(scopeValue: unknown, rows: Array<{ row: unknown; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, options?: { resetOrder?: boolean }): JournalOp[];
   key(scopeValue: unknown): string;

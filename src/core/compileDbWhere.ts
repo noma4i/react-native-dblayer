@@ -23,7 +23,7 @@ export const matchesDbWhere = <TStored>(row: TStored, where: DbWhere<TStored> | 
   return !matchesDbWhere(row, where.not);
 };
 
-export const normalizeDbCondition = <TStored>(condition?: Partial<TStored>): Partial<TStored> | undefined => {
+const normalizeDbCondition = <TStored>(condition?: Partial<TStored>): Partial<TStored> | undefined => {
   if (!condition) return undefined;
   const entries = Object.entries(condition).filter(([, value]) => value !== undefined) as Array<[keyof TStored & string, unknown]>;
   if (entries.length === 0) return undefined;
@@ -32,7 +32,7 @@ export const normalizeDbCondition = <TStored>(condition?: Partial<TStored>): Par
 };
 
 /** Sentinel scope key shared by every fetch-state read/write for an empty or missing filter. */
-export const ROOT_SCOPE_KEY = '__root__';
+const ROOT_SCOPE_KEY = '__root__';
 
 /**
  * Derive the stable scope key for a filter/scope value.

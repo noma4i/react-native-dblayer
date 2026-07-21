@@ -1,6 +1,6 @@
 import type { StoragePlane } from '../planes/storagePlane';
 
-export type CheckpointTarget = { persistEntries(): Array<{ key: string; value: string | null }> };
+type CheckpointTarget = { persistEntries(): Array<{ key: string; value: string | null }> };
 
 export type CheckpointScheduler = {
   /** Note one applied plan touching these models; schedules (or forces) a snapshot flush. */

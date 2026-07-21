@@ -1,9 +1,9 @@
 import { stableSerialize } from '../serialize';
 import type { StoragePlane } from './storagePlane';
 
-export type EntityClock = { next(): number; current(): number; restore(value: number): void };
+type EntityClock = { next(): number; current(): number; restore(value: number): void };
 
-export type Tombstone = { seq: number; at: number };
+type Tombstone = { seq: number; at: number };
 
 /**
  * Tombstone retention tuning. Three tiers, from gentlest to most aggressive:
@@ -25,7 +25,7 @@ const TOMBSTONE_MIN_AGE_MS = 10 * 60 * 1000;
 const TOMBSTONE_CAP = 10_000;
 const TOMBSTONE_OVERFLOW_CAP = TOMBSTONE_CAP * 2;
 
-export type UpsertResult = { seq: number; changedFields: string[] | null };
+type UpsertResult = { seq: number; changedFields: string[] | null };
 
 export type EntityState<T extends { id: string }> = {
   read(id: string): T | undefined;

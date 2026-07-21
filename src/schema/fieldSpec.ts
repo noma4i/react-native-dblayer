@@ -84,7 +84,7 @@ export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = '
 /** Read a selected raw value into a stored field value. */
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
 /** Select the raw source value for a field from an input object and key. */
-export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
+type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
 export const fieldSpecSparseRead = Symbol('fieldSpecSparseRead');
 
 type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
@@ -103,7 +103,7 @@ export const readObjectField = <TInput>(input: TInput, key: string): unknown => 
 };
 
 /** Read an own key from a source object, otherwise return undefined. */
-export const readSourceKey = (source: unknown, key: string): unknown => {
+const readSourceKey = (source: unknown, key: string): unknown => {
   if (!isRecord(source)) return undefined;
   if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
   return source[key];

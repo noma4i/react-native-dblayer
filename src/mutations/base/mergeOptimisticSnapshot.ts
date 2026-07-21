@@ -12,7 +12,7 @@ export type MergeOptimisticSnapshotOptions<TOptimistic extends object, TServer e
  * @param serverValue Incoming server field value.
  * @returns The optimistic value when the server value is nullish or empty string, otherwise the server value.
  */
-export const resolveMergedField = (optimisticValue: unknown, serverValue: unknown): unknown => {
+const resolveMergedField = (optimisticValue: unknown, serverValue: unknown): unknown => {
   if (serverValue === null || serverValue === undefined) {
     return optimisticValue;
   }

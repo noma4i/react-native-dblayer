@@ -16,7 +16,7 @@ export type IngestDecl = {
   extract?: ExtractSink[];
 };
 
-export type IngestHandle = { apply(event: string, payload: unknown): IngestDecl | null };
+type IngestHandle = { apply(event: string, payload: unknown): IngestDecl | null };
 
 type IngestModel = {
   modelId: string;

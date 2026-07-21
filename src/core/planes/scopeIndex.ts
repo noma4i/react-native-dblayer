@@ -3,13 +3,13 @@ import { sortBy } from 'es-toolkit';
 
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
 
-export type ScopeEntry = { id: string; order: number; seq: number; edge?: Record<string, unknown> };
+type ScopeEntry = { id: string; order: number; seq: number; edge?: Record<string, unknown> };
 
 export type ScopeIndexValue = { generation: number; coverage: ScopeCoverage; entries: ScopeEntry[] };
 
-export type IncomingScopeRow = { id: string; edge?: Record<string, unknown>; order?: number };
+type IncomingScopeRow = { id: string; edge?: Record<string, unknown>; order?: number };
 
-export type ReconcileResult = { next: ScopeIndexValue; detachedIds: string[] };
+type ReconcileResult = { next: ScopeIndexValue; detachedIds: string[] };
 
 export type ScopeIndex = {
   read(key: string): ScopeIndexValue;

@@ -2,7 +2,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { DbProvider, configureDb } from '@noma4i/react-native-dblayer';
-import { exampleStorage, exampleTransport } from './src/db/transport';
+import { exampleTransport } from './src/db/transport';
 import './src/db/models';
 import { DevScreen } from './src/screens/DevScreen';
 import { FeedScreen } from './src/screens/FeedScreen';
@@ -11,7 +11,7 @@ import { UserDetailScreen } from './src/screens/UserDetailScreen';
 import { UsersScreen } from './src/screens/UsersScreen';
 
 // Register every model module (above) before configuring, then configure once, before DbProvider mounts.
-configureDb({ transport: exampleTransport, storage: exampleStorage, defaults: { pageSize: 20 } });
+configureDb({ transport: exampleTransport, defaults: { pageSize: 20 } });
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();

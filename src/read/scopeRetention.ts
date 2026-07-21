@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { getRuntimeGeneration } from '../dsl/configure';
 
-export type RetainedScopeSnapshot<T> = { rows: T[]; totalCount: number };
+type RetainedScopeSnapshot<T> = { rows: T[]; totalCount: number };
 
 export type KeepPreviousOption = {
   /** Retain the prior non-empty scope key until the current key produces its first resolved snapshot. Defaults to false. */

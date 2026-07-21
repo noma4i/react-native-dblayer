@@ -1,13 +1,11 @@
 export { configureDb, flushPersistence } from './dsl/configure';
-export { getDbTransport, setDbTransport } from './core/transport';
 export type { DbDefaults, DbRetryClass, DbRetryPolicy } from './dsl/configure';
-export { bootDb, suspendDb } from './dsl/lifecycle';
+export { bootDb } from './dsl/lifecycle';
 export type { BootDbOptions } from './dsl/lifecycle';
 export { DbProvider } from './dsl/DbProvider';
 export type { DbProviderProps } from './dsl/DbProvider';
 export type { MaintenanceReport } from './dsl/maintenanceRegistry';
 export { resetRuntime, registerReset } from './core/reset';
-export { mmkvStoragePlane } from './core/planes/storagePlane';
 export type { StoragePlane } from './core/planes/storagePlane';
 export { defineModel } from './dsl/defineModel';
 export type { ScopeHandle } from './dsl/defineModel';

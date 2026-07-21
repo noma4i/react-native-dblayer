@@ -13,7 +13,7 @@ const MAX_RETRY_DELAY_MS = 30000;
 const namedEffects = new Map<string, (...args: unknown[]) => void>();
 
 /** Clear injected effect wrappers during runtime teardown. */
-export const resetSubscriptionRuntimeEffects = (): void => {
+const resetSubscriptionRuntimeEffects = (): void => {
   namedEffects.clear();
 };
 

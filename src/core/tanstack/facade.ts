@@ -10,7 +10,7 @@ export { eq };
 export type StoredRowShape = { id: string } & Record<string, unknown>;
 
 /** One ordered scope membership row stored in a TanStack collection. */
-export type MembershipRow = {
+type MembershipRow = {
   key: string;
   scopeKey: string;
   rowId: string;
@@ -19,7 +19,7 @@ export type MembershipRow = {
 };
 
 /** The synchronous writer callbacks supplied by a TanStack collection sync adapter. */
-export type CollectionWriter<TRow extends object = StoredRowShape> = Pick<Parameters<SyncConfig<TRow, string>[`sync`]>[0], `begin` | `write` | `commit` | `markReady`>;
+type CollectionWriter<TRow extends object = StoredRowShape> = Pick<Parameters<SyncConfig<TRow, string>[`sync`]>[0], `begin` | `write` | `commit` | `markReady`>;
 
 const modelWriterRegistry = new Map<string, CollectionWriter>();
 const membershipWriterRegistry = new Map<string, CollectionWriter<MembershipRow>>();
@@ -33,7 +33,7 @@ export function registerLiveScopeReadReset(reset: () => void): void {
 }
 
 /** Creates an empty, ready TanStack collection for a model identifier. */
-export function createModelCollection(modelId: string) {
+function createModelCollection(modelId: string) {
   const collection = createCollection<StoredRowShape, string>({
     id: modelId,
     getKey: row => row.id,

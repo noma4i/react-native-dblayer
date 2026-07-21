@@ -21,14 +21,12 @@ const runtimeExportAllowlist = [
   'f',
   'flushPersistence',
   'generateTempId',
-  'getDbTransport',
   'hasMany',
   'hasOne',
   'isIncomingNewer',
   'isTempId',
   'mergeOptimisticMedia',
   'mergeOptimisticSnapshot',
-  'mmkvStoragePlane',
   'patchWhenRowExists',
   'pickDefined',
   'pickPresent',
@@ -40,9 +38,7 @@ const runtimeExportAllowlist = [
   'registerReset',
   'resetRuntime',
   'scope',
-  'setDbTransport',
   'stringifyNullish',
-  'suspendDb',
   'waitForRow'
 ];
 
@@ -73,7 +69,11 @@ describe('public barrel exports', () => {
       'dedupeIds',
       'createModelStatusPoller',
       'trimRowsPerScope',
-      'resolveStaleTempRows'
+      'resolveStaleTempRows',
+      'getDbTransport',
+      'setDbTransport',
+      'suspendDb',
+      'mmkvStoragePlane'
     ];
 
     expect(Object.keys(barrel).filter(name => forbidden.includes(name))).toEqual([]);

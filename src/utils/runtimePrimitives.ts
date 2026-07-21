@@ -184,7 +184,7 @@ const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel
   return ids.length;
 };
 
-export type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
+type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
 
 const toProtectPredicate = <TStored extends RowId>(protect?: RowProtect<TStored>): ((row: TStored) => boolean) => {
   if (!protect) return () => false;
@@ -241,7 +241,7 @@ export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extr
   return deleteManyForMaintenance(model, idsToDestroy);
 };
 
-export type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
+type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
   maxAgeMs: number;
   protectedIds?: ReadonlySet<string> | readonly string[];
   onStale: (row: TStored) => void;

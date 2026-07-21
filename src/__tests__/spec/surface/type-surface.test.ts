@@ -50,7 +50,7 @@ describe('public type surface', () => {
 
     expect(first).toEqual(second);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(71);
+    expect(first.split('\n')).toHaveLength(67);
     expect(first).toMatchInlineSnapshot(`
 "BootDbOptions: any
 DbDefaults: any
@@ -98,14 +98,12 @@ defineShape: <TInput = unknown>() => <TFields extends ShapeFields<TInput>>(field
 f: { str: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, string, "required", false>; num: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, number, "required", false>; bool: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, boolean, "required", false>; id: () => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, string, "required", false>; enum: <T>() => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, T, "required", false>; raw: <T>() => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, T, "required", false>; custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<TInput, TOut, "required", false>; object: <TShape extends AnyDbShape>(shape: TShape) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").EmptyDefaultFieldSpec<unknown, import("/Users/noma4i/yupi/react-native-dblayer/src/schema/infer").InferShapeStored<TShape>, "required", false>; array: <TItem extends ArrayItem>(item: TItem) => import("/Users/noma4i/yupi/react-native-dblayer/src/schema/fieldSpec").FieldSpec<unknown, ArrayItemOut<TItem>[], "required", false>; }
 flushPersistence: () => void
 generateTempId: (prefix?: string | undefined) => string
-getDbTransport: () => import("/Users/noma4i/yupi/react-native-dblayer/src/types").DbTransport
 hasMany: <TParent, TChild>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: "destroy" | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
 hasOne: <TParent, TChild>(model: import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").ModelRef<TChild>, options: { foreignKey: keyof TChild & string; comparator?: ((left: TChild, right: TChild) => number) | undefined; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/core/relations").RelationDecl
 isIncomingNewer: (existingUpdatedAt: string | null | undefined, incomingUpdatedAt: string | null | undefined) => boolean
 isTempId: (id: string | null | undefined) => boolean
 mergeOptimisticMedia: { <TMedia extends MediaRecord>(optimistic: TMedia | null | undefined, server: TMedia | null | undefined, options?: import("/Users/noma4i/yupi/react-native-dblayer/src/utils/optimisticMedia").MergeOptimisticMediaOptions<TMedia> | undefined): TMedia | null | undefined; (optimistic: unknown, server: unknown, options?: import("/Users/noma4i/yupi/react-native-dblayer/src/utils/optimisticMedia").MergeOptimisticMediaOptions<MediaRecord> | undefined): unknown; }
 mergeOptimisticSnapshot: <TOptimistic extends object, TServer extends object>(optimistic: TOptimistic | null | undefined, server: TServer | null | undefined, options?: import("/Users/noma4i/yupi/react-native-dblayer/src/mutations/base/mergeOptimisticSnapshot").MergeOptimisticSnapshotOptions<TOptimistic, TServer> | undefined) => TOptimistic | TServer | (TOptimistic & TServer) | null | undefined
-mmkvStoragePlane: () => import("/Users/noma4i/yupi/react-native-dblayer/src/core/planes/storagePlane").StoragePlane
 patchWhenRowExists: <TStored extends { id: string; }>(model: WaiterModel<TStored>, id: string, patch: import("/Users/noma4i/yupi/react-native-dblayer/src/core/rowWaiters").RowPatch<TStored>, options: import("/Users/noma4i/yupi/react-native-dblayer/src/core/rowWaiters").PatchWhenRowExistsOptions) => void
 pickDefined: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<Pick<TSource, TKey>>
 pickPresent: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<{ [K in TKey]: NonNullable<TSource[K]>; }>
@@ -117,9 +115,7 @@ references: <TChild, TRef>(model: import("/Users/noma4i/yupi/react-native-dblaye
 registerReset: (reset: () => void | Promise<void>) => () => void
 resetRuntime: () => void
 scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>): import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/scope").ScopeSpec<TStored>; }
-setDbTransport: (transport: import("/Users/noma4i/yupi/react-native-dblayer/src/types").DbTransport) => void
 stringifyNullish: (v: unknown) => string | null | undefined
-suspendDb: () => void
 unknown: any
 unknown: any
 waitForRow: <TStored extends { id: string; }>(model: WaiterModel<TStored>, id: string, options: import("/Users/noma4i/yupi/react-native-dblayer/src/core/rowWaiters").WaitForRowOptions) => Promise<TStored | undefined>"

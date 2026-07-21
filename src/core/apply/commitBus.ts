@@ -1,8 +1,8 @@
 export type RowChange = { model: string; id: string; fields: string[] | null };
-export type ScopeChange = { model: string; scopeKey: string };
-export type PendingChange = { model: string; id: string };
+type ScopeChange = { model: string; scopeKey: string };
+type PendingChange = { model: string; id: string };
 export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[]; pending?: PendingChange[] };
-export type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
+type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 export type IncrementalScopeChange = {
   model: string;
   scopeKey: string;

@@ -1,5 +1,5 @@
 import { print } from 'graphql';
-import { mmkvStoragePlane, type DbTransport } from '@noma4i/react-native-dblayer';
+import { type DbTransport } from '@noma4i/react-native-dblayer';
 
 export const GRAPHQL_ENDPOINT = 'https://graphqlplaceholder.vercel.app/graphql';
 // Fallback endpoint: https://graphqlzero.almansi.me/api
@@ -23,5 +23,3 @@ export const exampleTransport: DbTransport = {
     throw new Error('Subscriptions are unsupported by the public example endpoint');
   },
 };
-
-export const exampleStorage = mmkvStoragePlane();

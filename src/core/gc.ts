@@ -1,6 +1,6 @@
 import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
 
-export type GcHost = {
+type GcHost = {
   modelId: string;
   exempt: boolean;
   rowIds(): string[];
