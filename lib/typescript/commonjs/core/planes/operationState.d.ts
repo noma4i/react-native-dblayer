@@ -26,6 +26,10 @@ export type OperationState = {
     /** True while an idempotency key has a pending operation - blocks double-taps. */
     hasPending(idempotencyKey: string): boolean;
     pending(): OperationRecord[];
+    /** Pending operations touching one model row (rowIds falling back to tempIds), in creation order. */
+    pendingForRow(model: string, rowId: string): OperationRecord[];
+    /** Failed operations touching one model row (rowIds union tempIds). */
+    failedForRow(model: string, rowId: string): OperationRecord[];
     /** Most recent retained failed operation for one model row. */
     failedFor(model: string, rowId: string): OperationRecord | undefined;
     /** Remove one retained failed operation after retry, discard, or reconciliation. */

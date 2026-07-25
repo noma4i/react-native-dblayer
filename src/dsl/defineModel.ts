@@ -1348,14 +1348,7 @@ export const defineModel = <
     use: {
       pending: id => {
         const key = id == null ? null : String(id);
-        const readPending = useCallback(
-          () =>
-            key != null &&
-            getOperationState()
-              .pending()
-              .some(operation => operation.model === config.id && (operation.rowIds ?? operation.tempIds).includes(key)),
-          [key]
-        );
+        const readPending = useCallback(() => key != null && getOperationState().pendingForRow(config.id, key).length > 0, [key]);
         const subscribePending = useCallback(
           (listener: () => void) => {
             if (key == null) return () => {};
@@ -1385,10 +1378,8 @@ export const defineModel = <
         const readChanges = useCallback(() => {
           if (key == null) return undefined;
           let merged: Record<string, unknown> | undefined;
-          for (const operation of getOperationState().pending()) {
-            if (operation.model !== config.id) continue;
+          for (const operation of getOperationState().pendingForRow(config.id, key)) {
             if (operation.intent !== 'patch') continue;
-            if (!(operation.rowIds ?? operation.tempIds).includes(key)) continue;
             if (!operation.patchedValues) continue;
             merged = { ...(merged ?? {}), ...operation.patchedValues };
           }

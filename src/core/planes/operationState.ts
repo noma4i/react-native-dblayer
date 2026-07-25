@@ -1,4 +1,5 @@
 import type { StoragePlane } from './storagePlane';
+import { compositeKey } from '../serialize';
 
 export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
@@ -31,6 +32,10 @@ export type OperationState = {
   /** True while an idempotency key has a pending operation - blocks double-taps. */
   hasPending(idempotencyKey: string): boolean;
   pending(): OperationRecord[];
+  /** Pending operations touching one model row (rowIds falling back to tempIds), in creation order. */
+  pendingForRow(model: string, rowId: string): OperationRecord[];
+  /** Failed operations touching one model row (rowIds union tempIds). */
+  failedForRow(model: string, rowId: string): OperationRecord[];
   /** Most recent retained failed operation for one model row. */
   failedFor(model: string, rowId: string): OperationRecord | undefined;
   /** Remove one retained failed operation after retry, discard, or reconciliation. */
@@ -58,6 +63,34 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const hydratedPendingIds = new Set<string>();
   let sequencesDirty = false;
   let pendingPatchCount = 0;
+  /** Reverse index: compositeKey(model, rowId) -> every operation whose rowIds/tempIds union includes
+   * that rowId, regardless of status. Each accessor re-applies its own historical row-match predicate
+   * (rowIds-or-tempIds vs rowIds-only vs union) within the bucket - the union key is a safe superset for
+   * all three, so results stay identical to the prior full-array scans, just O(bucket-size). */
+  const opsByRowKey = new Map<string, Set<OperationRecord>>();
+  const rowKeysFor = (record: OperationRecord): string[] => {
+    const rowIds = new Set([...record.tempIds, ...(record.rowIds ?? [])]);
+    return [...rowIds].map(rowId => compositeKey(record.model, rowId));
+  };
+  const indexRecordRows = (record: OperationRecord): void => {
+    for (const key of rowKeysFor(record)) {
+      let bucket = opsByRowKey.get(key);
+      if (!bucket) {
+        bucket = new Set();
+        opsByRowKey.set(key, bucket);
+      }
+      bucket.add(record);
+    }
+  };
+  const unindexRecordRows = (record: OperationRecord): void => {
+    for (const key of rowKeysFor(record)) {
+      const bucket = opsByRowKey.get(key);
+      if (!bucket) continue;
+      bucket.delete(record);
+      if (bucket.size === 0) opsByRowKey.delete(key);
+    }
+  };
+  const bucketFor = (model: string, rowId: string): Set<OperationRecord> | undefined => opsByRowKey.get(compositeKey(model, rowId));
   const indexOperation = (record: OperationRecord): void => {
     if (!record.idempotencyKey) return;
     if (record.status === 'pending') pendingKeys.add(record.idempotencyKey);
@@ -67,7 +100,11 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const rebuildIndexes = (): void => {
     committedKeys.clear();
     pendingKeys.clear();
-    for (const record of operations.values()) indexOperation(record);
+    opsByRowKey.clear();
+    for (const record of operations.values()) {
+      indexOperation(record);
+      indexRecordRows(record);
+    }
   };
   const opsKey = () => `${prefix()}ops`;
   const seqKey = () => `${prefix()}seq`;
@@ -86,6 +123,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
       indexOperation(record);
+      indexRecordRows(record);
       if (record.status === 'pending' && record.intent === 'patch' && record.patchedFields && record.patchedFields.length > 0) pendingPatchCount += 1;
       storage.set(persistEntries());
       notify?.(record);
@@ -98,7 +136,9 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (operation.idempotencyKey) pendingKeys.delete(operation.idempotencyKey);
       const retainKey = status === 'committed' && operation.once === true;
       const record: OperationRecord = { ...operation, status, idempotencyKey: retainKey ? operation.idempotencyKey : undefined };
+      unindexRecordRows(operation);
       operations.set(operationId, record);
+      indexRecordRows(record);
       if (wasPatchOwner) pendingPatchCount -= 1;
       indexOperation(record);
       storage.set(persistEntries());
@@ -108,10 +148,22 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey) || operations.get(idempotencyKey)?.status === 'committed',
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
+    pendingForRow: (model, rowId) => {
+      const bucket = bucketFor(model, rowId);
+      if (!bucket) return [];
+      return [...bucket].filter(operation => operation.status === 'pending' && operation.model === model && (operation.rowIds ?? operation.tempIds).includes(rowId));
+    },
+    failedForRow: (model, rowId) => {
+      const bucket = bucketFor(model, rowId);
+      if (!bucket) return [];
+      return [...bucket].filter(operation => operation.status === 'failed' && operation.model === model);
+    },
     failedFor: (model, rowId) => {
+      const bucket = bucketFor(model, rowId);
+      if (!bucket) return undefined;
       let latest: OperationRecord | undefined;
-      for (const operation of operations.values()) {
-        if (operation.status !== 'failed' || operation.model !== model || ![...operation.tempIds, ...(operation.rowIds ?? [])].includes(rowId)) continue;
+      for (const operation of bucket) {
+        if (operation.status !== 'failed' || operation.model !== model) continue;
         if (!latest || operation.createdAt >= latest.createdAt) latest = operation;
       }
       return latest;
@@ -155,8 +207,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     },
     ownedFields: (model, rowId, excludeOpId) => {
       if (pendingPatchCount === 0) return EMPTY_OWNED;
+      const bucket = bucketFor(model, rowId);
+      if (!bucket) return EMPTY_OWNED;
       let owned: Set<string> | undefined;
-      for (const operation of operations.values()) {
+      for (const operation of bucket) {
         if (operation.status !== 'pending' || operation.intent !== 'patch' || !operation.patchedFields || operation.patchedFields.length === 0) continue;
         if (operation.operationId === excludeOpId) continue;
         if (operation.model !== model || !(operation.rowIds ?? []).includes(rowId)) continue;
@@ -167,8 +221,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     },
     latestPendingValue: (model, rowId, field, excludeOpId) => {
       if (pendingPatchCount === 0) return { found: false, value: undefined };
+      const bucket = bucketFor(model, rowId);
+      if (!bucket) return { found: false, value: undefined };
       let result: { found: boolean; value: unknown } = { found: false, value: undefined };
-      for (const operation of operations.values()) {
+      for (const operation of bucket) {
         if (operation.status !== 'pending' || operation.intent !== 'patch' || operation.operationId === excludeOpId) continue;
         if (operation.model !== model || !(operation.rowIds ?? []).includes(rowId)) continue;
         if (operation.patchedValues && field in operation.patchedValues) result = { found: true, value: operation.patchedValues[field] };
@@ -212,6 +268,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       committedKeys.clear();
       pendingKeys.clear();
       hydratedPendingIds.clear();
+      opsByRowKey.clear();
       sequencesDirty = false;
       pendingPatchCount = 0;
     }
