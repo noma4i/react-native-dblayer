@@ -85,14 +85,20 @@ export type ScopeHandle<TStored extends {
     id: string;
 }, TScope, TInput = TStored> = {
     modelId: string;
-    /** Reactive scope rows. `keepPrevious` opt-in retains the prior non-empty key until this key resolves. */
+    /**
+     * Reactive scope rows. `keepPrevious` opt-in retains the prior non-empty key until this key resolves.
+     * `require` is a render-completeness contract: a row transiently missing one of those fields (mid
+     * sideload/partial write) is held back until the field lands, then reappears through this same read.
+     */
     use<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
         select: (row: TStored) => TProjection;
         renderKeys?: never;
+        require?: readonly (keyof TStored & string)[];
     } & KeepPreviousOption): TProjection[];
     use(scopeValue: TScope | null | undefined, opts?: {
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
+        require?: readonly (keyof TStored & string)[];
     } & KeepPreviousOption): TStored[];
     /**
      * Reactive first row of the scope; `undefined` when empty or when `scopeValue` is nullish (nullish
@@ -116,11 +122,13 @@ export type ScopeHandle<TStored extends {
         pageSize?: number;
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
+        require?: readonly (keyof TStored & string)[];
     } & KeepPreviousOption): ScopeWindowResult<TStored>;
     useWindow<TProjection extends Record<string, unknown>>(scopeValue: TScope | null | undefined, opts: {
         pageSize?: number;
         select: (row: TStored) => TProjection;
         renderKeys?: never;
+        require?: readonly (keyof TStored & string)[];
     } & KeepPreviousOption): ScopeWindowResult<TProjection>;
     /** Reactive count of rows currently in the scope. */
     useCount(scopeValue: TScope | null | undefined): number;

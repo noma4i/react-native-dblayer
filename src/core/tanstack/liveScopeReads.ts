@@ -4,6 +4,7 @@ import { getCommitBus } from '../../dsl/configure';
 import { compositeKey } from '../serialize';
 import { arraysShallowEqual, rowsShallowEqual } from '../../read/useLiveRead';
 import { createProjectionGate, type ProjectionOptions, validateProjectionOptions } from '../../read/projectionGate';
+import { hasRequiredFields } from '../../read/requireFields';
 import { useScopeRetention } from '../../read/scopeRetention';
 import { createLiveQueryCollection, ensureMembershipCollection, ensureModelCollection, eq, registerLiveScopeReadReset, type StoredRowShape } from './facade';
 
@@ -23,10 +24,21 @@ type ScopeLiveEntry = {
 type ScopeLiveWindowSnapshot = { rows: StoredRowShape[]; totalCount: number; isPreviousData: boolean; resolved: boolean };
 type ScopeStoreSnapshot<T> = { rows: T[]; resolved: boolean };
 type ScopeWindowStoreSnapshot = ScopeLiveWindowSnapshot;
-type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & { keepPrevious?: boolean };
+type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & {
+  keepPrevious?: boolean;
+  /** Only rows with every one of these fields present render; a partial row (transient sideload/incomplete write) is held back until it lands. */
+  require?: ReadonlyArray<string>;
+};
 
 const EMPTY_ROWS: StoredRowShape[] = [];
 const entries = new Map<string, ScopeLiveEntry>();
+
+/** Filters a scope snapshot down to rows satisfying `require`, returning the SAME array reference when nothing is filtered out. */
+const requireFilteredRows = (rows: StoredRowShape[], require: ReadonlyArray<string> | undefined): StoredRowShape[] => {
+  if (!require || require.length === 0) return rows;
+  const filtered = rows.filter(row => hasRequiredFields(row, require));
+  return filtered.length === rows.length ? rows : filtered;
+};
 
 const plainRow = (row: StoredRowShape): StoredRowShape => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith(`$`))) as StoredRowShape;
 
@@ -137,6 +149,11 @@ registerLiveScopeReadReset(clearEntries);
 /**
  * Reads one scope through a shared TanStack live query projection.
  *
+ * `options.require` is a render-completeness contract: a row transiently missing one of those fields
+ * (mid sideload/partial write, before the full row lands) is held back rather than handed to a
+ * consumer that assumes the field is guaranteed. It reappears in this same read, through the same
+ * snapshot/subscription path, the moment the missing field commits - no separate fetch or remount.
+ *
  * @param modelId Model identifier owning the entity and membership collections.
  * @param scopeKey Serialized scope key, or `null` for the stable empty result.
  * @param sortMeta Membership sort metadata supplied by the model apply target.
@@ -158,7 +175,9 @@ export function useScopeLiveRows<TOutput extends Record<string, unknown> = Store
   isResolvedRef.current = isResolved;
   const { entry, subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
   const getSnapshot = useCallback(() => {
-    const rows = gateRef.current.projectRows(scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot, optionsRef.current);
+    const stored = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
+    const gated = requireFilteredRows(stored, optionsRef.current.require);
+    const rows = gateRef.current.projectRows(gated, optionsRef.current);
     const resolved = isResolvedRef.current();
     if (storeRef.current.rows === rows && storeRef.current.resolved === resolved) return storeRef.current;
     storeRef.current = { rows, resolved };
@@ -170,6 +189,10 @@ export function useScopeLiveRows<TOutput extends Record<string, unknown> = Store
 
 /**
  * Reads a stable local window from one shared TanStack live query projection.
+ *
+ * `options.require` gates rows the same way as `useScopeLiveRows` - a row missing a required field is
+ * excluded before windowing, so `totalCount`/`hasMore` reflect the filtered set (a transiently partial
+ * row never opens a hole in pagination), and it reappears once the field lands.
  *
  * @param modelId Model identifier owning the entity and membership collections.
  * @param scopeKey Serialized scope key, or `null` for the stable empty result.
@@ -200,7 +223,8 @@ export function useScopeLiveWindowRows(
   });
   const getSnapshot = useCallback(() => {
     const stored = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
-    const source = gateRef.current.projectRows(stored, optionsRef.current) as StoredRowShape[];
+    const gated = requireFilteredRows(stored, optionsRef.current.require);
+    const source = gateRef.current.projectRows(gated, optionsRef.current) as StoredRowShape[];
     const resolved = isResolvedRef.current();
     if (windowRef.current.source === source && windowRef.current.size === windowSize && windowRef.current.resolved === resolved) return windowRef.current.snapshot;
     const rows = source.slice(0, windowSize);
