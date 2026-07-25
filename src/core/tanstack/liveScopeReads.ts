@@ -1,6 +1,7 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { ApplyTarget } from '../apply/transaction';
 import { getCommitBus } from '../../dsl/configure';
+import { compositeKey } from '../serialize';
 import { arraysShallowEqual, rowsShallowEqual } from '../../read/useLiveRead';
 import { createProjectionGate, type ProjectionOptions, validateProjectionOptions } from '../../read/projectionGate';
 import { useScopeRetention } from '../../read/scopeRetention';
@@ -54,7 +55,7 @@ const notifyEmptyScope = (entry: ScopeLiveEntry): void => {
   for (const listener of entry.listeners) listener();
 };
 
-const entryKey = (modelId: string, scopeKey: string): string => `${modelId}\0${scopeKey}`;
+const entryKey = (modelId: string, scopeKey: string): string => compositeKey(modelId, scopeKey);
 
 const createEntry = (modelId: string, scopeKey: string, sortMeta: ScopeSortMeta): ScopeLiveEntry => {
   const memberships = ensureMembershipCollection(modelId);

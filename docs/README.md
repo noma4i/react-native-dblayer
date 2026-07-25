@@ -51,7 +51,6 @@ somewhere under `docs/`.
 | `DbDefaults`        | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryClass`      | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryPolicy`     | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `bootDb`            | value | [getting-started.md](./getting-started.md#bootdboptions)            |
 | `BootDbOptions`     | type  | [getting-started.md](./getting-started.md#bootdboptions)            |
 | `MaintenanceReport` | type  | [getting-started.md](./getting-started.md#bootdboptions)            |
 | `DbProvider`        | value | [getting-started.md](./getting-started.md#dbprovider)               |
@@ -154,9 +153,7 @@ see [reading.md](./reading.md).
 | ----------------------------- | ----- | ------------------------------------------------------------------------------- |
 | `resetRuntime`                | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
 | `registerReset`               | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
-| `collectGarbage`              | value | [runtime.md](./runtime.md#garbage-collection)                                   |
 | `GcReport`                    | type  | [runtime.md](./runtime.md#garbage-collection)                                   |
-| `flushPersistence`            | value | [runtime.md](./runtime.md#persistence-model)                                    |
 | `reconcileOptimisticRows`     | value | [runtime.md](./runtime.md#reconcileoptimisticrowsmodel-nodes-options)           |
 | `patchWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |

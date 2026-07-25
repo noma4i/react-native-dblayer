@@ -7,6 +7,21 @@ const publicBarrel = path.resolve(specRoot, '../../index.ts');
 const incrementalEngineSpec = path.resolve(specRoot, 'rerender/r04-incremental-read-engine.test.ts');
 const incrementalEngineSource = path.resolve(specRoot, '../../read/incrementalReadEngine.ts');
 
+/**
+ * `bootDb`/`collectGarbage`/`flushPersistence` are internal to `DbProvider` and not on the public
+ * barrel (see index.ts); these specs exercise boot/GC/persistence behavior directly and must reach
+ * past the barrel for it, the same way `incrementalEngineSpec` reaches `incrementalReadEngine.ts`.
+ */
+const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> = [
+  { spec: path.resolve(specRoot, 'consumer/c-failure-contract.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
+  { spec: path.resolve(specRoot, 'consumer/c-failure-contract.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'consumer/c-gc-reset-and-subscription-utils.test.ts'), source: path.resolve(specRoot, '../../core/gc.ts') },
+  { spec: path.resolve(specRoot, 'consumer/c07-maintenance-trim.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i03-dedupe.test.ts'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i03-dedupe.test.ts'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'sufficiency/s07-pending-flag.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') }
+];
+
 const sourceFiles = (directory: string): string[] =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const target = path.join(directory, entry.name);
@@ -42,7 +57,8 @@ describe('spec import discipline', () => {
         const target = resolvedImport(file, specifier);
         const staysInSpec = !path.relative(specRoot, target).startsWith('..');
         const isIncrementalEngineContract = file === incrementalEngineSpec && target === incrementalEngineSource;
-        return staysInSpec || target === publicBarrel || isIncrementalEngineContract ? [] : [`${path.relative(specRoot, file)} -> ${specifier}`];
+        const isInternalAccessException = internalAccessExceptions.some(exception => file === exception.spec && target === exception.source);
+        return staysInSpec || target === publicBarrel || isIncrementalEngineContract || isInternalAccessException ? [] : [`${path.relative(specRoot, file)} -> ${specifier}`];
       })
     );
 

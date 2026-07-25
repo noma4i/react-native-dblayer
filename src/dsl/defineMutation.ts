@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
+import { compositeKey } from '../core/serialize';
 import { expandPlan, hasDependentCascade } from '../core/relations';
 import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
@@ -207,14 +208,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     const placementIds = new Map<string, Set<string>>();
     for (const op of placementOps) {
       if (op.kind !== 'scope-delta') continue;
-      const key = `${op.model}\0${op.scopeKey}`;
+      const key = compositeKey(op.model, op.scopeKey);
       const ids = placementIds.get(key) ?? new Set<string>();
       for (const row of op.append) ids.add(row.id);
       placementIds.set(key, ids);
     }
     return plan.flatMap<JournalOp>(op => {
       if (op.kind !== 'scope-delta') return [op];
-      const ids = placementIds.get(`${op.model}\0${op.scopeKey}`);
+      const ids = placementIds.get(compositeKey(op.model, op.scopeKey));
       if (!ids) return [op];
       const append = op.append.filter(row => row.order !== undefined || !ids.has(row.id));
       return append.length > 0 || op.detach.length > 0 ? [{ ...op, append }] : [];

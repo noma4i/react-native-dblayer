@@ -5,6 +5,7 @@ import { registerReset } from '../reset';
 import { uniq, uniqBy } from 'es-toolkit';
 import { rowsShallowEqual } from '../../read/useLiveRead';
 import { noteCommit, noteMirrorScopePass } from '../diagnostics';
+import { compositeKey } from '../serialize';
 const rowsDiffer = (current: object, next: object): boolean => !rowsShallowEqual(current, next);
 const scopeOrderCache = new Map<string, Map<string, number>>();
 // Reset contract: clear cross-generation order-revision cache so a post-reset scope never matches a stale revision.
@@ -33,7 +34,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
     }
     const scopeChangesByKey = new Map<string, IncrementalScopeChange[]>();
     for (const change of batch.scopeChanges ?? []) {
-      const key = `${change.model}\0${change.scopeKey}`;
+      const key = compositeKey(change.model, change.scopeKey);
       const group = scopeChangesByKey.get(key) ?? [];
       group.push(change);
       scopeChangesByKey.set(key, group);
@@ -55,16 +56,16 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           const row = target.readRow(id);
           const current = collection.get(id);
           if (!row) {
-            if (current) writer.write({ type: `delete`, key: id });
+            if (current) writer.write({ type: 'delete', key: id });
             continue;
           }
           const next = { ...row, id };
           if (!current) {
-            writer.write({ type: `insert`, value: next });
+            writer.write({ type: 'insert', value: next });
             continue;
           }
           if (rowsDiffer(current, next)) {
-            writer.write({ type: `update`, value: next });
+            writer.write({ type: 'update', value: next });
           }
         }
         writer.commit();
@@ -76,7 +77,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
         for (const scopeKey of scopeKeys) {
           const scopeStartedAt = globalThis.performance?.now?.() ?? Date.now();
           let resorted = false;
-          const scopeChanges = scopeChangesByKey.get(`${modelId}\0${scopeKey}`) ?? [];
+          const scopeChanges = scopeChangesByKey.get(compositeKey(modelId, scopeKey)) ?? [];
           const structural = scopeChanges.reduce(
             (current, change) => ({
               appendIds: uniq([...current.appendIds, ...(change.appendIds ?? [])]),
@@ -88,46 +89,46 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           );
           const meta = target.scopeSortMeta(scopeKey);
 
-          if (meta.kind === `field`) {
+          if (meta.kind === 'field') {
             if (structural.rebuild) {
               resorted = true;
               const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
               const expected = target.readScopeOrder(scopeKey).flatMap(rowId => {
                 const row = target.readRow(rowId);
-                return row ? [{ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] }] : [];
+                return row ? [{ key: compositeKey(scopeKey, rowId), scopeKey, rowId, sortValue: row[meta.field] }] : [];
               });
               const expectedKeys = new Set(expected.map(row => row.key));
-              for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });
+              for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: 'delete', key: row.key });
               for (const row of expected) {
                 const current = memberships.get(row.key);
-                if (!current) membershipWriter.write({ type: `insert`, value: row });
-                else if (rowsDiffer(current, row)) membershipWriter.write({ type: `update`, value: row });
+                if (!current) membershipWriter.write({ type: 'insert', value: row });
+                else if (rowsDiffer(current, row)) membershipWriter.write({ type: 'update', value: row });
               }
             } else {
-              for (const rowId of structural.detachIds) membershipWriter.write({ type: `delete`, key: `${scopeKey}\0${rowId}` });
+              for (const rowId of structural.detachIds) membershipWriter.write({ type: 'delete', key: compositeKey(scopeKey, rowId) });
               for (const rowId of structural.appendIds) {
                 const row = target.readRow(rowId);
                 if (!row) continue;
-                const next = { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] };
+                const next = { key: compositeKey(scopeKey, rowId), scopeKey, rowId, sortValue: row[meta.field] };
                 const current = memberships.get(next.key);
-                if (!current) membershipWriter.write({ type: `insert`, value: next });
-                else if (rowsDiffer(current, next)) membershipWriter.write({ type: `update`, value: next });
+                if (!current) membershipWriter.write({ type: 'insert', value: next });
+                else if (rowsDiffer(current, next)) membershipWriter.write({ type: 'update', value: next });
               }
             }
             for (const change of batch.rows) {
               if (change.model !== modelId || !change.fields?.includes(meta.field)) continue;
-              const key = `${scopeKey}\0${change.id}`;
+              const key = compositeKey(scopeKey, change.id);
               const current = memberships.get(key);
               const row = target.readRow(change.id);
               if (!current || !row) continue;
               const next = { key, scopeKey, rowId: change.id, sortValue: row[meta.field] };
-              if (rowsDiffer(current, next)) membershipWriter.write({ type: `update`, value: next });
+              if (rowsDiffer(current, next)) membershipWriter.write({ type: 'update', value: next });
             }
             noteMirrorScopePass(resorted, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
             continue;
           }
 
-          if (meta.kind === `server-order` && !structural.rebuild && structural.appendIds.length === 0 && structural.detachIds.length === 0) {
+          if (meta.kind === 'server-order' && !structural.rebuild && structural.appendIds.length === 0 && structural.detachIds.length === 0) {
             noteMirrorScopePass(false, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
             continue;
           }
@@ -135,16 +136,16 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           const revision = target.readScopeOrderRevision(scopeKey);
           const modelCache = scopeOrderCache.get(modelId) ?? new Map<string, number>();
           scopeOrderCache.set(modelId, modelCache);
-          if (meta.kind === `server-order` && !structural.rebuild) {
+          if (meta.kind === 'server-order' && !structural.rebuild) {
             const appendOrders = new Map(structural.appendEntries.map(entry => [entry.id, entry.order]));
             if (structural.appendIds.every(rowId => appendOrders.has(rowId))) {
-              for (const rowId of structural.detachIds) membershipWriter.write({ type: `delete`, key: `${scopeKey}\0${rowId}` });
+              for (const rowId of structural.detachIds) membershipWriter.write({ type: 'delete', key: compositeKey(scopeKey, rowId) });
               for (const rowId of structural.appendIds) {
                 const order = appendOrders.get(rowId)!;
-                const next = { key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq: order };
+                const next = { key: compositeKey(scopeKey, rowId), scopeKey, rowId, seq: order };
                 const current = memberships.get(next.key);
-                if (!current) membershipWriter.write({ type: `insert`, value: next });
-                else if (rowsDiffer(current, next)) membershipWriter.write({ type: `update`, value: next });
+                if (!current) membershipWriter.write({ type: 'insert', value: next });
+                else if (rowsDiffer(current, next)) membershipWriter.write({ type: 'update', value: next });
               }
               modelCache.set(scopeKey, revision);
               noteMirrorScopePass(false, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
@@ -153,7 +154,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
           }
           const orderAffected = batch.rows.some(row => row.model === modelId && target.scopeOrderAffected(scopeKey, row.id, row.fields));
           if (
-            meta.kind === `comparator` &&
+            meta.kind === 'comparator' &&
             !structural.rebuild &&
             structural.appendIds.length === 0 &&
             structural.detachIds.length === 0 &&
@@ -167,16 +168,16 @@ export function startCollectionMirror(bus: CommitBus): () => void {
 
           resorted = true;
           const expected =
-            meta.kind === `comparator`
-              ? target.readScopeOrder(scopeKey).map((rowId, seq) => ({ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }))
-              : target.readScopeEntries(scopeKey).map(entry => ({ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }));
+            meta.kind === 'comparator'
+              ? target.readScopeOrder(scopeKey).map((rowId, seq) => ({ key: compositeKey(scopeKey, rowId), scopeKey, rowId, seq }))
+              : target.readScopeEntries(scopeKey).map(entry => ({ key: compositeKey(scopeKey, entry.id), scopeKey, rowId: entry.id, seq: entry.order }));
           const expectedKeys = new Set(expected.map(row => row.key));
           const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
-          for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });
+          for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: 'delete', key: row.key });
           for (const row of expected) {
             const current = memberships.get(row.key);
-            if (!current) membershipWriter.write({ type: `insert`, value: row });
-            else if (rowsDiffer(current, row)) membershipWriter.write({ type: `update`, value: row });
+            if (!current) membershipWriter.write({ type: 'insert', value: row });
+            else if (rowsDiffer(current, row)) membershipWriter.write({ type: 'update', value: row });
           }
           modelCache.set(scopeKey, revision);
           noteMirrorScopePass(resorted, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
@@ -205,11 +206,11 @@ export function seedCollections(models: string[]): void {
         const current = collection.get(id);
         const next = { ...row, id };
         if (!current) {
-          writer.write({ type: `insert`, value: next });
+          writer.write({ type: 'insert', value: next });
           continue;
         }
         if (rowsDiffer(current, next)) {
-          writer.write({ type: `update`, value: next });
+          writer.write({ type: 'update', value: next });
         }
       }
       writer.commit();
@@ -219,27 +220,27 @@ export function seedCollections(models: string[]): void {
       for (const scopeKey of target.readAllScopeKeys()) {
         const meta = target.scopeSortMeta(scopeKey);
         const expected =
-          meta.kind === `field`
+          meta.kind === 'field'
             ? target.readScopeOrder(scopeKey).flatMap(rowId => {
                 const row = target.readRow(rowId);
-                return row ? [{ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, sortValue: row[meta.field] }] : [];
+                return row ? [{ key: compositeKey(scopeKey, rowId), scopeKey, rowId, sortValue: row[meta.field] }] : [];
               })
-            : meta.kind === `comparator`
+            : meta.kind === 'comparator'
               ? target.readScopeOrder(scopeKey).flatMap((rowId, seq) => {
                   const row = target.readRow(rowId);
-                  return row ? [{ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }] : [];
+                  return row ? [{ key: compositeKey(scopeKey, rowId), scopeKey, rowId, seq }] : [];
                 })
               : target.readScopeEntries(scopeKey).flatMap(entry => {
                   const row = target.readRow(entry.id);
-                  return row ? [{ key: `${scopeKey}\0${entry.id}`, scopeKey, rowId: entry.id, seq: entry.order }] : [];
+                  return row ? [{ key: compositeKey(scopeKey, entry.id), scopeKey, rowId: entry.id, seq: entry.order }] : [];
                 });
         const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
         const expectedKeys = new Set(expected.map(row => row.key));
-        for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: `delete`, key: row.key });
+        for (const row of existing) if (!expectedKeys.has(row.key)) membershipWriter.write({ type: 'delete', key: row.key });
         for (const row of expected) {
           const current = memberships.get(row.key);
-          if (!current) membershipWriter.write({ type: `insert`, value: row });
-          else if (rowsDiffer(current, row)) membershipWriter.write({ type: `update`, value: row });
+          if (!current) membershipWriter.write({ type: 'insert', value: row });
+          else if (rowsDiffer(current, row)) membershipWriter.write({ type: 'update', value: row });
         }
         const modelCache = scopeOrderCache.get(modelId) ?? new Map<string, number>();
         scopeOrderCache.set(modelId, modelCache);

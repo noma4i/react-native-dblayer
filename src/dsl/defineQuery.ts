@@ -5,6 +5,7 @@ import type { DbGraphQLDocument, DbReadOptions, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
+import { compositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { createGenerationFence } from '../utils/runtimePrimitives';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
@@ -210,7 +211,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     issuedResetSeqByScope.clear();
     appliedResetSeqByScope.clear();
   });
-  const committedRowsKey = (scopeKey: string): string => `${keyName}\0${scopeKey}`;
+  const committedRowsKey = (scopeKey: string): string => compositeKey(keyName, scopeKey);
   const registerScope = (scope: TScope): void => {
     registeredScopes.set(buildScopeKey(scope), scope);
   };
@@ -500,7 +501,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       refetchOnMount: config.refetchOnMount,
       ...(config.resumeStaleTime !== undefined ? { meta: { resumeStaleTime: config.resumeStaleTime } } : {})
     });
-    const ensureKey = `${buildScopeKey(scope)}\0${rowId ?? ''}`;
+    const ensureKey = compositeKey(buildScopeKey(scope), rowId ?? '');
     const refetchedForAbsenceRef = useRef(false);
     const ensureKeyRef = useRef(ensureKey);
     if (ensureKeyRef.current !== ensureKey) {

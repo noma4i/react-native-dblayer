@@ -1,4 +1,6 @@
-import { bootDb, configureDb, defineCommand, defineModel, f, flushPersistence, resetRuntime } from '../../../index';
+import { configureDb, defineCommand, defineModel, f, resetRuntime } from '../../../index';
+import { bootDb } from '../../../dsl/lifecycle';
+import { flushPersistence } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Result = { action: { ok: true } };

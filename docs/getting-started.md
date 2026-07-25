@@ -62,9 +62,9 @@ export const Root = () => (
 );
 ```
 
-`configureDb` and `bootDb` stay individually exported as composable primitives for apps with a
-different startup sequencing need - `configureDb` then `<DbProvider>` is the recommended path for
-the common case, and covers the full sequence above without a manual `bootDb` call.
+`configureDb` stays exported for callers that need to run it before `<DbProvider>` mounts;
+`bootDb` is internal to `DbProvider` (see [`bootDb`](#bootdboptions) below) - there is no
+standalone boot-sequencing entry point outside the provider.
 
 ## `configureDb(options)`
 
@@ -149,18 +149,10 @@ automatically.
 
 ## `bootDb(options)`
 
-The recommended boot sequence, run for you by `DbProvider` and available standalone for a
-custom boot sequence.
-
-```ts
-import { bootDb } from '@noma4i/react-native-dblayer';
-
-async function start() {
-  const { replayed, gc, maintenance } = await bootDb({ wipe: false });
-  console.log(`replayed ${replayed} journal records, evicted`, gc.evicted);
-  console.log('ran maintenance', maintenance);
-}
-```
+**Internal - not exported.** `DbProvider` is the sole owner of the boot sequence described below;
+there is no standalone `bootDb` import for a custom boot sequence. This section documents what
+`DbProvider` does on mount, for anyone reading the runtime's behavior rather than calling it
+directly.
 
 `bootDb(options)` assumes `configureDb` already ran, and runs, in order: deferred definition
 validation (see below), optionally `resetRuntime()` when `wipe: true`, journal replay (recovers
@@ -191,8 +183,8 @@ ran - the boot-time copy exists purely to fail at startup instead of on first us
 **Background suspension.** `DbProvider` performs it automatically when the app backgrounds: it
 flushes pending checkpoint snapshots, then runs a `collectGarbage()` sweep (skipped if
 `configureDb` never ran). It never clears state - a full wipe still goes through `resetRuntime`'s
-kill-switch. Headless callers with no `DbProvider` in the tree can get the flush half with
-`flushPersistence()`.
+kill-switch. `flushPersistence`/`collectGarbage` are internal - not exported - `DbProvider` is the
+only caller.
 
 ## Storage seam
 

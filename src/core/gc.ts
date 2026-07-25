@@ -1,4 +1,5 @@
 import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
+import { compositeKey } from './serialize';
 
 type GcHost = {
   modelId: string;
@@ -68,14 +69,14 @@ export const collectGarbage = (): GcReport => {
     getCommitBus()
       .activeDependencies()
       .filter((dependency): dependency is Extract<typeof dependency, { kind: 'scope' }> => dependency.kind === 'scope')
-      .map(dependency => `${dependency.model}\0${dependency.scopeKey}`)
+      .map(dependency => compositeKey(dependency.model, dependency.scopeKey))
   );
   const now = Date.now();
   for (const host of hosts.values()) {
     const threshold = host.idleScopeAfterMs?.();
     if (!host.exempt && threshold !== undefined) {
       for (const key of host.scopeKeys()) {
-        if (activeScopeDependencies.has(`${host.modelId}\0${key}`)) continue;
+        if (activeScopeDependencies.has(compositeKey(host.modelId, key))) continue;
         const lastAccess = host.scopeLastAccess?.(key);
         if (lastAccess !== undefined && now - lastAccess <= threshold) continue;
         host.removeScope(key);

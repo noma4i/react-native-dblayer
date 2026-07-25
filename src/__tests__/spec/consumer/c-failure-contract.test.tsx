@@ -1,5 +1,7 @@
 import { act } from 'react-test-renderer';
-import { bootDb, configureDb, defineModel, f, flushPersistence, reconcileOptimisticRows, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, reconcileOptimisticRows, resetRuntime } from '../../../index';
+import { bootDb } from '../../../dsl/lifecycle';
+import { flushPersistence } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };

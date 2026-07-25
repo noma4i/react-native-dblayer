@@ -1,5 +1,6 @@
 import { act } from 'react-test-renderer';
-import { bootDb, configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { bootDb } from '../../../dsl/lifecycle';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

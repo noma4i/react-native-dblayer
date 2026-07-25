@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react';
+import { arraysShallowEqual } from './useLiveRead';
 
 type MergeOptions<TRow> = {
   comparator?: (left: TRow, right: TRow) => number;
@@ -35,17 +36,8 @@ export const useMergedScopeRows = <TRow extends { id: string }>(
       if (comparator) merged.sort(comparator);
       result = merged;
     }
-    if (previous && areSameRows(previous.result, result)) result = previous.result;
+    if (previous && arraysShallowEqual(previous.result, result)) result = previous.result;
     previousRef.current = { base: baseRows, extras: extraRows, comparator, result };
     return result;
   }, [baseRows, extraRows, comparator]);
-};
-
-const areSameRows = <TRow,>(left: ReadonlyArray<TRow>, right: ReadonlyArray<TRow>): boolean => {
-  if (left === right) return true;
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 };

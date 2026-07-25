@@ -1,5 +1,6 @@
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
+import { compositeKey } from '../core/serialize';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
@@ -479,6 +480,13 @@ const readField = (field: ModelFieldSpecs[string], input: unknown, key: string, 
   return undefined;
 };
 
+type ScopeSortSpec<TRow> = { field: keyof TRow & string; dir: 'asc' | 'desc' } | { comparator: (a: TRow, b: TRow) => number; orderFields?: ReadonlyArray<keyof TRow & string> };
+
+const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] =>
+  'comparator' in sort ? [...rows].sort(sort.comparator) : sortModelReadRows(rows, [{ field: String(sort.field), direction: sort.dir }]);
+
+const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;
+
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
@@ -644,8 +652,8 @@ export const defineModel = <
     const merged = { ...before, ...row, id };
     const deltas: MembershipDelta[] = [];
     for (const [scopeName, spec] of membershipScopes) {
-      const beforeValue = before && (spec.member?.(before) ?? true) ? scopeValueFromRow(spec.by, before) : null;
-      const afterValue = spec.member?.(merged as Stored) ?? true ? scopeValueFromRow(spec.by, merged) : null;
+      const beforeValue = before && matchesMemberPredicate<Stored>(spec, before) ? scopeValueFromRow(spec.by, before) : null;
+      const afterValue = matchesMemberPredicate<Stored>(spec, merged as Stored) ? scopeValueFromRow(spec.by, merged) : null;
       const beforeKey = beforeValue ? keyForScope(scopeName, beforeValue) : null;
       const afterKey = afterValue ? keyForScope(scopeName, afterValue) : null;
       if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) deltas.push({ scopeKey: beforeKey, detach: [id] });
@@ -730,8 +738,8 @@ export const defineModel = <
       const spec = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName];
       if (!spec) return false;
       const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
-      if (spec.sort && spec.sort !== `server-order` && `field` in spec.sort) relevant.add(String(spec.sort.field));
-      if (spec.sort && spec.sort !== `server-order` && `comparator` in spec.sort) {
+      if (spec.sort && spec.sort !== 'server-order' && 'field' in spec.sort) relevant.add(String(spec.sort.field));
+      if (spec.sort && spec.sort !== 'server-order' && 'comparator' in spec.sort) {
         if (spec.sort.orderFields === undefined) return true;
         for (const field of spec.sort.orderFields) relevant.add(field);
       }
@@ -740,9 +748,9 @@ export const defineModel = <
     scopeSortMeta: (scopeKey: string) => {
       const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
       const sort = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName]?.sort;
-      if (!sort || sort === `server-order`) return { kind: `server-order` as const };
-      if (`comparator` in sort) return { kind: `comparator` as const };
-      return { kind: `field` as const, field: String(sort.field), dir: sort.dir };
+      if (!sort || sort === 'server-order') return { kind: 'server-order' as const };
+      if ('comparator' in sort) return { kind: 'comparator' as const };
+      return { kind: 'field' as const, field: String(sort.field), dir: sort.dir };
     },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     upsert: writeRows,
@@ -849,9 +857,7 @@ export const defineModel = <
     const value = planes().scopeIndex.read(keyForScope(scopeName, scopeValue));
     const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is Stored => row !== undefined);
     if (!spec?.sort || spec.sort === 'server-order') return rows;
-    if ('comparator' in spec.sort) return [...rows].sort(spec.sort.comparator);
-    const { field, dir } = spec.sort;
-    return sortModelReadRows(rows, [{ field, direction: dir }]);
+    return sortRowsBySpec(rows, spec.sort);
   };
 
   const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: config.id, id, ...(fields ? { fields } : {}) });
@@ -975,10 +981,7 @@ export const defineModel = <
               return row ? [[entry.id, row] as const] : [];
             })
           );
-          const ordered =
-            'comparator' in scopeSort
-              ? [...rowsById.values()].sort(scopeSort.comparator)
-              : sortModelReadRows([...rowsById.values()], [{ field: String(scopeSort.field), direction: scopeSort.dir }]);
+          const ordered = sortRowsBySpec([...rowsById.values()], scopeSort);
           const positions = new Map(ordered.map((row, index) => [String(row.id), index]));
           next = {
             ...next,
@@ -1002,7 +1005,7 @@ export const defineModel = <
 
       const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();
       for (const entry of liveRows) {
-        if (spec.member && !spec.member(entry.row as Stored)) continue;
+        if (!matchesMemberPredicate<Stored>(spec, entry.row as Stored)) continue;
         const derivedValue = scopeValueFromRow(spec.by, entry.row);
         if (!derivedValue) continue;
         const derivedKey = keyForScope(scopeName, derivedValue);
@@ -1083,7 +1086,7 @@ export const defineModel = <
           const value = row[field];
           return typeof value === 'number' && value > maximum ? value : maximum;
         }, 0);
-        const issuedKey = `${config.id}\0${scopeKey}\0${field}`;
+        const issuedKey = compositeKey(config.id, scopeKey, field);
         const maxIssuedThisSession = issuedScopeSequenceByKey.get(issuedKey) ?? 0;
         const next = Math.max(maxFieldValue, maxIssuedThisSession) + 1;
         issuedScopeSequenceByKey.set(issuedKey, next);

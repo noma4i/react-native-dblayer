@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
-import { compareCodepoints } from '../core/serialize';
+import { compareCodepoints, semanticValue } from '../core/serialize';
 import { arraysShallowEqual } from './useLiveRead';
-import { isRecord } from '../utils/normalizeHelpers';
 import { noteReadEngineApply } from '../core/diagnostics';
 
 type Engine<T> = {
@@ -12,35 +11,6 @@ type Engine<T> = {
   value: T;
   version: number;
   apply(batch: IncrementalCommitBatch | null): boolean;
-};
-
-const identityTokens = new WeakMap<object, number>();
-let nextIdentityToken = 1;
-
-const semanticValue = (value: unknown): string => {
-  if (value === null) return 'null';
-  if (value === undefined) return 'undefined';
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
-  if (typeof value === 'function') {
-    const token = identityTokens.get(value) ?? nextIdentityToken++;
-    identityTokens.set(value, token);
-    return `function:${token}`;
-  }
-  if (Array.isArray(value)) return `[${value.map(semanticValue).join(',')}]`;
-  if (isRecord(value)) {
-    const object = value as object;
-    const record = value as Record<string, unknown>;
-    if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
-      return `{${Object.keys(record)
-        .sort()
-        .map(key => `${JSON.stringify(key)}:${semanticValue(record[key])}`)
-        .join(',')}}`;
-    }
-    const token = identityTokens.get(object) ?? nextIdentityToken++;
-    identityTokens.set(object, token);
-    return `object:${token}`;
-  }
-  return String(value);
 };
 
 /** Canonical semantic descriptors preserve object identity only where leaf values require it. */

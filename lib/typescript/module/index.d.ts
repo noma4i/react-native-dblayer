@@ -1,6 +1,5 @@
-export { configureDb, flushPersistence } from './dsl/configure';
+export { configureDb } from './dsl/configure';
 export type { DbDefaults, DbRetryClass, DbRetryPolicy } from './dsl/configure';
-export { bootDb } from './dsl/lifecycle';
 export type { BootDbOptions } from './dsl/lifecycle';
 export { DbProvider } from './dsl/DbProvider';
 export type { DbProviderProps } from './dsl/DbProvider';
@@ -12,7 +11,6 @@ export type { ScopeHandle, ScopeWindowResult } from './dsl/defineModel';
 export type { ViewConfig, ViewIncludeModel, ViewIncludeSpec } from './dsl/defineView';
 export { scope } from './dsl/scope';
 export type { ScopeSpec, ScopeCoverage } from './dsl/scope';
-export { collectGarbage } from './core/gc';
 export type { GcReport } from './core/gc';
 export { belongsTo, hasMany, hasOne, references } from './core/relations';
 export { f } from './schema/f';

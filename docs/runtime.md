@@ -57,11 +57,9 @@ dead/empty scope cleanup - the two are not counted separately.
 
 ## Garbage collection
 
-```ts
-import { collectGarbage } from '@noma4i/react-native-dblayer';
-
-const report = collectGarbage(); // { evicted, scopesRemoved }, both keyed by model id
-```
+**Internal - not exported.** `collectGarbage` is called only by `DbProvider`'s boot and background
+sweep; there is no direct import. This section documents its behavior for anyone reading the
+runtime, not a callable API.
 
 `collectGarbage(): GcReport` runs a reachability sweep over every registered model. Roots: scope
 members, `gc: 'exempt'` model rows (see [models.md](./models.md#definemodelconfig)), pending
@@ -75,8 +73,8 @@ any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, b
 id.
 
 `collectGarbage` runs automatically as part of `bootDb`'s startup sequence and the automatic
-background suspension's teardown sequence (see [getting-started.md](./getting-started.md#bootdboptions)); most
-apps never call it directly.
+background suspension's teardown sequence (see [getting-started.md](./getting-started.md#bootdboptions));
+app code has no way to call it directly.
 
 ### In-session GC trigger
 
@@ -132,15 +130,10 @@ re-applies every pending record left over from the last session (the recovery ha
 maintenance runs last - together, the boot compaction pass that brings persisted state back to
 exactly what a live session would have produced.
 
-`flushPersistence(): void` forces a checkpoint flush now - pending model snapshots hit storage in
-one batch. The automatic background suspension calls it as part of the recommended
-background/teardown sequence; call it directly only for a different flush timing need.
-
-```ts
-import { flushPersistence } from '@noma4i/react-native-dblayer';
-
-flushPersistence();
-```
+**Internal - not exported.** `flushPersistence(): void` forces a checkpoint flush now - pending
+model snapshots hit storage in one batch. `DbProvider`'s automatic background suspension is the
+only caller, as part of the recommended background/teardown sequence; there is no direct import
+for a different flush timing need.
 
 ## `Model.poller(name, config)`
 

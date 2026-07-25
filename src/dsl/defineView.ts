@@ -3,6 +3,7 @@ import type { Dependency } from '../core/apply/commitBus';
 import { noteFkIndex } from '../core/diagnostics';
 import type { RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
+import { compositeKey } from '../core/serialize';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetention';
@@ -94,7 +95,7 @@ type ForeignKeyIndex = { rowsByForeignKey: Map<string, Row[]>; fkById: Map<strin
 
 const foreignKeyIndexes = new Map<string, ForeignKeyIndex>();
 
-const foreignKeyIndexKey = (targetModelId: string, foreignKey: string): string => `${targetModelId}\0${foreignKey}`;
+const foreignKeyIndexKey = (targetModelId: string, foreignKey: string): string => compositeKey(targetModelId, foreignKey);
 
 const removeIndexedRow = (index: ForeignKeyIndex, foreignKey: string, id: string): void => {
   const bucket = index.rowsByForeignKey.get(foreignKey);

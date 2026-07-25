@@ -3,9 +3,7 @@ import * as barrel from '../../../index';
 const runtimeExportAllowlist = [
   'DbProvider',
   'belongsTo',
-  'bootDb',
   'bridgeWindowPagination',
-  'collectGarbage',
   'configureDb',
   'createDbSubscriptionEffects',
   'createDbSubscriptionRuntime',
@@ -21,7 +19,6 @@ const runtimeExportAllowlist = [
   'defineModel',
   'defineShape',
   'f',
-  'flushPersistence',
   'fromNodes',
   'generateTempId',
   'hasMany',
@@ -78,6 +75,9 @@ describe('public barrel exports', () => {
       'getDbTransport',
       'setDbTransport',
       'suspendDb',
+      'bootDb',
+      'collectGarbage',
+      'flushPersistence',
       'mmkvStoragePlane'
     ];
 

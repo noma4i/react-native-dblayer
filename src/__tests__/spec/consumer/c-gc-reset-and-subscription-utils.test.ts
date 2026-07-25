@@ -1,5 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { collectGarbage, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../../index';
+import { createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../../index';
+import { collectGarbage } from '../../../core/gc';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for GC roots/exemption, reset registration, and subscription utilities.

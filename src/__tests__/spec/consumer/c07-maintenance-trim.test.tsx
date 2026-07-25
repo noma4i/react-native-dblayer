@@ -1,5 +1,6 @@
 import { act } from 'react-test-renderer';
-import { bootDb, configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { bootDb } from '../../../dsl/lifecycle';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
