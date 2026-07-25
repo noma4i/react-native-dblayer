@@ -162,6 +162,7 @@ see [reading.md](./reading.md).
 | `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `mergeOptimisticMedia`        | value | [runtime.md](./runtime.md#mergeoptimisticmediaoptimistic-server)                |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md#createthrottledsingleflightfn-options) |
+| `createSingleFlight`          | value | [runtime.md](./runtime.md#createsingleflightfn-options)          |
 | `createKeyedArrayPatcher`     | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |
 | `createIdArrayPatcher`        | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |
 | `createNestedObjectPatcher`   | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |

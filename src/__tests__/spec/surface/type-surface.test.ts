@@ -50,7 +50,7 @@ describe('public type surface', () => {
 
     expect(first).toEqual(second);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(74);
+    expect(first.split('\n')).toHaveLength(75);
     expect(first).toMatchInlineSnapshot(`
 "BootDbOptions: any
 DbDefaults: any
@@ -92,6 +92,7 @@ createDbSubscriptionRuntime: <TPayload = unknown>(entries: readonly import("/Use
 createIdArrayPatcher: () => import("/Users/noma4i/yupi/react-native-dblayer/src/utils/runtimePrimitives").IdArrayPatcher
 createKeyedArrayPatcher: <TShape extends AnyDbShape, TSub extends InferShapeStored<TShape>, TKey extends Extract<keyof TSub, string>>(shape: TShape, options: { key: TKey; }) => import("/Users/noma4i/yupi/react-native-dblayer/src/utils/runtimePrimitives").KeyedArrayPatcher<TSub, TKey>
 createNestedObjectPatcher: <TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[], TNested extends object = TRow[TField] & object>(model: PatchModel<TRow>, field: TField, transform: (current: TNested, ...args: TArgs) => Partial<TNested>) => import("/Users/noma4i/yupi/react-native-dblayer/src/utils/runtimePrimitives").NestedObjectPatcher<TRow, TField, TArgs>
+createSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options?: SingleFlightOptions | undefined) => (...args: TArgs) => Promise<TResult>
 createSingletonStatics: <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => { recordId: string; defaults: TStored; current: () => TStored | undefined; useCurrent: () => TStored; useCurrentField: <TField extends keyof TStored & string>(field: TField) => TStored[TField]; upsertCurrent: (input: Partial<TStored>) => void; patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min?: number) => boolean; }
 createThrottledSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options: import("/Users/noma4i/yupi/react-native-dblayer/src/utils/runtimePrimitives").ThrottledSingleFlightOptions<TArgs>) => (...args: TArgs) => Promise<TResult | undefined>
 defineCommand: <TData, TInput, TStored extends { id: string; } = { id: string; }, TNode = TStored>(name: string, config: CommandConfig<TData, TInput, TStored, TNode>) => { run: (input: TInput) => Promise<TData | null>; retry: (tempId: string) => Promise<TData | null>; discard: (tempId: string) => void; use: () => { mutate: (input: TInput, callbacks?: import("/Users/noma4i/yupi/react-native-dblayer/src/dsl/defineMutation").MutateCallbacks<TData> | undefined) => void; mutateAsync: (input: TInput) => Promise<TData | null>; isPending: boolean; error: Error | null; }; }

@@ -15,6 +15,7 @@ small cleanup/row-waiter/patcher/scalar helpers used across the schema and mutat
 - [Row waiters](#row-waiters)
 - [`mergeOptimisticMedia(optimistic, server)`](#mergeoptimisticmediaoptimistic-server)
 - [`createThrottledSingleFlight(fn, options)`](#createthrottledsingleflightfn-options)
+- [`createSingleFlight(fn, options?)`](#createsingleflightfn-options)
 - [Array and nested-object patchers](#array-and-nested-object-patchers)
 - [`createSingletonStatics(model, recordId, defaults)`](#createsingletonstaticsmodel-recordid-defaults)
 - [Scalar and id utility helpers](#scalar-and-id-utility-helpers)
@@ -258,6 +259,23 @@ Returns a function that coalesces concurrent calls and suppresses calls inside t
 | Previous successful call completed less than `minIntervalMs` ago     | Returns `Promise.resolve(undefined)`.                         |
 | `isForced(...args)` is true, or first arg has `{ force: true }`      | Bypasses interval suppression.                                 |
 | `fn` rejects or throws                                               | Resolves `undefined`; the success timestamp is not advanced.  |
+
+## `createSingleFlight(fn, options?)`
+
+Returns a function that coalesces concurrent calls into one shared in-flight promise. Unlike
+`createThrottledSingleFlight` above, this primitive has **no throttle window** and **propagates
+rejections** to every caller sharing the flight, instead of swallowing them into `undefined` -
+use it when the caller must observe failures (bootstrap fetches, config loads). Pass
+`{ resetOnRuntimeReset: true }` to clear the shared in-flight promise on `resetRuntime()` so a
+stale fetch never satisfies post-reset callers; without it, `resetRuntime()` does not affect an
+in-flight call.
+
+| Case                                             | Result                                                          |
+| ------------------------------------------------- | ---------------------------------------------------------------- |
+| A call is already in flight                      | Returns the same in-flight promise.                              |
+| `fn` rejects                                     | Every caller sharing the flight rejects with the same error.     |
+| Flight settles (resolve or reject)               | The next call starts a new flight.                                |
+| `resetOnRuntimeReset: true` and reset fires mid-flight | The next call starts a new flight immediately, ignoring the old one; the old flight settling afterward does not clear the new in-flight slot. |
 
 ## Array and nested-object patchers
 

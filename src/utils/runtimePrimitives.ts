@@ -3,6 +3,7 @@ import type { AnyDbShape, InferShapeStored } from '../schema/infer';
 import { readShapeOrThrow } from '../schema/shape';
 import { getRuntimeGeneration } from '../dsl/configure';
 import { isRecord } from './normalizeHelpers';
+import { registerReset } from '../core/reset';
 
 type RowId = { id: string };
 type CreatedAtLike = string | number | Date | null | undefined;
@@ -327,6 +328,37 @@ export const createThrottledSingleFlight = <TArgs extends unknown[], TResult>(
     }
 
     return inFlight;
+  };
+};
+
+type SingleFlightOptions = {
+  /** Clear the shared in-flight promise on runtime reset so a stale fetch never satisfies post-reset callers. */
+  resetOnRuntimeReset?: boolean;
+};
+
+/**
+ * Wraps an async function so concurrent callers share one in-flight promise.
+ * Unlike createThrottledSingleFlight this primitive has no throttle window and
+ * PROPAGATES rejections to every caller sharing the flight - use it when the
+ * caller must observe failures (bootstrap fetches, config loads).
+ */
+export const createSingleFlight = <TArgs extends unknown[], TResult>(
+  fn: (...args: TArgs) => Promise<TResult>,
+  options?: SingleFlightOptions
+): ((...args: TArgs) => Promise<TResult>) => {
+  let inFlight: Promise<TResult> | null = null;
+  if (options?.resetOnRuntimeReset) {
+    registerReset(() => {
+      inFlight = null;
+    });
+  }
+  return (...args: TArgs): Promise<TResult> => {
+    if (inFlight) return inFlight;
+    const flight = fn(...args).finally(() => {
+      if (inFlight === flight) inFlight = null;
+    });
+    inFlight = flight;
+    return flight;
   };
 };
 

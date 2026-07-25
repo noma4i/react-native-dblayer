@@ -121,6 +121,17 @@ export type ThrottledSingleFlightOptions<TArgs extends unknown[]> = {
  * @returns A wrapped function that shares in-flight work and resolves `undefined` for suppressed or failed calls.
  */
 export declare const createThrottledSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options: ThrottledSingleFlightOptions<TArgs>) => ((...args: TArgs) => Promise<TResult | undefined>);
+type SingleFlightOptions = {
+    /** Clear the shared in-flight promise on runtime reset so a stale fetch never satisfies post-reset callers. */
+    resetOnRuntimeReset?: boolean;
+};
+/**
+ * Wraps an async function so concurrent callers share one in-flight promise.
+ * Unlike createThrottledSingleFlight this primitive has no throttle window and
+ * PROPAGATES rejections to every caller sharing the flight - use it when the
+ * caller must observe failures (bootstrap fetches, config loads).
+ */
+export declare const createSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options?: SingleFlightOptions) => ((...args: TArgs) => Promise<TResult>);
 export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (id: string, ...args: TArgs) => boolean;
 export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
     /** Replace an existing sub-row with the same key, then append the normalized sub-row. */
