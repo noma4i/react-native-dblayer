@@ -50,7 +50,7 @@ describe('public type surface', () => {
 
     expect(first).toEqual(second);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(73);
+    expect(first.split('\n')).toHaveLength(74);
     expect(first).toMatchInlineSnapshot(`
 "BootDbOptions: any
 DbDefaults: any
@@ -124,6 +124,7 @@ sinkIf: (into: PlanRowsSink, row: unknown) => import("/Users/noma4i/yupi/react-n
 stringifyNullish: (v: unknown) => string | null | undefined
 unknown: any
 unknown: any
+useMergedScopeRows: <TRow extends { id: string; }>(baseRows: readonly TRow[], extraRows: readonly TRow[], options?: MergeOptions<TRow> | undefined) => readonly TRow[]
 waitForRow: <TStored extends { id: string; }>(model: WaiterModel<TStored>, id: string, options: import("/Users/noma4i/yupi/react-native-dblayer/src/core/rowWaiters").WaitForRowOptions) => Promise<TStored | undefined>"
 `);
   });

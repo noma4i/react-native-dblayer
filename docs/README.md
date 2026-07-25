@@ -101,6 +101,7 @@ somewhere under `docs/`.
 | `DbWhere`      | type | [reading.md](./reading.md#snapshot-vs-reactive-reads) |
 | `LoadingState` | type | [queries.md](./queries.md#loading-state)              |
 | `EnsuredRowResult` | type | [reading.md](./reading.md#ensured-point-reads) |
+| `useMergedScopeRows` | value | [reading.md](./reading.md#usemergedscoperowsbaserows-extrarows-options) |
 
 `use.*`, `Model.view`, and `ScopeHandle.use`/`useWindow` are methods, not separate barrel exports -
 see [reading.md](./reading.md).

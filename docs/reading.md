@@ -237,6 +237,18 @@ When a screen combines `useWindow` with a paginated `Model.query`, pass both res
 local window before issuing a network request and returns a fresh container each render, so consume
 its fields directly rather than memoizing by container identity.
 
+## `useMergedScopeRows(baseRows, extraRows, options?)`
+
+Merges a base scope read with extra rows from a second scope read: extras whose `id` already
+exists in `baseRows` are dropped, surviving extras are appended after `baseRows`. Pass
+`options.comparator` to sort the merged array (and to resort `baseRows`-only results into a new
+array, without mutating `baseRows`) - a merge with no comparator preserves the base scope's own
+order. Identity contract: when every extra is a dedup and no comparator is given, the base array is
+returned by reference; repeated renders with referentially identical `baseRows`/`extraRows`/
+`options.comparator` return the previously built array. Use this to combine two `ScopeHandle.use`
+reads (e.g. a windowed scope plus a small "floating" scope such as pinned or premium rows) without
+hand-rolling `Set`-based dedup at each call site.
+
 ## `Model.use.pending(id)`
 
 Returns true while the exact row id belongs to an open optimistic operation. Insert readers switch

@@ -41,3 +41,4 @@ export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { createThrottledSingleFlight, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, createSingletonStatics } from './utils/runtimePrimitives';
 export { reconcileOptimisticRows } from './utils/runtimePrimitives';
 export { patchWhenRowExists, waitForRow } from './core/rowWaiters';
+export { useMergedScopeRows } from './read/useMergedScopeRows';

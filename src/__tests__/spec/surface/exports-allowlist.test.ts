@@ -42,6 +42,7 @@ const runtimeExportAllowlist = [
   'scope',
   'sinkIf',
   'stringifyNullish',
+  'useMergedScopeRows',
   'waitForRow'
 ];
 
