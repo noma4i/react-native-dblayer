@@ -8,8 +8,8 @@ type MergeOptions<TRow> = {
  * Merges a base scope read with extra rows from a second scope read.
  * Extras whose id already exists in the base array are dropped; surviving
  * extras are appended after the base rows. When a comparator is provided the
- * merged array is sorted with it (base-only results are NOT resorted - the
- * base scope owns its own ordering).
+ * merged array is sorted with it; a base-only result is resorted into a new
+ * array as well (the base array itself is never mutated).
  *
  * Identity contract: when no extras survive dedup and no comparator is given,
  * the base array is returned as-is (same reference). Repeated renders with
