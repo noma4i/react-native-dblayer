@@ -1,5 +1,24 @@
 # Changelog
 
+## 7.0.0-beta.11 - 2026-07-25
+
+### Read completeness
+
+- Add `require?: string[]` to scope reads (`ScopeHandle.use`/`useWindow`): a row transiently missing a required field (mid sideload/partial write) is held back from render and reappears through the same subscription the moment the field commits; window `totalCount`/`hasMore` count only complete rows. The filter is memoized per hook by snapshot identity.
+
+### Write-path performance
+
+- Replace the double full-row `stableSerialize` deep-equality guard in entity upsert with a changed-fields-only comparison (measured 7.8x -> 1.04x on heavy rows); new `entityUpsertGuardHits` diagnostics counter.
+- Replace the full `join('\0')` scope order comparison with an allocation-free element-wise check.
+- Index pending operations by row (`pendingForRow`/`failedForRow`): `use.pending`/`use.failed`/`use.unsyncedChanges` and internal owned-fields/latest-value scans drop from O(all pending operations) to O(operations for the row) (measured 229x -> 0.56x at 3000 foreign operations).
+- Trim the per-scope row identity cache in live scope reads down to current members after each snapshot update.
+
+### Test harness
+
+- Add `p04-app-scale-lifecycle` - an app-in-miniature contract suite (23 concurrent readers over 4 models): resume drain chunk budget, once-per-resume, inactive skip, commit fanout budget, churn steady-state, churn-during-drain consistency.
+- Add `p05-pending-index-scale` and `p06-large-scope-churn` ratio gates for the pending-operations index and large-scope write paths.
+- Add `c-scope-require` contracts for the scope read completeness gate.
+
 ## 7.0.0-beta.10 - 2026-07-25
 
 ### Resume and freshness
