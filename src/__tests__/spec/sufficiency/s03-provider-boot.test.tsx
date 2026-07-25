@@ -2,6 +2,7 @@ import React from 'react';
 import { AppState } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import * as dbl from '../../../index';
+import { registerBootValidation } from '../../../dsl/bootValidations';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 const DbProvider = (
@@ -16,6 +17,23 @@ const settle = async () => {
     await Promise.resolve();
   });
 };
+
+/** Minimal boundary to observe a render-thrown boot error the way a consumer's Sentry/ErrorBoundary would. */
+class BootErrorBoundary extends React.Component<{ children?: React.ReactNode; onError: (error: unknown) => void }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    this.props.onError(error);
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
 
 describe('provider-owned query runtime', () => {
   // Performance scale guarantee: N/A because provider lifecycle has no scale-dependent input.
@@ -54,6 +72,40 @@ describe('provider-owned query runtime', () => {
     await settle();
     expect(renders).toBe(1);
     expect(value).toBe('Ready');
+    act(() => root.unmount());
+  });
+
+  it('throws the boot rejection in render instead of gating children forever', async () => {
+    setupSpecRuntime();
+    registerBootValidation(() => {
+      throw new Error('boot validation exploded');
+    });
+    let renders = 0;
+    const Child = () => {
+      renders += 1;
+      return null;
+    };
+    let caught: unknown;
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(
+        React.createElement(
+          BootErrorBoundary,
+          {
+            onError: (error: unknown) => {
+              caught = error;
+            }
+          },
+          React.createElement(DbProvider, null, React.createElement(Child))
+        )
+      );
+    });
+    expect(renders).toBe(0);
+    await settle();
+
+    expect(renders).toBe(0);
+    expect((caught as Error)?.message).toBe('boot validation exploded');
     act(() => root.unmount());
   });
 

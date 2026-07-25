@@ -8,9 +8,10 @@ const incrementalEngineSpec = path.resolve(specRoot, 'rerender/r04-incremental-r
 const incrementalEngineSource = path.resolve(specRoot, '../../read/incrementalReadEngine.ts');
 
 /**
- * `bootDb`/`collectGarbage`/`flushPersistence` are internal to `DbProvider` and not on the public
- * barrel (see index.ts); these specs exercise boot/GC/persistence behavior directly and must reach
- * past the barrel for it, the same way `incrementalEngineSpec` reaches `incrementalReadEngine.ts`.
+ * `bootDb`/`collectGarbage`/`flushPersistence`/`registerBootValidation` are internal to
+ * `DbProvider` and not on the public barrel (see index.ts); these specs exercise boot/GC/
+ * persistence behavior directly and must reach past the barrel for it, the same way
+ * `incrementalEngineSpec` reaches `incrementalReadEngine.ts`.
  */
 const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> = [
   { spec: path.resolve(specRoot, 'consumer/c-failure-contract.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
@@ -19,6 +20,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'consumer/c07-maintenance-trim.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i03-dedupe.test.ts'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i03-dedupe.test.ts'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'sufficiency/s03-provider-boot.test.tsx'), source: path.resolve(specRoot, '../../dsl/bootValidations.ts') },
   { spec: path.resolve(specRoot, 'sufficiency/s07-pending-flag.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'perf/p05-pending-index-scale.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'perf/p05-pending-index-scale.test.tsx'), source: path.resolve(specRoot, '../../core/planes/operationState.ts') },
