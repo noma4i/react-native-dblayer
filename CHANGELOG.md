@@ -1,5 +1,37 @@
 # Changelog
 
+## 7.0.0-beta.10 - 2026-07-25
+
+### Resume and freshness
+
+- Add per-query `resumeStaleTime?: number | null` to `defineQuery`/`defineFetch` configs; `null` opts a query out of foreground resume invalidation entirely, a number overrides the global `DbDefaults.resumeStaleTime` for that query.
+- Drain resume refetches in chunks (`DbDefaults.resumeRefetch.chunkSize`, default 4) instead of one synchronous burst; inactive queries invalidate with `refetchType: 'none'`, and a new background transition or resume cancels the previous drain generation.
+
+### Read engine and scopes
+
+- Remove the 64-row threshold that forced full O(collection) rescans in `use.where`/`byIds`/`count` reads; batched row changes now apply as deltas, with a fast path that skips resorting when no order-relevant field changed.
+- Add `member?: (row) => boolean` predicate to `by`-derived scopes: rows join and leave the scope instance inside the same apply transaction when the predicate flips.
+- Add `orderFields` to comparator-sorted scopes so unrelated field writes no longer trigger comparator resorts.
+- Fix parent-row and relation-model dependency gaps in `use.related` (`hasMany`/`hasOne`) and view includes; a new matching row now wakes the including view.
+- `defineIngest` invalidate accepts `boolean | scope object` for scoped invalidation.
+
+### Primitives and helpers
+
+- Add `useMergedScopeRows(baseRows, extraRows, { comparator? })` - canonical union of two scope reads with id dedup and identity-stable results.
+- Add `createSingleFlight(fn, { resetOnRuntimeReset? })` - promise coalescing that PROPAGATES rejections (unlike `createThrottledSingleFlight`), with optional in-flight reset on runtime reset.
+- Add `createSingletonStatics.useCurrentField(field)` - field-level subscription for singleton models.
+- Add `compositeKey`, move `semanticValue` beside `stableSerialize` in `core/serialize` - one owner module for stable serialization and composite keys.
+
+### Diagnostics
+
+- Add `__DBLAYER_DIAGNOSTICS__.snapshot()/reset()` global with commit, commit-fanout, read-engine apply, mirror scope pass, resume drain, and FK-index counters.
+
+### Internal
+
+- Deduplicate scope-sort application (`sortRowsBySpec`), membership predicate checks (`matchesMemberPredicate`), and array equality (`arraysShallowEqual` reuse); normalize string literal quoting.
+- Remove `bootDb`, `collectGarbage`, `flushPersistence` from the public barrel - `DbProvider` owns the full data lifecycle (they join the forbidden-exports gate).
+- Fix derived scope key collapse for membership scopes (carried from the pre-release round).
+
 ## 7.0.0-beta.9 - 2026-07-21
 
 ### Breaking changes and migration
