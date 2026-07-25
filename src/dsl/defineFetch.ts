@@ -19,6 +19,8 @@ type FetchConfigBase<TData, TInput, TSelected> = {
   enabled?: (input: TInput) => boolean;
   /** Freshness window (ms) before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. */
   staleTime?: number;
+  /** Per-query foreground-resume freshness window (ms). Overrides the package default from DbDefaults.resumeStaleTime; null exempts this query from resume invalidation entirely. Omit to inherit the package default. */
+  resumeStaleTime?: number | null;
   /** Freshness window (ms) used instead of `staleTime` when `isEmpty` classifies the last selected result as empty. Defaults to `DbDefaults.emptyStaleTime`. */
   emptyStaleTime?: number;
   /** Classify a selected result as empty. Defaults to nullish values and empty arrays. */
@@ -111,7 +113,8 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
         queryKey: queryKeyOf(input),
         queryFn: () => execute(input),
         staleTime: resolveStaleTime(),
-        gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime
+        gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
+        ...(config.resumeStaleTime !== undefined ? { meta: { resumeStaleTime: config.resumeStaleTime } } : {})
       });
     } catch (error) {
       if (!generationFence.isCurrent()) {
@@ -132,7 +135,8 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       enabled,
       queryFn: () => execute(input),
       staleTime: resolveStaleTime(),
-      gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime
+      gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
+      ...(config.resumeStaleTime !== undefined ? { meta: { resumeStaleTime: config.resumeStaleTime } } : {})
     });
     const hasData = request.data !== undefined && !isEmpty(request.data as TSelected);
     const phaseInput = {

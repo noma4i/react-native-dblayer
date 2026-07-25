@@ -644,8 +644,8 @@ export const defineModel = <
     const merged = { ...before, ...row, id };
     const deltas: MembershipDelta[] = [];
     for (const [scopeName, spec] of membershipScopes) {
-      const beforeValue = before ? scopeValueFromRow(spec.by, before) : null;
-      const afterValue = scopeValueFromRow(spec.by, merged);
+      const beforeValue = before && (spec.member?.(before) ?? true) ? scopeValueFromRow(spec.by, before) : null;
+      const afterValue = spec.member?.(merged as Stored) ?? true ? scopeValueFromRow(spec.by, merged) : null;
       const beforeKey = beforeValue ? keyForScope(scopeName, beforeValue) : null;
       const afterKey = afterValue ? keyForScope(scopeName, afterValue) : null;
       if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) deltas.push({ scopeKey: beforeKey, detach: [id] });
@@ -729,9 +729,12 @@ export const defineModel = <
       const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
       const spec = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName];
       if (!spec) return false;
-      if (spec.sort && spec.sort !== `server-order` && `comparator` in spec.sort) return true;
       const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
       if (spec.sort && spec.sort !== `server-order` && `field` in spec.sort) relevant.add(String(spec.sort.field));
+      if (spec.sort && spec.sort !== `server-order` && `comparator` in spec.sort) {
+        if (spec.sort.orderFields === undefined) return true;
+        for (const field of spec.sort.orderFields) relevant.add(field);
+      }
       return fields.some(field => relevant.has(field));
     },
     scopeSortMeta: (scopeKey: string) => {
@@ -999,6 +1002,7 @@ export const defineModel = <
 
       const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();
       for (const entry of liveRows) {
+        if (spec.member && !spec.member(entry.row as Stored)) continue;
         const derivedValue = scopeValueFromRow(spec.by, entry.row);
         if (!derivedValue) continue;
         const derivedKey = keyForScope(scopeName, derivedValue);
@@ -1478,7 +1482,7 @@ export const defineModel = <
         if (relation.kind === 'hasMany') {
           return useProjectedLiveRows(
             () => (id == null ? EMPTY_ROWS : (relation.model.getWhere({ [relation.foreignKey]: id }) as StoredRowShape[])),
-            id == null ? [] : [{ kind: 'model', model: relation.model.modelId }],
+            id == null ? [] : [rowDep(id), { kind: 'model', model: relation.model.modelId }],
             options,
             `${config.id}.use.related`
           );
@@ -1506,7 +1510,7 @@ export const defineModel = <
             if (rows.length === 0) return undefined;
             return comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0];
           };
-          deps = id == null ? [] : [{ kind: 'model', model: relation.model.modelId }];
+          deps = id == null ? [] : [rowDep(id), { kind: 'model', model: relation.model.modelId }];
         } else {
           compute = () => undefined;
           deps = [];

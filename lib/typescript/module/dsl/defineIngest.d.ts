@@ -4,7 +4,8 @@ import { type DbSubscriptionEntry } from '../core/subscriptionRuntime';
 export type IngestDecl = {
     upsert?: unknown | unknown[];
     destroy?: string | string[];
-    invalidate?: boolean;
+    /** `true` keeps the historical full-model invalidation (every query prefix on the model); an object invalidates only the query cache entries whose scope matches it (exact or partial, per Model.invalidate semantics). */
+    invalidate?: boolean | object;
     /** Echo guard: when this operation id already committed locally, the whole event is skipped. */
     operationId?: string | null;
     /** Cross-model sideloads applied in the SAME transaction as the event rows. */

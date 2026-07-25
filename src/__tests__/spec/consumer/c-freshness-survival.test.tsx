@@ -307,4 +307,203 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     expect(calls).toBe(1);
     act(() => root.unmount());
   });
+
+  it('exempts a query with resumeStaleTime null while invalidating a default-inheriting neighbor', async () => {
+    jest.useFakeTimers();
+    let exemptCalls = 0;
+    let inheritedCalls = 0;
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeStaleTime: 1000 } });
+    const exempt = defineFetch<{ value: string }, void, string>({ key: 'freshness-resume-exempt', fetcher: async () => ({ value: String(++exemptCalls) }), select: data => data.value, staleTime: Infinity, resumeStaleTime: null });
+    const inherited = defineFetch<{ value: string }, void, string>({ key: 'freshness-resume-inherited', fetcher: async () => ({ value: String(++inheritedCalls) }), select: data => data.value, staleTime: Infinity });
+    const Reader = () => {
+      exempt.use(undefined);
+      inherited.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    act(() => {
+      jest.advanceTimersByTime(1001);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+
+    expect(exemptCalls).toBe(1);
+    expect(inheritedCalls).toBe(2);
+    act(() => root.unmount());
+  });
+
+  it('uses a shorter per-query resumeStaleTime than the package default', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: 'shorter', name: String(++calls), group: null }] } as TData }) }),
+      defaults: { resumeStaleTime: 100000 }
+    });
+    const rows = createRowsModel('FreshnessResumeShorter');
+    const query = rows.query<Response, void, void, Row>('shorter', { document, key: 'freshness-resume-shorter', select: data => data.rows, staleTime: Infinity, resumeStaleTime: 50 });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+
+    expect(calls).toBe(2);
+    act(() => root.unmount());
+  });
+
+  it('uses an explicit numeric resumeStaleTime when the package default is null', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: 'global-null', name: String(++calls), group: null }] } as TData }) }),
+      defaults: { resumeStaleTime: null }
+    });
+    const rows = createRowsModel('FreshnessResumeGlobalNull');
+    const query = rows.query<Response, void, void, Row>('global-null', { document, key: 'freshness-resume-global-null', select: data => data.rows, staleTime: Infinity, resumeStaleTime: 50 });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+
+    expect(calls).toBe(2);
+    act(() => root.unmount());
+  });
+
+  it('refetches active stale queries in sequential resume chunks', async () => {
+    jest.useFakeTimers();
+    const calls: number[] = [];
+    const releaseRefetches: Array<() => void> = [];
+    let resuming = false;
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 2 } } });
+    const fetches = Array.from({ length: 5 }, (_, index) =>
+      defineFetch<{ value: string }, void, string>({
+        key: `freshness-resume-chunk-${index}`,
+        fetcher: async () => {
+          calls.push(index);
+          if (!resuming) return { value: String(index) };
+          return new Promise(resolve => releaseRefetches.push(() => resolve({ value: String(index) })));
+        },
+        select: data => data.value,
+        staleTime: Infinity
+      })
+    );
+    const Reader = () => {
+      for (const fetch of fetches) fetch.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    resuming = true;
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+
+    expect(calls).toEqual([0, 1, 2, 3, 4, 0, 1]);
+    expect(releaseRefetches).toHaveLength(2);
+    act(() => {
+      releaseRefetches.splice(0).forEach(release => release());
+    });
+    await settle();
+    expect(calls).toEqual([0, 1, 2, 3, 4, 0, 1, 2, 3]);
+    expect(releaseRefetches).toHaveLength(2);
+    act(() => {
+      releaseRefetches.splice(0).forEach(release => release());
+    });
+    await settle();
+    expect(calls).toEqual([0, 1, 2, 3, 4, 0, 1, 2, 3, 4]);
+    expect(releaseRefetches).toHaveLength(1);
+    act(() => {
+      releaseRefetches.splice(0).forEach(release => release());
+    });
+    await settle();
+    act(() => root.unmount());
+  });
+
+  it('stops the resume drain on background and leaves remaining queries stale for remount', async () => {
+    jest.useFakeTimers();
+    const calls: number[] = [];
+    const releaseRefetches: Array<() => void> = [];
+    let resuming = false;
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 2 } } });
+    const fetches = Array.from({ length: 4 }, (_, index) =>
+      defineFetch<{ value: string }, void, string>({
+        key: `freshness-resume-cancel-${index}`,
+        fetcher: async () => {
+          calls.push(index);
+          if (!resuming) return { value: String(index) };
+          return new Promise(resolve => releaseRefetches.push(() => resolve({ value: String(index) })));
+        },
+        select: data => data.value,
+        staleTime: Infinity
+      })
+    );
+    const Reader = () => {
+      for (const fetch of fetches) fetch.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    resuming = true;
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+    expect(calls).toEqual([0, 1, 2, 3, 0, 1]);
+    act(() => appStateHandler?.('background'));
+    act(() => {
+      releaseRefetches.splice(0).forEach(release => release());
+    });
+    await settle();
+    expect(calls).toEqual([0, 1, 2, 3, 0, 1]);
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+    expect(calls).toEqual([0, 1, 2, 3, 0, 1, 2, 3]);
+    act(() => root.unmount());
+  });
 });

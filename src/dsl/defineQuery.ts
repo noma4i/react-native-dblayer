@@ -139,6 +139,8 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
    * such evaluation.
    */
   staleTime?: number;
+  /** Per-query foreground-resume freshness window (ms). Overrides the package default from DbDefaults.resumeStaleTime; null exempts this query from resume invalidation entirely. Omit to inherit the package default. */
+  resumeStaleTime?: number | null;
   /** Freshness window (ms) used instead of `staleTime` only when the last fetch for a scope returned zero rows. */
   emptyStaleTime?: number;
   /** TanStack Query cache garbage-collection time (ms) for this query's cache entries. */
@@ -412,7 +414,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       maxPages: config.maxPages,
       staleTime: resolveStaleTime(),
       gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
-      refetchOnMount: config.refetchOnMount
+      refetchOnMount: config.refetchOnMount,
+      ...(config.resumeStaleTime !== undefined ? { meta: { resumeStaleTime: config.resumeStaleTime } } : {})
     });
     const rows = useDestinationRows(scope);
     const hasRows = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
@@ -449,7 +452,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       queryFn: () => runFetch(scope, null),
       staleTime: resolveStaleTime(),
       gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
-      refetchOnMount: config.refetchOnMount
+      refetchOnMount: config.refetchOnMount,
+      ...(config.resumeStaleTime !== undefined ? { meta: { resumeStaleTime: config.resumeStaleTime } } : {})
     });
     const rows = useDestinationRows(scope);
     const hasRows = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
@@ -493,7 +497,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       queryFn: () => runFetch(scope, null, true),
       staleTime: resolveStaleTime(),
       gcTime: config.gcTime ?? getDbRuntimeConfig().defaults?.gcTime,
-      refetchOnMount: config.refetchOnMount
+      refetchOnMount: config.refetchOnMount,
+      ...(config.resumeStaleTime !== undefined ? { meta: { resumeStaleTime: config.resumeStaleTime } } : {})
     });
     const ensureKey = `${buildScopeKey(scope)}\0${rowId ?? ''}`;
     const refetchedForAbsenceRef = useRef(false);

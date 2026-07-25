@@ -23,6 +23,7 @@ const createCounters = (suffix: string) =>
         defaults: singleton.defaults,
         current: singleton.current,
         useCurrent: singleton.useCurrent,
+        useCurrentField: singleton.useCurrentField,
         upsertCurrent: singleton.upsertCurrent,
         mergeCurrent: (updates: Partial<CountersRow>) => {
           singleton.upsertCurrent(pickPresent(updates, mergeFields));
@@ -69,6 +70,30 @@ describe('counters singleton consumer contracts', () => {
     counters.decrementUnreadSecondaryChats(10);
 
     expect(counters.current()?.unreadSecondaryChatsCount).toBe(0);
+  });
+
+  it('rerenders useCurrentField only for the selected field and falls back to defaults', () => {
+    setupSpecRuntime();
+    const counters = createCounters('Field');
+    const emptyReader = renderCounted(() => counters.useCurrentField('unreadChatsCount'));
+    expect(emptyReader.result()).toBe(0);
+    emptyReader.unmount();
+    counters.upsertCurrent({ unreadChatsCount: 2, unreadSecondaryChatsCount: 5 });
+
+    const reader = renderCounted(() => counters.useCurrentField('unreadChatsCount'));
+    const beforeOtherField = reader.renders();
+    act(() => {
+      counters.mergeCurrent({ unreadSecondaryChatsCount: 9 });
+    });
+    expect(reader.renders()).toBe(beforeOtherField);
+    const beforeSelectedField = reader.renders();
+    act(() => {
+      counters.mergeCurrent({ unreadChatsCount: 7 });
+    });
+
+    expect(reader.renders() - beforeSelectedField).toBe(1);
+    expect(reader.result()).toBe(7);
+    reader.unmount();
   });
 
   it('reads empty after resetRuntime and re-hydrates cleanly on the same handle', () => {

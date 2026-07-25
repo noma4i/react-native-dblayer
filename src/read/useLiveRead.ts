@@ -5,10 +5,24 @@ import { getCommitBus } from '../dsl/configure';
 type LiveReadState<T> = {
   value: T;
   version: number;
+  signature: string;
   compute: () => T;
   isEqual: (a: T, b: T) => boolean;
   deps: ReadonlyArray<Dependency>;
 };
+
+const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
+  deps
+    .map(dep =>
+      dep.kind === 'model'
+        ? `m:${dep.model}`
+        : dep.kind === 'scope'
+          ? `s:${dep.model}:${dep.scopeKey}`
+          : dep.kind === 'pending'
+            ? `p:${dep.model}:${dep.id}`
+            : `r:${dep.model}:${dep.id}:${dep.fields?.join(',') ?? ''}`
+    )
+    .join('|');
 
 /** Shallow element-identity equality; rows keep stable refs in EntityState until replaced. */
 export const arraysShallowEqual = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
@@ -28,24 +42,30 @@ export const rowsShallowEqual = (left: object, right: object): boolean => {
  * Reactive read primitive with pinpoint emissions: the hook subscribes to the commit bus with an
  * explicit dependency set, recomputes only when a commit batch intersects it, and re-renders only
  * when the computed value actually changed (per `isEqual`), keeping stable references otherwise.
- * Constant hook topology - always the same hooks in the same order.
+ * Render-phase recompute happens only when the dependency signature changes; compute output must be
+ * a pure function of committed DB state plus dependency-encoded inputs. Constant hook topology -
+ * always the same hooks in the same order.
  */
 export const useLiveRead = <T>(compute: () => T, deps: ReadonlyArray<Dependency>, isEqual: (a: T, b: T) => boolean = Object.is): T => {
   const bus = getCommitBus();
   const stateRef = useRef<LiveReadState<T> | null>(null);
   const subscriptionRef = useRef<CommitSubscription | null>(null);
   if (stateRef.current === null) {
-    stateRef.current = { value: compute(), version: 0, compute, isEqual, deps };
+    stateRef.current = { value: compute(), version: 0, signature: depsSignature(deps), compute, isEqual, deps };
   }
   const state = stateRef.current;
   state.compute = compute;
   state.isEqual = isEqual;
   state.deps = deps;
 
-  const next = compute();
-  if (!state.isEqual(state.value, next)) {
-    state.value = next;
-    state.version += 1;
+  const nextSignature = depsSignature(deps);
+  if (nextSignature !== state.signature) {
+    state.signature = nextSignature;
+    const next = compute();
+    if (!state.isEqual(state.value, next)) {
+      state.value = next;
+      state.version += 1;
+    }
   }
 
   const subscribe = useCallback(

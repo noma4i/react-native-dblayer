@@ -1,3 +1,5 @@
+import { noteCommitFanout } from '../diagnostics';
+
 export type RowChange = { model: string; id: string; fields: string[] | null };
 type ScopeChange = { model: string; scopeKey: string };
 type PendingChange = { model: string; id: string };
@@ -23,6 +25,8 @@ export type Dependency =
 
 export type CommitSubscription = { setDeps(deps: ReadonlyArray<Dependency>): void; unsubscribe(): void };
 
+type Subscriber = { deps: ReadonlyArray<Dependency>; notify: () => void; onBatch?: (batch: IncrementalCommitBatch | null) => void };
+
 const rowMatches = (dep: { model: string; id: string; fields?: ReadonlyArray<string> }, change: RowChange): boolean => {
   if (dep.model !== change.model || dep.id !== change.id) return false;
   if (!dep.fields || change.fields === null) return true;
@@ -42,16 +46,41 @@ const depMatches = (dep: Dependency, batch: CommitBatch): boolean => {
  * only when the batch intersects its dependencies.
  */
 export const createCommitBus = () => {
-  const subscribers = new Set<{ deps: ReadonlyArray<Dependency>; notify: () => void; onBatch?: (batch: IncrementalCommitBatch | null) => void }>();
+  const subscribers = new Set<Subscriber>();
+  const subscribersByModel = new Map<string, Set<Subscriber>>();
   const allSubscribers = new Set<(batch: IncrementalCommitBatch) => void>();
+  const modelsOf = (deps: ReadonlyArray<Dependency>): Set<string> => new Set(deps.map(dep => dep.model));
+  const addToModelBuckets = (subscriber: Subscriber, models: ReadonlySet<string>): void => {
+    for (const model of models) {
+      const bucket = subscribersByModel.get(model) ?? new Set<Subscriber>();
+      bucket.add(subscriber);
+      subscribersByModel.set(model, bucket);
+    }
+  };
+  const removeFromModelBuckets = (subscriber: Subscriber, models: ReadonlySet<string>): void => {
+    for (const model of models) {
+      const bucket = subscribersByModel.get(model);
+      if (!bucket) continue;
+      bucket.delete(subscriber);
+      if (bucket.size === 0) subscribersByModel.delete(model);
+    }
+  };
   const subscribe = (notify: () => void, deps: ReadonlyArray<Dependency> = [], onBatch?: (batch: IncrementalCommitBatch | null) => void): CommitSubscription => {
     const subscriber = { deps, notify, onBatch };
     subscribers.add(subscriber);
+    addToModelBuckets(subscriber, modelsOf(deps));
     return {
       setDeps: nextDeps => {
+        const previousModels = modelsOf(subscriber.deps);
+        const nextModels = modelsOf(nextDeps);
+        removeFromModelBuckets(subscriber, new Set([...previousModels].filter(model => !nextModels.has(model))));
+        addToModelBuckets(subscriber, new Set([...nextModels].filter(model => !previousModels.has(model))));
         subscriber.deps = nextDeps;
       },
-      unsubscribe: () => subscribers.delete(subscriber)
+      unsubscribe: () => {
+        removeFromModelBuckets(subscriber, modelsOf(subscriber.deps));
+        subscribers.delete(subscriber);
+      }
     };
   };
 
@@ -68,12 +97,20 @@ export const createCommitBus = () => {
     publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length && !batch.pending?.length) return;
       for (const onBatch of [...allSubscribers]) onBatch(batch);
-      for (const subscriber of [...subscribers]) {
+      const batchModels = new Set([...batch.rows, ...batch.scopes, ...(batch.pending ?? [])].map(change => change.model));
+      const candidates = new Set<Subscriber>();
+      for (const model of batchModels) {
+        for (const subscriber of subscribersByModel.get(model) ?? []) candidates.add(subscriber);
+      }
+      let notified = 0;
+      for (const subscriber of [...candidates]) {
         if (subscriber.deps.some(dep => depMatches(dep, batch))) {
           subscriber.onBatch?.(batch);
           subscriber.notify();
+          notified += 1;
         }
       }
+      noteCommitFanout(candidates.size, notified);
     },
     publishAll: (): void => {
       for (const subscriber of [...subscribers]) {

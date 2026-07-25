@@ -139,6 +139,8 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
      * such evaluation.
      */
     staleTime?: number;
+    /** Per-query foreground-resume freshness window (ms). Overrides the package default from DbDefaults.resumeStaleTime; null exempts this query from resume invalidation entirely. Omit to inherit the package default. */
+    resumeStaleTime?: number | null;
     /** Freshness window (ms) used instead of `staleTime` only when the last fetch for a scope returned zero rows. */
     emptyStaleTime?: number;
     /** TanStack Query cache garbage-collection time (ms) for this query's cache entries. */

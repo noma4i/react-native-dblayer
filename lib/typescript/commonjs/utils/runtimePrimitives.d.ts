@@ -35,6 +35,7 @@ type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
     insertStored(item: TStored): void;
     use: {
         row(id: string | null | undefined): TStored | undefined;
+        field<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
     };
 };
 export type ReconcileScopeFields<TStored extends RowId, TNode extends RowId> = {
@@ -174,6 +175,8 @@ export declare const createSingletonStatics: <TStored extends RowId>(model: Sing
     defaults: TStored;
     current: () => TStored | undefined;
     useCurrent: () => TStored;
+    /** Reactive read of ONE singleton field with a field-level dependency: consumers re-render only when this field changes, unlike useCurrent which subscribes to the whole row. */
+    useCurrentField: <TField extends keyof TStored & string>(field: TField) => TStored[TField];
     upsertCurrent: (input: Partial<TStored>) => void;
     patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min?: number) => boolean;
 };

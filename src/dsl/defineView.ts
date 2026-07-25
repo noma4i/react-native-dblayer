@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
+import { noteFkIndex } from '../core/diagnostics';
 import type { RelationDecl } from '../core/relations';
+import { registerReset } from '../core/reset';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
-import { getDbRuntimeConfig } from './configure';
+import { getCommitBus, getDbRuntimeConfig } from './configure';
 import type { ModelCore, ScopeHandle } from './defineModel';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 
@@ -85,9 +87,70 @@ type ViewWindowResult<TItem> = {
 };
 
 type CacheEntry<TItem> = { row: Row; included: Included; item: TItem };
-type RelationIndex = { revision: number; rowsByForeignKey: Map<string, Row[]> };
 type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
 type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number; resolved: boolean };
+type EvaluatedView<TItem> = { scopeKey: string | null; limit: number | null; snapshot: ItemSnapshot<TItem>; deps: Dependency[] };
+type ForeignKeyIndex = { rowsByForeignKey: Map<string, Row[]>; fkById: Map<string, string>; unsubscribe: () => void };
+
+const foreignKeyIndexes = new Map<string, ForeignKeyIndex>();
+
+const foreignKeyIndexKey = (targetModelId: string, foreignKey: string): string => `${targetModelId}\0${foreignKey}`;
+
+const removeIndexedRow = (index: ForeignKeyIndex, foreignKey: string, id: string): void => {
+  const bucket = index.rowsByForeignKey.get(foreignKey);
+  if (!bucket) return;
+  const position = bucket.findIndex(row => row.id === id);
+  if (position >= 0) bucket.splice(position, 1);
+  if (bucket.length === 0) index.rowsByForeignKey.delete(foreignKey);
+};
+
+const foreignKeyIndexFor = (target: ViewIncludeModel, foreignKey: string): ForeignKeyIndex => {
+  const key = foreignKeyIndexKey(target.modelId, foreignKey);
+  const existing = foreignKeyIndexes.get(key);
+  if (existing) return existing;
+  const rowsByForeignKey = new Map<string, Row[]>();
+  const fkById = new Map<string, string>();
+  for (const row of target.getAll() as Row[]) {
+    const value = row[foreignKey];
+    if (typeof value !== 'string') continue;
+    const bucket = rowsByForeignKey.get(value) ?? [];
+    bucket.push(row);
+    rowsByForeignKey.set(value, bucket);
+    fkById.set(row.id, value);
+  }
+  const index: ForeignKeyIndex = { rowsByForeignKey, fkById, unsubscribe: () => undefined };
+  index.unsubscribe = getCommitBus().subscribeAll(batch => {
+    let updates = 0;
+    for (const change of batch.rows) {
+      if (change.model !== target.modelId) continue;
+      const previousForeignKey = index.fkById.get(change.id);
+      const next = target.get(change.id) as Row | null | undefined;
+      const nextForeignKey = typeof next?.[foreignKey] === 'string' ? (next[foreignKey] as string) : undefined;
+      if (previousForeignKey && previousForeignKey !== nextForeignKey) removeIndexedRow(index, previousForeignKey, change.id);
+      if (!nextForeignKey || !next) {
+        index.fkById.delete(change.id);
+        updates += 1;
+        continue;
+      }
+      const bucket = index.rowsByForeignKey.get(nextForeignKey) ?? [];
+      const position = bucket.findIndex(row => row.id === change.id);
+      if (position >= 0) bucket[position] = next;
+      else bucket.push(next);
+      index.rowsByForeignKey.set(nextForeignKey, bucket);
+      index.fkById.set(change.id, nextForeignKey);
+      updates += 1;
+    }
+    if (updates > 0) noteFkIndex('incremental', updates);
+  });
+  foreignKeyIndexes.set(key, index);
+  noteFkIndex('full', rowsByForeignKey.size);
+  return index;
+};
+
+registerReset(() => {
+  for (const index of foreignKeyIndexes.values()) index.unsubscribe();
+  foreignKeyIndexes.clear();
+});
 
 const idsOf = (value: string | string[] | null): string[] =>
   (Array.isArray(value) ? value : value == null ? [] : [value]).filter((id): id is string => typeof id === 'string' && id.length > 0);
@@ -141,7 +204,7 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
     const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
     const projectionGateRef = useRef(createProjectionGate<Row, Row>());
     const includeProjectionGatesRef = useRef(new Map<string, ReturnType<typeof createProjectionGate<Row, Row>>>());
-    const relationIndexesRef = useRef(new Map<RelationDecl, RelationIndex>());
+    const evaluatedRef = useRef<EvaluatedView<TItem> | null>(null);
     const projectIncludedRow = (alias: string, row: Row, renderKeys: readonly string[] | undefined): Row => {
       if (!renderKeys) return row;
       let gate = includeProjectionGatesRef.current.get(alias);
@@ -152,21 +215,8 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
       return gate.projectValue(row.id, row, row, renderKeys);
     };
     const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
-      const target = relation.model as ModelCore<Row>;
-      const revision = getInternalModelHandle(target).revision();
-      let index = relationIndexesRef.current.get(relation);
-      if (!index || index.revision !== revision) {
-        const rowsByForeignKey = new Map<string, Row[]>();
-        for (const row of target.getAll()) {
-          const value = row[foreignKey];
-          if (typeof value !== 'string') continue;
-          const rows = rowsByForeignKey.get(value) ?? [];
-          rows.push(row);
-          rowsByForeignKey.set(value, rows);
-        }
-        index = { revision, rowsByForeignKey };
-        relationIndexesRef.current.set(relation, index);
-      }
+      const index = foreignKeyIndexFor(relation.model as unknown as ViewIncludeModel, foreignKey);
+      // Callers transform results immediately and must not retain these mutable bucket arrays.
       return index.rowsByForeignKey.get(id) ?? [];
     };
     const scopeKey = scopeValue == null ? null : sourceInternal.key(scopeValue);
@@ -176,7 +226,17 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
     const evaluate = (): { items: TItem[]; totalCount: number; resolved: boolean; deps: Dependency[] } => {
       const rows = scopeValue == null ? [] : sourceInternal.readRows(scopeValue);
       const visibleRows = limit === null ? rows : rows.slice(0, limit);
-      const deps: Dependency[] = scopeValue == null ? [] : [{ kind: 'scope', model: source.modelId, scopeKey: sourceInternal.key(scopeValue) }];
+      const relationModelIds = new Set<string>();
+      for (const [alias, include] of Object.entries(config.include)) {
+        const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
+        if (!relationName) continue;
+        const relation = relations[relationName]!;
+        if (relation.kind === 'hasMany' || relation.kind === 'hasOne') relationModelIds.add(relation.model.modelId);
+      }
+      const deps: Dependency[] = [
+        ...[...relationModelIds].map(model => ({ kind: 'model' as const, model })),
+        ...(scopeValue == null ? [] : [{ kind: 'scope' as const, model: source.modelId, scopeKey: sourceInternal.key(scopeValue) }])
+      ];
       const liveIds = new Set(rows.map(row => row.id));
       const items = visibleRows.map((row, index) => {
         deps.push({ kind: 'row', model: model.modelId, id: row.id });
@@ -225,13 +285,23 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
       for (const id of cacheRef.current.keys()) if (!liveIds.has(id)) cacheRef.current.delete(id);
       return { items, totalCount: rows.length, resolved: scopeValue == null || sourceInternal.isResolved(scopeValue), deps };
     };
-    const initial = evaluate();
+    if (evaluatedRef.current === null || evaluatedRef.current.scopeKey !== scopeKey || evaluatedRef.current.limit !== limit) {
+      const result = evaluate();
+      evaluatedRef.current = {
+        scopeKey,
+        limit,
+        snapshot: { items: result.items, totalCount: result.totalCount, resolved: result.resolved },
+        deps: result.deps
+      };
+    }
     return useLiveRead(
       () => {
-        const next = evaluate();
-        return { items: next.items, totalCount: next.totalCount, resolved: next.resolved };
+        const result = evaluate();
+        const snapshot = { items: result.items, totalCount: result.totalCount, resolved: result.resolved };
+        evaluatedRef.current = { scopeKey, limit, snapshot, deps: result.deps };
+        return snapshot;
       },
-      initial.deps,
+      evaluatedRef.current.deps,
       (left, right) => left.resolved === right.resolved && left.totalCount === right.totalCount && arraysShallowEqual(left.items, right.items)
     );
   };

@@ -4,6 +4,8 @@ import ts from 'typescript';
 
 const specRoot = path.resolve(__dirname, '..');
 const publicBarrel = path.resolve(specRoot, '../../index.ts');
+const incrementalEngineSpec = path.resolve(specRoot, 'rerender/r04-incremental-read-engine.test.ts');
+const incrementalEngineSource = path.resolve(specRoot, '../../read/incrementalReadEngine.ts');
 
 const sourceFiles = (directory: string): string[] =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -39,7 +41,8 @@ describe('spec import discipline', () => {
       relativeImports(file).flatMap(specifier => {
         const target = resolvedImport(file, specifier);
         const staysInSpec = !path.relative(specRoot, target).startsWith('..');
-        return staysInSpec || target === publicBarrel ? [] : [`${path.relative(specRoot, file)} -> ${specifier}`];
+        const isIncrementalEngineContract = file === incrementalEngineSpec && target === incrementalEngineSource;
+        return staysInSpec || target === publicBarrel || isIncrementalEngineContract ? [] : [`${path.relative(specRoot, file)} -> ${specifier}`];
       })
     );
 

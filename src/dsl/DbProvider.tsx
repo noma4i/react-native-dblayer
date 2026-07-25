@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider } from '@tanstack/react-query';
+import type { Query } from '@tanstack/react-query';
 import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
 import { bootDb, suspendDb, type BootDbOptions } from './lifecycle';
+import { noteResumeDrain } from '../core/diagnostics';
+
+const resolveResumeStaleTime = (query: Query, fallback: number | null): number | null => {
+  const metaValue = query.meta?.resumeStaleTime;
+  return typeof metaValue === 'number' || metaValue === null ? metaValue : fallback;
+};
 
 export type DbProviderProps = {
   /** Application subtree that may read the database after boot completes. */
@@ -22,6 +29,7 @@ export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
   const queryClient = getInternalQueryClient();
   const bootPromise = useRef<ReturnType<typeof bootDb> | null>(null);
   const previousAppState = useRef(AppState.currentState);
+  const resumeDrainGeneration = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -41,13 +49,37 @@ export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
       if (state === 'active') {
         focusManager.setFocused(true);
         const resumeStaleTime = getDbRuntimeConfig().defaults.resumeStaleTime;
-        if ((previousState === 'background' || previousState === 'inactive') && resumeStaleTime !== null) {
-          void queryClient.invalidateQueries({
-            predicate: query => (query.queryKey[0] === 'dbl' || query.queryKey[0] === 'dbl-fetch') && Date.now() - query.state.dataUpdatedAt > resumeStaleTime,
-            refetchType: 'active'
-          });
+        if (previousState === 'background' || previousState === 'inactive') {
+          const generation = ++resumeDrainGeneration.current;
+          const resumedAt = Date.now();
+          const predicate = (query: Query) => {
+            const queryResumeStaleTime = resolveResumeStaleTime(query, resumeStaleTime);
+            return (query.queryKey[0] === 'dbl' || query.queryKey[0] === 'dbl-fetch') && queryResumeStaleTime !== null && resumedAt - query.state.dataUpdatedAt > queryResumeStaleTime;
+          };
+          const staleQueries = queryClient.getQueryCache().findAll({ predicate });
+          if (staleQueries.length > 0) {
+            const staleQuerySet = new Set(staleQueries);
+            const staleCandidate = (query: Query) => staleQuerySet.has(query);
+            const activeQueries = staleQueries.filter(query => query.getObserversCount() > 0);
+            const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
+            void (async () => {
+              let refetched = 0;
+              try {
+                await queryClient.invalidateQueries({ predicate: staleCandidate, refetchType: 'none' });
+                for (let index = 0; index < activeQueries.length; index += chunkSize) {
+                  if (resumeDrainGeneration.current !== generation) return;
+                  const chunk = activeQueries.slice(index, index + chunkSize);
+                  refetched += chunk.length;
+                  await Promise.allSettled(chunk.map(query => queryClient.refetchQueries({ queryKey: query.queryKey, exact: true })));
+                }
+              } finally {
+                noteResumeDrain(refetched);
+              }
+            })();
+          }
         }
       } else if (state === 'background') {
+        resumeDrainGeneration.current += 1;
         focusManager.setFocused(false);
         suspendDb();
       }

@@ -18,20 +18,31 @@ export interface ScopeSpec<TStored> {
    * (via a `ScopeHandle` destination) or explicit `ScopeHandle.seed` calls.
    */
   by?: Record<string, keyof TStored & string>;
+  /** Additional membership predicate for `by`-derived scopes. A row joins the scope instance matching its field values only while `member(row)` is true; when a write makes it false the row leaves the scope in the same apply transaction. Requires `by`. Ignored for query-destination scopes (no `by`). */
+  member?: (row: TStored) => boolean;
   /**
    * Member ordering within the scope:
    * - `{ field, dir }`: sort by a stored field, ascending or descending.
-   * - `{ comparator }`: sort with a custom row comparator.
+   * - `{ comparator, orderFields? }`: sort with a custom row comparator.
    * - `'server-order'` (default when omitted): preserve the order rows were reconciled into the scope in
    *   (i.e. the order the server/API returned them in) - no client-side resort.
    */
-  sort?: { field: keyof TStored & string; dir: 'asc' | 'desc' } | { comparator: (a: TStored, b: TStored) => number } | 'server-order';
+  sort?:
+    | { field: keyof TStored & string; dir: 'asc' | 'desc' }
+    | {
+        comparator: (a: TStored, b: TStored) => number;
+        /** Row fields the comparator reads. When declared, commits that do not touch any of these fields skip the full scope resort. Omit to keep the conservative always-resort behavior. */
+        orderFields?: ReadonlyArray<keyof TStored & string>;
+      }
+    | 'server-order';
   /** Membership cap enforced on first-page refetch (resetOrder) and complete coverage; trimmed ids fall to GC. */
   retention?: { maxRows: number };
 }
 
 type StructuralScopeSpec = {
   by?: Record<string, string>;
+  /** Additional membership predicate for `by`-derived scopes. A row joins the scope instance matching its field values only while `member(row)` is true; when a write makes it false the row leaves the scope in the same apply transaction. Requires `by`. Ignored for query-destination scopes (no `by`). */
+  member?: (row: Record<string, unknown>) => boolean;
   sort?: { field: string; dir: 'asc' | 'desc' } | 'server-order';
   retention?: { maxRows: number };
 };

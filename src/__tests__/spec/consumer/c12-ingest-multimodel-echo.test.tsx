@@ -1,5 +1,6 @@
-import { act } from 'react-test-renderer';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
+import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type PrimaryRow = { id: string; uuid: string; status: string };
@@ -9,6 +10,7 @@ type EventPayload = { primary: PrimaryRow; secondary: SecondaryRow };
 type OperationPayload = { operationId?: string; primary: PrimaryRow; secondary: SecondaryRow };
 type MutationInput = { id: string; uuid: string; status: string; operationId: string };
 type MutationResult = { momentIngest: PrimaryRow };
+type ScopeValue = { uuid: string };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
@@ -58,6 +60,77 @@ const createUnrelatedModel = () =>
   });
 
 describe('multi-model ingest and ingest echo contracts', () => {
+  it('invalidates only the matching active query scope from an ingest declaration', async () => {
+    const fetches: Record<string, number> = { 'uuid-a': 0, 'uuid-b': 0 };
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
+        const uuid = ((operation.variables ?? {}) as ScopeValue).uuid;
+        fetches[uuid] += 1;
+        return { data: { primary: [{ id: uuid, uuid, status: 'ready' }] } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const primary = createPrimaryModel();
+    const query = primary.query<{ primary: PrimaryRow[] }, ScopeValue, ScopeValue, PrimaryRow>('ingest-scope', {
+      document,
+      vars: value => value,
+      select: data => data.primary,
+      into: primary.scopes.byUuid
+    });
+    const ingest = primary.ingest({
+      scoped: { handler: () => ({ invalidate: { uuid: 'uuid-a' } }) },
+      full: { handler: () => ({ invalidate: true }) },
+      ignored: { handler: () => ({ invalidate: false }) }
+    });
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      query.use({ uuid: 'uuid-a' });
+      query.use({ uuid: 'uuid-b' });
+      return null;
+    };
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    for (let tick = 0; tick < 6; tick += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    expect(fetches).toEqual({ 'uuid-a': 1, 'uuid-b': 1 });
+
+    act(() => {
+      ingest.apply('scoped', {});
+    });
+    for (let tick = 0; tick < 6; tick += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    expect(fetches).toEqual({ 'uuid-a': 2, 'uuid-b': 1 });
+
+    act(() => {
+      ingest.apply('full', {});
+    });
+    for (let tick = 0; tick < 6; tick += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    expect(fetches).toEqual({ 'uuid-a': 3, 'uuid-b': 2 });
+
+    act(() => {
+      ingest.apply('ignored', {});
+    });
+    for (let tick = 0; tick < 6; tick += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+    expect(fetches).toEqual({ 'uuid-a': 3, 'uuid-b': 2 });
+    act(() => root.unmount());
+  });
+
   it('applies two-model extracts in one commit wave and does not touch unrelated scopes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const primary = createPrimaryModel();

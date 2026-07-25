@@ -1,9 +1,10 @@
-import type { CommitBus } from '../apply/commitBus';
+import type { CommitBus, IncrementalScopeChange } from '../apply/commitBus';
 import { getApplyTarget } from '../apply/transaction';
 import { ensureModelCollection, ensureMembershipCollection, membershipWriterFor, runInWriteBatch, writerFor } from './facade';
 import { registerReset } from '../reset';
 import { uniq, uniqBy } from 'es-toolkit';
 import { rowsShallowEqual } from '../../read/useLiveRead';
+import { noteCommit, noteMirrorScopePass } from '../diagnostics';
 const rowsDiffer = (current: object, next: object): boolean => !rowsShallowEqual(current, next);
 const scopeOrderCache = new Map<string, Map<string, number>>();
 // Reset contract: clear cross-generation order-revision cache so a post-reset scope never matches a stale revision.
@@ -12,6 +13,7 @@ registerReset(() => scopeOrderCache.clear());
 /** Starts synchronously mirroring every commit-bus row batch into TanStack model collections. */
 export function startCollectionMirror(bus: CommitBus): () => void {
   return bus.subscribeAll(batch => {
+    noteCommit();
     const rowIdsByModel = new Map<string, Set<string>>();
     const scopeKeysByModel = new Map<string, Set<string>>();
     for (const row of batch.rows) {
@@ -28,6 +30,13 @@ export function startCollectionMirror(bus: CommitBus): () => void {
       const scopeKeys = scopeKeysByModel.get(change.model) ?? new Set<string>();
       scopeKeys.add(change.scopeKey);
       scopeKeysByModel.set(change.model, scopeKeys);
+    }
+    const scopeChangesByKey = new Map<string, IncrementalScopeChange[]>();
+    for (const change of batch.scopeChanges ?? []) {
+      const key = `${change.model}\0${change.scopeKey}`;
+      const group = scopeChangesByKey.get(key) ?? [];
+      group.push(change);
+      scopeChangesByKey.set(key, group);
     }
 
     runInWriteBatch(() => {
@@ -65,7 +74,9 @@ export function startCollectionMirror(bus: CommitBus): () => void {
         const membershipWriter = membershipWriterFor(modelId);
         membershipWriter.begin();
         for (const scopeKey of scopeKeys) {
-          const scopeChanges = (batch.scopeChanges ?? []).filter(change => change.model === modelId && change.scopeKey === scopeKey);
+          const scopeStartedAt = globalThis.performance?.now?.() ?? Date.now();
+          let resorted = false;
+          const scopeChanges = scopeChangesByKey.get(`${modelId}\0${scopeKey}`) ?? [];
           const structural = scopeChanges.reduce(
             (current, change) => ({
               appendIds: uniq([...current.appendIds, ...(change.appendIds ?? [])]),
@@ -79,6 +90,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
 
           if (meta.kind === `field`) {
             if (structural.rebuild) {
+              resorted = true;
               const existing = memberships.toArray.filter(row => row.scopeKey === scopeKey);
               const expected = target.readScopeOrder(scopeKey).flatMap(rowId => {
                 const row = target.readRow(rowId);
@@ -111,10 +123,14 @@ export function startCollectionMirror(bus: CommitBus): () => void {
               const next = { key, scopeKey, rowId: change.id, sortValue: row[meta.field] };
               if (rowsDiffer(current, next)) membershipWriter.write({ type: `update`, value: next });
             }
+            noteMirrorScopePass(resorted, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
             continue;
           }
 
-          if (meta.kind === `server-order` && !structural.rebuild && structural.appendIds.length === 0 && structural.detachIds.length === 0) continue;
+          if (meta.kind === `server-order` && !structural.rebuild && structural.appendIds.length === 0 && structural.detachIds.length === 0) {
+            noteMirrorScopePass(false, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
+            continue;
+          }
 
           const revision = target.readScopeOrderRevision(scopeKey);
           const modelCache = scopeOrderCache.get(modelId) ?? new Map<string, number>();
@@ -131,6 +147,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
                 else if (rowsDiffer(current, next)) membershipWriter.write({ type: `update`, value: next });
               }
               modelCache.set(scopeKey, revision);
+              noteMirrorScopePass(false, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
               continue;
             }
           }
@@ -143,8 +160,12 @@ export function startCollectionMirror(bus: CommitBus): () => void {
             modelCache.get(scopeKey) === revision &&
             !orderAffected
           )
+          {
+            noteMirrorScopePass(false, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
             continue;
+          }
 
+          resorted = true;
           const expected =
             meta.kind === `comparator`
               ? target.readScopeOrder(scopeKey).map((rowId, seq) => ({ key: `${scopeKey}\0${rowId}`, scopeKey, rowId, seq }))
@@ -158,6 +179,7 @@ export function startCollectionMirror(bus: CommitBus): () => void {
             else if (rowsDiffer(current, row)) membershipWriter.write({ type: `update`, value: row });
           }
           modelCache.set(scopeKey, revision);
+          noteMirrorScopePass(resorted, (globalThis.performance?.now?.() ?? Date.now()) - scopeStartedAt);
         }
         membershipWriter.commit();
       }

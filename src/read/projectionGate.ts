@@ -38,6 +38,8 @@ export const validateProjectionOptions = (
 export const createProjectionGate = <TStored extends Row, TOutput extends Record<string, unknown>>() => {
   const entries = new Map<string, GateEntry<TStored, TOutput>>();
   let previousRows: TOutput[] = [];
+  let previousSource: unknown = undefined;
+  let previousOptionsSignature: { select: unknown; renderKeys: readonly string[] | undefined } | null = null;
   return {
     projectValue(id: string, source: unknown, output: TOutput, renderKeys?: readonly string[]): TOutput {
       const current = entries.get(id);
@@ -56,9 +58,19 @@ export const createProjectionGate = <TStored extends Row, TOutput extends Record
       return this.projectValue(row.id, row, output, Object.keys(nextEqualityValue));
     },
     projectRows(rows: TStored[], options: ProjectionOptions<TStored, TOutput>): TOutput[] {
+      if (
+        previousSource === rows &&
+        previousOptionsSignature !== null &&
+        previousOptionsSignature.select === options.select &&
+        (previousOptionsSignature.renderKeys === options.renderKeys || arraysShallowEqual(previousOptionsSignature.renderKeys ?? [], options.renderKeys ?? []))
+      ) {
+        return previousRows;
+      }
       const liveIds = new Set(rows.map(row => row.id));
       const next = rows.map(row => this.project(row, options));
       for (const id of entries.keys()) if (!liveIds.has(id)) entries.delete(id);
+      previousSource = rows;
+      previousOptionsSignature = { select: options.select, renderKeys: options.renderKeys };
       if (arraysShallowEqual(previousRows, next)) return previousRows;
       previousRows = next;
       return next;

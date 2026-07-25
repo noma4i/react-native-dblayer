@@ -4,6 +4,7 @@ import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { compareCodepoints } from '../core/serialize';
 import { arraysShallowEqual } from './useLiveRead';
 import { isRecord } from '../utils/normalizeHelpers';
+import { noteReadEngineApply } from '../core/diagnostics';
 
 type Engine<T> = {
   signature: string;
@@ -165,23 +166,27 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
   };
   rebuild();
   engine.apply = batch => {
+    const startedAt = globalThis.performance?.now?.() ?? Date.now();
     const relevant = batch?.rows.filter(change => change.model === options.model) ?? [];
     const requiresRebuild =
       batch === null ||
       batch.mode === 'bulk' ||
       batch.mode === 'replace' ||
       batch.mode === 'maintenance' ||
-      batch?.maintenanceModels?.includes(options.model) === true ||
-      relevant.length > 64;
+      batch?.maintenanceModels?.includes(options.model) === true;
     if (requiresRebuild) {
       const previous = engine.value;
       rebuild();
       if (!(options.isEqual ?? engineValuesEqual)(previous, engine.value)) engine.version += 1;
       else engine.value = previous;
+      noteReadEngineApply('rebuild', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
       return true;
     }
     if (relevant.length === 0) return false;
     let changed = false;
+    let membershipChanged = false;
+    let orderValueChanged = false;
+    const orderBy = options.options?.orderBy ?? [];
     for (const change of relevant) {
       const row = options.read(change.id);
       const matched = row !== undefined && options.where(row);
@@ -190,23 +195,37 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
         ids.add(change.id);
         rows?.set(change.id, row);
         changed = true;
+        membershipChanged = true;
       } else if (!matched && had) {
         ids.delete(change.id);
         rows?.delete(change.id);
         changed = true;
+        membershipChanged = true;
       } else if (matched && had && rows) {
         rows.set(change.id, row);
         changed = true;
+        const fields = change.fields;
+        orderValueChanged ||= orderBy.length > 0 && (fields === null || orderBy.some(order => fields.includes(order.field)));
       }
     }
-    if (!changed) return false;
+    if (!changed) {
+      noteReadEngineApply('delta', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
+      return false;
+    }
     const previous = engine.value;
-    render();
+    if (rows && !membershipChanged && !orderValueChanged) {
+      ordered = ordered.map(row => rows.get(row.id) ?? row);
+      engine.value = options.select(ordered, ids.size);
+    } else {
+      render();
+    }
     if ((options.isEqual ?? engineValuesEqual)(previous, engine.value)) {
       engine.value = previous;
+      noteReadEngineApply('delta', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
       return false;
     }
     engine.version += 1;
+    noteReadEngineApply('delta', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
     return true;
   };
   return engine;
