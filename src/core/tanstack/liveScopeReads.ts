@@ -40,6 +40,17 @@ const requireFilteredRows = (rows: StoredRowShape[], require: ReadonlyArray<stri
   return filtered.length === rows.length ? rows : filtered;
 };
 
+type RequireGate = { source: StoredRowShape[] | null; require: ReadonlyArray<string> | undefined; result: StoredRowShape[] };
+
+/** Per-hook memo over `requireFilteredRows`: skips the O(N) filter pass entirely when both the source snapshot and the `require` list are referentially unchanged since the last call. */
+const readRequireGate = (cache: { current: RequireGate }, source: StoredRowShape[], require: ReadonlyArray<string> | undefined): StoredRowShape[] => {
+  const current = cache.current;
+  if (current.source === source && current.require === require) return current.result;
+  const result = requireFilteredRows(source, require);
+  cache.current = { source, require, result };
+  return result;
+};
+
 const plainRow = (row: StoredRowShape): StoredRowShape => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith(`$`))) as StoredRowShape;
 
 const updateSnapshot = (entry: ScopeLiveEntry): void => {
@@ -171,12 +182,13 @@ export function useScopeLiveRows<TOutput extends Record<string, unknown> = Store
   const gateRef = useRef(createProjectionGate<StoredRowShape, TOutput>());
   const storeRef = useRef<ScopeStoreSnapshot<TOutput>>({ rows: [], resolved: false });
   const isResolvedRef = useRef(isResolved);
+  const requireGateRef = useRef<RequireGate>({ source: null, require: undefined, result: EMPTY_ROWS });
   optionsRef.current = options;
   isResolvedRef.current = isResolved;
   const { entry, subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
   const getSnapshot = useCallback(() => {
     const stored = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
-    const gated = requireFilteredRows(stored, optionsRef.current.require);
+    const gated = readRequireGate(requireGateRef, stored, optionsRef.current.require);
     const rows = gateRef.current.projectRows(gated, optionsRef.current);
     const resolved = isResolvedRef.current();
     if (storeRef.current.rows === rows && storeRef.current.resolved === resolved) return storeRef.current;
@@ -211,6 +223,7 @@ export function useScopeLiveWindowRows(
   validateProjectionOptions(options, `${modelId}.scope.useWindow`);
   const optionsRef = useRef(options);
   const gateRef = useRef(createProjectionGate<StoredRowShape, Record<string, unknown>>());
+  const requireGateRef = useRef<RequireGate>({ source: null, require: undefined, result: EMPTY_ROWS });
   optionsRef.current = options;
   const { subscribe } = useScopeLiveEntry(modelId, scopeKey, sortMeta);
   const isResolvedRef = useRef(isResolved);
@@ -223,7 +236,7 @@ export function useScopeLiveWindowRows(
   });
   const getSnapshot = useCallback(() => {
     const stored = scopeKey == null ? EMPTY_ROWS : entryFor(modelId, scopeKey, sortMeta).snapshot;
-    const gated = requireFilteredRows(stored, optionsRef.current.require);
+    const gated = readRequireGate(requireGateRef, stored, optionsRef.current.require);
     const source = gateRef.current.projectRows(gated, optionsRef.current) as StoredRowShape[];
     const resolved = isResolvedRef.current();
     if (windowRef.current.source === source && windowRef.current.size === windowSize && windowRef.current.resolved === resolved) return windowRef.current.snapshot;
