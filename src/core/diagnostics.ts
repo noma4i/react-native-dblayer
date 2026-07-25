@@ -15,6 +15,7 @@ type DiagnosticsState = {
   resumeRefetches: number;
   totalReadEngineMs: number;
   totalMirrorMs: number;
+  entityUpsertGuardHits: number;
 };
 
 const emptyDiagnostics = (): DiagnosticsState => ({
@@ -31,7 +32,8 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   resumeDrains: 0,
   resumeRefetches: 0,
   totalReadEngineMs: 0,
-  totalMirrorMs: 0
+  totalMirrorMs: 0,
+  entityUpsertGuardHits: 0
 });
 
 let diagnostics = emptyDiagnostics();
@@ -66,6 +68,10 @@ export const noteMirrorScopePass = (resorted: boolean, ms: number): void => {
 export const noteResumeDrain = (refetched: number): void => {
   diagnostics.resumeDrains += 1;
   diagnostics.resumeRefetches += refetched;
+};
+
+export const noteEntityUpsertGuardHit = (): void => {
+  diagnostics.entityUpsertGuardHits += 1;
 };
 
 export const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics });

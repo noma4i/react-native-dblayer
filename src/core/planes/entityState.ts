@@ -1,4 +1,5 @@
 import { stableSerialize } from '../serialize';
+import { noteEntityUpsertGuardHit } from '../diagnostics';
 import type { StoragePlane } from './storagePlane';
 
 type EntityClock = { next(): number; current(): number; restore(value: number): void };
@@ -113,7 +114,10 @@ export const createEntityState = <T extends { id: string }>(options: {
       if (previous && mergeGate) row = mergeGate(previous, row);
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { seq: clock.current(), changedFields };
-      if (previous && stableSerialize(previous) === stableSerialize(row)) return { seq: clock.current(), changedFields: [] };
+      if (previous && changedFields !== null && changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))) {
+        noteEntityUpsertGuardHit();
+        return { seq: clock.current(), changedFields: [] };
+      }
       const seq = clock.next();
       rows.set(row.id, row);
       writes.set(row.id, seq);

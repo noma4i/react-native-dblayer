@@ -106,6 +106,15 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     memberSets.set(key, nextIds);
   };
 
+  const sameEntryOrder = (previous: ScopeEntry[] | undefined, next: ScopeEntry[]): boolean => {
+    if (!previous) return next.length === 0;
+    if (previous.length !== next.length) return false;
+    for (let index = 0; index < previous.length; index += 1) {
+      if (previous[index]!.id !== next[index]!.id) return false;
+    }
+    return true;
+  };
+
   const commit = (key: string, next: ScopeIndexValue, fastAdd?: string[]): ScopeIndexValue => {
     if (fastAdd) {
       orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
@@ -129,9 +138,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       touch(key);
       return next;
     }
-    const previousOrder = (scopes.get(key)?.entries ?? []).map(entry => entry.id).join('\0');
-    const nextOrder = next.entries.map(entry => entry.id).join('\0');
-    if (previousOrder !== nextOrder) orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
+    if (!sameEntryOrder(scopes.get(key)?.entries, next.entries)) orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
     removed.delete(key);
     indexCommit(key, scopes.get(key), next);
     scopes.set(key, next);

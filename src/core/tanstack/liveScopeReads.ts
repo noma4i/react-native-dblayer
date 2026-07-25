@@ -46,6 +46,12 @@ const updateSnapshot = (entry: ScopeLiveEntry): void => {
     return;
   }
   entry.snapshot = next;
+  if (entry.rowCache.size > next.length) {
+    const liveIds = new Set(next.map(row => row.id));
+    for (const id of entry.rowCache.keys()) {
+      if (!liveIds.has(id)) entry.rowCache.delete(id);
+    }
+  }
   for (const listener of entry.listeners) listener();
 };
 

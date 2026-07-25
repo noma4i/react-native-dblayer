@@ -17,6 +17,7 @@ type DiagnosticsSnapshot = {
   resumeRefetches: number;
   totalReadEngineMs: number;
   totalMirrorMs: number;
+  entityUpsertGuardHits: number;
 };
 
 type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };
@@ -94,7 +95,8 @@ describe('read diagnostics', () => {
       resumeDrains: 0,
       resumeRefetches: 0,
       totalReadEngineMs: 0,
-      totalMirrorMs: 0
+      totalMirrorMs: 0,
+      entityUpsertGuardHits: 0
     });
   });
 
