@@ -258,6 +258,74 @@ describe('read path render budget', () => {
     act(() => root.unmount());
   });
 
+  it('adds a newly matching hasMany row to a related reader', () => {
+    setupSpecRuntime();
+    const { children, parents } = createCollectionRelations();
+    parents.insertStored({ id: 'parent-1', name: 'Parent' });
+    children.insertStored({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
+    let result!: ChildRow[];
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      result = parents.use.related('parent-1', 'children') as ChildRow[];
+      return null;
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    expect(result.map(row => row.id)).toEqual(['child-1']);
+    act(() => children.insertStored({ id: 'child-2', parentId: 'parent-1', title: 'Second', rank: 2 }));
+    expect(result.map(row => row.id)).toEqual(['child-1', 'child-2']);
+    act(() => root.unmount());
+  });
+
+  it('updates a shared foreign-key index before related readers observe an unrelated insert', () => {
+    setupSpecRuntime();
+    const { children, parents } = createCollectionRelations();
+    parents.insertStoredMany([
+      { id: 'parent-1', name: 'One' },
+      { id: 'parent-2', name: 'Two' }
+    ]);
+    children.insertStoredMany([
+      { id: 'child-1', parentId: 'parent-1', title: 'One', rank: 1 },
+      { id: 'child-2', parentId: 'parent-2', title: 'Two', rank: 1 }
+    ]);
+    let result!: ChildRow[];
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      result = parents.use.related('parent-1', 'children') as ChildRow[];
+      return null;
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    const initial = result;
+    act(() => children.insertStored({ id: 'outside', parentId: 'outside', title: 'Outside', rank: 1 }));
+    expect(result).toBe(initial);
+    act(() => root.unmount());
+  });
+
+  it('moves related rows between shared foreign-key buckets', () => {
+    setupSpecRuntime();
+    const { children, parents } = createCollectionRelations();
+    parents.insertStoredMany([
+      { id: 'parent-1', name: 'One' },
+      { id: 'parent-2', name: 'Two' }
+    ]);
+    children.insertStored({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
+    let result!: [ChildRow[], ChildRow[]];
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      result = [parents.use.related('parent-1', 'children') as ChildRow[], parents.use.related('parent-2', 'children') as ChildRow[]];
+      return null;
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    act(() => children.patch('child-1', { parentId: 'parent-2' }));
+    expect(result.map(rows => rows.map(row => row.id))).toEqual([[], ['child-1']]);
+    act(() => root.unmount());
+  });
+
   it('does not apply read engines during idle parent rerenders', () => {
     setupSpecRuntime();
     diagnostics().reset();
