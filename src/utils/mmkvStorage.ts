@@ -1,14 +1,7 @@
-type MmkvStorage = {
-  getString: (key: string) => string | undefined;
-  set: (key: string, value: string) => void;
-  remove: (key: string) => void;
-  clearAll: () => void;
-  allKeys: () => string[];
-};
+import type { createMMKV } from 'react-native-mmkv';
 
-type MmkvModule = {
-  createMMKV: (options: { id: string }) => MmkvStorage;
-};
+type MmkvModule = { createMMKV: typeof createMMKV };
+type MmkvStorage = ReturnType<typeof createMMKV>;
 
 declare const require: <T>(moduleName: string) => T;
 
@@ -39,7 +32,7 @@ export const clearDbStorage = (): void => {
 };
 
 /** Return all DB storage keys. */
-export const getDbStorageKeys = (): string[] => getDbStorage().allKeys();
+export const getDbStorageKeys = (): string[] => getDbStorage().getAllKeys();
 
 /** Remove one DB storage key. */
 export const removeDbStorageKey = (key: string): void => {
