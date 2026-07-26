@@ -1,17 +1,13 @@
 import type { GcReport } from '../core/gc';
 import { collectGarbage } from '../core/gc';
-import { resetRuntime } from '../core/reset';
+import { ensurePersistenceCompatibility } from '../core/schemaManifest';
 import { runBootValidations } from './bootValidations';
 import { flushPersistence, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
 import { runModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 
-export type BootDbOptions = {
-  /** Discard all persisted and in-memory library state before journal replay. */
-  wipe?: boolean;
-};
-
 /**
- * Recommended data-startup sequence after `configureDb`: deferred definition validation, then
+ * Recommended data-startup sequence after `configureDb`: deferred definition validation, persistence
+ * compatibility validation, then
  * `replayJournal()` to recover any WAL-only writes from a crash, then `collectGarbage()` to reclaim
  * unreachable rows left over from that replay, then `purgeForeignStorageKeys()` to clear any
  * pre-migration/foreign storage keys - in exactly that order, once, before the first render that reads a model.
@@ -24,23 +20,17 @@ export type BootDbOptions = {
  * Journal replay and foreign-key purging are internal boot steps; manual maintenance remains available
  * through `flushPersistence` and `collectGarbage`.
  *
- * Pass `wipe: true` to discard all persisted and in-memory library state (the `resetRuntime`
- * kill-switch) between validation and replay - boot then starts from an empty store. Use it for
- * consumer-side schema/cache-version bumps where stale persisted rows must not be rehydrated.
- *
- * @param options Boot-only data lifecycle options. Runtime seams must already be configured.
  * @returns `replayed` - the journal record count `replayJournal` recovered; `gc` - the `collectGarbage`
- * report for the post-replay sweep.
+ * report for the post-replay sweep; `reset` - whether an incompatible persisted schema was cleared.
  */
-export const bootDb = async (options: BootDbOptions = {}): Promise<{ replayed: number; gc: GcReport; maintenance: MaintenanceReport[] }> => {
-  const { wipe } = options;
+export const bootDb = async (): Promise<{ replayed: number; gc: GcReport; maintenance: MaintenanceReport[]; reset: boolean }> => {
   runBootValidations();
-  if (wipe) resetRuntime();
+  const compatibility = ensurePersistenceCompatibility();
   const replayed = await replayJournal();
   const gc = collectGarbage();
   purgeForeignStorageKeys();
   const maintenance = runModelMaintenance();
-  return { replayed, gc, maintenance };
+  return { replayed, gc, maintenance, reset: compatibility.reset };
 };
 
 /**

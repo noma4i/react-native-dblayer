@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f, scope } from '../../../index';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
 type ChatRow = { id: string; status: string; kind: string; lastActivityAt: string; memberIds: string[] };
 type MessageRow = { id: string; chatId: string; sequenceNumber: number; body: string };
@@ -96,6 +97,7 @@ const createModels = (): EnsembleModels => {
   const messages = createMessagesModel();
   const users = createUsersModel();
   const counters = createCountersModel();
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
   seedChats(chats);
   seedMessages(messages);
   seedUsers(users);

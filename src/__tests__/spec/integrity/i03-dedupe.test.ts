@@ -1,6 +1,7 @@
 import { configureDb, defineCommand, defineModel, f, resetRuntime } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { flushPersistence } from '../../../dsl/configure';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Result = { action: { ok: true } };
@@ -85,6 +86,7 @@ describe('mutation dedupe semantics', () => {
     const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     configureDb({ storage, transport });
     const firstCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
     await firstCommand.run({ value: 'same' });
     flushPersistence();
 

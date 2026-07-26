@@ -1,6 +1,7 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -219,6 +220,7 @@ describe('model pending flag', () => {
     ]);
     configureDb({ storage, transport: createMockTransport() });
     const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() }, gc: 'exempt' });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
     messages.insertStored({ id: 'message-1', text: 'kept' });
 
     await bootDb();

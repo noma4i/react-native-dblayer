@@ -1,6 +1,5 @@
 export { configureDb } from './dsl/configure';
 export type { DbDefaults, DbRetryClass, DbRetryPolicy } from './dsl/configure';
-export type { BootDbOptions } from './dsl/lifecycle';
 export { DbProvider } from './dsl/DbProvider';
 export type { DbProviderProps } from './dsl/DbProvider';
 export type { MaintenanceReport } from './dsl/maintenanceRegistry';

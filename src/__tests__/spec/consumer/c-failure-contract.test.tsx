@@ -1,6 +1,7 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, reconcileOptimisticRows, resetRuntime } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { flushPersistence } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
@@ -165,6 +166,7 @@ describe('optimistic failure contract', () => {
     const failingTransport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage, transport: failingTransport });
     const { messages, send, tempId } = createMessages('FailureRestart', failingTransport, false);
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
 
     await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
     const id = tempId()!;

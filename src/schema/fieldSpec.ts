@@ -7,6 +7,8 @@ type NullableMode<TMode extends FieldMode> = TMode extends 'optional' | 'optiona
 type OptionalMode<TMode extends FieldMode> = TMode extends 'nullable' | 'optionalNullable' ? 'optionalNullable' : 'optional';
 
 export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', THasDefault extends boolean = false> {
+  /** Stable field-builder identity used by persistence compatibility checks. */
+  readonly kind: string;
   /** Read this field from a full input object and object key. */
   read: (input: TInput, key: string) => TOut | null | undefined;
   /** Read this field from an already-selected raw value. */
@@ -15,6 +17,8 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
   derived?: boolean;
   /** Current presence mode used by normalize and buildStored. */
   mode: TMode;
+  /** Whether this field supplies a build-time default. */
+  readonly hasDefault: boolean;
   /** Factory-time default used by buildStored when the caller omits this key. */
   factoryDefault?: FieldDefault<TOut>;
   /**
@@ -90,6 +94,7 @@ type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
 export const fieldSpecSparseRead = Symbol('fieldSpecSparseRead');
 
 type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
+  kind: string;
   mode: TMode;
   selectSource: FieldSourceSelector<TInput>;
   readValue: FieldValueReader<TOut>;
@@ -127,7 +132,9 @@ export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefau
   options: FieldSpecOptions<TInput, TOut, TMode>
 ): FieldSpec<TInput, TOut, TMode, THasDefault> => {
   const spec = {
+    kind: options.kind,
     mode: options.mode,
+    hasDefault: options.defaultNull || Object.prototype.hasOwnProperty.call(options, 'factoryDefault'),
     derived: options.derived,
     readValue(value) {
       const output = options.readValue(value);

@@ -2,19 +2,23 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
 type Row = { id: string; name: string; status: string; updatedAt: string };
 type Response = { detail: Row | null };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
-const createRowsModel = (id: string) =>
-  defineModel({
+const createRowsModel = (id: string) => {
+  const model = defineModel({
     id,
     name: id,
     fields: { name: f.str(), status: f.str(), updatedAt: f.str() },
     scopes: { byStatus: scope<Row>({ by: { status: 'status' } }) }
   });
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+  return model;
+};
 
 const createDetailQuery = (rows: ReturnType<typeof createRowsModel>, key: string) =>
   rows.query<Response, { id: string }, { id: string }, Row>('detail', {

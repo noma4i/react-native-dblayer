@@ -2,6 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, defineModel, f, resetRuntime, scope } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
 type StoryRow = { id: string; bucket: string; label: string };
 
@@ -83,6 +84,7 @@ describe('public seed surface', () => {
   it('boots under DbProvider with only the minimal configured transport seam', async () => {
     const { transport } = setupSpecRuntime();
     const stories = createStories('Provider');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
     stories.seed([{ id: 'story-1', bucket: 'A', label: 'One' }]);
     let root!: TestRenderer.ReactTestRenderer;
 

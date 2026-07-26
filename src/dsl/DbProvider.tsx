@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { focusManager, QueryClientProvider } from '@tanstack/react-query';
 import type { Query } from '@tanstack/react-query';
 import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
-import { bootDb, suspendDb, type BootDbOptions } from './lifecycle';
+import { bootDb, suspendDb } from './lifecycle';
 import { noteResumeDrain } from '../core/diagnostics';
 
 const resolveResumeStaleTime = (query: Query, fallback: number | null): number | null => {
@@ -14,8 +14,6 @@ const resolveResumeStaleTime = (query: Query, fallback: number | null): number |
 export type DbProviderProps = {
   /** Application subtree that may read the database after boot completes. */
   children: React.ReactNode;
-  /** Data lifecycle options forwarded to `bootDb` once on mount. */
-  bootOptions?: BootDbOptions;
 };
 
 /**
@@ -27,10 +25,10 @@ export type DbProviderProps = {
  * intentionally fail-loud (see its JSDoc in `lifecycle.ts`), and this provider must not swallow
  * that by only handling the resolved case.
  *
- * @param props Children plus optional boot-only lifecycle options.
+ * @param props Application subtree that becomes available after boot.
  * @returns The internal query provider with children after a successful boot; throws in render if boot rejected.
  */
-export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
+export const DbProvider = ({ children }: DbProviderProps) => {
   const [booted, setBooted] = useState(false);
   const [bootError, setBootError] = useState<unknown>(null);
   const queryClient = getInternalQueryClient();
@@ -42,7 +40,7 @@ export const DbProvider = ({ children, bootOptions }: DbProviderProps) => {
 
   useEffect(() => {
     let mounted = true;
-    bootPromise.current ??= bootDb(bootOptions);
+    bootPromise.current ??= bootDb();
     void bootPromise.current
       .then(() => {
         if (mounted) setBooted(true);

@@ -3,11 +3,12 @@ import { AppState } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import * as dbl from '../../../index';
 import { registerBootValidation } from '../../../dsl/bootValidations';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
   dbl as unknown as {
-    DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
+    DbProvider: React.ComponentType<{ children: React.ReactNode }>;
   }
 ).DbProvider;
 const document = { kind: 'Document', definitions: [] } as never;
@@ -49,6 +50,7 @@ describe('provider-owned query runtime', () => {
   it('gates children until boot completes and then supports DSL reads', async () => {
     setupSpecRuntime();
     const users = dbl.defineModel({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
     users.insertStored({ id: 'user', name: 'Ready' });
     let renders = 0;
     let value: string | undefined;

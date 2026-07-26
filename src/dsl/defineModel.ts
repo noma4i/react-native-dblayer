@@ -3,6 +3,7 @@ import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../core/com
 import { compositeKey } from '../core/serialize';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
+import { registerSchemaDeclaration } from '../core/schemaManifest';
 import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
 import type { StoredRowShape } from '../core/tanstack/facade';
 import { seedCollections } from '../core/tanstack/mirror';
@@ -812,6 +813,18 @@ export const defineModel = <
     }
   };
   registerApplyTarget(config.id, applyTarget);
+  registerSchemaDeclaration({
+    id: config.id,
+    name: config.name,
+    fields: Object.fromEntries(Object.entries(config.fields).map(([name, field]) => [name, { kind: field.kind, mode: field.mode, hasDefault: field.hasDefault }])),
+    scopes: Object.fromEntries(
+      Object.entries(config.scopes ?? {}).map(([name, spec]) => {
+        const by = spec.by ? Object.fromEntries(Object.entries(spec.by).map(([scopeField, rowField]) => [scopeField, String(rowField)])) : null;
+        const sort = spec.member ? 'member' : !spec.sort || spec.sort === 'server-order' ? 'server-order' : 'field' in spec.sort ? `field:${String(spec.sort.field)}:${spec.sort.dir}` : 'comparator';
+        return [name, { by, sort }];
+      })
+    )
+  });
   if (hasReplayedJournal()) seedCollections([config.id]);
   registerGcHost(config.id, {
     modelId: config.id,

@@ -1,6 +1,7 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
@@ -8,6 +9,7 @@ type MessageScope = MessageRow;
 type MessageResponse = { rows: MessageRow[] };
 
 const document = { kind: 'Document', definitions: [] } as never;
+const persistCurrentManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
 
 const createMessageModel = (limit: number, protect?: () => Set<string>) =>
   defineModel({
@@ -49,6 +51,7 @@ describe('maintenance trim contracts', () => {
     setupSpecRuntime();
     const limit = 3;
     const messages = createMessageModel(limit);
+    persistCurrentManifest();
 
     for (let sequence = 1; sequence <= 5; sequence += 1) {
       messages.insertStored({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` });
@@ -67,6 +70,7 @@ describe('maintenance trim contracts', () => {
     setupSpecRuntime();
     const protectIds = new Set(['chat-a-protected']);
     const messages = createMessageModel(2, () => protectIds);
+    persistCurrentManifest();
 
     messages.insertStored({ id: 'chat-a-protected', chatId: 'chat-a', sequence: 1, payload: 'protected-old' });
     messages.insertStored({ id: 'chat-a-2', chatId: 'chat-a', sequence: 2, payload: 'new-2' });
@@ -85,6 +89,7 @@ describe('maintenance trim contracts', () => {
   it('rerenders a mounted scope reader exactly once for a trim batch', async () => {
     setupSpecRuntime();
     const messages = createMessageModel(2);
+    persistCurrentManifest();
     for (let sequence = 1; sequence <= 4; sequence += 1) {
       messages.insertStored({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` });
     }

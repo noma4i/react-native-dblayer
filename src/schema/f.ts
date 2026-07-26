@@ -10,8 +10,9 @@ const definedPassthrough = <T>(value: unknown): T | undefined => (value == null 
 type ArrayItem = AnyDbShape | FieldSpec<any, any, any, any>;
 type ArrayItemOut<TItem extends ArrayItem> = TItem extends AnyDbShape ? InferShapeStored<TItem> : TItem extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
 
-const valueField = <TOut>(readValue: FieldValueReader<TOut>, readNullableValue: FieldValueReader<TOut> = preserveNull(readValue)): FieldSpec<unknown, TOut> =>
+const valueField = <TOut>(kind: string, readValue: FieldValueReader<TOut>, readNullableValue: FieldValueReader<TOut> = preserveNull(readValue)): FieldSpec<unknown, TOut> =>
   createFieldSpec({
+    kind,
     mode: 'required',
     selectSource: readObjectField,
     readValue,
@@ -19,8 +20,9 @@ const valueField = <TOut>(readValue: FieldValueReader<TOut>, readNullableValue: 
     defaultNull: false
   });
 
-const customField = <TInput, TOut>(readValue: FieldValueReader<TOut>): FieldSpec<TInput, TOut> =>
+const customField = <TInput, TOut>(kind: string, readValue: FieldValueReader<TOut>): FieldSpec<TInput, TOut> =>
   createFieldSpec({
+    kind,
     mode: 'required',
     selectSource: input => input,
     readValue,
@@ -50,7 +52,7 @@ const withEmptyDefault = <TShape extends AnyDbShape>(
 };
 
 const objectField = <TShape extends AnyDbShape>(shape: TShape): EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>> =>
-  withEmptyDefault(shape, valueField<InferShapeStored<TShape>>(readObjectShape(shape))) as EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>>;
+  withEmptyDefault(shape, valueField<InferShapeStored<TShape>>('object', readObjectShape(shape))) as EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>>;
 
 const readArray =
   <TItem extends ArrayItem>(item: TItem): FieldValueReader<ArrayItemOut<TItem>[]> =>
@@ -82,7 +84,7 @@ export const f = {
    *
    * @returns A field spec that stores `string`.
    */
-  str: () => valueField(readString, readNullableString),
+  str: () => valueField('str', readString, readNullableString),
   /**
    * Read number values and skip every other input type.
    *
@@ -90,14 +92,14 @@ export const f = {
    *
    * @returns A field spec that stores `number`.
    */
-  num: () => valueField(readNumber, readNullableNumber),
+  num: () => valueField('num', readNumber, readNullableNumber),
   /**
    * ISO-8601 date-time string field. Strings are kept as-is when parseable; `Date` instances and
    * epoch-milliseconds numbers are stored as `toISOString()`; unparseable values are dropped.
    * Stored as a string, so codepoint ordering (orderBy, DbWhereOp gt/lt) is chronological for
    * same-format ISO values.
    */
-  date: () => valueField<string>(readIsoDate),
+  date: () => valueField<string>('date', readIsoDate),
   /**
    * Read boolean values and skip every other input type.
    *
@@ -105,7 +107,7 @@ export const f = {
    *
    * @returns A field spec that stores `boolean`.
    */
-  bool: () => valueField(readBoolean),
+  bool: () => valueField('bool', readBoolean),
   /**
    * Read string or number ids and normalize them to strings.
    *
@@ -113,7 +115,7 @@ export const f = {
    *
    * @returns A field spec that stores a string id.
    */
-  id: () => valueField(readId),
+  id: () => valueField('id', readId),
   /**
    * Enum field with runtime validation: only the declared string values are stored; any other value
    * is dropped like other unreadable values. The stored type is the union of the declared literals -
@@ -121,7 +123,7 @@ export const f = {
    */
   enum: <TValue extends string>(values: readonly TValue[]) => {
     const allowed = new Set<string>(values);
-    return valueField<TValue>(value => (typeof value === 'string' && allowed.has(value) ? (value as TValue) : undefined));
+    return valueField<TValue>('enum', value => (typeof value === 'string' && allowed.has(value) ? (value as TValue) : undefined));
   },
   /**
    * Pass through any non-nullish raw value as the supplied TypeScript type.
@@ -130,7 +132,7 @@ export const f = {
    *
    * @returns A field spec that stores the supplied raw type.
    */
-  raw: <T>() => valueField<T>(definedPassthrough),
+  raw: <T>() => valueField<T>('raw', definedPassthrough),
   /**
    * Read a value from the whole input object with a custom selector.
    *
@@ -139,7 +141,7 @@ export const f = {
    * @param read Selector that receives the full input object.
    * @returns A field spec that stores the selector output type.
    */
-  custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => customField<TInput, TOut>(input => read(input as TInput)),
+  custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => customField<TInput, TOut>('custom', input => read(input as TInput)),
   /**
    * Read a nested object through a reusable shape.
    *
@@ -157,5 +159,5 @@ export const f = {
    * @param item Shape or scalar field spec used to read each array element.
    * @returns A field spec that stores an array of readable element outputs.
    */
-  array: <TItem extends ArrayItem>(item: TItem) => valueField<ArrayItemOut<TItem>[]>(readArray(item))
+  array: <TItem extends ArrayItem>(item: TItem) => valueField<ArrayItemOut<TItem>[]>('array', readArray(item))
 };

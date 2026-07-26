@@ -5,7 +5,7 @@ import { setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
   dbl as unknown as {
-    DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
+    DbProvider: React.ComponentType<{ children: React.ReactNode }>;
   }
 ).DbProvider;
 describe('ephemeral fetch sufficiency', () => {
