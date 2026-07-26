@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+echo "pre-commit: typecheck"
+npx tsc --noEmit
+
+echo "pre-commit: jsdoc"
+node scripts/check-jsdoc.mjs
+
+echo "pre-commit: tests"
+yarn test

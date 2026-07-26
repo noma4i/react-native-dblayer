@@ -40,7 +40,8 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand --silent --forceExit",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
-    "clean": "rm -rf lib"
+    "clean": "rm -rf lib",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "peerDependencies": {
     "@graphql-typed-document-node/core": ">=3",
