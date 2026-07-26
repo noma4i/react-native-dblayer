@@ -1422,30 +1422,29 @@ export const defineModel = <
       where: whereRead,
       byIds: ((ids: readonly string[] | null | undefined, options: ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const resolvedIds = (ids ?? []).map(id => String(id));
-        // Written inside the live-read compute pass so it always matches the exact snapshot the
-        // returned rows were produced from; re-reading planes outside compute could observe a
-        // newer state than the cached rows and misalign ids again.
-        const presentIdsRef = useRef<string[]>([]);
-        const rows = useProjectedLiveRows(
+        validateProjectionOptions(options, `${config.id}.use.byIds`);
+        const optionsRef = useRef(options);
+        const gateRef = useRef(createProjectionGate<Stored, Record<string, unknown>>());
+        const resultRef = useRef<{ rows: Record<string, unknown>[]; byId: ReadonlyMap<string, Record<string, unknown>> } | null>(null);
+        optionsRef.current = options;
+        return useLiveRead(
           () => {
-            const present: Stored[] = [];
-            const presentIds: string[] = [];
+            const sources: Stored[] = [];
             for (const id of resolvedIds) {
-              const row = planes().entityState.read(id);
-              if (row === undefined) continue;
-              present.push(row);
-              presentIds.push(id);
+              const source = planes().entityState.read(id);
+              if (source !== undefined) sources.push(source);
             }
-            presentIdsRef.current = presentIds;
-            return present;
+            const rows = gateRef.current.projectRows(sources, optionsRef.current);
+            if (resultRef.current?.rows === rows) return resultRef.current;
+            resultRef.current = {
+              rows,
+              byId: new Map(sources.map(source => [source.id, gateRef.current.project(source, optionsRef.current)]))
+            };
+            return resultRef.current;
           },
           resolvedIds.map(id => rowDep(id)),
-          options,
-          `${config.id}.use.byIds`
+          Object.is
         );
-        const resultRef = useRef<{ rows: Record<string, unknown>[]; byId: ReadonlyMap<string, Record<string, unknown>> } | null>(null);
-        if (resultRef.current?.rows !== rows) resultRef.current = { rows, byId: new Map(rows.map((row, index) => [presentIdsRef.current[index]!, row])) };
-        return resultRef.current!;
       }) as ModelCore<Stored, Input>['use']['byIds'],
       count: where =>
         useIncrementalRead({
