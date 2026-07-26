@@ -620,7 +620,15 @@ export const defineModel = <
     }
     return out;
   };
-  const keyForScope = (scopeName: string, scopeValue: unknown): string => `${scopeName}:${buildScopeKey(coerceScopeValueForKey(scopeName, scopeValue))}`;
+  const keyForScope = (scopeName: string, scopeValue: unknown): string => {
+    const by = scopeByFieldMap.get(scopeName);
+    if (by && scopeValue != null) {
+      for (const field of Object.keys(by)) {
+        if (!isRecord(scopeValue) || scopeValue[field] === undefined) throw new Error(`${config.name}.${scopeName}: scope value must provide ${field}`);
+      }
+    }
+    return `${scopeName}:${buildScopeKey(coerceScopeValueForKey(scopeName, scopeValue))}`;
+  };
   const criteriaCache = new WeakMap<object, DbWhere<Stored>>();
   const normalizeCriteria = (where: DbWhere<Stored>): DbWhere<Stored> => {
     if (typeof where !== 'object' || where === null || Array.isArray(where)) return where;
