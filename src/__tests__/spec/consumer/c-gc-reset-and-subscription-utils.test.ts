@@ -62,8 +62,11 @@ describe('registerReset', () => {
   it('throws when a resetter returns a promise', () => {
     setupSpecRuntime();
     const unregister = registerReset(async () => {});
-    expect(() => resetRuntime()).toThrow('resetRuntime cannot run async resetters');
-    unregister();
+    try {
+      expect(() => resetRuntime()).toThrow(AggregateError);
+    } finally {
+      unregister();
+    }
   });
 });
 

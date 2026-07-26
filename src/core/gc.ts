@@ -105,7 +105,7 @@ export const collectGarbage = (): GcReport => {
     }
   }
   for (const operation of getOperationState().pending()) {
-    for (const id of operation.tempIds) mark(operation.model, id);
+    for (const id of new Set([...operation.tempIds, ...(operation.rowIds ?? [])])) mark(operation.model, id);
   }
   for (const dependency of getCommitBus().activeDependencies()) {
     if (dependency.kind === 'row') mark(dependency.model, dependency.id);

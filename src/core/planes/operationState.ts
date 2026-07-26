@@ -25,6 +25,7 @@ export type OperationRecord = {
 const CLOSED_TTL_MS = 60 * 60 * 1000;
 export type OperationState = {
   begin(operation: Omit<OperationRecord, 'status'>): void;
+  /** Terminal status is immutable; repeated close calls are idempotent no-ops. */
   close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
   get(operationId: string): OperationRecord | undefined;
   /** True when a retained `once` key or exact operation id already committed. */
@@ -121,7 +122,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
-      if (!operation) return;
+      if (!operation || operation.status !== 'pending') return;
       const wasPatchOwner = operation.status === 'pending' && operation.intent === 'patch' && !!operation.patchedFields && operation.patchedFields.length > 0;
       hydratedPendingIds.delete(operationId);
       if (operation.idempotencyKey) pendingKeys.delete(operation.idempotencyKey);

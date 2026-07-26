@@ -49,7 +49,9 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-effects-acceptance.test.tsx'), source: path.resolve(specRoot, '../../core/apply/transaction.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-effects-acceptance.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-effects-acceptance.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
-  { spec: path.resolve(specRoot, 'integrity/i-effects-acceptance.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') }
+  { spec: path.resolve(specRoot, 'integrity/i-effects-acceptance.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-ledger-lifecycle.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-ledger-lifecycle.test.tsx'), source: path.resolve(specRoot, '../../core/planes/operationState.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>

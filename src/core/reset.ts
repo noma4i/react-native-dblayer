@@ -21,7 +21,8 @@ export const registerReset = (reset: () => void | Promise<void>): (() => void) =
  * it (e.g. on logout). Fully synchronous by design: state is clean the moment the call returns, with
  * no deferred teardown to await - seeding and subsequent reads can rely on it immediately. An async
  * resetter is a registration error and throws. No-ops when `configureDb` has never run - an
- * unconfigured runtime is trivially clean.
+ * unconfigured runtime is trivially clean. Every resetter runs even when another throws; failures
+ * are rethrown together as an `AggregateError` after storage and in-memory state are fully reset.
  */
 export const resetRuntime = (): void => {
   if (!isDbConfigured()) return;
@@ -29,10 +30,16 @@ export const resetRuntime = (): void => {
   resetPersistenceRuntime();
   const { storage } = getDbRuntimeConfig();
   storage.set(storage.keys(getStoragePrefix()).map(key => ({ key, value: null })));
+  const resetErrors: unknown[] = [];
   for (const reset of resetters) {
-    const result = reset();
-    if (result instanceof Promise) throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');
+    try {
+      const result = reset();
+      if (result instanceof Promise) throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');
+    } catch (error) {
+      resetErrors.push(error);
+    }
   }
   getOperationState().reset();
   getCommitBus().publishAll();
+  if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'resetRuntime failed to run one or more resetters');
 };
