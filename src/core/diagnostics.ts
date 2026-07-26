@@ -21,6 +21,7 @@ type DiagnosticsState = {
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;
   manifestResets: number;
+  replaceRejected: number;
 };
 
 const emptyDiagnostics = (): DiagnosticsState => ({
@@ -43,7 +44,8 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
-  manifestResets: 0
+  manifestResets: 0,
+  replaceRejected: 0
 });
 
 let diagnostics = emptyDiagnostics();
@@ -102,6 +104,10 @@ export const noteCorruptionLedgerReset = (): void => {
 
 export const noteManifestReset = (): void => {
   diagnostics.manifestResets += 1;
+};
+
+export const noteReplaceRejected = (): void => {
+  diagnostics.replaceRejected += 1;
 };
 
 export const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics });

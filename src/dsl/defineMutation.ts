@@ -355,11 +355,16 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
         const node = optimistic.selectServerNode(data);
         if (node != null) {
-          const normalizedNode = optimistic.model.normalize(node) as Record<string, unknown>;
           ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
           if (optimistic.preserveOnCommit?.length) {
+            let normalizedNode: Record<string, unknown> | undefined;
+            try {
+              normalizedNode = optimistic.model.normalize(node) as Record<string, unknown>;
+            } catch {
+              normalizedNode = undefined;
+            }
             const current = optimistic.model.find(tempId) as Record<string, unknown> | undefined;
-            if (current) {
+            if (current && normalizedNode) {
               const preserved: Record<string, unknown> = {};
               for (const field of optimistic.preserveOnCommit) {
                 const merger = optimistic.commitMergers?.[field];

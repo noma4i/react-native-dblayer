@@ -164,7 +164,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
         ops.push(
           ...getInternalModelHandle(model)
             .planRows(rows)
-            .map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op))
+            .map(op => (op.kind === 'upsert' ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))
         );
       }
       if (ids.length > 0) ops.push({ kind: 'destroy', model: model.modelId, ids });
@@ -172,7 +172,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
         ops.push(
           ...getInternalModelHandle(sink.into)
             .planRows(sink.rows)
-            .map(op => (op.kind === 'upsert' ? { ...op, origin: 'event' as const } : op))
+            .map(op => (op.kind === 'upsert' ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))
         );
       }
       if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));

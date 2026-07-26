@@ -31,7 +31,7 @@ export type EntityState<T extends { id: string }> = {
   read(id: string): T | undefined;
   values(): T[];
   /** Returns changed top-level fields vs the previous row, or null when the row is new. */
-  upsert(row: T): UpsertResult;
+  upsert(row: T, options?: { mergeBase?: T }): UpsertResult;
   destroy(id: string, options?: { tombstone?: boolean }): void;
   /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
   evict(id: string): boolean;
@@ -103,10 +103,11 @@ export const createEntityState = <T extends { id: string }>(options: {
   return {
     read: id => rows.get(id),
     values: () => [...rows.values()],
-    upsert: row => {
+    upsert: (row, options = {}) => {
       const previous = rows.get(row.id);
+      const mergePrevious = previous ?? options.mergeBase;
       if (previous === row) return { changedFields: [] };
-      if (previous && mergeGate) row = mergeGate(previous, row);
+      if (mergePrevious && mergeGate) row = mergeGate(mergePrevious, row);
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { changedFields };
       if (previous && changedFields !== null && changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))) {

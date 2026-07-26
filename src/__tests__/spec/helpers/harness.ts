@@ -141,6 +141,7 @@ export type DiagnosticsSnapshot = {
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;
   manifestResets: number;
+  replaceRejected: number;
 };
 
 type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };

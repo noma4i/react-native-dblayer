@@ -4,7 +4,9 @@ import { noteCorruptionJournalDrop, noteCorruptionJournalLoss } from '../diagnos
 import { getDbLogger } from '../logger';
 
 export type JournalOp =
-  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event' | 'replace' }
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; mergeBase?: never }
+  /** Replace carries the normalized prior row through WAL replay so mergePolicy observes the same commit semantics after restart. */
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown }
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown> }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }

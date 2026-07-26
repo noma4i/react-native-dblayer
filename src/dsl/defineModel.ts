@@ -14,6 +14,7 @@ import { createEntityState, type EntityState } from '../core/planes/entityState'
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
+import { noteReplaceRejected } from '../core/diagnostics';
 import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
@@ -677,7 +678,7 @@ export const defineModel = <
     detachForDestroy
   });
 
-  const writeRows = (rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }> => {
+  const writeRows = (rows: unknown[], origin?: 'event' | 'replace', mergeBase?: Stored): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       let incoming: Stored;
@@ -695,7 +696,7 @@ export const defineModel = <
         const owned = getOperationState().ownedFields(config.id, incoming.id);
         if (owned.size > 0) for (const field of owned) if (field in current) (merged as Record<string, unknown>)[field] = (current as Record<string, unknown>)[field];
       }
-      const result = planes().entityState.upsert(merged);
+      const result = planes().entityState.upsert(merged, origin === 'replace' ? { mergeBase } : undefined);
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
@@ -853,7 +854,7 @@ export const defineModel = <
 
   /** Imperative/domain writes are events: expand declared relation side effects into the same plan. */
   const applyEvent = (ops: JournalOp[]): void => {
-    getApplyRuntime().apply(expandPlan(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { ...op, origin: 'event' as const } : op))));
+    getApplyRuntime().apply(expandPlan(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))));
   };
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): Stored[] => {
@@ -1192,13 +1193,22 @@ export const defineModel = <
   };
 
   const planReplace = (oldId: string, next: unknown): JournalOp[] => {
+    let normalized: Stored;
+    try {
+      normalized = normalize(next);
+    } catch (error) {
+      getDbLogger().error('replace rejected', { model: config.id, oldId, error });
+      noteReplaceRejected();
+      return [];
+    }
     // Reconciliation and mutation commit share this replacement seam, so both clear retained failure state.
     clearFailedOptimisticMutation(config.id, oldId);
+    const mergeBase = planes().entityState.read(oldId);
     const memberships = captureMembership(oldId);
-    const nextId = replacementId(next);
+    const nextId = normalized.id;
     return [
       { kind: 'destroy', model: config.id, ids: [oldId] },
-      { kind: 'upsert', model: config.id, rows: [next], origin: 'replace' },
+      { kind: 'upsert', model: config.id, rows: [next], origin: 'replace', mergeBase },
       ...(nextId == null ? [] : restoreMembership(nextId, memberships))
     ];
   };

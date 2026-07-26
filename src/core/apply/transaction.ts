@@ -20,7 +20,7 @@ export type ApplyTarget = {
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
   scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
   readAllScopeKeys(): string[];
-  upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{ id: string; changedFields: string[] | null }>;
+  upsert(rows: unknown[], origin?: 'event' | 'replace', mergeBase?: Record<string, unknown>): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];
   counter(id: string, field: string, delta: number, next?: number): boolean;
@@ -88,7 +88,7 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   for (const op of ops) {
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
-      const changes = target.upsert(op.rows, op.origin);
+      const changes = target.upsert(op.rows, op.origin, op.origin === 'replace' ? op.mergeBase as Record<string, unknown> | undefined : undefined);
       for (const change of changes) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
       noteRows(
         op.model,
