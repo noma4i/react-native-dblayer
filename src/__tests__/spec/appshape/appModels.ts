@@ -166,6 +166,7 @@ export const createAppModels = (tag: string) => {
   const currentUser = defineModel({
     id: `AppShapeCurrentUser:${tag}`,
     name: `AppShapeCurrentUser:${tag}`,
+    gc: 'exempt',
     fields: {
       uuid: f.str(), fullName: f.str(), username: f.str(), name: f.str().nullable(), avatarUrl: f.str().nullable(), fullAvatarUrl: f.str().nullable(), age: f.num().nullable(),
       gender: f.enum(['male', 'female', 'other'] as const).nullable(), description: f.str().nullable(), story: f.str().nullable(), connectionStatus: f.enum(['none', 'pending', 'connected'] as const).nullable(),
@@ -188,6 +189,7 @@ export const createAppModels = (tag: string) => {
   const counters = defineModel({
     id: `AppShapeUserCounters:${tag}`,
     name: `AppShapeUserCounters:${tag}`,
+    gc: 'exempt',
     fields: { unreadChatsCount: f.num().default(0), unreadCompassCount: f.num().default(0), unreadSecondaryChatsCount: f.num().default(0), secondaryChatsCount: f.num().default(0), premiumSecondaryChatsCount: f.num().default(0) },
     statics: model => createSingletonStatics(model, 'counters', countersDefaults)
   });
@@ -195,6 +197,7 @@ export const createAppModels = (tag: string) => {
   const vibes = defineModel({
     id: `AppShapeVibe:${tag}`,
     name: `AppShapeVibe:${tag}`,
+    gc: 'exempt',
     fields: { name: f.str(), description: f.str().nullable(), color: f.str(), position: f.num(), createdAt: f.str(), updatedAt: f.str() },
     scopes: { catalog: scope<any>({ sort: { field: 'position', dir: 'asc' } }) }
   });

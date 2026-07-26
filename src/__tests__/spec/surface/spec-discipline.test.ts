@@ -41,7 +41,11 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'sufficiency/s07-pending-flag.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'perf/p05-pending-index-scale.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'perf/p05-pending-index-scale.test.tsx'), source: path.resolve(specRoot, '../../core/planes/operationState.ts') },
-  { spec: path.resolve(specRoot, 'perf/p06-large-scope-churn.test.tsx'), source: path.resolve(specRoot, '../../core/serialize.ts') }
+  { spec: path.resolve(specRoot, 'perf/p06-large-scope-churn.test.tsx'), source: path.resolve(specRoot, '../../core/serialize.ts') },
+  { spec: path.resolve(specRoot, 'appshape/app-loss.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
+  { spec: path.resolve(specRoot, 'appshape/app-loss.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'appshape/app-loss.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
+  { spec: path.resolve(specRoot, 'appshape/app-loss.test.tsx'), source: path.resolve(specRoot, '../../core/serialize.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>
