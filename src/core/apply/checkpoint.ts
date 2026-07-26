@@ -1,6 +1,9 @@
 import type { StoragePlane } from '../planes/storagePlane';
 
-type CheckpointTarget = { persistEntries(): Array<{ key: string; value: string | null }> };
+type CheckpointTarget = {
+  persistEntries(): Array<{ key: string; value: string | null }>;
+  ackPersist(): void;
+};
 
 export type CheckpointScheduler = {
   /** Note one applied plan touching these models; schedules (or forces) a snapshot flush. */
@@ -62,12 +65,14 @@ export const createCheckpointScheduler = (options: {
       entries.push(...options.getTarget(model).persistEntries());
       if (epoch !== undefined) markers.push({ key: `${options.prefix()}applied:${model}`, value: String(epoch) });
     }
-    dirty.clear();
     if (entries.length === 0 && markers.length === 0) return;
     entries.push(...markers);
     entries.push(...(options.extraEntries?.() ?? []));
     entries.push({ key: `${options.prefix()}meta`, value: JSON.stringify({ lastCheckpointEpoch: checkpointEpoch }) });
     options.storage.set(entries);
+    // Ack strictly after the successful write: a thrown set keeps every dirty marker for the next flush.
+    for (const model of knownModels) options.getTarget(model).ackPersist();
+    dirty.clear();
     flushed = checkpointEpoch;
     afterFlush?.(checkpointEpoch);
   };

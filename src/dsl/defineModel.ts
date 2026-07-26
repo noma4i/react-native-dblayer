@@ -805,7 +805,11 @@ export const defineModel = <
       if (delta.append.length > 0) planes().scopeIndex.reconcile(scopeKey, 'delta', delta.append);
     },
     reactiveScopes: (ids: string[]) => planes().scopeIndex.touchMembers(ids),
-    persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()]
+    persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()],
+    ackPersist: () => {
+      planes().entityState.ackPersist();
+      planes().scopeIndex.ackPersist();
+    }
   };
   registerApplyTarget(config.id, applyTarget);
   if (hasReplayedJournal()) seedCollections([config.id]);

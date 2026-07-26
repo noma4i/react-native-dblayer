@@ -43,6 +43,7 @@ export type EntityState<T extends { id: string }> = {
   pruneTombstones(): number;
   /** Serialize rows+tombstones into storage entries for the transaction's single persist batch. */
   persistEntries(): Array<{ key: string; value: string | null }>;
+  ackPersist(): void;
   hydrate(): void;
   reset(): void;
 };
@@ -153,12 +154,14 @@ export const createEntityState = <T extends { id: string }>(options: {
       for (const [id, op] of dirty) {
         entries.push({ key: rowKey(id), value: op === 'set' ? JSON.stringify(rows.get(id)) : null });
       }
-      dirty.clear();
       if (tombstonesDirty) {
         entries.push({ key: tombstonesKey(), value: tombstones.size > 0 ? JSON.stringify(Object.fromEntries(tombstones)) : null });
-        tombstonesDirty = false;
       }
       return entries;
+    },
+    ackPersist: () => {
+      dirty.clear();
+      tombstonesDirty = false;
     },
     hydrate: () => {
       rows.clear();

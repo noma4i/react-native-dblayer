@@ -29,6 +29,8 @@ export type ApplyTarget = {
   scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }): void;
   reactiveScopes?(ids: string[]): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
+  /** Clears the dirty markers captured by the last persistEntries; called only after a successful storage write. */
+  ackPersist(): void;
 };
 
 export type ApplyRuntime = {
@@ -157,12 +159,14 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
 
   const persistImmediate = (ops: JournalOp[], record: JournalRecord): void => {
     const entries: Array<{ key: string; value: string | null }> = [];
-    for (const model of touchedModelsOf(ops)) {
+    const models = touchedModelsOf(ops);
+    for (const model of models) {
       entries.push(...getApplyTarget(model).persistEntries());
       entries.push({ key: `${prefix()}applied:${model}`, value: String(record.epoch) });
     }
     entries.push(...journal.committedEntry(record));
     storage.set(entries);
+    for (const model of models) getApplyTarget(model).ackPersist();
   };
 
   const persistedAppliedEpoch = (model: string): number => {

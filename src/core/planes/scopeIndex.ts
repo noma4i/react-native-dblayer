@@ -46,6 +46,7 @@ export type ScopeIndex = {
   /** Bump the revisions of scopes that currently contain one of these rows. */
   touchMembers(ids: string[]): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
+  ackPersist(): void;
   hydrate(): void;
   reset(): void;
 };
@@ -266,10 +267,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     },
     persistEntries: () => {
       const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: JSON.stringify(scopes.get(key) ?? empty()) }));
-      dirty.clear();
       for (const key of removed) entries.push({ key: storageKey(key), value: null });
-      removed.clear();
       return entries;
+    },
+    ackPersist: () => {
+      dirty.clear();
+      removed.clear();
     },
     hydrate: () => {
       scopes.clear();
