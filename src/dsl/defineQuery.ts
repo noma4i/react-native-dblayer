@@ -215,6 +215,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const issuedResetSeqByScope = new Map<string, number>();
   const appliedResetSeqByScope = new Map<string, number>();
   registerReset(() => {
+    registeredScopes.clear();
     issuedResetSeqByScope.clear();
     appliedResetSeqByScope.clear();
   });
