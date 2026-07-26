@@ -119,6 +119,20 @@ describe('persistence fault invariants', () => {
     expect(storage.plane.keys('dbl:journal:')).toHaveLength(50);
   });
 
+  it('does not advance the prune checkpoint after a failed checkpoint write', () => {
+    const storage = createFaultStorage();
+    configureFaultRuntime(storage);
+    const rows = createRows('FailedCheckpointPruneGate');
+    rows.insertStored({ id: 'row-0', label: '0' });
+
+    storage.failNextSet();
+    expect(() => flushPersistence()).toThrow('fault: set failed');
+
+    for (let index = 1; index <= 50; index += 1) rows.insertStored({ id: `row-${index}`, label: String(index) });
+
+    expect(storage.plane.get('dbl:journal:1')).not.toBeUndefined();
+  });
+
   it('rejects a server snapshot after destroy but lets an event-origin insert restore the row', async () => {
     const storage = createFaultStorage();
     const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: { id: 'row-1', label: 'server' } } as TData }) });
