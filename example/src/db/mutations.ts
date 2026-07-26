@@ -7,7 +7,7 @@ const deleteDocument = parse('mutation ExampleDelete { deletePost(postId: 1) }')
 
 export const renameUser = UserModel.mutation<{ updatePost: { id: number } }, { id: string; name: string }, { id: string; name: string; username: string; email: string }, { id: number }>('rename', {
   document: updateDocument, result: 'updatePost', mapInput: input => ({ title: input.name }),
-  optimistic: { method: 'patch', model: UserModel, selectId: input => input.id, selectPatch: input => ({ name: input.name }) }, onCommit: (_data, context) => UserModel.patch(context.input.id, { name: context.input.name }),
+  optimistic: { method: 'patch', model: UserModel, selectId: input => input.id, selectPatch: input => ({ name: input.name }) }, onCommit: (_data, context) => UserModel.update(context.input.id, { name: context.input.name }),
 });
 
 // dedupe: false - toggling cycles between the same two { id, completed } inputs, which the mutation-level
@@ -15,7 +15,7 @@ export const renameUser = UserModel.mutation<{ updatePost: { id: number } }, { i
 export const toggleTodo = TodoModel.mutation<{ updatePost: { id: number } }, { id: string; completed: boolean }, { id: string; userId: string; title: string; completed: boolean }, { id: number }>('toggle', {
   dedupe: false,
   document: updateDocument, result: 'updatePost', mapInput: input => ({ title: input.completed ? 'completed' : 'active' }),
-  optimistic: { method: 'patch', model: TodoModel, selectId: input => input.id, selectPatch: input => ({ completed: input.completed }) }, onCommit: (_data, context) => TodoModel.patch(context.input.id, { completed: context.input.completed }),
+  optimistic: { method: 'patch', model: TodoModel, selectId: input => input.id, selectPatch: input => ({ completed: input.completed }) }, onCommit: (_data, context) => TodoModel.update(context.input.id, { completed: context.input.completed }),
 });
 
 export const addComment = CommentModel.mutation<{ createPost: { id: number } }, { postId: string; userId: string; name: string; body: string }, CommentNode, CommentNode>('add', {

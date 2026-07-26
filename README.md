@@ -85,7 +85,7 @@ const MessageModel = defineModel({
     })
   }),
   statics: model => ({
-    forChat: (chatId: string) => model.getWhere({ chatId })
+    forChat: (chatId: string) => model.where({ chatId })
   })
 });
 ```
@@ -115,7 +115,7 @@ Full reference: [docs/models.md](./docs/models.md).
 ## Reactive reads
 
 ```ts
-const message = MessageModel.use.row(id);                    // one row
+const message = MessageModel.use.find(id);                   // one row
 const text = MessageModel.use.field(id, 'text');             // one field - nothing else re-renders it
 const chat = MessageModel.use.related(id, 'chat');           // parent row, pinpoint deps
 const rows = MessageModel.scopes.thread.use({ chatId });     // sorted members, stable refs
@@ -123,7 +123,7 @@ const pager = MessageModel.scopes.thread.useWindow({ chatId }, { pageSize: 20 })
 ```
 
 Array reads keep referential identity: after a single-row patch, every untouched element keeps
-its previous reference. Snapshot reads (`get`, `getWhere`, `getAll`) never subscribe; `getAll` is
+its previous reference. Snapshot reads (`find`, `where`, `all`) never subscribe; `all` is
 the library/maintenance channel - application code stays on scoped reads. `select`/`renderKeys`
 projections keep a row or item reference stable while the fields that matter stay unchanged, even
 as the rest of the row changes.
@@ -208,7 +208,7 @@ Full reference: [docs/ingest-live.md](./docs/ingest-live.md).
 
 Per-scope row trimming and stale temp-row resolution run automatically as maintenance (used by
 declared `maintenance.maxRowsPerScope` tasks and boot replay); `reconcileOptimisticRows` consumes
-any model via its maintenance channel. `patchWhenRowExists` and `waitForRow` defer work until a
+any model via its maintenance channel. `updateWhenRowExists` and `waitForRow` defer work until a
 row appears (commit-bus backed, TTL/abort aware). `createSingletonStatics` builds a reactive
 single-row facade.
 `collectGarbage` runs a reachability sweep (roots: scope members, `gc: 'exempt'` rows, pending

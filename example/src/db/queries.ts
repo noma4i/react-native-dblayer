@@ -11,7 +11,7 @@ type ApiComment = { id: number; name: string; body: string; post: { id: number }
 type ApiTodo = { id: number; title: string; completed: boolean; user: { id: number } };
 
 const toUser = (user: ApiUser): UserNode => ({ ...user, id: String(user.id) });
-const toRelatedUser = (user: ApiUser): UserNode => UserModel.get(String(user.id)) ?? toUser(user);
+const toRelatedUser = (user: ApiUser): UserNode => UserModel.find(String(user.id)) ?? toUser(user);
 const toPost = (post: ApiPost): PostNode => ({ id: String(post.id), userId: String(post.user.id), title: post.title, body: post.body });
 const toComment = (comment: ApiComment): CommentNode => ({ id: String(comment.id), postId: String(comment.post.id), name: comment.name, body: comment.body });
 const toTodo = (todo: ApiTodo): TodoNode => ({ id: String(todo.id), userId: String(todo.user.id), title: todo.title, completed: todo.completed });

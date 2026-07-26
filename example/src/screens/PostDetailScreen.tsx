@@ -13,7 +13,7 @@ function CommentRow({ comment }: { comment: { id: string; name: string; body: st
 
 export function PostDetailScreen({ route, navigation }: { route: any; navigation: any }) {
   const postId = route.params.postId as string;
-  const post = PostModel.use.row(postId);
+  const post = PostModel.use.find(postId);
   const [body, setBody] = useState('A local-first comment');
   postCommentsQuery.use({ postId });
   const window = CommentModel.scopes.byPost.useWindow({ postId }, { pageSize: 20 });
