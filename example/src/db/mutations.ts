@@ -22,7 +22,7 @@ export const addComment = CommentModel.mutation<{ createPost: { id: number } }, 
   document: createDocument, result: 'createPost', mapInput: input => ({ title: input.name, body: input.body, userId: Number(input.userId) }),
   optimistic: {
     model: CommentModel, tempIdPrefix: 'comment', build: input => ({ id: '', postId: input.postId, name: input.name, body: input.body }),
-    selectServerNode: data => ({ id: String(data.createPost.id), postId: '', name: '', body: '' }), preserveOnCommit: ['postId', 'name', 'body'],
+    selectServerNode: data => ({ id: String(data.createPost.id), postId: '', name: '', body: '' }),
     prependTo: { scope: CommentModel.scopes.byPost, value: input => ({ postId: input.postId }) },
   },
 });

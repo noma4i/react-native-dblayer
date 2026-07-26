@@ -27,7 +27,6 @@ const runtimeExportAllowlist = [
   'isIncomingNewer',
   'isTempId',
   'mergeOptimisticMedia',
-  'mergeOptimisticSnapshot',
   'pickDefined',
   'pickPresent',
   'projectShape',

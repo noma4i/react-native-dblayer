@@ -32,7 +32,6 @@ export { generateTempId, isTempId } from './utils/generateTempId';
 export { isIncomingNewer } from './core/invariants';
 export { stringifyNullish } from './utils/normalizeHelpers';
 export { pickDefined, pickPresent } from './utils/pickDefined';
-export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapshot';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { createThrottledSingleFlight, createSingleFlight, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, createSingletonStatics } from './utils/runtimePrimitives';
 export { reconcileOptimisticRows } from './utils/runtimePrimitives';

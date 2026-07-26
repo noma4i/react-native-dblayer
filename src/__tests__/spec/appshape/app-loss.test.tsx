@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { configureDb, mergeOptimisticMedia } from '../../../index';
+import { configureDb } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { flushPersistence } from '../../../dsl/configure';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
@@ -44,9 +44,7 @@ describe('app-shaped loss contracts', () => {
           tempId = context.tempId!;
           return { id: context.tempId!, chatId: 'chat-1', userId: 'me', kind: 'photo', status: 'Sending', body: 'optimistic', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:01Z', sequenceNumber: 1, localPreviewUrl: 'file:///spool/preview.jpg', media: { id: 'media-1', kind: 'photo', fileUrl: 'file:///spool/upload.jpg', thumbUrl: 'file:///spool/upload.jpg', width: 320, height: 240 } };
         },
-        selectServerNode: (data: any) => data.send.message,
-        preserveOnCommit: ['media', 'localPreviewUrl'],
-        commitMergers: { media: (optimisticMedia: unknown, serverMedia: unknown) => mergeOptimisticMedia(optimisticMedia, serverMedia, { dimensionKeys: ['width', 'height'] }) }
+        selectServerNode: (data: any) => data.send.message
       }
     });
 

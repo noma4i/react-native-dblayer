@@ -14,7 +14,6 @@ model-less counterpart for mutations with no local write of their own.
 - [Dedupe](#dedupe)
 - [`operationId` echo wiring with `Model.ingest`](#operationid-echo-wiring-with-modelingest)
 - [`use()` result shape](#use-result-shape)
-- [`mergeOptimisticSnapshot`](#mergeoptimisticsnapshot)
 - [`defineCommand(name, config)`](#definecommandname-config)
 - [`Model.crud(sections)`](#modelcrudsections)
 - [Error policy](#error-policy)
@@ -39,7 +38,6 @@ const sendMessage = MessageModel.mutation('send', {
       localEcho: true
     }),
     selectServerNode: data => data.messageSend.message,
-    preserveOnCommit: ['localEcho'],
     existingTempId: input => input.retryTempId ?? null
   },
   extract: ({ data }) => [{ into: UserModel, rows: [data.messageSend.message.author] }],
@@ -80,17 +78,14 @@ see Dedupe below.
 
 | Variant | Shape                                                                                                          | Behavior                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, preserveOnCommit?, commitMergers?, existingTempId?, failure?, onFailurePatch?, onRetryPatch?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit. Its default failure policy retains the row for retry; `failure: 'rollback'` removes it. `existingTempId(input)` can reuse a supplied temp id. `prependTo`/`appendTo` place the temp row in a server-order scope - see Optimistic scope placement below. |
+| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, existingTempId?, failure?, onFailurePatch?, onRetryPatch?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit. Its default failure policy retains the row for retry; `failure: 'rollback'` removes it. Field continuity and merge semantics are model-owned through `write.groups`. |
 | Respond | `{ model, selectServerNode, respond, prependTo?, appendTo? }`                                                  | Fabricates a full transport-shaped response and runs it through the exact same plan builder as the real one - see Respond variant below.                                                                                                                                                                                                                                                              |
 | Patch   | `{ method: 'patch', model, selectId, selectPatch }`                                                            | Applies a partial update immediately, restoring the previous field values on error.                                                                                                                                                                                                                                                                                                                   |
 | Destroy | `{ method: 'destroy', model, selectId }`                                                                       | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back.                                                                                                                                          |
 
 **Temp-id -> server replace.** On a successful insert commit, `selectServerNode(data)` picks the
 server-created node; the temp row is replaced by it in the same transaction as any `extract` sinks.
-`preserveOnCommit` names client-only fields (visual state, local uris) copied from the optimistic
-row only when the normalized server node omits or nulls them. Server values win for non-null fields.
-Use `commitMergers` for per-field deep merges such as media dimensions, and pass the same merger
-dictionary to `reconcileOptimisticRows` so commit and reconcile share one semantic contract.
+Field continuity and merge semantics are model-owned through `write.groups`; commit performs only the temp-id replacement and extract sinks.
 
 ### Failure handling
 
@@ -263,27 +258,6 @@ was skipped by dedupe), `onError?: (error: Error) => void` (called after rollbac
 
 `run(input)` (the non-hook path) executes one mutation outside React, resolving to the response
 data, or `null` when dedupe skipped it.
-
-## `mergeOptimisticSnapshot`
-
-Merge an optimistic row snapshot with a committed server node - useful inside `onCommit`, or any
-custom commit path that needs the same null/empty-string preservation `preserveOnCommit` gives you
-for a fixed field list.
-
-```ts
-import { mergeOptimisticSnapshot } from '@noma4i/react-native-dblayer';
-
-const merged = mergeOptimisticSnapshot(optimisticRow, serverNode, {
-  fields: ['caption', 'localUri'],
-  mergers: { localUri: (optimistic, server) => server ?? optimistic }
-});
-```
-
-`mergeOptimisticSnapshot(optimistic, server, options?)`: for each merged field, the server value
-wins **unless** it is `null`, `undefined`, or an empty string while the optimistic row has a value -
-in which case the optimistic value is kept. `options.fields` restricts the merge to a field
-allowlist (defaults to the union of both objects' keys); `options.mergers` overrides the
-per-field rule for specific keys. Returns whichever side exists when the other is nullish.
 
 ## `defineCommand(name, config)`
 

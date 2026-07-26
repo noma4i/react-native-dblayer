@@ -11,7 +11,7 @@ the [project README](../README.md).
 | 2   | [models.md](./models.md)                   | `defineModel` itself: the `f`/`defineShape` field DSL, writes, scopes (`sort`/`server-order`/`coverage`/`retention`), relations (`touch`/`counterCache`/`dependent`).                                                   |
 | 3   | [reading.md](./reading.md)                 | Every read surface: `use.find`/`field`/`first`/`where`/`byIds`/`count`/`related`, `select`/`renderKeys` projections and their identity guarantees, scope `use`/`useWindow`, `keepPrevious`, `use.pending`, `Model.view`. |
 | 4   | [queries.md](./queries.md)                 | `Model.query` (network reads into a model/scope, pagination, coverage semantics, loading state), `defineFetch` (`document`\|`fetcher`, `remove()`), `Model.fetch`.                                                      |
-| 5   | [mutations.md](./mutations.md)             | `Model.mutation` (optimistic lifecycle, temp-id replace, rollback, dedupe), `defineCommand`, `Model.crud`, `mergeOptimisticSnapshot`, mutation error policy.                                                            |
+| 5   | [mutations.md](./mutations.md)             | `Model.mutation` (optimistic lifecycle, temp-id replace, rollback, dedupe), `defineCommand`, `Model.crud`, mutation error policy.                                                            |
 | 6   | [ingest-live.md](./ingest-live.md)         | `Model.ingest`, the subscription runtime (`createDbSubscriptionRuntime`/`defineDbSubscriptionEntry`/`createDbSubscriptionEffects`), `Model.query`'s live colocation, echo semantics.                                    |
 | 7   | [runtime.md](./runtime.md)                 | Maintenance, garbage collection, `resetRuntime`/`registerReset`, the persistence/journal model, `Model.poller`, row waiters, and the small cleanup/patcher/scalar helpers.                                              |
 
@@ -128,7 +128,6 @@ see [reading.md](./reading.md).
 | Export                    | Kind  | Home                                                     |
 | ------------------------- | ----- | -------------------------------------------------------- |
 | `defineCommand`           | value | [mutations.md](./mutations.md#definecommandname-config)  |
-| `mergeOptimisticSnapshot` | value | [mutations.md](./mutations.md#mergeoptimisticsnapshot)   |
 | `MutateCallbacks`         | type  | [mutations.md](./mutations.md#use-result-shape)          |
 | `ScopePlacement`          | type  | [mutations.md](./mutations.md#optimistic-write-variants) |
 

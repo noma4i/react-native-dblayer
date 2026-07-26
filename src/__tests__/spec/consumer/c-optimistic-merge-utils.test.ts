@@ -1,40 +1,16 @@
-import { mergeOptimisticMedia, mergeOptimisticSnapshot } from '../../../index';
+import { configureDb, defineModel, f, mergeOptimisticMedia } from '../../../index';
+import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
-// Named behavioral contracts for the optimistic snapshot/media merge utilities.
+describe('model-owned write continuity', () => {
+  const createRows = () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    return defineModel({ id: 'ConsumerWriteMerge', name: 'ConsumerWriteMerge', fields: { body: f.str().nullable(), localUri: f.str().nullable(), count: f.num() }, write: { groups: [{ fields: ['localUri'] as const, policy: 'continuity' }, { fields: ['count'] as const, policy: { merge: current => current } }] } });
+  };
 
-describe('mergeOptimisticSnapshot', () => {
-  it('returns the other side unchanged when one side is nullish', () => {
-    const optimistic = { id: 't-1', body: 'draft' };
-    const server = { id: 's-1', body: 'final' };
-    expect(mergeOptimisticSnapshot(null, server)).toBe(server);
-    expect(mergeOptimisticSnapshot(optimistic, undefined)).toBe(optimistic);
-  });
-
-  it('lets server values win except nullish and empty-string placeholders', () => {
-    const merged = mergeOptimisticSnapshot(
-      { id: 't-1', body: 'draft', mediaUrl: 'local://file', status: 'sending' },
-      { id: 's-1', body: 'final', mediaUrl: '', status: null }
-    );
-    expect(merged).toEqual({ id: 's-1', body: 'final', mediaUrl: 'local://file', status: 'sending' });
-  });
-
-  it('with a fields allowlist starts from the server object and merges only listed fields', () => {
-    const merged = mergeOptimisticSnapshot(
-      { id: 't-1', body: 'draft', note: 'optimistic-only' },
-      { id: 's-1', body: '' },
-      { fields: ['body'] }
-    );
-    expect(merged).toEqual({ id: 's-1', body: 'draft' });
-  });
-
-  it('applies custom field mergers over the default resolution', () => {
-    const merged = mergeOptimisticSnapshot(
-      { id: 't-1', count: 9 },
-      { id: 's-1', count: 5 },
-      { mergers: { count: optimisticValue => optimisticValue } }
-    );
-    expect(merged).toEqual({ id: 's-1', count: 9 });
-  });
+  it('keeps continuity for null server fields', () => { const rows = createRows(); rows.insert({ id: 'row-1', body: 'draft', localUri: 'local://file', count: 1 }); rows.insert({ id: 'row-1', body: 'final', localUri: null, count: 2 }); expect(rows.find('row-1')).toMatchObject({ body: 'final', localUri: 'local://file' }); });
+  it('accepts an explicit empty continuity value', () => { const rows = createRows(); rows.insert({ id: 'row-1', body: 'draft', localUri: 'local://file', count: 1 }); rows.insert({ id: 'row-1', body: 'final', localUri: '', count: 2 }); expect(rows.find('row-1')?.localUri).toBe(''); });
+  it('merges only declared fields', () => { const rows = createRows(); rows.insert({ id: 'row-1', body: 'draft', localUri: 'local://file', count: 9 }); rows.insert({ id: 'row-1', body: 'final', localUri: 'server://file', count: 5 }); expect(rows.find('row-1')).toMatchObject({ body: 'final', localUri: 'server://file', count: 9 }); });
+  it('uses model policy for every replacement write', () => { const rows = createRows(); rows.insert({ id: 'row-1', body: 'draft', localUri: 'local://file', count: 9 }); rows.replace('row-1', { id: 'row-2', body: 'final', localUri: null, count: 5 }); expect(rows.find('row-2')).toMatchObject({ localUri: 'local://file', count: 9 }); });
 });
 
 describe('mergeOptimisticMedia', () => {

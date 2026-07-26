@@ -55,7 +55,7 @@ describe('public type surface', () => {
 
     for (const row of first.split('\n')) expect(row).not.toContain('import("/');
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(71);
+    expect(first.split('\n')).toHaveLength(70);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbRetryClass: any
@@ -111,7 +111,6 @@ intoIf: (into: PlanRowsSink, row: unknown) => import("<root>/src/dsl/defineQuery
 isIncomingNewer: (existingUpdatedAt: string | null | undefined, incomingUpdatedAt: string | null | undefined) => boolean
 isTempId: (id: string | null | undefined) => boolean
 mergeOptimisticMedia: { <TMedia extends MediaRecord>(optimistic: TMedia | null | undefined, server: TMedia | null | undefined, options?: import("<root>/src/utils/optimisticMedia").MergeOptimisticMediaOptions<TMedia> | undefined): TMedia | null | undefined; (optimistic: unknown, server: unknown, options?: import("<root>/src/utils/optimisticMedia").MergeOptimisticMediaOptions<MediaRecord> | undefined): unknown; }
-mergeOptimisticSnapshot: <TOptimistic extends object, TServer extends object>(optimistic: TOptimistic | null | undefined, server: TServer | null | undefined, options?: import("<root>/src/mutations/base/mergeOptimisticSnapshot").MergeOptimisticSnapshotOptions<TOptimistic, TServer> | undefined) => TOptimistic | TServer | (TOptimistic & TServer) | null | undefined
 pickDefined: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<Pick<TSource, TKey>>
 pickPresent: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<{ [K in TKey]: NonNullable<TSource[K]>; }>
 projectShape: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/src/schema/shape").DbShape<TInput, TFields>, source: object, overrides?: Partial<{ [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }> | undefined) => { [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }

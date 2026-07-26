@@ -53,7 +53,8 @@ describe('optimistic commit preserve semantics', () => {
     const messages = defineModel({
       id: 'CommitPreserveMessages',
       name: 'CommitPreserveMessages',
-      fields: { body: f.str(), media: f.object(mediaShape), localPreviewUrl: f.str().nullable() }
+      fields: { body: f.str(), media: f.object(mediaShape), localPreviewUrl: f.str().nullable() },
+      write: { groups: [{ fields: ['media'] as const, policy: { merge: (current, incoming) => mergeOptimisticMedia(current, incoming, { dimensionKeys: ['width', 'height'] }) } }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
     });
     const send = messages.mutation<SendResult, void, MessageRow, MessageRow>('send', {
       document,
@@ -75,11 +76,7 @@ describe('optimistic commit preserve semantics', () => {
           },
           localPreviewUrl: 'file:///spool/1.jpg'
         }),
-        selectServerNode: (data: SendResult) => data.send.message,
-        preserveOnCommit: ['media', 'localPreviewUrl', 'body'],
-        commitMergers: {
-          media: (optimisticMedia: unknown, serverMedia: unknown) => mergeOptimisticMedia(optimisticMedia, serverMedia, { dimensionKeys: ['width', 'height'] })
-        }
+        selectServerNode: (data: SendResult) => data.send.message
       }
     });
 

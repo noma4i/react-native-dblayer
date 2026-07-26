@@ -65,7 +65,7 @@ export type MutateCallbacks<TData> = {
 
 /**
  * Optimistic insert: writes a temp row immediately, then replaces it with the server node on commit
- * (or removes it on error/rollback).
+ * (or removes it on error/rollback). Field continuity and merge semantics are model-owned through `write.groups`, not mutation-owned.
  */
 type InsertOptimistic<TData, TInput, TStored, TNode> = {
   /** Model the optimistic (and committed) row is written into. */
@@ -76,10 +76,6 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
   build: (input: TInput, ctx: OptimisticCtx) => TStored;
   /** Pick the server-created node off the mutation response; `null`/`undefined` skips the temp-id replace. */
   selectServerNode: (data: TData) => TNode | null | undefined;
-  /** Client-only fields carried from the optimistic row only when the normalized server node omits or nulls them. */
-  preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
-  /** Per-field commit merges mirroring `reconcileOptimisticRows` mergers; pass the same merger dictionary to both paths. Returning undefined skips the patch. */
-  commitMergers?: Record<string, (optimisticValue: unknown, serverValue: unknown) => unknown>;
   /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
   existingTempId?: (input: TInput) => string | null;
   /**
@@ -348,30 +344,6 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const node = optimistic.selectServerNode(data);
         if (node != null) {
           ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
-          if (optimistic.preserveOnCommit?.length) {
-            let normalizedNode: Record<string, unknown> | undefined;
-            try {
-              normalizedNode = optimistic.model.normalize(node) as Record<string, unknown>;
-            } catch {
-              normalizedNode = undefined;
-            }
-            const current = optimistic.model.find(tempId) as Record<string, unknown> | undefined;
-            if (current && normalizedNode) {
-              const preserved: Record<string, unknown> = {};
-              for (const field of optimistic.preserveOnCommit) {
-                const merger = optimistic.commitMergers?.[field];
-                if (merger) {
-                  const merged = merger(current[field], normalizedNode[field]);
-                  if (merged !== undefined) preserved[field] = merged;
-                } else if (current[field] !== undefined && (normalizedNode[field] === undefined || normalizedNode[field] === null)) {
-                  preserved[field] = current[field];
-                }
-              }
-              if (Object.keys(preserved).length > 0) {
-                ops.push({ kind: 'patch', model: optimistic.model.modelId, id: normalizedNode.id as string, patch: preserved });
-              }
-            }
-          }
         }
       }
       for (const sink of config.extract?.({ data }) ?? []) {

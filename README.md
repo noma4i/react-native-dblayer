@@ -164,7 +164,6 @@ const sendMessage = MessageModel.mutation('send', {
     model: MessageModel,
     build: (input, { tempId }) => buildLocalMessage(input, tempId),
     selectServerNode: data => data.messageSend.message,
-    preserveOnCommit: ['localEcho'],        // client-only fields survive the commit
     existingTempId: input => input.retryTempId ?? null
   },
   dedupe: { key: input => input.clientKey },
@@ -176,7 +175,7 @@ await sendMessage.run(input);               // same lifecycle imperatively
 ```
 
 The lifecycle is: optimistic write (synchronous, before transport) -> transport -> one-transaction
-commit (temp-to-server replace + preserved fields + extract sinks in a single epoch) or rollback.
+commit (temp-to-server replace + extract sinks in a single epoch) or rollback. Field continuity and merge behavior belong to model `write.groups`.
 A committed dedupe key is never re-sent; a pending key blocks double-taps; a `null` key disables
 dedupe. `existingTempId` is the retry path: it reuses the failed optimistic row and a failed retry
 keeps it. `Model.crud` composes conventional list/get/create/update/destroy handles from one call;

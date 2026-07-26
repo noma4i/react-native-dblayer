@@ -7,6 +7,7 @@ import {
   hasMany,
   hasOne,
   isIncomingNewer,
+  mergeOptimisticMedia,
   projectShape,
   references,
   scope
@@ -234,7 +235,7 @@ export const createAppModels = (tag: string) => {
       chat: belongsTo<any, any>(chats, { foreignKey: 'chatId', touch: (message, chat) => compareMessagesNewest(message, { ...chat, id: chat.lastMessageId ?? '', createdAt: chat.lastMessageAt ?? '', sequenceNumber: chat.lastSequenceNumber }) < 0 ? { lastActivityAt: message.createdAt, lastMessageAt: message.createdAt, lastMessageId: message.id, lastSequenceNumber: message.sequenceNumber } : null, counterCache: { field: 'unreadCount', filter: message => message.userId !== currentUser.currentId() } }),
       replyTarget: references<any, any>(messages, { ids: message => message.replyToId })
     }),
-    write: { groups: [{ fields: ['media'] as const, policy: { monotonic: transcodeDoesNotRegress } }, { fields: ['clientId'] as const, policy: { monotonic: (incoming, current) => incoming.clientId != null || current.clientId == null } }] },
+    write: { groups: [{ fields: ['media'] as const, policy: { merge: (current, incoming) => mergeOptimisticMedia(current, incoming, { dimensionKeys: ['width', 'height'] }) } }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }, { fields: ['clientId'] as const, policy: { monotonic: (incoming, current) => incoming.clientId != null || current.clientId == null } }] },
     maintenance: { maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }
   });
 
