@@ -220,7 +220,7 @@ describe('model pending flag', () => {
     ]);
     configureDb({ storage, transport: createMockTransport() });
     const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() }, gc: 'exempt' });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     messages.insertStored({ id: 'message-1', text: 'kept' });
 
     await bootDb();

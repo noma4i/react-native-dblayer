@@ -21,7 +21,7 @@ const defineRecoveryModel = (id: string) =>
     scopes: { feed: scope<Row>({ by: { bucket: 'bucket' } }) }
   });
 
-const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
 describe('persistence recovery protocol', () => {
   it('cold-resets only the model whose row snapshot is corrupt', async () => {

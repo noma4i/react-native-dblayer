@@ -14,9 +14,8 @@ const declaration = (
   scopes
 });
 
-const configureManifestRuntime = () => {
-  const storage = createMemoryPlane();
-  configureDb({ storage, transport: createMockTransport() });
+const configureManifestRuntime = (storage = createMemoryPlane(), dataVersion?: string) => {
+  configureDb({ storage, transport: createMockTransport(), dataVersion });
   return storage;
 };
 
@@ -80,7 +79,7 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime();
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
-    expect(storage.get('dbl:manifest')).toBe(JSON.stringify({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() }));
+    expect(JSON.parse(storage.get('dbl:manifest')!)).toEqual({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
   });
 
   it('preserves existing data when the manifest matches', async () => {
@@ -93,10 +92,58 @@ describe('persistence schema manifest', () => {
     expect(storage.get('dbl:sentinel')).toBe('kept');
   });
 
+  it('cold-resets persisted data when the consumer data version changes', async () => {
+    const storage = configureManifestRuntime(undefined, 'build-1');
+    await bootDb();
+    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number } };
+    diagnostics.reset();
+
+    configureManifestRuntime(storage, 'build-2');
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: true });
+    expect(storage.get('dbl:sentinel')).toBeUndefined();
+    expect(JSON.parse(storage.get('dbl:manifest')!)).toEqual({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: 'build-2' });
+    expect(diagnostics.snapshot().manifestResets).toBe(1);
+  });
+
+  it('preserves persisted data when the consumer data version matches', async () => {
+    const storage = configureManifestRuntime(undefined, 'build-1');
+    await bootDb();
+    storage.set([{ key: 'dbl:sentinel', value: 'kept' }]);
+
+    configureManifestRuntime(storage, 'build-1');
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: false });
+    expect(storage.get('dbl:sentinel')).toBe('kept');
+  });
+
+  it('cold-resets persisted data when the consumer changes from the default version to a build version', async () => {
+    const storage = configureManifestRuntime();
+    await bootDb();
+    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+
+    configureManifestRuntime(storage, 'build-1');
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: true });
+    expect(storage.get('dbl:sentinel')).toBeUndefined();
+  });
+
+  it('preserves persisted data across boots when the consumer omits the data version', async () => {
+    const storage = configureManifestRuntime();
+    await bootDb();
+    storage.set([{ key: 'dbl:sentinel', value: 'kept' }]);
+
+    configureManifestRuntime(storage);
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: false });
+    expect(storage.get('dbl:sentinel')).toBe('kept');
+  });
+
   it('resets every persisted key for a mismatched fingerprint', async () => {
     const storage = configureManifestRuntime();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated' });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated', dataVersion: null });
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(storage.get('dbl:sentinel')).toBeUndefined();
@@ -106,7 +153,7 @@ describe('persistence schema manifest', () => {
   it('records manifest-driven resets in diagnostics', async () => {
     const storage = configureManifestRuntime();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated' });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated', dataVersion: null });
     const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number } };
     diagnostics.reset();
 

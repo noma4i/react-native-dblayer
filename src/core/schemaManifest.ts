@@ -1,4 +1,4 @@
-import { getDbRuntimeConfig, getStoragePrefix } from '../dsl/configure';
+import { getDbRuntimeConfig, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
 import { resetRuntime } from './reset';
 import { noteManifestReset } from './diagnostics';
 import { stableSerialize } from './serialize';
@@ -8,7 +8,7 @@ export const DB_FORMAT_VERSION = 1;
 type FieldDeclaration = { kind: string; mode: string; hasDefault: boolean };
 type ScopeDeclaration = { by: Record<string, string> | null; sort: string };
 export type SchemaDeclaration = { id: string; name: string; fields: Record<string, FieldDeclaration>; scopes: Record<string, ScopeDeclaration> };
-type PersistenceManifest = { formatVersion: number; schemaFingerprint: string };
+type PersistenceManifest = { formatVersion: number; schemaFingerprint: string; dataVersion: string | null };
 
 const declarations = new Map<string, SchemaDeclaration>();
 
@@ -30,7 +30,8 @@ export const readPersistenceManifest = (prefix: string): PersistenceManifest | u
       typeof parsed !== 'object' ||
       parsed === null ||
       typeof (parsed as PersistenceManifest).formatVersion !== 'number' ||
-      typeof (parsed as PersistenceManifest).schemaFingerprint !== 'string'
+      typeof (parsed as PersistenceManifest).schemaFingerprint !== 'string' ||
+      ((parsed as PersistenceManifest).dataVersion !== null && typeof (parsed as PersistenceManifest).dataVersion !== 'string')
     ) {
       return undefined;
     }
@@ -48,10 +49,10 @@ export const writePersistenceManifest = (prefix: string, manifest: PersistenceMa
 export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   const { storage } = getDbRuntimeConfig();
   const prefix = getStoragePrefix();
-  const current = { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() };
+  const current = { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: getPersistenceDataVersion() };
   const stored = readPersistenceManifest(prefix);
   const nonempty = storage.keys(prefix).some(key => key !== manifestKey(prefix));
-  const matches = stored?.formatVersion === current.formatVersion && stored.schemaFingerprint === current.schemaFingerprint;
+  const matches = stored?.formatVersion === current.formatVersion && stored.schemaFingerprint === current.schemaFingerprint && stored.dataVersion === current.dataVersion;
 
   if (!matches && (stored !== undefined || nonempty)) {
     resetRuntime();

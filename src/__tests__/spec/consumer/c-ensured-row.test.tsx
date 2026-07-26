@@ -16,7 +16,7 @@ const createRowsModel = (id: string) => {
     fields: { name: f.str(), status: f.str(), updatedAt: f.str() },
     scopes: { byStatus: scope<Row>({ by: { status: 'status' } }) }
   });
-  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
   return model;
 };
 

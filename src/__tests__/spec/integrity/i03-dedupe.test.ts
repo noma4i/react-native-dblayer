@@ -86,7 +86,7 @@ describe('mutation dedupe semantics', () => {
     const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     configureDb({ storage, transport });
     const firstCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     await firstCommand.run({ value: 'same' });
     flushPersistence();
 

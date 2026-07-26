@@ -97,7 +97,7 @@ const createModels = (): EnsembleModels => {
   const messages = createMessagesModel();
   const users = createUsersModel();
   const counters = createCountersModel();
-  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
   seedChats(chats);
   seedMessages(messages);
   seedUsers(users);

@@ -50,7 +50,7 @@ describe('provider-owned query runtime', () => {
   it('gates children until boot completes and then supports DSL reads', async () => {
     setupSpecRuntime();
     const users = dbl.defineModel({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() }, gc: 'exempt' });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     users.insertStored({ id: 'user', name: 'Ready' });
     let renders = 0;
     let value: string | undefined;

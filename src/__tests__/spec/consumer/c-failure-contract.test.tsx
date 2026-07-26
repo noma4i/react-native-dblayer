@@ -166,7 +166,7 @@ describe('optimistic failure contract', () => {
     const failingTransport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage, transport: failingTransport });
     const { messages, send, tempId } = createMessages('FailureRestart', failingTransport, false);
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
     await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
     const id = tempId()!;

@@ -84,7 +84,7 @@ describe('public seed surface', () => {
   it('boots under DbProvider with only the minimal configured transport seam', async () => {
     const { transport } = setupSpecRuntime();
     const stories = createStories('Provider');
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     stories.seed([{ id: 'story-1', bucket: 'A', label: 'One' }]);
     let root!: TestRenderer.ReactTestRenderer;
 

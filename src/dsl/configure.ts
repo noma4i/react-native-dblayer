@@ -64,8 +64,20 @@ export interface DbDefaults {
   onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown; key?: string; event?: string }) => void;
 }
 
-export type ConfigureDbOptions = { transport: DbTransport; storage?: StoragePlane; logger?: DbLogger; defaults?: DbDefaults };
-type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults'> & { storage: StoragePlane; queryClient: QueryClient; defaults: DbDefaults & { resumeStaleTime: number | null } };
+export type ConfigureDbOptions = {
+  transport: DbTransport;
+  storage?: StoragePlane;
+  logger?: DbLogger;
+  defaults?: DbDefaults;
+  /** Consumer-owned cache version (e.g. the app build number). Changing it cold-resets the whole persisted library state at boot - stale data can never layer across versions. */
+  dataVersion?: string;
+};
+type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
+  storage: StoragePlane;
+  queryClient: QueryClient;
+  defaults: DbDefaults & { resumeStaleTime: number | null };
+  dataVersion: string | null;
+};
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
@@ -126,7 +138,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
       mutations: { ...retryOptions(defaults?.retry?.mutation), networkMode }
     }
   });
-  runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), queryClient };
+  runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), queryClient, dataVersion: options.dataVersion ?? null };
   applyRuntime = null;
   operationState = null;
   checkpointScheduler?.cancel();
@@ -168,6 +180,9 @@ export const isDbConfigured = (): boolean => runtimeConfig !== null;
 export const hasReplayedJournal = (): boolean => replayCompleted;
 
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
+
+/** Internal: consumer-owned cache version used by the persistence manifest compatibility gate. */
+export const getPersistenceDataVersion = (): string | null => getDbRuntimeConfig().dataVersion;
 
 /** Monotonic identity for the configured runtime; async continuations must not cross it. */
 export const getRuntimeGeneration = (): number => runtimeGeneration;

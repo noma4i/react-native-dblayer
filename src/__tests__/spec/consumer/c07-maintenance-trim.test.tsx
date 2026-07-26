@@ -9,7 +9,7 @@ type MessageScope = MessageRow;
 type MessageResponse = { rows: MessageRow[] };
 
 const document = { kind: 'Document', definitions: [] } as never;
-const persistCurrentManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint() });
+const persistCurrentManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
 const createMessageModel = (limit: number, protect?: () => Set<string>) =>
   defineModel({
