@@ -1,28 +1,6 @@
 import { act } from 'react-test-renderer';
 import { defineModel, f, resetRuntime } from '../../../index';
-import { renderCounted, setupSpecRuntime } from '../helpers/harness';
-
-type DiagnosticsSnapshot = {
-  commits: number;
-  commitFanoutCandidates: number;
-  commitFanoutNotified: number;
-  fkIndexFullBuilds: number;
-  fkIndexIncrementalUpdates: number;
-  readEngineApplies: number;
-  readEngineRebuilds: number;
-  readEngineDeltaRows: number;
-  mirrorScopePasses: number;
-  mirrorScopeResorts: number;
-  resumeDrains: number;
-  resumeRefetches: number;
-  totalReadEngineMs: number;
-  totalMirrorMs: number;
-  entityUpsertGuardHits: number;
-};
-
-type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };
-
-const diagnostics = (): DiagnosticsGlobal => (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as DiagnosticsGlobal;
+import { renderCounted, setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 const createItems = (suffix: string) =>
   defineModel({

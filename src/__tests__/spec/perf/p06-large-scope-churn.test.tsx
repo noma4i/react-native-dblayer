@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { configureDb, createSingletonStatics, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, median } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
 // and a counters singleton - covers F1 (entityState upsert guard) and F2 (scopeIndex order-compare).
@@ -16,8 +16,6 @@ const buildChatRow = (index: number, contentFieldCount = CONTENT_FIELD_COUNT): C
   for (let field = 0; field < contentFieldCount; field += 1) row[`content${field}`] = `value-${index}-${field}`;
   return row;
 };
-
-const median = (samples: number[]): number => [...samples].sort((left, right) => left - right)[Math.floor(samples.length / 2)]!;
 
 const createChatsModel = (tag: string) =>
   defineModel({

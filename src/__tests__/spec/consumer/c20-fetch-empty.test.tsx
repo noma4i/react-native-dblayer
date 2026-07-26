@@ -1,20 +1,10 @@
-import { act } from 'react-test-renderer';
 import { configureDb, defineFetch } from '../../../index';
-import { createMemoryPlane, createMockTransport, recordTimelineInProvider } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, recordTimelineInProvider, settle } from '../helpers/harness';
 
 type NullableResponse = { value: null };
 type ValueResponse = { value: string };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-  }
-};
 
 describe('defineFetch empty loading state', () => {
   it('shows an empty state for a null selected result', async () => {
@@ -33,7 +23,7 @@ describe('defineFetch empty loading state', () => {
       return latest;
     });
 
-    await settle();
+    await settle(6, { macro: true });
 
     expect({ hasData: latest.loadingState.hasData, showEmptyState: latest.loadingState.showEmptyState }).toEqual({ hasData: false, showEmptyState: true });
     reader.unmount();
@@ -53,7 +43,7 @@ describe('defineFetch empty loading state', () => {
       return latest;
     });
 
-    await settle();
+    await settle(6, { macro: true });
 
     expect({ hasData: latest.loadingState.hasData, showEmptyState: latest.loadingState.showEmptyState }).toEqual({ hasData: true, showEmptyState: false });
     reader.unmount();

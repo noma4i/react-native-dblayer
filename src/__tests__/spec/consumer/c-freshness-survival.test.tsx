@@ -2,21 +2,13 @@ import React from 'react';
 import { AppState } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
 type Response = { rows: Row[] };
 type FetchResponse = { value: string };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createRowsModel = (id: string) =>
   defineModel({

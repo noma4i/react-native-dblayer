@@ -1,21 +1,13 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import * as dbl from '../../../index';
-import { setupSpecRuntime } from '../helpers/harness';
+import { setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
   dbl as unknown as {
     DbProvider: React.ComponentType<{ children: React.ReactNode; bootOptions?: { wipe?: boolean } }>;
   }
 ).DbProvider;
-const settle = async () => {
-  for (let tick = 0; tick < 4; tick += 1) {
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-  }
-};
-
 describe('ephemeral fetch sufficiency', () => {
   it('fetches without GraphQL, refetches, and removes cached data before the next use', async () => {
     setupSpecRuntime();
@@ -34,10 +26,10 @@ describe('ephemeral fetch sufficiency', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
-    await settle();
+    await settle(4, { macro: true });
     expect(result.data).toBe('value-1');
     act(() => result.refetch());
-    await settle();
+    await settle(4, { macro: true });
     expect(result.data).toBe('value-2');
     act(() => root.unmount());
     act(() => request.remove());
@@ -45,7 +37,7 @@ describe('ephemeral fetch sufficiency', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
-    await settle();
+    await settle(4, { macro: true });
     expect(result.data).toBe('value-3');
     expect(calls).toBe(3);
     act(() => root.unmount());

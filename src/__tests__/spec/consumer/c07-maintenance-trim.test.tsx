@@ -1,21 +1,13 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
-import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
 type MessageScope = MessageRow;
 type MessageResponse = { rows: MessageRow[] };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createMessageModel = (limit: number, protect?: () => Set<string>) =>
   defineModel({

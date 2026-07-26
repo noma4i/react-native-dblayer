@@ -2,7 +2,7 @@ import { act } from 'react-test-renderer';
 import { defineModel, f, resetRuntime } from '../../../index';
 import { getOperationState } from '../../../dsl/configure';
 import type { OperationRecord } from '../../../core/planes/operationState';
-import { renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { measure, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const TARGET_MODEL = 'SpecPendingIndexTarget';
 const TARGET_ROW = 'target-row';
@@ -39,24 +39,13 @@ const seedTargetOps = (count: number, offset: number): void => {
   }
 };
 
-const median = (samples: number[]): number => [...samples].sort((left, right) => left - right)[Math.floor(samples.length / 2)]!;
-
-const measure = (fn: () => void, iterations: number, rounds = 7): number =>
-  median(
-    Array.from({ length: rounds }, () => {
-      const started = performance.now();
-      for (let index = 0; index < iterations; index += 1) fn();
-      return performance.now() - started;
-    })
-  );
-
 describe('pending operation index scale', () => {
   it('pendingForRow stays within a x3 ratio between 5 and 3000 foreign ops', () => {
     setupSpecRuntime();
     seedTargetOps(5, 0);
-    const smallIndexed = measure(() => getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW), 200);
+    const smallIndexed = measure(() => getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW), 200, 7);
     seedForeignOps(3000);
-    const largeIndexed = measure(() => getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW), 200);
+    const largeIndexed = measure(() => getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW), 200, 7);
 
     const ratio = largeIndexed / Math.max(smallIndexed, 0.01);
 

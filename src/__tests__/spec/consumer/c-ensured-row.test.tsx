@@ -1,23 +1,12 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; status: string; updatedAt: string };
 type Response = { detail: Row | null };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-  await act(async () => {
-    await new Promise<void>(resolve => setTimeout(resolve, 0));
-  });
-};
 
 const createRowsModel = (id: string) =>
   defineModel({
@@ -74,6 +63,7 @@ describe('useRowEnsured', () => {
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'row-1' }, 'row-1'));
 
     await settle();
+    await settle(1, { macro: true });
 
     const initial = reader.result().row;
     expect(reader.result().row).toBe(initial);
@@ -96,12 +86,14 @@ describe('useRowEnsured', () => {
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'row-1' }, 'row-1'));
 
     await settle();
+    await settle(1, { macro: true });
     expect(reader.result().loadingState.phase).toBe('initial_loading');
     await act(async () => {
       resolve({ data: { detail: { id: 'row-1', name: 'Server', status: 'ready', updatedAt: '2026-07-20T00:00:01Z' } } });
       await Promise.resolve();
     });
     await settle();
+    await settle(1, { macro: true });
 
     expect(reader.result().row).toMatchObject({ id: 'row-1', name: 'Server' });
     expect(reader.result().loadingState.phase).toBe('ready');
@@ -117,7 +109,9 @@ describe('useRowEnsured', () => {
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'missing' }, 'missing'));
 
     await settle();
+    await settle(1, { macro: true });
     await settle();
+    await settle(1, { macro: true });
 
     expect(reader.result().row).toBeUndefined();
     expect(transport.calls).toHaveLength(2);
@@ -136,10 +130,12 @@ describe('useRowEnsured', () => {
     const query = createDetailQuery(rows, 'ensured-remount');
     const first = renderEnsured(() => query.useRowEnsured({ id: 'row-1' }, 'row-1'));
     await settle();
+    await settle(1, { macro: true });
     first.unmount();
     act(() => rows.destroy('row-1'));
     const second = renderEnsured(() => query.useRowEnsured({ id: 'row-2' }, 'row-2'));
     await settle();
+    await settle(1, { macro: true });
 
     expect(calls).toBe(2);
     expect(second.result().row).toMatchObject({ id: 'row-2' });
@@ -154,6 +150,7 @@ describe('useRowEnsured', () => {
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'unused' }, null));
 
     await settle();
+    await settle(1, { macro: true });
 
     expect(transport.calls).toHaveLength(0);
     expect(reader.result().row).toBeUndefined();
@@ -173,8 +170,10 @@ describe('useRowEnsured', () => {
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'row-1' }, 'row-1'));
 
     await settle();
+    await settle(1, { macro: true });
     act(() => rows.destroy('row-1'));
     await settle();
+    await settle(1, { macro: true });
 
     expect(transport.calls).toHaveLength(1);
     expect(reader.result().row).toMatchObject({ id: 'row-1', name: 'Recovered' });
@@ -196,6 +195,7 @@ describe('useRowEnsured', () => {
     const first = renderEnsured(() => query.useRowEnsured({ id: 'shared' }, 'row-1'));
 
     await settle();
+    await settle(1, { macro: true });
     expect(first.result().row).toMatchObject({ id: 'row-1', name: 'Initial' });
     expect(first.result().loadingState.showEmptyState).toBe(false);
     expect(transport.calls).toHaveLength(1);
@@ -203,6 +203,7 @@ describe('useRowEnsured', () => {
 
     const second = renderEnsured(() => query.useRowEnsured({ id: 'shared' }, 'row-2'));
     await settle();
+    await settle(1, { macro: true });
 
     expect(transport.calls).toHaveLength(2);
     expect(second.result().row).toMatchObject({ id: 'row-2', name: 'Recovered' });
@@ -223,6 +224,7 @@ describe('useRowEnsured', () => {
     const query = createDetailQuery(rows, 'ensured-scope-rearm');
     const warm = renderEnsured(() => query.use({ id: 'S2' }));
     await settle();
+    await settle(1, { macro: true });
     warm.unmount();
 
     let latest!: ReturnType<typeof query.useRowEnsured>;
@@ -235,6 +237,7 @@ describe('useRowEnsured', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader, { scopeId: 'S1' })));
     });
     await settle();
+    await settle(1, { macro: true });
     expect(calls.filter(id => id === 'S1')).toHaveLength(2);
     expect(latest.loadingState.showEmptyState).toBe(true);
 
@@ -242,6 +245,7 @@ describe('useRowEnsured', () => {
       root.update(React.createElement(DbProvider, null, React.createElement(Reader, { scopeId: 'S2' })));
     });
     await settle();
+    await settle(1, { macro: true });
 
     expect(calls.filter(id => id === 'S2')).toHaveLength(2);
     expect(latest.loadingState.showEmptyState).toBe(true);
@@ -256,10 +260,12 @@ describe('useRowEnsured', () => {
     rows.scopes.byStatus.seed({ status: 'ready' }, [{ id: 'row-1', name: 'Local', status: 'ready', updatedAt: '2026-07-20T00:00:00Z' }]);
     const reader = renderEnsured(() => query.useRowEnsured({ id: 'row-1' }, 'row-1', { renderKeys: ['name'] }));
     await settle();
+    await settle(1, { macro: true });
     const renders = reader.renders();
 
     act(() => rows.patch('row-1', { status: 'changed' }));
     await settle();
+    await settle(1, { macro: true });
 
     expect(reader.renders()).toBe(renders);
     expect(transport.calls).toHaveLength(0);

@@ -1,32 +1,24 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, defineFetch, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
 type Item = { id: string; bucket: string };
 type QueryResponse = { items: { nodes: Item[]; pageInfo: { hasNextPage: false; endCursor: null } } };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
-const settle = async () => {
-  for (let tick = 0; tick < 4; tick += 1) {
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-  }
-};
-
 const mountTwice = async (Reader: React.ComponentType): Promise<void> => {
   let root!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
   });
-  await settle();
+  await settle(4, { macro: true });
   act(() => root.unmount());
   await act(async () => {
     root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
   });
-  await settle();
+  await settle(4, { macro: true });
   act(() => root.unmount());
 };
 

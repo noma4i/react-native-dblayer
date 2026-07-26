@@ -1,7 +1,6 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { act } from 'react-test-renderer';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MomentRow = { id: string; uuid: string; status: string };
 type ScopeValue = { uuid: string };
@@ -10,14 +9,6 @@ type QueryResponse = { moment: MomentRow };
 type CallEntry = { kind: 'query'; operation: { variables: ScopeValue } };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createMoments = () =>
   defineModel({
@@ -32,28 +23,6 @@ const createMoments = () =>
       byUuid: scope<MomentRow>({ by: { uuid: 'uuid' } })
     }
   });
-
-const renderCountedInProvider = <T,>(useHook: () => T) => {
-  let value!: T;
-  let renderCount = 0;
-  let root!: TestRenderer.ReactTestRenderer;
-
-  const Reader = () => {
-    value = useHook();
-    renderCount += 1;
-    return null;
-  };
-
-  act(() => {
-    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-  });
-
-  return {
-    result: () => value,
-    renders: () => renderCount,
-    unmount: () => act(() => root.unmount())
-  };
-};
 
 describe('scope byUuid contracts', () => {
   it('renders one scoped row when a query lands matching by-uuid input', async () => {

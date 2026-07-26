@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { belongsTo, defineModel, f, hasMany, hasOne, scope } from '../../../index';
-import { setupSpecRuntime } from '../helpers/harness';
+import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 type ScopeRow = { id: string; groupId: string; title: string };
 type ProjectedScopeRow = { id: string; title: string };
@@ -10,17 +10,6 @@ type PostRow = { id: string; authorId: string; title: string };
 type ChildRow = { id: string; parentId: string; title: string; rank: number };
 type ViewRow = { id: string; groupId: string; title: string };
 type CommentRow = { id: string; parentId: string; body: string };
-
-type DiagnosticsSnapshot = {
-  readEngineApplies: number;
-  commitFanoutCandidates: number;
-  commitFanoutNotified: number;
-  fkIndexFullBuilds: number;
-  fkIndexIncrementalUpdates: number;
-};
-type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };
-
-const diagnostics = (): DiagnosticsGlobal => (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as DiagnosticsGlobal;
 
 const createScopeRows = () =>
   defineModel({

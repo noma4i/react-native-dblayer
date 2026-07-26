@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import * as dbl from '../../../index';
 import { registerBootValidation } from '../../../dsl/bootValidations';
-import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
   dbl as unknown as {
@@ -11,13 +11,6 @@ const DbProvider = (
   }
 ).DbProvider;
 const document = { kind: 'Document', definitions: [] } as never;
-const settle = async () => {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-};
-
 /** Minimal boundary to observe a render-thrown boot error the way a consumer's Sentry/ErrorBoundary would. */
 class BootErrorBoundary extends React.Component<{ children?: React.ReactNode; onError: (error: unknown) => void }, { hasError: boolean }> {
   state = { hasError: false };
@@ -70,7 +63,7 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Child)));
     });
     expect(renders).toBe(0);
-    await settle();
+    await settle(2);
     expect(renders).toBe(1);
     expect(value).toBe('Ready');
     act(() => root.unmount());
@@ -103,7 +96,7 @@ describe('provider-owned query runtime', () => {
       );
     });
     expect(renders).toBe(0);
-    await settle();
+    await settle(2);
 
     expect(renders).toBe(0);
     expect((caught as Error)?.message).toBe('boot validation exploded');
@@ -117,7 +110,7 @@ describe('provider-owned query runtime', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
     });
-    await settle();
+    await settle(2);
     act(() => users.insertStored({ id: 'user', name: 'Pending' }));
     expect(storage.snapshotKeys().some(key => key.startsWith('dbl:row:SpecProviderBackground:'))).toBe(false);
 
@@ -151,7 +144,7 @@ describe('provider-owned query runtime', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
-    await settle();
+    await settle(2);
     expect(users.get('old')?.name).toBe('Old');
     act(() => root.unmount());
     act(() => dbl.resetRuntime());
@@ -159,7 +152,7 @@ describe('provider-owned query runtime', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
-    await settle();
+    await settle(2);
     expect(users.get('old')).toBeUndefined();
     expect(users.get('fresh')?.name).toBe('Fresh');
     act(() => root.unmount());
@@ -228,9 +221,9 @@ describe('provider-owned query runtime', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Child)));
     });
-    await settle();
+    await settle(2);
     act(() => root.update(React.createElement(DbProvider, null, React.createElement(Child))));
-    await settle();
+    await settle(2);
 
     expect(mounts).toBe(1);
     expect(unmounts).toBe(0);
@@ -245,7 +238,7 @@ describe('provider-owned query runtime', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
     });
-    await settle();
+    await settle(2);
     act(() => {
       jest.runOnlyPendingTimers();
       root.unmount();

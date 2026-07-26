@@ -1,7 +1,6 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { act } from 'react-test-renderer';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MediaRow = { id: string; chatId: string; mediaBucket: string; sequenceNumber: number; label: string };
 type MediaScopeValue = { chatId: string; mediaBucket: string };
@@ -18,14 +17,6 @@ type MediaResponse = {
 type CallEntry = { kind: 'query'; operation: { variables: MediaScopeValue & { after?: string | null } } };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createMediaModel = () =>
   defineModel({
@@ -74,28 +65,6 @@ const createQueueTransport = (responses: MediaResponse[]) => {
     }
   });
   return transport as unknown as ReturnType<typeof createMockTransport> & { calls: Array<CallEntry> };
-};
-
-const renderCountedInProvider = <T,>(useHook: () => T) => {
-  let value!: T;
-  let renderCount = 0;
-  let root!: TestRenderer.ReactTestRenderer;
-
-  const Reader = () => {
-    value = useHook();
-    renderCount += 1;
-    return null;
-  };
-
-  act(() => {
-    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-  });
-
-  return {
-    result: () => value,
-    renders: () => renderCount,
-    unmount: () => act(() => root.unmount())
-  };
 };
 
 describe('media scope bucket behavior', () => {

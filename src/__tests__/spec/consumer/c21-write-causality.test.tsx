@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, recordTimeline } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, recordTimeline, settle } from '../helpers/harness';
 
 type ChatRow = { id: string; groupId: string; pinned: boolean; muted: boolean; read: boolean; rev: number };
 type ScopeValue = { groupId: string };
@@ -11,15 +11,6 @@ type MuteResponse = { muteChat: ChatRow };
 type Deferred<T> = { resolve: (data: T) => void; reject: (error: Error) => void };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-  }
-};
 
 const createFixture = (suffix: string, guarded = false) => {
   const queries: Deferred<QueryResponse>[] = [];
@@ -107,9 +98,9 @@ describe('optimistic write causality', () => {
     const frames = recordTimeline(() => chats.scopes.byGroup.use({ groupId: 'g' })[0]?.pinned);
     const queryReader = renderInProvider(() => query.use({ groupId: 'g' }));
 
-    await settle();
+    await settle(6, { macro: true });
     queries.shift()?.resolve({ chats: [initialRow] });
-    await settle();
+    await settle(6, { macro: true });
     let pin!: Promise<PinResponse | null>;
     act(() => {
       pin = pinChat.run({ id: 'chat-1' });
@@ -120,9 +111,9 @@ describe('optimistic write causality', () => {
     act(() => {
       queryReader.result().refetch();
     });
-    await settle();
+    await settle(6, { macro: true });
     queries.shift()?.resolve({ chats: [initialRow] });
-    await settle();
+    await settle(6, { macro: true });
 
     const pendingFrames = frames.frames().slice(frameStart);
     mutations.shift()?.resolve({ pinChat: { ...initialRow, pinned: true } });

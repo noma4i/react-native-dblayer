@@ -1,43 +1,11 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineCommand, defineFetch, defineModel, f } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { configureDb, defineCommand, defineFetch, defineModel, f } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type UserRow = { id: string; balance: number };
 type CommandResult = { reward: { ok: true; user: UserRow } };
 type FetchResponse = { version: number };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
-
-const renderCountedInProvider = <T,>(useHook: () => T) => {
-  let value!: T;
-  let renderCount = 0;
-  let root!: TestRenderer.ReactTestRenderer;
-
-  const Reader = () => {
-    value = useHook();
-    renderCount += 1;
-    return null;
-  };
-
-  act(() => {
-    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-  });
-
-  return {
-    result: () => value,
-    renders: () => renderCount,
-    unmount: () => act(() => root.unmount())
-  };
-};
 
 describe('command invalidation and dedupe contracts', () => {
   it('invalidates an active fetch key on commit so the next use refetches', async () => {

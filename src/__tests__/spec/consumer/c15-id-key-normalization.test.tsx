@@ -1,7 +1,6 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { act } from 'react-test-renderer';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MomentRow = { id: string; userId: string; status: string };
 type ScopeValue = { userId: string };
@@ -10,14 +9,6 @@ type PatchResponse = { updateMoment: MomentRow };
 type RespondResponse = { send: MomentRow; sink: { id: number; userId: string; status: string } };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createMoments = () =>
   defineModel({
@@ -32,25 +23,6 @@ const createMoments = () =>
       byUser: scope<MomentRow>({ by: { userId: 'userId' } })
     }
   });
-
-const renderCountedInProvider = <T,>(useHook: () => T) => {
-  let value!: T;
-  let root!: TestRenderer.ReactTestRenderer;
-
-  const Reader = () => {
-    value = useHook();
-    return null;
-  };
-
-  act(() => {
-    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-  });
-
-  return {
-    result: () => value,
-    unmount: () => act(() => root.unmount())
-  };
-};
 
 describe('id-key normalization contracts (LC20)', () => {
   it('files a numeric-transport userId into the same scope bucket a string read key resolves', async () => {

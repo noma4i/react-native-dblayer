@@ -1,7 +1,6 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { act } from 'react-test-renderer';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { userId: string };
 type MixedRow = { id: string; userId: string; status: string };
@@ -18,33 +17,6 @@ type Deferred<T> = {
 };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
-
-const renderCountedInProvider = <T,>(useHook: () => T) => {
-  let value!: T;
-  let root!: TestRenderer.ReactTestRenderer;
-
-  const Reader = () => {
-    value = useHook();
-    return null;
-  };
-
-  act(() => {
-    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-  });
-
-  return {
-    result: () => value,
-    unmount: () => act(() => root.unmount())
-  };
-};
 
 const createMixedMoments = () =>
   defineModel({

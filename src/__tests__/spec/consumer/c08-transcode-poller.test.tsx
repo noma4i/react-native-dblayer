@@ -1,20 +1,12 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, resetRuntime } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type PollPayload = { transcodeMessage: { id: string; status: string; progress: number } };
 type MessageRow = { id: string; status: string; progress: number };
 type MessageModel = ReturnType<typeof createMessageModel>;
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createMessageModel = (intervalMs: number, maxAttempts: number, transport: ReturnType<typeof createMockTransport>) => {
   const messages = defineModel({

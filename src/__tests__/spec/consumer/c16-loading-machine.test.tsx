@@ -1,7 +1,7 @@
 import { act } from 'react-test-renderer';
 import { focusManager, onlineManager } from '@tanstack/react-query';
 import { configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, recordTimelineInProvider } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, recordTimelineInProvider, settle } from '../helpers/harness';
 
 type Row = { id: string; groupId: string; status: string };
 type ScopeValue = { groupId: string };
@@ -13,14 +13,6 @@ type Deferred = {
 };
 
 const document = { kind: 'Document', definitions: [] } as never;
-
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createRows = () =>
   defineModel({

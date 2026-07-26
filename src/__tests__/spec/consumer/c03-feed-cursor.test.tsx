@@ -1,7 +1,6 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { act } from 'react-test-renderer';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/queries/useFeed.ts: server-order scope, cursor pagination keyed off the
 // LAST row's sequenceNumber (getCursor + mapCursor Number), maxPages-bounded infinite query.
@@ -13,19 +12,6 @@ type CallEntry = { kind: 'query'; operation: { variables: { vibeId: string; afte
 
 const document = { kind: 'Document', definitions: [] } as never;
 
-const settle = async () => {
-  for (let tick = 0; tick < 6; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-  // A macrotask flush in addition to the microtask ticks above - under concurrent test-file load
-  // some scheduling hops land on a macrotask, and pure Promise.resolve() ticks can race ahead of it.
-  await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
-};
-
 const createMoments = (suffix: string) =>
   defineModel({
     id: `SpecConsumerFeedCursor${suffix}`,
@@ -35,28 +21,6 @@ const createMoments = (suffix: string) =>
       feed: scope<FeedRow>({ by: { vibeId: 'vibeId' }, sort: 'server-order' })
     }
   });
-
-const renderCountedInProvider = <T,>(useHook: () => T) => {
-  let value!: T;
-  let renderCount = 0;
-  let root!: TestRenderer.ReactTestRenderer;
-
-  const Reader = () => {
-    value = useHook();
-    renderCount += 1;
-    return null;
-  };
-
-  act(() => {
-    root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-  });
-
-  return {
-    result: () => value,
-    renders: () => renderCount,
-    unmount: () => act(() => root.unmount())
-  };
-};
 
 describe('feed cursor pagination consumer contracts', () => {
   it('fetches the next page with afterSequence derived from the last row of the previous page', async () => {
@@ -101,11 +65,13 @@ describe('feed cursor pagination consumer contracts', () => {
 
     const queryReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
     await settle();
+    await settle(1, { macro: true });
 
     act(() => {
       queryReader.result().fetchNextPage();
     });
     await settle();
+    await settle(1, { macro: true });
 
     const calls = transport.calls as unknown as CallEntry[];
     expect(calls).toHaveLength(2);
@@ -144,12 +110,14 @@ describe('feed cursor pagination consumer contracts', () => {
     const scopeReader = renderCounted(() => moments.scopes.feed.use({ vibeId: 'v1' }));
     const queryReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
     await settle();
+    await settle(1, { macro: true });
     expect(scopeReader.result().map(row => row.id)).toEqual(['m3', 'm1']);
 
     act(() => {
       queryReader.result().fetchNextPage();
     });
     await settle();
+    await settle(1, { macro: true });
 
     // Server order is preserved even though m5 (sequenceNumber 105) is numerically newer than m3 -
     // the scope's `server-order` sort never resorts by field; reconcile order alone decides position.
@@ -188,12 +156,14 @@ describe('feed cursor pagination consumer contracts', () => {
 
     const queryReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
     await settle();
+    await settle(1, { macro: true });
     expect(queryReader.result().loadingState.showFooterSpinner).toBe(false);
 
     act(() => {
       queryReader.result().fetchNextPage();
     });
     await settle();
+    await settle(1, { macro: true });
     expect(queryReader.result().isFetchingNextPage).toBe(true);
     expect(queryReader.result().loadingState.showFooterSpinner).toBe(true);
 
@@ -203,6 +173,7 @@ describe('feed cursor pagination consumer contracts', () => {
     await act(async () => {
       resolvePage2({ data: page2 });
       await settle();
+      await settle(1, { macro: true });
     });
 
     expect(queryReader.result().hasNextPage).toBe(false);

@@ -2,24 +2,11 @@ import React from 'react';
 import { AppState } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
 
 type ChatRow = { id: string; status: string; kind: string; lastActivityAt: string; memberIds: string[] };
 type MessageRow = { id: string; chatId: string; sequenceNumber: number; body: string };
 type CountersRow = { id: string; totalUnread: number };
-
-type DiagnosticsSnapshot = {
-  commitFanoutCandidates: number;
-  commitFanoutNotified: number;
-  readEngineRebuilds: number;
-  mirrorScopeResorts: number;
-  resumeDrains: number;
-  resumeRefetches: number;
-  totalReadEngineMs: number;
-};
-type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };
-
-const diagnostics = (): DiagnosticsGlobal => (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as DiagnosticsGlobal;
 
 const CHAT_DOCUMENT = { kind: 'Document', definitions: [] } as never;
 const MESSAGE_DOCUMENT = { kind: 'Document', definitions: [] } as never;
@@ -30,14 +17,6 @@ const THREAD_IDS = Array.from({ length: 20 }, (_, index) => `thread-${index}`);
 const MOUNTED_THREAD_IDS = THREAD_IDS.slice(0, 9);
 const MESSAGES_PER_THREAD = 25;
 const USER_COUNT = 300;
-
-const settle = async (ticks = 6): Promise<void> => {
-  for (let tick = 0; tick < ticks; tick += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-};
 
 const createChatsModel = () =>
   defineModel({
