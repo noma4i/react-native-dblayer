@@ -49,10 +49,12 @@ export type EnsuredRowResult<TStored> = {
     refetch: () => Promise<void>;
 };
 export type QueryHandle<TStored, TScope> = {
-    use(scope: TScope, options?: {
+    /** Read this query reactively; pass `null` for an absent scope to keep the read idle without registering or fetching a scope. */
+    use(scope: TScope | null, options?: {
         enabled?: boolean;
     }): QueryResult<TStored>;
-    fetch(scope: TScope): Promise<void>;
+    /** Fetch one scope imperatively; passing `null` is a resolved no-op without registering or fetching a scope. */
+    fetch(scope: TScope | null): Promise<void>;
     invalidate(scope?: TScope): void;
 };
 export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope> & {
@@ -62,7 +64,7 @@ export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope
      * A terminal not-found result is represented only by `loadingState.showEmptyState`; `row: undefined`
      * alone remains unknown because the request may still be loading or disabled by a nullish `rowId`.
      *
-     * @param scope Query scope used for variables and the shared TanStack Query key.
+     * @param scope Query scope used for variables and the shared TanStack Query key, or `null` for an idle read without a scope subscription.
      * @param rowId Destination-model row id to ensure, or a nullish value for an inactive read.
      * @param readOpts Destination row projection options; `renderKeys` keeps unrelated field writes from rerendering.
      * @returns The reactive row plus its materialization loading state and refetch action.
@@ -174,7 +176,8 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
  * pagination/freshness options.
  * @returns `{ use, fetch, invalidate }`. `use(scope, opts?)` is a hook - a single-fetch hook when `page` is
  * omitted, an infinite-query hook (paginated) when `page` is set - returning a `QueryResult`. `fetch(scope)`
- * runs one fetch outside React. `invalidate(scope?)` clears the React Query cache for one scope, or every
+ * runs one fetch outside React. Both reads accept `null` as an idle, unregistered scope that never invokes
+ * `vars` or `enabled`. `invalidate(scope?)` clears the React Query cache for one scope, or every
  * registered scope when `scope` is omitted.
  */
 export declare const defineQuery: <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope>;
