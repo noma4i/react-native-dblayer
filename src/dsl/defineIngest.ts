@@ -1,5 +1,4 @@
 import type { JournalOp } from '../core/apply/journal';
-import { expandPlan } from '../core/relations';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import { getDbLogger } from '../core/logger';
 import type { ExtractSink } from './defineQuery';
@@ -175,7 +174,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
             .map(op => (op.kind === 'upsert' ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))
         );
       }
-      if (ops.length > 0) getApplyRuntime().apply(expandPlan(ops));
+      if (ops.length > 0) getApplyRuntime().apply(ops);
       if (declaration.invalidate === true) model.invalidate();
       else if (declaration.invalidate) model.invalidate(declaration.invalidate);
       return declaration;

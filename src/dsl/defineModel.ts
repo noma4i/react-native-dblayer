@@ -15,7 +15,7 @@ import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
 import { noteReplaceRejected } from '../core/diagnostics';
-import { expandPlan, registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
+import { registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
 import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
@@ -660,26 +660,18 @@ export const defineModel = <
   const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.has(scopeKey, id);
 
   /** Declarative membership: an event row joins/leaves its `by` scopes inside the SAME plan. */
-  const membershipForUpsert = (row: Record<string, unknown>): MembershipDelta[] => {
-    const id = String(row.id);
-    const before = planes().entityState.read(id);
-    const merged = { ...before, ...row, id };
+  const membershipForUpsert = (before: Stored | undefined, after: Record<string, unknown>): MembershipDelta[] => {
+    const id = String(after.id);
     const deltas: MembershipDelta[] = [];
     for (const [scopeName, spec] of membershipScopes) {
       const beforeValue = before && matchesMemberPredicate<Stored>(spec, before) ? scopeValueFromRow(spec.by, before) : null;
-      const afterValue = matchesMemberPredicate<Stored>(spec, merged as Stored) ? scopeValueFromRow(spec.by, merged) : null;
+      const afterValue = matchesMemberPredicate<Stored>(spec, after as Stored) ? scopeValueFromRow(spec.by, after) : null;
       const beforeKey = beforeValue ? keyForScope(scopeName, beforeValue) : null;
       const afterKey = afterValue ? keyForScope(scopeName, afterValue) : null;
       if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) deltas.push({ scopeKey: beforeKey, detach: [id] });
       if (afterKey && !isScopeMember(afterKey, id)) deltas.push({ scopeKey: afterKey, append: [id] });
     }
     return deltas;
-  };
-
-  const membershipForPatch = (id: string, patch: Record<string, unknown>): MembershipDelta[] => {
-    const current = planes().entityState.read(id);
-    if (!current) return [];
-    return membershipForUpsert({ ...patch, id });
   };
 
   const detachForDestroy = (id: string): MembershipDelta[] =>
@@ -699,11 +691,10 @@ export const defineModel = <
       }
     },
     membershipForUpsert,
-    membershipForPatch,
     detachForDestroy
   });
 
-  const writeRows = (rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Stored): Array<{ id: string; changedFields: string[] | null }> => {
+  const writeRows = (rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Stored, operationId?: string): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       let incoming: Stored;
@@ -716,7 +707,7 @@ export const defineModel = <
       if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       let gatedIncoming: Stored = config.write ? incoming : { ...current, ...incoming };
-      const result = planes().entityState.upsert(gatedIncoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot' } });
+      const result = planes().entityState.upsert(gatedIncoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot', operationId } });
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
@@ -874,9 +865,9 @@ export const defineModel = <
     getApplyRuntime().apply(ops);
   };
 
-  /** Imperative/domain writes are events: expand declared relation side effects into the same plan. */
+  /** Imperative/domain writes are events; relation effects derive from rows accepted by apply. */
   const applyEvent = (ops: JournalOp[]): void => {
-    getApplyRuntime().apply(expandPlan(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))));
+    getApplyRuntime().apply(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op)));
   };
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): Stored[] => {
@@ -1163,28 +1154,9 @@ export const defineModel = <
     [K in keyof TScopes]: ScopeHandle<Stored, ScopeValueOf<TScopes[K]>, Input>;
   };
 
-  const planRows = (rows: unknown[], options?: { includeMembership?: boolean; origin?: 'event' }): JournalOp[] => {
+  const planRows = (rows: unknown[], options?: { origin?: 'event' }): JournalOp[] => {
     const accepted = rows.filter(isPlanRow);
-    const ops: JournalOp[] = [{ kind: 'upsert', model: config.id, rows: accepted, ...(options?.origin ? { origin: options.origin } : {}) }];
-    if (!options?.includeMembership) return ops;
-    for (const row of accepted) {
-      let stored;
-      try {
-        stored = normalize(row);
-      } catch {
-        continue;
-      }
-      for (const delta of membershipForUpsert(stored)) {
-        ops.push({
-          kind: 'scope-delta',
-          model: config.id,
-          scopeKey: delta.scopeKey,
-          append: (delta.append ?? []).map(id => ({ id })),
-          detach: delta.detach ?? []
-        });
-      }
-    }
-    return ops;
+    return [{ kind: 'upsert', model: config.id, rows: accepted, ...(options?.origin ? { origin: options.origin } : {}) }];
   };
 
   const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>

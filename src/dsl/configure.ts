@@ -8,7 +8,6 @@ import { createCheckpointScheduler, type CheckpointScheduler } from '../core/app
 import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
 import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
-import { expandPlan } from '../core/relations';
 import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
 import { resetCollectionRegistry } from '../core/tanstack/facade';
@@ -272,7 +271,7 @@ export const replayJournal = (): number => {
   const orphaned = operations.hydratedPending();
   for (const operation of orphaned) {
     if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
-      runtime.apply(expandPlan([{ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false }]));
+      runtime.apply([{ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false }]);
     }
     operations.close(operation.operationId, 'rolledback');
   }
@@ -297,7 +296,7 @@ export const replayJournal = (): number => {
   const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {
     const orphanIds = [...ids].filter(id => !pendingTempIds.has(id) && !operations.failedFor(model, id));
-    if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply(expandPlan([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
+    if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]);
   }
   flushPersistence();
   replayCompleted = true;

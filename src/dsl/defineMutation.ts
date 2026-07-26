@@ -1,8 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
-import { compositeKey } from '../core/serialize';
-import { expandPlan, hasDependentCascade } from '../core/relations';
+import { hasDependentCascade } from '../core/relations';
 import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
 import { createGenerationFence } from '../utils/runtimePrimitives';
@@ -205,25 +204,6 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     if (placement && placement.scope.modelId !== optimisticConfig.model.modelId) throw new Error(`optimistic prependTo/appendTo scope must belong to the optimistic model`);
   }
 
-  /** Ensures auto membership deltas yield to explicit placement orders. */
-  const dedupePlacementAppends = (plan: JournalOp[], placementOps: JournalOp[]): JournalOp[] => {
-    const placementIds = new Map<string, Set<string>>();
-    for (const op of placementOps) {
-      if (op.kind !== 'scope-delta') continue;
-      const key = compositeKey(op.model, op.scopeKey);
-      const ids = placementIds.get(key) ?? new Set<string>();
-      for (const row of op.append) ids.add(row.id);
-      placementIds.set(key, ids);
-    }
-    return plan.flatMap<JournalOp>(op => {
-      if (op.kind !== 'scope-delta') return [op];
-      const ids = placementIds.get(compositeKey(op.model, op.scopeKey));
-      if (!ids) return [op];
-      const append = op.append.filter(row => row.order !== undefined || !ids.has(row.id));
-      return append.length > 0 || op.detach.length > 0 ? [{ ...op, append }] : [];
-    });
-  };
-
   const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[] => {
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
     if (payload == null) throw new Error(`${config.result} returned no data`);
@@ -299,8 +279,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const fabricated = optimistic.respond(input, { tempId, operationId });
       respondInverse = inverseFromRespond(fabricated, { tempId, operationId }, optimistic);
       const optimisticOps = planFromRespond(fabricated, { tempId, operationId }, optimistic, input);
-      const placementOps = optimisticOps.filter(op => op.kind === 'scope-delta' && op.append.some(row => row.order !== undefined));
-      if (optimisticOps.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(optimisticOps), placementOps));
+      if (optimisticOps.length > 0) getApplyRuntime().apply(optimisticOps);
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
       const reuseId = forcedTempId ?? optimistic.existingTempId?.(input) ?? null;
       if (reuseId != null && (forcedTempId != null || optimistic.model.find(reuseId) !== undefined)) {
@@ -313,12 +292,10 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const placement = optimistic.prependTo ?? optimistic.appendTo;
         const position = optimistic.prependTo ? 'prepend' : 'append';
         const ops = getInternalModelHandle(optimistic.model).planRows([{ ...(row as Record<string, unknown>), id: newTempId }]);
-        let placementOps: JournalOp[] = [];
         if (placement) {
-          placementOps = getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), newTempId, position);
-          ops.push(...placementOps);
+          ops.push(...getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), newTempId, position));
         }
-        getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
+        getApplyRuntime().apply(ops);
       }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
@@ -364,11 +341,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (payload == null) throw new Error(`${config.result} returned no data`);
 
       const ops: JournalOp[] = [];
-      let placementOps: JournalOp[] = [];
       if (optimistic && isRespondOptimistic(optimistic)) {
         const respondOps = planFromRespond(data, context, optimistic, input);
         ops.push(...respondOps);
-        placementOps = respondOps.filter(op => op.kind === 'scope-delta' && op.append.some(row => row.order !== undefined));
       } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
         const node = optimistic.selectServerNode(data);
         if (node != null) {
@@ -402,16 +377,18 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       for (const sink of config.extract?.({ data }) ?? []) {
         ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
       }
-      if (tracked && methodPatchOptimistic) operations.close(operationId, 'committed');
-      if (ops.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
-      if (tracked && !methodPatchOptimistic) operations.close(operationId, 'committed');
+      const commitOps = methodPatchOptimistic
+        ? ops.map(op => (op.kind === 'upsert' && op.model === optimistic.model.modelId ? { ...op, operationId } : op))
+        : ops;
+      if (commitOps.length > 0) getApplyRuntime().apply(commitOps);
+      if (tracked) operations.close(operationId, 'committed');
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
-        if (respondInverse.length > 0) getApplyRuntime().apply(expandPlan(respondInverse));
+        if (respondInverse.length > 0) getApplyRuntime().apply(respondInverse);
       } else if (optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic)) {
         if (optimistic.failure === 'rollback') {
-          if (insertedTempId) getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
+          if (insertedTempId) getApplyRuntime().apply([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]);
         } else if (tempId) {
           const patch = optimistic.onFailurePatch?.(input);
           if (patch) optimistic.model.update(tempId, patch as Record<string, unknown>);
@@ -437,7 +414,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         if (Object.keys(restore).length > 0) getInternalModelHandle(optimistic.model).applyPatch(String(optimistic.selectId(input)), restore, operationId);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
-        getApplyRuntime().apply(expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships)));
+        getApplyRuntime().apply(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships));
       }
       if (tracked)
         operations.close(

@@ -3,7 +3,7 @@ import { resetRuntime } from './reset';
 import { noteManifestReset } from './diagnostics';
 import { stableSerialize } from './serialize';
 
-export const DB_FORMAT_VERSION = 1;
+export const DB_FORMAT_VERSION = 2;
 
 type FieldDeclaration = { kind: string; mode: string; hasDefault: boolean };
 type ScopeDeclaration = { by: Record<string, string> | null; sort: string };

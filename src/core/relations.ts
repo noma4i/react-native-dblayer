@@ -22,7 +22,7 @@ export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: st
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
- * Resolved by `expandPlan`, which accumulates `touch` patches per parent (folding several children in one
+ * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
  * plan) and `counterCache` increments/decrements, emitting them as extra `patch`/`counter` ops in the SAME
  * plan as the triggering event.
  *
@@ -53,7 +53,7 @@ export const belongsTo = <TChild, TParent>(
 
 /**
  * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
- * `expandPlan` reads children through `model.where` (plus any same-plan overlay writes) so a cascade sees
+ * `deriveEffects` reads children through `model.where` after accepted entity rows commit so a cascade sees
  * children written earlier in the same plan.
  *
  * @param model The child model reference.
@@ -72,7 +72,7 @@ export const hasMany = <TParent, TChild>(model: ModelRef<TChild>, options: { for
 
 /**
  * Declare a query-only single child relation (parent -> one child), read through `model.related(id, name)`.
- * Not resolved by `expandPlan` - it has no write-time side effects, only a reactive query.
+ * Not resolved by `deriveEffects` - it has no write-time side effects, only a reactive query.
  *
  * @param model The child model reference.
  * @param options.foreignKey Child field storing the parent id.
@@ -92,7 +92,7 @@ export const hasOne = <TParent, TChild>(
 
 /**
  * Declare a GC-only reference edge: ids extracted from the row keep the referenced target-model rows alive
- * during garbage-collection sweeps. Not resolved by `expandPlan` - it has no write-time side effects, only
+ * during garbage-collection sweeps. Not resolved by `deriveEffects` - it has no write-time side effects, only
  * a GC liveness signal (see `referencesOf` in the model's GC host registration).
  *
  * @param model The referenced model.
@@ -119,8 +119,7 @@ type RelationHost = {
   has(id: string): boolean;
   read(id: string): StoredRow | undefined;
   normalize(input: unknown): StoredRow | null;
-  membershipForUpsert(row: StoredRow): MembershipDelta[];
-  membershipForPatch(id: string, patch: StoredRow): MembershipDelta[];
+  membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
   detachForDestroy(id: string): MembershipDelta[];
 };
 
@@ -140,28 +139,24 @@ export const hasDependentCascade = (modelId: string): boolean => {
 
 type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
 type CounterRef = { model: string; id: string; field: string };
+export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace' };
+export type DestroyedRow = { model: string; id: string; before: StoredRow };
 
 /**
- * Expand an EVENT plan with declared relation side effects (the Rails-callbacks analog):
- * counterCache increments for first-seen children, touch projections onto parents (emitted as
- * 'patch' ops in stored format, folded per parent so several children in one plan compose),
- * dependent destroy cascades, and declarative scope membership from ScopeSpec.by. Snapshot plans
- * (query pages / entity refreshes) must NOT be expanded - server snapshots already carry derived
- * state, so defineModel routes them through the verbatim apply path. A parent upserted by the same
- * plan is authoritative: its accumulated touch is cancelled and counter ops against it are
- * filtered out.
+ * Derive relation effects from rows accepted by entity application. Raw journal operations never
+ * contain these effects, so replay re-runs the same derivation against effective rows.
  */
-export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
-  const queue: JournalOp[] = [...ops];
+export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: JournalOp[]): JournalOp[] => {
+  const queue: JournalOp[] = [];
   const overlay = new Map<string, Map<string, StoredRow | null>>();
   const out: JournalOp[] = [];
-  const authoritative = new Set<string>();
+  const authoritative = new Set(accepted.filter(row => row.origin !== undefined).map(row => `${row.model}:${row.id}`));
   const counted = new Map<string, CounterRef>();
   const destroyed = new Set<string>();
   const touched = new Set<string>();
   const touchViews = new Map<string, TouchEntry>();
   const membership = new Map<string, { model: string; scopeKey: string; append: Set<string>; detach: Set<string> }>();
-  const explicitScopeDeltas: JournalOp[] = [];
+  const explicitScopeModels = new Set(rawOps.filter(op => op.kind === 'scope').map(op => op.model));
   const overlayRead = (modelId: string, id: string): StoredRow | undefined => {
     const rows = overlay.get(modelId);
     if (rows?.has(id)) return rows.get(id) ?? undefined;
@@ -240,18 +235,6 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     }
   };
 
-  const patchEffects = (modelId: string, id: string, patch: StoredRow, current: StoredRow | undefined): void => {
-    const host = hosts.get(modelId);
-    if (!host) return;
-    if (!current) return;
-    const merged = { ...current, ...patch, id };
-    for (const relation of Object.values(host.relations())) {
-      if (relation.kind !== 'belongsTo') continue;
-      const parentId = parentIdOf(merged, relation.foreignKey);
-      if (parentId) accumulateTouch(relation, merged, parentId);
-    }
-  };
-
   const destroyEffects = (modelId: string, id: string, row: StoredRow | undefined): void => {
     const destroyKey = `${modelId}:${id}`;
     if (destroyed.has(destroyKey)) return;
@@ -282,42 +265,28 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     }
   };
 
+  for (const acceptedRow of accepted) {
+    const host = hosts.get(acceptedRow.model);
+    if (!host) continue;
+    overlayWrite(acceptedRow.model, acceptedRow.id, acceptedRow.after);
+    if (!explicitScopeModels.has(acceptedRow.model)) {
+      accumulateMembership(acceptedRow.model, host.membershipForUpsert(acceptedRow.before, acceptedRow.after));
+    }
+    if (acceptedRow.origin === 'event') {
+      upsertEffects(acceptedRow.model, host, acceptedRow.after, acceptedRow.before !== undefined);
+    }
+  }
+  for (const destroyedRow of destroyedRows) {
+    accumulateMembership(destroyedRow.model, hosts.get(destroyedRow.model)?.detachForDestroy(destroyedRow.id) ?? []);
+    detachAccumulatedMembership(destroyedRow.model, destroyedRow.id);
+    destroyEffects(destroyedRow.model, destroyedRow.id, destroyedRow.before);
+    overlayWrite(destroyedRow.model, destroyedRow.id, null);
+  }
+
   while (queue.length > 0 || touchViews.size > 0) {
     while (queue.length > 0) {
       const op = queue.shift() as JournalOp;
-      if (op.kind === 'scope-delta') {
-        explicitScopeDeltas.push(op);
-        continue;
-      }
       out.push(op);
-      if (op.kind === 'upsert') {
-        const host = hosts.get(op.model);
-        for (const raw of op.rows) {
-          const row = host?.normalize(raw);
-          if (!host || !row) continue;
-          const existed = overlayRead(op.model, String(row.id)) !== undefined;
-          upsertEffects(op.model, host, row, existed);
-          accumulateMembership(op.model, host.membershipForUpsert(row));
-          overlayWrite(op.model, String(row.id), { ...(overlayRead(op.model, String(row.id)) ?? {}), ...row });
-          const key = `${op.model}:${String(row.id)}`;
-          authoritative.add(key);
-          touchViews.delete(key);
-        }
-      }
-      if (op.kind === 'patch') {
-        const current = overlayRead(op.model, op.id);
-        patchEffects(op.model, op.id, op.patch, current);
-        accumulateMembership(op.model, hosts.get(op.model)?.membershipForPatch(op.id, op.patch) ?? []);
-        if (current) overlayWrite(op.model, op.id, { ...current, ...op.patch, id: op.id });
-      }
-      if (op.kind === 'destroy') {
-        for (const id of op.ids) {
-          accumulateMembership(op.model, hosts.get(op.model)?.detachForDestroy(id) ?? []);
-          detachAccumulatedMembership(op.model, id);
-          destroyEffects(op.model, id, overlayRead(op.model, id));
-          overlayWrite(op.model, id, null);
-        }
-      }
     }
     const flush = [...touchViews.values()];
     touchViews.clear();
@@ -329,11 +298,17 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     }
   }
 
-  for (const entry of membership.values()) {
-    if (entry.append.size === 0 && entry.detach.size === 0) continue;
-    out.push({ kind: 'scope-delta', model: entry.model, scopeKey: entry.scopeKey, append: [...entry.append].map(id => ({ id })), detach: [...entry.detach] });
+  const placementIds = new Map<string, Set<string>>();
+  for (const op of rawOps) {
+    if (op.kind !== 'scope-delta') continue;
+    const ids = placementIds.get(`${op.model}:${op.scopeKey}`) ?? new Set<string>();
+    for (const row of op.append) if (row.order !== undefined) ids.add(row.id);
+    placementIds.set(`${op.model}:${op.scopeKey}`, ids);
   }
-  out.push(...explicitScopeDeltas);
-
-  return out.filter(op => !(op.kind === 'counter' && authoritative.has(`${op.model}:${op.id}`)));
+  return [...out, ...[...membership.values()].flatMap(entry => {
+    if (entry.append.size === 0 && entry.detach.size === 0) return [];
+    const placement = placementIds.get(`${entry.model}:${entry.scopeKey}`);
+    const append = [...entry.append].filter(id => !placement?.has(id)).map(id => ({ id }));
+    return append.length > 0 || entry.detach.size > 0 ? [{ kind: 'scope-delta' as const, model: entry.model, scopeKey: entry.scopeKey, append, detach: [...entry.detach] }] : [];
+  })].filter(op => !(op.kind === 'counter' && authoritative.has(`${op.model}:${op.id}`)));
 };

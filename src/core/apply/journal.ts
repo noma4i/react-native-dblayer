@@ -4,9 +4,9 @@ import { noteCorruptionJournalDrop, noteCorruptionJournalLoss } from '../diagnos
 import { getDbLogger } from '../logger';
 
 export type JournalOp =
-  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; mergeBase?: never }
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; operationId?: string; mergeBase?: never }
   /** Replace carries the normalized prior row through WAL replay so write groups observe the same commit semantics after restart. */
-  | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown }
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown; operationId?: string }
   /** `operationId` lets a pending optimistic method-patch apply its own rollback while foreign patches keep its owned fields. */
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; operationId?: string }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }
