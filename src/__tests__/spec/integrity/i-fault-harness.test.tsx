@@ -1,5 +1,7 @@
 import { configureDb, defineModel, f } from '../../../index';
 import { flushPersistence } from '../../../dsl/configure';
+import { createApplyRuntime } from '../../../core/apply/transaction';
+import { createCommitBus } from '../../../core/apply/commitBus';
 import { createFaultStorage } from '../helpers/faultStorage';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMockTransport, renderCountedInProvider, settle } from '../helpers/harness';
@@ -131,6 +133,21 @@ describe('persistence fault invariants', () => {
     for (let index = 1; index <= 50; index += 1) rows.insertStored({ id: `row-${index}`, label: String(index) });
 
     expect(storage.plane.get('dbl:journal:1')).not.toBeUndefined();
+  });
+
+  it('acknowledges immediate persistence before the next direct transaction', () => {
+    const storage = createFaultStorage();
+    configureFaultRuntime(storage);
+    const rows = createRows('ImmediateAck');
+    const runtime = createApplyRuntime({ storage: storage.plane, prefix: () => 'dbl:', bus: createCommitBus() });
+
+    runtime.apply([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'first' }] }]);
+    runtime.apply([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]);
+
+    expect(storage.setCalls()[3]).toEqual(
+      expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-2`, value: JSON.stringify({ id: 'row-2', label: 'second' }) }])
+    );
+    expect(storage.setCalls()[3]).not.toEqual(expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-1`, value: JSON.stringify({ id: 'row-1', label: 'first' }) }]));
   });
 
   it('rejects a server snapshot after destroy but lets an event-origin insert restore the row', async () => {

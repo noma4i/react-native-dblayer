@@ -34,6 +34,8 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-fault-harness.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'sufficiency/s09-seed.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-fault-harness.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-fault-harness.test.tsx'), source: path.resolve(specRoot, '../../core/apply/transaction.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-fault-harness.test.tsx'), source: path.resolve(specRoot, '../../core/apply/commitBus.ts') },
   { spec: path.resolve(specRoot, 'sufficiency/s03-provider-boot.test.tsx'), source: path.resolve(specRoot, '../../dsl/bootValidations.ts') },
   { spec: path.resolve(specRoot, 'sufficiency/s07-pending-flag.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'perf/p05-pending-index-scale.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
