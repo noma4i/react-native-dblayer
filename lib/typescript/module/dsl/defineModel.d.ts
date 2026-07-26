@@ -4,6 +4,7 @@ import type { KeepPreviousOption } from '../read/scopeRetention';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
+import { type ViewConfig, type ViewHandle } from './defineView';
 import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
@@ -165,6 +166,8 @@ export type ModelCore<TStored extends {
     mutation<TData, TInput, TRow extends {
         id: string;
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+    /** Define a reactive joined projection over one declared scope and its current related rows. */
+    view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(name: string, config: ViewConfig<TStored, TIncluded, TItem>): ViewHandle<TItem, Record<string, unknown>>;
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
     /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */

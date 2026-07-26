@@ -1,5 +1,9 @@
 # Changelog
 
+## 8.0.0-beta.2 - 2026-07-27
+
+- Restore the view DSL (`Model.view` plus the `ViewConfig` / `ViewIncludeModel` / `ViewIncludeSpec` types) removed in 8.0.0-beta.1 by a faulty dead-code audit - the consumer app relies on it for chat list and thread projections. Restored with its full pre-removal test coverage adapted to the v8 API (scope-window view contracts; include propagation and item identity are mutation-proven).
+
 ## 8.0.0-beta.1 - 2026-07-26
 
 Stabilization release: the entire dark-path registry (28 findings) is closed, write semantics are unified into a single model-owned declaration, and the persistence core is redesigned around explicit invariants. Every fix in this release is covered by a test that was seen red on the broken behavior (red-first or mutation-proven).

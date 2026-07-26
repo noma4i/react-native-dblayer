@@ -7,6 +7,7 @@ export { resetRuntime, registerReset } from './core/reset';
 export type { StoragePlane } from './core/planes/storagePlane';
 export { defineModel } from './dsl/defineModel';
 export type { ModelConfig, ScopeHandle, ScopeWindowResult, WriteCtx, WriteOrigin } from './dsl/defineModel';
+export type { ViewConfig, ViewIncludeModel, ViewIncludeSpec } from './dsl/defineView';
 export { scope } from './dsl/scope';
 export type { ScopeSpec, ScopeCoverage } from './dsl/scope';
 export type { GcReport } from './core/gc';
