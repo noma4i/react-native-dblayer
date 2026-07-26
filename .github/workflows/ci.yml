@@ -36,4 +36,4 @@ jobs:
         run: node scripts/check-jsdoc.mjs
 
       - name: Test
-        run: yarn test
+        run: yarn test:coverage

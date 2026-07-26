@@ -39,6 +39,7 @@
     "build": "bob build",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand --silent",
+    "test:coverage": "jest --runInBand --silent --coverage",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
     "clean": "rm -rf lib",
     "prepare": "git config core.hooksPath .githooks"

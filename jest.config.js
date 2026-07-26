@@ -21,6 +21,14 @@ module.exports = {
       }
     ]
   },
+  coverageThreshold: {
+    global: {
+      statements: 87,
+      branches: 76,
+      functions: 87,
+      lines: 90
+    }
+  },
   moduleNameMapper: {
     '^react-native$': '<rootDir>/__mocks__/react-native.js',
     '^react-native-mmkv$': '<rootDir>/__mocks__/react-native-mmkv.js'
