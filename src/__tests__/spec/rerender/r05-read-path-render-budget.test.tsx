@@ -8,6 +8,8 @@ type ProjectedScopeRow = { id: string; title: string };
 type AuthorRow = { id: string; name: string };
 type PostRow = { id: string; authorId: string; title: string };
 type ChildRow = { id: string; parentId: string; title: string; rank: number };
+type ViewRow = { id: string; groupId: string; title: string };
+type CommentRow = { id: string; parentId: string; body: string };
 
 const createScopeRows = () =>
   defineModel({
@@ -50,6 +52,22 @@ const createCollectionRelations = () => {
     })
   });
   return { children, parents };
+};
+
+const createViewRelations = () => {
+  const comments = defineModel({
+    id: 'SpecReadPathBudgetComments',
+    name: 'SpecReadPathBudgetComments',
+    fields: { parentId: f.str(), body: f.str() }
+  });
+  const rows = defineModel({
+    id: 'SpecReadPathBudgetViewRows',
+    name: 'SpecReadPathBudgetViewRows',
+    fields: { groupId: f.str(), title: f.str() },
+    scopes: { byGroup: scope<ViewRow>({ by: { groupId: 'groupId' } }) },
+    relations: () => ({ comments: hasMany(comments, { foreignKey: 'parentId' }) })
+  });
+  return { comments, rows };
 };
 
 const createFanoutRows = (suffix: string) =>
@@ -258,71 +276,34 @@ describe('read path render budget', () => {
     act(() => root.unmount());
   });
 
-  it('adds a newly matching hasMany row to a related reader', () => {
+  it('adds a newly matching hasMany include to a view', () => {
     setupSpecRuntime();
-    const { children, parents } = createCollectionRelations();
-    parents.insert({ id: 'parent-1', name: 'Parent' });
-    children.insert({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
-    let result!: ChildRow[];
-    let root!: TestRenderer.ReactTestRenderer;
-    const Reader = () => {
-      result = parents.use.related('parent-1', 'children') as ChildRow[];
-      return null;
-    };
-    act(() => {
-      root = TestRenderer.create(React.createElement(Reader));
+    const { comments, rows } = createViewRelations();
+    rows.insert({ id: 'row-1', groupId: 'group-1', title: 'Row' });
+    comments.insert({ id: 'comment-1', parentId: 'row-1', body: 'First' });
+    const view = rows.view<{ id: string; comments: CommentRow[] }, { comments: CommentRow[] }>('comments', {
+      source: rows.scopes.byGroup,
+      include: { comments: 'comments' },
+      select: (row, included) => ({ id: row.id, comments: included.comments as CommentRow[] })
     });
-    expect(result.map(row => row.id)).toEqual(['child-1']);
-    act(() => children.insert({ id: 'child-2', parentId: 'parent-1', title: 'Second', rank: 2 }));
-    expect(result.map(row => row.id)).toEqual(['child-1', 'child-2']);
-    act(() => root.unmount());
-  });
 
-  it('updates a shared foreign-key index before related readers observe an unrelated insert', () => {
-    setupSpecRuntime();
-    const { children, parents } = createCollectionRelations();
-    parents.insertMany([
-      { id: 'parent-1', name: 'One' },
-      { id: 'parent-2', name: 'Two' }
-    ]);
-    children.insertMany([
-      { id: 'child-1', parentId: 'parent-1', title: 'One', rank: 1 },
-      { id: 'child-2', parentId: 'parent-2', title: 'Two', rank: 1 }
-    ]);
-    let result!: ChildRow[];
+    let result!: Array<{ id: string; comments: CommentRow[] }>;
     let root!: TestRenderer.ReactTestRenderer;
     const Reader = () => {
-      result = parents.use.related('parent-1', 'children') as ChildRow[];
+      result = view.use({ groupId: 'group-1' });
       return null;
     };
-    act(() => {
-      root = TestRenderer.create(React.createElement(Reader));
-    });
-    const initial = result;
-    act(() => children.insert({ id: 'outside', parentId: 'outside', title: 'Outside', rank: 1 }));
-    expect(result).toBe(initial);
-    act(() => root.unmount());
-  });
 
-  it('moves related rows between shared foreign-key buckets', () => {
-    setupSpecRuntime();
-    const { children, parents } = createCollectionRelations();
-    parents.insertMany([
-      { id: 'parent-1', name: 'One' },
-      { id: 'parent-2', name: 'Two' }
-    ]);
-    children.insert({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
-    let result!: [ChildRow[], ChildRow[]];
-    let root!: TestRenderer.ReactTestRenderer;
-    const Reader = () => {
-      result = [parents.use.related('parent-1', 'children') as ChildRow[], parents.use.related('parent-2', 'children') as ChildRow[]];
-      return null;
-    };
     act(() => {
       root = TestRenderer.create(React.createElement(Reader));
     });
-    act(() => children.update('child-1', { parentId: 'parent-2' }));
-    expect(result.map(rows => rows.map(row => row.id))).toEqual([[], ['child-1']]);
+    expect(result[0]?.comments.map(comment => comment.id)).toEqual(['comment-1']);
+
+    act(() => {
+      comments.insert({ id: 'comment-2', parentId: 'row-1', body: 'Second' });
+    });
+
+    expect(result[0]?.comments.map(comment => comment.id)).toEqual(['comment-1', 'comment-2']);
     act(() => root.unmount());
   });
 
@@ -456,4 +437,119 @@ describe('read path render budget', () => {
     act(() => root.unmount());
   });
 
+  it('does not evaluate a hasMany view across idle parent rerenders', () => {
+    setupSpecRuntime();
+    const { comments, rows } = createViewRelations();
+    rows.insertMany(Array.from({ length: 50 }, (_, index) => ({ id: `row-${index}`, groupId: 'group-1', title: `Row ${index}` })));
+    comments.insertMany(Array.from({ length: 50 }, (_, index) => ({ id: `comment-${index}`, parentId: `row-${index}`, body: `Comment ${index}` })));
+
+    let selectCalls = 0;
+    const view = rows.view<{ id: string; comments: CommentRow[] }, { comments: CommentRow[] }>('idle-comments', {
+      source: rows.scopes.byGroup,
+      include: { comments: 'comments' },
+      select: (row, included) => {
+        selectCalls += 1;
+        return { id: row.id, comments: included.comments as CommentRow[] };
+      }
+    });
+    let result!: Array<{ id: string; comments: CommentRow[] }>;
+    let force!: () => void;
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      const [, setRevision] = React.useState(0);
+      force = () => setRevision(current => current + 1);
+      result = view.use({ groupId: 'group-1' });
+      return null;
+    };
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    const initial = result;
+    selectCalls = 0;
+
+    rerender(force, 5);
+
+    expect(selectCalls).toBe(0);
+    expect(result).toBe(initial);
+    act(() => root.unmount());
+  });
+
+  it('updates a shared foreign-key index before a related view recomputes', () => {
+    setupSpecRuntime();
+    const { comments, rows } = createViewRelations();
+    rows.insertMany([
+      { id: 'row-1', groupId: 'group-1', title: 'One' },
+      { id: 'row-2', groupId: 'group-1', title: 'Two' }
+    ]);
+    comments.insertMany([
+      { id: 'comment-1', parentId: 'row-1', body: 'One' },
+      { id: 'comment-2', parentId: 'row-2', body: 'Two' }
+    ]);
+
+    let selectCalls = 0;
+    const view = rows.view<{ id: string; comments: CommentRow[] }, { comments: CommentRow[] }>('shared-index-comments', {
+      source: rows.scopes.byGroup,
+      include: { comments: 'comments' },
+      select: (row, included) => {
+        selectCalls += 1;
+        return { id: row.id, comments: included.comments as CommentRow[] };
+      }
+    });
+    let result!: Array<{ id: string; comments: CommentRow[] }>;
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      result = view.use({ groupId: 'group-1' });
+      return null;
+    };
+
+    diagnostics().reset();
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    const initial = result;
+    selectCalls = 0;
+
+    act(() => {
+      comments.insert({ id: 'comment-outside', parentId: 'outside', body: 'Outside' });
+    });
+
+    const snapshot = diagnostics().snapshot();
+    expect(result).toBe(initial);
+    expect(selectCalls).toBeLessThanOrEqual(2);
+    expect(snapshot.fkIndexFullBuilds).toBe(1);
+    expect(snapshot.fkIndexIncrementalUpdates).toBe(1);
+    act(() => root.unmount());
+  });
+
+  it('moves related rows between shared foreign-key buckets', () => {
+    setupSpecRuntime();
+    const { comments, rows } = createViewRelations();
+    rows.insertMany([
+      { id: 'row-1', groupId: 'group-1', title: 'One' },
+      { id: 'row-2', groupId: 'group-1', title: 'Two' }
+    ]);
+    comments.insert({ id: 'comment-1', parentId: 'row-1', body: 'First' });
+    const view = rows.view<{ id: string; comments: CommentRow[] }, { comments: CommentRow[] }>('transfer-comments', {
+      source: rows.scopes.byGroup,
+      include: { comments: 'comments' },
+      select: (row, included) => ({ id: row.id, comments: included.comments as CommentRow[] })
+    });
+    let result!: Array<{ id: string; comments: CommentRow[] }>;
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      result = view.use({ groupId: 'group-1' });
+      return null;
+    };
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    act(() => {
+      comments.update('comment-1', { parentId: 'row-2' });
+    });
+
+    expect(result.map(item => item.comments.map(comment => comment.id))).toEqual([[], ['comment-1']]);
+    act(() => root.unmount());
+  });
 });

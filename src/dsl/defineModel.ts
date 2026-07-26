@@ -26,6 +26,7 @@ import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, g
 import { defineFetch } from './defineFetch';
 import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
+import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
@@ -181,6 +182,11 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     name: string,
     config: ModelMutationConfig<TData, TInput, TRow, TNode>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+  /** Define a reactive joined projection over one declared scope and its current related rows. */
+  view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(
+    name: string,
+    config: ViewConfig<TStored, TIncluded, TItem>
+  ): ViewHandle<TItem, Record<string, unknown>>;
   /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
   fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
   /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
@@ -1270,6 +1276,7 @@ export const defineModel = <
       defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` } as Parameters<
         typeof defineFetch<TData, TFetchInput, TSelected>
       >[0]),
+    view: (name, viewConfig) => defineView(model, name, viewConfig),
     poller: (name, pollerConfig) =>
       createModelStatusPoller({
         ...pollerConfig,

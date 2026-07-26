@@ -101,7 +101,7 @@ const scopedModelQueryTransport = () =>
   });
 
 describe('rerender matrix batch amplification', () => {
-  it('keeps row and scope readers stable when an identical query page is normalized again', async () => {
+  it('keeps row, scope, and view readers stable when an identical query page is normalized again', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => {
         const payload: NestedQueryPayload = {
@@ -128,16 +128,24 @@ describe('rerender matrix batch amplification', () => {
       into: rows.scopes.byStatus,
       coverage: 'page'
     });
+    const view = rows.view<{ value: NestedBulkRow }>('identical-page', {
+      source: rows.scopes.byStatus,
+      include: {},
+      select: row => ({ value: row }),
+      renderKeys: ['value']
+    });
 
     await act(async () => {
       await query.fetch({ status: 'a' });
     });
     const rowReader = renderCounted(() => rows.use.find('0'));
     const scopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'a' }));
+    const viewReader = renderCounted(() => view.use({ status: 'a' }));
     const beforeRow = rowReader.result();
     const beforeScope = scopeReader.result();
+    const beforeView = viewReader.result();
     const beforeStoredRows = new Map(rows.all().map(row => [row.id, row]));
-    const beforeRenders = [rowReader.renders(), scopeReader.renders()];
+    const beforeRenders = [rowReader.renders(), scopeReader.renders(), viewReader.renders()];
 
     await act(async () => {
       await query.fetch({ status: 'a' });
@@ -145,13 +153,15 @@ describe('rerender matrix batch amplification', () => {
 
     expect(rowReader.result()).toBe(beforeRow);
     expect(scopeReader.result()).toBe(beforeScope);
+    expect(viewReader.result()).toBe(beforeView);
     expect(rows.all().every(row => beforeStoredRows.get(row.id) === row)).toBe(true);
-    expect([rowReader.renders(), scopeReader.renders()].map((count, index) => count - beforeRenders[index]!)).toEqual([0, 0]);
+    expect([rowReader.renders(), scopeReader.renders(), viewReader.renders()].map((count, index) => count - beforeRenders[index]!)).toEqual([0, 0, 0]);
     rowReader.unmount();
     scopeReader.unmount();
+    viewReader.unmount();
   });
 
-  it('does not notify readers when a patch nets zero field changes', () => {
+  it('does not notify readers when a update nets zero field changes', () => {
     setupSpecRuntime();
     const rows = createNestedScopedModel();
     rows.insert({ id: '1', name: 'same', status: 'a', score: 1, markers: [{ id: 'marker-1', label: 'Marker 1' }] });
@@ -223,7 +233,7 @@ describe('rerender matrix batch amplification', () => {
     scopeReader.unmount();
   });
 
-  it('keeps a row patch to one id local to one row reader', () => {
+  it('keeps a row update to one id local to one row reader', () => {
     setupSpecRuntime();
     const rows = createSimpleModel();
     rows.insertMany(
