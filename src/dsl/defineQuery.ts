@@ -56,8 +56,10 @@ export type EnsuredRowResult<TStored> = {
 };
 
 export type QueryHandle<TStored, TScope> = {
-  use(scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored>;
-  fetch(scope: TScope): Promise<void>;
+  /** Read this query reactively; pass `null` for an absent scope to keep the read idle without registering or fetching a scope. */
+  use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored>;
+  /** Fetch one scope imperatively; passing `null` is a resolved no-op without registering or fetching a scope. */
+  fetch(scope: TScope | null): Promise<void>;
   invalidate(scope?: TScope): void;
 };
 
@@ -68,7 +70,7 @@ export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope
    * A terminal not-found result is represented only by `loadingState.showEmptyState`; `row: undefined`
    * alone remains unknown because the request may still be loading or disabled by a nullish `rowId`.
    *
-   * @param scope Query scope used for variables and the shared TanStack Query key.
+   * @param scope Query scope used for variables and the shared TanStack Query key, or `null` for an idle read without a scope subscription.
    * @param rowId Destination-model row id to ensure, or a nullish value for an inactive read.
    * @param readOpts Destination row projection options; `renderKeys` keeps unrelated field writes from rerendering.
    * @returns The reactive row plus its materialization loading state and refetch action.
@@ -207,14 +209,15 @@ const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isR
  * pagination/freshness options.
  * @returns `{ use, fetch, invalidate }`. `use(scope, opts?)` is a hook - a single-fetch hook when `page` is
  * omitted, an infinite-query hook (paginated) when `page` is set - returning a `QueryResult`. `fetch(scope)`
- * runs one fetch outside React. `invalidate(scope?)` clears the React Query cache for one scope, or every
+ * runs one fetch outside React. Both reads accept `null` as an idle, unregistered scope that never invokes
+ * `vars` or `enabled`. `invalidate(scope?)` clears the React Query cache for one scope, or every
  * registered scope when `scope` is omitted.
  */
 export const defineQuery = <TResponse, TVars, TScope, TStored>(
   config: QueryConfig<TResponse, TVars, TScope, TStored>
 ): QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope> => {
   const keyName = operationKey(config.document, config.key);
-  const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
+  const queryKeyOf = (scope: TScope | null): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
   const registeredScopes = new Map<string, TScope>();
   registerReset(() => {
     registeredScopes.clear();
@@ -224,9 +227,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     isScopeDestination(config.into)
       ? compositeKey(String((config.into as { modelId?: string }).modelId ?? keyName), getInternalScopeHandle(config.into).key(scope))
       : compositeKey(keyName, scopeKey);
-  const registerScope = (scope: TScope): void => {
+  const registerScope = (scope: TScope | null): scope is TScope => {
+    if (scope === null) return false;
     if (isScopeDestination(config.into)) getInternalScopeHandle(config.into).key(scope);
     registeredScopes.set(buildScopeKey(scope), scope);
+    return true;
   };
   const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
     if (!isNonArrayRecord(partial)) return Object.is(scope, partial);
@@ -291,7 +296,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     return pageMetaOf(config.page ? config.page(data) : null);
   };
 
-  const runFetch = async (scope: TScope, cursor: string | null, resurrectDestroyed = false): Promise<PageMeta> => {
+  const runFetch = async (scope: TScope | null, cursor: string | null, resurrectDestroyed = false): Promise<PageMeta> => {
+    if (scope === null) return { endCursor: null, hasNextPage: false, count: 0 };
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = {
       ...((config.vars?.(scope) ?? {}) as Record<string, unknown>),
@@ -331,8 +337,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     return applyResponse(scope, data, cursor == null, resurrectDestroyed);
   };
 
-  const fetch = async (scope: TScope): Promise<void> => {
-    registerScope(scope);
+  const fetch = async (scope: TScope | null): Promise<void> => {
+    if (!registerScope(scope)) return;
     if (config.enabled && !config.enabled(scope)) return;
     await runFetch(scope, null);
   };
@@ -371,7 +377,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     };
   };
 
-  const useDestinationRows: (scope: TScope) => TStored[] | undefined = isScopeDestination(config.into)
+  const useDestinationRows: (scope: TScope | null) => TStored[] | undefined = isScopeDestination(config.into)
     ? scope => (config.into as ScopeDestination<TStored, TScope>).use(scope) as TStored[]
     : () => undefined;
 
@@ -417,9 +423,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     };
   };
 
-  const useInfiniteResult = (scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored> => {
+  const useInfiniteResult = (scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
     registerScope(scope);
-    const enabled = (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
+    const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const request = useInfiniteQuery({
       queryKey: queryKeyOf(scope),
       enabled,
@@ -458,9 +464,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     });
   };
 
-  const useSingleResult = (scope: TScope, options?: { enabled?: boolean }): QueryResult<TStored> => {
+  const useSingleResult = (scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
     registerScope(scope);
-    const enabled = (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
+    const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const request = useQuery({
       queryKey: queryKeyOf(scope),
       enabled,
@@ -499,13 +505,13 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
 
   const destination = config.into as ModelDestination<TStored>;
   const useRowEnsured = (
-    scope: TScope,
+    scope: TScope | null,
     rowId: string | null | undefined,
     readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }
   ): EnsuredRowResult<TStored> => {
     const row = destination.use.find(rowId, readOpts);
     const present = row !== undefined;
-    const enabled = (config.enabled?.(scope) ?? true) && rowId != null && !present;
+    const enabled = scope !== null && (config.enabled?.(scope) ?? true) && rowId != null && !present;
     const request = useQuery({
       queryKey: queryKeyOf(scope),
       enabled,

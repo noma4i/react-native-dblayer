@@ -59,6 +59,32 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('accepts null as a disabled query scope for reactive and imperative reads', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, f, scope } from '${entry}';
+      type Row = { id: string; accountId: string };
+      type Data = { rows: Row[] };
+      type Variables = { accountId: string };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const rows = defineModel({
+        id: 'null-query-scope',
+        name: 'NullQueryScope',
+        fields: { id: f.id(), accountId: f.str() },
+        scopes: { byAccount: scope<Row>({ by: { accountId: 'accountId' } }) }
+      });
+      const query = rows.query<Data, Variables, { accountId: string }, Row>('byAccount', {
+        document,
+        vars: scopeValue => ({ accountId: scopeValue.accountId }),
+        select: data => data.rows,
+        into: rows.scopes.byAccount
+      });
+      query.use(null);
+      void query.fetch(null);
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects the historical invalidate: true boolean on an ingest declaration', () => {
     const diagnostics = compileFixture(`
       import type { IngestDecl } from '${entry}';

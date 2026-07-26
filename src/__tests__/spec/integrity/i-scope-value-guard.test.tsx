@@ -1,5 +1,7 @@
-import { defineModel, f, scope } from '../../../index';
-import { renderCounted, setupSpecRuntime } from '../helpers/harness';
+import type { DocumentNode } from 'graphql';
+import { act } from 'react-test-renderer';
+import { configureDb, defineModel, f, scope } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; accountId: string; title: string };
 
@@ -12,6 +14,16 @@ const createRows = (suffix: string) =>
       byAccount: scope<Row>({ by: { accountId: 'accountId' } }),
       catalog: scope<Row>({})
     }
+  });
+
+const document = {} as DocumentNode;
+
+const createQuery = (rows: ReturnType<typeof createRows>, vars: (scopeValue: { accountId: string }) => { accountId: string } = scopeValue => ({ accountId: scopeValue.accountId })) =>
+  rows.query<{ rows: Row[] }, { accountId: string }, { accountId: string }, Row>('byAccount', {
+    document,
+    vars,
+    select: data => data.rows,
+    into: rows.scopes.byAccount
   });
 
 describe('by-scope value guard', () => {
@@ -34,6 +46,41 @@ describe('by-scope value guard', () => {
 
     expect(reader.result()).toEqual([]);
     reader.unmount();
+  });
+
+  it('keeps a null query read idle without callbacks, transport, or a scope subscription', async () => {
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: { rows: [] } as TData }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('QueryDisabled');
+    const vars = jest.fn((scopeValue: { accountId: string }) => ({ accountId: scopeValue.accountId }));
+    const query = createQuery(rows, vars);
+    const reader = renderCountedInProvider(() => query.use(null));
+
+    await settle();
+
+    expect(reader.result().data).toEqual([]);
+    expect(reader.result().loadingState.phase).toBe('idle');
+    expect(vars).not.toHaveBeenCalled();
+    expect(transport.calls).toEqual([]);
+    const renders = reader.renders();
+    act(() => {
+      rows.scopes.byAccount.seed({ accountId: 'account-1' }, [{ id: 'row-1', accountId: 'account-1', title: 'kept' }]);
+    });
+    expect(reader.renders()).toBe(renders);
+    reader.unmount();
+  });
+
+  it('keeps an imperative null query fetch as a no-op', async () => {
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: { rows: [] } as TData }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('FetchDisabled');
+    const vars = jest.fn((scopeValue: { accountId: string }) => ({ accountId: scopeValue.accountId }));
+    const query = createQuery(rows, vars);
+
+    await expect(query.fetch(null)).resolves.toBeUndefined();
+
+    expect(vars).not.toHaveBeenCalled();
+    expect(transport.calls).toEqual([]);
   });
 
   it('preserves root catalog scopes and complete by-scope values', () => {
