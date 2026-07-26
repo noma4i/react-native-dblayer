@@ -251,8 +251,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     let previous: unknown = null;
     let previousMemberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> = [];
     let respondInverse: JournalOp[] = [];
+    let context!: OptimisticCtx;
+    let data!: TData;
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
+    const generationFence = createGenerationFence();
 
+    try {
     if (tracked && methodPatchOptimistic) {
       const patch = optimistic.selectPatch(input) as Record<string, unknown>;
       operations.begin({
@@ -325,35 +329,32 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         createdAt: Date.now()
       });
     }
-    const context: OptimisticCtx = { tempId, operationId };
+    context = { tempId, operationId };
     config.onMutate?.(input, context);
-    const generationFence = createGenerationFence();
 
-    let data: TData;
-    try {
-      data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } })).data as TData;
-      if (!generationFence.isCurrent()) return null;
-      const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
-      if (payload == null) throw new Error(`${config.result} returned no data`);
+    data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } })).data as TData;
+    if (!generationFence.isCurrent()) return null;
+    const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
+    if (payload == null) throw new Error(`${config.result} returned no data`);
 
-      const ops: JournalOp[] = [];
-      if (optimistic && isRespondOptimistic(optimistic)) {
-        const respondOps = planFromRespond(data, context, optimistic, input);
-        ops.push(...respondOps);
-      } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
-        const node = optimistic.selectServerNode(data);
-        if (node != null) {
-          ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
-        }
+    const ops: JournalOp[] = [];
+    if (optimistic && isRespondOptimistic(optimistic)) {
+      const respondOps = planFromRespond(data, context, optimistic, input);
+      ops.push(...respondOps);
+    } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
+      const node = optimistic.selectServerNode(data);
+      if (node != null) {
+        ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
       }
-      for (const sink of config.extract?.({ data }) ?? []) {
-        ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
-      }
-      const commitOps = methodPatchOptimistic
-        ? ops.map(op => (op.kind === 'upsert' && op.model === optimistic.model.modelId ? { ...op, operationId } : op))
-        : ops;
-      if (commitOps.length > 0) getApplyRuntime().apply(commitOps);
-      if (tracked) operations.close(operationId, 'committed');
+    }
+    for (const sink of config.extract?.({ data }) ?? []) {
+      ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
+    }
+    const commitOps = methodPatchOptimistic
+      ? ops.map(op => (op.kind === 'upsert' && op.model === optimistic.model.modelId ? { ...op, operationId } : op))
+      : ops;
+    if (commitOps.length > 0) getApplyRuntime().apply(commitOps);
+    if (tracked) operations.close(operationId, 'committed');
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {

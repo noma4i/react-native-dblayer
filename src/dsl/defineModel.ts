@@ -622,7 +622,7 @@ export const defineModel = <
   };
   const keyForScope = (scopeName: string, scopeValue: unknown): string => {
     const by = scopeByFieldMap.get(scopeName);
-    if (by && scopeValue != null) {
+    if (by && scopeValue !== null) {
       for (const field of Object.keys(by)) {
         if (!isRecord(scopeValue) || scopeValue[field] === undefined) throw new Error(`${config.name}.${scopeName}: scope value must provide ${field}`);
       }
@@ -1044,7 +1044,7 @@ export const defineModel = <
       return [upsert, planScope(requestedScopeKey, requestedRows, coverage, opts), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
     };
     const readScopeRows = (scopeValue: unknown, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
-      const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+      const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
       useScopeAccess(scopeKey);
       return useScopeLiveRows(
         config.id,
@@ -1058,10 +1058,10 @@ export const defineModel = <
       modelId: config.id,
       use: readScopeRows,
       useFirst: (scopeValue: unknown, options: { renderKeys?: readonly string[] } & KeepPreviousOption = {}) =>
-        readScopeRows(scopeValue ?? null, options as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
+        readScopeRows(scopeValue, options as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
       useWindow: (scopeValue: unknown, options: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
-        const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+        const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
         const windowStateRef = useRef({ scopeKey, size: pageSize });
         const [, setWindowRevision] = useState(0);
         if (windowStateRef.current.scopeKey !== scopeKey) windowStateRef.current = { scopeKey, size: pageSize };
@@ -1089,10 +1089,10 @@ export const defineModel = <
         };
       },
       useCount: (scopeValue: unknown) => {
-        const scopeKey = scopeValue == null ? null : keyForScope(scopeName, scopeValue);
+        const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
         useScopeAccess(scopeKey);
         return useLiveRead(
-          () => (scopeValue == null ? 0 : planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries.length),
+          () => (scopeValue === null ? 0 : planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries.length),
           scopeKey == null ? [] : [scopeDep(scopeKey)]
         );
       },
@@ -1105,7 +1105,7 @@ export const defineModel = <
         return scopeSortedRows(scopeName, scopeValue);
       },
       issueSequence: (scopeValue: unknown, field: keyof Stored & string) => {
-        if (scopeValue == null) throw new Error(`${config.name}.${scopeName}.issueSequence requires a scope value`);
+        if (scopeValue === null) throw new Error(`${config.name}.${scopeName}.issueSequence requires a scope value`);
         const scopeKey = keyForScope(scopeName, scopeValue);
         planes().scopeIndex.noteAccess(scopeKey);
         const maxFieldValue = scopeSortedRows(scopeName, scopeValue).reduce((maximum, row) => {
@@ -1262,6 +1262,7 @@ export const defineModel = <
       };
     }) as ModelCore<Stored, Input>['query'],
     mutation: (name, mutationConfig) => {
+      /** Mutation dedupe keys are idempotency identities, not scope bucket keys; scope validation belongs to scope handles and queries. */
       const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
       return defineMutation({ ...mutationConfig, dedupe });
     },
@@ -1534,6 +1535,7 @@ export const defineModel = <
     revision += 1;
     planesRef?.entityState.reset();
     planesRef?.scopeIndex.reset();
+    planesRef = null;
     // The apply target stays registered: a model must keep working after the kill-switch.
   });
 

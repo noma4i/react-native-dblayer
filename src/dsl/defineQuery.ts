@@ -221,6 +221,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   });
   const committedRowsKey = (scopeKey: string): string => compositeKey(keyName, scopeKey);
   const registerScope = (scope: TScope): void => {
+    if (isScopeDestination(config.into)) getInternalScopeHandle(config.into).key(scope);
     registeredScopes.set(buildScopeKey(scope), scope);
   };
   const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
