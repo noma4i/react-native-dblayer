@@ -101,6 +101,56 @@ const scopedModelQueryTransport = () =>
   });
 
 describe('rerender matrix batch amplification', () => {
+  it('keeps row and scope readers stable when an identical query page is normalized again', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        const payload: NestedQueryPayload = {
+          feed: {
+            nodes: Array.from({ length: 10 }, (_, index) => ({
+              id: String(index),
+              name: `page-${index}`,
+              status: 'a',
+              score: index,
+              markers: [{ id: `marker-${index}`, label: `Marker ${index}` }]
+            })),
+            pageInfo: { hasNextPage: false, endCursor: null }
+          }
+        };
+        return { data: payload as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createNestedScopedModel();
+    const query = rows.query<NestedQueryPayload, { status: string }, { status: string }, NestedBulkRow>('identical-page', {
+      document: { kind: 'Document', definitions: [] } as never,
+      vars: scopeValue => scopeValue,
+      page: payload => ({ nodes: payload.feed.nodes, pageInfo: payload.feed.pageInfo }),
+      into: rows.scopes.byStatus,
+      coverage: 'page'
+    });
+
+    await act(async () => {
+      await query.fetch({ status: 'a' });
+    });
+    const rowReader = renderCounted(() => rows.use.find('0'));
+    const scopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'a' }));
+    const beforeRow = rowReader.result();
+    const beforeScope = scopeReader.result();
+    const beforeStoredRows = new Map(rows.all().map(row => [row.id, row]));
+    const beforeRenders = [rowReader.renders(), scopeReader.renders()];
+
+    await act(async () => {
+      await query.fetch({ status: 'a' });
+    });
+
+    expect(rowReader.result()).toBe(beforeRow);
+    expect(scopeReader.result()).toBe(beforeScope);
+    expect(rows.all().every(row => beforeStoredRows.get(row.id) === row)).toBe(true);
+    expect([rowReader.renders(), scopeReader.renders()].map((count, index) => count - beforeRenders[index]!)).toEqual([0, 0]);
+    rowReader.unmount();
+    scopeReader.unmount();
+  });
+
   it('keeps row, scope, and view readers stable when an identical query page is normalized again', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => {

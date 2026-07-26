@@ -307,6 +307,26 @@ describe('read path render budget', () => {
     act(() => root.unmount());
   });
 
+  it('adds a newly matching hasMany row to a related reader', () => {
+    setupSpecRuntime();
+    const { children, parents } = createCollectionRelations();
+    parents.insert({ id: 'parent-1', name: 'Parent' });
+    children.insert({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
+    let result!: ChildRow[];
+    let root!: TestRenderer.ReactTestRenderer;
+    const Reader = () => {
+      result = parents.use.related('parent-1', 'children') as ChildRow[];
+      return null;
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    expect(result.map(row => row.id)).toEqual(['child-1']);
+    act(() => children.insert({ id: 'child-2', parentId: 'parent-1', title: 'Second', rank: 2 }));
+    expect(result.map(row => row.id)).toEqual(['child-1', 'child-2']);
+    act(() => root.unmount());
+  });
+
   it('does not apply read engines during idle parent rerenders', () => {
     setupSpecRuntime();
     diagnostics().reset();

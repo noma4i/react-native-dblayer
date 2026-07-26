@@ -49,6 +49,54 @@ const createChatView = (models: ReturnType<typeof createChatModels>, onSelect?: 
   });
 
 describe('chat list view sufficiency', () => {
+  it('rerenders only the item whose scope row changes', () => {
+    setupSpecRuntime();
+    const models = createChatModels('ItemScope');
+    seedChats(models);
+    const renders = new Map<string, number>();
+    let root!: TestRenderer.ReactTestRenderer;
+    const Item = memo(({ item }: { item: { id: string; title: string } }) => {
+      renders.set(item.id, (renders.get(item.id) ?? 0) + 1);
+      return null;
+    });
+    const List = () => React.createElement(React.Fragment, null, models.chats.scopes.list.use({ inboxId: 'main' }).map(item => React.createElement(Item, { key: item.id, item })));
+    act(() => {
+      root = TestRenderer.create(React.createElement(List));
+    });
+    const before = new Map(renders);
+    act(() => models.chats.update('chat-7', { title: 'Updated title' }));
+    expect([...renders].map(([id, count]) => count - (before.get(id) ?? 0))).toEqual([...renders.keys()].map(id => (id === 'chat-7' ? 1 : 0)));
+    act(() => root.unmount());
+  });
+
+  it('keeps scope output stable for an unrelated model write', () => {
+    setupSpecRuntime();
+    const models = createChatModels('UnrelatedScope');
+    const unrelated = defineModel({ id: 'SpecUnrelatedChatScope', name: 'SpecUnrelatedChatScope', fields: { value: f.str() } });
+    seedChats(models);
+    unrelated.insert({ id: 'one', value: 'before' });
+    const reader = renderCounted(() => models.chats.scopes.list.use({ inboxId: 'main' }));
+    const initial = reader.result();
+    const renders = reader.renders();
+    act(() => unrelated.update('one', { value: 'after' }));
+    expect(reader.result()).toBe(initial);
+    expect(reader.renders() - renders).toBe(0);
+    reader.unmount();
+  });
+
+  it('keeps scope output identity across unrelated-model writes', () => {
+    setupSpecRuntime();
+    const models = createChatModels('IdentityScope');
+    const unrelated = defineModel({ id: 'SpecUnrelatedChatScopeIdentity', name: 'SpecUnrelatedChatScopeIdentity', fields: { value: f.str() } });
+    seedChats(models);
+    unrelated.insert({ id: 'one', value: 'before' });
+    const reader = renderCounted(() => models.chats.scopes.list.use({ inboxId: 'main' }));
+    const initial = reader.result();
+    act(() => unrelated.update('one', { value: 'after' }));
+    expect(reader.result()).toBe(initial);
+    reader.unmount();
+  });
+
   it('rerenders only the item whose chat projection changes', () => {
     setupSpecRuntime();
     const models = createChatModels('Item');
