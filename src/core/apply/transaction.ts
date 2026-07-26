@@ -3,6 +3,7 @@ import type { CheckpointScheduler } from './checkpoint';
 import type { JournalOp, JournalRecord } from './journal';
 import { createJournal } from './journal';
 import type { StoragePlane } from '../planes/storagePlane';
+import type { WriteOrigin } from '../../dsl/defineModel';
 import { uniq, uniqBy } from 'es-toolkit';
 
 /**
@@ -20,7 +21,7 @@ export type ApplyTarget = {
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
   scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
   readAllScopeKeys(): string[];
-  upsert(rows: unknown[], origin?: 'event' | 'replace', mergeBase?: Record<string, unknown>): Array<{ id: string; changedFields: string[] | null }>;
+  upsert(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Record<string, unknown>): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];
   counter(id: string, field: string, delta: number, next?: number): boolean;

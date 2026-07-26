@@ -37,12 +37,12 @@ const createFixture = (suffix: string, guarded = false) => {
       read: f.bool(),
       rev: f.num()
     },
-    mergePolicy: guarded
+    write: guarded
       ? {
           groups: [
             {
               fields: ['pinned', 'muted', 'rev'] as const,
-              allowWrite: (incoming, current) => (incoming.rev ?? -1) >= current.rev
+              policy: { monotonic: (incoming, current) => (incoming.rev ?? current.rev) >= current.rev }
             }
           ]
         }
@@ -324,7 +324,7 @@ describe('optimistic write causality', () => {
     reader.unmount();
   });
 
-  it('W18 mergePolicy preserves a later successful mute when commits resolve out of order', async () => {
+  it('W18 write policy preserves a later successful mute when commits resolve out of order', async () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W18Guarded', true);
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
@@ -348,7 +348,7 @@ describe('optimistic write causality', () => {
     reader.unmount();
   });
 
-  it('W18 control allows a late stale commit to win without a mergePolicy guard', async () => {
+  it('W18 control allows a late stale commit to win without a write policy guard', async () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W18Control');
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));

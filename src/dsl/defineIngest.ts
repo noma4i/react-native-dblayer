@@ -149,7 +149,7 @@ export const defineModelIngest = (
 /**
  * Compile a subscription event into ONE event plan: rows, destroys and extract sinks apply with
  * relation side effects (touch/counterCache/dependent) in a single epoch. Version arbitration for
- * stale events lives in the model's merge.shouldOverwrite gate - not here (one gate, no zoo).
+ * stale events lives in the model's write acceptance gate - not here (one gate, no zoo).
  */
 export const defineIngest = (model: IngestModel, handlers: Record<string, (payload: unknown) => IngestDecl | null>): IngestHandle => ({
   apply: (event, payload) => {

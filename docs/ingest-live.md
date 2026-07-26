@@ -27,7 +27,7 @@ subscription runtime).
 Each entry is one of two forms:
 
 **Handler form** - the exact atomic apply pipeline (rows, destroys, and `extract` sinks apply with
-relation side effects in one epoch; stale-version arbitration stays in `merge.shouldOverwrite`, see
+relation side effects in one epoch; stale-version arbitration stays in `write.accept`, see
 [models.md](./models.md#definemodelconfig)):
 
 ```ts

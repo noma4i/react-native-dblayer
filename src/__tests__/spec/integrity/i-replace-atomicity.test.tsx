@@ -13,11 +13,11 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
     scopes: { thread: scope<any>({ by: { chatId: 'chatId' }, sort: { field: 'body', dir: 'asc' } }) },
     ...(options?.mergeMedia
       ? {
-          mergePolicy: {
+          write: {
             groups: [
               {
                 fields: ['media'] as const,
-                allowWrite: (incoming: any, current: any) => current.media.transcodeStatus !== 'completed' || incoming.media.transcodeStatus === 'completed'
+                policy: { monotonic: (incoming: any, current: any) => current.media.transcodeStatus !== 'completed' || incoming.media.transcodeStatus === 'completed' }
               }
             ]
           }

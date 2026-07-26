@@ -26,15 +26,15 @@ const createChatModel = (id: string, groups = true) =>
     },
     ...(groups
       ? {
-          mergePolicy: {
+          write: {
             groups: [
               {
                 fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const,
-                allowWrite: (incoming, current) => (incoming.lastSequenceNumber ?? -1) >= current.lastSequenceNumber
+                policy: { monotonic: (incoming, current) => (incoming.lastSequenceNumber ?? -1) >= current.lastSequenceNumber }
               },
               {
                 fields: ['mediaStatus', 'mediaSequenceNumber'] as const,
-                allowWrite: (incoming, current) => (incoming.mediaSequenceNumber ?? -1) >= current.mediaSequenceNumber
+                policy: { monotonic: (incoming, current) => (incoming.mediaSequenceNumber ?? -1) >= current.mediaSequenceNumber }
               }
             ]
           }
@@ -53,7 +53,7 @@ const row = (overrides: Partial<ChatRow> = {}): ChatRow => ({
   ...overrides
 });
 
-describe('per-field merge policy', () => {
+describe('per-field write policy', () => {
   beforeEach(() => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
   });
@@ -148,37 +148,37 @@ describe('per-field merge policy', () => {
         id: 'MergePolicyUnknownField',
         name: 'MergePolicyUnknownField',
         fields: { name: f.str() },
-        mergePolicy: { groups: [{ fields: ['missing'] as never, allowWrite: () => true }] }
+        write: { groups: [{ fields: ['missing'] as never, policy: 'server' }] }
       })
-    ).toThrow('mergePolicy field missing is not declared');
+    ).toThrow('write field missing is not declared');
     expect(() =>
       defineModel({
         id: 'MergePolicyEmpty',
         name: 'MergePolicyEmpty',
         fields: { name: f.str() },
-        mergePolicy: { groups: [{ fields: [], allowWrite: () => true }] }
+        write: { groups: [{ fields: [], policy: 'server' }] }
       })
-    ).toThrow('mergePolicy groups must not be empty');
+    ).toThrow('write groups must not be empty');
     expect(() =>
       defineModel({
         id: 'MergePolicyNoGroups',
         name: 'MergePolicyNoGroups',
         fields: { name: f.str() },
-        mergePolicy: { groups: [] }
+        write: { groups: [] }
       })
-    ).toThrow('mergePolicy groups must not be empty');
+    ).toThrow('write groups must not be empty');
     expect(() =>
       defineModel({
         id: 'MergePolicyOverlap',
         name: 'MergePolicyOverlap',
         fields: { name: f.str(), status: f.str() },
-        mergePolicy: {
+        write: {
           groups: [
-            { fields: ['name'] as const, allowWrite: () => true },
-            { fields: ['name', 'status'] as const, allowWrite: () => true }
+            { fields: ['name'] as const, policy: 'server' },
+            { fields: ['name', 'status'] as const, policy: 'server' }
           ]
         }
       })
-    ).toThrow('mergePolicy field name appears in more than one group');
+    ).toThrow('write field name appears in more than one group');
   });
 });

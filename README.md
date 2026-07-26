@@ -198,7 +198,7 @@ One event compiles into one plan: rows, destroys, and `extract` sinks apply with
 in a single epoch. Re-delivery is idempotent - an unchanged row emits no notifications and never
 re-increments counters. `operationId` is the echo guard: an event whose operation already
 committed locally is skipped. Stale-version arbitration lives in the model's
-`merge.shouldOverwrite` gate. `Model.query`'s `live` option colocates the identical entry shape,
+`write.accept` gate. `Model.query`'s `live` option colocates the identical entry shape,
 refcounted by mounted readers, for subscriptions scoped to one query instead of a manually-managed
 runtime.
 

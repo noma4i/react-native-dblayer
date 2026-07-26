@@ -5,7 +5,7 @@ import { getDbLogger } from '../logger';
 
 export type JournalOp =
   | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; mergeBase?: never }
-  /** Replace carries the normalized prior row through WAL replay so mergePolicy observes the same commit semantics after restart. */
+  /** Replace carries the normalized prior row through WAL replay so write groups observe the same commit semantics after restart. */
   | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown }
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown> }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }

@@ -6,7 +6,7 @@ export type { MaintenanceReport } from './dsl/maintenanceRegistry';
 export { resetRuntime, registerReset } from './core/reset';
 export type { StoragePlane } from './core/planes/storagePlane';
 export { defineModel } from './dsl/defineModel';
-export type { ScopeHandle, ScopeWindowResult } from './dsl/defineModel';
+export type { ModelConfig, ScopeHandle, ScopeWindowResult, WriteCtx, WriteOrigin } from './dsl/defineModel';
 export { scope } from './dsl/scope';
 export type { ScopeSpec, ScopeCoverage } from './dsl/scope';
 export type { GcReport } from './core/gc';

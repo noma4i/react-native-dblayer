@@ -180,8 +180,7 @@ export const createAppModels = (tag: string) => {
       hasPhoto: f.bool(), hasGoodPhoto: f.bool(), hasInitialMoment: f.bool(), stickyLocation: f.bool(), status: f.enum(['active', 'blocked'] as const), preferenceNotifyConnection: f.bool(),
       preferenceNotifyMessage: f.bool(), preferenceVibration: f.bool(), receivedGifts: f.raw<any>()
     },
-    merge: { shouldOverwrite: () => true },
-    mergePolicy: { groups: [{ fields: ['locationCity', 'locationName', 'locationLat', 'locationLng', 'stickyLocation'] as const, allowWrite: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) }] },
+    write: { groups: [{ fields: ['locationCity', 'locationName', 'locationLat', 'locationLng', 'stickyLocation'] as const, policy: { monotonic: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) } }] },
     statics: model => ({ currentId: () => model.all()[0]?.id })
   });
 
@@ -235,7 +234,7 @@ export const createAppModels = (tag: string) => {
       chat: belongsTo<any, any>(chats, { foreignKey: 'chatId', touch: (message, chat) => compareMessagesNewest(message, { ...chat, id: chat.lastMessageId ?? '', createdAt: chat.lastMessageAt ?? '', sequenceNumber: chat.lastSequenceNumber }) < 0 ? { lastActivityAt: message.createdAt, lastMessageAt: message.createdAt, lastMessageId: message.id, lastSequenceNumber: message.sequenceNumber } : null, counterCache: { field: 'unreadCount', filter: message => message.userId !== currentUser.currentId() } }),
       replyTarget: references<any, any>(messages, { ids: message => message.replyToId })
     }),
-    mergePolicy: { groups: [{ fields: ['media'] as const, allowWrite: transcodeDoesNotRegress }, { fields: ['clientId'] as const, allowWrite: (incoming, current) => incoming.clientId != null || current.clientId == null }] },
+    write: { groups: [{ fields: ['media'] as const, policy: { monotonic: transcodeDoesNotRegress } }, { fields: ['clientId'] as const, policy: { monotonic: (incoming, current) => incoming.clientId != null || current.clientId == null } }] },
     maintenance: { maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }
   });
 
@@ -253,7 +252,7 @@ export const createAppModels = (tag: string) => {
       pinnedOrSystem: scope<any>({ by: { statusFilter: 'status' }, member: (chat: any) => chat.pinned === true || chat.kind === 'system', sort: { field: 'lastActivityAt', dir: 'desc' } })
     },
     relations: () => ({ messages: hasMany<any, any>(messages, { foreignKey: 'chatId', dependent: 'destroy' }), lastMessage: hasOne<any, any>(messages, { foreignKey: 'chatId', comparator: compareMessagesNewest }), memberUsers: references<any, any>(users, { ids: chat => chat.userIds ?? [] }) }),
-    mergePolicy: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, allowWrite: (incoming, current) => compareMessagesNewest({ id: incoming.lastMessageId ?? '', createdAt: incoming.lastMessageAt ?? '', sequenceNumber: incoming.lastSequenceNumber }, { id: current.lastMessageId ?? '', createdAt: current.lastMessageAt ?? '', sequenceNumber: current.lastSequenceNumber }) < 0 }, { fields: ['pinned', 'muted'] as const, allowWrite: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) }] }
+    write: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, policy: { monotonic: (incoming, current) => compareMessagesNewest({ id: incoming.lastMessageId ?? '', createdAt: incoming.lastMessageAt ?? '', sequenceNumber: incoming.lastSequenceNumber }, { id: current.lastMessageId ?? '', createdAt: current.lastMessageAt ?? '', sequenceNumber: current.lastSequenceNumber }) < 0 } }, { fields: ['pinned', 'muted'] as const, policy: { monotonic: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) } }] }
   });
 
   const moments = defineModel({
@@ -264,7 +263,7 @@ export const createAppModels = (tag: string) => {
     },
     scopes: { byUser: scope<any>({ by: { userId: 'userId' }, sort: { field: 'createdAt', dir: 'desc' } }), byUuid: scope<any>({ by: { uuid: 'uuid' } }), feed: scope<any>({ sort: 'server-order' }), myMoments: scope<any>({ sort: { comparator: compareCompassMoments, orderFields: ['unreadSimilarMomentsCount', 'createdAt'] } }), compassRelations: scope<any>({ sort: 'server-order' }) },
     relations: () => ({ user: belongsTo<any, any>(users, { foreignKey: 'userId' }) }),
-    mergePolicy: { groups: [{ fields: ['media'] as const, allowWrite: transcodeDoesNotRegress }] }
+    write: { groups: [{ fields: ['media'] as const, policy: { monotonic: transcodeDoesNotRegress } }] }
   });
 
   return { users, chats, messages, moments, currentUser, counters, vibes, walletTransactions };

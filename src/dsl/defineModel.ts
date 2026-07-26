@@ -356,7 +356,13 @@ type QueryScopeReads<TStored extends { id: string }, TQueryScopes> = {
   [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
 };
 
-type ModelConfig<
+/** Origin of a write reaching entity apply. */
+export type WriteOrigin = 'snapshot' | 'event' | 'replace' | 'patch';
+
+/** Context supplied to model-owned write declarations. */
+export type WriteCtx = { origin: WriteOrigin };
+
+export type ModelConfig<
   TFields extends ModelFieldSpecs,
   TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>,
   TExt extends Record<string, unknown>,
@@ -420,26 +426,28 @@ type ModelConfig<
       /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: InferStoredFields<TFields>) => boolean;
     }>;
   };
-  merge?: {
+  write?: {
     /**
-     * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`
-     * to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo).
-     * Omit to always accept incoming writes.
+     * Row-level acceptance when a row with the same id already exists. Return `false` to keep the
+     * existing row and drop the incoming write entirely. NOT invoked for origin `'replace'` - identity
+     * transition must always happen; field protection on replace comes from groups.
      */
-    shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
-  };
-  /**
-   * Cross-writer merge guards. Each group protects a set of fields behind one acceptance predicate:
-   * when a row already exists and an incoming write (any writer - query extract, ingest, sync, touch,
-   * mutation commit, patch) would change at least one group field, the group's fields are written only
-   * if `allowWrite(incoming, current)` returns true; otherwise the group's fields KEEP their current
-   * values while all non-group fields of the same write still apply. New rows (no current) bypass
-   * guards. Use `isIncomingNewer(current.updatedAt, incoming.updatedAt)` for timestamp guards.
-   */
-  mergePolicy?: {
-    groups: Array<{
+    accept?: (existing: InferStoredFields<TFields>, incoming: InferStoredFields<TFields>, ctx: WriteCtx) => boolean;
+    /**
+     * Field-group write policies applied to an accepted existing-row write while computing the effective
+     * row. A field belongs to at most one group; fields outside groups use the `'server'` default, where
+     * incoming values win including explicit null. `'continuity'` keeps current for incoming nullish
+     * values but accepts empty strings. `{ monotonic }` keeps every group field when any changed present
+     * field fails its predicate. `{ merge }` resolves each present field and keeps current when it returns
+     * undefined. Patch groups see only keys present in the sparse patch. New rows bypass write rules.
+     */
+    groups?: Array<{
       fields: readonly (keyof InferStoredFields<TFields> & string)[];
-      allowWrite: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>) => boolean;
+      policy:
+        | 'server'
+        | 'continuity'
+        | { monotonic: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>, ctx: WriteCtx) => boolean }
+        | { merge: (current: unknown, incoming: unknown, ctx: WriteCtx) => unknown };
     }>;
   };
   /**
@@ -474,7 +482,7 @@ const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean }
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
  * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
  *
- * @param config Field specs, id/guard resolution, optional relations/scopes, gc/merge policy, and statics.
+ * @param config Field specs, id/guard resolution, optional relations/scopes, gc/write policy, and statics.
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `update`/`destroy`/`insert`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
@@ -492,28 +500,44 @@ export const defineModel = <
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
   type Input = InferBuildInput<TFields>;
   type ModelPlanes = { entityState: EntityState<Stored>; scopeIndex: ScopeIndex };
-  const mergeGate = (() => {
-    const groups = config.mergePolicy?.groups;
-    if (!groups) return undefined;
-    if (groups.length === 0) throw new Error(`${config.name} mergePolicy groups must not be empty`);
+  const applyWriteGate = (() => {
+    if (!config.write) return undefined;
+    const groups = config.write?.groups;
+    if (groups && groups.length === 0) throw new Error(`${config.name} write groups must not be empty`);
     const declaredFields = new Set(Object.keys(config.fields));
     const groupedFields = new Set<string>();
-    for (const group of groups) {
-      if (group.fields.length === 0) throw new Error(`${config.name} mergePolicy groups must not be empty`);
+    for (const group of groups ?? []) {
+      if (group.fields.length === 0) throw new Error(`${config.name} write groups must not be empty`);
       for (const field of group.fields) {
-        if (!declaredFields.has(field)) throw new Error(`${config.name} mergePolicy field ${field} is not declared`);
-        if (groupedFields.has(field)) throw new Error(`${config.name} mergePolicy field ${field} appears in more than one group`);
+        if (!declaredFields.has(field)) throw new Error(`${config.name} write field ${field} is not declared`);
+        if (groupedFields.has(field)) throw new Error(`${config.name} write field ${field} appears in more than one group`);
         groupedFields.add(field);
       }
     }
-    return (previous: Stored, incoming: Stored): Stored => {
-      let merged: Stored | undefined;
-      for (const group of groups) {
-        if (!group.fields.some(field => !Object.is(incoming[field], previous[field])) || group.allowWrite(incoming, previous)) continue;
-        merged ??= { ...incoming };
-        for (const field of group.fields) merged[field] = previous[field];
+    return (previous: Stored, incoming: Stored, ctx: WriteCtx): Stored | null => {
+      if (ctx.origin !== 'replace' && config.write?.accept && !config.write.accept(previous, incoming, ctx)) return null;
+      let effective: Stored = { ...previous, ...incoming };
+      for (const group of groups ?? []) {
+        if (group.policy === 'server') continue;
+        if (group.policy === 'continuity') {
+          for (const field of group.fields) if (field in incoming && (incoming[field] === undefined || incoming[field] === null)) effective[field] = previous[field];
+          continue;
+        }
+        if ('monotonic' in group.policy) {
+          const changed = group.fields.some(field => field in incoming && !Object.is(incoming[field], previous[field]));
+          if (changed && !group.policy.monotonic(incoming, previous, ctx)) {
+            for (const field of group.fields) effective[field] = previous[field];
+          }
+          continue;
+        }
+        for (const field of group.fields) {
+          if (!(field in incoming)) continue;
+          const value = group.policy.merge(previous[field], incoming[field], ctx);
+          if (value === undefined) (effective as Record<string, unknown>)[field] = previous[field];
+          else (effective as Record<string, unknown>)[field] = value;
+        }
       }
-      return merged ?? incoming;
+      return effective;
     };
   })();
   let planesRef: ModelPlanes | null = null;
@@ -527,7 +551,7 @@ export const defineModel = <
       now: () => Date.now(),
       storage: runtime.storage,
       prefix: getStoragePrefix,
-      mergeGate
+      applyWriteGate
     });
     const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
     try {
@@ -678,7 +702,7 @@ export const defineModel = <
     detachForDestroy
   });
 
-  const writeRows = (rows: unknown[], origin?: 'event' | 'replace', mergeBase?: Stored): Array<{ id: string; changedFields: string[] | null }> => {
+  const writeRows = (rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Stored): Array<{ id: string; changedFields: string[] | null }> => {
     const changes: Array<{ id: string; changedFields: string[] | null }> = [];
     for (const value of rows) {
       let incoming: Stored;
@@ -690,13 +714,18 @@ export const defineModel = <
       }
       if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
-      if (current && config.merge?.shouldOverwrite && !config.merge.shouldOverwrite(current, incoming)) continue;
-      let merged: Stored = { ...current, ...incoming };
+      let gatedIncoming: Stored = config.write ? incoming : { ...current, ...incoming };
       if (current && origin !== 'replace') {
         const owned = getOperationState().ownedFields(config.id, incoming.id);
-        if (owned.size > 0) for (const field of owned) if (field in current) (merged as Record<string, unknown>)[field] = (current as Record<string, unknown>)[field];
+        if (owned.size > 0) {
+          if (config.write) gatedIncoming = { ...incoming };
+          for (const field of owned) {
+            if (config.write) delete gatedIncoming[field];
+            else if (field in current) (gatedIncoming as Record<string, unknown>)[field] = current[field];
+          }
+        }
       }
-      const result = planes().entityState.upsert(merged, origin === 'replace' ? { mergeBase } : undefined);
+      const result = planes().entityState.upsert(gatedIncoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot' } });
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
@@ -747,7 +776,8 @@ export const defineModel = <
       const key = String(id);
       const current = planes().entityState.read(key);
       if (!current) return null;
-      const result = planes().entityState.upsert({ ...current, ...patch, id: key });
+      const row = (config.write ? { ...patch, id: key } : { ...current, ...patch, id: key }) as Stored;
+      const result = planes().entityState.upsert(row, { ctx: { origin: 'patch' } });
       if (result.changedFields !== null && result.changedFields.length === 0) return null;
       revision += 1;
       return { id: key, changedFields: result.changedFields };

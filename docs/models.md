@@ -20,7 +20,7 @@ that belongs to a chat and lives in a per-chat `thread` scope.
 
 - [`defineModel(config)`](#definemodelconfig)
 - [Fields (`f`)](#fields-f)
-- [Merge policy](#merge-policy)
+- [Write policy](#write-policy)
 - [Writes](#writes)
 - [Scopes](#scopes)
 - [Relations](#relations)
@@ -57,8 +57,8 @@ const MessageModel = defineModel({
   maintenance: {
     maxRowsPerScope: [{ scopeField: 'chatId', limit: 500, compare: (a, b) => Number(b.createdAt) - Number(a.createdAt) }]
   },
-  merge: {
-    shouldOverwrite: (existing, incoming) => isIncomingNewer(existing.updatedAt, incoming.updatedAt)
+  write: {
+    accept: (existing, incoming, ctx) => ctx.origin === 'replace' || isIncomingNewer(existing.updatedAt, incoming.updatedAt)
   },
   statics: model => ({
     forChat: (chatId: string) => model.where({ chatId })
@@ -81,21 +81,23 @@ const MessageModel = defineModel({
 | `scopes`                | `Record<string, ScopeSpec>`                    | Named `ScopeSpec` definitions built with `scope(...)`. Each entry becomes a `model.scopes.<name>` handle.                                                                                                                               |
 | `gc`                    | `'exempt'`                                     | Keeps this model's rows out of garbage-collection sweeps even when unreferenced by any scope. See [runtime.md](./runtime.md#garbage-collection).                                                                                        |
 | `maintenance`           | `{ maxRowsPerScope?, dropIdleScopesAfterMs? }` | Boot-time/in-session maintenance declarations. See [runtime.md](./runtime.md#maintenance).                                                                                                                                              |
-| `merge.shouldOverwrite` | `(existing, incoming) => boolean`              | Acceptance gate for an incoming write when a row with the same id already exists. Return `false` to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo). Omit to always accept incoming writes. |
-| `mergePolicy.groups`    | `{ fields, allowWrite }[]`                     | Per-field cross-writer guards. A rejected group keeps only its current fields while unguarded fields in the same write still apply.                                                                                                     |
+| `write.accept` | `(existing, incoming, ctx) => boolean` | Existing-row acceptance gate. Return `false` to retain the current row and drop the incoming write. It receives `snapshot`, `event`, `replace`, or `patch` origin, except replace bypasses acceptance so its identity transition always completes. |
+| `write.groups` | `{ fields, policy }[]` | Per-field policies for accepted existing-row writes. Fields outside groups use incoming server values, including explicit null. A field may appear in only one group. |
 | `statics`               | `(model: ModelCore) => TExt`                   | Build extra static members merged onto the returned model. Receives the base model so statics can call back into `get`/`patch`/`use`/etc. Throws at `defineModel` time if a returned key collides with a base model key.                |
 
 `normalize`/`build` read every configured field from raw input on every write; invalid rows
 (a failed `guard`, an unresolved `rowId`, or a field that throws) are rejected and logged, never
 thrown into the apply pipeline - a single bad row in a batch never fails the rest of the batch.
 
-## Merge policy
+## Write policy
 
-`mergePolicy` protects selected fields when one row has several writers. Every existing-row write
-passes through the same entity apply gate: query rows and extracts, ingest, sync, relation touches,
-mutation commits, and `patch` all use the policy. A rejected group keeps its current field values;
-unrelated fields from that write still update. New rows bypass groups because they have no current
-value to preserve.
+`write` controls acceptance and field protection for every existing-row entity write: query rows and
+extracts, ingest, sync, relation touches, mutation commits, replace, and sparse `patch`. New rows
+bypass write rules. `accept` can reject a whole write except replace. Groups run only after acceptance:
+`'server'` is the explicit incoming-wins default, `'continuity'` keeps current for nullish incoming
+values but accepts `''`, `{ monotonic }` retains all group fields when a changed present field fails,
+and `{ merge }` resolves each present field while an `undefined` result keeps current. Sparse patches
+only expose their present keys to groups.
 
 ```ts
 import { defineModel, f, isIncomingNewer } from '@noma4i/react-native-dblayer';
@@ -110,11 +112,11 @@ const ChatModel = defineModel({
     lastMessageAt: f.str().nullable(),
     lastSequenceNumber: f.num().nullable()
   },
-  mergePolicy: {
+  write: {
     groups: [
       {
         fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'],
-        allowWrite: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt)
+        policy: { monotonic: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) }
       }
     ]
   }
@@ -123,8 +125,7 @@ const ChatModel = defineModel({
 
 This prevents an older list snapshot from regressing the chat preview after a newer message socket
 event or relation touch. Each group must contain at least one declared schema field, and a field can
-appear in only one group; invalid or overlapping declarations throw at `defineModel` time. When all
-changed groups allow their writes, the incoming row is reused without an extra allocation.
+appear in only one group; invalid or overlapping declarations throw at `defineModel` time.
 
 ## Fields (`f`)
 

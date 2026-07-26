@@ -1,6 +1,7 @@
 import { stableSerialize } from '../serialize';
 import { noteEntityUpsertGuardHit } from '../diagnostics';
 import { CorruptionError } from '../recovery';
+import type { WriteCtx } from '../../dsl/defineModel';
 import type { StoragePlane } from './storagePlane';
 
 type Tombstone = { at: number };
@@ -31,7 +32,7 @@ export type EntityState<T extends { id: string }> = {
   read(id: string): T | undefined;
   values(): T[];
   /** Returns changed top-level fields vs the previous row, or null when the row is new. */
-  upsert(row: T, options?: { mergeBase?: T }): UpsertResult;
+  upsert(row: T, options?: { mergeBase?: T; ctx?: WriteCtx }): UpsertResult;
   destroy(id: string, options?: { tombstone?: boolean }): void;
   /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
   evict(id: string): boolean;
@@ -60,9 +61,9 @@ export const createEntityState = <T extends { id: string }>(options: {
   now: () => number;
   storage: StoragePlane;
   prefix: () => string;
-  mergeGate?: (previous: T, incoming: T) => T;
+  applyWriteGate?: (previous: T, incoming: T, ctx: WriteCtx) => T | null;
 }): EntityState<T> => {
-  const { modelId, now, storage, prefix, mergeGate } = options;
+  const { modelId, now, storage, prefix, applyWriteGate } = options;
   const rows = new Map<string, T>();
   const tombstones = new Map<string, Tombstone>();
   const dirty = new Map<string, 'set' | 'delete'>();
@@ -107,7 +108,11 @@ export const createEntityState = <T extends { id: string }>(options: {
       const previous = rows.get(row.id);
       const mergePrevious = previous ?? options.mergeBase;
       if (previous === row) return { changedFields: [] };
-      if (mergePrevious && mergeGate) row = mergeGate(mergePrevious, row);
+      if (mergePrevious && applyWriteGate) {
+        const gated = applyWriteGate(mergePrevious, row, options.ctx ?? { origin: 'snapshot' });
+        if (gated === null) return { changedFields: [] };
+        row = gated;
+      }
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { changedFields };
       if (previous && changedFields !== null && changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))) {
