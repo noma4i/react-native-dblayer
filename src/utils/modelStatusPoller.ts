@@ -68,7 +68,6 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   const generationFence = createGenerationFence({ lazy: true });
   const isCurrentGeneration = (): boolean => generationFence.isCurrent();
   const beginGeneration = (): boolean => {
-    if (!isCurrentGeneration()) return false;
     generationFence.captureNow();
     return true;
   };

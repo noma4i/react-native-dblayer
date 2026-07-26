@@ -161,9 +161,13 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     }
 
     if (coverage === 'complete') {
-      const incomingIds = new Set(incoming.map(row => row.id));
+      /** Complete snapshots deduplicate like delta/page: the last payload occurrence supplies the retained entry. */
+      const incomingById = new Map<string, IncomingScopeRow>();
+      for (const row of incoming) incomingById.set(row.id, row);
+      const deduplicated = [...incomingById.values()];
+      const incomingIds = new Set(deduplicated.map(row => row.id));
       const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id)).map(entry => entry.id);
-      const entries = incoming.map((row, index) => ({ id: row.id, order: row.order ?? index, seq: generation, edge: row.edge }));
+      const entries = deduplicated.map((row, index) => ({ id: row.id, order: row.order ?? index, seq: generation + index, edge: row.edge }));
       return { next: { generation, coverage, entries }, detachedIds };
     }
 

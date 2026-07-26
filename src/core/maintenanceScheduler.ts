@@ -1,6 +1,7 @@
 import { getCommitBus } from '../dsl/configure';
 import { collectGarbage } from './gc';
 import { getApplyTarget } from './apply/transaction';
+import { getDbLogger } from './logger';
 import type { IncrementalCommitBatch, RowChange } from './apply/commitBus';
 
 const DEFAULT_THRESHOLD = 500;
@@ -58,9 +59,14 @@ export const startMaintenanceScheduler = (options?: { threshold?: number; deboun
     pressure += disappeared + detached;
     if (pressure >= threshold && !timer) {
       timer = setTimeout(() => {
-        collectGarbage();
-        pressure = 0;
-        timer = null;
+        try {
+          collectGarbage();
+        } catch (error) {
+          getDbLogger().error('MaintenanceScheduler', 'garbage collection failed', { error });
+        } finally {
+          pressure = 0;
+          timer = null;
+        }
       }, debounceMs);
     }
   };

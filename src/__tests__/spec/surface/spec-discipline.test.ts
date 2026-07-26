@@ -52,7 +52,8 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-effects-acceptance.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-ledger-lifecycle.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-ledger-lifecycle.test.tsx'), source: path.resolve(specRoot, '../../core/planes/operationState.ts') },
-  { spec: path.resolve(specRoot, 'integrity/i-subscription-correctness.test.tsx'), source: path.resolve(specRoot, '../../core/subscriptionRuntime.ts') }
+  { spec: path.resolve(specRoot, 'integrity/i-subscription-correctness.test.tsx'), source: path.resolve(specRoot, '../../core/subscriptionRuntime.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-poller-dedup-scheduler.test.ts'), source: path.resolve(specRoot, '../../utils/modelStatusPoller.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>
