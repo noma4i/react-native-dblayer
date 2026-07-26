@@ -48,7 +48,7 @@ export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects,
     effects: TEffects;
     /** Replace active effects; keys omitted from `overrides` fall back to the noop implementation. */
     configure: (overrides: Partial<TEffects>) => void;
-    /** Restore every effect to its noop implementation. */
+    /** Restore every effect to its noop implementation and unregister this channel's named effects. */
     reset: () => void;
 };
 /**
@@ -80,7 +80,9 @@ export type DbSubscriptionRuntime = {
      * Activate or deactivate all registered transport subscriptions.
      *
      * First activation requires `configureDb({ transport })` with `transport.subscribe`. Reconnect and
-     * observer resubscription inside the transport remain transparent to this runtime.
+     * observer resubscription inside the transport remain transparent to this runtime. If one entry throws
+     * while starting, every entry started by that activation is unsubscribed, the runtime remains inactive,
+     * and the original error is rethrown.
      *
      * @param active True subscribes all entries; false unsubscribes all entries and clears pending timers.
      * @returns void

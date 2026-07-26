@@ -68,6 +68,7 @@ export type ScopeIndex = {
         key: string;
         value: string | null;
     }>;
+    ackPersist(): void;
     hydrate(): void;
     reset(): void;
 };

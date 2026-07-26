@@ -1,11 +1,6 @@
+import type { WriteCtx } from '../../dsl/defineModel';
 import type { StoragePlane } from './storagePlane';
-type EntityClock = {
-    next(): number;
-    current(): number;
-    restore(value: number): void;
-};
 type UpsertResult = {
-    seq: number;
     changedFields: string[] | null;
 };
 export type EntityState<T extends {
@@ -14,22 +9,23 @@ export type EntityState<T extends {
     read(id: string): T | undefined;
     values(): T[];
     /** Returns changed top-level fields vs the previous row, or null when the row is new. */
-    upsert(row: T): UpsertResult;
+    upsert(row: T, options?: {
+        mergeBase?: T;
+        ctx?: WriteCtx;
+    }): UpsertResult;
     destroy(id: string, options?: {
         tombstone?: boolean;
-    }): number;
+    }): void;
     /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
     evict(id: string): boolean;
     isTombstoned(id: string): boolean;
-    snapshot(): number;
-    wasWrittenAfter(id: string, capture: number): boolean;
-    wasDestroyedAfter(id: string, capture: number): boolean;
     pruneTombstones(): number;
     /** Serialize rows+tombstones into storage entries for the transaction's single persist batch. */
     persistEntries(): Array<{
         key: string;
         value: string | null;
     }>;
+    ackPersist(): void;
     hydrate(): void;
     reset(): void;
 };
@@ -37,12 +33,11 @@ export declare const createEntityState: <T extends {
     id: string;
 }>(options: {
     modelId: string;
-    clock: EntityClock;
     now: () => number;
     storage: StoragePlane;
     prefix: () => string;
-    mergeGate?: (previous: T, incoming: T) => T;
+    applyWriteGate?: (previous: T, incoming: T, ctx: WriteCtx) => T | null;
+    ownedFields?: (rowId: string, excludeOperationId?: string) => ReadonlySet<string>;
 }) => EntityState<T>;
-export declare const createEntityClock: () => EntityClock;
 export {};
 //# sourceMappingURL=entityState.d.ts.map

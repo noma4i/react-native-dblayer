@@ -2,11 +2,11 @@ type WaiterModel<TStored extends {
     id: string;
 }> = {
     modelId: string;
-    get(id: string | null | undefined): TStored | undefined;
-    patch(id: string, patch: Record<string, unknown>): void;
+    find(id: string | null | undefined): TStored | undefined;
+    update(id: string, patch: Record<string, unknown>): void;
 };
 export type RowPatch<TStored> = Partial<TStored> | ((row: TStored) => Partial<TStored>);
-export type PatchWhenRowExistsOptions = {
+export type UpdateWhenRowExistsOptions = {
     /** Maximum time to keep a deferred patch before dropping it. */
     ttlMs: number;
 };
@@ -26,9 +26,9 @@ export type WaitForRowOptions = {
  * @param patch A partial update, or a function deriving one from the row once it is known.
  * @param options.ttlMs Maximum time to keep a deferred patch queued before dropping it.
  */
-export declare const patchWhenRowExists: <TStored extends {
+export declare const updateWhenRowExists: <TStored extends {
     id: string;
-}>(model: WaiterModel<TStored>, id: string, patch: RowPatch<TStored>, options: PatchWhenRowExistsOptions) => void;
+}>(model: WaiterModel<TStored>, id: string, patch: RowPatch<TStored>, options: UpdateWhenRowExistsOptions) => void;
 /**
  * Resolve with the row once it exists, or with `undefined` on timeout/abort. Resolves immediately, without
  * subscribing, when the row already exists.

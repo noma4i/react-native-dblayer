@@ -4,13 +4,12 @@ import type { KeepPreviousOption } from '../read/scopeRetention';
 import { defineFetch } from './defineFetch';
 import { defineMutation, type MutationConfig } from './defineMutation';
 import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
-import { type ViewConfig, type ViewHandle } from './defineView';
 import { type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { type ModelReadBuilder } from './readBuilder';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeSpec } from './scope';
-import type { InferBuildStoredInput, InferStoredFields } from '../schema/infer';
+import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import { type ModelStatusPoller } from '../utils/modelStatusPoller';
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 /** Result of ScopeHandle.useWindow: locally-windowed scope rows plus paging/resolution flags. */
@@ -46,35 +45,6 @@ type ModelMutationConfig<TData, TInput, TStored extends {
 };
 type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & {
     key?: string;
-};
-type CrudSection = Record<string, unknown>;
-type CrudQueryHandle = QueryHandle<{
-    id: string;
-}, unknown>;
-type CrudCreateHandle = ReturnType<typeof defineMutation<unknown, unknown, {
-    id: string;
-}, unknown>>;
-type CrudIdMutationHandle = ReturnType<typeof defineMutation<unknown, {
-    id: string;
-} & Record<string, unknown>, {
-    id: string;
-}, unknown>>;
-type CrudHandle<K extends keyof CrudSections> = K extends 'list' | 'get' ? CrudQueryHandle : K extends 'update' | 'destroy' ? CrudIdMutationHandle : CrudCreateHandle;
-export type CrudSections = {
-    /** List query configuration. `into` is required and must be a scope handle. */
-    list?: CrudSection & {
-        into: ScopeHandle<{
-            id: string;
-        }, unknown>;
-    };
-    /** Get query configuration; destination defaults to this model. */
-    get?: CrudSection;
-    /** Create mutation configuration; provide `respond` or `build` with `selectServerNode`. */
-    create?: CrudSection;
-    /** Update mutation configuration; default optimistic patch reads `input.id`. */
-    update?: CrudSection;
-    /** Destroy mutation configuration; default optimistic destroy reads `input.id`. */
-    destroy?: CrudSection;
 };
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
@@ -195,13 +165,6 @@ export type ModelCore<TStored extends {
     mutation<TData, TInput, TRow extends {
         id: string;
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
-    /** Compose conventional resource handles.
-     * @param sections Present resource sections and their builder-derived configuration.
-     * @returns Exactly the handles for the present section keys.
-     */
-    crud<TSections extends CrudSections>(sections: TSections): {
-        [K in keyof TSections & keyof CrudSections]: CrudHandle<K>;
-    };
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
     /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
@@ -216,21 +179,16 @@ export type ModelCore<TStored extends {
         maxAttempts: number;
         onSessionStop?: (id: string, reason: 'terminal-payload' | 'budget-exhausted' | 'stopped') => void;
     }): ModelStatusPoller;
-    /**
-     * Define a reactive joined projection over one declared scope and its current related rows.
-     * When declaring an output type explicitly, also declare the included-row map as the second type argument because TypeScript cannot partially infer it.
-     */
-    view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(name: string, config: ViewConfig<TStored, TIncluded, TItem>): ViewHandle<TItem, Record<string, unknown>>;
     /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
     ingest(entries: Record<string, ModelIngestEntry>): {
         entries: DbSubscriptionEntry[];
         apply(key: string, payload: unknown): void;
     };
-    get(id: string | null | undefined): TStored | undefined;
-    getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
+    find(id: string | null | undefined): TStored | undefined;
+    where(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
     /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
-    getAll(): TStored[];
-    patch(id: string, patch: Partial<TStored>): void;
+    all(): TStored[];
+    update(id: string, patch: Partial<TStored>): void;
     destroy(id: string): void;
     destroyMany(ids: string[]): void;
     /**
@@ -243,27 +201,27 @@ export type ModelCore<TStored extends {
      * @param patch Partial stored-field update applied to every matched row.
      * @returns Number of rows matched and patched.
      */
-    patchWhere(where: DbWhere<TStored>, patch: Partial<TStored>): number;
+    updateAll(where: DbWhere<TStored>, patch: Partial<TStored>): number;
     /**
      * Destroy every row matching `where` in ONE journal plan: single transaction, single commit
-     * publish. Snapshot semantics as in `patchWhere`.
+     * publish. Snapshot semantics as in `updateAll`.
      *
      * @param where Local `DbWhere` predicate selecting the rows to destroy.
      * @returns Number of rows destroyed.
      */
-    destroyWhere(where: DbWhere<TStored>): number;
-    insertStored(row: TStored): void;
+    destroyAll(where: DbWhere<TStored>): number;
+    insert(row: TStored): void;
     /**
      * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
-     * unlike calling `insertStored` in a loop, which would journal/publish once per row. Each row still
-     * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insertStored`;
+     * unlike calling `insert` in a loop, which would journal/publish once per row. Each row still
+     * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insert`;
      * relation side effects (`touch`, `counterCache`, declarative scope membership) are expanded once over
      * the whole batch, so a `belongsTo` `counterCache` increments by the batch's full count in one step
      * rather than one increment per row.
      */
-    insertStoredMany(rows: TStored[]): void;
-    replaceRaw(oldId: string, next: unknown): void;
-    buildStored(input: unknown): TStored;
+    insertMany(rows: TStored[]): void;
+    replace(oldId: string, next: unknown): void;
+    build(input: unknown): TStored;
     normalize(input: unknown): Partial<TStored> & {
         id: string;
     };
@@ -292,12 +250,12 @@ export type ModelCore<TStored extends {
         /** Read one field from one row. */
         field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
         /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
-        row<TProjection extends Record<string, unknown>>(id: string | null | undefined, opts: {
+        find<TProjection extends Record<string, unknown>>(id: string | null | undefined, opts: {
             select: (row: TStored) => TProjection;
             renderKeys?: never;
             require?: readonly (keyof TStored & string)[];
         }): TProjection | undefined;
-        row(id: string | null | undefined, opts?: {
+        find(id: string | null | undefined, opts?: {
             select?: never;
             renderKeys?: readonly (keyof TStored & string)[];
             require?: readonly (keyof TStored & string)[];
@@ -363,18 +321,18 @@ export type ModelCore<TStored extends {
 type RequiredReadUse<TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first'> & {
-    row<TProjection extends Record<string, unknown>>(id: string | null | undefined, opts: {
+}, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'find' | 'first'> & {
+    find<TProjection extends Record<string, unknown>>(id: string | null | undefined, opts: {
         select: (row: TStored) => TProjection;
         renderKeys?: never;
         require?: readonly TKey[];
     }): TProjection | undefined;
-    row<K extends TKey>(id: string | null | undefined, opts: {
+    find<K extends TKey>(id: string | null | undefined, opts: {
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
         require: readonly K[];
     }): RequiredFields<TStored, K> | undefined;
-    row(id: string | null | undefined, opts?: {
+    find(id: string | null | undefined, opts?: {
         select?: never;
         renderKeys?: readonly (keyof TStored & string)[];
         require?: never;
@@ -413,7 +371,14 @@ type QueryScopeReads<TStored extends {
 }, TQueryScopes> = {
     [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
 };
-type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}> = {
+/** Origin of a write reaching entity apply. */
+export type WriteOrigin = 'snapshot' | 'event' | 'replace' | 'patch';
+/** Context supplied to model-owned write declarations. `operationId` identifies an internal optimistic method-patch or rollback, which bypasses pending-field overlay; foreign writes omit it and preserve pending owned fields. */
+export type WriteCtx = {
+    origin: WriteOrigin;
+    operationId?: string;
+};
+export type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
     id: string;
     /** Human-readable model name; prefixes normalize/apply error and log messages. */
@@ -429,7 +394,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
      */
     queryScopes?: TQueryScopes;
     /**
-     * Implicit ordering for reads that declare no explicit order: `getWhere` without `opts.orderBy`,
+     * Implicit ordering for reads that declare no explicit order: `where` without `opts.orderBy`,
      * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
      * An explicit order fully replaces it. Without `defaultOrder`, unordered reads keep natural
      * storage order. Ties break by the implicit locale-independent id key as usual.
@@ -441,7 +406,7 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
     /**
      * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
      * returning anything else makes `normalize` throw `${name} requires id` for that input, which
-     * plan-building paths (writes, apply) catch and log as a rejected row, and direct `buildStored`/
+     * plan-building paths (writes, apply) catch and log as a rejected row, and direct `build`/
      * `normalize` calls propagate to the caller.
      */
     rowId?: (input: unknown) => string;
@@ -475,47 +440,49 @@ type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string,
             /** Evaluated at run time - may read OTHER models. */ protect?: () => (row: InferStoredFields<TFields>) => boolean;
         }>;
     };
-    merge?: {
+    write?: {
         /**
-         * Acceptance gate for an incoming write when a row with the same id already exists. Return `false`
-         * to keep the existing row and drop the incoming one (e.g. an out-of-order or stale server echo).
-         * Omit to always accept incoming writes.
+         * Row-level acceptance when a row with the same id already exists. Return `false` to keep the
+         * existing row and drop the incoming write entirely. NOT invoked for origin `'replace'` - identity
+         * transition must always happen; field protection on replace comes from groups.
          */
-        shouldOverwrite?: (existing: unknown, incoming: unknown) => boolean;
-    };
-    /**
-     * Cross-writer merge guards. Each group protects a set of fields behind one acceptance predicate:
-     * when a row already exists and an incoming write (any writer - query extract, ingest, sync, touch,
-     * mutation commit, patch) would change at least one group field, the group's fields are written only
-     * if `allowWrite(incoming, current)` returns true; otherwise the group's fields KEEP their current
-     * values while all non-group fields of the same write still apply. New rows (no current) bypass
-     * guards. Use `isIncomingNewer(current.updatedAt, incoming.updatedAt)` for timestamp guards.
-     */
-    mergePolicy?: {
-        groups: Array<{
+        accept?: (existing: InferStoredFields<TFields>, incoming: InferStoredFields<TFields>, ctx: WriteCtx) => boolean;
+        /**
+         * Field-group write policies applied to an accepted existing-row write while computing the effective
+         * row. A field belongs to at most one group; fields outside groups use the `'server'` default, where
+         * incoming values win including explicit null. `'continuity'` keeps current for incoming nullish
+         * values but accepts empty strings. `{ monotonic }` keeps every group field when any changed present
+         * field fails its predicate. `{ merge }` resolves each present field and keeps current when it returns
+         * undefined. Patch groups see only keys present in the sparse patch. New rows bypass write rules.
+         */
+        groups?: Array<{
             fields: readonly (keyof InferStoredFields<TFields> & string)[];
-            allowWrite: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>) => boolean;
+            policy: 'server' | 'continuity' | {
+                monotonic: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>, ctx: WriteCtx) => boolean;
+            } | {
+                merge: (current: unknown, incoming: unknown, ctx: WriteCtx) => unknown;
+            };
         }>;
     };
     /**
      * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
-     * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
+     * Receives the base `ModelCore` so statics can call back into `find`/`update`/`use`/etc. Throws at
      * `defineModel` time if any returned key collides with a base model key.
      */
-    statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>) => TExt;
+    statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>) => TExt;
 };
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
  * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
  *
- * @param config Field specs, id/guard resolution, optional relations/scopes, gc/merge policy, and statics.
- * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
+ * @param config Field specs, id/guard resolution, optional relations/scopes, gc/write policy, and statics.
+ * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `update`/`destroy`/`insert`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
-export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {}, TExt extends Record<string, unknown> = {}, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}>(config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>) => Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, "use" | "scopes"> & {
+export declare const defineModel: <const TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {}, TExt extends Record<string, unknown> = {}, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}>(config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>) => Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, "use" | "scopes"> & {
     use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | "id"> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
-    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>>; };
+    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>>; };
 } & TExt;
 export {};
 //# sourceMappingURL=defineModel.d.ts.map

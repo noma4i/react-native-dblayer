@@ -13,7 +13,8 @@ export declare const registerReset: (reset: () => void | Promise<void>) => (() =
  * it (e.g. on logout). Fully synchronous by design: state is clean the moment the call returns, with
  * no deferred teardown to await - seeding and subsequent reads can rely on it immediately. An async
  * resetter is a registration error and throws. No-ops when `configureDb` has never run - an
- * unconfigured runtime is trivially clean.
+ * unconfigured runtime is trivially clean. Every resetter runs even when another throws; failures
+ * are rethrown together as an `AggregateError` after storage and in-memory state are fully reset.
  */
 export declare const resetRuntime: () => void;
 //# sourceMappingURL=reset.d.ts.map

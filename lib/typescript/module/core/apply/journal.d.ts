@@ -4,12 +4,26 @@ export type JournalOp = {
     kind: 'upsert';
     model: string;
     rows: unknown[];
-    origin?: 'event' | 'replace';
-} | {
+    origin?: 'event';
+    operationId?: string;
+    mergeBase?: never;
+}
+/** Replace carries the normalized prior row through WAL replay so write groups observe the same commit semantics after restart. */
+ | {
+    kind: 'upsert';
+    model: string;
+    rows: unknown[];
+    origin: 'replace';
+    mergeBase?: unknown;
+    operationId?: string;
+}
+/** `operationId` lets a pending optimistic method-patch apply its own rollback while foreign patches keep its owned fields. */
+ | {
     kind: 'patch';
     model: string;
     id: string;
     patch: Record<string, unknown>;
+    operationId?: string;
 } | {
     kind: 'destroy';
     model: string;
@@ -43,6 +57,8 @@ export type JournalRecord = {
     status: 'pending' | 'committed';
     ops: JournalOp[];
 };
+/** Read one WAL record under the shared corruption policy: checkpointed corruption is dropped, while newer corruption is recorded as unavoidable loss. Covers both unparseable JSON and parseable JSON of the wrong record shape. */
+export declare const readJournalRecord: (storage: StoragePlane, prefix: string, journalKey: string) => JournalRecord | null;
 export declare const createJournal: (storage: StoragePlane, prefix: () => string) => {
     writePending: (record: JournalRecord) => void;
     /** Storage entries marking the record committed + pruning old committed records past the cap. */

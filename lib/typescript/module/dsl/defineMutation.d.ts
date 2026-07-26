@@ -1,17 +1,17 @@
 import type { DbGraphQLDocument } from '../types';
 import type { ExtractSink } from './defineQuery';
-/** Internal shared replacement seam for mutation commits and `Model.replaceRaw` reconciliation. */
+/** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export declare const clearFailedOptimisticMutation: (model: string, tempId: string) => void;
 type MutationModel = {
     modelId: string;
-    get(id: string | null | undefined): unknown;
+    find(id: string | null | undefined): unknown;
     normalize(input: unknown): {
         id: string;
     };
-    insertStored(row: {
+    insert(row: {
         id: string;
     }): void;
-    patch(id: string, patch: Record<string, unknown>): void;
+    update(id: string, patch: Record<string, unknown>): void;
     destroy(id: string): void;
 };
 type ScopePlacementHandle = {
@@ -43,7 +43,7 @@ export type MutateCallbacks<TData> = {
 };
 /**
  * Optimistic insert: writes a temp row immediately, then replaces it with the server node on commit
- * (or removes it on error/rollback).
+ * (or removes it on error/rollback). Field continuity and merge semantics are model-owned through `write.groups`, not mutation-owned.
  */
 type InsertOptimistic<TData, TInput, TStored, TNode> = {
     /** Model the optimistic (and committed) row is written into. */
@@ -54,8 +54,6 @@ type InsertOptimistic<TData, TInput, TStored, TNode> = {
     build: (input: TInput, ctx: OptimisticCtx) => TStored;
     /** Pick the server-created node off the mutation response; `null`/`undefined` skips the temp-id replace. */
     selectServerNode: (data: TData) => TNode | null | undefined;
-    /** Client-only fields (visual state, local uris) carried from the optimistic row onto the committed server row. */
-    preserveOnCommit?: ReadonlyArray<keyof TStored & string>;
     /** Retry path: reuse this existing optimistic row instead of inserting a new one; a failed retry keeps it. */
     existingTempId?: (input: TInput) => string | null;
     /**

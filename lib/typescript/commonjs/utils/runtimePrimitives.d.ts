@@ -19,22 +19,22 @@ export declare const createGenerationFence: (options?: {
     captureNow(): void;
 };
 type SnapshotModel<TStored extends RowId> = {
-    get(id: string | undefined | null): TStored | undefined;
-    getAll(): TStored[];
-    getWhere(filter: Partial<TStored>): TStored[];
+    find(id: string | undefined | null): TStored | undefined;
+    all(): TStored[];
+    where(filter: Partial<TStored>): TStored[];
 };
 type DestroyManyModel<TStored extends RowId> = {
-    getAll(): TStored[];
+    all(): TStored[];
     destroyMany(ids: string[]): void;
 };
 type PatchModel<TStored extends RowId> = {
-    get(id: string): TStored | undefined;
-    patch(id: string, updates: Partial<TStored>): boolean | void;
+    find(id: string): TStored | undefined;
+    update(id: string, updates: Partial<TStored>): boolean | void;
 };
 type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
-    insertStored(item: TStored): void;
+    insert(item: TStored): void;
     use: {
-        row(id: string | null | undefined): TStored | undefined;
+        find(id: string | null | undefined): TStored | undefined;
         field<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
     };
 };
@@ -44,7 +44,7 @@ export type ReconcileScopeFields<TStored extends RowId, TNode extends RowId> = {
     fieldMap: Partial<Record<Extract<keyof TStored, string>, Extract<keyof TNode, string>>>;
 };
 export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode extends CreatedAtRow> = {
-    /** Candidate resolver, or a scope-field shorthand backed by `model.getWhere`. */
+    /** Candidate resolver, or a scope-field shorthand backed by `model.where`. */
     resolveCandidates: ((node: TNode) => TStored[]) | ReconcileScopeFields<TStored, TNode>;
     /** Extra candidate predicate. Temp ids are always considered candidates. */
     isCandidate?: (candidate: TStored, node: TNode) => boolean;
@@ -59,7 +59,7 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
      *
      * - `'drop'` (default): the node is silently skipped - neither returned nor committed. This is the
      *   original behavior; callers that need to apply an existing-id node as an update have to pre-check
-     *   `model.get(node.id)` themselves before calling this function.
+     *   `model.find(node.id)` themselves before calling this function.
      * - `'return'`: the node is pushed into the returned array as-is, with no candidate matching attempted
      *   and no `commit` call - e.g. a subscription echo of a row already applied by its own mutation
      *   response. The caller decides how to apply it (patch, replace, or ignore).
@@ -105,7 +105,7 @@ type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
  * @param options Age threshold, optional protected ids, and stale-row callback.
  * @returns Number of stale temp rows resolved.
  */
-export declare const resolveStaleTempRows: <TStored extends CreatedAtRow>(model: Pick<DestroyManyModel<TStored>, "getAll">, options: ResolveStaleTempRowsOptions<TStored>) => number;
+export declare const resolveStaleTempRows: <TStored extends CreatedAtRow>(model: Pick<DestroyManyModel<TStored>, "all">, options: ResolveStaleTempRowsOptions<TStored>) => number;
 export type ThrottledSingleFlightOptions<TArgs extends unknown[]> = {
     minIntervalMs: number;
     /** Override throttle suppression; defaults to reading `args[0].force === true`. */
@@ -189,7 +189,7 @@ export declare const createSingletonStatics: <TStored extends RowId>(model: Sing
     /** Reactive read of ONE singleton field with a field-level dependency: consumers re-render only when this field changes, unlike useCurrent which subscribes to the whole row. */
     useCurrentField: <TField extends keyof TStored & string>(field: TField) => TStored[TField];
     upsertCurrent: (input: Partial<TStored>) => void;
-    patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min?: number) => boolean;
+    updateClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min?: number) => boolean;
 };
 export {};
 //# sourceMappingURL=runtimePrimitives.d.ts.map

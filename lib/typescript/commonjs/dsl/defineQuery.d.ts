@@ -86,7 +86,14 @@ export type ExtractSink = {
  * @param row Candidate node; `null`/`undefined` produce no sink.
  * @returns Zero or one `ExtractSink`.
  */
-export declare const sinkIf: (into: ExtractSink["into"], row: unknown) => ExtractSink[];
+/**
+ * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
+ *
+ * @param into Destination model receiving the optional row.
+ * @param row Optional source row.
+ * @returns One extract sink, or an empty list for a nullish row.
+ */
+export declare const intoIf: (into: ExtractSink["into"], row: unknown) => ExtractSink[];
 type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & {
     id: string;
 }, TScope>;
@@ -94,7 +101,7 @@ type ModelDestination<TStored> = {
     modelId: string;
     get?: (id: string | null | undefined) => TStored | undefined;
     use: {
-        row(id: string | null | undefined, opts?: DbReadOptions<TStored> & {
+        find(id: string | null | undefined, opts?: DbReadOptions<TStored> & {
             renderKeys?: readonly (keyof TStored & string)[];
         }): TStored | undefined;
     };

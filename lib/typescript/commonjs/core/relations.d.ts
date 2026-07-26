@@ -2,9 +2,9 @@ import type { JournalOp } from './apply/journal';
 /** Structural reference to a defined model; relation thunks resolve it after both models exist. */
 export type ModelRef<TStored> = {
     modelId: string;
-    get(id: string | null | undefined): TStored | undefined;
-    getAll(): TStored[];
-    getWhere(where: Record<string, unknown>): TStored[];
+    find(id: string | null | undefined): TStored | undefined;
+    all(): TStored[];
+    where(where: Record<string, unknown>): TStored[];
 };
 type StoredRow = Record<string, unknown>;
 type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
@@ -39,7 +39,7 @@ export type MembershipDelta = {
 };
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
- * Resolved by `expandPlan`, which accumulates `touch` patches per parent (folding several children in one
+ * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
  * plan) and `counterCache` increments/decrements, emitting them as extra `patch`/`counter` ops in the SAME
  * plan as the triggering event.
  *
@@ -63,7 +63,7 @@ export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, opti
 }) => RelationDecl;
 /**
  * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
- * `expandPlan` reads children through `model.getWhere` (plus any same-plan overlay writes) so a cascade sees
+ * `deriveEffects` reads children through `model.where` after accepted entity rows commit so a cascade sees
  * children written earlier in the same plan.
  *
  * @param model The child model reference.
@@ -79,7 +79,7 @@ export declare const hasMany: <TParent, TChild>(model: ModelRef<TChild>, options
 }) => RelationDecl;
 /**
  * Declare a query-only single child relation (parent -> one child), read through `model.related(id, name)`.
- * Not resolved by `expandPlan` - it has no write-time side effects, only a reactive query.
+ * Not resolved by `deriveEffects` - it has no write-time side effects, only a reactive query.
  *
  * @param model The child model reference.
  * @param options.foreignKey Child field storing the parent id.
@@ -93,7 +93,7 @@ export declare const hasOne: <TParent, TChild>(model: ModelRef<TChild>, options:
 }) => RelationDecl;
 /**
  * Declare a GC-only reference edge: ids extracted from the row keep the referenced target-model rows alive
- * during garbage-collection sweeps. Not resolved by `expandPlan` - it has no write-time side effects, only
+ * during garbage-collection sweeps. Not resolved by `deriveEffects` - it has no write-time side effects, only
  * a GC liveness signal (see `referencesOf` in the model's GC host registration).
  *
  * @param model The referenced model.
@@ -114,23 +114,28 @@ type RelationHost = {
     has(id: string): boolean;
     read(id: string): StoredRow | undefined;
     normalize(input: unknown): StoredRow | null;
-    membershipForUpsert(row: StoredRow): MembershipDelta[];
-    membershipForPatch(id: string, patch: StoredRow): MembershipDelta[];
+    membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
     detachForDestroy(id: string): MembershipDelta[];
 };
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
 export declare const hasDependentCascade: (modelId: string) => boolean;
+export type AcceptedRow = {
+    model: string;
+    id: string;
+    before: StoredRow | undefined;
+    after: StoredRow;
+    origin?: 'event' | 'replace';
+};
+export type DestroyedRow = {
+    model: string;
+    id: string;
+    before: StoredRow;
+};
 /**
- * Expand an EVENT plan with declared relation side effects (the Rails-callbacks analog):
- * counterCache increments for first-seen children, touch projections onto parents (emitted as
- * 'patch' ops in stored format, folded per parent so several children in one plan compose),
- * dependent destroy cascades, and declarative scope membership from ScopeSpec.by. Snapshot plans
- * (query pages / entity refreshes) must NOT be expanded - server snapshots already carry derived
- * state, so defineModel routes them through the verbatim apply path. A parent upserted by the same
- * plan is authoritative: its accumulated touch is cancelled and counter ops against it are
- * filtered out.
+ * Derive relation effects from rows accepted by entity application. Raw journal operations never
+ * contain these effects, so replay re-runs the same derivation against effective rows.
  */
-export declare const expandPlan: (ops: JournalOp[]) => JournalOp[];
+export declare const deriveEffects: (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: JournalOp[]) => JournalOp[];
 export {};
 //# sourceMappingURL=relations.d.ts.map

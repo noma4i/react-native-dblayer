@@ -28,12 +28,12 @@ type InferFieldObject<TFields extends AnyFields> = Simplify<{
 export type InferStoredFields<TFields extends AnyFields> = Simplify<{
     id: string;
 } & InferFieldObject<TFields>>;
-type BuildStoredRequiredKeys<TFields extends AnyFields> = 'id' | Extract<RequiredKeysWithoutDefaults<TFields>, keyof InferStoredFields<TFields>>;
-export type InferBuildStoredInput<TFields extends AnyFields> = Simplify<Partial<InferStoredFields<TFields>> & Pick<InferStoredFields<TFields>, BuildStoredRequiredKeys<TFields>>>;
+type BuildRequiredKeys<TFields extends AnyFields> = 'id' | Extract<RequiredKeysWithoutDefaults<TFields>, keyof InferStoredFields<TFields>>;
+export type InferBuildInput<TFields extends AnyFields> = Simplify<Partial<InferStoredFields<TFields>> & Pick<InferStoredFields<TFields>, BuildRequiredKeys<TFields>>>;
 export type AnyDbShape = DbShape<any, AnyFields>;
 export type InferShapeStored<S extends AnyDbShape> = S extends DbShape<any, infer TFields> ? InferFieldObject<TFields> : never;
 export type ModelStored<M> = M extends {
-    getAll: () => Array<infer TStored>;
+    all: () => Array<infer TStored>;
 } ? TStored : never;
 export type ModelInput<M> = Simplify<Partial<ModelStored<M>> & {
     id: string;

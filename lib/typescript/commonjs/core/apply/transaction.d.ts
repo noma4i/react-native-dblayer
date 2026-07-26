@@ -2,6 +2,7 @@ import type { CommitBatch, CommitBus } from './commitBus';
 import type { CheckpointScheduler } from './checkpoint';
 import type { JournalOp } from './journal';
 import type { StoragePlane } from '../planes/storagePlane';
+import type { WriteOrigin } from '../../dsl/defineModel';
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
  * commit bus can notify per-(model, id, field) subscribers; `persistEntries` contributes the
@@ -28,11 +29,11 @@ export type ApplyTarget = {
         kind: 'comparator';
     };
     readAllScopeKeys(): string[];
-    upsert(rows: unknown[], origin?: 'event' | 'replace'): Array<{
+    upsert(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Record<string, unknown>, operationId?: string): Array<{
         id: string;
         changedFields: string[] | null;
     }>;
-    patch(id: string, patch: Record<string, unknown>): {
+    patch(id: string, patch: Record<string, unknown>, operationId?: string): {
         id: string;
         changedFields: string[] | null;
     } | null;
@@ -53,9 +54,22 @@ export type ApplyTarget = {
         key: string;
         value: string | null;
     }>;
+    /** Clears the dirty markers captured by the last persistEntries; called only after a successful storage write. */
+    ackPersist(): void;
 };
 export type ApplyRuntime = {
-    /** Apply one plan: WAL journal record -> in-memory apply -> journal commit mark -> one publish. */
+    /**
+     * Apply one plan: journal stores raw intent; effects derive inside the transaction from accepted
+     * effective rows, so replay re-derives them.
+     *
+     * @note Honesty contract, not full STM: a partial in-memory commit is possible ONLY when a
+     * consumer callback throws mid-plan (a write-group merge/accept predicate, a relation callback).
+     * The WAL record for that epoch stays `pending` (never marked `committed`) - replay deterministically
+     * re-applies it from scratch on the next boot, so persisted state never diverges from the journal.
+     * On throw: `noteApplyFailure()` + `getDbLogger().error('apply failed', ...)` +
+     * `defaults.onSyncError({source:'apply'})` fire, then the exception rethrows to the caller (mutation's
+     * rollback path, ingest's `reportModelIngestError`, or replay's own boot-failure surface).
+     */
     apply(ops: JournalOp[]): CommitBatch;
     /**
      * Startup recovery: idempotently re-apply journal records not yet covered by each model's

@@ -4,6 +4,7 @@ type CheckpointTarget = {
         key: string;
         value: string | null;
     }>;
+    ackPersist(): void;
 };
 export type CheckpointScheduler = {
     /** Note one applied plan touching these models; schedules (or forces) a snapshot flush. */

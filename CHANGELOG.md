@@ -1,5 +1,59 @@
 # Changelog
 
+## 8.0.0-beta.1 - 2026-07-26
+
+Stabilization release: the entire dark-path registry (28 findings) is closed, write semantics are unified into a single model-owned declaration, and the persistence core is redesigned around explicit invariants. Every fix in this release is covered by a test that was seen red on the broken behavior (red-first or mutation-proven).
+
+### Breaking changes
+
+- ActiveRecord model API rename: `get`->`find`, `getAll`->`all`, `getWhere`->`where`, `patch`->`update`, `patchWhere`->`updateAll`, `destroyWhere`->`destroyAll`, `insertStored`->`insert`, `insertStoredMany`->`insertMany`, `buildStored`->`build`, `replaceRaw`->`replace`, `use.row`->`use.find`, `patchWhenRowExists`->`updateWhenRowExists`, `patchClamped`->`updateClamped`, `sinkIf`->`intoIf`.
+- Write semantics: `mergePolicy`, `merge.shouldOverwrite`, `preserveOnCommit`, `commitMergers`, `mergeOptimisticSnapshot` are removed. The single replacement is the model-owned `write` declaration: `write: { accept?, groups: [{ fields, policy: 'server' | 'continuity' | { monotonic } | { merge } }] }`, applied identically on every write path (mutation commit, ingest, query page, poller patch).
+- `defineIngest`: `invalidate?: boolean | object` split into `invalidate?: object` and `invalidateAll?: true`; boolean values are no longer accepted.
+- Empty scope values are rejected: a named scope no longer accepts `{}` or objects with `undefined` fields (previously collapsed silently into the `__root__` bucket); absence of a scope is expressed only with `null`.
+- Removed dead DSL surface: `model.crud(...)`, `model.view(...)` / `defineView`, and unused core APIs.
+- Persistence is self-describing: the library stores a manifest `{ formatVersion, schemaFingerprint, dataVersion }` and performs a managed cold-cache reset of its own prefix on any mismatch. `bootOptions.wipe` is removed; consumers pass `configureDb({ dataVersion })` (e.g. the app build number) instead of maintaining an external cache-version sentinel.
+- `DB_FORMAT_VERSION` bumped to 2 (raw-journal storage format); existing persisted data cold-resets once on upgrade.
+
+### Write-semantics core
+
+- Atomic replace: the whole replace plan is validated before the first mutation; an invalid replacement node no longer destroys the existing row. Commit-replace passes the same write gates as every other path (no more merge bypass on mutation commit).
+- Effects from accepted rows only: relations, touch, counter caches and membership are derived from the accepted effective row, never from raw rejected input. The journal stores raw ops and re-derives effects on replay.
+- Optimistic `ownedFields` are enforced in the core on every write path: a background patch cannot overwrite fields owned by a pending operation, and rollback restores the correct base.
+- Ledger transitions commit in the same transaction as the data they describe; terminal ledger states are immutable (repeat close is an idempotent no-op).
+- Contract: a mutation response is applied through the same pipeline as any server write ("commit == echo"), closing the class of optimistic-media losses.
+
+### Persistence core
+
+- Checkpoint acknowledge protocol: dirty state is cleared only after a confirmed successful write; WAL pruning happens only for provably persisted copies.
+- Invariant-derived recovery protocol for corrupted persistence (targeted repair instead of catch-and-wipe); an orphaned scope key is cleaned point-wise instead of cold-resetting the whole model.
+
+### Lifecycle and account switch
+
+- `resetRuntime` is exception-safe (aggregate protocol) and complete: query scope registries, staleness guards, row waiters, pollers and the maintenance scheduler all reset and restart correctly across `configureDb` cycles.
+- Re-`configureDb` with a stale subscription generation rebuilds the runtime instead of silently no-oping; planes are re-created on every configure.
+- Row waiters (`waitForRow`, `updateWhenRowExists`) stop immediately on generation mismatch instead of surviving until TTL; resume drain is cancelled on provider unmount.
+- GC liveness roots include pending patches by real id, not only temp ids: a row can no longer disappear under a pending mutation.
+
+### Subscriptions and ingest
+
+- Subscription retry race fixed (unsubscribe handle assigned before subscribe; synchronous failure no longer blocks reconnect); activation is atomic.
+- Effect channels are namespaced: creating a second subscription-effects channel no longer clears the handlers of the first.
+- An event is counted as delivered only after its handler applied successfully.
+- Ingest apply is honest about partial failure: malformed WAL entries and per-op errors are reported, not swallowed.
+
+### Queries
+
+- `use.byIds` derives the `byId` map solely from returned row identity; missing ids can never shift rows under wrong keys.
+- Staleness guards for complete-coverage scope writes are shared per destination bucket across all query definitions: a stale response from one query can no longer overwrite a fresher response of another query targeting the same scope.
+- Poller work is deduplicated through the shared single-flight primitive; duplicate ids in a batch are deduped with a stable tie-break order.
+
+### Test infrastructure
+
+- GitHub Actions CI (typecheck, JSDoc gate, tests) plus a local pre-commit hook; jest runs without `--forceExit`; coverage threshold fixed.
+- App-shaped harness: fixture declarations of the real consumer models with mixing / loss / speed contract suites at app scale.
+- Mutation-proven core: apply, journal, checkpoint, entity state and scope index suites were verified by breaking the protected behavior and observing red.
+- Honest perf gates measure real library paths with ratio budgets.
+
 ## 7.0.0-beta.13 - 2026-07-26
 
 - Fix `use.byIds` keying rows under wrong ids when some requested ids are missing.

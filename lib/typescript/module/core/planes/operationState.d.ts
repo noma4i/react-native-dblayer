@@ -11,7 +11,7 @@ export type OperationRecord = {
     idempotencyKey?: string;
     /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
     once?: boolean;
-    /** Top-level fields an optimistic method-patch owns while pending; incoming non-optimistic writes keep the current (optimistic) value for these until the op closes. */
+    /** Top-level fields an optimistic method-patch owns while pending; its ledger record is created before the optimistic journal patch so that internal optimistic patches and rollbacks bypass overlay, while foreign writes keep the current value until the op closes. */
     patchedFields?: string[];
     /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
     patchedValues?: Record<string, unknown>;
@@ -19,6 +19,7 @@ export type OperationRecord = {
 };
 export type OperationState = {
     begin(operation: Omit<OperationRecord, 'status'>): void;
+    /** Terminal status is immutable; repeated close calls are idempotent no-ops. */
     close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
     get(operationId: string): OperationRecord | undefined;
     /** True when a retained `once` key or exact operation id already committed. */
@@ -37,8 +38,6 @@ export type OperationState = {
     /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
     hydratedPending(): OperationRecord[];
     prune(): number;
-    /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
-    nextSequence(key: string, floor: number): number;
     /** Union of fields owned by still-pending optimistic patch ops on one model row (empty when none). */
     ownedFields(model: string, rowId: string, excludeOpId?: string): ReadonlySet<string>;
     /** The value the latest still-pending patch op (excluding `excludeOpId`) wrote for one field of one model row, or `{ found: false }` when no other pending patch owns it. */
@@ -50,6 +49,7 @@ export type OperationState = {
         key: string;
         value: string | null;
     }>;
+    /** Hydrates the single ledger blob; malformed data is cold-reset because orphan temp-row reconciliation is the contract fallback. */
     hydrate(): void;
     reset(): void;
 };

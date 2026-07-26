@@ -4,8 +4,10 @@ import { type DbSubscriptionEntry } from '../core/subscriptionRuntime';
 export type IngestDecl = {
     upsert?: unknown | unknown[];
     destroy?: string | string[];
-    /** `true` keeps the historical full-model invalidation (every query prefix on the model); an object invalidates only the query cache entries whose scope matches it (exact or partial, per Model.invalidate semantics). */
-    invalidate?: boolean | object;
+    /** Invalidates only the query cache entries whose scope matches this object (exact or partial, per Model.invalidate semantics). */
+    invalidate?: object;
+    /** Full-model invalidation (every query prefix on the model) instead of a scoped one; use `invalidate` for the scoped case. */
+    invalidateAll?: true;
     /** Echo guard: when this operation id already committed locally, the whole event is skipped. */
     operationId?: string | null;
     /** Cross-model sideloads applied in the SAME transaction as the event rows. */
@@ -17,8 +19,8 @@ type IngestHandle = {
 type IngestModel = {
     modelId: string;
     name?: string;
-    get(id: string | null | undefined): unknown;
-    insertStored(row: unknown): void;
+    find(id: string | null | undefined): unknown;
+    insert(row: unknown): void;
     invalidate(scope?: unknown): void;
 };
 /** Register a model for the named-model lookup exposed to fused custom ingest handlers. */
@@ -68,7 +70,15 @@ export declare const defineModelIngest: (model: IngestModel, entries: Record<str
 /**
  * Compile a subscription event into ONE event plan: rows, destroys and extract sinks apply with
  * relation side effects (touch/counterCache/dependent) in a single epoch. Version arbitration for
- * stale events lives in the model's merge.shouldOverwrite gate - not here (one gate, no zoo).
+ * stale events lives in the model's write acceptance gate - not here (one gate, no zoo).
+ *
+ * @note Honesty contract: nothing is acknowledged before the declaration is fully applied. A throw
+ * from the handler or from `apply()` (e.g. a mid-plan write-group failure, see `ApplyRuntime.apply`)
+ * is caught here, reported through `reportModelIngestError` (`onSyncError` + `noteIngestFailure()`
+ * diagnostics), and swallowed to `null` - the event is never marked delivered on a failed apply. The
+ * underlying WAL record for a failed `getApplyRuntime().apply(ops)` call stays `pending`, so a later
+ * redelivery of the same event (or a boot replay) re-applies it deterministically instead of being
+ * treated as already-processed.
  */
 export declare const defineIngest: (model: IngestModel, handlers: Record<string, (payload: unknown) => IngestDecl | null>) => IngestHandle;
 export {};

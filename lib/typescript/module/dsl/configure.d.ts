@@ -74,13 +74,16 @@ export type ConfigureDbOptions = {
     storage?: StoragePlane;
     logger?: DbLogger;
     defaults?: DbDefaults;
+    /** Consumer-owned cache version (e.g. the app build number). Changing it cold-resets the whole persisted library state at boot - stale data can never layer across versions. */
+    dataVersion?: string;
 };
-type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults'> & {
+type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
     storage: StoragePlane;
     queryClient: QueryClient;
     defaults: DbDefaults & {
         resumeStaleTime: number | null;
     };
+    dataVersion: string | null;
 };
 /**
  * Configure the injected runtime seams (transport, storage, logger) and package-wide
@@ -101,6 +104,8 @@ export declare const isDbConfigured: () => boolean;
 /** Internal: reports whether the current runtime completed journal replay. */
 export declare const hasReplayedJournal: () => boolean;
 export declare const getStoragePrefix: () => string;
+/** Internal: consumer-owned cache version used by the persistence manifest compatibility gate. */
+export declare const getPersistenceDataVersion: () => string | null;
 /** Monotonic identity for the configured runtime; async continuations must not cross it. */
 export declare const getRuntimeGeneration: () => number;
 /** Internal: establish a new generation before the reset fence tears down the old runtime. */
@@ -147,7 +152,7 @@ export declare const replayJournal: () => number;
  * Remove storage keys outside the library namespace during startup housekeeping for the dedicated
  * storage instance. Idempotent: a second run finds nothing.
  *
- * Most apps should call `bootDb(options)` instead, which runs this last in the recommended startup order.
+ * Most apps should call `bootDb()` instead, which runs this last in the recommended startup order.
  *
  * @returns The number of removed foreign storage keys.
  */

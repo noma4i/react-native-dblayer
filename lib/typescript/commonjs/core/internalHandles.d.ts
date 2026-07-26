@@ -7,8 +7,8 @@ type InternalModelHandle = {
         [key: string]: unknown;
     } | undefined;
     applyRows(rows: unknown[]): void;
+    applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
     planRows(rows: unknown[], options?: {
-        includeMembership?: boolean;
         origin?: 'event';
     }): JournalOp[];
     planReplace(oldId: string, next: unknown): JournalOp[];
