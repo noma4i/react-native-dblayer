@@ -275,6 +275,23 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     let previous: unknown = null;
     let previousMemberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> = [];
     let respondInverse: JournalOp[] = [];
+    const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
+
+    if (tracked && methodPatchOptimistic) {
+      const patch = optimistic.selectPatch(input) as Record<string, unknown>;
+      operations.begin({
+        operationId,
+        model: optimistic.model.modelId,
+        tempIds: [],
+        rowIds: [String(optimistic.selectId(input))],
+        intent: 'patch',
+        idempotencyKey: dedupeKey ?? operationId,
+        once: config.once === true,
+        patchedFields: Object.keys(patch),
+        patchedValues: patch,
+        createdAt: Date.now()
+      });
+    }
 
     if (optimistic && isRespondOptimistic(optimistic)) {
       tempId = generateTempId('row');
@@ -306,7 +323,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
       previous = optimistic.model.find(id);
-      optimistic.model.update(id, optimistic.selectPatch(input) as Record<string, unknown>);
+      getInternalModelHandle(optimistic.model).applyPatch(String(id), optimistic.selectPatch(input) as Record<string, unknown>, operationId);
     } else if (optimistic && optimistic.method === 'destroy') {
       if (hasDependentCascade(optimistic.model.modelId)) {
         throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
@@ -316,7 +333,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       previousMemberships = getInternalModelHandle(optimistic.model).captureMembership(id);
       optimistic.model.destroy(id);
     }
-    if (tracked) {
+    if (tracked && !methodPatchOptimistic) {
       const operationIds = tempId ? [tempId] : optimistic && isMethodOptimistic(optimistic) ? [String(optimistic.selectId(input))] : [];
       operations.begin({
         operationId,
@@ -385,10 +402,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       for (const sink of config.extract?.({ data }) ?? []) {
         ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
       }
-      const isMethodPatch = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
-      if (tracked && isMethodPatch) operations.close(operationId, 'committed');
+      if (tracked && methodPatchOptimistic) operations.close(operationId, 'committed');
       if (ops.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(ops), placementOps));
-      if (tracked && !isMethodPatch) operations.close(operationId, 'committed');
+      if (tracked && !methodPatchOptimistic) operations.close(operationId, 'committed');
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
@@ -418,7 +434,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           if (current && !Object.is(current[key], patchValues[key])) continue;
           restore[key] = key in previousRecord ? previousRecord[key] : undefined;
         }
-        if (Object.keys(restore).length > 0) optimistic.model.update(optimistic.selectId(input), restore);
+        if (Object.keys(restore).length > 0) getInternalModelHandle(optimistic.model).applyPatch(String(optimistic.selectId(input)), restore, operationId);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         getApplyRuntime().apply(expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships)));

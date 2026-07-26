@@ -22,7 +22,7 @@ export type ApplyTarget = {
   scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
   readAllScopeKeys(): string[];
   upsert(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Record<string, unknown>): Array<{ id: string; changedFields: string[] | null }>;
-  patch(id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null;
+  patch(id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];
   counter(id: string, field: string, delta: number, next?: number): boolean;
   counterValue(id: string, field: string): number | null;
@@ -99,7 +99,7 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
       if (op.origin === 'replace') batch.mode = 'replace';
     }
     if (op.kind === 'patch') {
-      const change = target.patch(op.id, op.patch);
+      const change = target.patch(op.id, op.patch, op.operationId);
       if (change) batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
       if (change) noteRows(op.model, target, [change.id]);
     }

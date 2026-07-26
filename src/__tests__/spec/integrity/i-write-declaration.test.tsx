@@ -15,6 +15,63 @@ const createMediaModel = (id: string) => {
 };
 
 describe('model-owned write declarations', () => {
+  it('keeps an optimistic patch through a foreign event patch and accepts its committed server value', async () => {
+    let resolveMutation!: (value: { data: { pin: { id: string; pinned: boolean } } }) => void;
+    const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const chats = defineModel({ id: 'WriteDeclarationOwnedCommit', name: 'WriteDeclarationOwnedCommit', fields: { pinned: f.bool() } });
+    chats.insert({ id: 'chat-1', pinned: false });
+    const pin = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
+      document,
+      result: 'pin',
+      dedupe: false,
+      optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) },
+      extract: ({ data }) => [{ into: chats, rows: [data.pin] }]
+    });
+    const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
+    let pending!: Promise<{ pin: { id: string; pinned: boolean } } | null>;
+
+    act(() => {
+      pending = pin.run({});
+      ingest.apply('remotePatch', { pinned: false });
+    });
+    expect(chats.find('chat-1')?.pinned).toBe(true);
+
+    resolveMutation({ data: { pin: { id: 'chat-1', pinned: false } } });
+    await act(async () => {
+      await pending;
+    });
+    expect(chats.find('chat-1')?.pinned).toBe(false);
+  });
+
+  it('lets its own rollback restore the pre-mutation value after a foreign event patch is dropped', async () => {
+    let rejectMutation!: (error: Error) => void;
+    const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>((_resolve, reject) => (rejectMutation = reject)) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const chats = defineModel({ id: 'WriteDeclarationOwnedRollback', name: 'WriteDeclarationOwnedRollback', fields: { pinned: f.bool() } });
+    chats.insert({ id: 'chat-1', pinned: false });
+    const pin = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
+      document,
+      result: 'pin',
+      dedupe: false,
+      optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) }
+    });
+    const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
+    let pending!: Promise<{ pin: { id: string; pinned: boolean } } | null>;
+
+    act(() => {
+      pending = pin.run({});
+      ingest.apply('remotePatch', { pinned: false });
+    });
+    expect(chats.find('chat-1')?.pinned).toBe(true);
+
+    rejectMutation(new Error('pin failed'));
+    await act(async () => {
+      await expect(pending).rejects.toThrow('pin failed');
+    });
+    expect(chats.find('chat-1')?.pinned).toBe(false);
+  });
+
   it('applies the same media merge group to commit replacement and event ingest', async () => {
     const server = { id: 'server-1', body: 'server body', media: { width: 0, height: 0, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' } };
     const optimistic = { body: 'optimistic body', media: { width: 320, height: 240, fileUrl: 'file:///local.mp4', blurHash: null } };

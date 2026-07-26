@@ -5,6 +5,7 @@ import type { ScopeCoverage } from './planes/scopeIndex';
 type InternalModelHandle = {
   readRow(id: string): { id: string; [key: string]: unknown } | undefined;
   applyRows(rows: unknown[]): void;
+  applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
   planRows(rows: unknown[], options?: { includeMembership?: boolean; origin?: 'event' }): JournalOp[];
   planReplace(oldId: string, next: unknown): JournalOp[];
   captureMembership(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;

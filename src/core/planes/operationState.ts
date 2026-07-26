@@ -15,7 +15,7 @@ export type OperationRecord = {
   idempotencyKey?: string;
   /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
   once?: boolean;
-  /** Top-level fields an optimistic method-patch owns while pending; incoming non-optimistic writes keep the current (optimistic) value for these until the op closes. */
+  /** Top-level fields an optimistic method-patch owns while pending; its ledger record is created before the optimistic journal patch so that internal optimistic patches and rollbacks bypass overlay, while foreign writes keep the current value until the op closes. */
   patchedFields?: string[];
   /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
   patchedValues?: Record<string, unknown>;

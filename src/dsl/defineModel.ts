@@ -359,8 +359,8 @@ type QueryScopeReads<TStored extends { id: string }, TQueryScopes> = {
 /** Origin of a write reaching entity apply. */
 export type WriteOrigin = 'snapshot' | 'event' | 'replace' | 'patch';
 
-/** Context supplied to model-owned write declarations. */
-export type WriteCtx = { origin: WriteOrigin };
+/** Context supplied to model-owned write declarations. `operationId` identifies an internal optimistic method-patch or rollback, which bypasses pending-field overlay; foreign writes omit it and preserve pending owned fields. */
+export type WriteCtx = { origin: WriteOrigin; operationId?: string };
 
 export type ModelConfig<
   TFields extends ModelFieldSpecs,
@@ -551,7 +551,8 @@ export const defineModel = <
       now: () => Date.now(),
       storage: runtime.storage,
       prefix: getStoragePrefix,
-      applyWriteGate
+      applyWriteGate,
+      ownedFields: (rowId, operationId) => getOperationState().ownedFields(config.id, rowId, operationId)
     });
     const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
     try {
@@ -715,16 +716,6 @@ export const defineModel = <
       if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
       const current = planes().entityState.read(incoming.id);
       let gatedIncoming: Stored = config.write ? incoming : { ...current, ...incoming };
-      if (current && origin !== 'replace') {
-        const owned = getOperationState().ownedFields(config.id, incoming.id);
-        if (owned.size > 0) {
-          if (config.write) gatedIncoming = { ...incoming };
-          for (const field of owned) {
-            if (config.write) delete gatedIncoming[field];
-            else if (field in current) (gatedIncoming as Record<string, unknown>)[field] = current[field];
-          }
-        }
-      }
       const result = planes().entityState.upsert(gatedIncoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot' } });
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
@@ -772,12 +763,12 @@ export const defineModel = <
     },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     upsert: writeRows,
-    patch: (id: string, patch: Record<string, unknown>): { id: string; changedFields: string[] | null } | null => {
+    patch: (id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null => {
       const key = String(id);
       const current = planes().entityState.read(key);
       if (!current) return null;
       const row = (config.write ? { ...patch, id: key } : { ...current, ...patch, id: key }) as Stored;
-      const result = planes().entityState.upsert(row, { ctx: { origin: 'patch' } });
+      const result = planes().entityState.upsert(row, { ctx: { origin: 'patch', operationId } });
       if (result.changedFields !== null && result.changedFields.length === 0) return null;
       revision += 1;
       return { id: key, changedFields: result.changedFields };
@@ -797,7 +788,8 @@ export const defineModel = <
       const key = String(id);
       const row = planes().entityState.read(key);
       if (!row) return false;
-      planes().entityState.upsert({ ...row, id: key, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
+      const result = planes().entityState.upsert({ ...row, id: key, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
+      if (result.changedFields !== null && result.changedFields.length === 0) return false;
       revision += 1;
       return true;
     },
@@ -1539,6 +1531,7 @@ export const defineModel = <
   registerInternalModelHandle(model, {
     readRow: id => planes().entityState.read(id),
     applyRows: rows => applySnapshot(planRows(rows)),
+    applyPatch: (id, patch, operationId) => getApplyRuntime().apply([{ kind: 'patch', model: config.id, id: String(id), patch, operationId }]),
     planRows,
     planReplace,
     captureMembership,

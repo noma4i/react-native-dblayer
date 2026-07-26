@@ -62,8 +62,9 @@ export const createEntityState = <T extends { id: string }>(options: {
   storage: StoragePlane;
   prefix: () => string;
   applyWriteGate?: (previous: T, incoming: T, ctx: WriteCtx) => T | null;
+  ownedFields?: (rowId: string, excludeOperationId?: string) => ReadonlySet<string>;
 }): EntityState<T> => {
-  const { modelId, now, storage, prefix, applyWriteGate } = options;
+  const { modelId, now, storage, prefix, applyWriteGate, ownedFields } = options;
   const rows = new Map<string, T>();
   const tombstones = new Map<string, Tombstone>();
   const dirty = new Map<string, 'set' | 'delete'>();
@@ -108,8 +109,21 @@ export const createEntityState = <T extends { id: string }>(options: {
       const previous = rows.get(row.id);
       const mergePrevious = previous ?? options.mergeBase;
       if (previous === row) return { changedFields: [] };
+      const ctx = options.ctx ?? { origin: 'snapshot' as const };
+      if (mergePrevious && ctx.origin !== 'replace' && ctx.operationId === undefined && ownedFields) {
+        const owned = ownedFields(row.id, ctx.operationId);
+        if (owned.size > 0) {
+          let overlaid: T | undefined;
+          for (const field of owned) {
+            if (!(field in mergePrevious)) continue;
+            overlaid ??= { ...row };
+            (overlaid as Record<string, unknown>)[field] = (mergePrevious as Record<string, unknown>)[field];
+          }
+          row = overlaid ?? row;
+        }
+      }
       if (mergePrevious && applyWriteGate) {
-        const gated = applyWriteGate(mergePrevious, row, options.ctx ?? { origin: 'snapshot' });
+        const gated = applyWriteGate(mergePrevious, row, ctx);
         if (gated === null) return { changedFields: [] };
         row = gated;
       }

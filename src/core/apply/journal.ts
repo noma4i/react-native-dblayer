@@ -7,7 +7,8 @@ export type JournalOp =
   | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; mergeBase?: never }
   /** Replace carries the normalized prior row through WAL replay so write groups observe the same commit semantics after restart. */
   | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown }
-  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown> }
+  /** `operationId` lets a pending optimistic method-patch apply its own rollback while foreign patches keep its owned fields. */
+  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; operationId?: string }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }
