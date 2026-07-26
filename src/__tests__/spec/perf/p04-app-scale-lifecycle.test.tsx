@@ -128,10 +128,10 @@ const setupEnsembleTransport = (resuming: { current: boolean }, releaseQueue: Ar
 type MountedQuery = { key: string; unmount: () => void };
 
 /** Mounts the "app in miniature" ensemble: 12 defineQuery reads, 2 defineFetch, 6 renderKeys scope reads,
- * 2 view reads with includes, and 1 counters-singleton reader, all live at once. `inactiveCount` unmounts
+ * and 1 counters-singleton reader, all live at once. `inactiveCount` unmounts
  * that many of the 12 query readers right after first render, leaving their cache entries but no observer. */
 const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: number }) => {
-  const { chats, messages, users, counters } = models;
+  const { chats, messages, counters } = models;
 
   const chatQueries = CHAT_STATUSES.map(status =>
     chats.query<{ rows: ChatRow[] }, { status: string }, { status: string }, ChatRow>(`active-${status}`, {
@@ -154,12 +154,6 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
 
   const digestA = defineFetch<{ value: number }, void, number>({ key: 'app-scale-digest-a', fetcher: async () => ({ value: 1 }), select: data => data.value, staleTime: Infinity });
   const digestB = defineFetch<{ value: number }, void, number>({ key: 'app-scale-digest-b', fetcher: async () => ({ value: 2 }), select: data => data.value, staleTime: Infinity });
-
-  const membersView = chats.view<{ id: string; memberNames: string[] }, { members: { id: string; name: string }[] }>('withMembers', {
-    source: chats.scopes.active,
-    include: { members: { model: users, ids: chat => chat.memberIds, renderKeys: ['id', 'name'] } },
-    select: (chat, included) => ({ id: chat.id, memberNames: included.members.map(user => user.name) })
-  });
 
   const renders: Record<string, number> = {};
   const bump = (key: string): void => {
@@ -199,11 +193,6 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
     bump(`messageScope-${chatId}`);
     return null;
   };
-  const ViewReader = ({ status }: { status: string }) => {
-    membersView.use({ status });
-    bump(`view-${status}`);
-    return null;
-  };
   const CountersReader = () => {
     counters.useCurrent();
     bump('counters');
@@ -237,8 +226,6 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
       <MessageScopeReader chatId={MOUNTED_THREAD_IDS[0]!} />
       <MessageScopeReader chatId={MOUNTED_THREAD_IDS[1]!} />
       <MessageScopeReader chatId={MOUNTED_THREAD_IDS[2]!} />
-      <ViewReader status="open" />
-      <ViewReader status="archived" />
       <CountersReader />
     </>
   );
@@ -260,7 +247,7 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
     inactiveMounted.push({ key, unmount: () => act(() => standaloneRoot.unmount()) });
   }
 
-  return { root, renders, chatQueries, messageQueries, digestA, digestB, membersView, inactiveMounted, chatQueryScopes, messageQueryScopes };
+  return { root, renders, chatQueries, messageQueries, digestA, digestB, inactiveMounted, chatQueryScopes, messageQueryScopes };
 };
 
 describe('app-scale lifecycle', () => {
@@ -372,14 +359,14 @@ describe('app-scale lifecycle', () => {
       });
 
       const snapshot = diagnostics().snapshot();
-      // 23 mounted readers total; candidates-index scopes fanout to the touched model's own bucket, so
+      // 21 mounted readers total; candidates-index scopes fanout to the touched model's own bucket, so
       // notified subscribers must stay a small fraction of the whole ensemble, not fan out globally.
-      expect(snapshot.commitFanoutNotified).toBeLessThan(23 * 0.25);
+      expect(snapshot.commitFanoutNotified).toBeLessThan(21 * 0.25);
       expect(snapshot.readEngineRebuilds).toBe(0);
 
       for (const key of Object.keys(renders)) {
         const delta = renders[key]! - (beforeRenders[key] ?? 0);
-        if (key === 'chatQuery-0' || key === 'chatScope-open' || key === 'view-open') {
+        if (key === 'chatQuery-0' || key === 'chatScope-open') {
           expect(delta).toBeGreaterThan(0);
         } else {
           expect(delta).toBe(0);
@@ -400,7 +387,6 @@ describe('app-scale lifecycle', () => {
       await settle();
       diagnostics().reset();
       const beforeChatRenders = renders['chatQuery-0']!;
-      const beforeUserRenders = renders['view-open']!;
 
       const perCommitMs: number[] = [];
       for (let index = 0; index < 50; index += 1) {
@@ -416,7 +402,6 @@ describe('app-scale lifecycle', () => {
 
       expect(diagnostics().snapshot().mirrorScopeResorts).toBeGreaterThan(0);
       expect(renders['chatQuery-0']).toBe(beforeChatRenders);
-      expect(renders['view-open']).toBe(beforeUserRenders);
 
       const average = (values: number[]): number => values.reduce((sum, value) => sum + value, 0) / values.length;
       const firstTen = average(perCommitMs.slice(0, 10));

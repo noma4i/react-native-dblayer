@@ -92,7 +92,14 @@ export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
  * @param row Candidate node; `null`/`undefined` produce no sink.
  * @returns Zero or one `ExtractSink`.
  */
-export const sinkIf = (into: ExtractSink['into'], row: unknown): ExtractSink[] => (row == null ? [] : [{ into, rows: [row] }]);
+/**
+ * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
+ *
+ * @param into Destination model receiving the optional row.
+ * @param row Optional source row.
+ * @returns One extract sink, or an empty list for a nullish row.
+ */
+export const intoIf = (into: ExtractSink['into'], row: unknown): ExtractSink[] => (row == null ? [] : [{ into, rows: [row] }]);
 
 type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: string }, TScope>;
 type ModelDestination<TStored> = {

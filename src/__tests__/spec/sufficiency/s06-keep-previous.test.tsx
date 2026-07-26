@@ -105,27 +105,6 @@ describe('keep previous scope handoff', () => {
     reader.unmount();
   });
 
-  it('does not leak foreign updates and returns a populated key immediately', () => {
-    setupSpecRuntime();
-    const moments = createMoments('SpecKeepPreviousView');
-    insertMoment(moments, 'a-1', 'A', 'A before');
-    insertMoment(moments, 'b-1', 'B', 'B row');
-    const view = moments.view<{ id: string; label: string }>('feed', { source: 'feed', include: {}, select: row => ({ id: row.id, label: row.label as string }) });
-    const reader = renderWindow(view.useWindow as unknown as KeepWindow<{ id: string; label: string }>, 'A');
-
-    reader.update('B');
-    expect(idsOf(reader.result().rows)).toEqual(['b-1']);
-    expect(reader.result().isPreviousData).toBe(false);
-    const beforePatch = reader.renders();
-    act(() => moments.patch('a-1', { label: 'A after' }));
-    expect(reader.renders() - beforePatch).toBe(0);
-    expect(idsOf(reader.result().rows)).toEqual(['b-1']);
-    reader.update('A');
-    expect(reader.result().rows).toEqual([{ id: 'a-1', label: 'A after' }]);
-    expect(reader.result().isPreviousData).toBe(false);
-    reader.unmount();
-  });
-
   it('clears retained rows across runtime reset and remount', () => {
     setupSpecRuntime();
     const moments = createMoments('SpecKeepPreviousReset');

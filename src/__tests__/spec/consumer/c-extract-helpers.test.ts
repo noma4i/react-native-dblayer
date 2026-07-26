@@ -1,4 +1,4 @@
-import { fromNodes, sinkIf } from '../../../index';
+import { fromNodes, intoIf } from '../../../index';
 
 // Pure extract/unwrap helper contracts.
 
@@ -15,17 +15,17 @@ describe('fromNodes', () => {
   });
 });
 
-describe('sinkIf', () => {
+describe('intoIf', () => {
   const into = { modelId: 'spec-model' } as never;
 
   it('returns [] for nullish rows', () => {
-    expect(sinkIf(into, null)).toEqual([]);
-    expect(sinkIf(into, undefined)).toEqual([]);
+    expect(intoIf(into, null)).toEqual([]);
+    expect(intoIf(into, undefined)).toEqual([]);
   });
 
   it('wraps one node into a single sink preserving the destination identity', () => {
     const node = { id: '1' };
-    const sinks = sinkIf(into, node);
+    const sinks = intoIf(into, node);
     expect(sinks).toHaveLength(1);
     expect(sinks[0]!.into).toBe(into);
     expect(sinks[0]!.rows).toEqual([node]);

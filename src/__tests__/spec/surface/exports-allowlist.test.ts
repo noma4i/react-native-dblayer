@@ -23,6 +23,7 @@ const runtimeExportAllowlist = [
   'generateTempId',
   'hasMany',
   'hasOne',
+  'intoIf',
   'isIncomingNewer',
   'isTempId',
   'mergeOptimisticMedia',
@@ -38,7 +39,6 @@ const runtimeExportAllowlist = [
   'registerReset',
   'resetRuntime',
   'scope',
-  'sinkIf',
   'stringifyNullish',
   'useMergedScopeRows',
   'waitForRow'

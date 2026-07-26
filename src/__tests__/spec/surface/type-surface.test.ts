@@ -55,7 +55,7 @@ describe('public type surface', () => {
 
     for (const row of first.split('\n')) expect(row).not.toContain('import("/');
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(71);
+    expect(first.split('\n')).toHaveLength(68);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbRetryClass: any
@@ -82,9 +82,6 @@ ScopePlacement: any
 ScopeSpec: any
 ScopeWindowResult: any
 StoragePlane: any
-ViewConfig: any
-ViewIncludeModel: any
-ViewIncludeSpec: any
 WindowPaginationBridge: any
 belongsTo: <TChild, TParent>(model: import("<root>/src/core/relations").ModelRef<TParent>, options: { foreignKey: keyof TChild & string; touch?: ((child: TChild, parent: TParent) => Partial<TParent> | null) | undefined; counterCache?: { field: keyof TParent & string; filter?: ((child: TChild) => boolean) | undefined; } | undefined; }) => import("<root>/src/core/relations").RelationDecl
 bridgeWindowPagination: <T>(window: import("<root>/src/dsl/defineModel").ScopeWindowResult<T>, query: Pick<import("<root>/src/dsl/defineQuery").QueryResult<unknown>, "hasNextPage" | "isFetchingNextPage" | "fetchNextPage" | "loadingState" | "error">) => import("<root>/src/dsl/pagination").WindowPaginationBridge<T>
@@ -107,6 +104,7 @@ fromNodes: <T>(connection: { nodes?: readonly (T | null | undefined)[] | null | 
 generateTempId: (prefix?: string | undefined) => string
 hasMany: <TParent, TChild>(model: import("<root>/src/core/relations").ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: "destroy" | undefined; }) => import("<root>/src/core/relations").RelationDecl
 hasOne: <TParent, TChild>(model: import("<root>/src/core/relations").ModelRef<TChild>, options: { foreignKey: keyof TChild & string; comparator?: ((left: TChild, right: TChild) => number) | undefined; }) => import("<root>/src/core/relations").RelationDecl
+intoIf: (into: PlanRowsSink, row: unknown) => import("<root>/src/dsl/defineQuery").ExtractSink[]
 isIncomingNewer: (existingUpdatedAt: string | null | undefined, incomingUpdatedAt: string | null | undefined) => boolean
 isTempId: (id: string | null | undefined) => boolean
 mergeOptimisticMedia: { <TMedia extends MediaRecord>(optimistic: TMedia | null | undefined, server: TMedia | null | undefined, options?: import("<root>/src/utils/optimisticMedia").MergeOptimisticMediaOptions<TMedia> | undefined): TMedia | null | undefined; (optimistic: unknown, server: unknown, options?: import("<root>/src/utils/optimisticMedia").MergeOptimisticMediaOptions<MediaRecord> | undefined): unknown; }
@@ -122,7 +120,6 @@ references: <TChild, TRef>(model: import("<root>/src/core/relations").ModelRef<T
 registerReset: (reset: () => void | Promise<void>) => () => void
 resetRuntime: () => void
 scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("<root>/src/dsl/scope").ScopeSpec<TStored>): import("<root>/src/dsl/scope").ScopeSpec<TStored>; }
-sinkIf: (into: PlanRowsSink, row: unknown) => import("<root>/src/dsl/defineQuery").ExtractSink[]
 stringifyNullish: (v: unknown) => string | null | undefined
 unknown: any
 unknown: any

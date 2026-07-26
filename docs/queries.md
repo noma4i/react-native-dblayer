@@ -74,12 +74,12 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 connection or node list. Use it in `select`, `map`, or extract code when a nested connection must
 be converted into rows before it is written or sideloaded.
 
-`sinkIf(into, row)` builds an extract-sink list from one optional row: it returns `[]` for a
+`intoIf(into, row)` builds an extract-sink list from one optional row: it returns `[]` for a
 nullish row and otherwise `[{ into, rows: [row] }]`. It keeps optional nested nodes out of an
 extract without conditional array construction:
 
 ```ts
-extract: ({ data }) => sinkIf(UserModel, data.viewer)
+extract: ({ data }) => intoIf(UserModel, data.viewer)
 ```
 
 `Model.query` returns `{ use, fetch, invalidate }`:
