@@ -9,7 +9,7 @@ import type { StoredRowShape } from '../core/tanstack/facade';
 import { seedCollections } from '../core/tanstack/mirror';
 import type { JournalOp } from '../core/apply/journal';
 import { registerGcHost } from '../core/gc';
-import { createEntityClock, createEntityState, type EntityState } from '../core/planes/entityState';
+import { createEntityState, type EntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
@@ -554,7 +554,6 @@ export const defineModel = <
     const runtime = getDbRuntimeConfig();
     const entityState = createEntityState<Stored>({
       modelId: config.id,
-      clock: createEntityClock(),
       now: () => Date.now(),
       storage: runtime.storage,
       prefix: getStoragePrefix,

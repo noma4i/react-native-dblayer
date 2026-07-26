@@ -2,9 +2,7 @@ import { stableSerialize } from '../serialize';
 import { noteEntityUpsertGuardHit } from '../diagnostics';
 import type { StoragePlane } from './storagePlane';
 
-type EntityClock = { next(): number; current(): number; restore(value: number): void };
-
-type Tombstone = { seq: number; at: number };
+type Tombstone = { at: number };
 
 /**
  * Tombstone retention tuning. Three tiers, from gentlest to most aggressive:
@@ -26,20 +24,17 @@ const TOMBSTONE_MIN_AGE_MS = 10 * 60 * 1000;
 const TOMBSTONE_CAP = 10_000;
 const TOMBSTONE_OVERFLOW_CAP = TOMBSTONE_CAP * 2;
 
-type UpsertResult = { seq: number; changedFields: string[] | null };
+type UpsertResult = { changedFields: string[] | null };
 
 export type EntityState<T extends { id: string }> = {
   read(id: string): T | undefined;
   values(): T[];
   /** Returns changed top-level fields vs the previous row, or null when the row is new. */
   upsert(row: T): UpsertResult;
-  destroy(id: string, options?: { tombstone?: boolean }): number;
+  destroy(id: string, options?: { tombstone?: boolean }): void;
   /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
   evict(id: string): boolean;
   isTombstoned(id: string): boolean;
-  snapshot(): number;
-  wasWrittenAfter(id: string, capture: number): boolean;
-  wasDestroyedAfter(id: string, capture: number): boolean;
   pruneTombstones(): number;
   /** Serialize rows+tombstones into storage entries for the transaction's single persist batch. */
   persistEntries(): Array<{ key: string; value: string | null }>;
@@ -61,15 +56,13 @@ const diffTopLevelFields = <T extends object>(previous: T, next: T): string[] =>
 
 export const createEntityState = <T extends { id: string }>(options: {
   modelId: string;
-  clock: EntityClock;
   now: () => number;
   storage: StoragePlane;
   prefix: () => string;
   mergeGate?: (previous: T, incoming: T) => T;
 }): EntityState<T> => {
-  const { modelId, clock, now, storage, prefix, mergeGate } = options;
+  const { modelId, now, storage, prefix, mergeGate } = options;
   const rows = new Map<string, T>();
-  const writes = new Map<string, number>();
   const tombstones = new Map<string, Tombstone>();
   const dirty = new Map<string, 'set' | 'delete'>();
   let tombstonesDirty = false;
@@ -111,42 +104,33 @@ export const createEntityState = <T extends { id: string }>(options: {
     values: () => [...rows.values()],
     upsert: row => {
       const previous = rows.get(row.id);
-      if (previous === row) return { seq: clock.current(), changedFields: [] };
+      if (previous === row) return { changedFields: [] };
       if (previous && mergeGate) row = mergeGate(previous, row);
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
-      if (changedFields !== null && changedFields.length === 0) return { seq: clock.current(), changedFields };
+      if (changedFields !== null && changedFields.length === 0) return { changedFields };
       if (previous && changedFields !== null && changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))) {
         noteEntityUpsertGuardHit();
-        return { seq: clock.current(), changedFields: [] };
+        return { changedFields: [] };
       }
-      const seq = clock.next();
       rows.set(row.id, row);
-      writes.set(row.id, seq);
       dirty.set(row.id, 'set');
       if (tombstones.delete(row.id)) {
         tombstonesDirty = true;
       }
-      return { seq, changedFields };
+      return { changedFields };
     },
     destroy: (id, options = {}) => {
-      const seq = clock.next();
       rows.delete(id);
-      writes.delete(id);
-      if (options.tombstone !== false) tombstones.set(id, { seq, at: now() }); // Preserve out-of-order delete-before-create protection within the TTL.
+      if (options.tombstone !== false) tombstones.set(id, { at: now() }); // Preserve delete-before-create protection through the tombstone and defineModel's isTombstoned gate within the TTL.
       dirty.set(id, 'delete');
       if (options.tombstone !== false) tombstonesDirty = true;
-      return seq;
     },
     evict: id => {
       if (!rows.delete(id)) return false;
-      writes.delete(id);
       dirty.set(id, 'delete');
       return true;
     },
     isTombstoned: id => tombstones.has(id),
-    snapshot: () => clock.current(),
-    wasWrittenAfter: (id, capture) => (writes.get(id) ?? 0) > capture,
-    wasDestroyedAfter: (id, capture) => (tombstones.get(id)?.seq ?? 0) > capture,
     pruneTombstones: prune,
     persistEntries: () => {
       prune();
@@ -165,7 +149,6 @@ export const createEntityState = <T extends { id: string }>(options: {
     },
     hydrate: () => {
       rows.clear();
-      writes.clear();
       tombstones.clear();
       dirty.clear();
       tombstonesDirty = false;
@@ -190,21 +173,9 @@ export const createEntityState = <T extends { id: string }>(options: {
     },
     reset: () => {
       rows.clear();
-      writes.clear();
       tombstones.clear();
       dirty.clear();
       tombstonesDirty = false;
-    }
-  };
-};
-
-export const createEntityClock = (): EntityClock => {
-  let sequence = 0;
-  return {
-    next: () => ++sequence,
-    current: () => sequence,
-    restore: value => {
-      sequence = Math.max(sequence, value);
     }
   };
 };

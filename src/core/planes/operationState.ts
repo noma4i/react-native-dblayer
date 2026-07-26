@@ -21,8 +21,6 @@ export type OperationRecord = {
 };
 
 const CLOSED_TTL_MS = 60 * 60 * 1000;
-const SEQUENCES_CAP = 512;
-
 export type OperationState = {
   begin(operation: Omit<OperationRecord, 'status'>): void;
   close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
@@ -43,8 +41,6 @@ export type OperationState = {
   /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
   hydratedPending(): OperationRecord[];
   prune(): number;
-  /** Monotonic keyed sequence (e.g. an optimistic ordering floor per parent row); floor raises the base. */
-  nextSequence(key: string, floor: number): number;
   /** Union of fields owned by still-pending optimistic patch ops on one model row (empty when none). */
   ownedFields(model: string, rowId: string, excludeOpId?: string): ReadonlySet<string>;
   /** The value the latest still-pending patch op (excluding `excludeOpId`) wrote for one field of one model row, or `{ found: false }` when no other pending patch owns it. */
@@ -57,11 +53,9 @@ export type OperationState = {
 export const createOperationState = (options: { storage: StoragePlane; prefix: () => string; now: () => number; notify?: (record: OperationRecord) => void }): OperationState => {
   const { storage, prefix, now, notify } = options;
   const operations = new Map<string, OperationRecord>();
-  const sequences = new Map<string, number>();
   const committedKeys = new Set<string>();
   const pendingKeys = new Set<string>();
   const hydratedPendingIds = new Set<string>();
-  let sequencesDirty = false;
   let pendingPatchCount = 0;
   /** Reverse index: compositeKey(model, rowId) -> every operation whose rowIds/tempIds union includes
    * that rowId, regardless of status. Each accessor re-applies its own historical row-match predicate
@@ -107,14 +101,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     }
   };
   const opsKey = () => `${prefix()}ops`;
-  const seqKey = () => `${prefix()}seq`;
   const persistEntries = (): Array<{ key: string; value: string | null }> => {
-    const entries = [{ key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null }];
-    if (sequencesDirty) {
-      entries.push({ key: seqKey(), value: sequences.size > 0 ? JSON.stringify(Object.fromEntries(sequences)) : null });
-      sequencesDirty = false;
-    }
-    return entries;
+    return [{ key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null }];
   };
   const EMPTY_OWNED: ReadonlySet<string> = new Set();
 
@@ -194,17 +182,6 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (pruned > 0) rebuildIndexes();
       return pruned;
     },
-    nextSequence: (key, floor) => {
-      const next = Math.max(sequences.get(key) ?? 0, floor) + 1;
-      sequences.delete(key);
-      sequences.set(key, next);
-      if (sequences.size > SEQUENCES_CAP) {
-        const oldest = sequences.keys().next().value;
-        if (oldest !== undefined) sequences.delete(oldest);
-      }
-      sequencesDirty = true;
-      return next;
-    },
     ownedFields: (model, rowId, excludeOpId) => {
       if (pendingPatchCount === 0) return EMPTY_OWNED;
       const bucket = bucketFor(model, rowId);
@@ -234,9 +211,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     persistEntries,
     hydrate: () => {
       operations.clear();
-      sequences.clear();
       hydratedPendingIds.clear();
-      sequencesDirty = false;
       const rawOps = storage.get(opsKey());
       if (rawOps) {
         try {
@@ -250,26 +225,16 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
           storage.set([{ key: opsKey(), value: null }]);
         }
       }
-      const rawSeq = storage.get(seqKey());
-      if (rawSeq) {
-        try {
-          for (const [key, value] of Object.entries(JSON.parse(rawSeq) as Record<string, number>)) sequences.set(key, value);
-        } catch {
-          storage.set([{ key: seqKey(), value: null }]);
-        }
-      }
       rebuildIndexes();
       pendingPatchCount = 0;
       for (const op of operations.values()) if (op.status === 'pending' && op.intent === 'patch' && op.patchedFields && op.patchedFields.length > 0) pendingPatchCount += 1;
     },
     reset: () => {
       operations.clear();
-      sequences.clear();
       committedKeys.clear();
       pendingKeys.clear();
       hydratedPendingIds.clear();
       opsByRowKey.clear();
-      sequencesDirty = false;
       pendingPatchCount = 0;
     }
   };
