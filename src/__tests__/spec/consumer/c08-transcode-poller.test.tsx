@@ -174,7 +174,8 @@ describe('model status poller', () => {
     await settle();
 
     expect(reader.result()?.status).toBe('done');
-    expect(reader.renders()).toBeGreaterThanOrEqual(2);
+    // The reader renders once on mount and once when the shared refresh resolves to done.
+    expect(reader.renders()).toBe(2);
     reader.unmount();
   });
 

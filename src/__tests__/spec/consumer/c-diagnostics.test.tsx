@@ -44,8 +44,9 @@ describe('read diagnostics', () => {
     });
 
     const snapshot = diagnostics().snapshot();
-    expect(snapshot.commits).toBeGreaterThan(0);
-    expect(snapshot.readEngineApplies).toBeGreaterThan(0);
+    // Each insertStored emits one commit and applies one row delta to the mounted where reader.
+    expect(snapshot.commits).toBe(2);
+    expect(snapshot.readEngineApplies).toBe(2);
     reader.unmount();
   });
 
@@ -59,7 +60,8 @@ describe('read diagnostics', () => {
       items.insertStored({ id: 'row-1', status: 'ready', score: 1 });
     });
     const delta = diagnostics().snapshot();
-    expect(delta.readEngineDeltaRows).toBeGreaterThan(0);
+    // The one inserted row reaches the delta read-engine path once.
+    expect(delta.readEngineDeltaRows).toBe(1);
     expect(delta.readEngineRebuilds).toBe(0);
     act(() => {
       items.replaceRaw('row-1', { id: 'row-2', status: 'ready', score: 2 });

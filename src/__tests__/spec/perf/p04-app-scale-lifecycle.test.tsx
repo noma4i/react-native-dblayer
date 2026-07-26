@@ -318,8 +318,8 @@ describe('app-scale lifecycle', () => {
       await settle(2);
 
       const callsAfterFirstTick = transport.calls.length - callsBeforeResume;
-      expect(callsAfterFirstTick).toBeLessThanOrEqual(4);
-      expect(callsAfterFirstTick).toBeGreaterThan(0);
+      // resumeRefetch.chunkSize is 4, so the first drain starts exactly four deferred transport calls.
+      expect(callsAfterFirstTick).toBe(4);
 
       while (releaseQueue.length > 0) {
         act(() => {
@@ -365,10 +365,9 @@ describe('app-scale lifecycle', () => {
       }
       resuming.current = false;
 
-      // 12 queries total; the unmounted standalone reader's query has zero observers, so only the
-      // 11 still-observed queries may refetch.
+      // 12 queries total; the unmounted standalone reader has zero observers, so exactly 11 remain eligible.
       const activeRefetchCalls = transport.calls.length - callsBeforeResume;
-      expect(activeRefetchCalls).toBeLessThanOrEqual(11);
+      expect(activeRefetchCalls).toBe(11);
       expect(diagnostics().snapshot().resumeDrains).toBe(1);
     } finally {
       resuming.current = false;
