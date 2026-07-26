@@ -79,7 +79,7 @@ export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects,
   effects: TEffects;
   /** Replace active effects; keys omitted from `overrides` fall back to the noop implementation. */
   configure: (overrides: Partial<TEffects>) => void;
-  /** Restore every effect to its noop implementation. */
+  /** Restore every effect to its noop implementation and unregister this channel's named effects. */
   reset: () => void;
 };
 
@@ -94,10 +94,14 @@ export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects,
  */
 export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffects, (...args: never[]) => void>>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
   let activeEffects: TEffects = noopEffects;
+  const names = Object.keys(noopEffects);
+  for (const name of names) {
+    if (namedEffects.has(name)) throw new Error(`subscription effect already registered: ${name}`);
+  }
 
   /** Object.fromEntries cannot preserve the keyed function correlation represented by TEffects. */
   const effects = Object.fromEntries(
-    Object.keys(noopEffects).map(key => [
+    names.map(key => [
       key,
       (...args: unknown[]) => {
         /** Dynamic key iteration loses each effect's parameter tuple before invocation. */
@@ -105,8 +109,13 @@ export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffec
       }
     ])
   ) as unknown as TEffects;
-  namedEffects.clear();
   for (const [name, effect] of Object.entries(effects)) namedEffects.set(name, effect as (...args: unknown[]) => void);
+  const unregisterNames = (): void => {
+    for (const name of names) {
+      const effect = effects[name as keyof TEffects] as unknown as (...args: unknown[]) => void;
+      if (namedEffects.get(name) === effect) namedEffects.delete(name);
+    }
+  };
 
   return {
     effects,
@@ -115,6 +124,7 @@ export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffec
     },
     reset: () => {
       activeEffects = noopEffects;
+      unregisterNames();
     }
   };
 };
@@ -139,7 +149,9 @@ export type DbSubscriptionRuntime = {
    * Activate or deactivate all registered transport subscriptions.
    *
    * First activation requires `configureDb({ transport })` with `transport.subscribe`. Reconnect and
-   * observer resubscription inside the transport remain transparent to this runtime.
+   * observer resubscription inside the transport remain transparent to this runtime. If one entry throws
+   * while starting, every entry started by that activation is unsubscribed, the runtime remains inactive,
+   * and the original error is rethrown.
    *
    * @param active True subscribes all entries; false unsubscribes all entries and clears pending timers.
    * @returns void
@@ -189,6 +201,7 @@ type EntryState = {
   eventCount: number;
   lastEventAt: number | null;
   errorCount: number;
+  attemptToken: number;
 };
 
 const nextRetryDelay = (attempts: number): number => Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempts), MAX_RETRY_DELAY_MS);
@@ -230,7 +243,8 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     retryAttempts: 0,
     eventCount: 0,
     lastEventAt: null,
-    errorCount: 0
+    errorCount: 0,
+    attemptToken: 0
   }));
   const byKey = new Map(states.map(state => [state.entry.key, state]));
   let active = false;
@@ -276,8 +290,11 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     state.debounceBuckets.set(bucketKey, { timer, payload });
   };
 
-  const handleTransportNext = (state: EntryState, data: unknown, epoch: number): void => {
-    if (!active || epoch !== activationEpoch) return;
+  const isCurrentAttempt = (state: EntryState, epoch: number, token: number): boolean =>
+    active && isCurrentGeneration() && epoch === activationEpoch && state.attemptToken === token;
+
+  const handleTransportNext = (state: EntryState, data: unknown, epoch: number, token: number): void => {
+    if (!isCurrentAttempt(state, epoch, token) || !state.unsubscribe) return;
     if (!isNonArrayRecord(data)) {
       getDbLogger().debug(LOG_PREFIX, 'response skipped', { key: state.entry.key });
       return;
@@ -295,36 +312,51 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     }
 
     const epoch = activationEpoch;
-    state.unsubscribe = subscribe(
-      {
-        query: state.entry.query,
-        variables: state.entry.vars
-      },
-      {
-        next: data => handleTransportNext(state, data, epoch),
-        error: error => {
-          if (epoch === activationEpoch) handleEntryError(state, error);
+    const token = state.attemptToken + 1;
+    const placeholder = (): void => {};
+    state.attemptToken = token;
+    state.unsubscribe = placeholder;
+    let unsubscribe: () => void;
+    try {
+      unsubscribe = subscribe(
+        {
+          query: state.entry.query,
+          variables: state.entry.vars
+        },
+        {
+          next: data => handleTransportNext(state, data, epoch, token),
+          error: error => handleEntryError(state, error, epoch, token)
         }
-      }
-    );
+      );
+    } catch (error) {
+      if (isCurrentAttempt(state, epoch, token) && state.unsubscribe === placeholder) state.unsubscribe = null;
+      throw error;
+    }
+    if (!isCurrentAttempt(state, epoch, token) || state.unsubscribe !== placeholder) {
+      unsubscribe();
+      return;
+    }
+    state.unsubscribe = unsubscribe;
   };
 
-  const scheduleRetry = (state: EntryState): void => {
-    if (!active) return;
+  const scheduleRetry = (state: EntryState, epoch: number, token: number): void => {
+    if (!isCurrentAttempt(state, epoch, token)) return;
     clearRetryTimer(state);
     const delay = nextRetryDelay(state.retryAttempts);
     state.retryAttempts += 1;
     state.retryTimer = setTimeout(() => {
       state.retryTimer = null;
+      if (!isCurrentAttempt(state, epoch, token) || state.unsubscribe) return;
       subscribeEntry(state);
     }, delay);
   };
 
-  function handleEntryError(state: EntryState, error: unknown): void {
+  function handleEntryError(state: EntryState, error: unknown, epoch: number, token: number): void {
+    if (!isCurrentAttempt(state, epoch, token) || !state.unsubscribe) return;
     state.errorCount += 1;
     getDbLogger().error(LOG_PREFIX, 'subscription error', { key: state.entry.key, error });
     unsubscribeEntry(state);
-    scheduleRetry(state);
+    scheduleRetry(state, epoch, token);
   }
 
   const deactivateAll = (): void => {
@@ -359,8 +391,15 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
       active = true;
       activationEpoch += 1;
       generationFence.captureNow();
-      for (const state of states) {
-        subscribeEntry(state);
+      try {
+        for (const state of states) {
+          subscribeEntry(state);
+        }
+      } catch (error) {
+        active = false;
+        activationEpoch += 1;
+        deactivateAll();
+        throw error;
       }
     },
     isActive() {
