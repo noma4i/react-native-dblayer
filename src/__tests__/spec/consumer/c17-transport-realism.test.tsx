@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { userId: string };
@@ -133,6 +133,76 @@ describe('transport realism blind-spot coverage', () => {
     queryReader.unmount();
   });
 
+  it('D16 drops a cross-handle reset that resolves after a newer reset for the same scope bucket', async () => {
+    const pending: Deferred<RaceResponse>[] = [];
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        await new Promise<{ data: TData }>((resolve, reject) => {
+          pending.push({ resolve: data => resolve({ data: data as TData }), reject });
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createRaceMoments();
+    const first = moments.query<RaceResponse, ScopeValue, ScopeValue, RaceRow>('cross-handle-first', {
+      document,
+      vars: value => value,
+      select: data => data.moments,
+      into: moments.scopes.byUser
+    });
+    const second = moments.query<RaceResponse, ScopeValue, ScopeValue, RaceRow>('cross-handle-second', {
+      document: { kind: 'Document', definitions: [] } as never,
+      vars: value => value,
+      select: data => data.moments,
+      into: moments.scopes.byUser
+    });
+    const scopeValue = { userId: '54' };
+
+    const firstFetch = first.fetch(scopeValue);
+    await settle();
+    const secondFetch = second.fetch(scopeValue);
+    await settle();
+    pending[1]?.resolve({ moments: [{ id: 'b1', userId: '54', status: 'newer' }] });
+    await secondFetch;
+    pending[0]?.resolve({ moments: [{ id: 'a1', userId: '54', status: 'older' }] });
+    await firstFetch;
+
+    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['b1']);
+    resetRuntime();
+  });
+
+  it('D16 applies a reset normally after resetRuntime clears shared scope guards', async () => {
+    const pending: Deferred<RaceResponse>[] = [];
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        await new Promise<{ data: TData }>((resolve, reject) => {
+          pending.push({ resolve: data => resolve({ data: data as TData }), reject });
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createRaceMoments();
+    const query = moments.query<RaceResponse, ScopeValue, ScopeValue, RaceRow>('cross-handle-reset-lifecycle', {
+      document,
+      vars: value => value,
+      select: data => data.moments,
+      into: moments.scopes.byUser
+    });
+    const scopeValue = { userId: '54' };
+    const first = query.fetch(scopeValue);
+    await settle();
+    pending.shift()?.resolve({ moments: [{ id: 'before-reset', userId: '54', status: 'old' }] });
+    await first;
+
+    resetRuntime();
+    configureDb({ storage: createMemoryPlane(), transport });
+    const afterReset = query.fetch(scopeValue);
+    await settle();
+    pending.shift()?.resolve({ moments: [{ id: 'after-reset', userId: '54', status: 'fresh' }] });
+    await afterReset;
+
+    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['after-reset']);
+    resetRuntime();
+  });
+
   it('drops a stale next page after a newer reset applies', async () => {
     const pending: Deferred<PageResponse>[] = [];
     const transport = createMockTransport({
@@ -236,6 +306,52 @@ describe('transport realism blind-spot coverage', () => {
     expect(scopeReader.result().map(row => row.id)).toEqual(['C', 'D', 'A', 'B']);
     scopeReader.unmount();
     queryReader.unmount();
+  });
+
+  it('D16 drops a cross-handle page response after a newer reset owns the shared scope bucket', async () => {
+    const pending: Deferred<PageResponse | RaceResponse>[] = [];
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        await new Promise<{ data: TData }>((resolve, reject) => {
+          pending.push({ resolve: data => resolve({ data: data as TData }), reject });
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createRaceMoments();
+    const paged = moments.query<PageResponse, ScopeValue, ScopeValue, RaceRow>('cross-handle-page', {
+      document,
+      vars: value => value,
+      page: data => data.moments,
+      into: moments.scopes.byUser,
+      coverage: 'page'
+    });
+    const reset = moments.query<RaceResponse, ScopeValue, ScopeValue, RaceRow>('cross-handle-reset', {
+      document: { kind: 'Document', definitions: [] } as never,
+      vars: value => value,
+      select: data => data.moments,
+      into: moments.scopes.byUser
+    });
+    const scopeValue = { userId: '54' };
+    const reader = renderCountedInProvider(() => paged.use(scopeValue));
+
+    await settle();
+    pending.shift()?.resolve({ moments: { nodes: [{ id: 'a1', userId: '54', status: 'first' }], pageInfo: { hasNextPage: true, endCursor: 'cursor-a1' } } });
+    await settle();
+    act(() => {
+      reader.result().fetchNextPage();
+    });
+    await settle();
+    const stalePage = pending.shift();
+    const resetFetch = reset.fetch(scopeValue);
+    await settle();
+    pending.shift()?.resolve({ moments: [{ id: 'b1', userId: '54', status: 'newer' }] });
+    await resetFetch;
+    stalePage?.resolve({ moments: { nodes: [{ id: 'a2', userId: '54', status: 'stale' }], pageInfo: { hasNextPage: false, endCursor: null } } });
+    await settle();
+
+    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['b1']);
+    reader.unmount();
+    resetRuntime();
   });
 
   it('appends a next page when no newer reset intervenes', async () => {

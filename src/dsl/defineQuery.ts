@@ -170,9 +170,13 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
 type PageMeta = { endCursor: string | null; hasNextPage: boolean; count: number };
 
 const committedRowIdsByQueryScope = new Map<string, string[]>();
+const issuedResetSeqByBucket = new Map<string, number>();
+const appliedResetSeqByBucket = new Map<string, number>();
 
 registerReset(() => {
   committedRowIdsByQueryScope.clear();
+  issuedResetSeqByBucket.clear();
+  appliedResetSeqByBucket.clear();
 });
 
 const operationKey = (document: DbGraphQLDocument<any, any>, override?: string): string => {
@@ -212,14 +216,14 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const keyName = operationKey(config.document, config.key);
   const queryKeyOf = (scope: TScope): unknown[] => ['dbl', keyName, buildScopeKey(scope)];
   const registeredScopes = new Map<string, TScope>();
-  const issuedResetSeqByScope = new Map<string, number>();
-  const appliedResetSeqByScope = new Map<string, number>();
   registerReset(() => {
     registeredScopes.clear();
-    issuedResetSeqByScope.clear();
-    appliedResetSeqByScope.clear();
   });
   const committedRowsKey = (scopeKey: string): string => compositeKey(keyName, scopeKey);
+  const staleGuardKey = (scope: TScope, scopeKey: string): string =>
+    isScopeDestination(config.into)
+      ? compositeKey(String((config.into as { modelId?: string }).modelId ?? keyName), getInternalScopeHandle(config.into).key(scope))
+      : compositeKey(keyName, scopeKey);
   const registerScope = (scope: TScope): void => {
     if (isScopeDestination(config.into)) getInternalScopeHandle(config.into).key(scope);
     registeredScopes.set(buildScopeKey(scope), scope);
@@ -295,12 +299,13 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     };
     const isReset = cursor == null;
     const scopeKey = buildScopeKey(scope);
+    const guardKey = staleGuardKey(scope, scopeKey);
     let issueSeq: number;
     if (isReset) {
-      issueSeq = (issuedResetSeqByScope.get(scopeKey) ?? 0) + 1;
-      issuedResetSeqByScope.set(scopeKey, issueSeq);
+      issueSeq = (issuedResetSeqByBucket.get(guardKey) ?? 0) + 1;
+      issuedResetSeqByBucket.set(guardKey, issueSeq);
     } else {
-      issueSeq = issuedResetSeqByScope.get(scopeKey) ?? 0;
+      issueSeq = issuedResetSeqByBucket.get(guardKey) ?? 0;
     }
     const generationFence = createGenerationFence();
     let data: TResponse;
@@ -316,11 +321,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       throw error;
     }
     if (!generationFence.isCurrent()) return { endCursor: null, hasNextPage: false, count: 0 };
-    const appliedReset = appliedResetSeqByScope.get(scopeKey) ?? 0;
+    const appliedReset = appliedResetSeqByBucket.get(guardKey) ?? 0;
     if (isReset) {
       if (issueSeq < appliedReset) return { endCursor: null, hasNextPage: false, count: 0 };
-      appliedResetSeqByScope.set(scopeKey, issueSeq);
-    } else if (issueSeq < (issuedResetSeqByScope.get(scopeKey) ?? 0)) {
+      appliedResetSeqByBucket.set(guardKey, issueSeq);
+    } else if (issueSeq < (issuedResetSeqByBucket.get(guardKey) ?? 0)) {
       return { endCursor: null, hasNextPage: false, count: 0 };
     }
     return applyResponse(scope, data, cursor == null, resurrectDestroyed);
