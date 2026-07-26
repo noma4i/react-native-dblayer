@@ -52,6 +52,10 @@ const createMessageModel = (intervalMs: number, maxAttempts: number, transport: 
 };
 
 describe('model status poller', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('starts polling on attach and stops on terminal status with row updates on changes', async () => {
     jest.useFakeTimers();
     const responses = [
@@ -101,7 +105,6 @@ describe('model status poller', () => {
 
     detach();
     reader.unmount();
-    jest.useRealTimers();
   });
 
   it('stops polling after budget is reached and keeps last non-terminal status', async () => {
@@ -147,7 +150,6 @@ describe('model status poller', () => {
     expect(messages.transcode.getPhase('message-1').phase).toBe('stalled');
 
     reader.unmount();
-    jest.useRealTimers();
   });
 
   it('dedupes overlapping refresh calls so only one in-flight fetch is active', async () => {
@@ -209,6 +211,5 @@ describe('model status poller', () => {
     expect(messages.transcode.getPhase('message-1')).toEqual({ phase: 'idle', attempts: 0 });
 
     reader.unmount();
-    jest.useRealTimers();
   });
 });

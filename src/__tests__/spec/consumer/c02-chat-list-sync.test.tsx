@@ -20,6 +20,10 @@ const createChats = (suffix: string) =>
   });
 
 describe('chat list sync consumer contracts', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('coalesces N concurrent sync() calls within the throttle window into exactly one transport call, all callers resolving', async () => {
     let mutationCalls = 0;
     const transport = createMockTransport({
@@ -82,7 +86,6 @@ describe('chat list sync consumer contracts', () => {
     expect(chats.get('chat-b')?.title).toBe('B v1');
     reader.unmount();
     runtime.stop();
-    jest.useRealTimers();
   });
 
   it('destroys a chat and its scope membership in one commit: reader sees one render, no ghost row', () => {

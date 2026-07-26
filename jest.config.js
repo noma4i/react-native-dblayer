@@ -1,5 +1,7 @@
 module.exports = {
   testEnvironment: 'node',
+  restoreMocks: true,
+  resetMocks: true,
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts', '<rootDir>/src/**/__tests__/**/*.test.tsx'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   transform: {

@@ -49,6 +49,7 @@ describe('provider-owned query runtime', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.restoreAllMocks();
   });
 
@@ -252,6 +253,5 @@ describe('provider-owned query runtime', () => {
 
     expect(removeAppStateListener).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(0);
-    jest.useRealTimers();
   });
 });

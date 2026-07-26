@@ -11,6 +11,10 @@ const createRows = (suffix: string) =>
   });
 
 describe('patchWhenRowExists', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('patches immediately when the row already exists', () => {
     setupSpecRuntime();
     const rows = createRows('Now');
@@ -26,7 +30,6 @@ describe('patchWhenRowExists', () => {
     patchWhenRowExists(rows, 'r-1', row => ({ label: `${row.label}-patched` }), { ttlMs: 60000 });
     rows.insertStored({ id: 'r-1', label: 'base' });
     expect(rows.get('r-1')?.label).toBe('base-patched');
-    jest.useRealTimers();
   });
 
   it('drops the deferred patch after ttl', () => {
@@ -37,7 +40,6 @@ describe('patchWhenRowExists', () => {
     jest.advanceTimersByTime(11);
     rows.insertStored({ id: 'r-1', label: 'base' });
     expect(rows.get('r-1')?.label).toBe('base');
-    jest.useRealTimers();
   });
 
   it('does not apply a deferred patch across resetRuntime (generation fence)', () => {
@@ -49,11 +51,14 @@ describe('patchWhenRowExists', () => {
     setupSpecRuntime();
     rows.insertStored({ id: 'r-1', label: 'fresh' });
     expect(rows.get('r-1')?.label).toBe('fresh');
-    jest.useRealTimers();
   });
 });
 
 describe('waitForRow', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('resolves immediately with an existing row', async () => {
     setupSpecRuntime();
     const rows = createRows('Immediate');
@@ -76,7 +81,6 @@ describe('waitForRow', () => {
     const pending = waitForRow(rows, 'missing', { timeoutMs: 50 });
     jest.advanceTimersByTime(51);
     await expect(pending).resolves.toBeUndefined();
-    jest.useRealTimers();
   });
 
   it('resolves undefined on abort', async () => {

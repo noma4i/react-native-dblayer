@@ -27,6 +27,10 @@ const createPoller = (fetch: (id: string) => Promise<Result>, maxAttempts = 3) =
 
 describe('model status poller phases', () => {
   // Performance scale guarantee: N/A because each phase hook subscribes to one poller id.
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it.each(['ready', 'failed'] as const)('classifies a terminal payload as %s', async status => {
     jest.useFakeTimers();
     const poller = createPoller(async () => ({ status }));
@@ -35,7 +39,6 @@ describe('model status poller phases', () => {
     await settle();
     expect(poller.getPhase('message-1')).toEqual({ phase: status, reason: 'terminal-payload', attempts: 1 });
     detach();
-    jest.useRealTimers();
   });
 
   it('reports stalled after exhausting the attempt budget', async () => {
@@ -46,7 +49,6 @@ describe('model status poller phases', () => {
     act(() => jest.advanceTimersByTime(5));
     await settle();
     expect(poller.getPhase('message-1')).toEqual({ phase: 'stalled', reason: 'budget-exhausted', attempts: 2 });
-    jest.useRealTimers();
   });
 
   it('publishes attempts and phase changes only to the matching id hook', async () => {
@@ -64,7 +66,6 @@ describe('model status poller phases', () => {
     expect(unrelated.renders()).toBe(unrelatedBefore);
     target.unmount();
     unrelated.unmount();
-    jest.useRealTimers();
   });
 
   it('keeps a phase snapshot stable when no phase or attempt changed', () => {
@@ -99,7 +100,6 @@ describe('model status poller phases', () => {
     act(() => jest.advanceTimersByTime(50));
     await settle();
     expect(fetch).toHaveBeenCalledTimes(calls);
-    jest.useRealTimers();
   });
 
   it('resets an active phase to idle and fences transport completion and timers', async () => {
@@ -120,6 +120,5 @@ describe('model status poller phases', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(poller.getPhase('message-1')).toEqual({ phase: 'idle', attempts: 0 });
     reader.unmount();
-    jest.useRealTimers();
   });
 });
