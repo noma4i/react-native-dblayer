@@ -30,12 +30,12 @@ describe('scope member predicate', () => {
   it('detaches and restores a by-derived member when the predicate changes', () => {
     setupSpecRuntime();
     const chats = createMemberChats('Transitions');
-    chats.insertStored({ id: 'chat-1', inboxId: 'primary', premium: true, kind: 'direct' });
+    chats.insert({ id: 'chat-1', inboxId: 'primary', premium: true, kind: 'direct' });
     expect(chats.scopes.primary.read({ inboxId: 'primary' }).map(row => row.id)).toEqual(['chat-1']);
 
-    chats.patch('chat-1', { premium: false });
+    chats.update('chat-1', { premium: false });
     expect(chats.scopes.primary.read({ inboxId: 'primary' })).toEqual([]);
-    chats.patch('chat-1', { premium: true });
+    chats.update('chat-1', { premium: true });
 
     expect(chats.scopes.primary.read({ inboxId: 'primary' }).map(row => row.id)).toEqual(['chat-1']);
   });
@@ -44,7 +44,7 @@ describe('scope member predicate', () => {
     setupSpecRuntime();
     const chats = createMemberChats('Insert');
 
-    chats.insertStored({ id: 'chat-1', inboxId: 'primary', premium: false, kind: 'direct' });
+    chats.insert({ id: 'chat-1', inboxId: 'primary', premium: false, kind: 'direct' });
 
     expect(chats.scopes.primary.read({ inboxId: 'primary' })).toEqual([]);
   });

@@ -173,7 +173,7 @@ describe('incremental model read engine', () => {
           initialCalls[index] += 1;
           return [...rows.values()];
         },
-        read: id => rows.get(id),
+      read: id => rows.get(id),
         select: value => value
       })
     );

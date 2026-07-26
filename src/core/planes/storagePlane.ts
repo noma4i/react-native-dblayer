@@ -26,5 +26,5 @@ export const mmkvStoragePlane = (): StoragePlane => ({
       else storage.setItem(entry.key, entry.value);
     }
   },
-  keys: prefix => getDbStorageAdapter().getAllKeys().filter(key => key.startsWith(prefix))
+  keys: prefix => getDbStorageAdapter().allKeys().filter(key => key.startsWith(prefix))
 });

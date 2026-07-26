@@ -3,7 +3,7 @@ type MmkvStorage = {
   set: (key: string, value: string) => void;
   remove: (key: string) => void;
   clearAll: () => void;
-  getAllKeys: () => string[];
+  allKeys: () => string[];
 };
 
 type MmkvModule = {
@@ -39,7 +39,7 @@ export const clearDbStorage = (): void => {
 };
 
 /** Return all DB storage keys. */
-export const getDbStorageKeys = (): string[] => getDbStorage().getAllKeys();
+export const getDbStorageKeys = (): string[] => getDbStorage().allKeys();
 
 /** Remove one DB storage key. */
 export const removeDbStorageKey = (key: string): void => {

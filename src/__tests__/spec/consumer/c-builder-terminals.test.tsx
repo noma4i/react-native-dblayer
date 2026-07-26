@@ -12,7 +12,7 @@ const createItems = (suffix: string) =>
   });
 
 const seedItems = (items: ReturnType<typeof createItems>): void => {
-  items.insertStoredMany([
+  items.insertMany([
     { id: '1', score: 1, name: 'alpha', status: 'ready' },
     { id: '2', score: 5, name: 'bravo', status: 'ready' },
     { id: '3', score: 9, name: 'charlie', status: 'done' }
@@ -52,12 +52,12 @@ describe('builder pluck()', () => {
     const stable = reader.result();
     const renders = reader.renders();
     act(() => {
-      items.patch('1', { score: 2 });
+      items.update('1', { score: 2 });
     });
     expect(reader.result()).toBe(stable);
     expect(reader.renders()).toBe(renders);
     act(() => {
-      items.patch('1', { name: 'alpha-2' });
+      items.update('1', { name: 'alpha-2' });
     });
     expect(reader.renders()).toBe(renders + 1);
     expect(reader.result()).toEqual(['alpha-2', 'bravo']);
@@ -88,12 +88,12 @@ describe('builder exists()', () => {
     expect(reader.result()).toBe(false);
     const renders = reader.renders();
     act(() => {
-      items.insertStored({ id: '1', score: 1, name: 'alpha', status: 'ready' });
+      items.insert({ id: '1', score: 1, name: 'alpha', status: 'ready' });
     });
     expect(reader.result()).toBe(true);
     expect(reader.renders()).toBe(renders + 1);
     act(() => {
-      items.insertStored({ id: '2', score: 5, name: 'bravo', status: 'ready' });
+      items.insert({ id: '2', score: 5, name: 'bravo', status: 'ready' });
     });
     expect(reader.renders()).toBe(renders + 1);
     act(() => {
@@ -107,7 +107,7 @@ describe('builder exists()', () => {
   it('respects require(): rows missing required fields do not count', () => {
     setupSpecRuntime();
     const items = createItems('ExistsRequire');
-    items.insertStored({ id: '1', score: 1, status: 'ready' } as never);
+    items.insert({ id: '1', score: 1, status: 'ready' } as never);
     const bare = renderCounted(() => items.use.where({ status: 'ready' }).exists());
     const required = renderCounted(() => items.use.where({ status: 'ready' }).require('name').exists());
     expect(bare.result()).toBe(true);
@@ -128,7 +128,7 @@ describe('builder exists()', () => {
     const fresh = renderCounted(() => items.use.where({ status: 'ready' }).exists());
     expect(fresh.result()).toBe(false);
     act(() => {
-      items.insertStored({ id: '7', score: 8, name: 'echo', status: 'ready' });
+      items.insert({ id: '7', score: 8, name: 'echo', status: 'ready' });
     });
     expect(fresh.result()).toBe(true);
     fresh.unmount();

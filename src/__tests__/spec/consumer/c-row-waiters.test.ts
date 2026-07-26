@@ -1,4 +1,4 @@
-import { defineModel, f, patchWhenRowExists, resetRuntime, waitForRow } from '../../../index';
+import { defineModel, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../../index';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for commit-bus row waiters.
@@ -10,7 +10,7 @@ const createRows = (suffix: string) =>
     fields: { id: f.str(), label: f.str() }
   });
 
-describe('patchWhenRowExists', () => {
+describe('updateWhenRowExists', () => {
   afterEach(() => {
     jest.useRealTimers();
   });
@@ -18,39 +18,39 @@ describe('patchWhenRowExists', () => {
   it('patches immediately when the row already exists', () => {
     setupSpecRuntime();
     const rows = createRows('Now');
-    rows.insertStored({ id: 'r-1', label: 'before' });
-    patchWhenRowExists(rows, 'r-1', { label: 'after' }, { ttlMs: 1000 });
-    expect(rows.get('r-1')?.label).toBe('after');
+    rows.insert({ id: 'r-1', label: 'before' });
+    updateWhenRowExists(rows, 'r-1', { label: 'after' }, { ttlMs: 1000 });
+    expect(rows.find('r-1')?.label).toBe('after');
   });
 
   it('defers the patch until the row appears', () => {
     jest.useFakeTimers();
     setupSpecRuntime();
     const rows = createRows('Defer');
-    patchWhenRowExists(rows, 'r-1', row => ({ label: `${row.label}-patched` }), { ttlMs: 60000 });
-    rows.insertStored({ id: 'r-1', label: 'base' });
-    expect(rows.get('r-1')?.label).toBe('base-patched');
+    updateWhenRowExists(rows, 'r-1', row => ({ label: `${row.label}-patched` }), { ttlMs: 60000 });
+    rows.insert({ id: 'r-1', label: 'base' });
+    expect(rows.find('r-1')?.label).toBe('base-patched');
   });
 
   it('drops the deferred patch after ttl', () => {
     jest.useFakeTimers();
     setupSpecRuntime();
     const rows = createRows('Ttl');
-    patchWhenRowExists(rows, 'r-1', { label: 'late' }, { ttlMs: 10 });
+    updateWhenRowExists(rows, 'r-1', { label: 'late' }, { ttlMs: 10 });
     jest.advanceTimersByTime(11);
-    rows.insertStored({ id: 'r-1', label: 'base' });
-    expect(rows.get('r-1')?.label).toBe('base');
+    rows.insert({ id: 'r-1', label: 'base' });
+    expect(rows.find('r-1')?.label).toBe('base');
   });
 
   it('does not apply a deferred patch across resetRuntime (generation fence)', () => {
     jest.useFakeTimers();
     setupSpecRuntime();
     const rows = createRows('Fence');
-    patchWhenRowExists(rows, 'r-1', { label: 'stale' }, { ttlMs: 60000 });
+    updateWhenRowExists(rows, 'r-1', { label: 'stale' }, { ttlMs: 60000 });
     resetRuntime();
     setupSpecRuntime();
-    rows.insertStored({ id: 'r-1', label: 'fresh' });
-    expect(rows.get('r-1')?.label).toBe('fresh');
+    rows.insert({ id: 'r-1', label: 'fresh' });
+    expect(rows.find('r-1')?.label).toBe('fresh');
   });
 });
 
@@ -62,7 +62,7 @@ describe('waitForRow', () => {
   it('resolves immediately with an existing row', async () => {
     setupSpecRuntime();
     const rows = createRows('Immediate');
-    rows.insertStored({ id: 'r-1', label: 'here' });
+    rows.insert({ id: 'r-1', label: 'here' });
     await expect(waitForRow(rows, 'r-1', { timeoutMs: 1000 })).resolves.toMatchObject({ id: 'r-1', label: 'here' });
   });
 
@@ -70,7 +70,7 @@ describe('waitForRow', () => {
     setupSpecRuntime();
     const rows = createRows('Later');
     const pending = waitForRow(rows, 'r-1', { timeoutMs: 1000 });
-    rows.insertStored({ id: 'r-1', label: 'arrived' });
+    rows.insert({ id: 'r-1', label: 'arrived' });
     await expect(pending).resolves.toMatchObject({ id: 'r-1', label: 'arrived' });
   });
 

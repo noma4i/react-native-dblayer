@@ -54,7 +54,7 @@ describe('id-key normalization contracts (LC20)', () => {
   it('matches a stored id-typed field against a numeric where filter', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: 'moment-1', userId: '54', status: 'active' });
+    moments.insert({ id: 'moment-1', userId: '54', status: 'active' });
 
     const reader = renderCounted(() => moments.use.where({ userId: 54 as unknown as string }).rows());
 
@@ -65,9 +65,9 @@ describe('id-key normalization contracts (LC20)', () => {
   it('resolves a point read when the id argument arrives numeric', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: '54', userId: '54', status: 'active' });
+    moments.insert({ id: '54', userId: '54', status: 'active' });
 
-    const reader = renderCounted(() => moments.use.row(54 as unknown as string));
+    const reader = renderCounted(() => moments.use.find(54 as unknown as string));
 
     expect(reader.result()?.id).toBe('54');
     reader.unmount();
@@ -76,7 +76,7 @@ describe('id-key normalization contracts (LC20)', () => {
   it('resolves byIds when an id argument arrives numeric', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: '54', userId: '54', status: 'active' });
+    moments.insert({ id: '54', userId: '54', status: 'active' });
 
     const reader = renderCounted(() => moments.use.byIds([54 as unknown as string]));
 
@@ -87,7 +87,7 @@ describe('id-key normalization contracts (LC20)', () => {
   it('keys a present byIds row by its actual id when an earlier requested id is missing', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: 'present', userId: '54', status: 'active' });
+    moments.insert({ id: 'present', userId: '54', status: 'active' });
 
     const reader = renderCounted(() => moments.use.byIds(['missing', 'present']));
 
@@ -100,7 +100,7 @@ describe('id-key normalization contracts (LC20)', () => {
   it('keeps byIds map keys independent of a renderKeys projection that excludes id', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: 'present', userId: '54', status: 'active' });
+    moments.insert({ id: 'present', userId: '54', status: 'active' });
 
     const reader = renderCounted(() => moments.use.byIds(['missing', 'present'], { renderKeys: ['status'] }));
 
@@ -125,7 +125,7 @@ describe('id-key normalization contracts (LC20)', () => {
       into: moments.scopes.byUser
     });
 
-    const rowReader = renderCounted(() => moments.use.row('77'));
+    const rowReader = renderCounted(() => moments.use.find('77'));
     const queryReader = renderCountedInProvider(() => query.use({ userId: '54' }));
 
     await settle();
@@ -139,32 +139,32 @@ describe('id-key normalization contracts (LC20)', () => {
   it('patches a string-keyed row when the write id arrives numeric', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: '54', userId: '54', status: 'active' });
+    moments.insert({ id: '54', userId: '54', status: 'active' });
 
-    moments.patch(54 as unknown as string, { status: 'patched' });
+    moments.update(54 as unknown as string, { status: 'patched' });
 
-    expect(moments.get('54')?.status).toBe('patched');
+    expect(moments.find('54')?.status).toBe('patched');
   });
 
   it('destroys a string-keyed row when the write id arrives numeric', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: '54', userId: '54', status: 'active' });
+    moments.insert({ id: '54', userId: '54', status: 'active' });
 
     moments.destroy(54 as unknown as string);
 
-    expect(moments.get('54')).toBeUndefined();
+    expect(moments.find('54')).toBeUndefined();
   });
 
   it('destroys a string-keyed row for a numeric ingest payload id', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
     const ingest = moments.ingest({ removed: { apply: 'destroy' } });
-    moments.insertStored({ id: '54', userId: '54', status: 'active' });
+    moments.insert({ id: '54', userId: '54', status: 'active' });
 
     ingest.apply('removed', { id: 54 });
 
-    expect(moments.get('54')).toBeUndefined();
+    expect(moments.find('54')).toBeUndefined();
   });
 
   it('tracks a numeric-id method patch through the normalized string lookup key', async () => {
@@ -183,7 +183,7 @@ describe('id-key normalization contracts (LC20)', () => {
       dedupe: false,
       optimistic: { method: 'patch', model: moments, selectId: input => input.id, selectPatch: () => ({ status: 'pending' }) }
     });
-    moments.insertStored({ id: '54', userId: '54', status: 'active' });
+    moments.insert({ id: '54', userId: '54', status: 'active' });
     const reader = renderCounted(() => moments.use.pending('54'));
     let request!: Promise<PatchResponse | null>;
 
@@ -227,14 +227,14 @@ describe('id-key normalization contracts (LC20)', () => {
     act(() => {
       request = send.run(undefined);
     });
-    expect(moments.get('54')).toMatchObject({ id: '54', status: 'sink' });
+    expect(moments.find('54')).toMatchObject({ id: '54', status: 'sink' });
 
     rejectMutation(new Error('send failed'));
     await act(async () => {
       await expect(request).rejects.toThrow('send failed');
     });
 
-    expect(moments.get('54')).toBeUndefined();
+    expect(moments.find('54')).toBeUndefined();
   });
 
   it('matches a numeric where filter against the primary id key when id is not a declared field', () => {
@@ -244,7 +244,7 @@ describe('id-key normalization contracts (LC20)', () => {
       name: 'SpecConsumerIdKeyWidget',
       fields: { label: f.str() }
     });
-    widgets.insertStored({ id: '54', label: 'w' } as never);
+    widgets.insert({ id: '54', label: 'w' } as never);
 
     const reader = renderCounted(() => widgets.use.where({ id: 54 as unknown as string }).rows());
 
@@ -255,7 +255,7 @@ describe('id-key normalization contracts (LC20)', () => {
   it('reads a scope bucket when the scope value arrives numeric (read-write key symmetry)', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: 'moment-1', userId: '54', status: 'active' });
+    moments.insert({ id: 'moment-1', userId: '54', status: 'active' });
 
     const reader = renderCounted(() => moments.scopes.byUser.use({ userId: 54 as unknown as string }));
 

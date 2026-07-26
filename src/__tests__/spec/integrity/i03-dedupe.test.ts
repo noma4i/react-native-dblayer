@@ -115,7 +115,7 @@ describe('mutation dedupe semantics', () => {
     const command = createCommand('RenderSilence', deferred.transport);
     const rows = defineModel({ id: 'SpecDedupeRenderRows', name: 'SpecDedupeRenderRows', fields: { value: f.str() } });
     rows.seed([{ id: 'row-1', value: 'kept' }]);
-    const reader = renderCounted(() => rows.use.row('row-1'));
+    const reader = renderCounted(() => rows.use.find('row-1'));
     const before = reader.renders();
 
     const first = command.run({ value: 'same' });

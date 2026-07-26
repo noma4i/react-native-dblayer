@@ -61,7 +61,7 @@ const messageIngest = MessageModel.ingest({
   messageRead: {
     document: MessageReadDocument,
     guard: 'existing',
-    apply: (payload, tools) => tools.model.patch(payload.messageId, { readAt: payload.readAt })
+    apply: (payload, tools) => tools.model.update(payload.messageId, { readAt: payload.readAt })
   }
 });
 ```

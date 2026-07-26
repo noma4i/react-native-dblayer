@@ -60,11 +60,11 @@ describe('per-field merge policy', () => {
 
   it('rejects an older bulk snapshot for the guarded group while applying its other fields', () => {
     const chats = createChatModel('MergePolicyOlderBulk');
-    chats.insertStored(row());
+    chats.insert(row());
 
-    chats.insertStoredMany([row({ name: 'Renamed', lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 })]);
+    chats.insertMany([row({ name: 'Renamed', lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 })]);
 
-    expect(chats.get('chat-1')).toMatchObject({
+    expect(chats.find('chat-1')).toMatchObject({
       name: 'Renamed',
       lastMessageId: 'message-10',
       lastMessageAt: '2026-07-20T00:00:10Z',
@@ -74,29 +74,29 @@ describe('per-field merge policy', () => {
 
   it('accepts a newer write for the guarded group', () => {
     const chats = createChatModel('MergePolicyNewer');
-    chats.insertStored(row());
+    chats.insert(row());
 
-    chats.insertStored(row({ lastMessageId: 'message-12', lastMessageAt: '2026-07-20T00:00:12Z', lastSequenceNumber: 12 }));
+    chats.insert(row({ lastMessageId: 'message-12', lastMessageAt: '2026-07-20T00:00:12Z', lastSequenceNumber: 12 }));
 
-    expect(chats.get('chat-1')).toMatchObject({ lastMessageId: 'message-12', lastMessageAt: '2026-07-20T00:00:12Z', lastSequenceNumber: 12 });
+    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'message-12', lastMessageAt: '2026-07-20T00:00:12Z', lastSequenceNumber: 12 });
   });
 
   it('bypasses guards for brand-new rows', () => {
     const chats = createChatModel('MergePolicyNewRow');
 
-    chats.insertStored(row({ id: 'chat-2', lastMessageId: 'message-1', lastMessageAt: '2026-07-20T00:00:01Z', lastSequenceNumber: 1 }));
+    chats.insert(row({ id: 'chat-2', lastMessageId: 'message-1', lastMessageAt: '2026-07-20T00:00:01Z', lastSequenceNumber: 1 }));
 
-    expect(chats.get('chat-2')).toMatchObject({ lastMessageId: 'message-1', lastSequenceNumber: 1 });
+    expect(chats.find('chat-2')).toMatchObject({ lastMessageId: 'message-1', lastSequenceNumber: 1 });
   });
 
   it('guards the patch path with the same policy', () => {
     const chats = createChatModel('MergePolicyPatch');
-    chats.insertStored(row());
-    const reader = renderCounted(() => chats.use.row('chat-1'));
+    chats.insert(row());
+    const reader = renderCounted(() => chats.use.find('chat-1'));
     const before = reader.renders();
 
     act(() => {
-      chats.patch('chat-1', { lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 });
+      chats.update('chat-1', { lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 });
     });
 
     expect(reader.renders() - before).toBe(0);
@@ -106,13 +106,13 @@ describe('per-field merge policy', () => {
 
   it('emits no wave when a rejected write leaves the row value-equal', () => {
     const chats = createChatModel('MergePolicyNoWave');
-    chats.insertStored(row());
-    const reader = renderCounted(() => chats.use.row('chat-1'));
+    chats.insert(row());
+    const reader = renderCounted(() => chats.use.find('chat-1'));
     const before = reader.renders();
     const identity = reader.result();
 
     act(() => {
-      chats.insertStored(row({ lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 }));
+      chats.insert(row({ lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 }));
     });
 
     expect(reader.renders() - before).toBe(0);
@@ -122,9 +122,9 @@ describe('per-field merge policy', () => {
 
   it('independent groups reject and accept separately in one write', () => {
     const chats = createChatModel('MergePolicyIndependentGroups');
-    chats.insertStored(row());
+    chats.insert(row());
 
-    chats.insertStored(row({
+    chats.insert(row({
       name: 'Renamed',
       lastMessageId: 'message-5',
       lastMessageAt: '2026-07-20T00:00:05Z',
@@ -133,7 +133,7 @@ describe('per-field merge policy', () => {
       mediaSequenceNumber: 12
     }));
 
-    expect(chats.get('chat-1')).toMatchObject({
+    expect(chats.find('chat-1')).toMatchObject({
       name: 'Renamed',
       lastMessageId: 'message-10',
       lastSequenceNumber: 10,

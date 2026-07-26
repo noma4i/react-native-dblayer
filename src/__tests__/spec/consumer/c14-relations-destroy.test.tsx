@@ -41,9 +41,9 @@ describe('dependent destroy relation contracts', () => {
     const children = createChildModel();
     const parents = createParentModel(children, true);
 
-    parents.insertStored({ id: 'p-1', owner: 'viewer-1', name: 'parent' });
-    children.insertStored({ id: 'c-1', parentId: 'p-1', label: 'child-one' });
-    children.insertStored({ id: 'c-2', parentId: 'p-1', label: 'child-two' });
+    parents.insert({ id: 'p-1', owner: 'viewer-1', name: 'parent' });
+    children.insert({ id: 'c-1', parentId: 'p-1', label: 'child-one' });
+    children.insert({ id: 'c-2', parentId: 'p-1', label: 'child-two' });
 
     const childReader = renderCounted(() => children.scopes.byParent.use({ parentId: 'p-1' }));
     const before = childReader.renders();
@@ -55,9 +55,9 @@ describe('dependent destroy relation contracts', () => {
 
     expect(childReader.renders() - before).toBe(1);
     expect(childReader.result()).toEqual([]);
-    expect(children.get('c-1')).toBeUndefined();
-    expect(children.get('c-2')).toBeUndefined();
-    expect(parents.get('p-1')).toBeUndefined();
+    expect(children.find('c-1')).toBeUndefined();
+    expect(children.find('c-2')).toBeUndefined();
+    expect(parents.find('p-1')).toBeUndefined();
     childReader.unmount();
   });
 
@@ -66,8 +66,8 @@ describe('dependent destroy relation contracts', () => {
     const children = createChildModel();
     const parents = createParentModel(children, false);
 
-    parents.insertStored({ id: 'p-1', owner: 'viewer-1', name: 'parent' });
-    children.insertStored({ id: 'c-1', parentId: 'p-1', label: 'child-one' });
+    parents.insert({ id: 'p-1', owner: 'viewer-1', name: 'parent' });
+    children.insert({ id: 'c-1', parentId: 'p-1', label: 'child-one' });
 
     const childReader = renderCounted(() => children.scopes.byParent.use({ parentId: 'p-1' }));
     const before = childReader.renders();
@@ -77,10 +77,10 @@ describe('dependent destroy relation contracts', () => {
       parents.destroy('p-1');
     });
 
-    expect(parents.get('p-1')).toBeUndefined();
+    expect(parents.find('p-1')).toBeUndefined();
     expect(childReader.renders() - before).toBe(0);
     expect(childReader.result().map(row => row.id)).toEqual(['c-1']);
-    expect(children.get('c-1')).toBeDefined();
+    expect(children.find('c-1')).toBeDefined();
     childReader.unmount();
   });
 
@@ -89,9 +89,9 @@ describe('dependent destroy relation contracts', () => {
     const children = createChildModel();
     const parents = createParentModel(children, true);
 
-    parents.insertStored({ id: 'p-1', owner: 'viewer-1', name: 'parent' });
-    children.insertStored({ id: 'c-1', parentId: 'p-1', label: 'child' });
-    children.insertStored({ id: 'c-2', parentId: 'p-1', label: 'child-two' });
+    parents.insert({ id: 'p-1', owner: 'viewer-1', name: 'parent' });
+    children.insert({ id: 'c-1', parentId: 'p-1', label: 'child' });
+    children.insert({ id: 'c-2', parentId: 'p-1', label: 'child-two' });
 
     act(() => {
       parents.destroy('p-1');
@@ -103,9 +103,9 @@ describe('dependent destroy relation contracts', () => {
 
     expect(parentReader.result()).toEqual([]);
     expect(childReader.result()).toEqual([]);
-    expect(parents.get('p-1')).toBeUndefined();
-    expect(children.get('c-1')).toBeUndefined();
-    expect(children.get('c-2')).toBeUndefined();
+    expect(parents.find('p-1')).toBeUndefined();
+    expect(children.find('c-1')).toBeUndefined();
+    expect(children.find('c-2')).toBeUndefined();
 
     parentReader.unmount();
     childReader.unmount();

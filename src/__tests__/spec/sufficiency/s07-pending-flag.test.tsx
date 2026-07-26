@@ -69,8 +69,8 @@ describe('model pending flag', () => {
 
     expect(activeTempReader.result()).toBe(false);
     expect(serverReader.result()).toBe(false);
-    expect(messages.get(currentId)).toBeUndefined();
-    expect(messages.get('server-1')?.text).toBe('saved');
+    expect(messages.find(currentId)).toBeUndefined();
+    expect(messages.find('server-1')?.text).toBe('saved');
     activeTempReader.unmount();
     serverReader.unmount();
   });
@@ -89,14 +89,14 @@ describe('model pending flag', () => {
     });
 
     expect(reader.result()).toBe(false);
-    expect(messages.get(id)).toBeUndefined();
+    expect(messages.find(id)).toBeUndefined();
     reader.unmount();
   });
 
   it.each(['commit', 'rollback'] as const)('tracks an optimistic patch through %s', async outcome => {
     const pending = deferredMutation();
     const { messages, patch } = createMessages(pending.transport);
-    messages.insertStored({ id: 'message-1', text: 'before' });
+    messages.insert({ id: 'message-1', text: 'before' });
     const reader = renderCounted(() => messages.use.pending('message-1'));
     let promise!: Promise<Payload | null>;
     act(() => {
@@ -112,15 +112,15 @@ describe('model pending flag', () => {
     });
 
     expect(reader.result()).toBe(false);
-    expect(messages.get('message-1')?.text).toBe(outcome === 'commit' ? 'during' : 'before');
+    expect(messages.find('message-1')?.text).toBe(outcome === 'commit' ? 'during' : 'before');
     reader.unmount();
   });
 
   it('notifies only the reader for the transitioning id', async () => {
     const pending = deferredMutation();
     const { messages, patch } = createMessages(pending.transport);
-    messages.insertStored({ id: 'message-1', text: 'before' });
-    messages.insertStored({ id: 'message-2', text: 'other' });
+    messages.insert({ id: 'message-1', text: 'before' });
+    messages.insert({ id: 'message-2', text: 'other' });
     const target = renderCounted(() => messages.use.pending('message-1'));
     const unrelated = renderCounted(() => messages.use.pending('message-2'));
     const targetBefore = target.renders();
@@ -145,7 +145,7 @@ describe('model pending flag', () => {
   it('returns false for nullish ids without reacting to operations', async () => {
     const pending = deferredMutation();
     const { messages, patch } = createMessages(pending.transport);
-    messages.insertStored({ id: 'message-1', text: 'before' });
+    messages.insert({ id: 'message-1', text: 'before' });
     const reader = renderCounted(() => messages.use.pending(null));
     const renders = reader.renders();
     const promise = patch.run({ id: 'message-1', text: 'during' });
@@ -159,7 +159,7 @@ describe('model pending flag', () => {
   it('clears pending state and live snapshots on reset', () => {
     const pending = deferredMutation();
     const { messages, patch } = createMessages(pending.transport);
-    messages.insertStored({ id: 'message-1', text: 'before' });
+    messages.insert({ id: 'message-1', text: 'before' });
     void patch.run({ id: 'message-1', text: 'during' });
     const reader = renderCounted(() => messages.use.pending('message-1'));
     expect(reader.result()).toBe(true);
@@ -195,7 +195,7 @@ describe('model pending flag', () => {
     const reader = renderCounted(() => messages.use.pending('temp-replay'));
 
     expect(reader.result()).toBe(false);
-    expect(messages.get('temp-replay')).toBeUndefined();
+    expect(messages.find('temp-replay')).toBeUndefined();
     reader.unmount();
   });
 
@@ -221,20 +221,20 @@ describe('model pending flag', () => {
     configureDb({ storage, transport: createMockTransport() });
     const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() }, gc: 'exempt' });
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
-    messages.insertStored({ id: 'message-1', text: 'kept' });
+    messages.insert({ id: 'message-1', text: 'kept' });
 
     await bootDb();
     const reader = renderCounted(() => messages.use.pending('message-1'));
 
     expect(reader.result()).toBe(false);
-    expect(messages.get('message-1')?.text).toBe('kept');
+    expect(messages.find('message-1')?.text).toBe('kept');
     reader.unmount();
   });
 
   it('does not notify an unmounted pending reader', () => {
     const pending = deferredMutation();
     const { messages, patch } = createMessages(pending.transport);
-    messages.insertStored({ id: 'message-1', text: 'before' });
+    messages.insert({ id: 'message-1', text: 'before' });
     const reader = renderCounted(() => messages.use.pending('message-1'));
     const renders = reader.renders();
     reader.unmount();

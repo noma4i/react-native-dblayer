@@ -36,5 +36,5 @@ export { mergeOptimisticSnapshot } from './mutations/base/mergeOptimisticSnapsho
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
 export { createThrottledSingleFlight, createSingleFlight, createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher, createSingletonStatics } from './utils/runtimePrimitives';
 export { reconcileOptimisticRows } from './utils/runtimePrimitives';
-export { patchWhenRowExists, waitForRow } from './core/rowWaiters';
+export { updateWhenRowExists, waitForRow } from './core/rowWaiters';
 export { useMergedScopeRows } from './read/useMergedScopeRows';

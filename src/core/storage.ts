@@ -18,7 +18,7 @@ const defaultStorageAdapter: StorageAdapter = {
   getItem: (key: string) => getMmkvStorageModule().mmkvStorageAdapter.getItem(key),
   setItem: (key: string, value: string) => getMmkvStorageModule().mmkvStorageAdapter.setItem(key, value),
   removeItem: (key: string) => getMmkvStorageModule().removeDbStorageKey(key),
-  getAllKeys: () => getMmkvStorageModule().getDbStorageKeys(),
+  allKeys: () => getMmkvStorageModule().getDbStorageKeys(),
   clear: () => getMmkvStorageModule().clearDbStorage()
 };
 

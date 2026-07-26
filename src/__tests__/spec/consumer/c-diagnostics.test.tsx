@@ -17,12 +17,12 @@ describe('read diagnostics', () => {
     const reader = renderCounted(() => items.use.where({ status: 'ready' }).rows());
 
     act(() => {
-      items.insertStored({ id: 'row-1', status: 'ready', score: 1 });
-      items.insertStored({ id: 'row-2', status: 'ready', score: 2 });
+      items.insert({ id: 'row-1', status: 'ready', score: 1 });
+      items.insert({ id: 'row-2', status: 'ready', score: 2 });
     });
 
     const snapshot = diagnostics().snapshot();
-    // Each insertStored emits one commit and applies one row delta to the mounted where reader.
+    // Each insert emits one commit and applies one row delta to the mounted where reader.
     expect(snapshot.commits).toBe(2);
     expect(snapshot.readEngineApplies).toBe(2);
     reader.unmount();
@@ -35,14 +35,14 @@ describe('read diagnostics', () => {
     const reader = renderCounted(() => items.use.where({ status: 'ready' }).rows());
 
     act(() => {
-      items.insertStored({ id: 'row-1', status: 'ready', score: 1 });
+      items.insert({ id: 'row-1', status: 'ready', score: 1 });
     });
     const delta = diagnostics().snapshot();
     // The one inserted row reaches the delta read-engine path once.
     expect(delta.readEngineDeltaRows).toBe(1);
     expect(delta.readEngineRebuilds).toBe(0);
     act(() => {
-      items.replaceRaw('row-1', { id: 'row-2', status: 'ready', score: 2 });
+      items.replace('row-1', { id: 'row-2', status: 'ready', score: 2 });
     });
 
     expect(diagnostics().snapshot().readEngineRebuilds).toBeGreaterThan(0);
@@ -55,7 +55,7 @@ describe('read diagnostics', () => {
     const items = createItems('Reset');
     const reader = renderCounted(() => items.use.where({ status: 'ready' }).rows());
     act(() => {
-      items.insertStored({ id: 'row-1', status: 'ready', score: 1 });
+      items.insert({ id: 'row-1', status: 'ready', score: 1 });
     });
     reader.unmount();
 
@@ -90,7 +90,7 @@ describe('read diagnostics', () => {
     diagnostics().reset();
     const items = createItems('Global');
     act(() => {
-      items.insertStored({ id: 'row-1', status: 'ready', score: 1 });
+      items.insert({ id: 'row-1', status: 'ready', score: 1 });
     });
 
     const snapshot = diagnostics().snapshot();

@@ -17,11 +17,11 @@ const createUsers = (id: string) =>
   });
 
 type Users = ReturnType<typeof createUsers>;
-type User = NonNullable<ReturnType<Users['get']>>;
+type User = NonNullable<ReturnType<Users['find']>>;
 type Projection = { avatarUrl: string; connectionStatus: string };
 
 const seedUsers = (users: Users) => {
-  users.insertStoredMany(
+  users.insertMany(
     Array.from({ length: 30 }, (_, index) => ({
       id: String(index),
       fullName: `User ${index}`,
@@ -40,10 +40,10 @@ const renderAvatarList = (users: Users, targetProjection = false) => {
 
   const AvatarLeaf = ({ id }: { id: string }) => {
     const value = targetProjection
-      ? users.use.row(id, {
+      ? users.use.find(id, {
           select: row => ({ avatarUrl: row.avatarUrl, connectionStatus: row.connectionStatus })
         })
-      : users.use.row(id, {
+      : users.use.find(id, {
           renderKeys: ['avatarUrl', 'connectionStatus']
         });
     renders.set(id, (renders.get(id) ?? 0) + 1);
@@ -69,7 +69,7 @@ describe('avatar leaf sufficiency', () => {
     const before = new Map(list.renders);
 
     act(() => {
-      users.patch('7', { avatarUrl: 'avatar-7-updated' });
+      users.update('7', { avatarUrl: 'avatar-7-updated' });
     });
 
     expect(Array.from({ length: 30 }, (_, index) => (list.renders.get(String(index)) ?? 0) - (before.get(String(index)) ?? 0))).toEqual(
@@ -88,7 +88,7 @@ describe('avatar leaf sufficiency', () => {
 
     expect(Object.keys(initial ?? {}).sort()).toEqual(['avatarUrl', 'connectionStatus']);
     act(() => {
-      users.patch('7', { fullName: 'Renamed User' });
+      users.update('7', { fullName: 'Renamed User' });
     });
     expect((list.renders.get('7') ?? 0) - (before ?? 0)).toBe(0);
     expect(list.values.get('7')).toBe(initial);
@@ -106,7 +106,7 @@ describe('avatar leaf sufficiency', () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     act(() => {
-      users.patch('7', { avatarUrl: 'after-unmount' });
+      users.update('7', { avatarUrl: 'after-unmount' });
     });
 
     expect(list.renders).toEqual(before);
@@ -123,7 +123,7 @@ describe('avatar leaf sufficiency', () => {
     const reader = renderCounted(() => users.use.first({ id: '7' }, { select: row => ({ avatarUrl: row.avatarUrl }) }));
     const initial = reader.result();
     const renders = reader.renders();
-    act(() => users.patch('7', { fullName: 'Ignored rename' }));
+    act(() => users.update('7', { fullName: 'Ignored rename' }));
     expect(reader.renders() - renders).toBe(0);
     expect(reader.result()).toBe(initial);
     reader.unmount();
@@ -137,7 +137,7 @@ describe('avatar leaf sufficiency', () => {
     const initial = reader.result();
     const item = initial[0];
     const renders = reader.renders();
-    act(() => users.patch('0', { fullName: 'Ignored builder rename' }));
+    act(() => users.update('0', { fullName: 'Ignored builder rename' }));
     expect(reader.renders() - renders).toBe(0);
     expect(reader.result()).toBe(initial);
     expect(reader.result()[0]).toBe(item);
@@ -148,7 +148,7 @@ describe('avatar leaf sufficiency', () => {
     setupSpecRuntime();
     const users = createUsers('SpecProjectionValidation');
     seedUsers(users);
-    const invalid = users.use.row as unknown as (id: string, options: { select: (row: User) => Projection; renderKeys: readonly string[] }) => Projection;
+    const invalid = users.use.find as unknown as (id: string, options: { select: (row: User) => Projection; renderKeys: readonly string[] }) => Projection;
     expect(() => renderCounted(() => invalid('0', { select: row => ({ avatarUrl: row.avatarUrl, connectionStatus: row.connectionStatus }), renderKeys: ['avatarUrl'] }))).toThrow(
       'cannot use select and renderKeys together'
     );
@@ -158,11 +158,11 @@ describe('avatar leaf sufficiency', () => {
     setupSpecRuntime();
     const users = createUsers('SpecProjectionReset');
     seedUsers(users);
-    const reader = renderCounted(() => users.use.row('7', { select: row => ({ avatarUrl: row.avatarUrl }) }));
+    const reader = renderCounted(() => users.use.find('7', { select: row => ({ avatarUrl: row.avatarUrl }) }));
     const initial = reader.result();
     act(() => {
       resetRuntime();
-      users.insertStored({
+      users.insert({
         id: '7',
         fullName: 'Fresh User',
         avatarUrl: 'fresh-avatar',

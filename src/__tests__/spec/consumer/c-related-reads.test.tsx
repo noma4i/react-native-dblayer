@@ -49,12 +49,12 @@ describe('use.related', () => {
   it('belongsTo resolves the parent row and tracks parent updates', () => {
     setupSpecRuntime();
     const { authors, posts } = createBelongsToPair('BelongsTo');
-    authors.insertStored({ id: 'u-1', name: 'Ann' });
-    posts.insertStored({ id: 'p-1', authorId: 'u-1', title: 'Hello', seq: 1 });
+    authors.insert({ id: 'u-1', name: 'Ann' });
+    posts.insert({ id: 'p-1', authorId: 'u-1', title: 'Hello', seq: 1 });
     const reader = renderCounted(() => posts.use.related('p-1', 'author') as AuthorRow | undefined);
     expect(reader.result()?.name).toBe('Ann');
     act(() => {
-      authors.patch('u-1', { name: 'Ann Updated' });
+      authors.update('u-1', { name: 'Ann Updated' });
     });
     expect(reader.result()?.name).toBe('Ann Updated');
     reader.unmount();
@@ -63,12 +63,12 @@ describe('use.related', () => {
   it('hasMany lists target rows reactively', () => {
     setupSpecRuntime();
     const { authors, posts } = createHasPair('HasMany');
-    authors.insertStored({ id: 'u-1', name: 'Ann' });
-    posts.insertStored({ id: 'p-1', authorId: 'u-1', title: 'First', seq: 1 });
+    authors.insert({ id: 'u-1', name: 'Ann' });
+    posts.insert({ id: 'p-1', authorId: 'u-1', title: 'First', seq: 1 });
     const reader = renderCounted(() => authors.use.related('u-1', 'posts') as PostRow[]);
     expect(reader.result().map(row => row.id)).toEqual(['p-1']);
     act(() => {
-      posts.insertStored({ id: 'p-2', authorId: 'u-1', title: 'Second', seq: 2 });
+      posts.insert({ id: 'p-2', authorId: 'u-1', title: 'Second', seq: 2 });
     });
     expect(reader.result().map(row => row.id).sort()).toEqual(['p-1', 'p-2']);
     reader.unmount();
@@ -77,8 +77,8 @@ describe('use.related', () => {
   it('hasOne picks the comparator-best target row', () => {
     setupSpecRuntime();
     const { authors, posts } = createHasPair('HasOne');
-    authors.insertStored({ id: 'u-1', name: 'Ann' });
-    posts.insertStoredMany([
+    authors.insert({ id: 'u-1', name: 'Ann' });
+    posts.insertMany([
       { id: 'p-1', authorId: 'u-1', title: 'Old', seq: 1 },
       { id: 'p-2', authorId: 'u-1', title: 'New', seq: 5 }
     ]);
@@ -91,7 +91,7 @@ describe('use.related', () => {
     setupSpecRuntime();
     const hasPair = createHasPair('Edges');
     const belongsPair = createBelongsToPair('Edges');
-    hasPair.authors.insertStored({ id: 'u-1', name: 'Ann' });
+    hasPair.authors.insert({ id: 'u-1', name: 'Ann' });
     const many = renderCounted(() => hasPair.authors.use.related(null, 'posts') as PostRow[]);
     const one = renderCounted(() => belongsPair.posts.use.related(undefined, 'author') as AuthorRow | undefined);
     expect(many.result()).toEqual([]);

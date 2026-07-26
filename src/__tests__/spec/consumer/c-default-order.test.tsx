@@ -13,8 +13,8 @@ const createOrdered = (suffix: string) =>
     defaultOrder: { field: 'score', direction: 'desc' }
   });
 
-const seedShuffled = (items: { insertStoredMany(rows: OrderedRow[]): void }): void => {
-  items.insertStoredMany([
+const seedShuffled = (items: { insertMany(rows: OrderedRow[]): void }): void => {
+  items.insertMany([
     { id: 'b', score: 5, name: 'mid' },
     { id: 'c', score: 9, name: 'top' },
     { id: 'a', score: 1, name: 'low' }
@@ -22,12 +22,12 @@ const seedShuffled = (items: { insertStoredMany(rows: OrderedRow[]): void }): vo
 };
 
 describe('defaultOrder', () => {
-  it('orders getWhere results when no explicit orderBy is passed, and yields to an explicit one', () => {
+  it('orders where results when no explicit orderBy is passed, and yields to an explicit one', () => {
     setupSpecRuntime();
-    const items = createOrdered('GetWhere');
+    const items = createOrdered('Where');
     seedShuffled(items);
-    expect(items.getWhere({}).map(row => row.id)).toEqual(['c', 'b', 'a']);
-    expect(items.getWhere({}, { orderBy: { field: 'score', direction: 'asc' } }).map(row => row.id)).toEqual(['a', 'b', 'c']);
+    expect(items.where({}).map(row => row.id)).toEqual(['c', 'b', 'a']);
+    expect(items.where({}, { orderBy: { field: 'score', direction: 'asc' } }).map(row => row.id)).toEqual(['a', 'b', 'c']);
   });
 
   it('drives use.first selection and yields to an explicit orderBy', () => {
@@ -57,11 +57,11 @@ describe('defaultOrder', () => {
   it('ties break by id under defaultOrder', () => {
     setupSpecRuntime();
     const items = createOrdered('Ties');
-    items.insertStoredMany([
+    items.insertMany([
       { id: 'z', score: 5, name: 'first-in' },
       { id: 'a', score: 5, name: 'second-in' }
     ]);
-    expect(items.getWhere({}).map(row => row.id)).toEqual(['a', 'z']);
+    expect(items.where({}).map(row => row.id)).toEqual(['a', 'z']);
   });
 
   it('keeps natural storage order for models without defaultOrder', () => {
@@ -72,6 +72,6 @@ describe('defaultOrder', () => {
       fields: { id: f.str(), score: f.num(), name: f.str() }
     });
     seedShuffled(plain);
-    expect(plain.getWhere({}).map(row => row.id)).toEqual(['b', 'c', 'a']);
+    expect(plain.where({}).map(row => row.id)).toEqual(['b', 'c', 'a']);
   });
 });

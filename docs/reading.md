@@ -29,13 +29,13 @@ Reactive reads (`use.*`) subscribe to exactly the dependency they read.
 | Read          | Signature                                                                                                 | Notes                                                                                                                                                                                                      |
 | ------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get`         | `(id) => TStored \| undefined`                                                                            | Snapshot read of one row.                                                                                                                                                                                  |
-| `getWhere`    | `(where, opts?) => TStored[]`                                                                             | Snapshot read filtered by a `DbWhere` predicate, with optional `orderBy`/`limit`.                                                                                                                          |
-| `getAll`      | `() => TStored[]`                                                                                         | Full snapshot. Library/maintenance channel - application code stays on scoped reads.                                                                                                                       |
+| `where`    | `(where, opts?) => TStored[]`                                                                             | Snapshot read filtered by a `DbWhere` predicate, with optional `orderBy`/`limit`.                                                                                                                          |
+| `all`      | `() => TStored[]`                                                                                         | Full snapshot. Library/maintenance channel - application code stays on scoped reads.                                                                                                                       |
 | `use.pending` | `(id) => boolean`                                                                                         | True only while that exact row id belongs to an open optimistic operation; nullish ids return false without subscribing. See [below](#modelusependingid).                                                  |
-| `use.row`     | `(id, opts?) => TStored \| TProjection \| undefined`                                                      | Reactive read of one row; `opts.select`/`opts.renderKeys` project (see [below](#projections-select-and-renderkeys)), `opts.require` gates on field completeness (see [Required fields](#required-fields)). |
+| `use.find`     | `(id, opts?) => TStored \| TProjection \| undefined`                                                      | Reactive read of one row; `opts.select`/`opts.renderKeys` project (see [below](#projections-select-and-renderkeys)), `opts.require` gates on field completeness (see [Required fields](#required-fields)). |
 | `use.field`   | `(id, field) => TStored[K] \| undefined`                                                                  | Reactive read of one field - nothing else re-renders it.                                                                                                                                                   |
-| `use.first`   | `(where?, opts?) => TStored \| TProjection \| undefined`                                                  | Reactive read of the first row matching `where`; same `select`/`renderKeys`/`require` options as `use.row`.                                                                                                |
-| `use.where`   | `(where) => ModelReadBuilder<TStored>`                                                                    | Chainable reactive read builder (`.rows()`); for a synchronous snapshot use `getWhere`. See below.                                                                                                         |
+| `use.first`   | `(where?, opts?) => TStored \| TProjection \| undefined`                                                  | Reactive read of the first row matching `where`; same `select`/`renderKeys`/`require` options as `use.find`.                                                                                                |
+| `use.where`   | `(where) => ModelReadBuilder<TStored>`                                                                    | Chainable reactive read builder (`.rows()`); for a synchronous snapshot use `where`. See below.                                                                                                         |
 | `use.byIds`   | `(ids, opts?) => { rows: TStored[] \| TProjection[]; byId: ReadonlyMap<string, TStored \| TProjection> }` | Reactive read of several rows by id: `rows` preserves input order, `byId` is an id-keyed lookup map. Nullish `ids` return an unsubscribed empty result (`{ rows: [], byId: <empty map> }`).                |
 | `use.count`   | `(where?) => number`                                                                                      | Reactive count of matching rows.                                                                                                                                                                           |
 | `use.related` | `(id, relationName, opts?) => unknown`                                                                    | Reactive read through a declared relation (see [models.md](./models.md#relations)); same `select`/`renderKeys` projection options.                                                                         |
@@ -68,7 +68,7 @@ other record compares by strict equality.
 
 ## Ensured point reads
 
-`query.useRowEnsured(scope, rowId, readOpts?)` composes a destination model's reactive `use.row` with the query that materializes a missing detail row. The read and request share the query's normal scope key, freshness, cache lifetime, and invalidation behavior.
+`query.useRowEnsured(scope, rowId, readOpts?)` composes a destination model's reactive `use.find` with the query that materializes a missing detail row. The read and request share the query's normal scope key, freshness, cache lifetime, and invalidation behavior.
 
 ```ts
 const chatDetail = ChatModel.query('detail', {
@@ -94,7 +94,7 @@ function ChatDetailsScreen({ chatId }: { chatId: string | null }) {
 
 The query runs only when its own `enabled(scope)` predicate permits it, `rowId` is non-nullish, and the destination row is currently absent. A present row keeps the request idle while its `loadingState` remains data-ready. A nullish `rowId` reads nothing, starts no request, and returns an inactive state. `row: undefined` alone means only that the row is not currently available: treat a terminal not-found result exclusively as `loadingState.showEmptyState`.
 
-`readOpts` follows `Model.use.row` options. In particular, `renderKeys` limits re-renders to the listed stored fields while preserving the full row return value. This method exists only on queries whose `into` destination is a model; scope-destination queries have no point-read materialization surface.
+`readOpts` follows `Model.use.find` options. In particular, `renderKeys` limits re-renders to the listed stored fields while preserving the full row return value. This method exists only on queries whose `into` destination is a model; scope-destination queries have no point-read materialization surface.
 
 ## `use.where` chainable builder
 
@@ -134,14 +134,14 @@ pre-applied builder state. `defineModel` throws when a queryScope name collides 
 
 ## Required fields
 
-`use.row`, `use.first`, and the `use.where` builder's `.require(...)` stage all accept a set of
+`use.find`, `use.first`, and the `use.where` builder's `.require(...)` stage all accept a set of
 stored field names that must be **present** before a row is returned; an incomplete row reads as
 absent instead of returning a partial value. Presence follows the same rule as everywhere else in
 the DSL: `undefined` (the field was never written) is missing, `null` (an explicit stored null) is
 present.
 
 ```ts
-const contact = ContactModel.use.row(contactId, { require: ['bio', 'avatarUrl'] });
+const contact = ContactModel.use.find(contactId, { require: ['bio', 'avatarUrl'] });
 // contact: (TStored & { bio: string; avatarUrl: string | null }) | undefined
 
 const recent = MessageModel.use.where({ chatId }).require('senderName').orderBy('createdAt', 'desc').rows();
@@ -150,7 +150,7 @@ const recent = MessageModel.use.where({ chatId }).require('senderName').orderBy(
 
 | Surface                               | Signature                                                                     | Behavior                                                                                                                           |
 | ------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `use.row(id, { require })`            | `(id, { require: K[] }) => RequiredFields<TStored, K> \| undefined`           | `undefined` when the row is missing or any required field on it is missing.                                                        |
+| `use.find(id, { require })`            | `(id, { require: K[] }) => RequiredFields<TStored, K> \| undefined`           | `undefined` when the row is missing or any required field on it is missing.                                                        |
 | `use.first(where, { require, ... })`  | `(where, opts & { require: K[] }) => RequiredFields<TStored, K> \| undefined` | Same completeness gate applied to the first matching row - an incomplete leading row is skipped in favor of the next complete one. |
 | `use.where(where).require(...fields)` | `(...K[]) => ModelReadBuilder<RequiredFields<TStored, K>>`                    | Filters the whole builder result to complete rows; combine with `.orderBy`/`.limit`/`.rows()` as usual.                            |
 
@@ -159,7 +159,7 @@ Each surface narrows the returned row type: every required key becomes non-optio
 `contact.bio` above needs no undefined-check (it can still be a real stored `null` if the field is
 nullable).
 
-Reactivity differs by surface. `use.row`'s dependency is the exact row plus its required (and
+Reactivity differs by surface. `use.find`'s dependency is the exact row plus its required (and
 selected/`renderKeys`) fields, so completing the last required field on that row produces exactly
 one re-render, and writes to any other row or field never touch it. `use.first` and
 `use.where(...).require(...)` run through the same model-scoped incremental read engine as every
@@ -182,7 +182,7 @@ detail fetch:
 function ProfileScreen({ contactId }: { contactId: string }) {
   // Sparse rows from the feed extract have bio/avatarUrl as undefined until ContactModel.query
   // ('detail', ...) or an extract sink fills them in - the screen renders a skeleton until then.
-  const contact = ContactModel.use.row(contactId, { require: ['bio', 'avatarUrl'] });
+  const contact = ContactModel.use.find(contactId, { require: ['bio', 'avatarUrl'] });
   if (!contact) return <ProfileSkeleton />;
   return <Profile bio={contact.bio} avatarUrl={contact.avatarUrl} />;
 }
@@ -190,7 +190,7 @@ function ProfileScreen({ contactId }: { contactId: string }) {
 
 ## Projections: `select` and `renderKeys`
 
-`use.row`, `use.first`, `use.byIds`, and `use.related` each accept a mutually-exclusive pair of
+`use.find`, `use.first`, `use.byIds`, and `use.related` each accept a mutually-exclusive pair of
 projection options - passing both on the same call throws `` `${surface} cannot use select and
 renderKeys together` ``:
 

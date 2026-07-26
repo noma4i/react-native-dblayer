@@ -128,8 +128,8 @@ describe('optimistic write causality', () => {
 
   it('commits its own authoritative extract after releasing the optimistic patch overlay', async () => {
     const { chats, pinChat, mutations } = createFixture('OwnExtract');
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let pin!: Promise<PinResponse | null>;
 
     act(() => {
@@ -148,8 +148,8 @@ describe('optimistic write causality', () => {
 
   it('W17 preserves a later pending mute when an earlier pin rolls back', async () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W17');
-    chats.insertStored(initialRow);
-    const frames = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const frames = recordTimeline(() => chats.use.find('chat-1'));
     let pin!: Promise<PinResponse | null>;
     let mute!: Promise<MuteResponse | null>;
 
@@ -181,8 +181,8 @@ describe('optimistic write causality', () => {
       dedupe: false,
       optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
     });
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let first!: Promise<PinResponse | null>;
     let second!: Promise<PinResponse | null>;
 
@@ -207,8 +207,8 @@ describe('optimistic write causality', () => {
 
   it('preserves a later pending patch that writes the same field value when the earlier patch rolls back', async () => {
     const { chats, pinChat, mutations } = createFixture('SameValueRollback');
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let first!: Promise<PinResponse | null>;
     let second!: Promise<PinResponse | null>;
 
@@ -239,8 +239,8 @@ describe('optimistic write causality', () => {
       dedupe: false,
       optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
     });
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let first!: Promise<PinResponse | null>;
     let second!: Promise<PinResponse | null>;
 
@@ -269,8 +269,8 @@ describe('optimistic write causality', () => {
       dedupe: false,
       optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
     });
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let first!: Promise<PinResponse | null>;
     let second!: Promise<PinResponse | null>;
 
@@ -299,8 +299,8 @@ describe('optimistic write causality', () => {
       dedupe: false,
       optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
     });
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let first!: Promise<PinResponse | null>;
     let second!: Promise<PinResponse | null>;
     let third!: Promise<PinResponse | null>;
@@ -326,8 +326,8 @@ describe('optimistic write causality', () => {
 
   it('W18 mergePolicy preserves a later successful mute when commits resolve out of order', async () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W18Guarded', true);
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let pin!: Promise<PinResponse | null>;
     let mute!: Promise<MuteResponse | null>;
 
@@ -350,8 +350,8 @@ describe('optimistic write causality', () => {
 
   it('W18 control allows a late stale commit to win without a mergePolicy guard', async () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W18Control');
-    chats.insertStored(initialRow);
-    const reader = recordTimeline(() => chats.use.row('chat-1'));
+    chats.insert(initialRow);
+    const reader = recordTimeline(() => chats.use.find('chat-1'));
     let pin!: Promise<PinResponse | null>;
     let mute!: Promise<MuteResponse | null>;
 

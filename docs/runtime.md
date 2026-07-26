@@ -63,7 +63,7 @@ runtime, not a callable API.
 
 `collectGarbage(): GcReport` runs a reachability sweep over every registered model. Roots: scope
 members, `gc: 'exempt'` model rows (see [models.md](./models.md#definemodelconfig)), pending
-optimistic operations, and every mounted reader (`use.row` roots that row, a model-wide reader
+optimistic operations, and every mounted reader (`use.find` roots that row, a model-wide reader
 roots the whole model, a scope reader roots its members). Edges: `belongsTo`/`references` of live
 rows. Unreached rows are evicted (no tombstones - a later write resurrects them cleanly, see
 [models.md](./models.md#writes)), dead scope entries detached, empty scope keys removed, opt-in
@@ -145,7 +145,7 @@ terminal state is reached.
 const messagePoller = MessageModel.poller('delivery-status', {
   document: MessageStatusDocument,
   vars: id => ({ messageId: id }),
-  apply: (id, data) => MessageModel.patch(id, { deliveryStatus: data.messageStatus.status }),
+  apply: (id, data) => MessageModel.update(id, { deliveryStatus: data.messageStatus.status }),
   classify: data => {
     if (data.messageStatus.status === 'delivered') return 'ready';
     if (data.messageStatus.status === 'failed') return 'failed';
@@ -208,13 +208,13 @@ import { reconcileOptimisticRows } from '@noma4i/react-native-dblayer';
 
 | Option               | Type                                               | Description                                                             |
 | ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `resolveCandidates`   | `(node) => rows` or `{ fields }` / `{ fieldMap }`       | Candidate source. The shorthand uses `model.getWhere(...)`.               |
+| `resolveCandidates`   | `(node) => rows` or `{ fields }` / `{ fieldMap }`       | Candidate source. The shorthand uses `model.where(...)`.               |
 | `isCandidate`         | `(candidate, node) => boolean`                          | Extra predicate. Temp ids from `isTempId(candidate.id)` always qualify.   |
 | `match`               | `(candidate, node) => boolean`                          | Domain content match.                                                     |
 | `createdAtWindowMs`   | `number`                                                | Optional maximum absolute `createdAt` delta.                              |
 | `commit`              | `(tempId, node) => void`                                | Called for matched nodes.                                                 |
 
-For each node, if `model.get(node.id)` already exists, the node is skipped. Otherwise the helper
+For each node, if `model.find(node.id)` already exists, the node is skipped. Otherwise the helper
 finds matching candidates, chooses the one with the smallest absolute `createdAt` delta, calls
 `commit(candidate.id, node)`, and omits it from the return value. The return value is the unmatched
 server nodes.
@@ -222,18 +222,18 @@ server nodes.
 ## Row waiters
 
 ```ts
-import { patchWhenRowExists, waitForRow } from '@noma4i/react-native-dblayer';
+import { updateWhenRowExists, waitForRow } from '@noma4i/react-native-dblayer';
 ```
 
-### `patchWhenRowExists(model, id, patch, { ttlMs })`
+### `updateWhenRowExists(model, id, patch, { ttlMs })`
 
-Applies a partial patch immediately if `model.get(id)` exists. Otherwise it queues the patch on the
+Applies a partial patch immediately if `model.find(id)` exists. Otherwise it queues the patch on the
 commit bus and applies it, in registration order, the moment a write makes the row exist. `patch`
 may be a partial object or `(row) => partial`. TTL expiry drops the queued patch without applying it.
 
 ### `waitForRow(model, id, { timeoutMs, signal? })`
 
-Resolves immediately with `model.get(id)` when present. Otherwise it subscribes to the commit bus and resolves
+Resolves immediately with `model.find(id)` when present. Otherwise it subscribes to the commit bus and resolves
 with the row when it appears, or `undefined` on timeout/abort. Every exit path removes the timer and subscription.
 
 ## `mergeOptimisticMedia(optimistic, server)`
@@ -308,7 +308,7 @@ Builds statics for one-row models:
 | `current()`                              | Snapshot read by `recordId`.                                                                                        |
 | `useCurrent()`                           | Reactive read by `recordId`, falling back to `defaults`.                                                            |
 | `upsertCurrent(input)`                   | Patches existing row or inserts `{ ...defaults, ...input, id: recordId }`; ignores `input.id`.                      |
-| `patchClamped(field, delta, min = 0)`    | Adds `delta` to a numeric field and clamps at `min`. Returns `false` when the row is missing or `delta` is zero.   |
+| `updateClamped(field, delta, min = 0)`    | Adds `delta` to a numeric field and clamps at `min`. Returns `false` when the row is missing or `delta` is zero.   |
 
 ## Scalar and id utility helpers
 

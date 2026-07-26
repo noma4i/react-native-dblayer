@@ -14,12 +14,12 @@ const createMoments = (id: string) =>
   });
 
 type Moments = ReturnType<typeof createMoments>;
-type Moment = NonNullable<ReturnType<Moments['get']>>;
+type Moment = NonNullable<ReturnType<Moments['find']>>;
 type WindowResult<T> = { rows: T[]; totalCount: number; hasMore: boolean; isPreviousData: boolean; fetchNextPage: () => void };
 type KeepWindow<T> = (value: { vibeId: string }, options?: { pageSize?: number; keepPrevious?: boolean }) => WindowResult<T>;
 type KeepRows<T> = (value: { vibeId: string }, options?: { keepPrevious?: boolean }) => T[];
 
-const insertMoment = (moments: Moments, id: string, vibeId: string, label = id) => moments.insertStored({ id, vibeId, label });
+const insertMoment = (moments: Moments, id: string, vibeId: string, label = id) => moments.insert({ id, vibeId, label });
 
 const renderWindow = <T,>(useWindow: KeepWindow<T>, initialVibeId: string, keepPrevious = true) => {
   let current!: WindowResult<T>;
@@ -116,7 +116,7 @@ describe('keep previous scope handoff', () => {
     expect(idsOf(reader.result().rows)).toEqual(['b-1']);
     expect(reader.result().isPreviousData).toBe(false);
     const beforePatch = reader.renders();
-    act(() => moments.patch('a-1', { label: 'A after' }));
+    act(() => moments.update('a-1', { label: 'A after' }));
     expect(reader.renders() - beforePatch).toBe(0);
     expect(idsOf(reader.result().rows)).toEqual(['b-1']);
     reader.update('A');

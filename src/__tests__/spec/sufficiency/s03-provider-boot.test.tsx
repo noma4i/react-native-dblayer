@@ -51,12 +51,12 @@ describe('provider-owned query runtime', () => {
     setupSpecRuntime();
     const users = dbl.defineModel({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() }, gc: 'exempt' });
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
-    users.insertStored({ id: 'user', name: 'Ready' });
+    users.insert({ id: 'user', name: 'Ready' });
     let renders = 0;
     let value: string | undefined;
     const Child = () => {
       renders += 1;
-      value = users.use.row('user')?.name;
+      value = users.use.find('user')?.name;
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -113,7 +113,7 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
     });
     await settle(2);
-    act(() => users.insertStored({ id: 'user', name: 'Pending' }));
+    act(() => users.insert({ id: 'user', name: 'Pending' }));
     expect(storage.snapshotKeys().some(key => key.startsWith('dbl:row:SpecProviderBackground:'))).toBe(false);
 
     act(() => appStateHandler?.('background'));
@@ -147,7 +147,7 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
     await settle(2);
-    expect(users.get('old')?.name).toBe('Old');
+    expect(users.find('old')?.name).toBe('Old');
     act(() => root.unmount());
     act(() => dbl.resetRuntime());
 
@@ -155,8 +155,8 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
     await settle(2);
-    expect(users.get('old')).toBeUndefined();
-    expect(users.get('fresh')?.name).toBe('Fresh');
+    expect(users.find('old')).toBeUndefined();
+    expect(users.find('fresh')?.name).toBe('Fresh');
     act(() => root.unmount());
   });
 

@@ -28,7 +28,6 @@ const runtimeExportAllowlist = [
   'isTempId',
   'mergeOptimisticMedia',
   'mergeOptimisticSnapshot',
-  'patchWhenRowExists',
   'pickDefined',
   'pickPresent',
   'projectShape',
@@ -40,6 +39,7 @@ const runtimeExportAllowlist = [
   'resetRuntime',
   'scope',
   'stringifyNullish',
+  'updateWhenRowExists',
   'useMergedScopeRows',
   'waitForRow'
 ];

@@ -18,8 +18,8 @@ describe('scope require gate', () => {
   it('(a) filters a row missing a required field; without require it is returned as-is (contrast baseline)', () => {
     setupSpecRuntime();
     const items = createItemsModel('Filter');
-    items.insertStored({ id: 'item-1', groupId: 'g1' });
-    items.insertStored({ id: 'item-2', groupId: 'g1', media: 'video' });
+    items.insert({ id: 'item-1', groupId: 'g1' });
+    items.insert({ id: 'item-2', groupId: 'g1', media: 'video' });
 
     // Contrast: current (pre-gate) behavior - a partial row renders as-is without `require`.
     const withoutRequire = renderCounted(() => items.scopes.group.use({ groupId: 'g1' }));
@@ -35,13 +35,13 @@ describe('scope require gate', () => {
   it('(b) a healed row appears in the require-gated read with exactly one re-render on arrival', () => {
     setupSpecRuntime();
     const items = createItemsModel('Heal');
-    items.insertStored({ id: 'item-1', groupId: 'g1' });
+    items.insert({ id: 'item-1', groupId: 'g1' });
     const reader = renderCounted(() => items.scopes.group.use({ groupId: 'g1' }, { require: ['media'] }));
     expect(reader.result()).toEqual([]);
     const rendersBefore = reader.renders();
 
     act(() => {
-      items.patch('item-1', { media: 'video' });
+      items.update('item-1', { media: 'video' });
     });
 
     expect(reader.renders() - rendersBefore).toBe(1);
@@ -52,16 +52,16 @@ describe('scope require gate', () => {
   it('(c) an unrelated commit does not re-create the require-gated result when membership stays complete', () => {
     setupSpecRuntime();
     const items = createItemsModel('Identity');
-    items.insertStored({ id: 'item-1', groupId: 'g1', media: 'video' });
-    items.insertStored({ id: 'item-2', groupId: 'g1', media: 'photo' });
-    items.insertStored({ id: 'other-1', groupId: 'g2', media: 'video' });
+    items.insert({ id: 'item-1', groupId: 'g1', media: 'video' });
+    items.insert({ id: 'item-2', groupId: 'g1', media: 'photo' });
+    items.insert({ id: 'other-1', groupId: 'g2', media: 'video' });
 
     const reader = renderCounted(() => items.scopes.group.use({ groupId: 'g1' }, { require: ['media'] }));
     const firstResult = reader.result();
     const rendersBefore = reader.renders();
 
     act(() => {
-      items.patch('other-1', { media: 'updated' });
+      items.update('other-1', { media: 'updated' });
     });
 
     expect(reader.renders()).toBe(rendersBefore);
@@ -72,7 +72,7 @@ describe('scope require gate', () => {
   it('(d) useWindow excludes a partial row from rows/totalCount; hasMore stays correct', () => {
     setupSpecRuntime();
     const items = createItemsModel('Window');
-    items.insertStoredMany(Array.from({ length: 25 }, (_, index) => ({ id: `item-${index}`, groupId: 'g1', media: index === 10 ? undefined : `media-${index}` })));
+    items.insertMany(Array.from({ length: 25 }, (_, index) => ({ id: `item-${index}`, groupId: 'g1', media: index === 10 ? undefined : `media-${index}` })));
 
     const reader = renderCounted(() => items.scopes.group.useWindow({ groupId: 'g1' }, { pageSize: 20, require: ['media'] }));
     const window = reader.result();
@@ -87,15 +87,15 @@ describe('scope require gate', () => {
   it('(e) 50 commits to unrelated rows produce 0 extra renders on the require-gated reader', () => {
     setupSpecRuntime();
     const items = createItemsModel('Budget');
-    items.insertStored({ id: 'item-1', groupId: 'g1', media: 'video' });
-    items.insertStoredMany(Array.from({ length: 50 }, (_, index) => ({ id: `other-${index}`, groupId: 'g2', media: 'video' })));
+    items.insert({ id: 'item-1', groupId: 'g1', media: 'video' });
+    items.insertMany(Array.from({ length: 50 }, (_, index) => ({ id: `other-${index}`, groupId: 'g2', media: 'video' })));
 
     const reader = renderCounted(() => items.scopes.group.use({ groupId: 'g1' }, { require: ['media'] }));
     const rendersBefore = reader.renders();
 
     for (let index = 0; index < 50; index += 1) {
       act(() => {
-        items.patch(`other-${index}`, { media: `updated-${index}` });
+        items.update(`other-${index}`, { media: `updated-${index}` });
       });
     }
 

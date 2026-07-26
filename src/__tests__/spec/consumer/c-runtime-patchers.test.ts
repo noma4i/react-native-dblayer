@@ -68,10 +68,10 @@ describe('createNestedObjectPatcher', () => {
   it('shallow-patches the nested object through the model and reports success', () => {
     setupSpecRuntime();
     const rows = createMediaRows('Apply');
-    rows.insertStored({ id: 'r-1', media: { status: 'uploading', progress: 10 } });
+    rows.insert({ id: 'r-1', media: { status: 'uploading', progress: 10 } });
     const patchProgress = createNestedObjectPatcher(rows, 'media', (current: NonNullable<MediaState>, progress: number) => ({ progress }));
     expect(patchProgress('r-1', 55)).toBe(true);
-    expect(rows.get('r-1')?.media).toEqual({ status: 'uploading', progress: 55 });
+    expect(rows.find('r-1')?.media).toEqual({ status: 'uploading', progress: 55 });
   });
 
   it('returns false when the row or the nested object is missing', () => {
@@ -79,8 +79,8 @@ describe('createNestedObjectPatcher', () => {
     const rows = createMediaRows('Missing');
     const patchProgress = createNestedObjectPatcher(rows, 'media', (current: NonNullable<MediaState>, progress: number) => ({ progress }));
     expect(patchProgress('absent', 1)).toBe(false);
-    rows.insertStored({ id: 'r-2', media: null });
+    rows.insert({ id: 'r-2', media: null });
     expect(patchProgress('r-2', 1)).toBe(false);
-    expect(rows.get('r-2')?.media ?? null).toBeNull();
+    expect(rows.find('r-2')?.media ?? null).toBeNull();
   });
 });

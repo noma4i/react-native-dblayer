@@ -43,7 +43,7 @@ describe('optimistic failure contract', () => {
     const failed = renderCounted(() => messages.use.failed(id));
     const pending = renderCounted(() => messages.use.pending(id));
 
-    expect(messages.get(id)).toMatchObject({ text: 'hello', status: 'Failed' });
+    expect(messages.find(id)).toMatchObject({ text: 'hello', status: 'Failed' });
     expect(failed.result()).toBe(true);
     expect(pending.result()).toBe(false);
     failed.unmount();
@@ -68,15 +68,15 @@ describe('optimistic failure contract', () => {
     const id = tempId()!;
     const retry = send.retry(id);
 
-    expect(messages.get(id)).toMatchObject({ status: 'Sending' });
+    expect(messages.find(id)).toMatchObject({ status: 'Sending' });
     await act(async () => {
       resolve({ data: { send: { message: { id: 'server-1', text: 'hello', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } });
       await Promise.resolve();
     });
     await expect(retry).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
 
-    expect(messages.get(id)).toBeUndefined();
-    expect(messages.get('server-1')).toMatchObject({ status: 'Sent' });
+    expect(messages.find(id)).toBeUndefined();
+    expect(messages.find('server-1')).toMatchObject({ status: 'Sent' });
     const failed = renderCounted(() => messages.use.failed('server-1'));
     expect(failed.result()).toBe(false);
     failed.unmount();
@@ -90,7 +90,7 @@ describe('optimistic failure contract', () => {
     const id = tempId()!;
     send.discard(id);
 
-    expect(messages.get(id)).toBeUndefined();
+    expect(messages.find(id)).toBeUndefined();
     const failed = renderCounted(() => messages.use.failed(id));
     expect(failed.result()).toBe(false);
     failed.unmount();
@@ -122,7 +122,7 @@ describe('optimistic failure contract', () => {
 
     await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
 
-    expect(messages.get(id)).toBeUndefined();
+    expect(messages.find(id)).toBeUndefined();
     const failed = renderCounted(() => messages.use.failed(id));
     expect(failed.result()).toBe(false);
     failed.unmount();
@@ -131,11 +131,11 @@ describe('optimistic failure contract', () => {
   it('reuse-path failure marks the existing temp row failed', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     const { messages, send } = createMessages('FailureReuse', transport);
-    messages.insertStored({ id: 'temp-upload', text: 'upload', status: 'Sending', createdAt: '2026-07-20T00:00:00Z' });
+    messages.insert({ id: 'temp-upload', text: 'upload', status: 'Sending', createdAt: '2026-07-20T00:00:00Z' });
 
     await expect(send.run({ text: 'upload', existingTempId: 'temp-upload' })).rejects.toThrow('offline');
 
-    expect(messages.get('temp-upload')).toMatchObject({ status: 'Failed' });
+    expect(messages.find('temp-upload')).toMatchObject({ status: 'Failed' });
     const failed = renderCounted(() => messages.use.failed('temp-upload'));
     expect(failed.result()).toBe(true);
     failed.unmount();
@@ -149,13 +149,13 @@ describe('optimistic failure contract', () => {
     const id = tempId()!;
     const server = { id: 'server-1', text: 'hello', status: 'Sent' as const, createdAt: '2026-07-20T00:00:01Z' };
     reconcileOptimisticRows(messages, [server], {
-      resolveCandidates: () => [messages.get(id)!],
+      resolveCandidates: () => [messages.find(id)!],
       match: () => true,
-      commit: (tempId, node) => messages.replaceRaw(tempId, node)
+      commit: (tempId, node) => messages.replace(tempId, node)
     });
 
-    expect(messages.get(id)).toBeUndefined();
-    expect(messages.get('server-1')).toMatchObject({ status: 'Sent' });
+    expect(messages.find(id)).toBeUndefined();
+    expect(messages.find('server-1')).toMatchObject({ status: 'Sent' });
     const failed = renderCounted(() => messages.use.failed('server-1'));
     expect(failed.result()).toBe(false);
     failed.unmount();
@@ -181,7 +181,7 @@ describe('optimistic failure contract', () => {
     const restarted = createMessages('FailureRestart', restartedTransport, false);
     await bootDb();
 
-    expect(restarted.messages.get(id)).toMatchObject({ status: 'Failed' });
+    expect(restarted.messages.find(id)).toMatchObject({ status: 'Failed' });
     const failed = renderCounted(() => restarted.messages.use.failed(id));
     expect(failed.result()).toBe(true);
     await expect(restarted.send.retry(id)).resolves.toBeNull();

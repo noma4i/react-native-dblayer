@@ -17,7 +17,7 @@ const createChats = (suffix: string) =>
   });
 
 const seedChats = (chats: ReturnType<typeof createChats>) =>
-  chats.insertStoredMany(
+  chats.insertMany(
     Array.from({ length: 30 }, (_, index) => ({
       id: `chat-${index}`,
       inboxId: 'main',
@@ -43,7 +43,7 @@ describe('chat list scope sufficiency', () => {
       root = TestRenderer.create(React.createElement(List));
     });
     const before = new Map(renders);
-    act(() => chats.patch('chat-7', { title: 'Updated title' }));
+    act(() => chats.update('chat-7', { title: 'Updated title' }));
     expect([...renders].map(([id, count]) => count - (before.get(id) ?? 0))).toEqual([...renders.keys()].map(id => (id === 'chat-7' ? 1 : 0)));
     act(() => root.unmount());
   });
@@ -53,11 +53,11 @@ describe('chat list scope sufficiency', () => {
     const chats = createChats('Unrelated');
     const unrelated = defineModel({ id: 'SpecUnrelatedChatScope', name: 'SpecUnrelatedChatScope', fields: { value: f.str() } });
     seedChats(chats);
-    unrelated.insertStored({ id: 'one', value: 'before' });
+    unrelated.insert({ id: 'one', value: 'before' });
     const reader = renderCounted(() => chats.scopes.list.use({ inboxId: 'main' }));
     const initial = reader.result();
     const renders = reader.renders();
-    act(() => unrelated.patch('one', { value: 'after' }));
+    act(() => unrelated.update('one', { value: 'after' }));
     expect(reader.result()).toBe(initial);
     expect(reader.renders() - renders).toBe(0);
     reader.unmount();
@@ -68,10 +68,10 @@ describe('chat list scope sufficiency', () => {
     const chats = createChats('Identity');
     const unrelated = defineModel({ id: 'SpecUnrelatedChatScopeIdentity', name: 'SpecUnrelatedChatScopeIdentity', fields: { value: f.str() } });
     seedChats(chats);
-    unrelated.insertStored({ id: 'one', value: 'before' });
+    unrelated.insert({ id: 'one', value: 'before' });
     const reader = renderCounted(() => chats.scopes.list.use({ inboxId: 'main' }));
     const initial = reader.result();
-    act(() => unrelated.patch('one', { value: 'after' }));
+    act(() => unrelated.update('one', { value: 'after' }));
     expect(reader.result()).toBe(initial);
     reader.unmount();
   });
@@ -87,7 +87,7 @@ describe('chat list scope sufficiency', () => {
     const reader = renderCounted(() => useScope({ inboxId: 'main' }, { renderKeys: ['id', 'title'] }));
     const initial = reader.result();
     const renders = reader.renders();
-    act(() => chats.patch('chat-7', { muted: true }));
+    act(() => chats.update('chat-7', { muted: true }));
     expect(reader.renders() - renders).toBe(0);
     expect(reader.result()).toBe(initial);
     reader.unmount();
@@ -100,7 +100,7 @@ describe('chat list scope sufficiency', () => {
     const reader = renderCounted(() => chats.scopes.list.useWindow({ inboxId: 'main' }, { pageSize: 5, select: row => ({ id: row.id, title: row.title }) }));
     const initial = reader.result().rows;
     const renders = reader.renders();
-    act(() => chats.patch('chat-2', { muted: true }));
+    act(() => chats.update('chat-2', { muted: true }));
     expect(reader.renders() - renders).toBe(0);
     expect(reader.result().rows).toBe(initial);
     reader.unmount();

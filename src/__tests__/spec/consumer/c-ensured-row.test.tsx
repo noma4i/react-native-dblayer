@@ -267,7 +267,7 @@ describe('useRowEnsured', () => {
     await settle(1, { macro: true });
     const renders = reader.renders();
 
-    act(() => rows.patch('row-1', { status: 'changed' }));
+    act(() => rows.update('row-1', { status: 'changed' }));
     await settle();
     await settle(1, { macro: true });
 

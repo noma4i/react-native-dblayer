@@ -55,8 +55,8 @@ describe('pending operation index scale', () => {
   it('pendingForRow is true only for the operation rows, and flips false after commit/discard', () => {
     setupSpecRuntime();
     const model = defineModel({ id: 'SpecPendingIndexRow', name: 'SpecPendingIndexRow', fields: { text: f.str() } });
-    model.insertStored({ id: 'row-a', text: 'a' });
-    model.insertStored({ id: 'row-b', text: 'b' });
+    model.insert({ id: 'row-a', text: 'a' });
+    model.insert({ id: 'row-b', text: 'b' });
     const operations = getOperationState();
 
     operations.begin({ operationId: 'op-commit', model: 'SpecPendingIndexRow', tempIds: [], rowIds: ['row-a'], intent: 'patch', patchedFields: ['text'], patchedValues: { text: 'during' }, createdAt: 1 });

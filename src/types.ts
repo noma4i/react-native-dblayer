@@ -10,7 +10,7 @@ export type StorageAdapter = {
   /** Remove a persisted value synchronously. */
   removeItem(key: string): void;
   /** Enumerate stored keys under a prefix (hydration, GC and stale-key cleanup). */
-  getAllKeys(): string[];
+  allKeys(): string[];
   /** Clear every key owned by the adapter. */
   clear(): void;
 };

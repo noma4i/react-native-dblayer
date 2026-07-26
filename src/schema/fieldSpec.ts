@@ -15,24 +15,24 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
   readValue: FieldValueReader<TOut>;
   /** Reader derives the value from a whole input object; readValue is not idempotent on stored values, so key coercion must not re-apply it. */
   derived?: boolean;
-  /** Current presence mode used by normalize and buildStored. */
+  /** Current presence mode used by normalize and build. */
   mode: TMode;
   /** Whether this field supplies a build-time default. */
   readonly hasDefault: boolean;
-  /** Factory-time default used by buildStored when the caller omits this key. */
+  /** Factory-time default used by build when the caller omits this key. */
   factoryDefault?: FieldDefault<TOut>;
   /**
    * Preserve explicit `null` during normalize while still skipping `undefined`.
    *
-   * buildStored fills omitted nullable fields with `null` unless `.default(...)` is present.
+   * build fills omitted nullable fields with `null` unless `.default(...)` is present.
    *
    * @returns A field spec whose stored type includes `null`.
    */
   nullable: () => FieldSpec<TInput, TOut, NullableMode<TMode>, THasDefault>;
   /**
-   * Allow normalize and buildStored to omit this key.
+   * Allow normalize and build to omit this key.
    *
-   * Optional fields are not required by buildStored and receive no implicit value.
+   * Optional fields are not required by build and receive no implicit value.
    *
    * @returns A field spec whose stored key is optional.
    */
@@ -40,18 +40,18 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
   /**
    * Convert missing or undefined normalize input to `null`.
    *
-   * buildStored also fills omitted nullable fields with `null` unless `.default(...)` is present.
+   * build also fills omitted nullable fields with `null` unless `.default(...)` is present.
    *
    * @returns A nullable field spec that defaults missing normalize input to `null`.
    */
   nullDefault: () => FieldSpec<TInput, TOut, 'nullable', THasDefault>;
   /**
-   * Provide a buildStored-only default for omitted fields.
+   * Provide a build-only default for omitted fields.
    *
-   * normalize still uses the reader/nullability rules; lazy defaults run for each buildStored call.
+   * normalize still uses the reader/nullability rules; lazy defaults run for each build call.
    *
-   * @param value Stored value or factory used when buildStored omits the key.
-   * @returns A field spec that no longer requires this key in buildStored input.
+   * @param value Stored value or factory used when build omits the key.
+   * @returns A field spec that no longer requires this key in build input.
    */
   default: (value: FieldDefault<TOut>) => FieldSpec<TInput, TOut, TMode, true>;
   /**
@@ -78,11 +78,11 @@ export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', T
 
 export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = 'required', THasDefault extends boolean = false> extends FieldSpec<TInput, TOut, TMode, THasDefault> {
   /**
-   * Provide a buildStored-only zero-state default for nested object fields.
+   * Provide a build-only zero-state default for nested object fields.
    *
-   * The default is produced by reading the object shape from `{}` and is recomputed per buildStored call.
+   * The default is produced by reading the object shape from `{}` and is recomputed per build call.
    *
-   * @returns An object field spec that no longer requires this key in buildStored input.
+   * @returns An object field spec that no longer requires this key in build input.
    */
   emptyDefault: () => EmptyDefaultFieldSpec<TInput, TOut, TMode, true>;
 }

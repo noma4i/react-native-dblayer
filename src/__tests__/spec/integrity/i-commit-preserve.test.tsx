@@ -87,7 +87,7 @@ describe('optimistic commit preserve semantics', () => {
       await send.run();
     });
 
-    const committed = messages.get('message-1')!;
+    const committed = messages.find('message-1')!;
     expect(committed.media.fileUrl).toBe('https://cdn/full.jpg');
     expect(committed.media.blurHash).toBe('LKO2?U%2');
     expect(committed.media.width).toBe(320);

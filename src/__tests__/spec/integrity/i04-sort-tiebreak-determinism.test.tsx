@@ -26,10 +26,10 @@ describe('sort tie-break determinism (A2)', () => {
 
     const scopeReader = renderCounted(() => items.scopes.list.use({ status: 'ready' }));
     act(() => {
-      items.insertStored({ id: 'b-row', status: 'ready', score: 5 });
+      items.insert({ id: 'b-row', status: 'ready', score: 5 });
     });
     act(() => {
-      items.insertStored({ id: 'a-row', status: 'ready', score: 5 });
+      items.insert({ id: 'a-row', status: 'ready', score: 5 });
     });
 
     const builderReader = renderCounted(() => items.use.where({ status: 'ready' }).orderBy('score', 'desc').rows());
@@ -47,10 +47,10 @@ describe('sort tie-break determinism (A2)', () => {
 
     const liveReader = renderCounted(() => items.scopes.list.use({ status: 'ready' }));
     act(() => {
-      items.insertStored({ id: 'b-row', status: 'ready', score: 5 });
+      items.insert({ id: 'b-row', status: 'ready', score: 5 });
     });
     act(() => {
-      items.insertStored({ id: 'a-row', status: 'ready', score: 5 });
+      items.insert({ id: 'a-row', status: 'ready', score: 5 });
     });
     const liveOrder = liveReader.result().map(row => row.id);
     liveReader.unmount();

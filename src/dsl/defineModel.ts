@@ -33,7 +33,7 @@ import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
-import type { InferBuildStoredInput, InferStoredFields } from '../schema/infer';
+import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
 import { trimRowsPerScope } from '../utils/runtimePrimitives';
@@ -197,11 +197,11 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
   ): ModelStatusPoller;
   /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
   ingest(entries: Record<string, ModelIngestEntry>): { entries: DbSubscriptionEntry[]; apply(key: string, payload: unknown): void };
-  get(id: string | null | undefined): TStored | undefined;
-  getWhere(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
+  find(id: string | null | undefined): TStored | undefined;
+  where(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
-  getAll(): TStored[];
-  patch(id: string, patch: Partial<TStored>): void;
+  all(): TStored[];
+  update(id: string, patch: Partial<TStored>): void;
   destroy(id: string): void;
   destroyMany(ids: string[]): void;
   /**
@@ -214,27 +214,27 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
    * @param patch Partial stored-field update applied to every matched row.
    * @returns Number of rows matched and patched.
    */
-  patchWhere(where: DbWhere<TStored>, patch: Partial<TStored>): number;
+  updateAll(where: DbWhere<TStored>, patch: Partial<TStored>): number;
   /**
    * Destroy every row matching `where` in ONE journal plan: single transaction, single commit
-   * publish. Snapshot semantics as in `patchWhere`.
+   * publish. Snapshot semantics as in `updateAll`.
    *
    * @param where Local `DbWhere` predicate selecting the rows to destroy.
    * @returns Number of rows destroyed.
    */
-  destroyWhere(where: DbWhere<TStored>): number;
-  insertStored(row: TStored): void;
+  destroyAll(where: DbWhere<TStored>): number;
+  insert(row: TStored): void;
   /**
    * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
-   * unlike calling `insertStored` in a loop, which would journal/publish once per row. Each row still
-   * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insertStored`;
+   * unlike calling `insert` in a loop, which would journal/publish once per row. Each row still
+   * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insert`;
    * relation side effects (`touch`, `counterCache`, declarative scope membership) are expanded once over
    * the whole batch, so a `belongsTo` `counterCache` increments by the batch's full count in one step
    * rather than one increment per row.
    */
-  insertStoredMany(rows: TStored[]): void;
-  replaceRaw(oldId: string, next: unknown): void;
-  buildStored(input: unknown): TStored;
+  insertMany(rows: TStored[]): void;
+  replace(oldId: string, next: unknown): void;
+  build(input: unknown): TStored;
   normalize(input: unknown): Partial<TStored> & { id: string };
   invalidate(scope?: unknown): void;
   use: {
@@ -261,11 +261,11 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     /** Read one field from one row. */
     field<K extends keyof TStored>(id: string | null | undefined, field: K): TStored[K] | undefined;
     /** Read one row or a shallow-gated projection; selector identity may change without becoming a dependency. */
-    row<TProjection extends Record<string, unknown>>(
+    find<TProjection extends Record<string, unknown>>(
       id: string | null | undefined,
       opts: { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly (keyof TStored & string)[] }
     ): TProjection | undefined;
-    row(
+    find(
       id: string | null | undefined,
       opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
     ): TStored | undefined;
@@ -318,16 +318,16 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
   registerReset(fn: () => void): void;
 };
 
-type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'row' | 'first'> & {
-  row<TProjection extends Record<string, unknown>>(
+type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'find' | 'first'> & {
+  find<TProjection extends Record<string, unknown>>(
     id: string | null | undefined,
     opts: { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly TKey[] }
   ): TProjection | undefined;
-  row<K extends TKey>(
+  find<K extends TKey>(
     id: string | null | undefined,
     opts: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require: readonly K[] }
   ): RequiredFields<TStored, K> | undefined;
-  row(id: string | null | undefined, opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: never }): TStored | undefined;
+  find(id: string | null | undefined, opts?: { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: never }): TStored | undefined;
   first<TProjection extends Record<string, unknown>>(
     where: DbWhere<TStored> | null | undefined,
     opts: DbReadOptions<TStored> & { select: (row: TStored) => TProjection; renderKeys?: never; require?: readonly TKey[] }
@@ -376,7 +376,7 @@ type ModelConfig<
    */
   queryScopes?: TQueryScopes;
   /**
-   * Implicit ordering for reads that declare no explicit order: `getWhere` without `opts.orderBy`,
+   * Implicit ordering for reads that declare no explicit order: `where` without `opts.orderBy`,
    * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
    * An explicit order fully replaces it. Without `defaultOrder`, unordered reads keep natural
    * storage order. Ties break by the implicit locale-independent id key as usual.
@@ -385,7 +385,7 @@ type ModelConfig<
   /**
    * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
    * returning anything else makes `normalize` throw `${name} requires id` for that input, which
-   * plan-building paths (writes, apply) catch and log as a rejected row, and direct `buildStored`/
+   * plan-building paths (writes, apply) catch and log as a rejected row, and direct `build`/
    * `normalize` calls propagate to the caller.
    */
   rowId?: (input: unknown) => string;
@@ -443,10 +443,10 @@ type ModelConfig<
   };
   /**
    * Build extra static members merged onto the returned model (e.g. singleton statics, custom finders).
-   * Receives the base `ModelCore` so statics can call back into `get`/`patch`/`use`/etc. Throws at
+   * Receives the base `ModelCore` so statics can call back into `find`/`update`/`use`/etc. Throws at
    * `defineModel` time if any returned key collides with a base model key.
    */
-  statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>) => TExt;
+  statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>) => TExt;
 };
 
 const EMPTY_ROWS: never[] = [];
@@ -474,7 +474,7 @@ const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean }
  * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
  *
  * @param config Field specs, id/guard resolution, optional relations/scopes, gc/merge policy, and statics.
- * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `patch`/`destroy`/`insertStored`, `related`)
+ * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `update`/`destroy`/`insert`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */
 export const defineModel = <
@@ -484,12 +484,12 @@ export const defineModel = <
   TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}
 >(
   config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>
-): Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
+): Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
   use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
-  scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
+  scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>> };
 } & TExt => {
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
-  type Input = InferBuildStoredInput<TFields>;
+  type Input = InferBuildInput<TFields>;
   type ModelPlanes = { entityState: EntityState<Stored>; scopeIndex: ScopeIndex };
   const mergeGate = (() => {
     const groups = config.mergePolicy?.groups;
@@ -1270,8 +1270,8 @@ export const defineModel = <
         }
       }),
     ingest: entries => defineModelIngest(model, entries),
-    get: id => (id == null ? undefined : planes().entityState.read(String(id))),
-    getWhere: (where, options) => {
+    find: id => (id == null ? undefined : planes().entityState.read(String(id))),
+    where: (where, options) => {
       const rows = planes()
         .entityState.values()
         .filter(row => matchesCriteria(row, where));
@@ -1279,11 +1279,11 @@ export const defineModel = <
       if (!order) return limitRows(rows, options?.limit);
       return sortModelReadRows(rows, [{ field: String(order.field), direction: order.direction }], options?.limit);
     },
-    getAll: () => planes().entityState.values(),
-    patch: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id: String(id), patch: patch as Record<string, unknown> }]),
+    all: () => planes().entityState.values(),
+    update: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id: String(id), patch: patch as Record<string, unknown> }]),
     destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [String(id)] }]),
     destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids: ids.map(id => String(id)) }]),
-    patchWhere: (where, patch) => {
+    updateAll: (where, patch) => {
       const rows = planes()
         .entityState.values()
         .filter(row => matchesCriteria(row, where));
@@ -1291,7 +1291,7 @@ export const defineModel = <
       applyEvent(rows.map(row => ({ kind: 'patch', model: config.id, id: String(row.id), patch: patch as Record<string, unknown> })));
       return rows.length;
     },
-    destroyWhere: where => {
+    destroyAll: where => {
       const ids = planes()
         .entityState.values()
         .filter(row => matchesCriteria(row, where))
@@ -1300,11 +1300,11 @@ export const defineModel = <
       applyEvent([{ kind: 'destroy', model: config.id, ids }]);
       return ids.length;
     },
-    insertStored: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
-    insertStoredMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
+    insert: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
+    insertMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
     seed: rows => applyEvent(planRows(rows)),
-    replaceRaw: (oldId, next) => applyEvent(planReplace(String(oldId), next)),
-    buildStored: input => normalize(input, true),
+    replace: (oldId, next) => applyEvent(planReplace(String(oldId), next)),
+    build: input => normalize(input, true),
     normalize: input => normalize(input),
     invalidate: scope => {
       invalidateModel(config.id, scope);
@@ -1363,7 +1363,7 @@ export const defineModel = <
         );
         return useSyncExternalStore(subscribeChanges, readChanges, readChanges);
       },
-      row: ((id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
+      find: ((id: string | null | undefined, options: { require?: readonly string[] } & ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const required = options?.require ?? [];
         const key = id == null ? undefined : String(id);
         return useProjectedLiveRow(
@@ -1373,9 +1373,9 @@ export const defineModel = <
           },
           key == null ? [] : [rowDep(key, required.length > 0 ? required : undefined)],
           options,
-          `${config.id}.use.row`
+          `${config.id}.use.find`
         );
-      }) as ModelCore<Stored, Input>['use']['row'],
+      }) as ModelCore<Stored, Input>['use']['find'],
       field: (id, field) => {
         const key = id == null ? undefined : String(id);
         return useLiveRead(() => (key == null ? undefined : planes().entityState.read(key)?.[field]), key == null ? [] : [rowDep(key, [String(field)])]);
@@ -1454,7 +1454,7 @@ export const defineModel = <
         if (!relation) throw new Error(`${config.name} has no relation ${relationName}`);
         if (relation.kind === 'hasMany') {
           return useProjectedLiveRows(
-            () => (id == null ? EMPTY_ROWS : (relation.model.getWhere({ [relation.foreignKey]: id }) as StoredRowShape[])),
+            () => (id == null ? EMPTY_ROWS : (relation.model.where({ [relation.foreignKey]: id }) as StoredRowShape[])),
             id == null ? [] : [rowDep(id), { kind: 'model', model: relation.model.modelId }],
             options,
             `${config.id}.use.related`
@@ -1471,7 +1471,7 @@ export const defineModel = <
           };
           compute = () => {
             const parentId = parentIdOf();
-            return parentId ? relation.model.get(parentId) : undefined;
+            return parentId ? relation.model.find(parentId) : undefined;
           };
           const parentId = parentIdOf();
           deps = id == null ? [] : [rowDep(id, [relation.foreignKey]), ...(parentId ? [{ kind: 'row' as const, model: relation.model.modelId, id: parentId }] : [])];
@@ -1479,7 +1479,7 @@ export const defineModel = <
           const comparator = relation.comparator;
           compute = () => {
             if (id == null) return undefined;
-            const rows = relation.model.getWhere({ [relation.foreignKey]: id });
+            const rows = relation.model.where({ [relation.foreignKey]: id });
             if (rows.length === 0) return undefined;
             return comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0];
           };
@@ -1541,8 +1541,8 @@ export const defineModel = <
       if (key in model) throw new Error(`${config.name} statics collide with base model key ${key}`);
     }
   }
-  return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildStoredInput<TFields>>, 'use' | 'scopes'> & {
+  return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
     use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
-    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildStoredInput<TFields>> };
+    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>> };
   } & TExt;
 };

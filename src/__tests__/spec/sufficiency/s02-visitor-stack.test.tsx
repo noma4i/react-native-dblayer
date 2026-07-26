@@ -12,7 +12,7 @@ const createUsers = (id: string) =>
 type Users = ReturnType<typeof createUsers>;
 
 const seedUsers = (users: Users) => {
-  users.insertStoredMany(
+  users.insertMany(
     Array.from({ length: 4 }, (_, index) => ({ id: String(index), fullName: `Visitor ${index}`, avatarUrl: `avatar-${index}` }))
   );
 };
@@ -31,7 +31,7 @@ describe('visitor avatar stack sufficiency', () => {
     const before = stack.renders();
 
     act(() => {
-      users.patch('3', { fullName: 'Unrelated Visitor' });
+      users.update('3', { fullName: 'Unrelated Visitor' });
     });
 
     expect(stack.renders() - before).toBe(0);
@@ -50,11 +50,11 @@ describe('visitor avatar stack sufficiency', () => {
     expect(initial.rows.map(row => row.id)).toEqual(ids);
     expect(ids.map(id => initial.byId.get(id)?.avatarUrl)).toEqual(['avatar-0', 'avatar-1', 'avatar-2']);
     act(() => {
-      users.patch('3', { fullName: 'Unrelated Visitor' });
+      users.update('3', { fullName: 'Unrelated Visitor' });
     });
     expect(stack.result().byId).toBe(initial.byId);
     act(() => {
-      users.patch('1', { avatarUrl: 'avatar-1-updated' });
+      users.update('1', { avatarUrl: 'avatar-1-updated' });
     });
     expect(stack.result().byId).not.toBe(initial.byId);
     expect(stack.result().byId.get('1')?.avatarUrl).toBe('avatar-1-updated');
@@ -71,7 +71,7 @@ describe('visitor avatar stack sufficiency', () => {
     expect(stack.result().byId).toEqual(new Map());
     const before = stack.renders();
     act(() => {
-      users.patch('1', { avatarUrl: 'ignored' });
+      users.update('1', { avatarUrl: 'ignored' });
     });
     expect(stack.renders() - before).toBe(0);
     stack.unmount();

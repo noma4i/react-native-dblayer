@@ -54,10 +54,10 @@ describe('maintenance trim contracts', () => {
     persistCurrentManifest();
 
     for (let sequence = 1; sequence <= 5; sequence += 1) {
-      messages.insertStored({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` });
+      messages.insert({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` });
     }
     for (let sequence = 1; sequence <= 2; sequence += 1) {
-      messages.insertStored({ id: `chat-b-${sequence}`, chatId: 'chat-b', sequence, payload: `other-${sequence}` });
+      messages.insert({ id: `chat-b-${sequence}`, chatId: 'chat-b', sequence, payload: `other-${sequence}` });
     }
 
     await bootDb();
@@ -72,10 +72,10 @@ describe('maintenance trim contracts', () => {
     const messages = createMessageModel(2, () => protectIds);
     persistCurrentManifest();
 
-    messages.insertStored({ id: 'chat-a-protected', chatId: 'chat-a', sequence: 1, payload: 'protected-old' });
-    messages.insertStored({ id: 'chat-a-2', chatId: 'chat-a', sequence: 2, payload: 'new-2' });
-    messages.insertStored({ id: 'chat-a-3', chatId: 'chat-a', sequence: 3, payload: 'new-3' });
-    messages.insertStored({ id: 'chat-a-4', chatId: 'chat-a', sequence: 4, payload: 'new-4' });
+    messages.insert({ id: 'chat-a-protected', chatId: 'chat-a', sequence: 1, payload: 'protected-old' });
+    messages.insert({ id: 'chat-a-2', chatId: 'chat-a', sequence: 2, payload: 'new-2' });
+    messages.insert({ id: 'chat-a-3', chatId: 'chat-a', sequence: 3, payload: 'new-3' });
+    messages.insert({ id: 'chat-a-4', chatId: 'chat-a', sequence: 4, payload: 'new-4' });
     const reader = renderCounted(() => messages.scopes.byChat.use({ chatId: 'chat-a' }));
 
     await bootDb();
@@ -91,7 +91,7 @@ describe('maintenance trim contracts', () => {
     const messages = createMessageModel(2);
     persistCurrentManifest();
     for (let sequence = 1; sequence <= 4; sequence += 1) {
-      messages.insertStored({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` });
+      messages.insert({ id: `chat-a-${sequence}`, chatId: 'chat-a', sequence, payload: `row-${sequence}` });
     }
 
     const scopeReader = renderCounted(() => messages.scopes.byChat.use({ chatId: 'chat-a' }));

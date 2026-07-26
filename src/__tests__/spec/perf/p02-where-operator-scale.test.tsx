@@ -12,7 +12,7 @@ const buildModel = (tag: string, size: number) => {
     name: `SpecWhereOpScale${tag}${size}`,
     fields: { id: f.str(), score: f.num(), status: f.str() }
   });
-  items.insertStoredMany(Array.from({ length: size }, (_, index) => ({ id: String(index), score: index % 100, status: index % 2 === 0 ? 'even' : 'odd' })));
+  items.insertMany(Array.from({ length: size }, (_, index) => ({ id: String(index), score: index % 100, status: index % 2 === 0 ? 'even' : 'odd' })));
   return items;
 };
 
@@ -47,7 +47,7 @@ const samplePatchUnderReader = (size: number): number => {
   });
   const samples = Array.from({ length: 7 }, (_, index) => {
     const started = performance.now();
-    act(() => items.patch('75', { score: 55 + index }));
+    act(() => items.update('75', { score: 55 + index }));
     return performance.now() - started;
   }).sort((left, right) => left - right);
   act(() => root.unmount());

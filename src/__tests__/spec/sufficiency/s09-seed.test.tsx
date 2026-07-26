@@ -76,7 +76,7 @@ describe('public seed surface', () => {
 
     act(() => resetRuntime());
 
-    expect(stories.get('story-1')).toBeUndefined();
+    expect(stories.find('story-1')).toBeUndefined();
     expect(reader.result()).toEqual([]);
     reader.unmount();
   });
@@ -93,7 +93,7 @@ describe('public seed surface', () => {
       await Promise.resolve();
     });
 
-    expect(stories.get('story-1')?.label).toBe('One');
+    expect(stories.find('story-1')?.label).toBe('One');
     expect(transport.calls).toEqual([]);
     act(() => root.unmount());
   });

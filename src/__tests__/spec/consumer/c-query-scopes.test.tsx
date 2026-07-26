@@ -16,7 +16,7 @@ const createItems = (suffix: string) =>
   });
 
 const seedItems = (items: ReturnType<typeof createItems>): void => {
-  items.insertStoredMany([
+  items.insertMany([
     { id: 'a', score: 1, status: 'ready' },
     { id: 'b', score: 5, status: 'ready' },
     { id: 'c', score: 9, status: 'ready' },
@@ -65,12 +65,12 @@ describe('queryScopes', () => {
     const reader = renderCounted(() => items.use.ready().rows());
     const renders = reader.renders();
     act(() => {
-      items.insertStored({ id: 'e', score: 20, status: 'ready' });
+      items.insert({ id: 'e', score: 20, status: 'ready' });
     });
     expect(reader.renders()).toBe(renders + 1);
     expect(reader.result()[0]?.id).toBe('e');
     act(() => {
-      items.insertStored({ id: 'f', score: 30, status: 'done' });
+      items.insert({ id: 'f', score: 30, status: 'done' });
     });
     expect(reader.renders()).toBe(renders + 1);
     reader.unmount();
@@ -83,8 +83,8 @@ describe('queryScopes', () => {
         id: 'SpecConsumerQueryScopesCollide',
         name: 'SpecConsumerQueryScopesCollide',
         fields: { id: f.str(), status: f.str() },
-        queryScopes: { row: { where: { status: 'ready' } } }
+        queryScopes: { find: { where: { status: 'ready' } } }
       })
-    ).toThrow("queryScope 'row' collides with a built-in use key");
+    ).toThrow("queryScope 'find' collides with a built-in use key");
   });
 });

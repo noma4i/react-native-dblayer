@@ -22,8 +22,8 @@ type IngestHandle = { apply(event: string, payload: unknown): IngestDecl | null 
 type IngestModel = {
   modelId: string;
   name?: string;
-  get(id: string | null | undefined): unknown;
-  insertStored(row: unknown): void;
+  find(id: string | null | undefined): unknown;
+  insert(row: unknown): void;
   invalidate(scope?: unknown): void;
 };
 
@@ -101,7 +101,7 @@ export const defineModelIngest = (
     const payload = entry.payload ? entry.payload(data) : data;
     try {
       if (entry.echoGuard?.(payload)) return;
-      if (entry.guard === 'existing' && !model.get(idOf(payload))) return;
+      if (entry.guard === 'existing' && !model.find(idOf(payload))) return;
       if (typeof entry.guard === 'function' && !entry.guard(payload)) return;
       const runEffect = (): void => {
         if (!entry.effect) return;

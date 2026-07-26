@@ -35,9 +35,9 @@ describe('multi-model command consumer contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const { users, messages, currentUser, walletTransactions } = createModels('Commit');
-    currentUser.insertStored({ id: 'me', balance: 100 });
+    currentUser.insert({ id: 'me', balance: 100 });
     const unrelated = defineModel({ id: 'SpecConsumerCmdUnrelated', name: 'SpecConsumerCmdUnrelated', fields: { id: f.str(), value: f.str() } });
-    unrelated.insertStored({ id: 'x', value: 'before' });
+    unrelated.insert({ id: 'x', value: 'before' });
 
     const sendGift = defineCommand<
       { giftSend: { user: UserRow; message: MessageRow; wallet: { balance: number }; transaction: WalletTransactionRow } },
@@ -56,11 +56,11 @@ describe('multi-model command consumer contracts', () => {
       ]
     });
 
-    const userReader = renderCounted(() => users.use.row('user-1'));
-    const messageReader = renderCounted(() => messages.use.row('msg-1'));
-    const currentUserReader = renderCounted(() => currentUser.use.row('me'));
-    const walletReader = renderCounted(() => walletTransactions.use.row('tx-1'));
-    const unrelatedReader = renderCounted(() => unrelated.use.row('x'));
+    const userReader = renderCounted(() => users.use.find('user-1'));
+    const messageReader = renderCounted(() => messages.use.find('msg-1'));
+    const currentUserReader = renderCounted(() => currentUser.use.find('me'));
+    const walletReader = renderCounted(() => walletTransactions.use.find('tx-1'));
+    const unrelatedReader = renderCounted(() => unrelated.use.find('x'));
     const before = {
       user: userReader.renders(),
       message: messageReader.renders(),
@@ -99,7 +99,7 @@ describe('multi-model command consumer contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const { users, messages, currentUser, walletTransactions } = createModels('Error');
-    currentUser.insertStored({ id: 'me', balance: 100 });
+    currentUser.insert({ id: 'me', balance: 100 });
 
     const sendGift = defineCommand<
       { giftSend: { user: UserRow; message: MessageRow; wallet: { balance: number }; transaction: WalletTransactionRow } },
@@ -120,9 +120,9 @@ describe('multi-model command consumer contracts', () => {
 
     await expect(sendGift.run({ userId: 'user-1', giftId: 'gift-1' })).rejects.toThrow('network down');
 
-    expect(users.getAll()).toEqual([]);
-    expect(messages.getAll()).toEqual([]);
-    expect(walletTransactions.getAll()).toEqual([]);
-    expect(currentUser.get('me')?.balance).toBe(100);
+    expect(users.all()).toEqual([]);
+    expect(messages.all()).toEqual([]);
+    expect(walletTransactions.all()).toEqual([]);
+    expect(currentUser.find('me')?.balance).toBe(100);
   });
 });

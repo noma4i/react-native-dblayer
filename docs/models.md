@@ -8,7 +8,7 @@ Every network-facing capability (queries, mutations, ephemeral fetches, status p
 views, and subscription ingest) is a method on the model it belongs to (`Model.query`,
 `Model.mutation`, `Model.fetch`, `Model.poller`, `Model.view`, `Model.ingest`). There are no
 standalone `defineQuery`/`defineMutation`/`defineView`/`defineIngest` constructors - those methods
-and every read surface (`use.row`, `use.where`, scope `use`/`useWindow`, `Model.view`, ...) have
+and every read surface (`use.find`, `use.where`, scope `use`/`useWindow`, `Model.view`, ...) have
 their own doc pages: [reading.md](./reading.md), [queries.md](./queries.md),
 [mutations.md](./mutations.md), [ingest-live.md](./ingest-live.md),
 [runtime.md](./runtime.md#modelpollername-config).
@@ -61,7 +61,7 @@ const MessageModel = defineModel({
     shouldOverwrite: (existing, incoming) => isIncomingNewer(existing.updatedAt, incoming.updatedAt)
   },
   statics: model => ({
-    forChat: (chatId: string) => model.getWhere({ chatId })
+    forChat: (chatId: string) => model.where({ chatId })
   })
 });
 ```
@@ -85,7 +85,7 @@ const MessageModel = defineModel({
 | `mergePolicy.groups`    | `{ fields, allowWrite }[]`                     | Per-field cross-writer guards. A rejected group keeps only its current fields while unguarded fields in the same write still apply.                                                                                                     |
 | `statics`               | `(model: ModelCore) => TExt`                   | Build extra static members merged onto the returned model. Receives the base model so statics can call back into `get`/`patch`/`use`/etc. Throws at `defineModel` time if a returned key collides with a base model key.                |
 
-`normalize`/`buildStored` read every configured field from raw input on every write; invalid rows
+`normalize`/`build` read every configured field from raw input on every write; invalid rows
 (a failed `guard`, an unresolved `rowId`, or a field that throws) are rejected and logged, never
 thrown into the apply pipeline - a single bad row in a batch never fails the rest of the batch.
 
@@ -149,10 +149,10 @@ or the read source:
 
 | Modifier                         | Effect                                                                                                                                                         |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.nullable()`                    | Preserves an explicit `null` during normalize instead of skipping it. `buildStored` fills an omitted nullable field with `null` unless `.default(...)` is set. |
-| `.optional()`                    | Lets normalize and `buildStored` omit this key entirely; no implicit value is filled in.                                                                       |
+| `.nullable()`                    | Preserves an explicit `null` during normalize instead of skipping it. `build` fills an omitted nullable field with `null` unless `.default(...)` is set. |
+| `.optional()`                    | Lets normalize and `build` omit this key entirely; no implicit value is filled in.                                                                       |
 | `.nullDefault()`                 | Converts a missing/undefined normalize input to `null` (implies `.nullable()` behavior).                                                                       |
-| `.default(value \| () => value)` | Provides a `buildStored`-only default for an omitted field; normalize is unaffected. The factory runs once per `buildStored` call.                             |
+| `.default(value \| () => value)` | Provides a `build`-only default for an omitted field; normalize is unaffected. The factory runs once per `build` call.                             |
 | `.from(selector)`                | Reads this field from `selector(input)` instead of `input[key]`.                                                                                               |
 | `.fromKey(key, source?)`         | Reads an own property `key` off `input` (or `source(input)` when given), instead of the field's own key.                                                       |
 
@@ -180,24 +180,24 @@ standalone:
 `ModelInput<M>`, `ModelStored<M>`, and `InferShapeStored<TShape>` are the corresponding inference
 types: `ModelStored<typeof MessageModel>` is the row type returned by every read on that model,
 `ModelInput<typeof MessageModel>` is a partial row with a required `id` (the shape accepted by
-`patch`/`replaceRaw`-style callers), and `InferShapeStored<typeof MessageSchema>` is the plain
+`patch`/`replace`-style callers), and `InferShapeStored<typeof MessageSchema>` is the plain
 object type a standalone `defineShape` shape reads into.
 
 ## Writes
 
 | Method             | Signature                                                      | Behavior                                                                                                                                                                                                                             |
 | ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `insertStored`     | `(row: TStored) => void`                                       | Normalize and upsert one row as an event write.                                                                                                                                                                                      |
-| `insertStoredMany` | `(rows: TStored[]) => void`                                    | Insert a batch as ONE plan - one journal record, one apply transaction, one commit publish. A `belongsTo` `counterCache` increments once by the batch's full count rather than once per row.                                         |
+| `insert`     | `(row: TStored) => void`                                       | Normalize and upsert one row as an event write.                                                                                                                                                                                      |
+| `insertMany` | `(rows: TStored[]) => void`                                    | Insert a batch as ONE plan - one journal record, one apply transaction, one commit publish. A `belongsTo` `counterCache` increments once by the batch's full count rather than once per row.                                         |
 | `seed`             | `(rows: TInput[]) => void`                                     | Dev/test-only batch seed through the normal journalled apply pipeline. Normalizes inputs, applies automatic scope membership, and publishes at most one commit wave. Production data flows should use queries, mutations, or ingest. |
 | `patch`            | `(id: string, patch: Partial<TStored>) => void`                | Apply a partial update as an event write. No-ops if the row does not exist.                                                                                                                                                          |
-| `patchWhere`       | `(where: DbWhere<TStored>, patch: Partial<TStored>) => number` | Patch every snapshot-matched row in one journal plan / one commit; return the matched count.                                                                                                                                         |
+| `updateAll`       | `(where: DbWhere<TStored>, patch: Partial<TStored>) => number` | Patch every snapshot-matched row in one journal plan / one commit; return the matched count.                                                                                                                                         |
 | `destroy`          | `(id: string) => void`                                         | Destroy one row as an event write. Cascades to `hasMany` `dependent: 'destroy'` children in the same plan.                                                                                                                           |
 | `destroyMany`      | `(ids: string[]) => void`                                      | Destroy several rows in one plan.                                                                                                                                                                                                    |
-| `destroyWhere`     | `(where: DbWhere<TStored>) => number`                          | Destroy every snapshot-matched row in one journal plan / one commit; return the destroyed count.                                                                                                                                     |
-| `replaceRaw`       | `(oldId: string, next: unknown) => void`                       | Destroy `oldId` and insert `next` (which may resolve to a different id) as one plan, carrying `oldId`'s scope memberships onto the new row. Used to replace a temp row identity outside the standard mutation temp-id-replace path.  |
+| `destroyAll`     | `(where: DbWhere<TStored>) => number`                          | Destroy every snapshot-matched row in one journal plan / one commit; return the destroyed count.                                                                                                                                     |
+| `replace`       | `(oldId: string, next: unknown) => void`                       | Destroy `oldId` and insert `next` (which may resolve to a different id) as one plan, carrying `oldId`'s scope memberships onto the new row. Used to replace a temp row identity outside the standard mutation temp-id-replace path.  |
 
-`insertStored`/`insertStoredMany`/`patch`/`patchWhere`/`destroy`/`destroyMany`/`destroyWhere`/`replaceRaw` are all **event**
+`insert`/`insertMany`/`patch`/`updateAll`/`destroy`/`destroyMany`/`destroyAll`/`replace` are all **event**
 writes: they run through `expandPlan`, so declared relation side effects (`touch`, `counterCache`,
 `dependent: 'destroy'` cascades) and declarative scope membership (`scope({ by })`) apply in the
 same transaction. `Model.query`/`Model.mutation` server-response writes apply as **snapshot**
@@ -208,7 +208,7 @@ writes instead (verbatim, no relation expansion - server data already carries de
 **snapshot** write for that same id (a query page or entity refresh that still contains the row,
 e.g. a stale cached response) is silently dropped while the tombstone is live - a passive server
 sync can never resurrect a row the app explicitly destroyed. An **event** write for that id
-(`insertStored`, an ingest upsert, a mutation's optimistic insert or temp-id commit) is not subject
+(`insert`, an ingest upsert, a mutation's optimistic insert or temp-id commit) is not subject
 to the tombstone check and writes through normally - an explicit action can still recreate the row
 under the same id. Garbage-collection eviction (`collectGarbage`, see
 [runtime.md](./runtime.md#garbage-collection)) never tombstones: an evicted row is simply absent,

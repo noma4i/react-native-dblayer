@@ -23,7 +23,7 @@ const createMessageModel = (intervalMs: number, maxAttempts: number, transport: 
         vars: id => ({ id }),
         apply: (id, payload) => {
           if (payload.transcodeMessage.id !== id) return;
-          model.patch(id, { status: payload.transcodeMessage.status, progress: payload.transcodeMessage.progress });
+          model.update(id, { status: payload.transcodeMessage.status, progress: payload.transcodeMessage.progress });
         },
         classify: payload => {
           if (payload.transcodeMessage.status === 'done') return 'ready';
@@ -39,7 +39,7 @@ const createMessageModel = (intervalMs: number, maxAttempts: number, transport: 
     }
   });
 
-  messages.insertStored({ id: 'message-1', status: 'init', progress: 0 });
+  messages.insert({ id: 'message-1', status: 'init', progress: 0 });
   return messages;
 };
 
@@ -65,7 +65,7 @@ describe('model status poller', () => {
 
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createMessageModel(5, 10, transport);
-    const reader = renderCounted(() => messages.use.row('message-1') as MessageRow | undefined);
+    const reader = renderCounted(() => messages.use.find('message-1') as MessageRow | undefined);
     const before = reader.renders();
 
     const detach = messages.transcode.attach('message-1');
@@ -116,7 +116,7 @@ describe('model status poller', () => {
 
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createMessageModel(5, 2, transport);
-    const reader = renderCounted(() => messages.use.row('message-1') as MessageRow | undefined);
+    const reader = renderCounted(() => messages.use.find('message-1') as MessageRow | undefined);
 
     messages.transcode.attach('message-1');
     await settle();
@@ -155,7 +155,7 @@ describe('model status poller', () => {
 
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createMessageModel(10, 5, transport);
-    const reader = renderCounted(() => messages.use.row('message-1') as MessageRow | undefined);
+    const reader = renderCounted(() => messages.use.find('message-1') as MessageRow | undefined);
 
     const refreshA = messages.transcode.refresh('message-1');
     const refreshB = messages.transcode.refresh('message-1');
@@ -183,7 +183,7 @@ describe('model status poller', () => {
 
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createMessageModel(5, 5, transport);
-    const reader = renderCounted(() => messages.use.row('message-1') as MessageRow | undefined);
+    const reader = renderCounted(() => messages.use.find('message-1') as MessageRow | undefined);
 
     messages.transcode.attach('message-1');
     await settle();

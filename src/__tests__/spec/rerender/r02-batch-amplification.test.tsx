@@ -132,11 +132,11 @@ describe('rerender matrix batch amplification', () => {
     await act(async () => {
       await query.fetch({ status: 'a' });
     });
-    const rowReader = renderCounted(() => rows.use.row('0'));
+    const rowReader = renderCounted(() => rows.use.find('0'));
     const scopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'a' }));
     const beforeRow = rowReader.result();
     const beforeScope = scopeReader.result();
-    const beforeStoredRows = new Map(rows.getAll().map(row => [row.id, row]));
+    const beforeStoredRows = new Map(rows.all().map(row => [row.id, row]));
     const beforeRenders = [rowReader.renders(), scopeReader.renders()];
 
     await act(async () => {
@@ -145,7 +145,7 @@ describe('rerender matrix batch amplification', () => {
 
     expect(rowReader.result()).toBe(beforeRow);
     expect(scopeReader.result()).toBe(beforeScope);
-    expect(rows.getAll().every(row => beforeStoredRows.get(row.id) === row)).toBe(true);
+    expect(rows.all().every(row => beforeStoredRows.get(row.id) === row)).toBe(true);
     expect([rowReader.renders(), scopeReader.renders()].map((count, index) => count - beforeRenders[index]!)).toEqual([0, 0]);
     rowReader.unmount();
     scopeReader.unmount();
@@ -154,15 +154,15 @@ describe('rerender matrix batch amplification', () => {
   it('does not notify readers when a patch nets zero field changes', () => {
     setupSpecRuntime();
     const rows = createNestedScopedModel();
-    rows.insertStored({ id: '1', name: 'same', status: 'a', score: 1, markers: [{ id: 'marker-1', label: 'Marker 1' }] });
-    const rowReader = renderCounted(() => rows.use.row('1'));
+    rows.insert({ id: '1', name: 'same', status: 'a', score: 1, markers: [{ id: 'marker-1', label: 'Marker 1' }] });
+    const rowReader = renderCounted(() => rows.use.find('1'));
     const scopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'a' }));
     const beforeRow = rowReader.result();
     const beforeScope = scopeReader.result();
     const beforeRenders = [rowReader.renders(), scopeReader.renders()];
 
     act(() => {
-      rows.patch('1', { markers: [{ id: 'marker-1', label: 'Marker 1' }] });
+      rows.update('1', { markers: [{ id: 'marker-1', label: 'Marker 1' }] });
     });
 
     expect(rowReader.result()).toBe(beforeRow);
@@ -175,18 +175,18 @@ describe('rerender matrix batch amplification', () => {
   it('notifies only affected readers once for one real field change', () => {
     setupSpecRuntime();
     const rows = createScopedModel();
-    rows.insertStoredMany([
+    rows.insertMany([
       { id: '1', name: 'first', status: 'a', score: 1 },
       { id: '2', name: 'second', status: 'b', score: 2 }
     ]);
-    const changedRowReader = renderCounted(() => rows.use.row('1'));
-    const untouchedRowReader = renderCounted(() => rows.use.row('2'));
+    const changedRowReader = renderCounted(() => rows.use.find('1'));
+    const untouchedRowReader = renderCounted(() => rows.use.find('2'));
     const affectedScopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'a' }));
     const untouchedScopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'b' }));
     const beforeRenders = [changedRowReader.renders(), untouchedRowReader.renders(), affectedScopeReader.renders(), untouchedScopeReader.renders()];
 
     act(() => {
-      rows.patch('1', { name: 'updated' });
+      rows.update('1', { name: 'updated' });
     });
 
     expect(
@@ -226,15 +226,15 @@ describe('rerender matrix batch amplification', () => {
   it('keeps a row patch to one id local to one row reader', () => {
     setupSpecRuntime();
     const rows = createSimpleModel();
-    rows.insertStoredMany(
+    rows.insertMany(
       Array.from({ length: 50 }, (_, index) => ({ id: String(index), name: `row-${index}`, status: index % 2 === 0 ? 'a' : 'b', score: index })) as BulkRow[]
     );
 
-    const readers = Array.from({ length: 50 }, (_, index) => renderCounted(() => rows.use.row(String(index))));
+    const readers = Array.from({ length: 50 }, (_, index) => renderCounted(() => rows.use.find(String(index))));
     const before = readers.map(reader => reader.renders());
 
     act(() => {
-      rows.patch('25', { score: 999 });
+      rows.update('25', { score: 999 });
     });
 
     const after = readers.map(reader => reader.renders());
@@ -245,20 +245,20 @@ describe('rerender matrix batch amplification', () => {
     readers.forEach(reader => reader.unmount());
   });
 
-  it('keeps insertStoredMany wave narrow with untouched row readers stable', () => {
+  it('keeps insertMany wave narrow with untouched row readers stable', () => {
     setupSpecRuntime();
     const rows = createScopedModel();
-    rows.insertStoredMany(
+    rows.insertMany(
       Array.from({ length: 20 }, (_, index) => ({ id: String(index), name: `seed-${index}`, status: 'active', score: index })) as BulkRow[]
     );
 
     const scopeReader = renderCounted(() => rows.scopes.byStatus.use({ status: 'active' }));
-    const untouchedReaders = Array.from({ length: 20 }, (_, index) => renderCounted(() => rows.use.row(String(index))));
+    const untouchedReaders = Array.from({ length: 20 }, (_, index) => renderCounted(() => rows.use.find(String(index))));
     const scopeBefore = scopeReader.renders();
     const untouchedBefore = untouchedReaders.map(reader => reader.renders());
 
     act(() => {
-      rows.insertStoredMany(
+      rows.insertMany(
         Array.from({ length: 20 }, (_, index) => ({
           id: String(index + 20),
           name: `burst-${index + 20}`,
@@ -283,7 +283,7 @@ describe('rerender matrix batch amplification', () => {
     const { transport, resolve, promise } = deferred;
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createSimpleModel();
-    rows.insertStored({ id: '1', name: 'seed-1', status: 'a', score: 1 });
+    rows.insert({ id: '1', name: 'seed-1', status: 'a', score: 1 });
 
     const mutation = rows.mutation<{ rename: BulkRow }, { id: string; name: string }, BulkRow, BulkRow>('rename', {
       document: { kind: 'Document', definitions: [] } as never,
@@ -303,7 +303,7 @@ describe('rerender matrix batch amplification', () => {
       }
     });
 
-    const reader = renderCounted(() => rows.use.row('1'));
+    const reader = renderCounted(() => rows.use.find('1'));
     const before = reader.renders();
     let committed!: Promise<{ rename: BulkRow } | null>;
 

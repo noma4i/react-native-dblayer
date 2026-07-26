@@ -50,8 +50,8 @@ describe('chat list sync consumer contracts', () => {
     jest.useFakeTimers();
     setupSpecRuntime();
     const chats = createChats('Debounce');
-    chats.insertStored({ id: 'chat-a', status: 'primary', title: 'A before', lastActivityAt: 1 });
-    chats.insertStored({ id: 'chat-b', status: 'primary', title: 'B before', lastActivityAt: 2 });
+    chats.insert({ id: 'chat-a', status: 'primary', title: 'A before', lastActivityAt: 1 });
+    chats.insert({ id: 'chat-b', status: 'primary', title: 'B before', lastActivityAt: 2 });
 
     const ingest = chats.ingest({
       chatUpdated: {
@@ -73,7 +73,7 @@ describe('chat list sync consumer contracts', () => {
 
     // 3 rapid events for chat-a collapse into exactly one apply wave (one debounce bucket, latest wins).
     expect(reader.renders() - rendersBeforeChatA).toBe(1);
-    expect(chats.get('chat-a')?.title).toBe('A v3');
+    expect(chats.find('chat-a')?.title).toBe('A v3');
 
     const rendersBeforeChatB = reader.renders();
     act(() => {
@@ -83,7 +83,7 @@ describe('chat list sync consumer contracts', () => {
 
     // chat-b is a separate debounce bucket - its own apply wave, not swallowed by chat-a's already-fired bucket.
     expect(reader.renders() - rendersBeforeChatB).toBe(1);
-    expect(chats.get('chat-b')?.title).toBe('B v1');
+    expect(chats.find('chat-b')?.title).toBe('B v1');
     reader.unmount();
     runtime.stop();
   });
@@ -91,8 +91,8 @@ describe('chat list sync consumer contracts', () => {
   it('destroys a chat and its scope membership in one commit: reader sees one render, no ghost row', () => {
     setupSpecRuntime();
     const chats = createChats('Delete');
-    chats.insertStored({ id: 'chat-a', status: 'primary', title: 'A', lastActivityAt: 1 });
-    chats.insertStored({ id: 'chat-b', status: 'primary', title: 'B', lastActivityAt: 2 });
+    chats.insert({ id: 'chat-a', status: 'primary', title: 'A', lastActivityAt: 1 });
+    chats.insert({ id: 'chat-b', status: 'primary', title: 'B', lastActivityAt: 2 });
 
     const ingest = chats.ingest({
       chatDeleted: { handler: payload => ({ destroy: (payload as { chatId: string }).chatId }) }
@@ -107,7 +107,7 @@ describe('chat list sync consumer contracts', () => {
 
     expect(reader.renders() - rendersBefore).toBe(1);
     expect(reader.result().map(row => row.id)).toEqual(['chat-b']);
-    expect(chats.get('chat-a')).toBeUndefined();
+    expect(chats.find('chat-a')).toBeUndefined();
     reader.unmount();
   });
 });

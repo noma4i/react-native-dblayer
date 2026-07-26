@@ -82,7 +82,7 @@ describe('scope order cache reset contract', () => {
     const renders = reader.renders();
 
     act(() => {
-      rows.patch('row-1', { label: 'updated' });
+      rows.update('row-1', { label: 'updated' });
     });
 
     expect(reader.result()).toBe(before);
@@ -111,7 +111,7 @@ describe('scope order cache reset contract', () => {
     const before = comparisons;
 
     act(() => {
-      rows.patch('row-1', { rank: 3 });
+      rows.update('row-1', { rank: 3 });
     });
 
     expect(comparisons).toBeGreaterThan(before);
@@ -138,7 +138,7 @@ describe('scope order cache reset contract', () => {
     const before = comparisons;
 
     act(() => {
-      rows.patch('row-1', { label: 'updated' });
+      rows.update('row-1', { label: 'updated' });
     });
 
     expect(comparisons).toBeGreaterThan(before);
@@ -149,17 +149,17 @@ describe('scope order cache reset contract', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const rows = createScopeModel(['rank']);
     act(() => {
-      rows.insertStored({ id: 'row-1', bucket: 'shared', rank: 1, label: 'one' });
-      rows.insertStored({ id: 'row-3', bucket: 'shared', rank: 3, label: 'three' });
+      rows.insert({ id: 'row-1', bucket: 'shared', rank: 1, label: 'one' });
+      rows.insert({ id: 'row-3', bucket: 'shared', rank: 3, label: 'three' });
     });
     const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }));
 
     act(() => {
-      rows.insertStored({ id: 'row-2', bucket: 'shared', rank: 2, label: 'two' });
+      rows.insert({ id: 'row-2', bucket: 'shared', rank: 2, label: 'two' });
     });
     expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-2', 'row-3']);
     act(() => {
-      rows.patch('row-2', { bucket: 'other' });
+      rows.update('row-2', { bucket: 'other' });
     });
 
     expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-3']);

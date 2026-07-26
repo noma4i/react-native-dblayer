@@ -58,15 +58,15 @@ describe('scope byUuid contracts', () => {
   it('keeps byUuid scope isolated from writes to other uuid rows', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: 'moment-1', uuid: 'moment-uuid-1', status: 'active' });
-    moments.insertStored({ id: 'moment-2', uuid: 'moment-uuid-2', status: 'queued' });
+    moments.insert({ id: 'moment-1', uuid: 'moment-uuid-1', status: 'active' });
+    moments.insert({ id: 'moment-2', uuid: 'moment-uuid-2', status: 'queued' });
 
     const scopeReader = renderCounted(() => moments.scopes.byUuid.use({ uuid: 'moment-uuid-1' }));
     const before = scopeReader.renders();
 
     act(() => {
-      moments.insertStored({ id: 'moment-3', uuid: 'moment-uuid-2', status: 'queued-late' });
-      moments.patch('moment-2', { status: 'processed' });
+      moments.insert({ id: 'moment-3', uuid: 'moment-uuid-2', status: 'queued-late' });
+      moments.update('moment-2', { status: 'processed' });
     });
 
     expect(scopeReader.result().map(row => row.id)).toEqual(['moment-1']);
@@ -77,14 +77,14 @@ describe('scope byUuid contracts', () => {
   it('rerenders once when a same-uuid row patches and keeps scope membership stable', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const moments = createMoments();
-    moments.insertStored({ id: 'moment-1', uuid: 'moment-uuid-1', status: 'active' });
+    moments.insert({ id: 'moment-1', uuid: 'moment-uuid-1', status: 'active' });
 
     const scopeReader = renderCounted(() => moments.scopes.byUuid.use({ uuid: 'moment-uuid-1' }));
     const before = scopeReader.renders();
 
     act(() => {
-      moments.patch('moment-1', { status: 'complete' });
-      moments.patch('moment-1', { status: 'complete' });
+      moments.update('moment-1', { status: 'complete' });
+      moments.update('moment-1', { status: 'complete' });
     });
 
     expect(scopeReader.result().map(row => row.id)).toEqual(['moment-1']);

@@ -117,7 +117,7 @@ optimistic: {
 `mutation.retry(tempId)` reuses that exact temp id and retained input. It returns `null` after an
 app restart because input is intentionally in-memory only. `mutation.discard(tempId)` destroys a
 retained failed row and clears its failure state. A server replacement through either mutation
-commit or `Model.replaceRaw(tempId, serverRow)` also clears the retained failure state. Use
+commit or `Model.replace(tempId, serverRow)` also clears the retained failure state. Use
 `failure: 'rollback'` when the previous insert rollback behavior is required; Patch, Destroy, and
 Respond optimistic variants always roll back on failure.
 

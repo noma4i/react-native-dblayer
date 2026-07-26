@@ -41,9 +41,9 @@ describe('persistence recovery protocol', () => {
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
 
-    expect(modelA.get('live')).toBeUndefined();
+    expect(modelA.find('live')).toBeUndefined();
     expect(storage.get('dbl:row:RecoveryB:kept')).toBe(JSON.stringify({ id: 'kept', bucket: 'b', label: 'B' }));
-    expect(modelB.get('kept')).toMatchObject({ label: 'B' });
+    expect(modelB.find('kept')).toMatchObject({ label: 'B' });
     expect(storage.keys('dbl:row:RecoveryA:')).toEqual([]);
     expect(storage.keys('dbl:scope:RecoveryA:')).toEqual([]);
     expect(storage.get('dbl:tombstones:RecoveryA')).toBeUndefined();
@@ -62,7 +62,7 @@ describe('persistence recovery protocol', () => {
 
     await bootDb();
 
-    expect(model.get('live')).toBeUndefined();
+    expect(model.find('live')).toBeUndefined();
     expect(storage.keys('dbl:row:RecoveryTombstones:')).toEqual([]);
     expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
   });
@@ -78,7 +78,7 @@ describe('persistence recovery protocol', () => {
 
     await bootDb();
 
-    expect(model.get('live')).toBeUndefined();
+    expect(model.find('live')).toBeUndefined();
     expect(storage.keys('dbl:scope:RecoveryScope:')).toEqual([]);
     expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
   });

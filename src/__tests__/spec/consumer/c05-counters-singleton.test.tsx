@@ -30,7 +30,7 @@ const createCounters = (suffix: string) =>
         },
         decrementUnreadSecondaryChats: (count: number): void => {
           if (count <= 0) return;
-          singleton.patchClamped('unreadSecondaryChatsCount', -count);
+          singleton.updateClamped('unreadSecondaryChatsCount', -count);
         }
       };
     }

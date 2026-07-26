@@ -12,7 +12,7 @@ const createItems = (suffix: string) =>
   });
 
 const seedItems = (items: ReturnType<typeof createItems>): void => {
-  items.insertStoredMany([
+  items.insertMany([
     { id: '1', score: 1, name: 'alpha', status: 'ready' },
     { id: '2', score: 5, name: 'bravo', status: 'ready' },
     { id: '3', score: 9, name: 'charlie', status: 'done' }
@@ -109,22 +109,22 @@ describe('DbWhere comparison operators', () => {
     const reader = renderCounted(() => items.use.where({ score: { gte: 5 } }).orderBy('score').rows());
     const before = reader.renders();
     act(() => {
-      items.insertStored({ id: '9', score: 7, name: 'delta', status: 'ready' });
+      items.insert({ id: '9', score: 7, name: 'delta', status: 'ready' });
     });
     expect(reader.renders() - before).toBe(1);
     expect(reader.result().map(row => row.id)).toEqual(['9']);
     act(() => {
-      items.patch('9', { score: 3 });
+      items.update('9', { score: 3 });
     });
     expect(reader.renders() - before).toBe(2);
     expect(reader.result()).toEqual([]);
     const stable = reader.result();
     const rendersAfterLeave = reader.renders();
     act(() => {
-      items.patch('9', { name: 'delta-renamed' });
+      items.update('9', { name: 'delta-renamed' });
     });
     act(() => {
-      items.insertStored({ id: '10', score: 1, name: 'foxtrot', status: 'ready' });
+      items.insert({ id: '10', score: 1, name: 'foxtrot', status: 'ready' });
     });
     expect(reader.renders()).toBe(rendersAfterLeave);
     expect(reader.result()).toBe(stable);
@@ -143,7 +143,7 @@ describe('DbWhere comparison operators', () => {
     const fresh = renderCounted(() => items.use.where({ score: { gte: 5 } }).rows());
     expect(fresh.result()).toEqual([]);
     act(() => {
-      items.insertStored({ id: '7', score: 8, name: 'echo', status: 'ready' });
+      items.insert({ id: '7', score: 8, name: 'echo', status: 'ready' });
     });
     expect(fresh.result().map(row => row.id)).toEqual(['7']);
     fresh.unmount();

@@ -19,7 +19,7 @@ registerReset(() => {
   failedInputsByTempId.clear();
 });
 
-/** Internal shared replacement seam for mutation commits and `Model.replaceRaw` reconciliation. */
+/** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
   const operations = getOperationState();
   const operation = operations.failedFor(model, tempId);
@@ -29,10 +29,10 @@ export const clearFailedOptimisticMutation = (model: string, tempId: string): vo
 
 type MutationModel = {
   modelId: string;
-  get(id: string | null | undefined): unknown;
+  find(id: string | null | undefined): unknown;
   normalize(input: unknown): { id: string };
-  insertStored(row: { id: string }): void;
-  patch(id: string, patch: Record<string, unknown>): void;
+  insert(row: { id: string }): void;
+  update(id: string, patch: Record<string, unknown>): void;
   destroy(id: string): void;
 };
 
@@ -233,7 +233,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const raw = node as Record<string, unknown>;
       const id = raw.id === `` || raw.id == null ? context.tempId : String(raw.id);
       const row = { ...raw, id };
-      if (context.tempId && id !== context.tempId && optimistic.model.get(context.tempId) !== undefined)
+      if (context.tempId && id !== context.tempId && optimistic.model.find(context.tempId) !== undefined)
         ops.push(...getInternalModelHandle(optimistic.model).planReplace(context.tempId, row));
       else ops.push(...getInternalModelHandle(optimistic.model).planRows([row]));
       const placement = optimistic.prependTo ?? optimistic.appendTo;
@@ -252,7 +252,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       for (const row of sink.rows) if (isRecord(row) && row.id != null) targets.push({ model, id: String(row.id) });
     }
     return targets.flatMap(({ model, id }) => {
-      const previous = model.get?.(id);
+      const previous = model.find?.(id);
       if (previous === undefined) return [{ kind: 'destroy' as const, model: model.modelId, ids: [id], tombstone: false }];
       const internal = getInternalModelHandle(model);
       const memberships = internal.captureMembership(id);
@@ -286,7 +286,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       if (optimisticOps.length > 0) getApplyRuntime().apply(dedupePlacementAppends(expandPlan(optimisticOps), placementOps));
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
       const reuseId = forcedTempId ?? optimistic.existingTempId?.(input) ?? null;
-      if (reuseId != null && (forcedTempId != null || optimistic.model.get(reuseId) !== undefined)) {
+      if (reuseId != null && (forcedTempId != null || optimistic.model.find(reuseId) !== undefined)) {
         tempId = reuseId;
       } else {
         const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
@@ -305,14 +305,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
-      previous = optimistic.model.get(id);
-      optimistic.model.patch(id, optimistic.selectPatch(input) as Record<string, unknown>);
+      previous = optimistic.model.find(id);
+      optimistic.model.update(id, optimistic.selectPatch(input) as Record<string, unknown>);
     } else if (optimistic && optimistic.method === 'destroy') {
       if (hasDependentCascade(optimistic.model.modelId)) {
         throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
       }
       const id = optimistic.selectId(input);
-      previous = optimistic.model.get(id);
+      previous = optimistic.model.find(id);
       previousMemberships = getInternalModelHandle(optimistic.model).captureMembership(id);
       optimistic.model.destroy(id);
     }
@@ -358,7 +358,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           const normalizedNode = optimistic.model.normalize(node) as Record<string, unknown>;
           ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
           if (optimistic.preserveOnCommit?.length) {
-            const current = optimistic.model.get(tempId) as Record<string, unknown> | undefined;
+            const current = optimistic.model.find(tempId) as Record<string, unknown> | undefined;
             if (current) {
               const preserved: Record<string, unknown> = {};
               for (const field of optimistic.preserveOnCommit) {
@@ -393,14 +393,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           if (insertedTempId) getApplyRuntime().apply(expandPlan([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]));
         } else if (tempId) {
           const patch = optimistic.onFailurePatch?.(input);
-          if (patch) optimistic.model.patch(tempId, patch as Record<string, unknown>);
+          if (patch) optimistic.model.update(tempId, patch as Record<string, unknown>);
           failedInputsByTempId.set(tempId, input);
         }
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
         const previousRecord = previous as Record<string, unknown>;
         const patchValues = optimistic.selectPatch(input) as Record<string, unknown>;
-        const current = optimistic.model.get(optimistic.selectId(input)) as Record<string, unknown> | undefined;
+        const current = optimistic.model.find(optimistic.selectId(input)) as Record<string, unknown> | undefined;
         const rowId = String(optimistic.selectId(input));
         const operations = getOperationState();
         const restore: Record<string, unknown> = {};
@@ -413,7 +413,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           if (current && !Object.is(current[key], patchValues[key])) continue;
           restore[key] = key in previousRecord ? previousRecord[key] : undefined;
         }
-        if (Object.keys(restore).length > 0) optimistic.model.patch(optimistic.selectId(input), restore);
+        if (Object.keys(restore).length > 0) optimistic.model.update(optimistic.selectId(input), restore);
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         getApplyRuntime().apply(expandPlan(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships)));
@@ -464,7 +464,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     if (input === undefined || !optimisticConfig || isMethodOptimistic(optimisticConfig) || isRespondOptimistic(optimisticConfig)) return null;
     clearFailedOptimisticMutation(optimisticConfig.model.modelId, tempId);
     const patch = optimisticConfig.onRetryPatch?.(input);
-    if (patch) optimisticConfig.model.patch(tempId, patch as Record<string, unknown>);
+    if (patch) optimisticConfig.model.update(tempId, patch as Record<string, unknown>);
     return runWithTempId(input, tempId);
   };
   const discard = (tempId: string): void => {

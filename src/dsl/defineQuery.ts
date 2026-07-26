@@ -106,7 +106,7 @@ type ModelDestination<TStored> = {
   modelId: string;
   get?: (id: string | null | undefined) => TStored | undefined;
   use: {
-    row(id: string | null | undefined, opts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined;
+    find(id: string | null | undefined, opts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined;
   };
 };
 type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope> | ModelDestination<TStored>;
@@ -496,7 +496,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     rowId: string | null | undefined,
     readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }
   ): EnsuredRowResult<TStored> => {
-    const row = destination.use.row(rowId, readOpts);
+    const row = destination.use.find(rowId, readOpts);
     const present = row !== undefined;
     const enabled = (config.enabled?.(scope) ?? true) && rowId != null && !present;
     const request = useQuery({

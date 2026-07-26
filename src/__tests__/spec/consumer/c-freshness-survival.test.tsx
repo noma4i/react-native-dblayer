@@ -58,7 +58,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     await settle();
 
     expect(calls).toBe(2);
-    expect(rows.get('row-2')).toBeTruthy();
+    expect(rows.find('row-2')).toBeTruthy();
     act(() => root.unmount());
   });
 
@@ -92,7 +92,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     await settle();
 
     expect(calls).toBe(1);
-    expect(rows.get('b')).toBeTruthy();
+    expect(rows.find('b')).toBeTruthy();
     act(() => root.unmount());
   });
 
@@ -154,12 +154,12 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     await settle();
     act(() => root.update(React.createElement(Root, { mounted: false })));
     act(() => resetRuntime());
-    act(() => rows.insertStored({ id: 'seeded', name: 'Seeded', group: null }));
+    act(() => rows.insert({ id: 'seeded', name: 'Seeded', group: null }));
     act(() => root.update(React.createElement(Root, { mounted: true })));
     await settle();
 
     expect(calls).toBe(2);
-    expect(rows.get('server-2')).toBeTruthy();
+    expect(rows.find('server-2')).toBeTruthy();
     act(() => root.unmount());
   });
 

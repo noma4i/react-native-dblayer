@@ -168,14 +168,14 @@ describe('server-order visitor scope behavior', () => {
   it('does not rerender a scope reader for updates outside scope', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const visitors = createVisitorModel();
-    visitors.insertStored({ id: 'u-in', momentId: 'moment-1', fullName: 'In scope' });
-    visitors.insertStored({ id: 'u-out', momentId: 'moment-2', fullName: 'Out scope' });
+    visitors.insert({ id: 'u-in', momentId: 'moment-1', fullName: 'In scope' });
+    visitors.insert({ id: 'u-out', momentId: 'moment-2', fullName: 'Out scope' });
 
     const scopeReader = renderCounted(() => visitors.scopes.visitors.use({ momentId: 'moment-1' }));
     const renders = scopeReader.renders();
 
     act(() => {
-      visitors.patch('u-out', { fullName: 'Out scope updated' });
+      visitors.update('u-out', { fullName: 'Out scope updated' });
     });
 
     expect(scopeReader.renders() - renders).toBe(0);

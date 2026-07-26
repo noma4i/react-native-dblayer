@@ -17,28 +17,28 @@ describe('collectGarbage', () => {
   it('evicts rows of a non-exempt model that have no scope, reader or operation roots', () => {
     setupSpecRuntime();
     const rows = createRows('Evict');
-    rows.insertStored({ id: 'r-1', label: 'unreferenced' });
+    rows.insert({ id: 'r-1', label: 'unreferenced' });
     const report = collectGarbage();
-    expect(rows.get('r-1')).toBeUndefined();
+    expect(rows.find('r-1')).toBeUndefined();
     expect(report.evicted.SpecConsumerGcRowsEvict).toBe(1);
   });
 
   it('keeps rows of a gc-exempt model', () => {
     setupSpecRuntime();
     const rows = createRows('Exempt', 'exempt');
-    rows.insertStored({ id: 'r-1', label: 'kept' });
+    rows.insert({ id: 'r-1', label: 'kept' });
     const report = collectGarbage();
-    expect(rows.get('r-1')?.label).toBe('kept');
+    expect(rows.find('r-1')?.label).toBe('kept');
     expect(report.evicted.SpecConsumerGcRowsExempt).toBeUndefined();
   });
 
   it('treats mounted readers as GC roots', () => {
     setupSpecRuntime();
     const rows = createRows('Reader');
-    rows.insertStored({ id: 'r-1', label: 'watched' });
-    const reader = renderCounted(() => rows.use.row('r-1'));
+    rows.insert({ id: 'r-1', label: 'watched' });
+    const reader = renderCounted(() => rows.use.find('r-1'));
     const report = collectGarbage();
-    expect(rows.get('r-1')?.label).toBe('watched');
+    expect(rows.find('r-1')?.label).toBe('watched');
     expect(report.evicted.SpecConsumerGcRowsReader).toBeUndefined();
     reader.unmount();
   });

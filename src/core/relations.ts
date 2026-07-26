@@ -4,9 +4,9 @@ import type { JournalOp } from './apply/journal';
 /** Structural reference to a defined model; relation thunks resolve it after both models exist. */
 export type ModelRef<TStored> = {
   modelId: string;
-  get(id: string | null | undefined): TStored | undefined;
-  getAll(): TStored[];
-  getWhere(where: Record<string, unknown>): TStored[];
+  find(id: string | null | undefined): TStored | undefined;
+  all(): TStored[];
+  where(where: Record<string, unknown>): TStored[];
 };
 
 type StoredRow = Record<string, unknown>;
@@ -53,7 +53,7 @@ export const belongsTo = <TChild, TParent>(
 
 /**
  * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
- * `expandPlan` reads children through `model.getWhere` (plus any same-plan overlay writes) so a cascade sees
+ * `expandPlan` reads children through `model.where` (plus any same-plan overlay writes) so a cascade sees
  * children written earlier in the same plan.
  *
  * @param model The child model reference.
@@ -210,7 +210,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
     if (!relation.touch || authoritative.has(parentKey) || touched.has(parentKey)) return;
     let entry = touchViews.get(parentKey);
     if (!entry) {
-      const parent = relation.model.get(parentId);
+      const parent = relation.model.find(parentId);
       if (!parent) return;
       entry = { model: relation.model.modelId, id: parentId, view: { ...parent }, patch: {} };
       touchViews.set(parentKey, entry);
@@ -273,7 +273,7 @@ export const expandPlan = (ops: JournalOp[]): JournalOp[] => {
       }
       if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
         const overlayRows = overlay.get(relation.model.modelId);
-        const liveChildren = relation.model.getWhere({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
+        const liveChildren = relation.model.where({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
         const overlayChildren = [...(overlayRows?.values() ?? [])].filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
         const ids = uniq([...liveChildren, ...overlayChildren].map(child => String(child.id)))
           .filter(childId => !destroyed.has(`${relation.model.modelId}:${childId}`));

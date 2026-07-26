@@ -59,7 +59,7 @@ describe('persistence fault invariants', () => {
     configureFaultRuntime(storage);
     const rows = createRows('WriteAhead');
 
-    rows.insertStored({ id: 'row-1', label: 'local' });
+    rows.insert({ id: 'row-1', label: 'local' });
 
     const journalKey = storage.plane.keys('dbl:journal:')[0];
     expect(journalKey).toBe('dbl:journal:1');
@@ -72,7 +72,7 @@ describe('persistence fault invariants', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('Retry');
-    rows.insertStored({ id: 'row-1', label: 'local' });
+    rows.insert({ id: 'row-1', label: 'local' });
 
     storage.failNextSet();
     expect(() => flushPersistence()).toThrow('fault: set failed');
@@ -88,7 +88,7 @@ describe('persistence fault invariants', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('TruncatedRetry');
-    rows.insertStoredMany([
+    rows.insertMany([
       { id: 'row-1', label: 'first' },
       { id: 'row-2', label: 'second' }
     ]);
@@ -109,7 +109,7 @@ describe('persistence fault invariants', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('PruneSafety');
-    for (let index = 0; index < 51; index += 1) rows.insertStored({ id: `row-${index}`, label: String(index) });
+    for (let index = 0; index < 51; index += 1) rows.insert({ id: `row-${index}`, label: String(index) });
 
     storage.failNextSet();
     expect(() => flushPersistence()).toThrow('fault: set failed');
@@ -125,12 +125,12 @@ describe('persistence fault invariants', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('FailedCheckpointPruneGate');
-    rows.insertStored({ id: 'row-0', label: '0' });
+    rows.insert({ id: 'row-0', label: '0' });
 
     storage.failNextSet();
     expect(() => flushPersistence()).toThrow('fault: set failed');
 
-    for (let index = 1; index <= 50; index += 1) rows.insertStored({ id: `row-${index}`, label: String(index) });
+    for (let index = 1; index <= 50; index += 1) rows.insert({ id: `row-${index}`, label: String(index) });
 
     expect(storage.plane.get('dbl:journal:1')).not.toBeUndefined();
   });
@@ -181,15 +181,15 @@ describe('persistence fault invariants', () => {
       staleTime: Infinity
     });
 
-    rows.insertStored({ id: 'row-1', label: 'local' });
+    rows.insert({ id: 'row-1', label: 'local' });
     rows.destroy('row-1');
     const reader = renderCountedInProvider(() => query.use({ id: 'row-1' }));
     await settle();
     await settle(1, { macro: true });
 
-    expect(rows.get('row-1')).toBeUndefined();
-    rows.insertStored({ id: 'row-1', label: 'event' });
-    expect(rows.get('row-1')).toEqual({ id: 'row-1', label: 'event' });
+    expect(rows.find('row-1')).toBeUndefined();
+    rows.insert({ id: 'row-1', label: 'event' });
+    expect(rows.find('row-1')).toEqual({ id: 'row-1', label: 'event' });
     flushPersistence();
     expect(storage.plane.get(`dbl:tombstones:${rows.modelId}`)).toBeUndefined();
     reader.unmount();

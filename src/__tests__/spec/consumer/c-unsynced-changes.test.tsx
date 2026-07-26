@@ -35,7 +35,7 @@ const setup = (suffix: string) => {
 describe('use.unsyncedChanges', () => {
   it('exposes pending optimistic patch values and clears on commit', async () => {
     const { chats, pinChat, mutations } = setup('Commit');
-    chats.insertStored({ id: 'chat-1', pinned: false, title: 'General' });
+    chats.insert({ id: 'chat-1', pinned: false, title: 'General' });
     const reader = renderCounted(() => chats.use.unsyncedChanges('chat-1'));
     expect(reader.result()).toBeUndefined();
     let run!: Promise<unknown>;
@@ -53,7 +53,7 @@ describe('use.unsyncedChanges', () => {
 
   it('clears when the operation fails', async () => {
     const { chats, pinChat, mutations } = setup('Failure');
-    chats.insertStored({ id: 'chat-1', pinned: false, title: 'General' });
+    chats.insert({ id: 'chat-1', pinned: false, title: 'General' });
     const reader = renderCounted(() => chats.use.unsyncedChanges('chat-1'));
     let run!: Promise<unknown>;
     act(() => {
@@ -70,7 +70,7 @@ describe('use.unsyncedChanges', () => {
 
   it('returns undefined for nullish ids without subscribing', () => {
     const { chats } = setup('Nullish');
-    chats.insertStored({ id: 'chat-1', pinned: false, title: 'General' });
+    chats.insert({ id: 'chat-1', pinned: false, title: 'General' });
     const reader = renderCounted(() => chats.use.unsyncedChanges(null));
     expect(reader.result()).toBeUndefined();
     reader.unmount();

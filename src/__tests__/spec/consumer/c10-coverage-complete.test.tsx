@@ -80,7 +80,7 @@ describe('coverage complete and scope isolation', () => {
 
     expect(blockedReader.result().map(row => row.id)).toEqual(['blocked-1']);
     expect(blockedReader.renders() - before).toBe(1);
-    expect(users.get('blocked-2')).toBeTruthy();
+    expect(users.find('blocked-2')).toBeTruthy();
 
     blockedReader.unmount();
     queryReader.unmount();
@@ -89,15 +89,15 @@ describe('coverage complete and scope isolation', () => {
   it('re-sorts blocked scope when a row name changes and rerenders once', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const users = createUserModel();
-    users.insertStored({ userId: 'viewer-1', id: 'blocked-1', kind: 'blocked', fullName: 'Zara' });
-    users.insertStored({ userId: 'viewer-1', id: 'blocked-2', kind: 'blocked', fullName: 'Mona' });
+    users.insert({ userId: 'viewer-1', id: 'blocked-1', kind: 'blocked', fullName: 'Zara' });
+    users.insert({ userId: 'viewer-1', id: 'blocked-2', kind: 'blocked', fullName: 'Mona' });
 
     const blockedReader = renderCounted(() => users.scopes.blocked.use({ userId: 'viewer-1', kind: 'blocked' }));
     expect(blockedReader.result().map(row => row.id)).toEqual(['blocked-2', 'blocked-1']);
 
     const before = blockedReader.renders();
     act(() => {
-      users.patch('blocked-1', { fullName: 'Aaron' });
+      users.update('blocked-1', { fullName: 'Aaron' });
     });
 
     expect(blockedReader.result().map(row => row.id)).toEqual(['blocked-1', 'blocked-2']);
@@ -108,14 +108,14 @@ describe('coverage complete and scope isolation', () => {
   it('keeps blocked scope isolated from friends-scope changes on the same model', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const users = createUserModel();
-    users.insertStored({ userId: 'viewer-1', id: 'blocked-1', kind: 'blocked', fullName: 'Alice' });
-    users.insertStored({ userId: 'viewer-1', id: 'friend-1', kind: 'friend', fullName: 'Bob' });
+    users.insert({ userId: 'viewer-1', id: 'blocked-1', kind: 'blocked', fullName: 'Alice' });
+    users.insert({ userId: 'viewer-1', id: 'friend-1', kind: 'friend', fullName: 'Bob' });
 
     const blockedReader = renderCounted(() => users.scopes.blocked.use({ userId: 'viewer-1', kind: 'blocked' }));
     const friendReader = renderCounted(() => users.scopes.friends.use({ userId: 'viewer-1', kind: 'friend' }));
     const beforeBlocked = blockedReader.renders();
 
-    users.patch('friend-1', { fullName: 'Bobby' });
+    users.update('friend-1', { fullName: 'Bobby' });
 
     expect(blockedReader.renders() - beforeBlocked).toBe(0);
     expect(friendReader.result().map(row => row.id)).toEqual(['friend-1']);

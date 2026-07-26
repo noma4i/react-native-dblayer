@@ -15,7 +15,7 @@ const createRows = () =>
   });
 
 const seedRows = (rows: ReturnType<typeof createRows>): void => {
-  rows.insertStoredMany(
+  rows.insertMany(
     Array.from({ length: 30 }, (_, index) => ({
       id: `row-${index}`,
       groupId: index < 15 ? 'g1' : 'g2',
@@ -55,7 +55,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
     const before = reader.renders();
-    act(() => rows.patch('row-20', { title: 'updated outside scope' }));
+    act(() => rows.update('row-20', { title: 'updated outside scope' }));
     expect(reader.renders() - before).toBe(0);
     reader.unmount();
   });
@@ -66,7 +66,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
     const before = reader.renders();
-    act(() => rows.patch('row-0', { rank: 99 }));
+    act(() => rows.update('row-0', { rank: 99 }));
     expect(reader.renders() - before).toBe(1);
     expect(reader.result()).toHaveLength(14);
     expect(idsOf(reader.result()).at(-1)).toBe('row-0');
@@ -79,7 +79,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }, { renderKeys: ['rank'] }));
     const before = reader.renders();
-    act(() => rows.patch('row-2', { title: 'title-only patch' }));
+    act(() => rows.update('row-2', { title: 'title-only patch' }));
     expect(reader.renders() - before).toBe(0);
     reader.unmount();
   });
@@ -90,7 +90,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
     const before = reader.renders();
-    act(() => rows.patch('row-3', { title: 'scope title patch' }));
+    act(() => rows.update('row-3', { title: 'scope title patch' }));
     expect(reader.renders() - before).toBe(1);
     reader.unmount();
   });
@@ -102,7 +102,7 @@ describe('rerender matrix scope window budget', () => {
     const reader = renderCounted(() => rows.scopes.byGroup.useFirst({ groupId: 'g1' }));
     const initial = reader.result();
     const before = reader.renders();
-    act(() => rows.patch('row-20', { title: 'out-of-scope first patch' }));
+    act(() => rows.update('row-20', { title: 'out-of-scope first patch' }));
     expect(reader.result()).toBe(initial);
     expect(reader.renders() - before).toBe(0);
     reader.unmount();
@@ -114,7 +114,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
     const initial = reader.result();
-    act(() => rows.patch('row-3', { title: 'identity patch' }));
+    act(() => rows.update('row-3', { title: 'identity patch' }));
     expect(reader.result().map((row, index) => row === initial[index])).toEqual(initial.map((_, index) => index !== 3));
     reader.unmount();
   });
@@ -124,10 +124,10 @@ describe('rerender matrix scope window budget', () => {
     const rows = createRows();
     const unrelated = defineModel({ id: 'SpecRerenderScopeWindowUnrelated', name: 'SpecRerenderScopeWindowUnrelated', fields: { value: f.str() } });
     seedRows(rows);
-    unrelated.insertStored({ id: 'one', value: 'before' });
+    unrelated.insert({ id: 'one', value: 'before' });
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
     const initial = reader.result();
-    act(() => unrelated.patch('one', { value: 'after' }));
+    act(() => unrelated.update('one', { value: 'after' }));
     expect(reader.result()).toBe(initial);
     reader.unmount();
   });
@@ -136,11 +136,11 @@ describe('rerender matrix scope window budget', () => {
     setupSpecRuntime();
     const rows = createRows();
     seedRows(rows);
-    const markers = rows.get('row-2')!.markers;
+    const markers = rows.find('row-2')!.markers;
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }, { renderKeys: ['markers'] }));
     const beforeRow = reader.result()[2];
     const before = reader.renders();
-    act(() => rows.patch('row-2', { markers: [...markers] }));
+    act(() => rows.update('row-2', { markers: [...markers] }));
     expect(reader.result()[2]).toBe(beforeRow);
     expect(reader.renders() - before).toBe(0);
     reader.unmount();
@@ -152,7 +152,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderWindow(rows.scopes.byGroup.useWindow as never, 'g1');
     const before = reader.renders();
-    act(() => rows.patch('row-1', { title: 'in-window changed' }));
+    act(() => rows.update('row-1', { title: 'in-window changed' }));
     expect(reader.renders() - before).toBe(1);
     expect(idsOf(reader.result().rows)).toEqual(['row-0', 'row-1', 'row-2', 'row-3', 'row-4']);
     reader.unmount();
@@ -164,7 +164,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderWindow(rows.scopes.byGroup.useWindow as never, 'g1');
     const initial = reader.result().rows;
-    act(() => rows.patch('row-1', { title: 'window identity patch' }));
+    act(() => rows.update('row-1', { title: 'window identity patch' }));
     expect(reader.result().rows.map((row, index) => row === initial[index])).toEqual([true, false, true, true, true]);
     reader.unmount();
   });
@@ -175,7 +175,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderWindow(rows.scopes.byGroup.useWindow as never, 'g1');
     const before = reader.renders();
-    act(() => rows.patch('row-12', { title: 'off-window changed' }));
+    act(() => rows.update('row-12', { title: 'off-window changed' }));
     expect(reader.renders() - before).toBe(0);
     expect(idsOf(reader.result().rows)).toEqual(['row-0', 'row-1', 'row-2', 'row-3', 'row-4']);
     reader.unmount();
@@ -214,7 +214,7 @@ describe('rerender matrix scope window budget', () => {
     const reader = renderCounted(() => rows.scopes.byGroup.useWindow({ groupId: 'g1' }).totalCount);
     const before = reader.result();
     const renders = reader.renders();
-    act(() => rows.patch('row-1', { title: 'total count visibility' }));
+    act(() => rows.update('row-1', { title: 'total count visibility' }));
     expect(reader.result()).toBe(before);
     expect(reader.renders() - renders).toBe(1);
     expect(reader.result()).toBe(15);
@@ -230,7 +230,7 @@ describe('rerender matrix scope window budget', () => {
     expect(idsOf(reader.result().rows)).toEqual(['row-0', 'row-1', 'row-2', 'row-3', 'row-4']);
     expect(reader.result().isPreviousData).toBe(true);
     const before = reader.renders();
-    act(() => rows.patch('row-0', { title: 'retained source patch' }));
+    act(() => rows.update('row-0', { title: 'retained source patch' }));
     expect(reader.renders() - before).toBe(0);
     reader.unmount();
   });
@@ -241,7 +241,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }).length);
     const before = reader.renders();
-    act(() => rows.patch('row-0', { groupId: 'g2' }));
+    act(() => rows.update('row-0', { groupId: 'g2' }));
     expect(reader.result()).toBe(14);
     expect(reader.renders() - before).toBe(1);
     reader.unmount();
@@ -253,7 +253,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.useFirst({ groupId: 'g1' }));
     const before = reader.renders();
-    act(() => rows.patch('row-1', { rank: -1 }));
+    act(() => rows.update('row-1', { rank: -1 }));
     expect(reader.result()?.id).toBe('row-1');
     expect(reader.renders() - before).toBe(1);
     reader.unmount();
@@ -265,7 +265,7 @@ describe('rerender matrix scope window budget', () => {
     seedRows(rows);
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }).length);
     const before = reader.renders();
-    act(() => rows.patch('row-20', { title: 'g2 title-only' }));
+    act(() => rows.update('row-20', { title: 'g2 title-only' }));
     expect(reader.renders() - before).toBe(0);
     reader.unmount();
   });

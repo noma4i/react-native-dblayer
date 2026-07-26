@@ -6,8 +6,8 @@ import { setupSpecRuntime } from '../helpers/harness';
 const samplePatch = (size: number): number => {
   setupSpecRuntime();
   const users = defineModel({ id: `SpecProjectionScale${size}`, name: `SpecProjectionScale${size}`, fields: { name: f.str(), ignored: f.num() } });
-  users.insertStoredMany(Array.from({ length: size }, (_, index) => ({ id: String(index), name: `User ${index}`, ignored: index })));
-  const readRow = users.use.row as unknown as (id: string, options: { select: (row: { name: string }) => { name: string } }) => { name: string };
+  users.insertMany(Array.from({ length: size }, (_, index) => ({ id: String(index), name: `User ${index}`, ignored: index })));
+  const readRow = users.use.find as unknown as (id: string, options: { select: (row: { name: string }) => { name: string } }) => { name: string };
   const Reader = ({ id }: { id: string }) => {
     readRow(id, { select: row => ({ name: row.name }) });
     return null;
@@ -18,7 +18,7 @@ const samplePatch = (size: number): number => {
   });
   const samples = Array.from({ length: 7 }, (_, index) => {
     const started = performance.now();
-    act(() => users.patch('25', { ignored: size + index }));
+    act(() => users.update('25', { ignored: size + index }));
     return performance.now() - started;
   }).sort((left, right) => left - right);
   act(() => root.unmount());

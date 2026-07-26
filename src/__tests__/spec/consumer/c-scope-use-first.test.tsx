@@ -21,7 +21,7 @@ describe('ScopeHandle.useFirst', () => {
   it('returns the first scope row and undefined for empty or nullish values', () => {
     setupSpecRuntime();
     const profiles = createProfiles('Basic');
-    profiles.insertStored({ id: 'p-1', uuid: 'u-abc', score: 1 });
+    profiles.insert({ id: 'p-1', uuid: 'u-abc', score: 1 });
     const hit = renderCounted(() => profiles.scopes.byUuid.useFirst({ uuid: 'u-abc' }));
     const miss = renderCounted(() => profiles.scopes.byUuid.useFirst({ uuid: 'u-none' }));
     const nullish = renderCounted(() => profiles.scopes.byUuid.useFirst(null));
@@ -36,11 +36,11 @@ describe('ScopeHandle.useFirst', () => {
   it('follows the scope sort and stays reactive', () => {
     setupSpecRuntime();
     const profiles = createProfiles('Sorted');
-    profiles.insertStored({ id: 'p-1', uuid: 'u-1', score: 5 });
+    profiles.insert({ id: 'p-1', uuid: 'u-1', score: 5 });
     const reader = renderCounted(() => profiles.scopes.ranked.useFirst({ uuid: 'u-1' }));
     expect(reader.result()?.id).toBe('p-1');
     act(() => {
-      profiles.insertStored({ id: 'p-2', uuid: 'u-1', score: 9 });
+      profiles.insert({ id: 'p-2', uuid: 'u-1', score: 9 });
     });
     expect(reader.result()?.id).toBe('p-2');
     reader.unmount();

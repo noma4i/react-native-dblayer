@@ -136,7 +136,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
     const primary = createPrimaryModel();
     const secondary = createSecondaryModel();
     const unrelated = createUnrelatedModel();
-    unrelated.insertStored({ id: 'u-1', bucket: 'noise', value: 'unrelated' });
+    unrelated.insert({ id: 'u-1', bucket: 'noise', value: 'unrelated' });
 
     const ingest = primary.ingest({
       momentIngest: {
@@ -169,7 +169,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
     expect(primaryReader.renders() - primaryBefore).toBe(1);
     expect(secondaryReader.renders() - secondaryBefore).toBe(1);
     expect(unrelatedReader.renders() - unrelatedBefore).toBe(0);
-    expect(unrelated.get('u-1')?.value).toBe('unrelated');
+    expect(unrelated.find('u-1')?.value).toBe('unrelated');
 
     primaryReader.unmount();
     secondaryReader.unmount();
@@ -204,7 +204,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
       }
     });
 
-    primary.insertStored({ id: 'p-1', uuid: 'uuid-1', status: 'initial' });
+    primary.insert({ id: 'p-1', uuid: 'uuid-1', status: 'initial' });
     const primaryReader = renderCounted(() => primary.scopes.byUuid.use({ uuid: 'uuid-1' }));
     const before = primaryReader.renders();
 
@@ -218,7 +218,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
       } as never);
     });
 
-    expect(primary.get('p-1')?.status).toBe('mutated');
+    expect(primary.find('p-1')?.status).toBe('mutated');
     expect(primaryReader.renders() - before).toBe(0);
 
     primaryReader.unmount();
@@ -244,7 +244,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
 
     expect(primaryReader.result().map(row => row.id)).toEqual(['p-1']);
     expect(primaryReader.renders() - before).toBe(1);
-    expect(primary.get('p-1')?.status).toBe('ready');
+    expect(primary.find('p-1')?.status).toBe('ready');
 
     primaryReader.unmount();
   });

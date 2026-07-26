@@ -48,7 +48,7 @@ const mountEnsemble = (tag: string, rowCount: number): { root: TestRenderer.Reac
   setupRuntime();
   const chats = createChatsModel(tag);
   const counters = createCountersModel(tag);
-  chats.insertStoredMany(Array.from({ length: rowCount }, (_, index) => buildChatRow(index)));
+  chats.insertMany(Array.from({ length: rowCount }, (_, index) => buildChatRow(index)));
 
   const Reader = () => {
     chats.scopes.active.useWindow({ bucket: 'all' }, { pageSize: 20 });
@@ -74,7 +74,7 @@ describe('large scope churn', () => {
         act(() => {
           // Alternates the target row between the absolute front and back of the desc sort order so
           // every bump forces a genuine reorder, not a cheap tail-append.
-          chats.patch('chat-0', { lastActivityAt: index % 2 === 0 ? -1 : rowCount + 1 });
+          chats.update('chat-0', { lastActivityAt: index % 2 === 0 ? -1 : rowCount + 1 });
         });
         samples.push(performance.now() - started);
       }
@@ -134,7 +134,7 @@ describe('large scope churn', () => {
     for (let index = 0; index < 40; index += 1) {
       const started = performance.now();
       act(() => {
-        chats.patch('chat-0', { lastActivityAt: index % 2 === 0 ? -1 : 3001 });
+        chats.update('chat-0', { lastActivityAt: index % 2 === 0 ? -1 : 3001 });
       });
       samples.push(performance.now() - started);
     }

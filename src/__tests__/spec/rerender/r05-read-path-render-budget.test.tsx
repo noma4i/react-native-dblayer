@@ -71,7 +71,7 @@ describe('read path render budget', () => {
   it('does zero scope projection work across idle parent rerenders and keeps the array identity', () => {
     setupSpecRuntime();
     const rows = createScopeRows();
-    rows.insertStoredMany(Array.from({ length: 50 }, (_, index) => ({ id: `row-${index}`, groupId: 'group-1', title: `title-${index}` })));
+    rows.insertMany(Array.from({ length: 50 }, (_, index) => ({ id: `row-${index}`, groupId: 'group-1', title: `title-${index}` })));
 
     let selectCalls = 0;
     const select = (row: ScopeRow): ProjectedScopeRow => {
@@ -104,7 +104,7 @@ describe('read path render budget', () => {
   it('projects a changed scope snapshot once and preserves unaffected row identities', () => {
     setupSpecRuntime();
     const rows = createScopeRows();
-    rows.insertStoredMany(Array.from({ length: 50 }, (_, index) => ({ id: `row-${index}`, groupId: 'group-1', title: `title-${index}` })));
+    rows.insertMany(Array.from({ length: 50 }, (_, index) => ({ id: `row-${index}`, groupId: 'group-1', title: `title-${index}` })));
 
     let selectCalls = 0;
     const select = (row: ScopeRow): ProjectedScopeRow => {
@@ -125,7 +125,7 @@ describe('read path render budget', () => {
     selectCalls = 0;
 
     act(() => {
-      rows.patch('row-25', { title: 'updated' });
+      rows.update('row-25', { title: 'updated' });
     });
 
     expect(selectCalls).toBe(50);
@@ -137,21 +137,21 @@ describe('read path render budget', () => {
   it('recomputes a related reader only for a dependency commit or dependency signature change', () => {
     setupSpecRuntime();
     const { authors, posts } = createRelatedRows();
-    authors.insertStoredMany([
+    authors.insertMany([
       { id: 'author-1', name: 'One' },
       { id: 'author-2', name: 'Two' }
     ]);
-    posts.insertStoredMany([
+    posts.insertMany([
       { id: 'post-1', authorId: 'author-1', title: 'First' },
       { id: 'post-2', authorId: 'author-2', title: 'Second' }
     ]);
 
     let reads = 0;
-    const get = authors.get;
-    authors.get = ((id: string | null | undefined) => {
+    const find = authors.find;
+    authors.find = ((id: string | null | undefined) => {
       reads += 1;
-      return get(id);
-    }) as typeof authors.get;
+      return find(id);
+    }) as typeof authors.find;
 
     let result!: AuthorRow | undefined;
     let force!: () => void;
@@ -175,7 +175,7 @@ describe('read path render budget', () => {
 
     expect(reads).toBe(afterMount);
     act(() => {
-      authors.patch('author-1', { name: 'One Updated' });
+      authors.update('author-1', { name: 'One Updated' });
     });
     expect(reads).toBe(afterMount + 1);
     expect(result?.name).toBe('One Updated');
@@ -191,11 +191,11 @@ describe('read path render budget', () => {
   it('switches hasMany rows immediately when the parent id changes without a commit', () => {
     setupSpecRuntime();
     const { children, parents } = createCollectionRelations();
-    parents.insertStoredMany([
+    parents.insertMany([
       { id: 'parent-a', name: 'A' },
       { id: 'parent-b', name: 'B' }
     ]);
-    children.insertStoredMany([
+    children.insertMany([
       { id: 'child-a', parentId: 'parent-a', title: 'A child', rank: 1 },
       { id: 'child-b', parentId: 'parent-b', title: 'B child', rank: 1 }
     ]);
@@ -226,11 +226,11 @@ describe('read path render budget', () => {
   it('switches hasOne rows immediately when the parent id changes without a commit', () => {
     setupSpecRuntime();
     const { children, parents } = createCollectionRelations();
-    parents.insertStoredMany([
+    parents.insertMany([
       { id: 'parent-a', name: 'A' },
       { id: 'parent-b', name: 'B' }
     ]);
-    children.insertStoredMany([
+    children.insertMany([
       { id: 'child-a', parentId: 'parent-a', title: 'A child', rank: 1 },
       { id: 'child-b', parentId: 'parent-b', title: 'B child', rank: 1 }
     ]);
@@ -261,8 +261,8 @@ describe('read path render budget', () => {
   it('adds a newly matching hasMany row to a related reader', () => {
     setupSpecRuntime();
     const { children, parents } = createCollectionRelations();
-    parents.insertStored({ id: 'parent-1', name: 'Parent' });
-    children.insertStored({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
+    parents.insert({ id: 'parent-1', name: 'Parent' });
+    children.insert({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
     let result!: ChildRow[];
     let root!: TestRenderer.ReactTestRenderer;
     const Reader = () => {
@@ -273,7 +273,7 @@ describe('read path render budget', () => {
       root = TestRenderer.create(React.createElement(Reader));
     });
     expect(result.map(row => row.id)).toEqual(['child-1']);
-    act(() => children.insertStored({ id: 'child-2', parentId: 'parent-1', title: 'Second', rank: 2 }));
+    act(() => children.insert({ id: 'child-2', parentId: 'parent-1', title: 'Second', rank: 2 }));
     expect(result.map(row => row.id)).toEqual(['child-1', 'child-2']);
     act(() => root.unmount());
   });
@@ -281,11 +281,11 @@ describe('read path render budget', () => {
   it('updates a shared foreign-key index before related readers observe an unrelated insert', () => {
     setupSpecRuntime();
     const { children, parents } = createCollectionRelations();
-    parents.insertStoredMany([
+    parents.insertMany([
       { id: 'parent-1', name: 'One' },
       { id: 'parent-2', name: 'Two' }
     ]);
-    children.insertStoredMany([
+    children.insertMany([
       { id: 'child-1', parentId: 'parent-1', title: 'One', rank: 1 },
       { id: 'child-2', parentId: 'parent-2', title: 'Two', rank: 1 }
     ]);
@@ -299,7 +299,7 @@ describe('read path render budget', () => {
       root = TestRenderer.create(React.createElement(Reader));
     });
     const initial = result;
-    act(() => children.insertStored({ id: 'outside', parentId: 'outside', title: 'Outside', rank: 1 }));
+    act(() => children.insert({ id: 'outside', parentId: 'outside', title: 'Outside', rank: 1 }));
     expect(result).toBe(initial);
     act(() => root.unmount());
   });
@@ -307,11 +307,11 @@ describe('read path render budget', () => {
   it('moves related rows between shared foreign-key buckets', () => {
     setupSpecRuntime();
     const { children, parents } = createCollectionRelations();
-    parents.insertStoredMany([
+    parents.insertMany([
       { id: 'parent-1', name: 'One' },
       { id: 'parent-2', name: 'Two' }
     ]);
-    children.insertStored({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
+    children.insert({ id: 'child-1', parentId: 'parent-1', title: 'First', rank: 1 });
     let result!: [ChildRow[], ChildRow[]];
     let root!: TestRenderer.ReactTestRenderer;
     const Reader = () => {
@@ -321,7 +321,7 @@ describe('read path render budget', () => {
     act(() => {
       root = TestRenderer.create(React.createElement(Reader));
     });
-    act(() => children.patch('child-1', { parentId: 'parent-2' }));
+    act(() => children.update('child-1', { parentId: 'parent-2' }));
     expect(result.map(rows => rows.map(row => row.id))).toEqual([[], ['child-1']]);
     act(() => root.unmount());
   });
@@ -330,7 +330,7 @@ describe('read path render budget', () => {
     setupSpecRuntime();
     diagnostics().reset();
     const rows = createScopeRows();
-    rows.insertStored({ id: 'row-1', groupId: 'group-1', title: 'Title' });
+    rows.insert({ id: 'row-1', groupId: 'group-1', title: 'Title' });
 
     let force!: () => void;
     let root!: TestRenderer.ReactTestRenderer;
@@ -358,8 +358,8 @@ describe('read path render budget', () => {
     const modelB = createFanoutRows('B');
     const countA = 6;
     const countB = 4;
-    modelA.insertStoredMany(Array.from({ length: countA }, (_, index) => ({ id: `a-${index}`, value: index })));
-    modelB.insertStoredMany(Array.from({ length: countB }, (_, index) => ({ id: `b-${index}`, value: index })));
+    modelA.insertMany(Array.from({ length: countA }, (_, index) => ({ id: `a-${index}`, value: index })));
+    modelB.insertMany(Array.from({ length: countB }, (_, index) => ({ id: `b-${index}`, value: index })));
     diagnostics().reset();
 
     let modelARenders = 0;
@@ -387,7 +387,7 @@ describe('read path render budget', () => {
     const beforeModelARenders = modelARenders;
 
     act(() => {
-      modelB.patch('b-0', { value: 100 });
+      modelB.update('b-0', { value: 100 });
     });
 
     const snapshot = diagnostics().snapshot();
@@ -401,8 +401,8 @@ describe('read path render budget', () => {
     setupSpecRuntime();
     const modelA = createFanoutRows('MoveA');
     const modelB = createFanoutRows('MoveB');
-    modelA.insertStored({ id: 'row', value: 1 });
-    modelB.insertStored({ id: 'row', value: 2 });
+    modelA.insert({ id: 'row', value: 1 });
+    modelB.insert({ id: 'row', value: 2 });
 
     let renders = 0;
     let setActiveModel!: (model: 'a' | 'b') => void;
@@ -425,11 +425,11 @@ describe('read path render budget', () => {
     const beforeCommits = renders;
 
     act(() => {
-      modelA.patch('row', { value: 3 });
+      modelA.update('row', { value: 3 });
     });
     expect(renders).toBe(beforeCommits);
     act(() => {
-      modelB.patch('row', { value: 4 });
+      modelB.update('row', { value: 4 });
     });
     expect(renders).toBe(beforeCommits + 1);
     act(() => root.unmount());
@@ -439,7 +439,7 @@ describe('read path render budget', () => {
     setupSpecRuntime();
     const rows = createScopeRows();
     const groupIds = ['group-0', 'group-1', 'group-2', 'group-3', 'group-4', 'group-5'];
-    rows.insertStoredMany(groupIds.map((groupId, index) => ({ id: `row-${index}`, groupId, title: groupId })));
+    rows.insertMany(groupIds.map((groupId, index) => ({ id: `row-${index}`, groupId, title: groupId })));
 
     let result!: ProjectedScopeRow[][];
     let root!: TestRenderer.ReactTestRenderer;

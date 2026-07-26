@@ -165,15 +165,15 @@ describe('media scope bucket behavior', () => {
   it('isolates composite bucket scope by chatId and mediaBucket', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const media = createMediaModel();
-    media.insertStored({ id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 10, label: 'A-1' });
-    media.insertStored({ id: 'a-2', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 8, label: 'A-2' });
-    media.insertStored({ id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 9, label: 'B-1' });
+    media.insert({ id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 10, label: 'A-1' });
+    media.insert({ id: 'a-2', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 8, label: 'A-2' });
+    media.insert({ id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 9, label: 'B-1' });
 
     const bucketAReader = renderCounted(() => media.scopes.media.use({ chatId: 'chat-1', mediaBucket: 'A' }));
     const before = bucketAReader.renders();
 
     act(() => {
-      media.patch('b-1', { label: 'B-1-updated' });
+      media.update('b-1', { label: 'B-1-updated' });
     });
 
     expect(bucketAReader.renders() - before).toBe(0);

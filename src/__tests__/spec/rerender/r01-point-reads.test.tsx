@@ -25,7 +25,7 @@ const createUnrelatedModel = () =>
   });
 
 const seedRows = (model: ReturnType<typeof createPointModel>, row7Status: string = 'b', row7Score = 70): void => {
-  model.insertStoredMany(
+  model.insertMany(
     Array.from({ length: 20 }, (_, index) => {
       const status = index === 5 ? 'b' : index === 7 ? row7Status : index % 2 === 0 ? 'a' : 'b';
       const score = index === 7 ? row7Score : index;
@@ -52,9 +52,9 @@ type PointReaders = {
 };
 
 const mountReaders = (rows: ReturnType<typeof createPointModel>): PointReaders => ({
-  row5: renderCounted(() => rows.use.row('5')),
-  row5Projection: renderCounted(() => rows.use.row('5', { select: row => ({ name: row.name }) })),
-  row5StatusRender: renderCounted(() => rows.use.row('5', { renderKeys: ['status'] })),
+  row5: renderCounted(() => rows.use.find('5')),
+  row5Projection: renderCounted(() => rows.use.find('5', { select: row => ({ name: row.name }) })),
+  row5StatusRender: renderCounted(() => rows.use.find('5', { renderKeys: ['status'] })),
   field5Name: renderCounted(() => rows.use.field('5', 'name')),
   byIds: renderCounted(() => rows.use.byIds(['4', '5', '7'])),
   firstA: renderCounted(() => rows.use.first({ status: 'a' })),
@@ -123,7 +123,7 @@ describe('rerender matrix point reads', () => {
     const before = capture(readers);
 
     act(() => {
-      rows.patch('5', { name: 'name-5-updated' });
+      rows.update('5', { name: 'name-5-updated' });
     });
 
     const after = capture(readers);
@@ -157,7 +157,7 @@ describe('rerender matrix point reads', () => {
     const before = capture(readers);
 
     act(() => {
-      rows.patch('5', { score: 105 });
+      rows.update('5', { score: 105 });
     });
 
     const after = capture(readers);
@@ -191,7 +191,7 @@ describe('rerender matrix point reads', () => {
     const before = capture(readers);
 
     act(() => {
-      rows.patch('7', { score: 99 });
+      rows.update('7', { score: 99 });
     });
 
     const after = capture(readers);
@@ -225,7 +225,7 @@ describe('rerender matrix point reads', () => {
     const before = capture(readers);
 
     act(() => {
-      rows.patch('7', { score: 99 });
+      rows.update('7', { score: 99 });
     });
 
     const after = capture(readers);
@@ -259,7 +259,7 @@ describe('rerender matrix point reads', () => {
     const before = capture(readers);
 
     act(() => {
-      rows.insertStored({ id: '20', name: 'name-20', status: 'b', score: 20 });
+      rows.insert({ id: '20', name: 'name-20', status: 'b', score: 20 });
     });
 
     const after = capture(readers);
@@ -327,7 +327,7 @@ describe('rerender matrix point reads', () => {
     const before = capture(readers);
 
     act(() => {
-      rows.patch('5', { name: 'name-5', status: 'b', score: 5 });
+      rows.update('5', { name: 'name-5', status: 'b', score: 5 });
     });
 
     const after = capture(readers);
@@ -358,7 +358,7 @@ describe('rerender matrix point reads', () => {
     const { transport, resolve, promise } = deferred;
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createPointModel();
-    rows.insertStored({ id: '5', name: 'name-5', status: 'b', score: 5 });
+    rows.insert({ id: '5', name: 'name-5', status: 'b', score: 5 });
     const mutation = rows.mutation<{ save: TestRow }, { id: string; name: string }, TestRow, TestRow>('rename', {
       document,
       result: 'save',
@@ -406,12 +406,12 @@ describe('rerender matrix point reads', () => {
     const rows = createPointModel();
     const noise = createUnrelatedModel();
     seedRows(rows);
-    noise.insertStored({ id: '0', value: 'noise' });
+    noise.insert({ id: '0', value: 'noise' });
     const readers = mountReaders(rows);
     const before = capture(readers);
 
     act(() => {
-      noise.patch('0', { value: 'noise-updated' });
+      noise.update('0', { value: 'noise-updated' });
     });
 
     const after = capture(readers);

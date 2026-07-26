@@ -68,7 +68,7 @@ const seedChats = (chats: ReturnType<typeof createChatsModel>): void => {
       });
     }
   }
-  chats.insertStoredMany(rows);
+  chats.insertMany(rows);
 };
 
 const seedMessages = (messages: ReturnType<typeof createMessagesModel>): void => {
@@ -78,11 +78,11 @@ const seedMessages = (messages: ReturnType<typeof createMessagesModel>): void =>
       rows.push({ id: `${chatId}-msg-${sequenceNumber}`, chatId, sequenceNumber, body: `body-${sequenceNumber}` });
     }
   }
-  messages.insertStoredMany(rows);
+  messages.insertMany(rows);
 };
 
 const seedUsers = (users: ReturnType<typeof createUsersModel>): void => {
-  users.insertStoredMany(Array.from({ length: USER_COUNT }, (_, index) => ({ id: `user-${index}`, name: `User ${index}` })));
+  users.insertMany(Array.from({ length: USER_COUNT }, (_, index) => ({ id: `user-${index}`, name: `User ${index}` })));
 };
 
 type EnsembleModels = {
@@ -355,7 +355,7 @@ describe('app-scale lifecycle', () => {
       const beforeRenders = { ...renders };
 
       act(() => {
-        models.chats.patch('chat-open-1', { lastActivityAt: new Date(2026, 0, 2).toISOString() });
+        models.chats.update('chat-open-1', { lastActivityAt: new Date(2026, 0, 2).toISOString() });
       });
 
       const snapshot = diagnostics().snapshot();
@@ -395,7 +395,7 @@ describe('app-scale lifecycle', () => {
           // Alternates the patched row between the front and back of the sort order so every commit
           // forces a genuine reorder of thread-0 (a monotonically increasing sequenceNumber would only
           // ever append at the tail, which the mirror can skip without a resort).
-          models.messages.patch('thread-0-msg-12', { sequenceNumber: index % 2 === 0 ? -1 : MESSAGES_PER_THREAD + 1 });
+          models.messages.update('thread-0-msg-12', { sequenceNumber: index % 2 === 0 ? -1 : MESSAGES_PER_THREAD + 1 });
         });
         perCommitMs.push(diagnostics().snapshot().totalReadEngineMs - before);
       }
@@ -434,7 +434,7 @@ describe('app-scale lifecycle', () => {
       // touched by a resume refetch - isolates "does churn corrupt/deadlock the drain" from the
       // unrelated, and separately covered, "complete coverage evicts rows outside the response" behavior.
       act(() => {
-        models.messages.insertStored({ id: 'thread-15-during-resume', chatId: 'thread-15', sequenceNumber: 5000, body: 'during-resume' });
+        models.messages.insert({ id: 'thread-15-during-resume', chatId: 'thread-15', sequenceNumber: 5000, body: 'during-resume' });
       });
       await settle(2);
 

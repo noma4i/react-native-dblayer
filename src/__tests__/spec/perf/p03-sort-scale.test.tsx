@@ -12,7 +12,7 @@ const buildModel = (tag: string, size: number, rank: (index: number) => number) 
     name: `SpecSortScale${tag}${size}`,
     fields: { id: f.str(), rank: f.num(), name: f.str() }
   });
-  items.insertStoredMany(Array.from({ length: size }, (_, index) => ({ id: String(index), rank: rank(index), name: `row-${index}` })));
+  items.insertMany(Array.from({ length: size }, (_, index) => ({ id: String(index), rank: rank(index), name: `row-${index}` })));
   return items;
 };
 
@@ -47,7 +47,7 @@ const samplePatchUnderOrderedReader = (size: number): number => {
   });
   const samples = Array.from({ length: 7 }, (_, index) => {
     const started = performance.now();
-    act(() => items.patch('75', { rank: 50 + index }));
+    act(() => items.update('75', { rank: 50 + index }));
     return performance.now() - started;
   }).sort((left, right) => left - right);
   act(() => root.unmount());

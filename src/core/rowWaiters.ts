@@ -4,13 +4,13 @@ import { createGenerationFence } from '../utils/runtimePrimitives';
 
 type WaiterModel<TStored extends { id: string }> = {
   modelId: string;
-  get(id: string | null | undefined): TStored | undefined;
-  patch(id: string, patch: Record<string, unknown>): void;
+  find(id: string | null | undefined): TStored | undefined;
+  update(id: string, patch: Record<string, unknown>): void;
 };
 
 export type RowPatch<TStored> = Partial<TStored> | ((row: TStored) => Partial<TStored>);
 
-export type PatchWhenRowExistsOptions = {
+export type UpdateWhenRowExistsOptions = {
   /** Maximum time to keep a deferred patch before dropping it. */
   ttlMs: number;
 };
@@ -37,16 +37,16 @@ const resolvePatch = <TStored extends { id: string }>(row: TStored, patch: RowPa
  * @param patch A partial update, or a function deriving one from the row once it is known.
  * @param options.ttlMs Maximum time to keep a deferred patch queued before dropping it.
  */
-export const patchWhenRowExists = <TStored extends { id: string }>(
+export const updateWhenRowExists = <TStored extends { id: string }>(
   model: WaiterModel<TStored>,
   id: string,
   patch: RowPatch<TStored>,
-  options: PatchWhenRowExistsOptions
+  options: UpdateWhenRowExistsOptions
 ): void => {
   const generationFence = createGenerationFence();
-  const existing = model.get(id);
+  const existing = model.find(id);
   if (existing) {
-    model.patch(id, resolvePatch(existing, patch));
+    model.update(id, resolvePatch(existing, patch));
     return;
   }
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -54,12 +54,12 @@ export const patchWhenRowExists = <TStored extends { id: string }>(
   const subscription = getCommitBus().subscribe(() => {
     if (!active) return;
     if (!generationFence.isCurrent()) return;
-    const row = model.get(id);
+    const row = model.find(id);
     if (!row) return;
     active = false;
     if (timer) clearTimeout(timer);
     subscription.unsubscribe();
-    model.patch(id, resolvePatch(row, patch));
+    model.update(id, resolvePatch(row, patch));
   }, [rowDepOf(model, id)]);
   timer = setTimeout(() => {
     active = false;
@@ -83,7 +83,7 @@ export const waitForRow = <TStored extends { id: string }>(
   options: WaitForRowOptions
 ): Promise<TStored | undefined> => {
   const generationFence = createGenerationFence();
-  const existing = model.get(id);
+  const existing = model.find(id);
   if (existing) return Promise.resolve(existing);
   return new Promise(resolve => {
     let done = false;
@@ -102,7 +102,7 @@ export const waitForRow = <TStored extends { id: string }>(
         finish(undefined);
         return;
       }
-      const row = model.get(id);
+      const row = model.find(id);
       if (row) finish(row);
     }, [rowDepOf(model, id)]);
     timer = setTimeout(() => finish(undefined), options.timeoutMs);

@@ -24,25 +24,25 @@ export const createGenerationFence = (options?: { lazy?: boolean }): { isCurrent
 };
 
 type SnapshotModel<TStored extends RowId> = {
-  get(id: string | undefined | null): TStored | undefined;
-  getAll(): TStored[];
-  getWhere(filter: Partial<TStored>): TStored[];
+  find(id: string | undefined | null): TStored | undefined;
+  all(): TStored[];
+  where(filter: Partial<TStored>): TStored[];
 };
 
 type DestroyManyModel<TStored extends RowId> = {
-  getAll(): TStored[];
+  all(): TStored[];
   destroyMany(ids: string[]): void;
 };
 
 type PatchModel<TStored extends RowId> = {
-  get(id: string): TStored | undefined;
-  patch(id: string, updates: Partial<TStored>): boolean | void;
+  find(id: string): TStored | undefined;
+  update(id: string, updates: Partial<TStored>): boolean | void;
 };
 
 type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
-  insertStored(item: TStored): void;
+  insert(item: TStored): void;
   use: {
-    row(id: string | null | undefined): TStored | undefined;
+    find(id: string | null | undefined): TStored | undefined;
     field<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
   };
 };
@@ -52,7 +52,7 @@ export type ReconcileScopeFields<TStored extends RowId, TNode extends RowId> =
   | { fieldMap: Partial<Record<Extract<keyof TStored, string>, Extract<keyof TNode, string>>> };
 
 export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode extends CreatedAtRow> = {
-  /** Candidate resolver, or a scope-field shorthand backed by `model.getWhere`. */
+  /** Candidate resolver, or a scope-field shorthand backed by `model.where`. */
   resolveCandidates: ((node: TNode) => TStored[]) | ReconcileScopeFields<TStored, TNode>;
   /** Extra candidate predicate. Temp ids are always considered candidates. */
   isCandidate?: (candidate: TStored, node: TNode) => boolean;
@@ -67,7 +67,7 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
    *
    * - `'drop'` (default): the node is silently skipped - neither returned nor committed. This is the
    *   original behavior; callers that need to apply an existing-id node as an update have to pre-check
-   *   `model.get(node.id)` themselves before calling this function.
+   *   `model.find(node.id)` themselves before calling this function.
    * - `'return'`: the node is pushed into the returned array as-is, with no candidate matching attempted
    *   and no `commit` call - e.g. a subscription echo of a row already applied by its own mutation
    *   response. The caller decides how to apply it (patch, replace, or ignore).
@@ -104,7 +104,7 @@ const resolveScopedCandidates = <TStored extends RowId, TNode extends RowId>(
     }
   }
 
-  return model.getWhere(filter);
+  return model.where(filter);
 };
 
 const candidateAllowed = <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(
@@ -156,7 +156,7 @@ export const reconcileOptimisticRows = <TStored extends CreatedAtRow, TNode exte
   const unmatched: TNode[] = [];
 
   for (const node of nodes) {
-    if (model.get(node.id)) {
+    if (model.find(node.id)) {
       if (options.onExisting === 'return') {
         unmatched.push(node);
       }
@@ -220,7 +220,7 @@ export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extr
   const shouldProtect = toProtectPredicate(protect);
   const groups = new Map<string, TStored[]>();
 
-  for (const row of model.getAll()) {
+  for (const row of model.all()) {
     if (shouldProtect(row)) continue;
     const scopeValue = row[scopeField];
     if (scopeValue == null) continue;
@@ -259,14 +259,14 @@ type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
  * @returns Number of stale temp rows resolved.
  */
 export const resolveStaleTempRows = <TStored extends CreatedAtRow>(
-  model: Pick<DestroyManyModel<TStored>, 'getAll'>,
+  model: Pick<DestroyManyModel<TStored>, 'all'>,
   options: ResolveStaleTempRowsOptions<TStored>
 ): number => {
   const protectedIds = options.protectedIds ? normalizeIdSet(options.protectedIds) : new Set<string>();
   const now = Date.now();
   let resolved = 0;
 
-  for (const row of model.getAll()) {
+  for (const row of model.all()) {
     if (!isTempId(row.id) || protectedIds.has(row.id)) continue;
     const createdAt = toTimestamp(row.createdAt);
     if (!Number.isFinite(createdAt) || now - createdAt <= options.maxAgeMs) continue;
@@ -436,11 +436,11 @@ export const createNestedObjectPatcher = <
   transform: (current: TNested, ...args: TArgs) => Partial<TNested>
 ): NestedObjectPatcher<TRow, TField, TArgs> => {
   return (id, ...args) => {
-    const row = model.get(id);
+    const row = model.find(id);
     const current = row?.[field];
     if (!isRecord(current)) return false;
 
-    model.patch(id, {
+    model.update(id, {
       [field]: {
         ...(current as TNested),
         ...transform(current as TNested, ...args)
@@ -470,31 +470,31 @@ const removeSingletonId = <TStored extends RowId>(input: Partial<TStored>): Omit
 export const createSingletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
   const upsert = (input: Partial<TStored>): void => {
     const updates = removeSingletonId(input);
-    const existing = model.get(recordId);
+    const existing = model.find(recordId);
     if (existing) {
-      model.patch(recordId, updates as Partial<TStored>);
+      model.update(recordId, updates as Partial<TStored>);
       return;
     }
 
-    model.insertStored({ ...defaults, ...updates, id: recordId } as TStored);
+    model.insert({ ...defaults, ...updates, id: recordId } as TStored);
   };
 
   return {
     recordId,
     defaults,
-    current: (): TStored | undefined => model.get(recordId),
-    useCurrent: (): TStored => model.use.row(recordId) ?? defaults,
+    current: (): TStored | undefined => model.find(recordId),
+    useCurrent: (): TStored => model.use.find(recordId) ?? defaults,
     /** Reactive read of ONE singleton field with a field-level dependency: consumers re-render only when this field changes, unlike useCurrent which subscribes to the whole row. */
     useCurrentField: <TField extends keyof TStored & string>(field: TField): TStored[TField] => (model.use.field(recordId, field) ?? defaults[field]) as TStored[TField],
     upsertCurrent: upsert,
-    patchClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min = 0): boolean => {
+    updateClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min = 0): boolean => {
       if (delta === 0) return false;
-      const current = model.get(recordId);
+      const current = model.find(recordId);
       if (!current) return false;
 
       const value = current[field];
       const currentValue = typeof value === 'number' ? value : 0;
-      model.patch(recordId, { [field]: Math.max(min, currentValue + delta) } as Partial<TStored>);
+      model.update(recordId, { [field]: Math.max(min, currentValue + delta) } as Partial<TStored>);
       return true;
     }
   };

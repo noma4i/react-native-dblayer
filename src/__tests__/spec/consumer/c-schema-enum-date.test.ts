@@ -19,8 +19,8 @@ describe('f.enum runtime validation', () => {
       name: 'SpecEnumModelBoundary',
       fields: { id: f.str(), status: f.enum(['draft', 'sent'] as const) }
     });
-    expect(items.buildStored({ id: '1', status: 'bogus' })).toEqual({ id: '1' });
-    expect(items.buildStored({ id: '2', status: 'sent' })).toEqual({ id: '2', status: 'sent' });
+    expect(items.build({ id: '1', status: 'bogus' })).toEqual({ id: '1' });
+    expect(items.build({ id: '2', status: 'sent' })).toEqual({ id: '2', status: 'sent' });
   });
 });
 
