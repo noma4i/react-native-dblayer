@@ -38,7 +38,7 @@
   "scripts": {
     "build": "bob build",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand --silent --forceExit",
+    "test": "jest --runInBand --silent",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
     "clean": "rm -rf lib",
     "prepare": "git config core.hooksPath .githooks"
