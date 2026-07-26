@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { getDbLogger } from '../core/logger';
 import { registerReset } from '../core/reset';
-import { createGenerationFence } from './runtimePrimitives';
+import { createGenerationFence, createSingleFlight } from './runtimePrimitives';
 
 export type ModelStatusPollerPhase = {
   phase: 'idle' | 'polling' | 'ready' | 'failed' | 'stalled';
@@ -13,7 +13,8 @@ type PollerSession = {
   refs: number;
   intervalId: ReturnType<typeof setInterval> | null;
   attempts: number;
-  inFlight: boolean;
+  /** Single-flighted tick runner: overlapping callers share the one in-flight fetch instead of re-entering. */
+  runTick: () => Promise<void>;
   phase: ModelStatusPollerPhase['phase'];
 };
 
@@ -92,7 +93,8 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   const getOrCreateSession = (id: string): PollerSession => {
     const existing = sessions.get(id);
     if (existing) return existing;
-    const session: PollerSession = { refs: 0, intervalId: null, attempts: 0, inFlight: false, phase: 'idle' };
+    const session: PollerSession = { refs: 0, intervalId: null, attempts: 0, phase: 'idle', runTick: () => Promise.resolve() };
+    session.runTick = createSingleFlight(() => runFetch(id, session));
     sessions.set(id, session);
     return session;
   };
@@ -134,15 +136,18 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     if (wasPolling) emitSessionStop(id, 'stopped');
   };
 
-  const tickSession = async (id: string, session: PollerSession): Promise<void> => {
-    if (!isCurrentGeneration()) return;
-    if (session.inFlight || session.phase !== 'polling') return;
+  /**
+   * The actual tick body, single-flighted per session: overlapping callers (interval tick, explicit
+   * refresh) share this one execution instead of re-entering, so the phase/attempts guards below run
+   * exactly once per real fetch.
+   */
+  const runFetch = async (id: string, session: PollerSession): Promise<void> => {
+    if (session.phase !== 'polling') return;
     if (session.attempts >= config.maxAttempts) {
       stopTerminal(id, session, 'stalled');
       return;
     }
 
-    session.inFlight = true;
     session.attempts += 1;
     setSnapshot(id, { phase: 'polling', attempts: session.attempts });
     try {
@@ -155,7 +160,6 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     } catch (error) {
       getDbLogger().error('ModelStatusPoller', 'fetch failed', { id, attempts: session.attempts, error });
     } finally {
-      session.inFlight = false;
       if (!isCurrentGeneration() || sessions.get(id) !== session) return;
       if (session.phase === 'polling' && session.attempts >= config.maxAttempts) {
         stopTerminal(id, session, 'stalled');
@@ -165,10 +169,15 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     }
   };
 
-  const ensurePolling = (id: string, session: PollerSession): void => {
+  const tickSession = (session: PollerSession): Promise<void> => {
+    if (!isCurrentGeneration()) return Promise.resolve();
+    return session.runTick();
+  };
+
+  const ensurePolling = (session: PollerSession): void => {
     if (session.refs <= 0 || session.phase !== 'polling' || session.intervalId) return;
-    session.intervalId = setInterval(() => void tickSession(id, session), config.intervalMs);
-    void tickSession(id, session);
+    session.intervalId = setInterval(() => void tickSession(session), config.intervalMs);
+    void tickSession(session);
   };
 
   const subscribe = (id: string, listener: () => void): (() => void) => {
@@ -199,7 +208,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
       const session = getOrCreateSession(id);
       if (session.phase === 'idle') setPolling(id, session);
       session.refs += 1;
-      ensurePolling(id, session);
+      ensurePolling(session);
 
       let detached = false;
       return () => {
@@ -219,8 +228,8 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
       } else if (session.phase === 'idle') {
         setPolling(id, session);
       }
-      await tickSession(id, session);
-      ensurePolling(id, session);
+      await tickSession(session);
+      ensurePolling(session);
     },
     isPolling(id) {
       const session = sessions.get(id);

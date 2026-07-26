@@ -1,4 +1,5 @@
 import { defineModel, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../../index';
+import { getCommitBus } from '../../../dsl/configure';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for commit-bus row waiters.
@@ -51,6 +52,19 @@ describe('updateWhenRowExists', () => {
     setupSpecRuntime();
     rows.insert({ id: 'r-1', label: 'fresh' });
     expect(rows.find('r-1')?.label).toBe('fresh');
+  });
+
+  it('unsubscribes from the commit bus immediately on resetRuntime instead of waiting for ttl', () => {
+    jest.useFakeTimers();
+    setupSpecRuntime();
+    const rows = createRows('ImmediateUnsub');
+    const before = getCommitBus().subscriberCount();
+    updateWhenRowExists(rows, 'r-1', { label: 'stale' }, { ttlMs: 60000 });
+    expect(getCommitBus().subscriberCount()).toBe(before + 1);
+
+    resetRuntime();
+
+    expect(getCommitBus().subscriberCount()).toBe(before);
   });
 });
 

@@ -252,9 +252,11 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
   const generationFence = createGenerationFence({ lazy: true });
   const isCurrentGeneration = (): boolean => generationFence.isCurrent();
 
+  /** Counts a delivery only once `onData` has returned without throwing - a throw must not inflate the delivered-event metric. */
   const runHandler = (state: EntryState, payload: unknown): void => {
     if (!isCurrentGeneration()) return;
     state.entry.onData(payload);
+    state.eventCount += 1;
   };
 
   const handlePayload = (state: EntryState, payload: unknown): void => {
@@ -265,7 +267,6 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
     }
 
     state.retryAttempts = 0;
-    state.eventCount += 1;
     state.lastEventAt = Date.now();
 
     const debounce = state.entry.debounce;
@@ -376,12 +377,15 @@ export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonl
 
   return {
     setActive(nextActive) {
-      if (nextActive === active) return;
+      /** A `configureDb` re-configuration bumps the runtime generation without deactivating this runtime; without this check a same-value `setActive(true)` no-ops forever and every subsequent event is silently dropped by the stale generation fence. */
+      const staleWhileActive = active && nextActive && !isCurrentGeneration();
+      if (nextActive === active && !staleWhileActive) return;
       if (!nextActive) {
         active = false;
         deactivateAll();
         return;
       }
+      if (staleWhileActive) deactivateAll();
 
       const subscribe = getDbTransport().subscribe;
       if (!subscribe) {

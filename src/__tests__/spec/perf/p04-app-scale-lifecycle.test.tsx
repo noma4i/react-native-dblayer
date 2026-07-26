@@ -107,7 +107,7 @@ const createModels = (): EnsembleModels => {
 /** Configures the runtime with a transport that resolves immediately unless `resuming.current` is set, in
  * which case a resume-triggered refetch parks on a deferred promise pushed to `releaseQueue` for manual,
  * chunk-by-chunk release. Must run before any model is seeded. */
-const setupEnsembleTransport = (resuming: { current: boolean }, releaseQueue: Array<() => void>) => {
+const setupEnsembleTransport = (resuming: { current: boolean }, releaseQueue: Array<() => void>, chunkSize = 4) => {
   const transport = createMockTransport({
     query: async <TData, TVariables = Record<string, unknown>>(operation: { query: unknown; variables?: TVariables }) => {
       const variables = operation.variables as unknown as { status?: string; chatId?: string } | undefined;
@@ -121,7 +121,7 @@ const setupEnsembleTransport = (resuming: { current: boolean }, releaseQueue: Ar
       return { data: result as TData };
     }
   });
-  configureDb({ storage: createMemoryPlane(), transport, defaults: { resumeStaleTime: 1000, resumeRefetch: { chunkSize: 4 } } });
+  configureDb({ storage: createMemoryPlane(), transport, defaults: { resumeStaleTime: 1000, resumeRefetch: { chunkSize } } });
   return transport;
 };
 
@@ -339,6 +339,63 @@ describe('app-scale lifecycle', () => {
       expect(diagnostics().snapshot().resumeDrains).toBe(1);
     } finally {
       resuming.current = false;
+      act(() => root.unmount());
+    }
+  });
+
+  it('stops draining further chunks once the provider unmounts mid-drain', async () => {
+    const resuming = { current: false };
+    const releaseQueue: Array<() => void> = [];
+    const transport = setupEnsembleTransport(resuming, releaseQueue);
+    const models = createModels();
+    const { root } = mountEnsemble(models);
+    try {
+      await settle();
+      diagnostics().reset();
+
+      const callsBeforeResume = transport.calls.length;
+      resuming.current = true;
+      act(() => {
+        jest.advanceTimersByTime(1001);
+        appStateHandler?.('background');
+        appStateHandler?.('active');
+      });
+      await settle(2);
+
+      // chunkSize is 4, so only the first chunk's deferred calls are in flight when the provider unmounts.
+      expect(transport.calls.length - callsBeforeResume).toBe(4);
+      act(() => root.unmount());
+
+      act(() => {
+        releaseQueue.splice(0).forEach(release => release());
+      });
+      await settle(2);
+      resuming.current = false;
+
+      // A second chunk of 4 more calls would fire here if the drain loop kept running past unmount.
+      expect(transport.calls.length - callsBeforeResume).toBe(4);
+    } finally {
+      resuming.current = false;
+      if (releaseQueue.length > 0) act(() => releaseQueue.splice(0).forEach(release => release()));
+    }
+  });
+
+  it('throws synchronously on resume when resumeRefetch.chunkSize is not positive', async () => {
+    const resuming = { current: false };
+    const releaseQueue: Array<() => void> = [];
+    setupEnsembleTransport(resuming, releaseQueue, 0);
+    const models = createModels();
+    const { root } = mountEnsemble(models);
+    try {
+      await settle();
+      jest.advanceTimersByTime(1001);
+      expect(() =>
+        act(() => {
+          appStateHandler?.('background');
+          appStateHandler?.('active');
+        })
+      ).toThrow('chunkSize must be a positive integer');
+    } finally {
       act(() => root.unmount());
     }
   });

@@ -408,11 +408,13 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       try {
         getDbLogger().error('defineMutation post-commit callback failed', { callback, error: reported });
       } catch (loggerError) {
+        /** Logger failure is intentionally swallowed - a throwing logger must not break commit callbacks. */
         void loggerError;
       }
       try {
         getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
       } catch (observerError) {
+        /** Observer failure is intentionally swallowed - a throwing onSyncError observer must not break commit callbacks. */
         void observerError;
       }
     };

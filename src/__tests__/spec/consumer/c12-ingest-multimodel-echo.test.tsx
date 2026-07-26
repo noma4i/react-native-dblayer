@@ -79,8 +79,8 @@ describe('multi-model ingest and ingest echo contracts', () => {
     });
     const ingest = primary.ingest({
       scoped: { handler: () => ({ invalidate: { uuid: 'uuid-a' } }) },
-      full: { handler: () => ({ invalidate: true }) },
-      ignored: { handler: () => ({ invalidate: false }) }
+      full: { handler: () => ({ invalidateAll: true }) },
+      ignored: { handler: () => ({}) }
     });
     let root!: TestRenderer.ReactTestRenderer;
     const Reader = () => {

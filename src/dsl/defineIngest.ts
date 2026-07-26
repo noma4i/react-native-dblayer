@@ -9,8 +9,10 @@ import { getInternalModelHandle } from '../core/internalHandles';
 export type IngestDecl = {
   upsert?: unknown | unknown[];
   destroy?: string | string[];
-  /** `true` keeps the historical full-model invalidation (every query prefix on the model); an object invalidates only the query cache entries whose scope matches it (exact or partial, per Model.invalidate semantics). */
-  invalidate?: boolean | object;
+  /** Invalidates only the query cache entries whose scope matches this object (exact or partial, per Model.invalidate semantics). */
+  invalidate?: object;
+  /** Full-model invalidation (every query prefix on the model) instead of a scoped one; use `invalidate` for the scoped case. */
+  invalidateAll?: true;
   /** Echo guard: when this operation id already committed locally, the whole event is skipped. */
   operationId?: string | null;
   /** Cross-model sideloads applied in the SAME transaction as the event rows. */
@@ -186,7 +188,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
         );
       }
       if (ops.length > 0) getApplyRuntime().apply(ops);
-      if (declaration.invalidate === true) model.invalidate();
+      if (declaration.invalidateAll) model.invalidate();
       else if (declaration.invalidate) model.invalidate(declaration.invalidate);
       return declaration;
     } catch (error) {

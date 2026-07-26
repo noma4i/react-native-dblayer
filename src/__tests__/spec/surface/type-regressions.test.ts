@@ -58,4 +58,12 @@ describe('public type regressions', () => {
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
+
+  it('rejects the historical invalidate: true boolean on an ingest declaration', () => {
+    const diagnostics = compileFixture(`
+      import type { IngestDecl } from '${entry}';
+      const decl: IngestDecl = { invalidate: true };
+    `);
+    expect(diagnostics.length).toBeGreaterThan(0);
+  });
 });

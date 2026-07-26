@@ -73,6 +73,7 @@ export const DbProvider = ({ children }: DbProviderProps) => {
             const staleCandidate = (query: Query) => staleQuerySet.has(query);
             const activeQueries = staleQueries.filter(query => query.getObserversCount() > 0);
             const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
+            if (chunkSize <= 0) throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${chunkSize}`);
             void (async () => {
               let refetched = 0;
               try {
@@ -96,7 +97,11 @@ export const DbProvider = ({ children }: DbProviderProps) => {
       }
       previousAppState.current = state;
     });
-    return () => subscription.remove();
+    return () => {
+      /** Bump the generation so an in-flight resume-drain loop's next chunk check fails and it stops after unmount. */
+      resumeDrainGeneration.current += 1;
+      subscription.remove();
+    };
   }, []);
 
   return <QueryClientProvider client={queryClient}>{booted ? children : null}</QueryClientProvider>;

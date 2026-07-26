@@ -67,6 +67,47 @@ describe('subscription runtime correctness', () => {
     expect(runtime.inspect().every(entry => entry.active)).toBe(true);
     runtime.stop();
   });
+
+  it('does not count a delivery whose onData handler throws', () => {
+    const transport = createMockTransport({ subscribe: () => jest.fn() });
+    configureDb({ storage: createMemoryPlane(), transport });
+    let calls = 0;
+    const runtime = createDbSubscriptionRuntime([
+      {
+        key: 'event',
+        query: document,
+        onData: () => {
+          calls += 1;
+          throw new Error('onData exploded');
+        }
+      }
+    ]);
+    runtime.setActive(true);
+
+    expect(() => runtime.dispatch('event', { id: 'row-1' })).toThrow('onData exploded');
+    expect(calls).toBe(1);
+    expect(runtime.inspect().find(entry => entry.key === 'event')?.eventCount).toBe(0);
+
+    runtime.stop();
+  });
+
+  it('recaptures its generation and keeps delivering after a runtime re-configuration', () => {
+    const transport = createMockTransport({ subscribe: () => jest.fn() });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const received: string[] = [];
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+    runtime.setActive(true);
+    runtime.dispatch('event', { id: 'first' });
+    expect(received).toEqual(['first']);
+
+    const transport2 = createMockTransport({ subscribe: () => jest.fn() });
+    configureDb({ storage: createMemoryPlane(), transport: transport2 });
+    runtime.setActive(true);
+    runtime.dispatch('event', { id: 'second' });
+
+    expect(received).toEqual(['first', 'second']);
+    runtime.stop();
+  });
 });
 
 describe('subscription effects registry', () => {
