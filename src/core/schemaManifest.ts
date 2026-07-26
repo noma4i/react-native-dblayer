@@ -1,5 +1,6 @@
 import { getDbRuntimeConfig, getStoragePrefix } from '../dsl/configure';
 import { resetRuntime } from './reset';
+import { noteManifestReset } from './diagnostics';
 import { stableSerialize } from './serialize';
 
 export const DB_FORMAT_VERSION = 1;
@@ -54,6 +55,7 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
 
   if (!matches && (stored !== undefined || nonempty)) {
     resetRuntime();
+    noteManifestReset();
     writePersistenceManifest(prefix, current);
     return { reset: true };
   }

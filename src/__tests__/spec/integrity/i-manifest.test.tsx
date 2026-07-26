@@ -103,6 +103,17 @@ describe('persistence schema manifest', () => {
     expect(storage.snapshotKeys()).toEqual(['dbl:manifest']);
   });
 
+  it('records manifest-driven resets in diagnostics', async () => {
+    const storage = configureManifestRuntime();
+    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated' });
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number } };
+    diagnostics.reset();
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: true });
+    expect(diagnostics.snapshot().manifestResets).toBe(1);
+  });
+
   it('resets nonempty storage without a manifest', async () => {
     const storage = configureManifestRuntime();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);

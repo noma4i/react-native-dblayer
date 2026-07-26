@@ -427,10 +427,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const reported = error instanceof Error ? error : new Error(String(error));
       try {
         getDbLogger().error('defineMutation post-commit callback failed', { callback, error: reported });
-      } catch {}
+      } catch (loggerError) {
+        void loggerError;
+      }
       try {
         getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
-      } catch {}
+      } catch (observerError) {
+        void observerError;
+      }
     };
     const runCommittedCallback = (callback: string, run: () => void): void => {
       try {

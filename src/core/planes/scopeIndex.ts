@@ -1,4 +1,5 @@
 import type { StoragePlane } from './storagePlane';
+import { CorruptionError } from '../recovery';
 import { sortBy } from 'es-toolkit';
 
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
@@ -285,8 +286,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       for (const fullKey of storage.keys(storageKey(''))) {
         const key = fullKey.slice(storageKey('').length);
         if (scopeNames !== undefined && !scopeNames.some(scopeName => key.startsWith(`${scopeName}:`))) {
-          storage.set([{ key: fullKey, value: null }]);
-          continue;
+          throw new CorruptionError('scope', fullKey);
         }
         const raw = storage.get(fullKey);
         if (!raw) continue;
@@ -294,7 +294,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
           scopes.set(key, JSON.parse(raw) as ScopeIndexValue);
           accessTimes.set(key, Date.now());
         } catch {
-          storage.set([{ key: fullKey, value: null }]);
+          throw new CorruptionError('scope', fullKey);
         }
       }
       memberSets.clear();

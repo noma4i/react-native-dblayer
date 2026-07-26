@@ -6,6 +6,7 @@ import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler, type CheckpointScheduler } from '../core/apply/checkpoint';
 import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
+import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
 import { expandPlan } from '../core/relations';
 import { isTempId } from '../utils/generateTempId';
@@ -272,15 +273,11 @@ export const replayJournal = (): number => {
     if (model && id) noteCandidate(model, id);
   }
   for (const key of storage.keys(`${getStoragePrefix()}journal:`)) {
-    const raw = storage.get(key);
-    if (!raw) continue;
-    try {
-      const record = JSON.parse(raw) as { ops?: Array<{ kind?: string; model?: string; rows?: Array<{ id?: unknown }> }> };
-      for (const operation of record.ops ?? []) {
-        if (operation.kind !== 'upsert' || !operation.model) continue;
-        for (const row of operation.rows ?? []) noteCandidate(operation.model, row.id);
-      }
-    } catch {}
+    const record = readJournalRecord(storage, getStoragePrefix(), key);
+    for (const operation of record?.ops ?? []) {
+      if (operation.kind !== 'upsert') continue;
+      for (const row of operation.rows) noteCandidate(operation.model, typeof row === 'object' && row !== null ? (row as { id?: unknown }).id : undefined);
+    }
   }
   const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {

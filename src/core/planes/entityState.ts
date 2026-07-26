@@ -1,5 +1,6 @@
 import { stableSerialize } from '../serialize';
 import { noteEntityUpsertGuardHit } from '../diagnostics';
+import { CorruptionError } from '../recovery';
 import type { StoragePlane } from './storagePlane';
 
 type Tombstone = { at: number };
@@ -159,7 +160,7 @@ export const createEntityState = <T extends { id: string }>(options: {
           const row = JSON.parse(raw) as T;
           rows.set(row.id, row);
         } catch {
-          storage.set([{ key: fullKey, value: null }]);
+          throw new CorruptionError('row', fullKey);
         }
       }
       const rawTombstones = storage.get(tombstonesKey());
@@ -167,7 +168,7 @@ export const createEntityState = <T extends { id: string }>(options: {
         try {
           for (const [id, tombstone] of Object.entries(JSON.parse(rawTombstones) as Record<string, Tombstone>)) tombstones.set(id, tombstone);
         } catch {
-          storage.set([{ key: tombstonesKey(), value: null }]);
+          throw new CorruptionError('tombstones', tombstonesKey());
         }
       }
     },

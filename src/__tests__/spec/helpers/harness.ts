@@ -136,6 +136,11 @@ export type DiagnosticsSnapshot = {
   totalReadEngineMs: number;
   totalMirrorMs: number;
   entityUpsertGuardHits: number;
+  corruptionModelResets: number;
+  corruptionJournalDrops: number;
+  corruptionJournalLosses: number;
+  corruptionLedgerResets: number;
+  manifestResets: number;
 };
 
 type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };

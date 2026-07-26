@@ -1,5 +1,7 @@
 import type { StoragePlane } from './storagePlane';
 import { compositeKey } from '../serialize';
+import { noteCorruptionLedgerReset } from '../diagnostics';
+import { getDbLogger } from '../logger';
 
 export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
@@ -46,6 +48,7 @@ export type OperationState = {
   /** The value the latest still-pending patch op (excluding `excludeOpId`) wrote for one field of one model row, or `{ found: false }` when no other pending patch owns it. */
   latestPendingValue(model: string, rowId: string, field: string, excludeOpId?: string): { found: boolean; value: unknown };
   persistEntries(): Array<{ key: string; value: string | null }>;
+  /** Hydrates the single ledger blob; malformed data is cold-reset because orphan temp-row reconciliation is the contract fallback. */
   hydrate(): void;
   reset(): void;
 };
@@ -223,6 +226,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
           }
         } catch {
           storage.set([{ key: opsKey(), value: null }]);
+          noteCorruptionLedgerReset();
+          getDbLogger().error('cold-ledger recovery', { key: opsKey() });
         }
       }
       rebuildIndexes();

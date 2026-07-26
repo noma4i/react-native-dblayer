@@ -76,7 +76,12 @@ describe('read diagnostics', () => {
       resumeRefetches: 0,
       totalReadEngineMs: 0,
       totalMirrorMs: 0,
-      entityUpsertGuardHits: 0
+      entityUpsertGuardHits: 0,
+      corruptionModelResets: 0,
+      corruptionJournalDrops: 0,
+      corruptionJournalLosses: 0,
+      corruptionLedgerResets: 0,
+      manifestResets: 0
     });
   });
 
