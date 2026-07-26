@@ -150,6 +150,23 @@ describe('persistence fault invariants', () => {
     expect(storage.setCalls()[3]).not.toEqual(expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-1`, value: JSON.stringify({ id: 'row-1', label: 'first' }) }]));
   });
 
+  it('does not replay a journal record already covered by its applied marker', () => {
+    const storage = createFaultStorage();
+    configureFaultRuntime(storage);
+    const rows = createRows('ReplayCoverage');
+    storage.plane.set([
+      { key: `dbl:applied:${rows.modelId}`, value: '1' },
+      { key: 'dbl:journal:1', value: JSON.stringify({ epoch: 1, status: 'committed', ops: [{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'persisted' }] }] }) }
+    ]);
+    const bus = createCommitBus();
+    const batches: unknown[] = [];
+    bus.subscribeAll(batch => batches.push(batch));
+    const runtime = createApplyRuntime({ storage: storage.plane, prefix: () => 'dbl:', bus });
+
+    expect(runtime.replay()).toBe(0);
+    expect(batches).toEqual([]);
+  });
+
   it('rejects a server snapshot after destroy but lets an event-origin insert restore the row', async () => {
     const storage = createFaultStorage();
     const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: { id: 'row-1', label: 'server' } } as TData }) });
@@ -173,6 +190,8 @@ describe('persistence fault invariants', () => {
     expect(rows.get('row-1')).toBeUndefined();
     rows.insertStored({ id: 'row-1', label: 'event' });
     expect(rows.get('row-1')).toEqual({ id: 'row-1', label: 'event' });
+    flushPersistence();
+    expect(storage.plane.get(`dbl:tombstones:${rows.modelId}`)).toBeUndefined();
     reader.unmount();
   });
 });
