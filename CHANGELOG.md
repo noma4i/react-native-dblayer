@@ -1,5 +1,9 @@
 # Changelog
 
+## 7.0.0-beta.13 - 2026-07-26
+
+- Fix `use.byIds` keying rows under wrong ids when some requested ids are missing.
+
 ## 7.0.0-beta.11 - 2026-07-25
 
 ### Read completeness

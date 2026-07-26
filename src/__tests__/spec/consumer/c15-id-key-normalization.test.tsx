@@ -112,6 +112,32 @@ describe('id-key normalization contracts (LC20)', () => {
     reader.unmount();
   });
 
+  it('keys a present byIds row by its actual id when an earlier requested id is missing', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const moments = createMoments();
+    moments.insertStored({ id: 'present', userId: '54', status: 'active' });
+
+    const reader = renderCounted(() => moments.use.byIds(['missing', 'present']));
+
+    expect(reader.result().rows).toHaveLength(1);
+    expect(reader.result().byId.get('present')?.id).toBe('present');
+    expect(reader.result().byId.get('missing')).toBeUndefined();
+    reader.unmount();
+  });
+
+  it('keeps byIds map keys independent of a renderKeys projection that excludes id', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const moments = createMoments();
+    moments.insertStored({ id: 'present', userId: '54', status: 'active' });
+
+    const reader = renderCounted(() => moments.use.byIds(['missing', 'present'], { renderKeys: ['status'] }));
+
+    expect(reader.result().rows).toHaveLength(1);
+    expect(reader.result().byId.has('present')).toBe(true);
+    expect(reader.result().byId.has('missing')).toBe(false);
+    reader.unmount();
+  });
+
   it('accepts a numeric primary id from the transport and reads it by string id', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => {

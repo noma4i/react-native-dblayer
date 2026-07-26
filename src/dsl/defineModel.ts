@@ -309,7 +309,11 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
       opts?: DbReadOptions<TStored> & { select?: never; renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
     ): TStored | undefined;
     where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
-    /** Read ids in input order with stable rows and an id-keyed map; nullish ids return an unsubscribed empty result. */
+    /**
+     * Read only found rows in input-id order with stable projections and a map keyed by each found
+     * row's actual stored id. Missing ids are omitted from both `rows` and `byId`; nullish ids return
+     * an unsubscribed empty result.
+     */
     byIds<TProjection extends Record<string, unknown>>(
       ids: readonly string[] | null | undefined,
       opts: { select: (row: TStored) => TProjection; renderKeys?: never }
@@ -1452,14 +1456,29 @@ export const defineModel = <
       where: whereRead,
       byIds: ((ids: readonly string[] | null | undefined, options: ProjectionOptions<Stored, Record<string, unknown>> = {}) => {
         const resolvedIds = (ids ?? []).map(id => String(id));
+        // Written inside the live-read compute pass so it always matches the exact snapshot the
+        // returned rows were produced from; re-reading planes outside compute could observe a
+        // newer state than the cached rows and misalign ids again.
+        const presentIdsRef = useRef<string[]>([]);
         const rows = useProjectedLiveRows(
-          () => resolvedIds.map(id => planes().entityState.read(id)).filter((row): row is Stored => row !== undefined),
+          () => {
+            const present: Stored[] = [];
+            const presentIds: string[] = [];
+            for (const id of resolvedIds) {
+              const row = planes().entityState.read(id);
+              if (row === undefined) continue;
+              present.push(row);
+              presentIds.push(id);
+            }
+            presentIdsRef.current = presentIds;
+            return present;
+          },
           resolvedIds.map(id => rowDep(id)),
           options,
           `${config.id}.use.byIds`
         );
         const resultRef = useRef<{ rows: Record<string, unknown>[]; byId: ReadonlyMap<string, Record<string, unknown>> } | null>(null);
-        if (resultRef.current?.rows !== rows) resultRef.current = { rows, byId: new Map(rows.map((row, index) => [resolvedIds[index]!, row])) };
+        if (resultRef.current?.rows !== rows) resultRef.current = { rows, byId: new Map(rows.map((row, index) => [presentIdsRef.current[index]!, row])) };
         return resultRef.current!;
       }) as ModelCore<Stored, Input>['use']['byIds'],
       count: where =>

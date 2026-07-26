@@ -314,7 +314,11 @@ export type ModelCore<TStored extends {
             require?: readonly (keyof TStored & string)[];
         }): TStored | undefined;
         where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
-        /** Read ids in input order with stable rows and an id-keyed map; nullish ids return an unsubscribed empty result. */
+        /**
+         * Read only found rows in input-id order with stable projections and a map keyed by each found
+         * row's actual stored id. Missing ids are omitted from both `rows` and `byId`; nullish ids return
+         * an unsubscribed empty result.
+         */
         byIds<TProjection extends Record<string, unknown>>(ids: readonly string[] | null | undefined, opts: {
             select: (row: TStored) => TProjection;
             renderKeys?: never;
