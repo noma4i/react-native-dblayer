@@ -22,6 +22,8 @@ type DiagnosticsState = {
   corruptionLedgerResets: number;
   manifestResets: number;
   replaceRejected: number;
+  applyFailure: number;
+  ingestFailed: number;
 };
 
 const emptyDiagnostics = (): DiagnosticsState => ({
@@ -45,7 +47,9 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
   manifestResets: 0,
-  replaceRejected: 0
+  replaceRejected: 0,
+  applyFailure: 0,
+  ingestFailed: 0
 });
 
 let diagnostics = emptyDiagnostics();
@@ -108,6 +112,16 @@ export const noteManifestReset = (): void => {
 
 export const noteReplaceRejected = (): void => {
   diagnostics.replaceRejected += 1;
+};
+
+/** A plan threw mid-`apply()`: the in-memory partial mutation is not persisted (its journal record stays pending), and replay recovers it deterministically. */
+export const noteApplyFailure = (): void => {
+  diagnostics.applyFailure += 1;
+};
+
+/** An ingest declaration threw before or during apply: the event is reported through `onSyncError`, not silently dropped. */
+export const noteIngestFailure = (): void => {
+  diagnostics.ingestFailed += 1;
 };
 
 export const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics });

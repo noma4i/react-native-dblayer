@@ -55,7 +55,10 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-subscription-correctness.test.tsx'), source: path.resolve(specRoot, '../../core/subscriptionRuntime.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-poller-dedup-scheduler.test.ts'), source: path.resolve(specRoot, '../../utils/modelStatusPoller.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-maintenance-scheduler.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
-  { spec: path.resolve(specRoot, 'integrity/i-maintenance-scheduler.test.tsx'), source: path.resolve(specRoot, '../../core/maintenanceScheduler.ts') }
+  { spec: path.resolve(specRoot, 'integrity/i-maintenance-scheduler.test.tsx'), source: path.resolve(specRoot, '../../core/maintenanceScheduler.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>

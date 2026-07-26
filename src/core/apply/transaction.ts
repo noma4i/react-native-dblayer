@@ -6,6 +6,9 @@ import type { StoragePlane } from '../planes/storagePlane';
 import type { WriteOrigin } from '../../dsl/defineModel';
 import { deriveEffects, type AcceptedRow, type DestroyedRow } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
+import { noteApplyFailure } from '../diagnostics';
+import { getDbLogger } from '../logger';
+import { getDbRuntimeConfig } from '../../dsl/configure';
 
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
@@ -36,7 +39,18 @@ export type ApplyTarget = {
 };
 
 export type ApplyRuntime = {
-  /** Apply one plan: journal stores raw intent; effects derive inside the transaction from accepted effective rows, so replay re-derives them. */
+  /**
+   * Apply one plan: journal stores raw intent; effects derive inside the transaction from accepted
+   * effective rows, so replay re-derives them.
+   *
+   * @note Honesty contract, not full STM: a partial in-memory commit is possible ONLY when a
+   * consumer callback throws mid-plan (a write-group merge/accept predicate, a relation callback).
+   * The WAL record for that epoch stays `pending` (never marked `committed`) - replay deterministically
+   * re-applies it from scratch on the next boot, so persisted state never diverges from the journal.
+   * On throw: `noteApplyFailure()` + `getDbLogger().error('apply failed', ...)` +
+   * `defaults.onSyncError({source:'apply'})` fire, then the exception rethrows to the caller (mutation's
+   * rollback path, ingest's `reportModelIngestError`, or replay's own boot-failure surface).
+   */
   apply(ops: JournalOp[]): CommitBatch;
   /**
    * Startup recovery: idempotently re-apply journal records not yet covered by each model's
@@ -226,7 +240,19 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       epoch += 1;
       const record: JournalRecord = { epoch, status: 'pending', ops: recordedOps };
       journal.writePending(record);
-      const batch = applyPlan(recordedOps);
+      let batch: IncrementalCommitBatch;
+      try {
+        batch = applyPlan(recordedOps);
+      } catch (error) {
+        noteApplyFailure();
+        getDbLogger().error('apply failed', { epoch, error });
+        try {
+          getDbRuntimeConfig().defaults?.onSyncError?.(error instanceof Error ? error : new Error(String(error)), { source: 'apply' });
+        } catch (observerError) {
+          getDbLogger().error('apply onSyncError failed', { error: observerError });
+        }
+        throw error;
+      }
       if (checkpoint) {
         storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
         checkpoint.notePlan(touchedModelsOf(recordedOps), epoch);

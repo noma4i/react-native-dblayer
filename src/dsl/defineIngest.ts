@@ -1,6 +1,7 @@
 import type { JournalOp } from '../core/apply/journal';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import { getDbLogger } from '../core/logger';
+import { noteIngestFailure } from '../core/diagnostics';
 import type { ExtractSink } from './defineQuery';
 import { getDbSubscriptionEffect, type DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { getInternalModelHandle } from '../core/internalHandles';
@@ -72,7 +73,9 @@ const idOf = (payload: unknown): string | null => {
   return null;
 };
 
+/** Shared catch-path for every ingest branch (handler, mechanical upsert/destroy, custom-apply): reports through `onSyncError` and counts the failure - never a silent drop. */
 const reportModelIngestError = (model: IngestModel, event: string, error: unknown): void => {
+  noteIngestFailure();
   const reported = error instanceof Error ? error : new Error(String(error));
   try {
     getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'ingest', model: model.modelId, event });
@@ -149,6 +152,14 @@ export const defineModelIngest = (
  * Compile a subscription event into ONE event plan: rows, destroys and extract sinks apply with
  * relation side effects (touch/counterCache/dependent) in a single epoch. Version arbitration for
  * stale events lives in the model's write acceptance gate - not here (one gate, no zoo).
+ *
+ * @note Honesty contract: nothing is acknowledged before the declaration is fully applied. A throw
+ * from the handler or from `apply()` (e.g. a mid-plan write-group failure, see `ApplyRuntime.apply`)
+ * is caught here, reported through `reportModelIngestError` (`onSyncError` + `noteIngestFailure()`
+ * diagnostics), and swallowed to `null` - the event is never marked delivered on a failed apply. The
+ * underlying WAL record for a failed `getApplyRuntime().apply(ops)` call stays `pending`, so a later
+ * redelivery of the same event (or a boot replay) re-applies it deterministically instead of being
+ * treated as already-processed.
  */
 export const defineIngest = (model: IngestModel, handlers: Record<string, (payload: unknown) => IngestDecl | null>): IngestHandle => ({
   apply: (event, payload) => {
@@ -179,12 +190,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
       else if (declaration.invalidate) model.invalidate(declaration.invalidate);
       return declaration;
     } catch (error) {
-      const reported = error instanceof Error ? error : new Error(String(error));
-      try {
-        getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'ingest', model: model.modelId, event });
-      } catch (observerError) {
-        getDbLogger().error('defineIngest onSyncError failed', { error: observerError });
-      }
+      reportModelIngestError(model, event, error);
       return null;
     }
   }

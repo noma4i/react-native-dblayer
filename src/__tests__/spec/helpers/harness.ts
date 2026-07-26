@@ -142,6 +142,8 @@ export type DiagnosticsSnapshot = {
   corruptionLedgerResets: number;
   manifestResets: number;
   replaceRejected: number;
+  applyFailure: number;
+  ingestFailed: number;
 };
 
 type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };

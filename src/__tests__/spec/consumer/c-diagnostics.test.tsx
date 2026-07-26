@@ -82,7 +82,9 @@ describe('read diagnostics', () => {
       corruptionJournalDrops: 0,
       corruptionJournalLosses: 0,
       corruptionLedgerResets: 0,
-      manifestResets: 0
+      manifestResets: 0,
+      applyFailure: 0,
+      ingestFailed: 0
     });
   });
 

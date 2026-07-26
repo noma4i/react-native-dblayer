@@ -33,13 +33,26 @@ const checkpointEpoch = (storage: StoragePlane, prefix: string): number => {
 
 const epochFromKey = (prefix: string, journalKey: string): number => Number(journalKey.slice(`${prefix}journal:`.length));
 
-/** Read one WAL record under the shared corruption policy: checkpointed corruption is dropped, while newer corruption is recorded as unavoidable loss. */
+const VALID_JOURNAL_OP_KINDS = new Set(['upsert', 'patch', 'destroy', 'scope', 'scope-delta', 'counter']);
+
+const isValidJournalOp = (value: unknown): value is JournalOp => {
+  if (typeof value !== 'object' || value === null) return false;
+  const op = value as { kind?: unknown; model?: unknown };
+  return typeof op.kind === 'string' && VALID_JOURNAL_OP_KINDS.has(op.kind) && typeof op.model === 'string';
+};
+
+/** Shape guard for a parsed-but-possibly-malformed record: valid JSON of the wrong shape (`ops` not an array, a stray op without `kind`/`model`, a non-numeric `epoch`) must route through the same corruption policy as a parse failure, not throw past it during replay. */
+const isValidJournalRecord = (value: unknown): value is JournalRecord => {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as { epoch?: unknown; status?: unknown; ops?: unknown };
+  return typeof record.epoch === 'number' && (record.status === 'pending' || record.status === 'committed') && Array.isArray(record.ops) && record.ops.every(isValidJournalOp);
+};
+
+/** Read one WAL record under the shared corruption policy: checkpointed corruption is dropped, while newer corruption is recorded as unavoidable loss. Covers both unparseable JSON and parseable JSON of the wrong record shape. */
 export const readJournalRecord = (storage: StoragePlane, prefix: string, journalKey: string): JournalRecord | null => {
   const raw = storage.get(journalKey);
   if (!raw) return null;
-  try {
-    return JSON.parse(raw) as JournalRecord;
-  } catch {
+  const dropAsCorrupt = (): null => {
     const epoch = epochFromKey(prefix, journalKey);
     const lastCheckpointEpoch = checkpointEpoch(storage, prefix);
     storage.set([{ key: journalKey, value: null }]);
@@ -50,7 +63,14 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
     noteCorruptionJournalLoss();
     getDbLogger().error('unrecoverable WAL corruption', { key: journalKey, epoch, lastCheckpointEpoch });
     return null;
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return dropAsCorrupt();
   }
+  return isValidJournalRecord(parsed) ? parsed : dropAsCorrupt();
 };
 
 export const createJournal = (storage: StoragePlane, prefix: () => string) => {
