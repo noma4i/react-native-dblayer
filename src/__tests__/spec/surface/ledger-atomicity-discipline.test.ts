@@ -19,14 +19,15 @@ const srcRoot = path.resolve(__dirname, '../../..');
  * with (see git history for `defineDetachedOperation.ts` B1-B4 / `i-mutation-atomicity.test.tsx` M1-M5,
  * the behavioral counterparts that would catch a regression here even if this list masked it).
  */
-const knownStandaloneCalls: ReadonlyArray<{ file: string; line: number }> = [
-  { file: 'dsl/defineMutation.ts', line: 279 }, // begin() alone: respond-optimistic produced no ops to combine with
-  { file: 'dsl/defineMutation.ts', line: 286 }, // begin() alone: reusing an existing temp row writes nothing new
-  { file: 'dsl/defineMutation.ts', line: 361 }, // begin() alone: pure dedupe-key tracking, no optimistic write at all
-  { file: 'dsl/defineMutation.ts', line: 401 }, // close() alone: commit produced no ops to combine with
-  { file: 'dsl/defineMutation.ts', line: 404 }, // apply() alone: untracked call, no ledger transition to combine with
-  { file: 'dsl/defineMutation.ts', line: 446 } // close() alone: failure path produced no rollback ops to combine with
-];
+/**
+ * Marker a call site must carry to be accepted as legitimately standalone, followed by the reason.
+ *
+ * The exemption is keyed by this marker rather than by a file/line pair on purpose. A line-keyed
+ * allowlist fails OPEN: once any refactor shifts lines, a genuinely two-step write that lands on a
+ * listed line is silently accepted, which is exactly the defect this gate exists to prevent. A marker
+ * travels with the call, so a newly introduced two-step write can never inherit an exemption.
+ */
+const STANDALONE_MARKER = 'ledger-standalone:';
 
 const sourceFiles = (directory: string): string[] =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -76,12 +77,19 @@ type Violation = { file: string; line: number; kind: string };
 
 const scanFile = (file: string): Violation[] => {
   const text = fs.readFileSync(file, 'utf8');
+  const lines = text.split('\n');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const violations: Violation[] = [];
 
+  /** True when the call's own opening line carries the standalone marker explaining why it has no pair. */
+  const isMarkedStandalone = (call: ts.CallExpression): boolean => {
+    const { line } = source.getLineAndCharacterOfPosition(call.getStart(source));
+    return lines[line]?.includes(STANDALONE_MARKER) === true;
+  };
+
   const visit = (node: ts.Node): void => {
     if (isFunctionLike(node) && node.body) {
-      const calls = collectShallowCalls(node);
+      const calls = collectShallowCalls(node).filter(call => !isMarkedStandalone(call));
       const nakedApplies = calls.filter(call => calleePropertyName(call) === 'apply' && !hasExtraEntries(call));
       const nakedLedgerCalls = calls.filter(call => {
         const name = calleePropertyName(call);
@@ -102,9 +110,7 @@ const scanFile = (file: string): Violation[] => {
 
 describe('ledger/row persist atomicity discipline', () => {
   it('never lets a ledger transition and its paired row mutation persist as two independent writes', () => {
-    const violations = sourceFiles(srcRoot)
-      .flatMap(scanFile)
-      .filter(violation => !knownStandaloneCalls.some(known => known.file === violation.file && known.line === violation.line));
+    const violations = sourceFiles(srcRoot).flatMap(scanFile);
     expect(violations).toEqual([]);
   });
 });

@@ -276,14 +276,14 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         operations.begin(beginFields, { persist: false });
         getApplyRuntime().apply(optimisticOps, { extraEntries: () => operations.persistEntries() });
       } else {
-        operations.begin(beginFields);
+        operations.begin(beginFields); // ledger-standalone: respond-optimistic produced no ops to combine with
       }
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
       if (persistedFailedInput && !persistedFailedInput.serializable) noteDataLoss('failed-input-unserializable', optimistic.model.modelId, 1);
       const reuseId = forcedTempId ?? optimistic.existingTempId?.(input) ?? null;
       if (reuseId != null && (forcedTempId != null || optimistic.model.find(reuseId) !== undefined)) {
         tempId = reuseId;
-        operations.begin({
+        operations.begin({ // ledger-standalone: reusing an existing temp row writes nothing new
           operationId,
           model: optimistic.model.modelId,
           tempIds: [tempId],
@@ -358,7 +358,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         extraEntries: () => operations.persistEntries()
       });
     } else if (tracked) {
-      operations.begin({
+      operations.begin({ // ledger-standalone: pure dedupe-key tracking, no optimistic write at all
         operationId,
         model: '',
         tempIds: [],
@@ -398,10 +398,10 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         operations.close(operationId, 'committed', { persist: false });
         getApplyRuntime().apply(commitOps, { extraEntries: () => operations.persistEntries() });
       } else {
-        operations.close(operationId, 'committed');
+        operations.close(operationId, 'committed'); // ledger-standalone: commit produced no ops to combine with
       }
     } else if (commitOps.length > 0) {
-      getApplyRuntime().apply(commitOps);
+      getApplyRuntime().apply(commitOps); // ledger-standalone: untracked call, no ledger transition to combine with
     }
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
@@ -443,7 +443,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           operations.close(operationId, status, { persist: false });
           getApplyRuntime().apply(rollbackOps, { extraEntries: () => operations.persistEntries() });
         } else {
-          operations.close(operationId, status);
+          operations.close(operationId, status); // ledger-standalone: failure path produced no rollback ops to combine with
         }
       }
       const reported = error instanceof Error ? error : new Error(String(error));
