@@ -1,5 +1,15 @@
 import { isPlainObject } from 'es-toolkit';
 
+export type TimestampInput = string | number | Date | null | undefined;
+
+/** Normalize a date-like input to epoch milliseconds; missing or malformed values become NaN. */
+export const toTimestamp = (value: TimestampInput): number => {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return new Date(value).getTime();
+  return Number.NaN;
+};
+
 /** Narrow a value to a non-null object. Arrays also satisfy this check - callers that need to exclude them do so themselves. */
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 

@@ -1,8 +1,8 @@
 import { isTempId } from './generateTempId';
+import { toTimestamp, type TimestampInput } from './normalizeHelpers';
 
 type RowId = { id: string };
-type CreatedAtLike = string | number | Date | null | undefined;
-type CreatedAtRow = RowId & { createdAt?: CreatedAtLike };
+type CreatedAtRow = RowId & { createdAt?: TimestampInput };
 
 type SnapshotModel<TStored extends RowId> = {
   find(id: string | undefined | null): TStored | undefined;
@@ -38,13 +38,6 @@ export type ReconcileOptimisticRowsOptions<TStored extends CreatedAtRow, TNode e
    * @default 'drop'
    */
   onExisting?: 'drop' | 'return';
-};
-
-const toTimestamp = (value: CreatedAtLike): number => {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') return new Date(value).getTime();
-  return Number.NaN;
 };
 
 /**

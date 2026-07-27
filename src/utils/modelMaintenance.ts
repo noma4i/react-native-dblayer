@@ -1,19 +1,12 @@
 import { isTempId } from './generateTempId';
+import { toTimestamp, type TimestampInput } from './normalizeHelpers';
 
 type RowId = { id: string };
-type CreatedAtLike = string | number | Date | null | undefined;
-type CreatedAtRow = RowId & { createdAt?: CreatedAtLike };
+type CreatedAtRow = RowId & { createdAt?: TimestampInput };
 
 type DestroyManyModel<TStored extends RowId> = {
   all(): TStored[];
   destroyMany(ids: string[]): void;
-};
-
-const toTimestamp = (value: CreatedAtLike): number => {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') return new Date(value).getTime();
-  return Number.NaN;
 };
 
 const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
