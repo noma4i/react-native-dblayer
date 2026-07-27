@@ -1,9 +1,5 @@
 import type { DbWhere, ModelFieldSpecs } from '../types';
-import { registerSchemaDeclaration } from '../core/schemaManifest';
-import { createCommitEnvelope } from '../core/apply/transaction';
-import { registerGcHost } from '../core/gc';
 import { invalidateModel } from '../core/invalidationRegistry';
-import { noteDataLoss } from '../core/diagnostics';
 import { registerRelationHost } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
@@ -17,16 +13,11 @@ import { createModelReadAccess } from './modelReadAccess';
 import { createModelReactiveReads } from './modelReactiveReads';
 import { createModelScopeHandle } from './modelScopeHandle';
 import { createModelDefinitions } from './modelDefinitions';
+import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
 import { limitRows, sortModelReadRows } from '../read/incrementalReadEngine';
-import { getApplyRuntime, getOperationState } from './configure';
-import { clearFailedOptimisticMutation } from './defineMutation';
-import { registerIngestModel } from './defineIngest';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeSpec } from './scope';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
-import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
-import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
-import { registerInternalModelHandle } from '../core/internalHandles';
 
 export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
 
@@ -135,60 +126,14 @@ export const defineModel = <
     writeRows,
     patchRow
   });
-  registerSchemaDeclaration({
-    id: config.id,
-    name: config.name,
-    fields: Object.fromEntries(Object.entries(config.fields).map(([name, field]) => [name, { kind: field.kind, mode: field.mode, hasDefault: field.hasDefault }])),
-    scopes: Object.fromEntries(
-      Object.entries(config.scopes ?? {}).map(([name, spec]) => {
-        const by = spec.by ? Object.fromEntries(Object.entries(spec.by).map(([scopeField, rowField]) => [scopeField, String(rowField)])) : null;
-        const sort = spec.member ? 'member' : !spec.sort || spec.sort === 'server-order' ? 'server-order' : 'field' in spec.sort ? `field:${String(spec.sort.field)}:${spec.sort.dir}` : 'comparator';
-        return [name, { by, sort }];
-      })
-    )
-  });
-  registerGcHost(config.id, {
+  registerModelSchemaAndGc<Stored>({
     modelId: config.id,
-    exempt: config.gc === 'exempt',
-    rowIds: () =>
-      planes()
-        .entityState.values()
-        .map(row => String(row.id)),
-    hasRow: id => planes().entityState.read(id) !== undefined,
-    scopeKeys: () => planes().scopeIndex.keys(),
-    scopeEntryIds: key =>
-      planes()
-        .scopeIndex.read(key)
-        .entries.map(entry => entry.id),
-    detachScopeEntries: (key, ids) => {
-      planes().scopeIndex.detach(key, ids);
-    },
-    scopeEntryCount: key => planes().scopeIndex.read(key).entries.length,
-    removeScope: key => {
-      planes().scopeIndex.remove(key);
-    },
-    idleScopeAfterMs: () => config.maintenance?.dropIdleScopesAfterMs,
-    scopeLastAccess: key => planes().scopeIndex.lastAccess(key),
-    evict: id => planes().entityState.evict(id),
-    referencesOf: id => {
-      const row = planes().entityState.read(id);
-      if (!row) return [];
-      const out: Array<{ model: string; id: string }> = [];
-      for (const relation of Object.values(resolvedRelations())) {
-        if (relation.kind === 'belongsTo') {
-          const value = row[relation.foreignKey];
-          if (typeof value === 'string' && value.length > 0) out.push({ model: relation.model.modelId, id: value });
-        }
-        if (relation.kind === 'references') {
-          const raw = relation.ids(row);
-          const list = Array.isArray(raw) ? raw : [raw];
-          for (const value of list) {
-            if (typeof value === 'string' && value.length > 0) out.push({ model: relation.model.modelId, id: value });
-          }
-        }
-      }
-      return out;
-    }
+    modelName: config.name,
+    fields: config.fields,
+    scopes: config.scopes as Record<string, ScopeSpec<Stored>> | undefined,
+    gc: config.gc,
+    dropIdleScopesAfterMs: config.maintenance?.dropIdleScopesAfterMs,
+    context
   });
 
   const makeScopeHandle = createModelScopeHandle<Stored, Input>({
@@ -270,52 +215,16 @@ export const defineModel = <
     }
   };
   context.setModel(model);
-  registerInternalModelHandle(model, {
-    readRow: id => planes().entityState.read(id),
-    applyRows: rows => applySnapshot(planRows(rows)),
-    applyPatch: (id, patch, operationId) => getApplyRuntime().commit(createCommitEnvelope([{ kind: 'patch', model: config.id, id: String(id), patch, operationId }])),
+  registerModelRuntime<Stored, Input>({
+    modelId: config.id,
+    modelName: config.name,
+    context,
+    maintenance: config.maintenance,
+    applySnapshot,
     planRows,
     planReplace,
     captureMembership,
-    planRestore,
-    relations: resolvedRelations,
-    revision: context.revision,
-    dropTempRowsAfterMs: () => config.maintenance?.dropTempRowsAfterMs
-  });
-  registerIngestModel(config.name, model);
-  if (config.maintenance) {
-    const pendingTempRows = (): MaintenanceReport[] => {
-      const maxAgeMs = config.maintenance?.dropTempRowsAfterMs;
-      if (maxAgeMs === undefined) return [];
-      const protectedIds = new Set([
-        ...getOperationState().pending().filter(operation => operation.model === config.id).flatMap(operation => operation.tempIds),
-        ...modelProtectedTempIds()
-      ]);
-      const ids: string[] = [];
-      resolveStaleTempRows(model, { maxAgeMs, protectedIds, onStale: row => ids.push(row.id) });
-      if (ids.length === 0) return [];
-      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: config.id, ids, tombstone: false }]));
-      for (const id of ids) clearFailedOptimisticMutation(config.id, id);
-      noteDataLoss('stale-temp-row-expiry', config.id, ids.length);
-      return [{ model: config.id, task: 'dropTempRows', affected: ids.length }];
-    };
-    const modelProtectedTempIds = (): ReadonlySet<string> => new Set(config.maintenance?.protectTempRows?.() ?? []);
-    registerModelMaintenance(config.id, {
-      boot: () => {
-        const reports: MaintenanceReport[] = [];
-        for (const task of config.maintenance?.maxRowsPerScope ?? []) {
-          reports.push({ model: config.id, task: 'maxRowsPerScope', affected: trimRowsPerScope(model, task.scopeField, task.limit, task.compare, task.protect?.()) });
-        }
-        return [...reports, ...pendingTempRows()];
-      },
-      pendingTempRows,
-      protectedTempIds: modelProtectedTempIds
-    });
-  }
-
-  registerReset(() => {
-    context.reset();
-    // The apply target stays registered: a model must keep working after the kill-switch.
+    planRestore
   });
 
   for (const [scopeName, spec] of Object.entries(config.queryScopes ?? {})) {

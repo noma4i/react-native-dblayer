@@ -16,6 +16,7 @@ import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import type { ModelStatusPoller } from '../utils/modelStatusPoller';
 import type { WritePolicy } from '../core/writePolicies';
 import type { ModelContext } from '../dsl/modelContext';
+import type { JournalOp } from '../core/apply/journal';
 
 /** Row shape every model read path narrows to before projection. */
 export type StoredRowShape = { id: string } & Record<string, unknown>;
@@ -66,6 +67,37 @@ export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | 
 export type ModelDefinitionsOptions<TStored extends { id: string; updatedAt?: string | null }, TInput> = {
   modelId: string;
   context: ModelContext<TStored>;
+};
+
+export type ModelSchemaRegistrationOptions<TStored extends { id: string } & Record<string, unknown>> = {
+  modelId: string;
+  modelName: string;
+  fields: ModelFieldSpecs;
+  scopes: Record<string, ScopeSpec<TStored>> | undefined;
+  gc: 'exempt' | undefined;
+  dropIdleScopesAfterMs: number | undefined;
+  context: ModelContext<TStored>;
+};
+
+export type ModelRuntimeRegistrationOptions<TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput> = {
+  modelId: string;
+  modelName: string;
+  context: ModelContext<TStored>;
+  maintenance?: {
+    dropTempRowsAfterMs?: number;
+    protectTempRows?: () => ReadonlySet<string> | readonly string[];
+    maxRowsPerScope?: Array<{
+      scopeField: Extract<keyof TStored, string>;
+      limit: number;
+      compare: (left: TStored, right: TStored) => number;
+      protect?: () => (row: TStored) => boolean;
+    }>;
+  };
+  applySnapshot(ops: JournalOp[]): void;
+  planRows(rows: unknown[]): JournalOp[];
+  planReplace(oldId: string, next: unknown): JournalOp[];
+  captureMembership(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
+  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
 };
 
 /**
