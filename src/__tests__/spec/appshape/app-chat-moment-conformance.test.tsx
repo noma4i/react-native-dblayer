@@ -1,6 +1,6 @@
 import { act } from 'react-test-renderer';
 import { configureDb } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const moment = (id: string) => ({ id, uuid: 'moment-uuid-1', userId: 'user-1', createdAt: '2026-07-27T00:00:00Z', updatedAt: '2026-07-27T00:00:00Z', media: { id: 'media-1', kind: 'photo', fileUrl: 'file:///moment.jpg' } });
@@ -113,15 +113,17 @@ describe('app chat and moment conformance', () => {
     queryReader.unmount();
   });
 
-  test.failing('CM6 single and external-key channels preserve one feed row and its membership', async () => {
+  it('CM6 single and external-key channels preserve one feed row and its membership', async () => {
     const row = { ...moment('moment-1'), uuid: 'moment-public-1' };
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ query: async <TData,>() => ({ data: { moment: row, publicMoment: row } as TData }) }) });
     const models = createAppModels('MomentOtherChannels');
+    const bootReader = renderCountedInProvider(() => null);
+    await settle();
     models.moments.scopes.feed.seed({}, [row] as any);
     const feedRow = models.moments.find('moment-1');
     const singleQuery = models.moments.query<any, { momentId: string }, { momentId: string }, any>('singleMoment', { document, vars: scope => scope, select: data => data.moment, into: models.moments });
     const byUuidQuery = models.moments.query<any, { uuid: string }, { uuid: string }, any>('momentByUuid', { document, vars: scope => scope, select: data => data.publicMoment, into: models.moments });
-    const singleReader = renderCountedInProvider(() => singleQuery.use({ momentId: 'moment-1' }));
+    const singleReader = renderCountedInProvider(() => singleQuery.useRowEnsured({ momentId: 'moment-1' }, 'moment-1'));
     await settle();
     await settle(1, { macro: true });
     const uuidReader = renderCountedInProvider(() => byUuidQuery.use({ uuid: 'moment-public-1' }));
@@ -129,21 +131,31 @@ describe('app chat and moment conformance', () => {
     await settle(1, { macro: true });
 
     expect(models.moments.all().filter((item: any) => item.id === 'moment-1')).toHaveLength(1);
+    expect(singleReader.result().row).toBe(feedRow);
     expect(models.moments.find('moment-1')).toBe(feedRow);
     expect(models.moments.scopes.feed.read({}).map((item: any) => item.id)).toEqual(['moment-1']);
 
+    bootReader.unmount();
     singleReader.unmount();
     uuidReader.unmount();
   });
 
-  test.failing('CM7 feed network rejection preserves the already loaded scope', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ query: async () => { throw new Error('network offline'); } }) });
-    const models = createAppModels('MomentFeedNetworkFailure');
+  it('CM7 feed network rejection preserves the already loaded scope', async () => {
     const row = moment('moment-1');
-    models.moments.scopes.feed.seed({}, [row] as any);
+    let calls = 0;
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ query: async <TData,>() => {
+      calls += 1;
+      if (calls === 1) return { data: { feed: { nodes: [row], pageInfo: { hasNextPage: false, endCursor: null }, lastSequenceNumber: 1 } } as TData };
+      throw new Error('network offline');
+    } }) });
+    const models = createAppModels('MomentFeedNetworkFailure');
     const feedQuery = models.moments.query<any, {}, {}, any>('feed', { document, vars: () => ({}), page: data => data.feed, into: models.moments.scopes.feed, coverage: 'page' });
     const queryReader = renderCountedInProvider(() => feedQuery.use({}));
 
+    await settle();
+    await settle(1, { macro: true });
+    await settleUntil(() => models.moments.scopes.feed.read({}).length === 1, 20, { macro: true });
+    await act(async () => { await queryReader.result().refetch(); });
     await settle();
     await settle(1, { macro: true });
 
@@ -152,14 +164,22 @@ describe('app chat and moment conformance', () => {
     queryReader.unmount();
   });
 
-  test.failing('CM8 feed server rejection preserves the already loaded scope', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ query: async () => { throw new Error('server denied'); } }) });
-    const models = createAppModels('MomentFeedServerFailure');
+  it('CM8 feed server rejection preserves the already loaded scope', async () => {
     const row = moment('moment-1');
-    models.moments.scopes.feed.seed({}, [row] as any);
+    let calls = 0;
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ query: async <TData,>() => {
+      calls += 1;
+      if (calls === 1) return { data: { feed: { nodes: [row], pageInfo: { hasNextPage: false, endCursor: null }, lastSequenceNumber: 1 } } as TData };
+      throw new Error('server denied');
+    } }) });
+    const models = createAppModels('MomentFeedServerFailure');
     const feedQuery = models.moments.query<any, {}, {}, any>('feed', { document, vars: () => ({}), page: data => data.feed, into: models.moments.scopes.feed, coverage: 'page' });
     const queryReader = renderCountedInProvider(() => feedQuery.use({}));
 
+    await settle();
+    await settle(1, { macro: true });
+    await settleUntil(() => models.moments.scopes.feed.read({}).length === 1, 20, { macro: true });
+    await act(async () => { await queryReader.result().refetch(); });
     await settle();
     await settle(1, { macro: true });
 
