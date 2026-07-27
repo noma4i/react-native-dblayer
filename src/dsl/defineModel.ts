@@ -12,7 +12,7 @@ import { registerGcHost } from '../core/gc';
 import { type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
-import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
+import { noteDataLoss } from '../core/diagnostics';
 import { registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
@@ -20,6 +20,7 @@ import { createModelScopeKeys } from './modelScopeKeys';
 import { createModelCriteria } from './modelCriteria';
 import { createModelContext } from './modelContext';
 import { createModelMembership } from './modelMembership';
+import { createModelWrites } from './modelWrites';
 import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
@@ -44,7 +45,6 @@ import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenanc
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
-import type { WriteOrigin, WritePolicy } from '../core/writePolicies';
 
 export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
 
@@ -141,35 +141,20 @@ export const defineModel = <
     detachForDestroy
   });
 
-  const writeRows = (rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Stored, operationId?: string): Array<{ id: string; changedFields: string[] | null }> => {
-    const changes: Array<{ id: string; changedFields: string[] | null }> = [];
-    for (const value of rows) {
-      let incoming: Stored;
-      try {
-        incoming = normalize(value);
-      } catch (error) {
-        getDbLogger().error(`[${config.name}] apply row rejected`, { error });
-        continue;
-      }
-      if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
-      const result = planes().entityState.upsert(incoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot', operationId } });
-      if (result.changedFields !== null && result.changedFields.length === 0) continue;
-      changes.push({ id: incoming.id, changedFields: result.changedFields });
-    }
-    if (changes.length > 0) context.bumpRevision();
-    return changes;
-  };
-
-  const patchRow = (id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null => {
-    const key = String(id);
-    const current = planes().entityState.read(key);
-    if (!current) return null;
-    const row = { ...patch, id: key } as Stored;
-    const result = planes().entityState.upsert(row, { ctx: { origin: 'patch', operationId } });
-    if (result.changedFields !== null && result.changedFields.length === 0) return null;
-    context.bumpRevision();
-    return { id: key, changedFields: result.changedFields };
-  };
+  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
+    planes().scopeIndex.keysOf(id).flatMap(scopeKey => {
+      const entry = planes().scopeIndex.read(scopeKey).entries.find(candidate => candidate.id === id);
+      return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
+    });
+  const { writeRows, patchRow, planRows, planReplace, planRestore } = createModelWrites<Stored>({
+    modelId: config.id,
+    modelName: config.name,
+    entityState: () => planes().entityState,
+    normalize,
+    isPlanRow,
+    bumpRevision: context.bumpRevision,
+    captureMembership
+  });
 
   const applyTarget = {
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
@@ -597,65 +582,6 @@ export const defineModel = <
 
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
     [K in keyof TScopes]: ScopeHandle<Stored, ScopeValueOf<TScopes[K]>, Input>;
-  };
-
-  const planRows = (rows: unknown[], options?: { origin?: 'event' }): JournalOp[] => {
-    const accepted = rows.filter(isPlanRow);
-    return [{ kind: 'upsert', model: config.id, rows: accepted, ...(options?.origin ? { origin: options.origin } : {}) }];
-  };
-
-  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
-    planes()
-      .scopeIndex.keysOf(id)
-      .flatMap(scopeKey => {
-        const entry = planes()
-          .scopeIndex.read(scopeKey)
-          .entries.find(candidate => candidate.id === id);
-        return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
-      });
-
-  const restoreMembership = (nextId: string, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[] =>
-    memberships.map(membership => ({
-      kind: 'scope-delta' as const,
-      model: config.id,
-      scopeKey: membership.scopeKey,
-      append: [{ id: nextId, order: membership.order, edge: membership.edge }],
-      detach: [membership.id]
-    }));
-
-  const replacementId = (next: unknown): string | null => {
-    try {
-      return normalize(next).id;
-    } catch {
-      return null;
-    }
-  };
-
-  const planReplace = (oldId: string, next: unknown): JournalOp[] => {
-    let normalized: Stored;
-    try {
-      normalized = normalize(next);
-    } catch (error) {
-      getDbLogger().error('replace rejected', { model: config.id, oldId, error });
-      noteReplaceRejected();
-      noteDataLoss('replacement-rejected', config.id, 1);
-      throw new Error(`replace rejected for ${config.id}:${oldId}`);
-    }
-    // Reconciliation and mutation commit share this replacement seam, so both clear retained failure state.
-    clearFailedOptimisticMutation(config.id, oldId);
-    const mergeBase = planes().entityState.read(oldId);
-    const memberships = captureMembership(oldId);
-    const nextId = normalized.id;
-    return [
-      { kind: 'destroy', model: config.id, ids: [oldId], origin: 'replace' },
-      { kind: 'upsert', model: config.id, rows: [next], origin: 'replace', mergeBase },
-      ...(nextId == null ? [] : restoreMembership(nextId, memberships))
-    ];
-  };
-
-  const planRestore = (next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[] => {
-    const nextId = replacementId(next);
-    return [{ kind: 'upsert', model: config.id, rows: [next], origin: 'replace' }, ...(nextId == null ? [] : restoreMembership(nextId, memberships))];
   };
 
   const model: ModelCore<Stored, Input> & { scopes: typeof scopeHandles } = {
