@@ -1,8 +1,12 @@
+import { act } from 'react-test-renderer';
 import { configureDb } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const moment = (id: string) => ({ id, uuid: 'moment-uuid-1', userId: 'user-1', createdAt: '2026-07-27T00:00:00Z', updatedAt: '2026-07-27T00:00:00Z', media: { id: 'media-1', kind: 'photo', fileUrl: 'file:///moment.jpg' } });
+const document = { kind: 'Document', definitions: [] } as never;
+const chat = (id: string, lastActivityAt: string, overrides: Record<string, unknown> = {}) => ({ id, uuid: null, kind: 'group', status: 'active', premium: false, name: 'Group', logoUrl: null, description: null, isPublic: false, history: 'all', pinned: false, muted: false, read: false, unreadCount: 0, messagesCount: 0, lastActivityAt, lastMessageAt: null, lastSequenceNumber: null, lastMessage: null, readMarksSummary: null, summary: null, connectionStatus: null, userIds: [], owner: null, createdAt: lastActivityAt, updatedAt: lastActivityAt, ...overrides });
+const message = (id: string, chatId: string) => ({ id, chatId, userId: 'user-1', body: 'existing message', kind: 'text', status: 'Sent', createdAt: '2026-07-27T00:00:00Z', updatedAt: '2026-07-27T00:00:00Z', sequenceNumber: 1, mediaGroupId: null, replyToId: null, media: null, mediaBucket: null, localPreviewUrl: null, clientId: id });
 
 describe('app chat and moment conformance', () => {
   it('CM1 local moment deletion removes every app scope membership and tombstone rejects a stale feed snapshot', () => {
@@ -27,5 +31,56 @@ describe('app chat and moment conformance', () => {
     models.moments.scopes.feed.seed({}, [row] as any);
     expect(models.moments.find('moment-1')).toBeUndefined();
     expect(models.moments.scopes.feed.read({})).toEqual([]);
+  });
+
+  it('CM2 confirmed chat creation keeps list order and related messages through sync and subscription echoes', async () => {
+    const created = chat('chat-created', '2026-07-27T00:02:00Z');
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ mutation: async <TData,>(operation: any) => ({ data: operation.variables.input.mode === 'sync' ? { chatSync: { chats: [created] } } as TData : { chatGroupCreate: { chat: created } } as TData }) }) });
+    const models = createAppModels('ChatCreateConfirm');
+    const previous = chat('chat-previous', '2026-07-27T00:01:00Z');
+    models.chats.scopes.list.seed({ statusFilter: 'active' }, [previous] as any);
+    models.messages.scopes.thread.seed({ chatId: 'chat-created' }, [message('message-existing', 'chat-created')] as any);
+    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', extract: ({ data }: any) => [{ into: models.chats, rows: [data.chatGroupCreate.chat] }] });
+
+    await act(async () => { await create.run({ mode: 'create' } as any); });
+
+    expect(models.chats.scopes.list.read({ statusFilter: 'active' }).map((row: any) => row.id)).toEqual(['chat-created', 'chat-previous']);
+    expect(models.messages.scopes.thread.read({ chatId: 'chat-created' }).map((row: any) => row.id)).toEqual(['message-existing']);
+
+    const sync = models.chats.mutation('sync', { document, result: 'chatSync', extract: ({ data }: any) => [{ into: models.chats, rows: data.chatSync.chats }] });
+    const ingest = models.chats.ingest({ chatCreated: { handler: (payload: any) => ({ upsert: payload.chat, invalidate: { statusFilter: payload.chat.status } }) } });
+    await act(async () => { await sync.run({ mode: 'sync' } as any); });
+    act(() => { ingest.apply('chatCreated', { chat: created }); });
+
+    expect(models.chats.all().filter((row: any) => row.id === 'chat-created')).toHaveLength(1);
+    expect(models.chats.scopes.list.read({ statusFilter: 'active' }).map((row: any) => row.id)).toEqual(['chat-created', 'chat-previous']);
+  });
+
+  it('CM3 chat creation network rejection leaves the loaded list and message membership unchanged', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ mutation: async () => { throw new Error('offline'); } }) });
+    const models = createAppModels('ChatCreateNetworkFailure');
+    const existing = chat('chat-existing', '2026-07-27T00:01:00Z');
+    models.chats.scopes.list.seed({ statusFilter: 'active' }, [existing] as any);
+    models.messages.scopes.thread.seed({ chatId: 'chat-existing' }, [message('message-existing', 'chat-existing')] as any);
+    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', extract: ({ data }: any) => [{ into: models.chats, rows: [data.chatGroupCreate.chat] }] });
+
+    await expect(create.run({})).rejects.toThrow('offline');
+
+    expect(models.chats.scopes.list.read({ statusFilter: 'active' }).map((row: any) => row.id)).toEqual(['chat-existing']);
+    expect(models.messages.scopes.thread.read({ chatId: 'chat-existing' }).map((row: any) => row.id)).toEqual(['message-existing']);
+  });
+
+  it('CM4 chat creation server rejection leaves the loaded list and message membership unchanged', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ mutation: async <TData,>() => ({ data: { chatGroupCreate: null } as TData }) }) });
+    const models = createAppModels('ChatCreateServerFailure');
+    const existing = chat('chat-existing', '2026-07-27T00:01:00Z');
+    models.chats.scopes.list.seed({ statusFilter: 'active' }, [existing] as any);
+    models.messages.scopes.thread.seed({ chatId: 'chat-existing' }, [message('message-existing', 'chat-existing')] as any);
+    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', extract: ({ data }: any) => data.chatGroupCreate?.chat ? [{ into: models.chats, rows: [data.chatGroupCreate.chat] }] : [] });
+
+    await expect(create.run({})).rejects.toThrow('chatGroupCreate returned no data');
+
+    expect(models.chats.scopes.list.read({ statusFilter: 'active' }).map((row: any) => row.id)).toEqual(['chat-existing']);
+    expect(models.messages.scopes.thread.read({ chatId: 'chat-existing' }).map((row: any) => row.id)).toEqual(['message-existing']);
   });
 });
