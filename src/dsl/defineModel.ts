@@ -18,7 +18,7 @@ import { getDbLogger } from '../core/logger';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
-import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
+import { createModelNormalization, readModelField } from './modelNormalization';
 import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
@@ -39,7 +39,7 @@ import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
-import { trimRowsPerScope } from '../utils/runtimePrimitives';
+import { trimRowsPerScope } from '../utils/modelMaintenance';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
@@ -467,16 +467,6 @@ export type ModelConfig<
 
 const EMPTY_ROWS: never[] = [];
 
-type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
-
-const readField = (field: ModelFieldSpecs[string], input: unknown, key: string, complete: boolean): unknown => {
-  const value = complete ? field.read(input, key) : (field as SparseModelField)[fieldSpecSparseRead](input, key);
-  if (value !== undefined) return value;
-  if (complete && field.factoryDefault !== undefined) return typeof field.factoryDefault === 'function' ? field.factoryDefault() : field.factoryDefault;
-  if (complete && (field.mode === 'nullable' || field.mode === 'optionalNullable')) return null;
-  return undefined;
-};
-
 type ScopeSortSpec<TRow> = { field: keyof TRow & string; dir: 'asc' | 'desc' } | { comparator: (a: TRow, b: TRow) => number; orderFields?: ReadonlyArray<keyof TRow & string> };
 
 const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] =>
@@ -507,46 +497,7 @@ export const defineModel = <
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
   type Input = InferBuildInput<TFields>;
   type ModelPlanes = { entityState: EntityState<Stored>; scopeIndex: ScopeIndex };
-  const applyWriteGate = (() => {
-    if (!config.write) return undefined;
-    const groups = config.write?.groups;
-    if (groups && groups.length === 0) throw new Error(`${config.name} write groups must not be empty`);
-    const declaredFields = new Set(Object.keys(config.fields));
-    const groupedFields = new Set<string>();
-    for (const group of groups ?? []) {
-      if (group.fields.length === 0) throw new Error(`${config.name} write groups must not be empty`);
-      for (const field of group.fields) {
-        if (!declaredFields.has(field)) throw new Error(`${config.name} write field ${field} is not declared`);
-        if (groupedFields.has(field)) throw new Error(`${config.name} write field ${field} appears in more than one group`);
-        groupedFields.add(field);
-      }
-    }
-    return (previous: Stored, incoming: Stored, ctx: WriteCtx): Stored | null => {
-      if (ctx.origin !== 'replace' && config.write?.accept && !config.write.accept(previous, incoming, ctx)) return null;
-      let effective: Stored = { ...previous, ...incoming };
-      for (const group of groups ?? []) {
-        if (group.policy === 'server') continue;
-        if (group.policy === 'continuity') {
-          for (const field of group.fields) if (field in incoming && (incoming[field] === undefined || incoming[field] === null)) effective[field] = previous[field];
-          continue;
-        }
-        if ('monotonic' in group.policy) {
-          const changed = group.fields.some(field => field in incoming && !Object.is(incoming[field], previous[field]));
-          if (changed && !group.policy.monotonic(incoming, previous, ctx)) {
-            for (const field of group.fields) effective[field] = previous[field];
-          }
-          continue;
-        }
-        for (const field of group.fields) {
-          if (!(field in incoming)) continue;
-          const value = group.policy.merge(previous[field], incoming[field], ctx);
-          if (value === undefined) (effective as Record<string, unknown>)[field] = previous[field];
-          else (effective as Record<string, unknown>)[field] = value;
-        }
-      }
-      return effective;
-    };
-  })();
+  const { applyWriteGate, isPlanRow, normalize } = createModelNormalization(config);
   let planesRef: ModelPlanes | null = null;
   let revision = 0;
   /** Planes are created and hydrated on first touch, so models can be defined before configureDb. */
@@ -576,29 +527,6 @@ export const defineModel = <
     return planesRef;
   };
 
-  const normalize = (input: unknown, complete = false): Stored => {
-    if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
-    const id = stringifyNullish(config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined));
-    if (typeof id !== 'string' || id.length === 0) throw new Error(`${config.name} requires id`);
-    const output: Record<string, unknown> = { id };
-    for (const [key, field] of Object.entries(config.fields)) {
-      const value = readField(field, input, key, complete);
-      if (value !== undefined) output[key] = value;
-    }
-    return output as Stored;
-  };
-
-  /** Plan-build validation: raw rows stay in the op (normalize is shape-sensitive); invalid rows drop here. */
-  const isPlanRow = (value: unknown): boolean => {
-    try {
-      normalize(value);
-      return true;
-    } catch (error) {
-      getDbLogger().error(`[${config.name}] plan row rejected`, { error });
-      return false;
-    }
-  };
-
   let relationCache: Record<string, RelationDecl> | null = null;
   const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
 
@@ -608,7 +536,7 @@ export const defineModel = <
     const value: Record<string, unknown> = {};
     for (const [scopeField, rowField] of Object.entries(by)) {
       const fieldSpec = config.fields[rowField];
-      const fieldValue = fieldSpec?.derived === true && row[rowField] !== undefined ? row[rowField] : fieldSpec ? readField(fieldSpec, row, rowField, false) : row[rowField];
+      const fieldValue = fieldSpec?.derived === true && row[rowField] !== undefined ? row[rowField] : fieldSpec ? readModelField(fieldSpec, row, rowField, false) : row[rowField];
       if (fieldValue === undefined || fieldValue === null) return null;
       value[scopeField] = fieldValue;
     }
