@@ -36,7 +36,7 @@ describe('account switch integrity', () => {
     let onMutateCalls = 0;
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { row: { id: 'server-1', accountId: 'A', label: 'sent' } } } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModel({ id: 'AccountSwitchMutation', name: 'AccountSwitchMutation', fields: { accountId: f.str(), label: f.str() } });
+    const rows = defineModel({ id: 'AccountSwitchMutation', name: 'AccountSwitchMutation', fields: { accountId: f.str(), label: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
     let firstTempId = '';
     const send = rows.mutation<SendResult, { label: string }, Row, Row>('send', {
       document,

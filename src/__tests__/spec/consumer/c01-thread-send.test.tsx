@@ -74,7 +74,8 @@ const createModels = (suffix: string, options?: { threadRetention?: number }) =>
         sort: { comparator: compareNewestFirst },
         retention: options?.threadRetention == null ? undefined : { maxRows: options.threadRetention }
       })
-    }
+    },
+    maintenance: { dropTempRowsAfterMs: 1000 }
   });
   return { chats, messages };
 };

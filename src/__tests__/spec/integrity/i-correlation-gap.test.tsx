@@ -214,6 +214,7 @@ describe('correlation gap (red-first, no fix)', () => {
       id: 'SpecIntegrityCorrelationMessagesRollback',
       name: 'SpecIntegrityCorrelationMessagesRollback',
       fields: { id: f.str(), chatId: f.str(), body: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']) },
+      maintenance: { dropTempRowsAfterMs: 1000 },
       relations: () => ({
         chat: belongsTo<MessageRow, ChatRow>(chats, {
           foreignKey: 'chatId',

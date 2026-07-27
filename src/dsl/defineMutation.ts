@@ -10,20 +10,41 @@ import { registerBootValidation } from './bootValidations';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import type { ExtractSink } from './defineQuery';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
-import { registerReset } from '../core/reset';
+import { responseDataOrThrow } from '../core/transport';
+import { noteDataLoss } from '../core/diagnostics';
 
-const failedInputsByTempId = new Map<string, unknown>();
-
-registerReset(() => {
-  failedInputsByTempId.clear();
-});
+const serializeFailedInput = (input: unknown): { serializable: boolean; value: unknown } => {
+  const seen = new Set<object>();
+  const isJsonValue = (value: unknown): boolean => {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value !== 'object') return false;
+    if (seen.has(value)) return false;
+    if (Array.isArray(value)) {
+      seen.add(value);
+      const valid = value.every(isJsonValue);
+      seen.delete(value);
+      return valid;
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+    seen.add(value);
+    const valid = Object.values(value).every(isJsonValue);
+    seen.delete(value);
+    return valid;
+  };
+  if (!isJsonValue(input)) return { serializable: false, value: undefined };
+  try {
+    return { serializable: true, value: JSON.parse(JSON.stringify(input)) };
+  } catch {
+    return { serializable: false, value: undefined };
+  }
+};
 
 /** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
   const operations = getOperationState();
   const operation = operations.failedFor(model, tempId);
   if (operation) operations.clearFailed(operation.operationId);
-  failedInputsByTempId.delete(tempId);
 };
 
 type MutationModel = {
@@ -186,6 +207,9 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
   if (optimisticConfig && isMethodOptimistic(optimisticConfig) && (`prependTo` in optimisticConfig || `appendTo` in optimisticConfig)) {
     throw new Error(`optimistic prependTo/appendTo requires an insert optimistic config`);
   }
+  if (optimisticConfig && !isMethodOptimistic(optimisticConfig) && !isRespondOptimistic(optimisticConfig) && getInternalModelHandle(optimisticConfig.model).dropTempRowsAfterMs() === undefined) {
+    throw new Error(`${optimisticConfig.model.modelId} must declare maintenance.dropTempRowsAfterMs to be used in an optimistic insert mutation`);
+  }
   if (optimisticConfig && isMethodOptimistic(optimisticConfig) && optimisticConfig.method === 'destroy') {
     registerBootValidation(() => {
       if (hasDependentCascade(optimisticConfig.model.modelId)) {
@@ -254,6 +278,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     let context!: OptimisticCtx;
     let data!: TData;
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
+    const persistedFailedInput = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) ? serializeFailedInput(input) : null;
     const generationFence = createGenerationFence();
 
     try {
@@ -320,6 +345,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
         idempotencyKey: dedupeKey ?? operationId,
         once: config.once === true,
+        ...(persistedFailedInput?.serializable ? { failedInput: persistedFailedInput.value } : {}),
         ...(optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch'
           ? (() => {
               const patch = optimistic.selectPatch(input) as Record<string, unknown>;
@@ -328,11 +354,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           : {}),
         createdAt: Date.now()
       });
+      if (persistedFailedInput && !persistedFailedInput.serializable) noteDataLoss('failed-input-unserializable', optimistic!.model.modelId, 1);
     }
     context = { tempId, operationId };
     config.onMutate?.(input, context);
 
-    data = (await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } })).data as TData;
+    data = responseDataOrThrow(await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } }));
     if (!generationFence.isCurrent()) return null;
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
     if (payload == null) throw new Error(`${config.result} returned no data`);
@@ -365,7 +392,6 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         } else if (tempId) {
           const patch = optimistic.onFailurePatch?.(input);
           if (patch) optimistic.model.update(tempId, patch as Record<string, unknown>);
-          failedInputsByTempId.set(tempId, input);
         }
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
@@ -433,7 +459,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
 
   const run = (input: TInput): Promise<TData | null> => runWithTempId(input);
   const retry = async (tempId: string): Promise<TData | null> => {
-    const input = failedInputsByTempId.get(tempId) as TInput | undefined;
+    const input = getOperationState().failedFor(optimisticConfig?.model.modelId ?? '', tempId)?.failedInput as TInput | undefined;
     if (input === undefined || !optimisticConfig || isMethodOptimistic(optimisticConfig) || isRespondOptimistic(optimisticConfig)) return null;
     clearFailedOptimisticMutation(optimisticConfig.model.modelId, tempId);
     const patch = optimisticConfig.onRetryPatch?.(input);
@@ -449,7 +475,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
 
   return {
     run,
-    /** Re-run a failed optimistic mutation for its kept temp row. Returns null when no failed input is known (e.g. after an app restart). */
+    /** Re-run a failed optimistic mutation for its kept temp row. Returns null only when no serializable failed input was retained. */
     retry,
     /** Destroy a kept failed row and clear its failure record. */
     discard,

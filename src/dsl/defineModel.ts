@@ -1431,7 +1431,8 @@ export const defineModel = <
     captureMembership,
     planRestore,
     relations: resolvedRelations,
-    revision: () => revision
+    revision: () => revision,
+    dropTempRowsAfterMs: () => config.maintenance?.dropTempRowsAfterMs
   });
   registerIngestModel(config.name, model);
   if (config.maintenance) {

@@ -10,6 +10,7 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
     id,
     name: id,
     fields: { chatId: f.id(), body: f.str(), media: f.object(media) },
+    maintenance: { dropTempRowsAfterMs: 1000 },
     scopes: { thread: scope<any>({ by: { chatId: 'chatId' }, sort: { field: 'body', dir: 'asc' } }) },
     ...(options?.mergeMedia
       ? {

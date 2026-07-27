@@ -12,6 +12,7 @@ type InternalModelHandle = {
   planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
   relations(): Record<string, RelationDecl>;
   revision(): number;
+  dropTempRowsAfterMs(): number | undefined;
 };
 
 type InternalScopeHandle = {

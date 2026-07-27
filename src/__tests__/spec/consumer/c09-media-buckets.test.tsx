@@ -342,6 +342,7 @@ describe('media scope bucket behavior', () => {
       id: 'SpecCompositePlacement',
       name: 'SpecCompositePlacement',
       fields: { chatId: f.str(), mediaBucket: f.str(), label: f.str() },
+      maintenance: { dropTempRowsAfterMs: 1000 },
       scopes: { media: scope<{ id: string; chatId: string; mediaBucket: string; label: string }>({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: 'server-order' }) }
     });
     const mutation = media.mutation<

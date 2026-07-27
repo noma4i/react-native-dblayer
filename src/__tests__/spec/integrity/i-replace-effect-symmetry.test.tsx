@@ -17,6 +17,7 @@ const createModels = (suffix: string) => {
     id: `SpecIntegrityReplaceSymmetryItems${suffix}`,
     name: `SpecIntegrityReplaceSymmetryItems${suffix}`,
     fields: { id: f.str(), parentId: f.str() },
+    maintenance: { dropTempRowsAfterMs: 1000 },
     scopes: { byParent: scope<ItemRow>({ by: { parentId: 'parentId' } }) },
     relations: () => ({
       parent: belongsTo<ItemRow, ParentRow>(parents, { foreignKey: 'parentId', counterCache: { field: 'itemCount' } })

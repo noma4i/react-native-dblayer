@@ -23,7 +23,7 @@ const deferredMutation = () => {
 
 const createMessages = (transport: ReturnType<typeof createMockTransport>) => {
   configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({ id: 'SpecPendingMessages', name: 'SpecPendingMessages', fields: { text: f.str() } });
+  const messages = defineModel({ id: 'SpecPendingMessages', name: 'SpecPendingMessages', fields: { text: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
   let tempId: string | null = null;
   const create = messages.mutation<Payload, { text: string }, { id: string; text: string }, { id: string; text: string }>('create', {
     document,

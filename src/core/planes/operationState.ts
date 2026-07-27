@@ -20,6 +20,8 @@ export type OperationRecord = {
   patchedFields?: string[];
   /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
   patchedValues?: Record<string, unknown>;
+  /** JSON-round-tripped input retained for durable retry of a failed optimistic insert. */
+  failedInput?: unknown;
   createdAt: number;
 };
 

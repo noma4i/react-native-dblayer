@@ -12,6 +12,7 @@ export type DataLossMechanism =
   | 'corrupt-row'
   | 'corrupt-tombstones'
   | 'corrupt-scope'
+  | 'failed-input-unserializable'
   | 'model-corruption-recovery'
   | 'journal-corruption-checkpointed-drop'
   | 'journal-corruption-loss'

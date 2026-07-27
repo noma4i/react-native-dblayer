@@ -3,7 +3,7 @@ import { configureDb, defineModel, f, reconcileOptimisticRows, resetRuntime } fr
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { flushPersistence } from '../../../dsl/configure';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };
 type SendInput = { text: string; existingTempId?: string };
@@ -11,9 +11,9 @@ type SendResult = { send: { message: MessageRow } };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
-const createMessages = (id: string, transport: ReturnType<typeof createMockTransport>, configure = true) => {
+const createMessages = (id: string, transport: ReturnType<typeof createMockTransport>, configure = true, onError?: (error: Error) => void, tempTtlMs = 1000) => {
   if (configure) configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
+  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: tempTtlMs } });
   let latestTempId: string | null = null;
   const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
     document,
@@ -28,12 +28,34 @@ const createMessages = (id: string, transport: ReturnType<typeof createMockTrans
       selectServerNode: data => data.send.message,
       onFailurePatch: () => ({ status: 'Failed' }),
       onRetryPatch: () => ({ status: 'Sending' })
-    }
+    },
+    onError: onError ? error => onError(error) : undefined
   });
   return { messages, send, tempId: () => latestTempId };
 };
 
 describe('optimistic failure contract', () => {
+  it('G1 treats GraphQL errors with data as an optimistic mutation failure', async () => {
+    const onError = jest.fn();
+    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', text: 'server', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } as TData, errors: [{ message: 'denied' }] }) });
+    const { messages, send, tempId } = createMessages('FailureGraphql', transport, true, onError);
+
+    await expect(send.run({ text: 'hello' })).rejects.toThrow('denied');
+
+    expect(messages.find(tempId()!)).toMatchObject({ text: 'hello', status: 'Failed' });
+    expect(messages.find('server-1')).toBeUndefined();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'denied' }));
+  });
+
+  it('G2 treats an empty GraphQL error array as success', async () => {
+    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', text: 'server', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } as TData, errors: [] }) });
+    const { messages, send } = createMessages('FailureGraphqlEmpty', transport);
+
+    await expect(send.run({ text: 'hello' })).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
+
+    expect(messages.find('server-1')).toMatchObject({ status: 'Sent' });
+  });
+
   it('keeps a failed optimistic send visible with the declared failure patch', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     const { messages, send, tempId } = createMessages('FailureKeep', transport);
@@ -103,7 +125,8 @@ describe('optimistic failure contract', () => {
       id: 'FailureRollback',
       name: 'FailureRollback',
       gc: 'exempt',
-      fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }
+      fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() },
+      maintenance: { dropTempRowsAfterMs: 1000 }
     });
     let id = '';
     const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
@@ -161,11 +184,11 @@ describe('optimistic failure contract', () => {
     failed.unmount();
   });
 
-  it('expires an old failed row during journal replay and retry degrades to null after restart', async () => {
+  it('D1 retries a failed optimistic insert after runtime restart', async () => {
     const storage = createMemoryPlane();
     const failingTransport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage, transport: failingTransport });
-    const { messages, send, tempId } = createMessages('FailureRestart', failingTransport, false);
+    const { messages, send, tempId } = createMessages('FailureRestart', failingTransport, false, undefined, Number.POSITIVE_INFINITY);
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
     await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
@@ -178,13 +201,13 @@ describe('optimistic failure contract', () => {
       mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', text: 'hello', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } as TData })
     });
     configureDb({ storage, transport: restartedTransport });
-    const restarted = createMessages('FailureRestart', restartedTransport, false);
+    const restarted = createMessages('FailureRestart', restartedTransport, false, undefined, Number.POSITIVE_INFINITY);
     await bootDb();
 
-    expect(restarted.messages.find(id)).toBeUndefined();
+    expect(restarted.messages.find(id)).toMatchObject({ text: 'hello', status: 'Failed' });
     const failed = renderCounted(() => restarted.messages.use.failed(id));
-    expect(failed.result()).toBe(false);
-    await expect(restarted.send.retry(id)).resolves.toBeNull();
+    expect(failed.result()).toBe(true);
+    await expect(restarted.send.retry(id)).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
     failed.unmount();
   });
 
@@ -200,5 +223,40 @@ describe('optimistic failure contract', () => {
     expect(failed.result()).toBe(false);
     await expect(send.retry(id)).resolves.toBeNull();
     failed.unmount();
+  });
+
+  it('D2 reports an unserializable failed input and does not retain it for retry', async () => {
+    const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
+    const { send, tempId } = createMessages('FailureUnserializable', transport);
+    const input = { text: 'hello', callback: () => undefined } as SendInput & { callback: () => undefined };
+
+    await expect(send.run(input)).rejects.toThrow('offline');
+
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'failed-input-unserializable', model: 'FailureUnserializable', count: 1 });
+    await expect(send.retry(tempId()!)).resolves.toBeNull();
+  });
+
+  it('D3 clears a failed input when discard removes its kept row', async () => {
+    const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
+    const { send, tempId } = createMessages('FailureDiscardInput', transport);
+
+    await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
+    const id = tempId()!;
+    send.discard(id);
+
+    await expect(send.retry(id)).resolves.toBeNull();
+  });
+
+  it('T1 rejects an optimistic insert declaration without a pending temp-row TTL', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineModel({ id: 'FailureMissingTempTtl', name: 'FailureMissingTempTtl', fields: { text: f.str() } });
+
+    expect(() =>
+      rows.mutation('send', {
+        document,
+        result: 'send',
+        optimistic: { model: rows, build: (_input: Record<string, never>, context: { tempId: string | null }) => ({ id: context.tempId!, text: 'optimistic' }), selectServerNode: (data: { send: { row: { id: string; text: string } } }) => data.send.row }
+      })
+    ).toThrow('FailureMissingTempTtl must declare maintenance.dropTempRowsAfterMs to be used in an optimistic insert mutation');
   });
 });

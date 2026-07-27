@@ -4,6 +4,8 @@
 
 ### Persistence and reconciliation
 
+- Reject GraphQL responses carrying non-empty `errors` before mutation, query, or fetch data is applied. Transport consumers must now populate optional `DbTransport.errors`, including partial responses with `data`, or the library cannot classify that response as a failure.
+- Persist serializable failed optimistic-insert inputs in the operation ledger so `retry(tempId)` survives runtime restart; report and skip retry for unserializable input. Optimistic insert declarations now require `maintenance.dropTempRowsAfterMs`.
 - Preserve relation counters and dependent children across optimistic identity swaps: the `replace` destroy half is now neutral for relation effects, while ordinary destroy behavior is unchanged.
 - Recover persisted entity rows, tombstones, and scope keys per corrupt key instead of cold-resetting an otherwise valid model cache.
 - Add mutation-proven reverse scope-index cleanup coverage for reconciliation, retention trim, scope eviction, and destroy detach paths.
