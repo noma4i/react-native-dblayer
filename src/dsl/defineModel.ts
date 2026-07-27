@@ -19,8 +19,9 @@ import { createModelCriteria } from './modelCriteria';
 import { createModelContext } from './modelContext';
 import { createModelMembership } from './modelMembership';
 import { createModelWrites } from './modelWrites';
-import { createModelApplyTarget, sortRowsBySpec } from './modelApplyTarget';
-import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
+import { createModelApplyTarget } from './modelApplyTarget';
+import { createModelReadAccess, sortRowsBySpec } from './modelReadAccess';
+import { useLiveRead, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
@@ -32,7 +33,6 @@ import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './def
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
-import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
 import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
@@ -151,11 +151,19 @@ export const defineModel = <
     captureMembership
   });
 
-  const { applyTarget, applySnapshot, applyEvent, scopeSortedRows } = createModelApplyTarget<Stored>({
+  const { rowDep, modelDep, scopeDep, memberDeps, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<Stored>({
+    modelId: config.id,
+    context,
+    scopes: config.scopes as Record<string, ScopeSpec<Stored>> | undefined,
+    defaultOrder: config.defaultOrder,
+    keyForScope,
+    matchesCriteria
+  });
+  const { applyTarget, applySnapshot, applyEvent } = createModelApplyTarget<Stored>({
     modelId: config.id,
     scopes: config.scopes as Record<string, ScopeSpec<Stored>> | undefined,
     context,
-    keyForScope,
+    scopeSortedRows,
     writeRows,
     patchRow
   });
@@ -214,93 +222,6 @@ export const defineModel = <
       return out;
     }
   });
-
-  const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: config.id, id, ...(fields ? { fields } : {}) });
-  const modelDep: Dependency = { kind: 'model', model: config.id };
-  const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: config.id, scopeKey });
-  const memberDeps = (scopeKey: string): Dependency[] => [scopeDep(scopeKey)];
-  const useScopeAccess = (scopeKey: string | null): void => {
-    useEffect(() => {
-      if (scopeKey != null) planes().scopeIndex.noteAccess(scopeKey);
-    }, [scopeKey]);
-  };
-
-  function whereRead(where: DbWhere<Stored> | null): ModelReadBuilder<Stored> {
-    const defaultOrders: ReadonlyArray<ReadOrder<Stored>> = config.defaultOrder ? [config.defaultOrder] : [];
-    return createReadBuilder(where, {
-      rows: <TOutput extends Record<string, unknown>>(
-        criteria: DbWhere<Stored> | null,
-        orders: readonly ReadOrder<Stored>[],
-        limit: number | undefined,
-        required: readonly string[],
-        projection: ProjectionOptions<Stored, TOutput>
-      ): TOutput[] => {
-        const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
-        validateProjectionOptions(projection, `${config.id}.use.where`);
-        const projectionRef = useRef(projection);
-        const gateRef = useRef(createProjectionGate<Stored, TOutput>());
-        projectionRef.current = projection;
-        const signature = incrementalSignature('where-builder', config.id, buildScopeKey({ criteria, orders: effectiveOrders, limit, required }));
-        return useIncrementalRead({
-          signature,
-          deps: criteria == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine({
-              signature,
-              model: config.id,
-              where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              options: { orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: rows => gateRef.current.projectRows(rows, projectionRef.current),
-              isEqual: arraysShallowEqual
-            })
-        });
-      },
-      pluck: (criteria, orders, limit, required, projection, field) => {
-        const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
-        const projectionRef = useRef(projection);
-        projectionRef.current = projection;
-        const signature = incrementalSignature('where-pluck', config.id, buildScopeKey({ criteria, orders: effectiveOrders, limit, required, field }));
-        return useIncrementalRead({
-          signature,
-          deps: criteria == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine<Stored, unknown[]>({
-              signature,
-              model: config.id,
-              where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              options: { orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: rows => {
-                const selector = projectionRef.current.select;
-                const projected: readonly object[] = selector ? rows.map(row => selector(row)) : rows;
-                return projected.map(row => Reflect.get(row, field));
-              },
-              isEqual: arraysShallowEqual
-            })
-        });
-      },
-      exists: (criteria, required) => {
-        const signature = incrementalSignature('where-exists', config.id, buildScopeKey({ criteria, required }));
-        return useIncrementalRead({
-          signature,
-          deps: criteria == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine<Stored, boolean>({
-              signature,
-              model: config.id,
-              where: row => criteria != null && matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: (_rows, count) => count > 0,
-              countOnly: true
-            })
-        });
-      }
-    });
-  }
 
   const makeScopeHandle = (scopeName: string): ScopeHandle<Stored, Record<string, unknown>, Input> => {
     const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<Stored>>)[scopeName];

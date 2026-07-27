@@ -2,31 +2,19 @@ import { createCommitEnvelope, registerApplyTarget, type ApplyTarget } from '../
 import type { JournalOp } from '../core/apply/journal';
 import type { ScopeIndexValue } from '../core/planes/scopeIndex';
 import type { WriteOrigin } from '../core/writePolicies';
-import { sortModelReadRows } from '../read/incrementalReadEngine';
-import type { ScopeSortSpec } from '../types/dsl.model.types';
 import { getApplyRuntime } from './configure';
 import type { ModelContext } from './modelContext';
 import type { ScopeSpec } from './scope';
-
-export const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] =>
-  'comparator' in sort ? [...rows].sort(sort.comparator) : sortModelReadRows(rows, [{ field: String(sort.field), direction: sort.dir }]);
 
 export const createModelApplyTarget = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;
   scopes: Record<string, ScopeSpec<TStored>> | undefined;
   context: ModelContext<TStored>;
-  keyForScope(scopeName: string, scopeValue: unknown): string;
+  scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
   writeRows(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): Array<{ id: string; changedFields: string[] | null }>;
   patchRow(id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null;
 }) => {
   const { planes } = options.context;
-  const scopeSortedRows = (scopeName: string, scopeValue: unknown): TStored[] => {
-    const spec = options.scopes?.[scopeName];
-    const value = planes().scopeIndex.read(options.keyForScope(scopeName, scopeValue));
-    const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is TStored => row !== undefined);
-    if (!spec?.sort || spec.sort === 'server-order') return rows;
-    return sortRowsBySpec(rows, spec.sort);
-  };
   const applyTarget: ApplyTarget = {
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
     readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
@@ -35,7 +23,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       const scopeName = separator < 0 ? scopeKey : scopeKey.slice(0, separator);
       const rawValue = separator < 0 ? `{}` : scopeKey.slice(separator + 1);
       try {
-        return scopeSortedRows(scopeName, JSON.parse(rawValue)).map(row => String(row.id));
+        return options.scopeSortedRows(scopeName, JSON.parse(rawValue)).map(row => String(row.id));
       } catch {
         return planes()
           .scopeIndex.read(scopeKey)
@@ -108,5 +96,5 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   const applyEvent = (ops: JournalOp[]): void => {
     getApplyRuntime().commit(createCommitEnvelope(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))));
   };
-  return { applyTarget, applySnapshot, applyEvent, scopeSortedRows };
+  return { applyTarget, applySnapshot, applyEvent };
 };
