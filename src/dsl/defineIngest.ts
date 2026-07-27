@@ -1,4 +1,5 @@
 import type { JournalOp } from '../core/apply/journal';
+import { createCommitEnvelope } from '../core/apply/transaction';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';
 import { noteIngestFailure } from '../core/diagnostics';
@@ -163,7 +164,7 @@ export const defineModelIngest = (
  * from the handler or from `apply()` (e.g. a mid-plan write-group failure, see `ApplyRuntime.apply`)
  * is caught here, reported through `reportModelIngestError` (`onSyncError` + `noteIngestFailure()`
  * diagnostics), and swallowed to `null` - the event is never marked delivered on a failed apply. The
- * underlying WAL record for a failed `getApplyRuntime().apply(ops)` call stays `pending`, so a later
+ * underlying WAL record for a failed `getApplyRuntime().commit(envelope)` call stays `pending`, so a later
  * redelivery of the same event (or a boot replay) re-applies it deterministically instead of being
  * treated as already-processed.
  */
@@ -191,7 +192,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
             .map(op => (op.kind === 'upsert' ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))
         );
       }
-      if (ops.length > 0) getApplyRuntime().apply(ops);
+      if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
       if (declaration.invalidateAll) model.invalidate();
       else if (declaration.invalidate) model.invalidate(declaration.invalidate);
       return declaration;

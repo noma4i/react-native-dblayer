@@ -7,6 +7,7 @@ import { registerApplyTarget } from '../core/apply/transaction';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
 import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
 import type { JournalOp } from '../core/apply/journal';
+import { createCommitEnvelope } from '../core/apply/transaction';
 import { registerGcHost } from '../core/gc';
 import { createEntityState, type EntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
@@ -780,12 +781,12 @@ export const defineModel = <
 
   /** Snapshot writes (query pages / entity refreshes) apply verbatim - server state is derived already. */
   const applySnapshot = (ops: JournalOp[]): void => {
-    getApplyRuntime().apply(ops);
+    getApplyRuntime().commit(createCommitEnvelope(ops));
   };
 
   /** Imperative/domain writes are events; relation effects derive from rows accepted by apply. */
   const applyEvent = (ops: JournalOp[]): void => {
-    getApplyRuntime().apply(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op)));
+    getApplyRuntime().commit(createCommitEnvelope(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))));
   };
 
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): Stored[] => {
@@ -1427,7 +1428,7 @@ export const defineModel = <
   registerInternalModelHandle(model, {
     readRow: id => planes().entityState.read(id),
     applyRows: rows => applySnapshot(planRows(rows)),
-    applyPatch: (id, patch, operationId) => getApplyRuntime().apply([{ kind: 'patch', model: config.id, id: String(id), patch, operationId }]),
+    applyPatch: (id, patch, operationId) => getApplyRuntime().commit(createCommitEnvelope([{ kind: 'patch', model: config.id, id: String(id), patch, operationId }])),
     planRows,
     planReplace,
     captureMembership,
@@ -1448,7 +1449,7 @@ export const defineModel = <
       const ids: string[] = [];
       resolveStaleTempRows(model, { maxAgeMs, protectedIds, onStale: row => ids.push(row.id) });
       if (ids.length === 0) return [];
-      getApplyRuntime().apply([{ kind: 'destroy', model: config.id, ids, tombstone: false }]);
+      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: config.id, ids, tombstone: false }]));
       for (const id of ids) clearFailedOptimisticMutation(config.id, id);
       noteDataLoss('stale-temp-row-expiry', config.id, ids.length);
       return [{ model: config.id, task: 'dropTempRows', affected: ids.length }];

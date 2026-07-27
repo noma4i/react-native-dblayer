@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { DbGraphQLDocument } from '../types';
 import type { JournalOp } from '../core/apply/journal';
+import { createCommitEnvelope } from '../core/apply/transaction';
 import { hasDependentCascade } from '../core/relations';
 import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
@@ -274,7 +275,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       };
       if (optimisticOps.length > 0) {
         operations.begin(beginFields, { persist: false });
-        getApplyRuntime().apply(optimisticOps, { extraEntries: () => operations.persistEntries() });
+        getApplyRuntime().commit(createCommitEnvelope(optimisticOps, () => operations.persistEntries()));
       } else {
         operations.begin(beginFields); // ledger-standalone: respond-optimistic produced no ops to combine with
       }
@@ -316,7 +317,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           ...(persistedFailedInput?.serializable ? { failedInput: persistedFailedInput.value } : {}),
           createdAt: Date.now()
         }, { persist: false });
-        getApplyRuntime().apply(ops, { extraEntries: () => operations.persistEntries() });
+        getApplyRuntime().commit(createCommitEnvelope(ops, () => operations.persistEntries()));
       }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
@@ -334,9 +335,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         patchedValues: patch,
         createdAt: Date.now()
       }, { persist: false });
-      getApplyRuntime().apply([{ kind: 'patch', model: optimistic.model.modelId, id: String(id), patch, operationId }], {
-        extraEntries: () => operations.persistEntries()
-      });
+      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'patch', model: optimistic.model.modelId, id: String(id), patch, operationId }], () => operations.persistEntries()));
     } else if (optimistic && optimistic.method === 'destroy') {
       if (hasDependentCascade(optimistic.model.modelId)) {
         throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
@@ -354,9 +353,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         once: config.once === true,
         createdAt: Date.now()
       }, { persist: false });
-      getApplyRuntime().apply([{ kind: 'destroy', model: optimistic.model.modelId, ids: [String(id)] }], {
-        extraEntries: () => operations.persistEntries()
-      });
+      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: optimistic.model.modelId, ids: [String(id)] }], () => operations.persistEntries()));
     } else if (tracked) {
       operations.begin({ // ledger-standalone: pure dedupe-key tracking, no optimistic write at all
         operationId,
@@ -396,12 +393,12 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     if (tracked) {
       if (commitOps.length > 0) {
         operations.close(operationId, 'committed', { persist: false });
-        getApplyRuntime().apply(commitOps, { extraEntries: () => operations.persistEntries() });
+        getApplyRuntime().commit(createCommitEnvelope(commitOps, () => operations.persistEntries()));
       } else {
         operations.close(operationId, 'committed'); // ledger-standalone: commit produced no ops to combine with
       }
     } else if (commitOps.length > 0) {
-      getApplyRuntime().apply(commitOps); // ledger-standalone: untracked call, no ledger transition to combine with
+      getApplyRuntime().commit(createCommitEnvelope(commitOps)); // ledger-standalone: untracked call, no ledger transition to combine with
     }
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
@@ -441,7 +438,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const status = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback';
         if (rollbackOps.length > 0) {
           operations.close(operationId, status, { persist: false });
-          getApplyRuntime().apply(rollbackOps, { extraEntries: () => operations.persistEntries() });
+          getApplyRuntime().commit(createCommitEnvelope(rollbackOps, () => operations.persistEntries()));
         } else {
           operations.close(operationId, status); // ledger-standalone: failure path produced no rollback ops to combine with
         }

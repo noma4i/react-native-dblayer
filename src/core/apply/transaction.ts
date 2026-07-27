@@ -11,6 +11,42 @@ import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
 
+const commitEnvelopeBrand: unique symbol = Symbol('commit-envelope');
+
+/** Complete write plan accepted by the sole runtime write entry point. */
+export type CommitEnvelope = {
+  schemaVersion: 1;
+  txId: string;
+  epoch: number;
+  entityOps: JournalOp[];
+  scopeOps: JournalOp[];
+  identityOps: JournalOp[];
+  relationOps: JournalOp[];
+  operationOps: JournalOp[];
+  extraEntries?: () => Array<{ key: string; value: string | null }>;
+  readonly [commitEnvelopeBrand]: true;
+};
+
+const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
+
+/**
+ * Build one opaque-to-consumers commit plan from the model-owned operation planners.
+ * Entity work is always applied before scope membership, so a reader can never observe a scope
+ * entry that points at a missing row.
+ */
+export const createCommitEnvelope = (ops: JournalOp[], extraEntries?: () => Array<{ key: string; value: string | null }>): CommitEnvelope => ({
+  schemaVersion: 1,
+  txId: `runtime:${getRuntimeGeneration()}`,
+  epoch: getRuntimeGeneration(),
+  entityOps: ops.filter(op => !isScopeOperation(op)),
+  scopeOps: ops.filter(isScopeOperation),
+  identityOps: [],
+  relationOps: [],
+  operationOps: [],
+  [commitEnvelopeBrand]: true,
+  ...(extraEntries ? { extraEntries } : {})
+});
+
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
  * commit bus can notify per-(model, id, field) subscribers; `persistEntries` contributes the
@@ -51,7 +87,7 @@ export type ApplyRuntime = {
    * `defaults.onSyncError({source:'apply'})` fire, then the exception rethrows to the caller (mutation's
    * rollback path, ingest's `reportModelIngestError`, or replay's own boot-failure surface).
    */
-  apply(ops: JournalOp[], options?: { extraEntries?: () => Array<{ key: string; value: string | null }> }): CommitBatch;
+  commit(envelope: CommitEnvelope): CommitBatch;
   /**
    * Startup recovery: idempotently re-apply journal records not yet covered by each model's
    * persisted applied-epoch marker (survives torn checkpoint batches - the marker sits AFTER its
@@ -247,11 +283,12 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
   };
 
   return {
-    apply: (ops, options) => {
+    commit: envelope => {
+      const ops = [...envelope.entityOps, ...envelope.scopeOps, ...envelope.identityOps, ...envelope.relationOps, ...envelope.operationOps];
       const recordedOps = recordCounterValues(ops);
       epoch += 1;
       const record: JournalRecord = { epoch, status: 'pending', ops: recordedOps };
-      storage.set([...journal.pendingEntry(record), ...(options?.extraEntries?.() ?? [])]);
+      storage.set([...journal.pendingEntry(record), ...(envelope.extraEntries?.() ?? [])]);
       let batch: IncrementalCommitBatch;
       try {
         batch = applyPlan(recordedOps);

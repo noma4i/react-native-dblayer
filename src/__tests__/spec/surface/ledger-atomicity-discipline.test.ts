@@ -75,6 +75,8 @@ const collectShallowCalls = (owner: ts.Node): ts.CallExpression[] => {
 
 type Violation = { file: string; line: number; kind: string };
 
+type CommitBypass = { file: string; line: number; callee: string };
+
 const scanFile = (file: string): Violation[] => {
   const text = fs.readFileSync(file, 'utf8');
   const lines = text.split('\n');
@@ -112,5 +114,25 @@ describe('ledger/row persist atomicity discipline', () => {
   it('never lets a ledger transition and its paired row mutation persist as two independent writes', () => {
     const violations = sourceFiles(srcRoot).flatMap(scanFile);
     expect(violations).toEqual([]);
+  });
+
+  it('routes every runtime write through commit(envelope)', () => {
+    const bypasses: CommitBypass[] = [];
+    for (const file of sourceFiles(srcRoot)) {
+      const text = fs.readFileSync(file, 'utf8');
+      const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+      const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'apply') {
+          const receiver = node.expression.expression.getText(source);
+          if (receiver === 'getApplyRuntime()' || receiver === 'runtime') {
+            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+            bypasses.push({ file: path.relative(srcRoot, file), line: line + 1, callee: `${receiver}.apply` });
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(bypasses).toEqual([]);
   });
 });

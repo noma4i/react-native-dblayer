@@ -1,6 +1,6 @@
 import { configureDb, defineModel, f } from '../../../index';
 import { flushPersistence } from '../../../dsl/configure';
-import { createApplyRuntime } from '../../../core/apply/transaction';
+import { createApplyRuntime, createCommitEnvelope } from '../../../core/apply/transaction';
 import { createCommitBus } from '../../../core/apply/commitBus';
 import { createFaultStorage } from '../helpers/faultStorage';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
@@ -160,8 +160,8 @@ describe('persistence fault invariants', () => {
     const rows = createRows('ImmediateAck');
     const runtime = createApplyRuntime({ storage: storage.plane, prefix: () => 'dbl:', bus: createCommitBus() });
 
-    runtime.apply([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'first' }] }]);
-    runtime.apply([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]);
+    runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'first' }] }]));
+    runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]));
 
     expect(storage.setCalls()[3]).toEqual(
       expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-2`, value: JSON.stringify({ id: 'row-2', label: 'second' }) }])

@@ -4,7 +4,7 @@ import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler, type CheckpointScheduler } from '../core/apply/checkpoint';
-import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
+import { createApplyRuntime, createCommitEnvelope, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
 import { readJournalRecord, type JournalOp } from '../core/apply/journal';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
@@ -203,7 +203,7 @@ export const replayJournal = (): number => {
       }
       operations.close(operation.operationId, 'rolledback', { persist: false });
     }
-    runtime.apply(orphanDestroyOps, { extraEntries: () => operations.persistEntries() });
+    runtime.commit(createCommitEnvelope(orphanDestroyOps, () => operations.persistEntries()));
   }
   const candidates = new Map<string, Set<string>>();
   const noteCandidate = (model: string, id: unknown): void => {
@@ -226,7 +226,7 @@ export const replayJournal = (): number => {
   const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {
     const orphanIds = [...ids].filter(id => !pendingTempIds.has(id) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
-    if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]);
+    if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.commit(createCommitEnvelope([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
   flushPersistence();
   return replayed;

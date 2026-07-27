@@ -1,5 +1,6 @@
 import { configureDb, defineModel, f } from '../../../index';
 import { getApplyRuntime } from '../../../dsl/configure';
+import { createCommitEnvelope } from '../../../core/apply/transaction';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
@@ -21,10 +22,10 @@ describe('apply honesty (D5): mid-plan throw', () => {
     expect(journalBefore.status).toBe('committed');
 
     expect(() =>
-      getApplyRuntime().apply([
+      getApplyRuntime().commit(createCommitEnvelope([
         { kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'fresh' }] },
         { kind: 'upsert', model: 'MissingApplyHonestyTarget', rows: [{ id: 'row-1', label: 'updated' }] }
-      ])
+      ]))
     ).toThrow('No apply target registered for MissingApplyHonestyTarget');
 
     const journalAfter = storage.get('dbl:journal:2');

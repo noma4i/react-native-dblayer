@@ -59,6 +59,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-maintenance-scheduler.test.tsx'), source: path.resolve(specRoot, '../../core/maintenanceScheduler.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-account-switch-integrity.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../core/apply/transaction.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-row-waiters.test.ts'), source: path.resolve(specRoot, '../../dsl/configure.ts') },

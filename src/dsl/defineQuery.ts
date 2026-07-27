@@ -3,6 +3,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { DbGraphQLDocument, DbReadOptions, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import type { JournalOp } from '../core/apply/journal';
+import { createCommitEnvelope } from '../core/apply/transaction';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
@@ -160,7 +161,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (isScopeDestination(config.into)) ops.push(...getInternalScopeHandle(config.into).planApply(scope, rows, coverage, { resetOrder }));
     else ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], resurrectDestroyed ? { origin: 'event' as const } : undefined));
     for (const sink of config.extract?.({ data, nodes }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
-    if (ops.length > 0) getApplyRuntime().apply(ops);
+    if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
     const committedRows = isScopeDestination(config.into) ? rows.map(entry => entry.row) : nodes;
     const ids = committedRows.flatMap(row => (isRecord(row) && row.id != null ? [compositeKey(destinationModelId, String(row.id))] : []));
     return { meta: pageMetaOf(config.page ? config.page(data) : null), ids };
