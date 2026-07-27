@@ -115,7 +115,7 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
     sync: { sync: membershipFeed.sync }
   });
   entities.createIndex(row => row.id, { indexType: BasicIndex });
-  memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
+  const membershipsByScope = memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
 
   const entityRows = new Map<string, EntityRow>();
   const membershipRows = new Map<string, MembershipRow>();
@@ -178,8 +178,12 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
     },
     readEntity: id => ready ? entityRows.get(id) : undefined,
     readScope: scopeKey => ready
-      ? [...membershipRows.values()]
-        .filter(row => row.scopeKey === scopeKey && entityRows.has(row.entityId))
+      ? [...membershipsByScope.equalityLookup(scopeKey)]
+        .flatMap(key => {
+          if (typeof key !== 'string') return [];
+          const row = membershipRows.get(key);
+          return row && entityRows.has(row.entityId) ? [row] : [];
+        })
         .sort((left, right) => left.orderKey < right.orderKey ? -1 : left.orderKey > right.orderKey ? 1 : 0)
         .map(row => row.entityId)
       : [],

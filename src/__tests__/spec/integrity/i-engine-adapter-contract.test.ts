@@ -167,4 +167,21 @@ describe('EngineAdapter', () => {
     expect(adapter.readEntity('row-1')).toBeUndefined();
     expect(adapter.readScope('scope-1')).toEqual(['row-2']);
   });
+
+  it('reads only memberships selected by the scopeKey index', () => {
+    const adapter = createEngineAdapter();
+    adapter.markReady();
+    adapter.apply({
+      entities: [
+        { type: 'upsert', value: { id: 'scope-1-row' } },
+        { type: 'upsert', value: { id: 'scope-2-row' } }
+      ],
+      memberships: [
+        { type: 'upsert', value: { scopeKey: 'scope-1', entityId: 'scope-1-row', orderKey: 'a' } },
+        { type: 'upsert', value: { scopeKey: 'scope-2', entityId: 'scope-2-row', orderKey: 'a' } }
+      ]
+    });
+
+    expect(adapter.readScope('scope-1')).toEqual(['scope-1-row']);
+  });
 });
