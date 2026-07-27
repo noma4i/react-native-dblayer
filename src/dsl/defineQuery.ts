@@ -8,7 +8,7 @@ import type { JournalOp } from '../core/apply/journal';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
-import { createGenerationFence } from '../utils/runtimePrimitives';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import { getDbLogger } from '../core/logger';
