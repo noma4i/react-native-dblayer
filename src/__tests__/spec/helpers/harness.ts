@@ -1,5 +1,6 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { focusManager, onlineManager } from '@tanstack/react-query';
 import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
@@ -53,6 +54,19 @@ export function setupSpecRuntime() {
   configureDb({ storage, transport });
   return { storage, transport };
 }
+
+/** Test-only connectivity adapter. Query-engine migrations update this seam without changing contracts. */
+export const setTestNetworkOnline = (online: boolean): void => {
+  onlineManager.setOnline(online);
+};
+
+/** Test-only connectivity adapter state. */
+export const isTestNetworkOnline = (): boolean => onlineManager.isOnline();
+
+/** Test-only focus adapter for lifecycle-triggered fetches. */
+export const setTestFocused = (focused: boolean): void => {
+  focusManager.setFocused(focused);
+};
 
 export function renderCounted<T>(useHook: () => T) {
   let value!: T;
