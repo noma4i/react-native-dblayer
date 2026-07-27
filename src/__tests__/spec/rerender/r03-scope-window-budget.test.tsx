@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { defineModel, f, scope } from '../../../index';
-import { renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopedRow = { id: string; groupId: string; title: string; rank: number; markers: Array<{ id: string }> };
 type WindowResult = { rows: ScopedRow[]; totalCount: number; hasMore: boolean; isPreviousData: boolean; fetchNextPage: () => void };
@@ -150,6 +150,42 @@ describe('rerender matrix scope window budget', () => {
 
     expect(reader.result()).toBe(initial);
     expect(reader.renders() - before).toBe(0);
+    reader.unmount();
+  });
+
+  // The resort counter is the only observable effect of the scope-order equality guard: a rebuild runs either
+  // way, so an unguarded order revision does not cost work - it makes `scopeReadResorts` report work that never
+  // happened. Work counters are the sole admissible basis for a speed gate, so a counter that overreports is
+  // worse than no counter. Both halves live in one test on purpose: asserting zero is only meaningful next to a
+  // proof that this same harness can drive the counter above zero.
+  it('counts a resort only when a complete reconcile actually changes the scope order', () => {
+    setupSpecRuntime();
+    const rows = createRows();
+    seedRows(rows);
+    const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
+    const initial = reader.result();
+
+    diagnostics().reset();
+    act(() => {
+      rows.scopes.byGroup.seed(
+        { groupId: 'g1' },
+        initial.map(row => ({ ...row }))
+      );
+    });
+    const unchanged = diagnostics().snapshot();
+
+    diagnostics().reset();
+    act(() => {
+      rows.scopes.byGroup.seed(
+        { groupId: 'g1' },
+        [...initial].reverse().map(row => ({ ...row }))
+      );
+    });
+    const reordered = diagnostics().snapshot();
+
+    expect(unchanged.scopeReadPasses).toBeGreaterThan(0);
+    expect(unchanged.scopeReadResorts).toBe(0);
+    expect(reordered.scopeReadResorts).toBeGreaterThan(0);
     reader.unmount();
   });
 
