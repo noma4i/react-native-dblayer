@@ -25,7 +25,12 @@ type EngineBatch = {
 };
 type EngineScopeChange = NonNullable<EngineBatch['scopeChanges']>[number];
 
-export type EnginePlan = { entities: readonly EntityChange[]; memberships: readonly MembershipChange[] };
+export type EnginePlan = {
+  entities: readonly EntityChange[];
+  memberships: readonly MembershipChange[];
+  membershipWriteKind?: 'delta' | 'rebuild';
+  scopeOrder?: readonly string[];
+};
 export type EngineAdapter = {
   apply(plan: EnginePlan): void;
   markReady(): void;
@@ -37,7 +42,10 @@ export type EngineAdapter = {
   replaceScope(scopeKey: string, entityIds: readonly string[]): void;
 };
 
-type EngineAdapterOptions = { onPhase?: (name: 'entities' | 'memberships', current: EngineAdapter) => void };
+type EngineAdapterOptions = {
+  onPhase?: (name: 'entities' | 'memberships', current: EngineAdapter) => void;
+  onMembershipWrite?: (kind: 'delta' | 'rebuild', changes: readonly MembershipChange[]) => void;
+};
 
 class SyncFeed<T extends object> {
   private methods: SyncMethods<T> | null = null;
@@ -67,7 +75,24 @@ class SyncFeed<T extends object> {
 }
 
 const membershipKey = (scopeKey: string, entityId: string): string => `${scopeKey}:${entityId}`;
-const orderKey = (order: number): string => String(order).padStart(16, '0');
+const rankAlphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+const fractionalOrderKey = (lower: string | undefined, upper: string | undefined): string => {
+  let prefix = '';
+  for (let index = 0; ; index += 1) {
+    const lowerCharacter = lower?.[index] ?? rankAlphabet[0]!;
+    const upperCharacter = upper?.[index] ?? rankAlphabet.at(-1)!;
+    if (lowerCharacter === upperCharacter) {
+      prefix += lowerCharacter;
+      continue;
+    }
+    const lowerIndex = rankAlphabet.indexOf(lowerCharacter);
+    const upperIndex = rankAlphabet.indexOf(upperCharacter);
+    if (lowerIndex < 0 || upperIndex < 0 || lowerIndex > upperIndex) throw new Error('Invalid fractional order bounds');
+    if (upperIndex - lowerIndex > 1) return `${prefix}${rankAlphabet[Math.floor((lowerIndex + upperIndex) / 2)]!}`;
+    return `${prefix}${lowerCharacter}${lower?.slice(index + 1) ?? ''}${rankAlphabet[Math.floor(rankAlphabet.length / 2)]!}`;
+  }
+};
 const engineAdapters = new Map<string, EngineAdapter>();
 const selectEntityRows = (rows: readonly object[] | undefined): EntityRow[] => (rows ?? []).flatMap(row => {
   const value = Object.fromEntries(Object.entries(row));
@@ -96,6 +121,27 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
   const membershipRows = new Map<string, MembershipRow>();
   const scopeRevisions = new Map<string, number>();
   let ready = false;
+  const membershipsForScopeOrder = (changes: readonly MembershipChange[], scopeOrder: readonly string[]): MembershipChange[] => {
+    const scopeKey = changes.find(change => change.type === 'upsert')?.value.scopeKey ?? changes.find(change => change.type === 'delete')?.scopeKey;
+    if (!scopeKey) return [...changes];
+    const upserts = new Map(changes.flatMap(change => change.type === 'upsert' ? [[change.value.entityId, change] as const] : []));
+    const deletedIds = new Set(changes.flatMap(change => change.type === 'delete' && !upserts.has(change.entityId) ? [change.entityId] : []));
+    const ranks = new Map(
+      [...membershipRows.values()]
+        .filter(row => row.scopeKey === scopeKey && !deletedIds.has(row.entityId) && !upserts.has(row.entityId))
+        .map(row => [row.entityId, row.orderKey] as const)
+    );
+    for (let index = 0; index < scopeOrder.length; index += 1) {
+      const entityId = scopeOrder[index]!;
+      if (!upserts.has(entityId)) continue;
+      const lower = scopeOrder.slice(0, index).reverse().map(id => ranks.get(id)).find(Boolean);
+      const upper = scopeOrder.slice(index + 1).map(id => ranks.get(id)).find(Boolean);
+      ranks.set(entityId, fractionalOrderKey(lower, upper));
+    }
+    return changes.map(change => change.type === 'upsert'
+      ? { type: 'upsert' as const, value: { ...change.value, orderKey: ranks.get(change.value.entityId) ?? change.value.orderKey } }
+      : change);
+  };
   const adapter: EngineAdapter = {
     apply: plan => {
       const entityMessages = plan.entities.map(change => change.type === 'upsert' ? { type: entityRows.has(change.value.id) ? 'update' as const : 'insert' as const, value: change.value } : { type: 'delete' as const, key: change.id });
@@ -106,11 +152,12 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
       }
       if (plan.entities.length > 0) options.onPhase?.('entities', adapter);
 
-      const membershipMessages = plan.memberships.map(change => change.type === 'upsert'
+      const membershipChanges = plan.scopeOrder ? membershipsForScopeOrder(plan.memberships, plan.scopeOrder) : plan.memberships;
+      const membershipMessages = membershipChanges.map(change => change.type === 'upsert'
         ? { type: membershipRows.has(membershipKey(change.value.scopeKey, change.value.entityId)) ? 'update' as const : 'insert' as const, value: change.value }
         : { type: 'delete' as const, key: membershipKey(change.scopeKey, change.entityId) });
       membershipFeed.apply(membershipMessages);
-      for (const change of plan.memberships) {
+      for (const change of membershipChanges) {
         const key = change.type === 'upsert' ? membershipKey(change.value.scopeKey, change.value.entityId) : membershipKey(change.scopeKey, change.entityId);
         const previous = membershipRows.get(key);
         if (change.type === 'upsert') membershipRows.set(key, change.value);
@@ -121,7 +168,8 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
           : previous !== undefined;
         if (changed) scopeRevisions.set(scopeKey, (scopeRevisions.get(scopeKey) ?? 0) + 1);
       }
-      if (plan.memberships.length > 0) options.onPhase?.('memberships', adapter);
+      if (membershipChanges.length > 0) options.onMembershipWrite?.(plan.membershipWriteKind ?? 'delta', membershipChanges);
+      if (membershipChanges.length > 0) options.onPhase?.('memberships', adapter);
     },
     markReady: () => {
       entityFeed.markReady();
@@ -155,9 +203,13 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
         ...[...membershipRows.values()]
           .filter(row => row.scopeKey === scopeKey && !nextIds.has(row.entityId))
           .map(row => ({ type: 'delete' as const, scopeKey, entityId: row.entityId })),
-        ...entityIds.map((entityId, index) => ({ type: 'upsert' as const, value: { scopeKey, entityId, orderKey: orderKey(index) } }))
+        ...entityIds.reduce<Array<Extract<MembershipChange, { type: 'upsert' }>>>((changes, entityId) => {
+          const previous = changes.at(-1)?.value.orderKey;
+          changes.push({ type: 'upsert', value: { scopeKey, entityId, orderKey: fractionalOrderKey(previous, undefined) } });
+          return changes;
+        }, [])
       ];
-      adapter.apply({ entities: [], memberships });
+      adapter.apply({ entities: [], memberships, membershipWriteKind: 'rebuild' });
     }
   };
 
@@ -180,11 +232,11 @@ const upsertRows = (model: string, batch: EngineBatch, target: EngineApplyTarget
       return row ? { type: 'upsert' as const, value: row as EntityRow } : { type: 'delete' as const, id: change.id };
     });
 
-export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) => EngineApplyTarget, readyAfterApply = false): void => {
+export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) => EngineApplyTarget, readyAfterApply = false, resolveAdapter: (model: string) => EngineAdapter = adapterFor): void => {
   const models = new Set([...batch.rows.map(change => change.model), ...batch.scopes.map(change => change.model), ...(batch.scopeChanges ?? []).map(change => change.model)]);
   for (const model of models) {
     const target = getTarget(model);
-    const adapter = adapterFor(model);
+    const adapter = resolveAdapter(model);
     const detailedScopes = batch.scopeChanges ?? [];
     const scopeByKey = new Map<string, EngineScopeChange>();
     if (batch.rows.some(change => change.model === model)) {
@@ -205,9 +257,9 @@ export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) =
       }
       const memberships: MembershipChange[] = [
         ...(change.detachIds ?? []).map(entityId => ({ type: 'delete' as const, scopeKey: change.scopeKey, entityId })),
-        ...(change.appendEntries ?? []).map(entry => ({ type: 'upsert' as const, value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: orderKey(entry.order) } }))
+        ...(change.appendEntries ?? []).map(entry => ({ type: 'upsert' as const, value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: '' } }))
       ];
-      if (memberships.length > 0) adapter.apply({ entities: [], memberships });
+      if (memberships.length > 0) adapter.apply({ entities: [], memberships, scopeOrder: target.readScopeOrder(change.scopeKey) });
     }
     if (readyAfterApply) adapter.markReady();
   }

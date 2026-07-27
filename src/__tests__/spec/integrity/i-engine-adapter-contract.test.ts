@@ -1,8 +1,63 @@
-import { createEngineAdapter } from '../../../engine/EngineAdapter';
+import { createEngineAdapter, syncEngineBatch } from '../../../engine/EngineAdapter';
 
 const byCodepoint = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
 
 describe('EngineAdapter', () => {
+  it('writes only the inserted membership when a delta lands in the middle', () => {
+    const writes: Array<{ kind: 'delta' | 'rebuild'; changes: ReadonlyArray<{ type: string; value?: { entityId: string } }> }> = [];
+    const adapter = createEngineAdapter({
+      onMembershipWrite: (kind, changes) => writes.push({ kind, changes })
+    });
+    adapter.markReady();
+    adapter.apply({
+      entities: [
+        { type: 'upsert', value: { id: 'first' } },
+        { type: 'upsert', value: { id: 'last' } }
+      ],
+      memberships: []
+    });
+    adapter.replaceScope('scope-1', ['first', 'last']);
+    writes.length = 0;
+
+    adapter.apply({
+      entities: [{ type: 'upsert', value: { id: 'middle' } }],
+      memberships: [{ type: 'upsert', value: { scopeKey: 'scope-1', entityId: 'middle', orderKey: 'pending' } }],
+      scopeOrder: ['first', 'middle', 'last']
+    });
+
+    expect(writes).toEqual([{ kind: 'delta', changes: [{ type: 'upsert', value: expect.objectContaining({ entityId: 'middle' }) }] }]);
+    expect(adapter.readScope('scope-1')).toEqual(['first', 'middle', 'last']);
+  });
+
+  it('keeps 1000 inserts at one position in scope order without a rank rebuild', () => {
+    const writes: Array<{ kind: 'delta' | 'rebuild'; count: number }> = [];
+    const adapter = createEngineAdapter({
+      onMembershipWrite: (kind, changes) => writes.push({ kind, count: changes.length })
+    });
+    const scopeIds = ['first', 'last'];
+    adapter.markReady();
+    adapter.apply({
+      entities: scopeIds.map(id => ({ type: 'upsert' as const, value: { id } })),
+      memberships: []
+    });
+    adapter.replaceScope('scope-1', scopeIds);
+    writes.length = 0;
+
+    for (let index = 0; index < 1000; index += 1) {
+      const id = `middle-${index}`;
+      scopeIds.splice(1, 0, id);
+      adapter.apply({
+        entities: [{ type: 'upsert', value: { id } }],
+        memberships: [{ type: 'upsert', value: { scopeKey: 'scope-1', entityId: id, orderKey: 'pending' } }],
+        scopeOrder: scopeIds
+      });
+    }
+
+    expect(adapter.readScope('scope-1')).toEqual(scopeIds);
+    expect(writes).toHaveLength(1000);
+    expect(writes.every(write => write.kind === 'delta' && write.count === 1)).toBe(true);
+  });
+
   it('keeps reads empty until replay is marked ready', () => {
     const adapter = createEngineAdapter();
     adapter.apply({
