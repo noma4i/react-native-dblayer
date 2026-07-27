@@ -14,12 +14,13 @@ const createDeferred = <T,>() => {
   return { promise, resolve };
 };
 
-const createLedger = (options?: { now?: () => number; retry?: DbRetryPolicy; isOnline?: () => boolean; onStamp?: (key: string) => void }) =>
+const createLedger = (options?: { now?: () => number; retry?: DbRetryPolicy; isOnline?: () => boolean; onStamp?: (key: string) => void; maxEntries?: number }) =>
   createFetchLedger({
     now: options?.now ?? (() => 100),
     retry: options?.retry ?? {},
     isOnline: options?.isOnline ?? (() => true),
-    onStamp: options?.onStamp ?? (() => {})
+    onStamp: options?.onStamp ?? (() => {}),
+    maxEntries: options?.maxEntries ?? Number.MAX_SAFE_INTEGER
   });
 
 describe('fetch ledger integrity', () => {
@@ -34,7 +35,7 @@ describe('fetch ledger integrity', () => {
     await expect(ledger.run('skipped', async () => ({ applied: false }))).resolves.toBe('skipped');
     await expect(ledger.run('failed', async () => { throw new Error('failed'); })).resolves.toBe('failed');
 
-    expect(ledger.read('applied')).toEqual({ lastAppliedAt: 100, lastCount: 0 });
+    expect(ledger.read('applied')).toEqual({ lastAppliedAt: 100, lastCount: 0, cursor: null, pages: 1 });
     expect(ledger.read('skipped')).toBeUndefined();
     expect(ledger.read('failed')).toBeUndefined();
   });
@@ -55,7 +56,7 @@ describe('fetch ledger integrity', () => {
     expect(onStamp).toHaveBeenNthCalledWith(2, 'key');
     expect(onStamp).toHaveBeenNthCalledWith(3, 'key');
     expect(onStamp).toHaveBeenNthCalledWith(4, 'key');
-    expect(ledger.read('key')).toBeUndefined();
+    expect(ledger.read('key')).toEqual({ lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
   });
 
   it('L3 skips an outcome that resolves after the runtime generation changes', async () => {
@@ -73,12 +74,15 @@ describe('fetch ledger integrity', () => {
   it('L4 clears entries and flights on reset', async () => {
     const ledger = createLedger();
     await ledger.run('key', async () => ({ applied: true, count: 1 }));
+    const release = ledger.retain('key', async () => {});
 
     resetRuntime();
 
     expect(ledger.read('key')).toBeUndefined();
+    expect(ledger.activeKeys()).toEqual([]);
     await expect(ledger.run('key', async () => ({ applied: true, count: 2 }))).resolves.toBe('applied');
-    expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 2 });
+    expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 2, cursor: null, pages: 1 });
+    release();
   });
 
   it('L6 shares same-key flights while allowing different keys to execute independently', async () => {
@@ -122,7 +126,7 @@ describe('fetch ledger integrity', () => {
       await expect(pending).resolves.toBe('applied');
 
       expect(calls).toBe(3);
-      expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 4 });
+      expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 4, cursor: null, pages: 1 });
     } finally {
       jest.useRealTimers();
     }
@@ -155,5 +159,115 @@ describe('fetch ledger integrity', () => {
     expect(ledger.isFresh('key', 10)).toBe(true);
     now = 111;
     expect(ledger.isFresh('key', 10)).toBe(false);
+  });
+
+  it('L5 evicts the oldest unretained entry and keeps retained entries beyond the limit', async () => {
+    let now = 1;
+    const ledger = createLedger({ now: () => now, maxEntries: 2 });
+    await ledger.run('oldest', async () => ({ applied: true, count: 1 }));
+    now = 2;
+    await ledger.run('retained', async () => ({ applied: true, count: 1 }));
+    const release = ledger.retain('retained', async () => {});
+    now = 3;
+    await ledger.run('newest', async () => ({ applied: true, count: 1 }));
+
+    expect(ledger.read('oldest')).toBeUndefined();
+    expect(ledger.read('retained')).toBeDefined();
+    expect(ledger.read('newest')).toBeDefined();
+
+    const protectedLedger = createLedger({ maxEntries: 1 });
+    await protectedLedger.run('retained', async () => ({ applied: true, count: 1 }));
+    const releaseProtected = protectedLedger.retain('retained', async () => {});
+    const releaseOverflow = protectedLedger.retain('overflow', async () => {});
+    await protectedLedger.run('overflow', async () => ({ applied: true, count: 1 }));
+
+    expect(protectedLedger.read('retained')).toBeDefined();
+    expect(protectedLedger.read('overflow')).toBeDefined();
+    release();
+    releaseProtected();
+    releaseOverflow();
+  });
+
+  it('L9 resumes retained keys in settled chunks', async () => {
+    const ledger = createLedger();
+    const first = createDeferred<void>();
+    const second = createDeferred<void>();
+    const refetchFirst = jest.fn(async () => await first.promise);
+    const refetchSecond = jest.fn(async () => await second.promise);
+    const refetchThird = jest.fn(async () => {});
+    const releaseFirst = ledger.retain('first', refetchFirst);
+    const releaseSecond = ledger.retain('second', refetchSecond);
+    const releaseThird = ledger.retain('third', refetchThird);
+    const pending = ledger.resume(2);
+
+    await Promise.resolve();
+    expect(refetchFirst).toHaveBeenCalledTimes(1);
+    expect(refetchSecond).toHaveBeenCalledTimes(1);
+    expect(refetchThird).not.toHaveBeenCalled();
+    first.resolve();
+    second.resolve();
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(refetchThird).toHaveBeenCalledTimes(1);
+    releaseFirst();
+    releaseSecond();
+    releaseThird();
+  });
+
+  it('L11 passes the applied cursor to the next run and grows pages', async () => {
+    const ledger = createLedger();
+
+    await ledger.run('key', async context => {
+      expect(context.cursor).toBeNull();
+      return { applied: true, count: 1, cursor: 'second-page' };
+    });
+    await ledger.run('key', async context => {
+      expect(context.cursor).toBe('second-page');
+      return { applied: true, count: 2, cursor: 'third-page' };
+    });
+
+    expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 2, cursor: 'third-page', pages: 2 });
+  });
+
+  it('L12 invalidation and row loss reset the page chain', async () => {
+    const ledger = createLedger();
+    await ledger.run('key', async () => ({ applied: true, count: 1, cursor: 'next-page' }));
+
+    ledger.invalidate('key');
+    expect(ledger.read('key')).toEqual({ lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
+    await ledger.run('key', async context => {
+      expect(context.cursor).toBeNull();
+      return { applied: true, count: 1, cursor: 'next-page' };
+    });
+    ledger.noteRowsLost('key');
+
+    expect(ledger.read('key')).toEqual({ lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
+  });
+
+  it('L13 removes a key from activeKeys after every reader releases it', () => {
+    const ledger = createLedger();
+    const releaseFirst = ledger.retain('key', async () => {});
+    const releaseSecond = ledger.retain('key', async () => {});
+
+    expect(ledger.activeKeys()).toEqual(['key']);
+    releaseFirst();
+    expect(ledger.activeKeys()).toEqual(['key']);
+    releaseSecond();
+    expect(ledger.activeKeys()).toEqual([]);
+  });
+
+  it('L14 continues resume after a refetch rejection', async () => {
+    const ledger = createLedger();
+    const rejected = jest.fn(async () => { throw new Error('failed'); });
+    const fulfilled = jest.fn(async () => {});
+    const releaseRejected = ledger.retain('rejected', rejected);
+    const releaseFulfilled = ledger.retain('fulfilled', fulfilled);
+
+    await expect(ledger.resume(2)).resolves.toBeUndefined();
+
+    expect(rejected).toHaveBeenCalledTimes(1);
+    expect(fulfilled).toHaveBeenCalledTimes(1);
+    releaseRejected();
+    releaseFulfilled();
   });
 });

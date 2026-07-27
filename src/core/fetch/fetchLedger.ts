@@ -9,13 +9,19 @@ type FetchEntry = {
   lastAppliedAt: number | null;
   /** Size of the last applied result; 0 is meaningful, null means never applied. */
   lastCount: number | null;
+  /** Cursor for the next page of the current chain; null when complete or unused. */
+  cursor: string | null;
+  /** Pages applied in the current chain. */
+  pages: number;
 };
 
-type RunOutcome = { applied: true; count: number } | { applied: false };
+type RunOutcome = { applied: true; count: number; cursor?: string | null } | { applied: false };
 
 type RunStatus = 'applied' | 'skipped' | 'offline' | 'failed';
 
 type RunContext = {
+  /** Cursor recorded by the previous applied page of this chain; null starts a new chain. */
+  cursor: string | null;
   attempt: number;
   /** False once the runtime generation moved on; the caller must not apply anything when false. */
   isCurrent: () => boolean;
@@ -31,6 +37,12 @@ type FetchLedger = {
   invalidate(key: FetchKey): void;
   /** Drop freshness because committed rows behind this key were destroyed, evicted, or trimmed. */
   noteRowsLost(key: FetchKey): void;
+  /** Register a live reader and how to refetch it; returns the release callback. */
+  retain(key: FetchKey, refetch: () => Promise<void>): () => void;
+  /** Keys with at least one live reader, in registration order. */
+  activeKeys(): FetchKey[];
+  /** Walk `activeKeys()` in chunks of `chunkSize`, awaiting each chunk's refetches. */
+  resume(chunkSize: number): Promise<void>;
   reset(): void;
 };
 
@@ -41,18 +53,45 @@ export const createFetchLedger = (options: {
   isOnline: () => boolean;
   /** Called whenever an entry's freshness changes. */
   onStamp: (key: FetchKey) => void;
+  /** Maximum retained entries without live readers. */
+  maxEntries: number;
 }): FetchLedger => {
   const entries = new Map<FetchKey, FetchEntry>();
   const flights = new Map<FetchKey, Promise<RunStatus>>();
+  const readers = new Map<FetchKey, Map<number, () => Promise<void>>>();
+  let nextReaderId = 0;
 
   const clearEntry = (key: FetchKey): void => {
-    if (!entries.delete(key)) return;
+    const entry = entries.get(key);
+    if (!entry || (entry.lastAppliedAt === null && entry.lastCount === null && entry.cursor === null && entry.pages === 0)) return;
+    entries.set(key, { lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
     options.onStamp(key);
   };
+
+  const trimEntries = (): void => {
+    while (entries.size > options.maxEntries) {
+      let evictedKey: FetchKey | undefined;
+      let oldestStamp = Infinity;
+      for (const [key, entry] of entries) {
+        if (readers.has(key)) continue;
+        const stamp = entry.lastAppliedAt ?? -Infinity;
+        if (stamp < oldestStamp) {
+          evictedKey = key;
+          oldestStamp = stamp;
+        }
+      }
+      if (evictedKey === undefined) return;
+      entries.delete(evictedKey);
+      options.onStamp(evictedKey);
+    }
+  };
+
+  const activeKeys = (): FetchKey[] => [...readers.keys()];
 
   const reset = (): void => {
     entries.clear();
     flights.clear();
+    readers.clear();
   };
 
   registerReset(reset);
@@ -69,17 +108,30 @@ export const createFetchLedger = (options: {
       if (!options.isOnline()) return Promise.resolve('offline');
 
       const generationFence = createGenerationFence();
+      const cursor = entries.get(key)?.cursor ?? null;
       const flight = (async (): Promise<RunStatus> => {
         let attempt = 1;
         while (true) {
           try {
-            const outcome = await execute({ attempt, isCurrent: generationFence.isCurrent });
+            const outcome = await execute({ cursor, attempt, isCurrent: generationFence.isCurrent });
             if (!outcome.applied || !generationFence.isCurrent()) return 'skipped';
 
-            const next = { lastAppliedAt: options.now(), lastCount: outcome.count };
             const previous = entries.get(key);
+            const hasCursor = 'cursor' in outcome;
+            const next = {
+              lastAppliedAt: options.now(),
+              lastCount: outcome.count,
+              cursor: hasCursor ? outcome.cursor ?? null : null,
+              pages: hasCursor ? (cursor === null ? 1 : (previous?.pages ?? 0) + 1) : 1
+            };
             entries.set(key, next);
-            if (previous?.lastAppliedAt !== next.lastAppliedAt || previous.lastCount !== next.lastCount) options.onStamp(key);
+            if (
+              previous?.lastAppliedAt !== next.lastAppliedAt ||
+              previous.lastCount !== next.lastCount ||
+              previous.cursor !== next.cursor ||
+              previous.pages !== next.pages
+            ) options.onStamp(key);
+            trimEntries();
             return 'applied';
           } catch (error) {
             const classification = options.retry.classify?.(error) ?? 'fatal';
@@ -98,6 +150,29 @@ export const createFetchLedger = (options: {
     },
     invalidate: clearEntry,
     noteRowsLost: clearEntry,
+    retain: (key, refetch) => {
+      const keyReaders = readers.get(key) ?? new Map<number, () => Promise<void>>();
+      readers.set(key, keyReaders);
+      const readerId = nextReaderId;
+      nextReaderId += 1;
+      keyReaders.set(readerId, refetch);
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        const currentReaders = readers.get(key);
+        if (!currentReaders?.delete(readerId)) return;
+        if (currentReaders.size === 0) readers.delete(key);
+      };
+    },
+    activeKeys,
+    resume: async chunkSize => {
+      const keys = activeKeys();
+      for (let index = 0; index < keys.length; index += chunkSize) {
+        const refetches = keys.slice(index, index + chunkSize).flatMap(key => [...(readers.get(key)?.values() ?? [])]);
+        await Promise.all(refetches.map(refetch => Promise.resolve().then(refetch).catch(() => {})));
+      }
+    },
     reset
   };
 };
