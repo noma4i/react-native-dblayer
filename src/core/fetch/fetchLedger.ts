@@ -1,4 +1,5 @@
 import type { DbRetryPolicy } from '../../types';
+import { retryDelayMs } from './retryPolicy';
 import { registerReset } from '../reset';
 import { createGenerationFence } from '../../utils/runtimeGeneration';
 
@@ -173,11 +174,9 @@ export const createFetchLedger = (options: {
             return 'applied';
           } catch (error) {
             if (!options.isOnline()) return 'offline';
-            const classification = options.retry.classify?.(error) ?? 'fatal';
-            if (classification === 'fatal' || attempt > (options.retry.budgets?.[classification] ?? 0)) return 'failed';
-            const baseMs = options.retry.backoff?.baseMs ?? 1000;
-            const maxMs = options.retry.backoff?.maxMs ?? 30000;
-            await new Promise<void>(resolve => setTimeout(resolve, Math.min(baseMs * Math.pow(2, attempt), maxMs)));
+            const delayMs = retryDelayMs(options.retry, error, attempt);
+            if (delayMs === null) return 'failed';
+            await new Promise<void>(resolve => setTimeout(resolve, delayMs));
             attempt += 1;
           }
         }

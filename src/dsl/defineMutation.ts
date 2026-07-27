@@ -14,6 +14,7 @@ import { getInternalModelHandle, getInternalScopeHandle } from '../core/internal
 import { responseDataOrThrow } from '../core/transport';
 import { noteDataLoss } from '../core/diagnostics';
 import { serializeOperationInput } from '../core/planes/operationState';
+import { retryDelayMs } from '../core/fetch/retryPolicy';
 
 /** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
@@ -369,7 +370,18 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     context = { tempId, operationId };
     config.onMutate?.(input, context);
 
-    data = responseDataOrThrow(await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } }));
+    let attempt = 1;
+    while (true) {
+      try {
+        data = responseDataOrThrow(await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, context) ?? input } }));
+        break;
+      } catch (error) {
+        const delayMs = retryDelayMs(getDbRuntimeConfig().defaults.retry?.mutation ?? {}, error, attempt);
+        if (delayMs === null) throw error;
+        await new Promise<void>(resolve => setTimeout(resolve, delayMs));
+        attempt += 1;
+      }
+    }
     if (!generationFence.isCurrent()) return null;
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
     if (payload == null) throw new Error(`${config.result} returned no data`);
