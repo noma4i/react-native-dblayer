@@ -152,7 +152,7 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
       for (const id of ids) {
         batch.rows.push({ model: op.model, id, fields: null });
         const row = before.get(id);
-        if (row) destroyed.push({ model: op.model, id, before: row });
+        if (row) destroyed.push({ model: op.model, id, before: row, origin: op.origin });
       }
       noteRows(op.model, target, ids);
     }

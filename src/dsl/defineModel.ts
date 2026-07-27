@@ -1131,7 +1131,7 @@ export const defineModel = <
     const memberships = captureMembership(oldId);
     const nextId = normalized.id;
     return [
-      { kind: 'destroy', model: config.id, ids: [oldId] },
+      { kind: 'destroy', model: config.id, ids: [oldId], origin: 'replace' },
       { kind: 'upsert', model: config.id, rows: [next], origin: 'replace', mergeBase },
       ...(nextId == null ? [] : restoreMembership(nextId, memberships))
     ];

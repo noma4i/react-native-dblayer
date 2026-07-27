@@ -10,7 +10,8 @@ export type JournalOp =
   | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown; operationId?: string }
   /** `operationId` lets a pending optimistic method-patch apply its own rollback while foreign patches keep its owned fields. */
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; operationId?: string }
-  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean }
+  /** `replace` marks the destroy half of an identity swap, so relation effects preserve logical existence. */
+  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace' }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number; next?: number };

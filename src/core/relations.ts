@@ -150,7 +150,7 @@ export const hasDependentCascade = (modelId: string): boolean => {
 type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
 type CounterRef = { model: string; id: string; field: string };
 export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace' };
-export type DestroyedRow = { model: string; id: string; before: StoredRow };
+export type DestroyedRow = { model: string; id: string; before: StoredRow; origin?: 'replace' };
 
 /**
  * Derive relation effects from rows accepted by entity application. Raw journal operations never
@@ -227,6 +227,20 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     }
   };
 
+  /**
+   * Relation effect origin matrix:
+   *
+   * | operation | counter cache | touch | dependent destroy |
+   * | --- | --- | --- | --- |
+   * | event | +1 | yes | none |
+   * | snapshot | none | none | none |
+   * | replace | none | none | none |
+   * | patch | none | none | none |
+   * | ordinary destroy | -1 | none | cascade |
+   * | replace destroy | none | none | none |
+   *
+   * Effects model logical existence: snapshots are authoritative and identity swaps do not create or remove a record.
+   */
   const upsertEffects = (modelId: string, host: RelationHost, row: StoredRow, existed: boolean): void => {
     const childId = String(row.id);
     for (const relation of Object.values(host.relations())) {
@@ -245,6 +259,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     }
   };
 
+  /** Ordinary-destroy branch of the relation effect origin matrix above. */
   const destroyEffects = (modelId: string, id: string, row: StoredRow | undefined): void => {
     const destroyKey = compositeKey(modelId, id);
     if (destroyed.has(destroyKey)) return;
@@ -289,7 +304,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   for (const destroyedRow of destroyedRows) {
     accumulateMembership(destroyedRow.model, hosts.get(destroyedRow.model)?.detachForDestroy(destroyedRow.id) ?? []);
     detachAccumulatedMembership(destroyedRow.model, destroyedRow.id);
-    destroyEffects(destroyedRow.model, destroyedRow.id, destroyedRow.before);
+    if (destroyedRow.origin !== 'replace') destroyEffects(destroyedRow.model, destroyedRow.id, destroyedRow.before);
     overlayWrite(destroyedRow.model, destroyedRow.id, null);
   }
 
