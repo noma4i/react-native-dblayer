@@ -13,7 +13,7 @@ const document = { kind: 'Document', definitions: [] } as never;
 
 const createMessages = (id: string, transport: ReturnType<typeof createMockTransport>, configure = true) => {
   if (configure) configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() } });
+  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
   let latestTempId: string | null = null;
   const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
     document,
@@ -161,7 +161,7 @@ describe('optimistic failure contract', () => {
     failed.unmount();
   });
 
-  it('failed rows survive journal replay and retry degrades to null after restart', async () => {
+  it('expires an old failed row during journal replay and retry degrades to null after restart', async () => {
     const storage = createMemoryPlane();
     const failingTransport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage, transport: failingTransport });
@@ -181,9 +181,9 @@ describe('optimistic failure contract', () => {
     const restarted = createMessages('FailureRestart', restartedTransport, false);
     await bootDb();
 
-    expect(restarted.messages.find(id)).toMatchObject({ status: 'Failed' });
+    expect(restarted.messages.find(id)).toBeUndefined();
     const failed = renderCounted(() => restarted.messages.use.failed(id));
-    expect(failed.result()).toBe(true);
+    expect(failed.result()).toBe(false);
     await expect(restarted.send.retry(id)).resolves.toBeNull();
     failed.unmount();
   });

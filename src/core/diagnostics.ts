@@ -7,6 +7,7 @@ export type DataLossMechanism =
   | 'gc-scope-membership-detach'
   | 'scope-retention-trim'
   | 'scope-complete-detach'
+  | 'stale-temp-row-expiry'
   | 'tombstone-expiry'
   | 'model-corruption-recovery'
   | 'journal-corruption-checkpointed-drop'

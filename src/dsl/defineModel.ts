@@ -39,7 +39,7 @@ import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
-import { trimRowsPerScope } from '../utils/modelMaintenance';
+import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
@@ -426,6 +426,8 @@ export type ModelConfig<
   maintenance?: {
     /** Opt-in idle scope collection: unread scopes are removed at the next GC sweep after this duration, then their rows follow normal reachability. */
     dropIdleScopesAfterMs?: number;
+    /** Opt-in age limit for unresolved temp-id rows. Pending operations remain protected. */
+    dropTempRowsAfterMs?: number;
     maxRowsPerScope?: Array<{
       scopeField: keyof InferStoredFields<TFields> & string;
       limit: number;
@@ -1461,12 +1463,27 @@ export const defineModel = <
   });
   registerIngestModel(config.name, model);
   if (config.maintenance) {
-    registerModelMaintenance(config.id, () => {
-      const reports: MaintenanceReport[] = [];
-      for (const task of config.maintenance?.maxRowsPerScope ?? []) {
-        reports.push({ model: config.id, task: 'maxRowsPerScope', affected: trimRowsPerScope(model, task.scopeField, task.limit, task.compare, task.protect?.()) });
-      }
-      return reports;
+    const pendingTempRows = (): MaintenanceReport[] => {
+      const maxAgeMs = config.maintenance?.dropTempRowsAfterMs;
+      if (maxAgeMs === undefined) return [];
+      const protectedIds = new Set(getOperationState().pending().filter(operation => operation.model === config.id).flatMap(operation => operation.tempIds));
+      const ids: string[] = [];
+      resolveStaleTempRows(model, { maxAgeMs, protectedIds, onStale: row => ids.push(row.id) });
+      if (ids.length === 0) return [];
+      getApplyRuntime().apply([{ kind: 'destroy', model: config.id, ids, tombstone: false }]);
+      for (const id of ids) clearFailedOptimisticMutation(config.id, id);
+      noteDataLoss('stale-temp-row-expiry', config.id, ids.length);
+      return [{ model: config.id, task: 'dropTempRows', affected: ids.length }];
+    };
+    registerModelMaintenance(config.id, {
+      boot: () => {
+        const reports: MaintenanceReport[] = [];
+        for (const task of config.maintenance?.maxRowsPerScope ?? []) {
+          reports.push({ model: config.id, task: 'maxRowsPerScope', affected: trimRowsPerScope(model, task.scopeField, task.limit, task.compare, task.protect?.()) });
+        }
+        return [...reports, ...pendingTempRows()];
+      },
+      pendingTempRows
     });
   }
 

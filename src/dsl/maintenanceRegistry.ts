@@ -1,9 +1,11 @@
 import { getRuntimeGeneration } from './configure';
 
 /** One maintenance task outcome produced during `bootDb`. */
-export type MaintenanceReport = { model: string; task: 'maxRowsPerScope'; affected: number };
+export type MaintenanceReport = { model: string; task: 'maxRowsPerScope' | 'dropTempRows'; affected: number };
 
-const runners = new Map<string, () => MaintenanceReport[]>();
+type MaintenanceRunner = { boot(): MaintenanceReport[]; pendingTempRows(): MaintenanceReport[] };
+
+const runners = new Map<string, MaintenanceRunner>();
 const runnerGenerations = new Map<string, number>();
 
 /**
@@ -14,10 +16,10 @@ const runnerGenerations = new Map<string, number>();
  * @param run Definition-bound runner evaluated during boot.
  * @returns Nothing.
  */
-export const registerModelMaintenance = (modelId: string, run: () => MaintenanceReport[]): void => {
+export const registerModelMaintenance = (modelId: string, runner: MaintenanceRunner): void => {
   const generation = getRuntimeGeneration();
   if (runners.has(modelId) && runnerGenerations.get(modelId) === generation) throw new Error(`Maintenance runner already registered for model ${modelId}`);
-  runners.set(modelId, run);
+  runners.set(modelId, runner);
   runnerGenerations.set(modelId, generation);
 };
 
@@ -26,4 +28,7 @@ export const registerModelMaintenance = (modelId: string, run: () => Maintenance
  *
  * @returns Flat reports for every configured maintenance task.
  */
-export const runModelMaintenance = (): MaintenanceReport[] => [...runners.values()].flatMap(run => run());
+export const runModelMaintenance = (): MaintenanceReport[] => [...runners.values()].flatMap(runner => runner.boot());
+
+/** Run the model-owned unresolved-temp cleanup executor from any maintenance cadence. */
+export const runPendingTempRowMaintenance = (): MaintenanceReport[] => [...runners.values()].flatMap(runner => runner.pendingTempRows());

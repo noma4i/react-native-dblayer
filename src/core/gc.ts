@@ -2,6 +2,7 @@ import { union } from 'es-toolkit';
 import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
+import { runPendingTempRowMaintenance } from '../dsl/maintenanceRegistry';
 
 type GcHost = {
   modelId: string;
@@ -56,6 +57,9 @@ export const collectGarbage = (): GcReport => {
   const scopes: Array<{ model: string; scopeKey: string }> = [];
   const scopeChanges: Array<{ model: string; scopeKey: string; detachIds?: string[]; rebuild?: boolean }> = [];
   const report: GcReport = { evicted: {}, scopesRemoved: {} };
+  // Age-based unresolved temp cleanup deliberately precedes reachability marking: scope membership and
+  // mounted readers are ordinary GC roots, but an expired temp id is an explicit retention exception.
+  runPendingTempRowMaintenance();
   const noteScopeRemoval = (host: GcHost, key: string): void => {
     report.scopesRemoved[host.modelId] = (report.scopesRemoved[host.modelId] ?? 0) + 1;
     maintainedModels.add(host.modelId);

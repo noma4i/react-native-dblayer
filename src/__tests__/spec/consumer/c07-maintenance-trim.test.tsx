@@ -1,6 +1,7 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
+import { collectGarbage } from '../../../core/gc';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
@@ -141,5 +142,118 @@ describe('maintenance trim contracts', () => {
     expect(reader.result().map(row => row.id)).toEqual(['chat-a-4', 'chat-a-3']);
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'scope-retention-trim', model: messages.modelId, count: 2 });
     reader.unmount();
+  });
+});
+
+type TempRow = { id: string; createdAt: string; label: string };
+
+const createTempRows = (id: string, maxAgeMs?: number) =>
+  defineModel({
+    id,
+    name: id,
+    gc: 'exempt',
+    fields: { createdAt: f.str(), label: f.str() },
+    ...(maxAgeMs === undefined ? {} : { maintenance: { dropTempRowsAfterMs: maxAgeMs } })
+  });
+
+describe('unresolved temp row retention', () => {
+  const old = () => new Date(Date.now() - 10_000).toISOString();
+  const fresh = () => new Date().toISOString();
+
+  it('drops an old unprotected temp row during GC', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlOld', 1000);
+    rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
+    act(() => {
+      collectGarbage();
+    });
+    expect(rows.find('temp-old')).toBeUndefined();
+  });
+
+  it('keeps an old temp row while its mutation is pending', async () => {
+    let resolve!: (value: { data: { save: TempRow } }) => void;
+    const transport = createMockTransport({ mutation: async <TData,>() => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createTempRows('PendingTtlPending', 1000);
+    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save } });
+    const pending = save.run();
+    act(() => {
+      collectGarbage();
+    });
+    expect(rows.all()).toHaveLength(1);
+    resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
+    await pending;
+  });
+
+  it('drops a failed temp row after its configured age', async () => {
+    const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createTempRows('PendingTtlFailed', 1000);
+    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'failed' }), selectServerNode: data => data.save } });
+    await expect(save.run()).rejects.toThrow('offline');
+    collectGarbage();
+    expect(rows.all()).toEqual([]);
+  });
+
+  it('keeps a fresh temp row', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlFresh', 1000);
+    rows.insert({ id: 'temp-fresh', createdAt: fresh(), label: 'fresh' });
+    collectGarbage();
+    expect(rows.find('temp-fresh')).toBeTruthy();
+  });
+
+  it('drops a temp row with an unparseable creation time', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlInvalid', 1000);
+    rows.insert({ id: 'temp-invalid', createdAt: 'invalid', label: 'invalid' });
+    collectGarbage();
+    expect(rows.find('temp-invalid')).toBeUndefined();
+  });
+
+  it('never drops a permanent id', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlPermanent', 1000);
+    rows.insert({ id: 'server-old', createdAt: old(), label: 'server' });
+    collectGarbage();
+    expect(rows.find('server-old')).toBeTruthy();
+  });
+
+  it('does not clean a model without a declared age', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlDisabled');
+    rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
+    collectGarbage();
+    expect(rows.find('temp-old')).toBeTruthy();
+  });
+
+  it('removes without a tombstone so a later authoritative write lands', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlNoTombstone', 1000);
+    rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
+    collectGarbage();
+    rows.insert({ id: 'temp-old', createdAt: fresh(), label: 'authoritative' });
+    expect(rows.find('temp-old')?.label).toBe('authoritative');
+  });
+
+  it('notifies a mounted reader once for one cleanup batch', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlRender', 1000);
+    rows.insertMany([{ id: 'temp-a', createdAt: old(), label: 'a' }, { id: 'temp-b', createdAt: old(), label: 'b' }]);
+    const reader = renderCounted(() => rows.use.find('temp-a'));
+    const before = reader.renders();
+    act(() => {
+      collectGarbage();
+    });
+    expect(reader.renders() - before).toBe(1);
+    reader.unmount();
+  });
+
+  it('records the cleanup count in diagnostics', () => {
+    setupSpecRuntime();
+    const rows = createTempRows('PendingTtlDiagnostics', 1000);
+    rows.insertMany([{ id: 'temp-a', createdAt: old(), label: 'a' }, { id: 'temp-b', createdAt: old(), label: 'b' }]);
+    collectGarbage();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'stale-temp-row-expiry', model: rows.modelId, count: 2 });
   });
 });
