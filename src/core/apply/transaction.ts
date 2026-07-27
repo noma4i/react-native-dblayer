@@ -65,7 +65,11 @@ export type ApplyRuntime = {
 const targets = new Map<string, ApplyTarget>();
 const targetGenerations = new Map<string, number>();
 
-/** Register one model-owned application target for model application plans. */
+/**
+ * Register one model-owned application target for model application plans.
+ *
+ * A duplicate in one runtime generation throws; a later generation deliberately replaces the stale target so recreated runtimes can reuse stable model ids. Relation, GC, ingest, invalidation, and maintenance registries follow this same generation rule.
+ */
 export const registerApplyTarget = (model: string, target: ApplyTarget): (() => void) => {
   const generation = getRuntimeGeneration();
   if (targets.has(model) && targetGenerations.get(model) === generation) throw new Error(`Apply target already registered for model ${model}`);

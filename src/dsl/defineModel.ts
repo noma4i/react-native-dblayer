@@ -633,7 +633,7 @@ export const defineModel = <
         if (!isRecord(scopeValue) || scopeValue[field] === undefined) throw new Error(`${config.name}.${scopeName}: scope value must provide ${field}`);
       }
     }
-    return `${scopeName}:${buildScopeKey(coerceScopeValueForKey(scopeName, scopeValue))}`;
+    return compositeKey(scopeName, buildScopeKey(coerceScopeValueForKey(scopeName, scopeValue)));
   };
   const criteriaCache = new WeakMap<object, DbWhere<Stored>>();
   const normalizeCriteria = (where: DbWhere<Stored>): DbWhere<Stored> => {
@@ -733,7 +733,7 @@ export const defineModel = <
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
     readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
     readScopeOrder: (scopeKey: string): string[] => {
-      const separator = scopeKey.indexOf(`:`);
+      const separator = scopeKey.indexOf(`\0`);
       const scopeName = separator < 0 ? scopeKey : scopeKey.slice(0, separator);
       const rawValue = separator < 0 ? `{}` : scopeKey.slice(separator + 1);
       try {
@@ -748,7 +748,7 @@ export const defineModel = <
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
     scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {
       if (fields === null || !planes().scopeIndex.has(scopeKey, id)) return true;
-      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
+      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
       const spec = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName];
       if (!spec) return false;
       const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
@@ -760,7 +760,7 @@ export const defineModel = <
       return fields.some(field => relevant.has(field));
     },
     scopeSortMeta: (scopeKey: string) => {
-      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`:`));
+      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
       const sort = (config.scopes as Record<string, ScopeSpec<Stored>> | undefined)?.[scopeName]?.sort;
       if (!sort || sort === 'server-order') return { kind: 'server-order' as const };
       if ('comparator' in sort) return { kind: 'comparator' as const };
@@ -1055,7 +1055,7 @@ export const defineModel = <
       return useScopeLiveRows(
         config.id,
         scopeKey,
-        applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`),
+        applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
         () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
         options
       );
@@ -1076,7 +1076,7 @@ export const defineModel = <
         const window = useScopeLiveWindowRows(
           config.id,
           scopeKey,
-          applyTarget.scopeSortMeta(scopeKey ?? `${scopeName}:`),
+          applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
           windowSize,
           () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
           options
@@ -1233,7 +1233,7 @@ export const defineModel = <
       const { live, ...queryOptions } = queryConfig;
       const handle = defineQuery({
         ...queryOptions,
-        key: queryConfig.key ?? `${config.id}:${name}`,
+        key: queryConfig.key ?? compositeKey(config.id, name),
         into: queryConfig.into ?? (model as NonNullable<typeof queryConfig.into>)
       });
       if (!live) return handle;
@@ -1269,11 +1269,11 @@ export const defineModel = <
     }) as ModelCore<Stored, Input>['query'],
     mutation: (name, mutationConfig) => {
       /** Mutation dedupe keys are idempotency identities, not scope bucket keys; scope validation belongs to scope handles and queries. */
-      const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => `${config.id}:${name}:${buildScopeKey(input)}` });
+      const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => compositeKey(config.id, name, buildScopeKey(input)) });
       return defineMutation({ ...mutationConfig, dedupe });
     },
     fetch: <TData, TFetchInput, TSelected>(name: string, fetchConfig: ModelFetchConfig<TData, TFetchInput, TSelected>) =>
-      defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? `${config.id}:${name}` } as Parameters<
+      defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? compositeKey(config.id, name) } as Parameters<
         typeof defineFetch<TData, TFetchInput, TSelected>
       >[0]),
     view: (name, viewConfig) => defineView(model, name, viewConfig),
@@ -1284,7 +1284,7 @@ export const defineModel = <
           try {
             return (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data;
           } catch (error) {
-            getDbLogger().error('Model.poller', 'fetch failed', { key: `${config.id}:${name}`, id, error });
+            getDbLogger().error('Model.poller', 'fetch failed', { key: compositeKey(config.id, name), id, error });
             throw error;
           }
         }

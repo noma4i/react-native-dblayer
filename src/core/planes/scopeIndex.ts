@@ -1,5 +1,6 @@
 import type { StoragePlane } from './storagePlane';
 import { CorruptionError } from '../recovery';
+import { compositeKey } from '../serialize';
 import { sortBy } from 'es-toolkit';
 
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
@@ -289,7 +290,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       accessTimes.clear();
       for (const fullKey of storage.keys(storageKey(''))) {
         const key = fullKey.slice(storageKey('').length);
-        if (scopeNames !== undefined && !scopeNames.some(scopeName => key.startsWith(`${scopeName}:`))) {
+        if (scopeNames !== undefined && !scopeNames.some(scopeName => key.startsWith(compositeKey(scopeName, '')))) {
           throw new CorruptionError('scope', fullKey);
         }
         const raw = storage.get(fullKey);

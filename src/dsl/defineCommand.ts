@@ -1,4 +1,5 @@
 import { buildScopeKey } from '../core/compileDbWhere';
+import { compositeKey } from '../core/serialize';
 import { defineMutation, type MutationConfig } from './defineMutation';
 
 type CommandConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe' | 'optimistic'> & {
@@ -18,6 +19,6 @@ export const defineCommand = <TData, TInput, TStored extends { id: string } = { 
   name: string,
   config: CommandConfig<TData, TInput, TStored, TNode>
 ) => {
-  const dedupe = config.dedupe === false ? false : (config.dedupe ?? { key: input => `${name}:${buildScopeKey(input)}` });
+  const dedupe = config.dedupe === false ? false : (config.dedupe ?? { key: input => compositeKey(name, buildScopeKey(input)) });
   return defineMutation({ ...config, dedupe });
 };

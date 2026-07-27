@@ -141,6 +141,6 @@ describe('mutation dedupe semantics', () => {
     const onceRecord = records.find(record => record.once === true);
 
     expect(regularRecord?.idempotencyKey).toBeUndefined();
-    expect(onceRecord?.idempotencyKey).toBe('specDedupeStoredOnce:{"value":"once"}');
+    expect(onceRecord?.idempotencyKey).toBe('specDedupeStoredOnce\0{"value":"once"}');
   });
 });
