@@ -1,13 +1,12 @@
-import { useMemo, useRef } from 'react';
-import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getApplyTarget } from '../core/apply/transaction';
 import { noteScopeReadPass } from '../core/diagnostics';
-import { getRuntimeGeneration } from '../dsl/configure';
-import { readEngineScopeRows } from '../engine/EngineAdapter';
+import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
+import { engineScopeCollection, type EngineScopeChange, type EngineScopeRow } from '../engine/EngineAdapter';
 import { createProjectionGate, type ProjectionOptions, validateProjectionOptions } from './projectionGate';
 import { hasRequiredFields } from './requireFields';
 import { useScopeRetention } from './scopeRetention';
-import { incrementalSignature, useReadEngineHarness } from './incrementalReadEngine';
+import { incrementalSignature } from './incrementalReadEngine';
 import { arraysShallowEqual, rowsShallowEqual } from './useLiveRead';
 
 type StoredRowShape = { id: string } & Record<string, unknown>;
@@ -17,6 +16,24 @@ type ScopeWindowSnapshot = { rows: StoredRowShape[]; totalCount: number; isPrevi
 type RequireGate = { source: StoredRowShape[] | null; require: ReadonlyArray<string> | undefined; result: StoredRowShape[] };
 
 const EMPTY_ROWS: StoredRowShape[] = [];
+
+type ScopeReadWorkSnapshot = { fullRows: number; incrementalRows: number };
+
+const scopeReadWork: ScopeReadWorkSnapshot = { fullRows: 0, incrementalRows: 0 };
+
+const scopeReadWorkGlobal = {
+  snapshot: (): ScopeReadWorkSnapshot => ({ ...scopeReadWork }),
+  reset: (): void => {
+    scopeReadWork.fullRows = 0;
+    scopeReadWork.incrementalRows = 0;
+  }
+};
+
+(globalThis as Record<string, unknown>).__DBLAYER_SCOPE_READ_WORK__ = scopeReadWorkGlobal;
+
+const noteScopeReadWork = (kind: keyof ScopeReadWorkSnapshot, count: number): void => {
+  scopeReadWork[kind] += count;
+};
 
 const requireFilteredRows = (rows: StoredRowShape[], require: ReadonlyArray<string> | undefined): StoredRowShape[] => {
   if (!require || require.length === 0) return rows;
@@ -35,69 +52,119 @@ const readRequireGate = (cache: { current: RequireGate }, source: StoredRowShape
 const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {
   const rowCache = new Map<string, StoredRowShape>();
   const sourceCache = new WeakMap<StoredRowShape, StoredRowShape>();
+  const source = scopeKey == null ? null : engineScopeCollection(modelId, scopeKey);
+  let entries: EngineScopeRow[] = [];
   let rows = EMPTY_ROWS;
-  let orderRevision = scopeKey == null ? -1 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
-  const resolveRow = (source: StoredRowShape): StoredRowShape => {
-    const cached = sourceCache.get(source);
+  let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
+  const resolveRow = (sourceRow: StoredRowShape, kind: keyof ScopeReadWorkSnapshot): StoredRowShape => {
+    const cached = sourceCache.get(sourceRow);
     if (cached) return cached;
-    const next = Object.fromEntries(Object.entries(source).filter(([key]) => !key.startsWith('$'))) as StoredRowShape;
+    const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as StoredRowShape;
     const current = rowCache.get(next.id);
     const resolved = current && rowsShallowEqual(current, next) ? current : next;
+    if (resolved !== current) noteScopeReadWork(kind, 1);
     rowCache.set(next.id, resolved);
-    sourceCache.set(source, resolved);
+    sourceCache.set(sourceRow, resolved);
     return resolved;
   };
-  const rebuild = (): boolean => {
-    if (scopeKey == null) return false;
-    const rowsById = new Map(readEngineScopeRows(modelId, scopeKey).map(row => [row.id, row]));
-    const next = getApplyTarget(modelId).readScopeOrder(scopeKey).flatMap(id => {
-      const row = rowsById.get(id);
-      return row ? [resolveRow(row)] : [];
-    });
-    if (arraysShallowEqual(rows, next)) return false;
-    rows = next;
-    const liveIds = new Set(next.map(row => row.id));
-    for (const id of rowCache.keys()) if (!liveIds.has(id)) rowCache.delete(id);
+  const compareEntries = (left: EngineScopeRow, right: EngineScopeRow): number =>
+    left.orderKey < right.orderKey ? -1 : left.orderKey > right.orderKey ? 1 : (left.id ?? '').localeCompare(right.id ?? '');
+  const insertionIndex = (entry: EngineScopeRow): number => {
+    let lower = 0;
+    let upper = entries.length;
+    while (lower < upper) {
+      const middle = Math.floor((lower + upper) / 2);
+      if (compareEntries(entries[middle]!, entry) < 0) lower = middle + 1;
+      else upper = middle;
+    }
+    return lower;
+  };
+  const isScopeRow = (entry: EngineScopeRow): entry is EngineScopeRow & { id: string } => typeof entry.id === 'string' && typeof entry.orderKey === 'string';
+  const updateValue = (entry: EngineScopeRow, kind: keyof ScopeReadWorkSnapshot): boolean => {
+    if (!isScopeRow(entry)) return false;
+    const currentIndex = entries.findIndex(current => current.id === entry.id);
+    const previousEntry = currentIndex < 0 ? undefined : entries[currentIndex]!;
+    const previousRow = currentIndex < 0 ? undefined : rows[currentIndex]!;
+    if (currentIndex >= 0) {
+      entries.splice(currentIndex, 1);
+      rows = [...rows.slice(0, currentIndex), ...rows.slice(currentIndex + 1)];
+    }
+    const nextRow = resolveRow(entry as StoredRowShape, kind);
+    const nextIndex = insertionIndex(entry);
+    entries.splice(nextIndex, 0, entry);
+    rows = [...rows.slice(0, nextIndex), nextRow, ...rows.slice(nextIndex)];
+    return previousEntry?.orderKey !== entry.orderKey || previousRow !== nextRow || currentIndex !== nextIndex;
+  };
+  const removeValue = (key: string | number): boolean => {
+    const index = entries.findIndex(entry => entry.id === String(key));
+    if (index < 0) return false;
+    const [entry] = entries.splice(index, 1);
+    rows = [...rows.slice(0, index), ...rows.slice(index + 1)];
+    rowCache.delete(entry!.id!);
     return true;
   };
-  rebuild();
+  const publishRows = (): void => {
+    engine.value = rows;
+    engine.version += 1;
+  };
+  if (source) {
+    entries = source.toArray().filter(isScopeRow);
+    rows = entries.map(entry => resolveRow(entry as StoredRowShape, 'fullRows'));
+  }
+  const applyChanges = (changes: EngineScopeChange[]): boolean => {
+    let changed = false;
+    for (const change of changes) {
+      const didChange = change.type === 'delete' ? removeValue(change.key) : updateValue(change.value, 'incrementalRows');
+      changed ||= didChange;
+    }
+    if (changed) publishRows();
+    return changed;
+  };
+  const reset = (): boolean => {
+    if (rows.length === 0) return false;
+    rowCache.clear();
+    entries = [];
+    rows = EMPTY_ROWS;
+    publishRows();
+    return true;
+  };
   const engine = {
     signature: incrementalSignature('scope-read', modelId, scopeKey, sortMeta),
     generation: getRuntimeGeneration(),
     value: rows,
     version: 0,
-    apply: (batch: IncrementalCommitBatch | null): boolean => {
-      if (scopeKey == null) return false;
-      const relevantRows = batch?.rows.filter(change => change.model === modelId) ?? [];
-      const scopeChange = batch?.scopeChanges?.find(change => change.model === modelId && change.scopeKey === scopeKey);
-      if (!scopeChange && relevantRows.length === 0 && batch !== null) return false;
-      const revision = getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
-      const target = getApplyTarget(modelId);
-      const requiresRebuild = batch === null || batch.mode === 'bulk' || batch.mode === 'replace' || batch.mode === 'maintenance' || batch?.maintenanceModels?.includes(modelId) === true || revision !== orderRevision || scopeChange?.rebuild === true || (scopeChange?.appendIds?.length ?? 0) > 0 || (scopeChange?.detachIds?.length ?? 0) > 0 || relevantRows.some(change => target.scopeOrderAffected(scopeKey, change.id, change.fields));
-      let changed = false;
-      if (requiresRebuild) {
-        changed = rebuild();
-      } else if (relevantRows.length > 0) {
-        const byId = new Map(readEngineScopeRows(modelId, scopeKey).map(row => [row.id, row]));
-        const changesById = new Map(relevantRows.map(change => [change.id, change]));
-        const next = rows.map(row => {
-          const change = changesById.get(row.id);
-          if (!change) return row;
-          const source = byId.get(change.id);
-          return source ? resolveRow(source) : row;
-        });
-        if (!arraysShallowEqual(rows, next)) {
-          rows = next;
-          changed = true;
+    subscribe: (listener: () => void): (() => void) => {
+      let notifiedSinceCommit = false;
+      let forceCommitNotification = false;
+      const releaseSource = source?.subscribe(changes => {
+        const changed = applyChanges(changes);
+        if (changed) {
+          listener();
+          notifiedSinceCommit = true;
         }
-      }
-      const resorted = requiresRebuild && revision !== orderRevision;
-      orderRevision = revision;
-      noteScopeReadPass(resorted, 0);
-      if (!changed) return false;
-      engine.value = rows;
-      engine.version += 1;
-      return true;
+      }) ?? (() => {});
+      if (scopeKey == null) return releaseSource;
+      const subscription = getCommitBus().subscribeIncremental(
+        () => {
+          if (!notifiedSinceCommit || forceCommitNotification) listener();
+          notifiedSinceCommit = false;
+          forceCommitNotification = false;
+        },
+        [{ kind: 'scope', model: modelId, scopeKey }],
+        batch => {
+          if (batch === null) forceCommitNotification = reset();
+          else {
+            const nextRevision = getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
+            const orderChanged = nextRevision !== revision;
+            revision = nextRevision;
+            noteScopeReadPass(orderChanged, 0);
+          }
+        }
+      );
+      return () => {
+        releaseSource();
+        subscription.unsubscribe();
+      };
     }
   };
   return engine;
@@ -105,18 +172,16 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
 
 const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: StoredRowShape[]) => TSnapshot): TSnapshot => {
   const signature = incrementalSignature('scope-read', modelId, scopeKey, sortMeta);
-  const deps = useMemo<ReadonlyArray<Dependency>>(() => (scopeKey == null ? [] : [{ kind: 'scope', model: modelId, scopeKey }]), [modelId, scopeKey]);
-  return useReadEngineHarness({
-    signature,
-    create: () => createScopeReadEngine(modelId, scopeKey, sortMeta),
-    deps,
-    apply: (engine, batch) => {
-      engine.apply(batch);
-      return true;
-    },
-    select: engine => snapshot(engine.value),
-    notifyEveryBatch: true
-  });
+  const engineRef = useRef<ReturnType<typeof createScopeReadEngine> | null>(null);
+  if (!engineRef.current || engineRef.current.signature !== signature || engineRef.current.generation !== getRuntimeGeneration()) {
+    engineRef.current = createScopeReadEngine(modelId, scopeKey, sortMeta);
+  }
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const engine = engineRef.current;
+  const subscribe = useCallback((listener: () => void) => engine.subscribe(listener), [engine]);
+  const getSnapshot = useCallback(() => snapshotRef.current(engine.value), [engine]);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
 export function useScopeReadRows<TOutput extends Record<string, unknown> = StoredRowShape>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean, options: ScopeProjectionOptions<TOutput> = {}): TOutput[] {

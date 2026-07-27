@@ -68,6 +68,7 @@ let runtimeGeneration = 0;
 const commitBus = createCommitBus();
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
+let engineResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
@@ -104,6 +105,10 @@ export const configureDb = (options: ConfigureDbOptions): void => {
       stopMaintenanceScheduler = null;
     });
     maintenanceSchedulerResetRegistered = true;
+  }
+  if (!engineResetRegistered) {
+    registerReset(resetEngines);
+    engineResetRegistered = true;
   }
 };
 
