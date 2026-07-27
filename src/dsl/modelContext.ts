@@ -11,6 +11,8 @@ export type ModelContext<TStored extends { id: string }> = {
   bumpRevision(): void;
   issuedScopeSequence(key: string): number | undefined;
   setIssuedScopeSequence(key: string, value: number): void;
+  model<TModel>(): TModel;
+  setModel(model: unknown): void;
   reset(): void;
 };
 
@@ -22,6 +24,7 @@ export const createModelContext = <TStored extends { id: string }>(options: {
 }): ModelContext<TStored> => {
   let planesRef: { entityState: EntityState<TStored>; scopeIndex: ScopeIndex } | null = null;
   let relationCache: Record<string, RelationDecl> | null = null;
+  let modelRef: unknown;
   let revision = 0;
   const issuedScopeSequences = new Map<string, number>();
   const planes = () => {
@@ -51,6 +54,10 @@ export const createModelContext = <TStored extends { id: string }>(options: {
     issuedScopeSequence: key => issuedScopeSequences.get(key),
     setIssuedScopeSequence: (key, value) => {
       issuedScopeSequences.set(key, value);
+    },
+    model: <TModel,>(): TModel => modelRef as TModel,
+    setModel: model => {
+      modelRef = model;
     },
     reset: () => {
       revision += 1;

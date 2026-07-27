@@ -15,6 +15,7 @@ import type { ScopeSpec } from '../dsl/scope';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import type { ModelStatusPoller } from '../utils/modelStatusPoller';
 import type { WritePolicy } from '../core/writePolicies';
+import type { ModelContext } from '../dsl/modelContext';
 
 /** Row shape every model read path narrows to before projection. */
 export type StoredRowShape = { id: string } & Record<string, unknown>;
@@ -56,6 +57,16 @@ export type ModelMutationConfig<TData, TInput, TStored extends { id: string }, T
   dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
 };
 export type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & { key?: string };
+
+export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<
+  ModelCore<TStored, TInput>,
+  'query' | 'mutation' | 'detached' | 'fetch' | 'view' | 'poller' | 'ingest'
+>;
+
+export type ModelDefinitionsOptions<TStored extends { id: string; updatedAt?: string | null }, TInput> = {
+  modelId: string;
+  context: ModelContext<TStored>;
+};
 
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
@@ -422,4 +433,3 @@ export type ModelConfig<
    */
   statics?: (model: ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>) => TExt;
 };
-

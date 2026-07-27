@@ -1,13 +1,10 @@
-import type { DbGraphQLDocument, DbWhere, ModelFieldSpecs } from '../types';
-import { buildScopeKey } from '../core/compileDbWhere';
-import { compositeKey } from '../core/serialize';
+import type { DbWhere, ModelFieldSpecs } from '../types';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { registerGcHost } from '../core/gc';
 import { invalidateModel } from '../core/invalidationRegistry';
-import { getDbLogger } from '../core/logger';
 import { noteDataLoss } from '../core/diagnostics';
-import { registerRelationHost, type RelationDecl } from '../core/relations';
+import { registerRelationHost } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
 import { createModelScopeKeys } from './modelScopeKeys';
@@ -19,24 +16,16 @@ import { createModelApplyTarget } from './modelApplyTarget';
 import { createModelReadAccess } from './modelReadAccess';
 import { createModelReactiveReads } from './modelReactiveReads';
 import { createModelScopeHandle } from './modelScopeHandle';
+import { createModelDefinitions } from './modelDefinitions';
 import { limitRows, sortModelReadRows } from '../read/incrementalReadEngine';
 import { getApplyRuntime, getOperationState } from './configure';
-import { defineFetch } from './defineFetch';
-import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
-import { defineDetachedOperation, type DetachedOperationConfig, type DetachedOperationHandle } from './defineDetachedOperation';
-import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
-import { defineView, type ViewConfig, type ViewHandle } from './defineView';
-import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
-import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
+import { clearFailedOptimisticMutation } from './defineMutation';
+import { registerIngestModel } from './defineIngest';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeSpec } from './scope';
-import { useEffect } from 'react';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
-import { getDbTransport } from '../core/transport';
-import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
 import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
-import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle } from '../core/internalHandles';
 
 export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
@@ -45,9 +34,6 @@ import type {
   LiveQueryHandle,
   ModelConfig,
   ModelCore,
-  ModelFetchConfig,
-  ModelMutationConfig,
-  ModelQueryConfig,
   QueryScopeReads,
   QueryScopeSpec,
   RequiredReadUse,
@@ -228,69 +214,7 @@ export const defineModel = <
 
   const model: ModelCore<Stored, Input> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
-    // The runtime branch adds `live` exactly when the overload's live config is present.
-    query: ((name, queryConfig) => {
-      const { live, ...queryOptions } = queryConfig;
-      const handle = defineQuery({
-        ...queryOptions,
-        key: queryConfig.key ?? compositeKey(config.id, name),
-        into: queryConfig.into ?? (model as NonNullable<typeof queryConfig.into>)
-      });
-      if (!live) return handle;
-      const compiled = defineModelIngest(model, live);
-      let runtime: ReturnType<typeof createDbSubscriptionRuntime> | null = null;
-      let readers = 0;
-      const sync = () => {
-        if (readers === 0) return;
-        runtime ??= createDbSubscriptionRuntime(compiled.entries);
-        runtime.setActive(true);
-      };
-      model.registerReset(() => {
-        runtime?.setActive(false);
-        runtime = null;
-        sync();
-      });
-      return {
-        ...handle,
-        use: (scope: unknown, options?: { enabled?: boolean }) => {
-          const result = handle.use(scope as never, options);
-          useEffect(() => {
-            readers += 1;
-            sync();
-            return () => {
-              readers -= 1;
-              if (readers === 0) runtime?.setActive(false);
-            };
-          }, []);
-          return result;
-        },
-        live: { apply: compiled.apply }
-      };
-    }) as ModelCore<Stored, Input>['query'],
-    mutation: (name, mutationConfig) => {
-      /** Mutation dedupe keys are idempotency identities, not scope bucket keys; scope validation belongs to scope handles and queries. */
-      const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => compositeKey(config.id, name, buildScopeKey(input)) });
-      return defineMutation({ ...mutationConfig, dedupe });
-    },
-    detached: (kind, detachedConfig) => defineDetachedOperation(model, kind, detachedConfig),
-    fetch: <TData, TFetchInput, TSelected>(name: string, fetchConfig: ModelFetchConfig<TData, TFetchInput, TSelected>) =>
-      defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? compositeKey(config.id, name) } as Parameters<
-        typeof defineFetch<TData, TFetchInput, TSelected>
-      >[0]),
-    view: (name, viewConfig) => defineView(model, name, viewConfig),
-    poller: (name, pollerConfig) =>
-      createModelStatusPoller({
-        ...pollerConfig,
-        fetch: async id => {
-          try {
-            return (await getDbTransport().query({ query: pollerConfig.document, variables: pollerConfig.vars?.(id) ?? { id } })).data;
-          } catch (error) {
-            getDbLogger().error('Model.poller', 'fetch failed', { key: compositeKey(config.id, name), id, error });
-            throw error;
-          }
-        }
-      }),
-    ingest: entries => defineModelIngest(model, entries),
+    ...createModelDefinitions<Stored, Input>({ modelId: config.id, context }),
     find: id => (id == null ? undefined : planes().entityState.read(String(id))),
     where: (where, options) => {
       const rows = planes()
@@ -345,6 +269,7 @@ export const defineModel = <
       registerReset(fn);
     }
   };
+  context.setModel(model);
   registerInternalModelHandle(model, {
     readRow: id => planes().entityState.read(id),
     applyRows: rows => applySnapshot(planRows(rows)),
