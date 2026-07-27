@@ -2,7 +2,7 @@ import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
 type MessageScope = MessageRow;
@@ -139,6 +139,7 @@ describe('maintenance trim contracts', () => {
 
     expect(reader.renders() - before).toBe(1);
     expect(reader.result().map(row => row.id)).toEqual(['chat-a-4', 'chat-a-3']);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'scope-retention-trim', model: messages.modelId, count: 2 });
     reader.unmount();
   });
 });

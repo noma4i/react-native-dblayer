@@ -85,7 +85,8 @@ describe('read diagnostics', () => {
       scopeKeyMigrations: 0,
       manifestResets: 0,
       applyFailure: 0,
-      ingestFailed: 0
+      ingestFailed: 0,
+      dataLossEvents: []
     });
   });
 

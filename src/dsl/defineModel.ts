@@ -14,7 +14,7 @@ import { createEntityState, type EntityState } from '../core/planes/entityState'
 import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
-import { noteReplaceRejected } from '../core/diagnostics';
+import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { fieldSpecSparseRead, type FieldSpec } from '../schema/fieldSpec';
@@ -987,12 +987,13 @@ export const defineModel = <
       coverage: ScopeCoverage,
       opts?: { resetOrder?: boolean }
     ): JournalOp => {
-      let { next } = planes().scopeIndex.reconcileNext(
+      let { next, detachedIds } = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
         liveRows.map(({ row, edge }) => ({ id: String(row.id), edge })),
         opts
       );
+      if (detachedIds.length > 0) noteDataLoss('scope-complete-detach', config.id, detachedIds.length);
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (opts?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
         if (spec.sort && spec.sort !== 'server-order') {
@@ -1020,7 +1021,9 @@ export const defineModel = <
             entries: [...next.entries].sort((left, right) => (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER))
           };
         }
-        next = planes().scopeIndex.trimValue(next, maxRows).next;
+        const trimmed = planes().scopeIndex.trimValue(next, maxRows);
+        if (trimmed.trimmedIds.length > 0) noteDataLoss('scope-retention-trim', config.id, trimmed.trimmedIds.length);
+        next = trimmed.next;
       }
       return { kind: 'scope', model: config.id, scopeKey, next };
     };
@@ -1207,7 +1210,8 @@ export const defineModel = <
     } catch (error) {
       getDbLogger().error('replace rejected', { model: config.id, oldId, error });
       noteReplaceRejected();
-      return [];
+      noteDataLoss('replacement-rejected', config.id, 1);
+      throw new Error(`replace rejected for ${config.id}:${oldId}`);
     }
     // Reconciliation and mutation commit share this replacement seam, so both clear retained failure state.
     clearFailedOptimisticMutation(config.id, oldId);

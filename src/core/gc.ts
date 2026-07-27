@@ -1,5 +1,6 @@
 import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
+import { noteDataLoss } from './diagnostics';
 
 type GcHost = {
   modelId: string;
@@ -59,6 +60,7 @@ export const collectGarbage = (): GcReport => {
     maintainedModels.add(host.modelId);
     scopes.push({ model: host.modelId, scopeKey: key });
     scopeChanges.push({ model: host.modelId, scopeKey: key, rebuild: true });
+    noteDataLoss('gc-scope-removal', host.modelId, 1);
   };
   const mark = (model: string, id: string): void => {
     const host = hosts.get(model);
@@ -109,6 +111,7 @@ export const collectGarbage = (): GcReport => {
         maintainedModels.add(host.modelId);
         scopes.push({ model: host.modelId, scopeKey: key });
         scopeChanges.push({ model: host.modelId, scopeKey: key, detachIds: dead });
+        noteDataLoss('gc-scope-membership-detach', host.modelId, dead.length);
       }
     }
   }
@@ -144,6 +147,7 @@ export const collectGarbage = (): GcReport => {
     if (evicted > 0) {
       report.evicted[host.modelId] = evicted;
       maintainedModels.add(host.modelId);
+      noteDataLoss('gc-row-eviction', host.modelId, evicted);
     }
     for (const key of host.scopeKeys()) {
       if (host.scopeEntryCount(key) > 0) continue;

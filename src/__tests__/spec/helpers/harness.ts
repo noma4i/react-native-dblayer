@@ -144,6 +144,7 @@ export type DiagnosticsSnapshot = {
   replaceRejected: number;
   applyFailure: number;
   ingestFailed: number;
+  dataLossEvents: Array<{ mechanism: string; model: string; count: number }>;
 };
 
 type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };

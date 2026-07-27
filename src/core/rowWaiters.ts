@@ -1,6 +1,7 @@
 import type { Dependency } from './apply/commitBus';
 import { getCommitBus } from '../dsl/configure';
 import { createGenerationFence } from '../utils/runtimePrimitives';
+import { noteDataLoss } from './diagnostics';
 
 type WaiterModel<TStored extends { id: string }> = {
   modelId: string;
@@ -68,7 +69,10 @@ export const updateWhenRowExists = <TStored extends { id: string }>(
     stop();
     model.update(id, resolvePatch(row, patch));
   }, [rowDepOf(model, id)]);
-  timer = setTimeout(() => stop(), options.ttlMs);
+  timer = setTimeout(() => {
+    noteDataLoss('deferred-patch-timeout', model.modelId, 1);
+    stop();
+  }, options.ttlMs);
 };
 
 /**

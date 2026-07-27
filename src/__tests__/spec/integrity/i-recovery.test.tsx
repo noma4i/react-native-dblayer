@@ -49,6 +49,7 @@ describe('persistence recovery protocol', () => {
     expect(storage.get('dbl:tombstones:RecoveryA')).toBeUndefined();
     expect(storage.get('dbl:applied:RecoveryA')).toBeUndefined();
     expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: modelA.modelId, count: 5 });
   });
 
   it('cold-resets a malformed tombstone snapshot without resurrecting model rows', async () => {
@@ -132,6 +133,7 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:journal:3')).toBeUndefined();
     expect(diagnostics().snapshot()).toMatchObject({ corruptionJournalDrops: 1, corruptionJournalLosses: 0 });
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-checkpointed-drop', model: '__runtime__', count: 1 });
   });
 
   it('reports loss for corrupt WAL records newer than the checkpoint', async () => {
@@ -145,6 +147,7 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:journal:3')).toBeUndefined();
     expect(diagnostics().snapshot()).toMatchObject({ corruptionJournalDrops: 0, corruptionJournalLosses: 1 });
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-loss', model: '__runtime__', count: 1 });
   });
 
   it('cold-resets a corrupt operation ledger', async () => {
@@ -155,5 +158,6 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:ops')).toBeUndefined();
     expect(diagnostics().snapshot().corruptionLedgerResets).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
   });
 });

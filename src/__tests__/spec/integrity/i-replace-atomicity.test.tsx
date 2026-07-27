@@ -27,7 +27,7 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
 };
 
 describe('replace atomicity and merge-gate contracts', () => {
-  it('keeps the optimistic row and its scope membership when a commit replacement node is invalid', async () => {
+  it('surfaces an invalid commit replacement instead of ignoring it', async () => {
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: { chatId: 'chat-1', body: 'invalid server node' } } } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createThreadMessages('ReplaceAtomicInvalid');
@@ -47,13 +47,16 @@ describe('replace atomicity and merge-gate contracts', () => {
       }
     });
 
-    await act(async () => {
-      await send.run({});
-    });
+    await expect(
+      act(async () => {
+        await send.run({});
+      })
+    ).rejects.toThrow('replace rejected');
 
     expect(messages.find(tempId)).toMatchObject({ body: 'optimistic' });
-    expect(reader.result().map((row: any) => row.id)).toEqual([tempId]);
+    expect(reader.result()).toEqual([]);
     expect(diagnostics().snapshot().replaceRejected).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'replacement-rejected', model: messages.modelId, count: 1 });
     reader.unmount();
   });
 

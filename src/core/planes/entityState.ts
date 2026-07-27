@@ -1,5 +1,5 @@
 import { stableSerialize } from '../serialize';
-import { noteEntityUpsertGuardHit } from '../diagnostics';
+import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
 import { CorruptionError } from '../recovery';
 import type { WriteCtx } from '../../dsl/defineModel';
 import type { StoragePlane } from './storagePlane';
@@ -98,6 +98,7 @@ export const createEntityState = <T extends { id: string }>(options: {
     }
     if (pruned > 0) {
       tombstonesDirty = true;
+      noteDataLoss('tombstone-expiry', modelId, pruned);
     }
     return pruned;
   };

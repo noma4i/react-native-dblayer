@@ -1,6 +1,6 @@
 import type { StoragePlane } from './storagePlane';
 import { CorruptionError } from '../recovery';
-import { noteScopeKeyMigration } from '../diagnostics';
+import { noteDataLoss, noteScopeKeyMigration } from '../diagnostics';
 import { compositeKey } from '../serialize';
 import { sortBy } from 'es-toolkit';
 
@@ -219,6 +219,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const previous = scopes.get(key) ?? empty();
       const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
       const result = reconcileNext(key, coverage, incoming, opts);
+      if (result.detachedIds.length > 0) noteDataLoss('scope-complete-detach', modelId, result.detachedIds.length);
       return { next: commit(key, result.next, boundaryAdd?.ids), detachedIds: result.detachedIds };
     },
     reconcileNext,
@@ -233,7 +234,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     },
     trim: (key, maxRows) => {
       const result = trimNext(key, maxRows);
-      if (result.trimmedIds.length > 0) commit(key, result.next);
+      if (result.trimmedIds.length > 0) {
+        commit(key, result.next);
+        noteDataLoss('scope-retention-trim', modelId, result.trimmedIds.length);
+      }
       return result.trimmedIds;
     },
     trimValue,
