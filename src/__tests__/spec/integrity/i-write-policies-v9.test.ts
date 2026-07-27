@@ -1,9 +1,33 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { belongsTo, configureDb, defineModel, f } from '../../../index';
+import { isIncomingNewer } from '../../../core/invariants';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('v9 model-owned write policies', () => {
   beforeEach(() => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+  });
+
+  it('applies the documented nullish newer-wins policy', () => {
+    expect(isIncomingNewer(null, null)).toBe(true);
+    expect(isIncomingNewer('2026-01-01T00:00:00Z', null)).toBe(false);
+    expect(isIncomingNewer(null, '2026-01-01T00:00:00Z')).toBe(true);
+  });
+
+  it('accepts equal timestamps and rejects strictly older incoming ones', () => {
+    expect(isIncomingNewer('2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')).toBe(true);
+    expect(isIncomingNewer('2026-01-01T00:00:01Z', '2026-01-01T00:00:00Z')).toBe(false);
+    expect(isIncomingNewer('2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')).toBe(true);
+  });
+
+  it('compares timestamps by instant across timezone offsets', () => {
+    expect(isIncomingNewer('2026-01-01T00:00:00+11:00', '2025-12-31T13:00:00Z')).toBe(true);
+    expect(isIncomingNewer('2025-12-31T13:00:00Z', '2026-01-01T00:00:00+11:00')).toBe(true);
+  });
+
+  it('applies the missing-value policy to unparseable timestamps', () => {
+    expect(isIncomingNewer('2026-01-01T00:00:00Z', 'not-a-date')).toBe(false);
+    expect(isIncomingNewer('not-a-date', '2026-01-01T00:00:00Z')).toBe(true);
+    expect(isIncomingNewer('not-a-date', 'also-not-a-date')).toBe(true);
   });
 
   it('rejects an invalid or older newerBy timestamp and accepts a newer timestamp', () => {
@@ -133,5 +157,27 @@ describe('v9 model-owned write policies', () => {
     rows.replace('temporary-id', { id: 'server-id', continuity: null, sequence: 1, payload: { server: true }, media: { width: 0, url: 'https://cdn/server.mp4' } });
 
     expect(rows.find('server-id')).toMatchObject({ continuity: null, sequence: 1, payload: { server: true }, media: { width: 0, url: 'https://cdn/server.mp4' } });
+  });
+
+  it('routes relation counter decrements through the patch write gate', () => {
+    const parents = defineModel({
+      id: 'V9CounterParent',
+      name: 'V9CounterParent',
+      fields: { childCount: f.num() },
+      write: { groups: [{ fields: ['childCount'] as const, policy: { monotonic: { tuple: ['childCount'] }, on: ['patch'] } }] }
+    });
+    const children = defineModel({
+      id: 'V9CounterChild',
+      name: 'V9CounterChild',
+      fields: { parentId: f.str() },
+      relations: () => ({ parent: belongsTo(parents, { foreignKey: 'parentId', counterCache: { field: 'childCount' } }) })
+    });
+    parents.insert({ id: 'parent-1', childCount: 5 });
+    children.insert({ id: 'child-1', parentId: 'parent-1' });
+    expect(parents.find('parent-1')?.childCount).toBe(6);
+
+    children.destroy('child-1');
+
+    expect(parents.find('parent-1')?.childCount).toBe(6);
   });
 });

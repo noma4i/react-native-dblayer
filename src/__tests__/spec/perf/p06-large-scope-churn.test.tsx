@@ -65,16 +65,28 @@ const mountEnsemble = (tag: string, rowCount: number): { root: TestRenderer.Reac
 };
 
 describe('large scope churn', () => {
-  it('(a) applies one semantic row update without an equality-guard hit', () => {
-    const { root, chats } = mountEnsemble('BumpWork', 3000);
-    diagnostics().reset();
-    act(() => {
-      chats.update('chat-0', { lastActivityAt: 3001 });
-    });
+  it('(a) keeps bump work constant between 100 and 3000 mounted rows', () => {
+    const measureBumpWork = (rowCount: number) => {
+      const { root, chats } = mountEnsemble(`BumpWork${rowCount}`, rowCount);
+      diagnostics().reset();
+      act(() => {
+        chats.update('chat-0', { lastActivityAt: rowCount + 1 });
+      });
+      const snapshot = diagnostics().snapshot();
+      act(() => root.unmount());
+      return snapshot;
+    };
+    const small = measureBumpWork(100);
+    const large = measureBumpWork(3000);
 
-    expect(chats.find('chat-0')?.lastActivityAt).toBe(3001);
-    expect(diagnostics().snapshot().entityUpsertGuardHits).toBe(0);
-    act(() => root.unmount());
+    expect(large.mirrorScopeResorts).toBe(small.mirrorScopeResorts);
+    expect(large.readEngineApplies).toBe(small.readEngineApplies);
+    expect(large.readEngineRebuilds).toBe(small.readEngineRebuilds);
+    expect(large.readEngineDeltaRows).toBe(small.readEngineDeltaRows);
+    expect(large.commitFanoutCandidates).toBe(small.commitFanoutCandidates);
+    expect(large.commitFanoutNotified).toBe(small.commitFanoutNotified);
+    expect(small.entityUpsertGuardHits).toBe(0);
+    expect(large.entityUpsertGuardHits).toBe(0);
   });
 
   it('(b) keeps same-order page-reconcile cost within a x3 ratio between 3000 and 300 rows', () => {

@@ -54,6 +54,7 @@ describe('replace atomicity and merge-gate contracts', () => {
     expect(messages.find(tempId)).toMatchObject({ body: 'optimistic' });
     expect(reader.result().map((row: any) => row.id)).toEqual([tempId]);
     expect(diagnostics().snapshot().replaceRejected).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'replacement-rejected', model: messages.modelId, count: 1 });
     reader.unmount();
   });
 

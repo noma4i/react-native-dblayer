@@ -70,7 +70,8 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../utils/mmkvStorage.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../../__mocks__/mmkvMockFactory.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-transport-not-configured.test.ts'), source: path.resolve(specRoot, '../../core/transport.ts') },
-  { spec: path.resolve(specRoot, 'integrity/i-internal-handle-guards.test.ts'), source: path.resolve(specRoot, '../../core/internalHandles.ts') }
+  { spec: path.resolve(specRoot, 'integrity/i-internal-handle-guards.test.ts'), source: path.resolve(specRoot, '../../core/internalHandles.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-write-policies-v9.test.ts'), source: path.resolve(specRoot, '../../core/invariants.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>
