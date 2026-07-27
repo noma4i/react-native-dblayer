@@ -1,6 +1,6 @@
 import { defineModel, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../../index';
 import { getCommitBus } from '../../../dsl/configure';
-import { setupSpecRuntime } from '../helpers/harness';
+import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for commit-bus row waiters.
 
@@ -41,6 +41,7 @@ describe('updateWhenRowExists', () => {
     jest.advanceTimersByTime(11);
     rows.insert({ id: 'r-1', label: 'base' });
     expect(rows.find('r-1')?.label).toBe('base');
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'deferred-patch-timeout', model: rows.modelId, count: 1 });
   });
 
   it('does not apply a deferred patch across resetRuntime (generation fence)', () => {

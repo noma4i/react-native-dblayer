@@ -1,6 +1,6 @@
 import type { StoragePlane } from './storagePlane';
 import { compositeKey } from '../serialize';
-import { noteCorruptionLedgerReset } from '../diagnostics';
+import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 
 export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
@@ -228,6 +228,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         } catch {
           storage.set([{ key: opsKey(), value: null }]);
           noteCorruptionLedgerReset();
+          noteDataLoss('operation-ledger-corruption-reset', '__operations__', 1);
           getDbLogger().error('cold-ledger recovery', { key: opsKey() });
         }
       }

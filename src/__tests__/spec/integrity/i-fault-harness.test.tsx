@@ -4,7 +4,7 @@ import { createApplyRuntime } from '../../../core/apply/transaction';
 import { createCommitBus } from '../../../core/apply/commitBus';
 import { createFaultStorage } from '../helpers/faultStorage';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { createMockTransport, renderCountedInProvider, settle } from '../helpers/harness';
+import { createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
 type FaultRow = { id: string; label: string };
 type FaultResponse = { detail: FaultRow };
@@ -54,6 +54,25 @@ describe('fault storage harness', () => {
 });
 
 describe('persistence fault invariants', () => {
+  it('reports tombstone expiry before deleting the retention guard', () => {
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(0);
+    try {
+      const storage = createFaultStorage();
+      configureFaultRuntime(storage);
+      const rows = createRows('TombstoneExpiry');
+      diagnostics().reset();
+      rows.insert({ id: 'row-1', label: 'local' });
+      rows.destroy('row-1');
+      clock.mockReturnValue(24 * 60 * 60 * 1000 + 1);
+
+      flushPersistence();
+
+      expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'tombstone-expiry', model: rows.modelId, count: 1 });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('writes the pending journal record before applying an insert', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);

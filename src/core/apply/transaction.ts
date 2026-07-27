@@ -6,9 +6,10 @@ import type { StoragePlane } from '../planes/storagePlane';
 import type { WriteOrigin } from '../../dsl/defineModel';
 import { deriveEffects, type AcceptedRow, type DestroyedRow } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
+import { compositeKey } from '../serialize';
 import { noteApplyFailure } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { getDbRuntimeConfig } from '../../dsl/configure';
+import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
 
 /**
  * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
@@ -62,11 +63,23 @@ export type ApplyRuntime = {
 };
 
 const targets = new Map<string, ApplyTarget>();
+const targetGenerations = new Map<string, number>();
 
-/** Register one model-owned application target for model application plans. */
+/**
+ * Register one model-owned application target for model application plans.
+ *
+ * A duplicate in one runtime generation throws; a later generation deliberately replaces the stale target so recreated runtimes can reuse stable model ids. Relation, GC, ingest, invalidation, and maintenance registries follow this same generation rule.
+ */
 export const registerApplyTarget = (model: string, target: ApplyTarget): (() => void) => {
+  const generation = getRuntimeGeneration();
+  if (targets.has(model) && targetGenerations.get(model) === generation) throw new Error(`Apply target already registered for model ${model}`);
   targets.set(model, target);
-  return () => targets.delete(model);
+  targetGenerations.set(model, generation);
+  return () => {
+    if (targets.get(model) !== target) return;
+    targets.delete(model);
+    targetGenerations.delete(model);
+  };
 };
 
 export const getApplyTarget = (model: string): ApplyTarget => {
@@ -83,7 +96,7 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
   const destroyed: DestroyedRow[] = [];
   const scopeChanges = new Map<string, IncrementalScopeChange>();
   const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
-    const key = `${model}:${scopeKey}`;
+    const key = compositeKey(model, scopeKey);
     const current = scopeChanges.get(key) ?? { model, scopeKey };
     const mergeIds = (left?: string[], right?: string[]) => (left || right ? uniq([...(left ?? []), ...(right ?? [])]) : undefined);
     const mergeAppendEntries = (left?: Array<{ id: string; order: number }>, right?: Array<{ id: string; order: number }>) => {
@@ -197,7 +210,7 @@ const recordCounterValues = (ops: JournalOp[]): JournalOp[] => {
   const values = new Map<string, number | null>();
   return ops.map(op => {
     if (op.kind !== 'counter' || op.next !== undefined) return op;
-    const key = `${op.model}:${op.id}:${op.field}`;
+    const key = compositeKey(op.model, op.id, op.field);
     let current = values.get(key);
     if (current === undefined) current = getApplyTarget(op.model).counterValue(op.id, op.field);
     if (current === null) return op;

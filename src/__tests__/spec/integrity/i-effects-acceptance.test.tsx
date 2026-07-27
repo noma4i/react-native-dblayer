@@ -1,6 +1,6 @@
 import { act } from 'react-test-renderer';
 import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
-import { getApplyTarget, registerApplyTarget } from '../../../core/apply/transaction';
+import { getApplyTarget } from '../../../core/apply/transaction';
 import { flushPersistence, getOperationState } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
@@ -59,11 +59,12 @@ describe('effects derive from accepted rows', () => {
       extract: ({ data }) => [{ into: chats, rows: [data.pin] }]
     });
     const target = getApplyTarget(chats.modelId);
+    const originalUpsert = target.upsert;
     let failApply = false;
-    const unregister = registerApplyTarget(chats.modelId, { ...target, upsert: (...args) => {
+    target.upsert = (...args) => {
       if (failApply) throw new Error('injected apply failure');
-      return target.upsert(...args);
-    } });
+      return originalUpsert(...args);
+    };
     let pending!: Promise<unknown>;
     act(() => {
       pending = mutation.run({});
@@ -75,7 +76,7 @@ describe('effects derive from accepted rows', () => {
     expect(getOperationState().pendingForRow(chats.modelId, 'chat-1')).toEqual([]);
     expect(getOperationState().failedForRow(chats.modelId, 'chat-1').map(operation => operation.status)).not.toContain('committed');
     expect(chats.find('chat-1')?.pinned).toBe(false);
-    unregister();
+    target.upsert = originalUpsert;
   });
 
   it('stores only raw relation intent and re-derives effects during journal replay', async () => {

@@ -235,6 +235,11 @@ const unsubscribeEntry = (state: EntryState): void => {
 export const createDbSubscriptionRuntime = <TPayload = unknown>(entries: readonly DbSubscriptionEntry<TPayload>[]): DbSubscriptionRuntime => {
   /** Runtime validation narrows every dispatched payload before the heterogeneous state table invokes it. */
   const runtimeEntries = entries as unknown as readonly DbSubscriptionEntry[];
+  const registeredKeys = new Set<string>();
+  for (const entry of runtimeEntries) {
+    if (registeredKeys.has(entry.key)) throw new Error(`Subscription entry already registered for key ${entry.key}`);
+    registeredKeys.add(entry.key);
+  }
   const states = runtimeEntries.map(entry => ({
     entry,
     unsubscribe: null,

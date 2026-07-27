@@ -1,5 +1,21 @@
 import { registerReset } from './reset';
 
+export type DataLossMechanism =
+  | 'deferred-patch-timeout'
+  | 'gc-row-eviction'
+  | 'gc-scope-removal'
+  | 'gc-scope-membership-detach'
+  | 'scope-retention-trim'
+  | 'scope-complete-detach'
+  | 'tombstone-expiry'
+  | 'model-corruption-recovery'
+  | 'journal-corruption-checkpointed-drop'
+  | 'journal-corruption-loss'
+  | 'operation-ledger-corruption-reset'
+  | 'replacement-rejected';
+
+export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
+
 type DiagnosticsState = {
   commits: number;
   commitFanoutCandidates: number;
@@ -20,10 +36,12 @@ type DiagnosticsState = {
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;
+  scopeKeyMigrations: number;
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;
   ingestFailed: number;
+  dataLossEvents: DataLossEvent[];
 };
 
 const emptyDiagnostics = (): DiagnosticsState => ({
@@ -46,10 +64,12 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
+  scopeKeyMigrations: 0,
   manifestResets: 0,
   replaceRejected: 0,
   applyFailure: 0,
-  ingestFailed: 0
+  ingestFailed: 0,
+  dataLossEvents: []
 });
 
 let diagnostics = emptyDiagnostics();
@@ -106,6 +126,11 @@ export const noteCorruptionLedgerReset = (): void => {
   diagnostics.corruptionLedgerResets += 1;
 };
 
+/** Count persisted scope keys rewritten from the colon-delimited format. */
+export const noteScopeKeyMigration = (count: number): void => {
+  diagnostics.scopeKeyMigrations += count;
+};
+
 export const noteManifestReset = (): void => {
   diagnostics.manifestResets += 1;
 };
@@ -124,7 +149,14 @@ export const noteIngestFailure = (): void => {
   diagnostics.ingestFailed += 1;
 };
 
-export const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics });
+/** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */
+export const noteDataLoss = (mechanism: DataLossMechanism, model: string, count: number): void => {
+  if (count <= 0) return;
+  diagnostics.dataLossEvents.push({ mechanism, model, count });
+  if (diagnostics.dataLossEvents.length > 100) diagnostics.dataLossEvents.splice(0, diagnostics.dataLossEvents.length - 100);
+};
+
+export const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics, dataLossEvents: [...diagnostics.dataLossEvents] });
 
 export const resetDiagnostics = (): void => {
   diagnostics = emptyDiagnostics();

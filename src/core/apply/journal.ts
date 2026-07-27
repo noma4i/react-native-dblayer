@@ -1,6 +1,6 @@
 import type { ScopeIndexValue } from '../planes/scopeIndex';
 import type { StoragePlane } from '../planes/storagePlane';
-import { noteCorruptionJournalDrop, noteCorruptionJournalLoss } from '../diagnostics';
+import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 
 export type JournalOp =
@@ -58,9 +58,11 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
     storage.set([{ key: journalKey, value: null }]);
     if (epoch <= lastCheckpointEpoch) {
       noteCorruptionJournalDrop();
+      noteDataLoss('journal-corruption-checkpointed-drop', '__runtime__', 1);
       return null;
     }
     noteCorruptionJournalLoss();
+    noteDataLoss('journal-corruption-loss', '__runtime__', 1);
     getDbLogger().error('unrecoverable WAL corruption', { key: journalKey, epoch, lastCheckpointEpoch });
     return null;
   };

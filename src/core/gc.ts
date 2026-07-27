@@ -1,5 +1,6 @@
-import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
+import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
+import { noteDataLoss } from './diagnostics';
 
 type GcHost = {
   modelId: string;
@@ -18,11 +19,19 @@ type GcHost = {
 };
 
 const hosts = new Map<string, GcHost>();
+const hostGenerations = new Map<string, number>();
 
 /** Registered once per defineModel; survives resetRuntime like apply targets. */
 export const registerGcHost = (modelId: string, host: GcHost): (() => void) => {
+  const generation = getRuntimeGeneration();
+  if (hosts.has(modelId) && hostGenerations.get(modelId) === generation) throw new Error(`GC host already registered for model ${modelId}`);
   hosts.set(modelId, host);
-  return () => hosts.delete(modelId);
+  hostGenerations.set(modelId, generation);
+  return () => {
+    if (hosts.get(modelId) !== host) return;
+    hosts.delete(modelId);
+    hostGenerations.delete(modelId);
+  };
 };
 
 export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<string, number> };
@@ -51,6 +60,7 @@ export const collectGarbage = (): GcReport => {
     maintainedModels.add(host.modelId);
     scopes.push({ model: host.modelId, scopeKey: key });
     scopeChanges.push({ model: host.modelId, scopeKey: key, rebuild: true });
+    noteDataLoss('gc-scope-removal', host.modelId, 1);
   };
   const mark = (model: string, id: string): void => {
     const host = hosts.get(model);
@@ -101,6 +111,7 @@ export const collectGarbage = (): GcReport => {
         maintainedModels.add(host.modelId);
         scopes.push({ model: host.modelId, scopeKey: key });
         scopeChanges.push({ model: host.modelId, scopeKey: key, detachIds: dead });
+        noteDataLoss('gc-scope-membership-detach', host.modelId, dead.length);
       }
     }
   }
@@ -136,6 +147,7 @@ export const collectGarbage = (): GcReport => {
     if (evicted > 0) {
       report.evicted[host.modelId] = evicted;
       maintainedModels.add(host.modelId);
+      noteDataLoss('gc-row-eviction', host.modelId, evicted);
     }
     for (const key of host.scopeKeys()) {
       if (host.scopeEntryCount(key) > 0) continue;

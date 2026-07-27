@@ -49,6 +49,7 @@ describe('persistence recovery protocol', () => {
     expect(storage.get('dbl:tombstones:RecoveryA')).toBeUndefined();
     expect(storage.get('dbl:applied:RecoveryA')).toBeUndefined();
     expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: modelA.modelId, count: 5 });
   });
 
   it('cold-resets a malformed tombstone snapshot without resurrecting model rows', async () => {
@@ -83,6 +84,44 @@ describe('persistence recovery protocol', () => {
     expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
   });
 
+  it('migrates a legacy scope key without dropping the model cache', async () => {
+    const storage = configureRecoveryRuntime([
+      { key: 'dbl:row:RecoveryScopeMigration:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
+    ]);
+    const model = defineRecoveryModel('RecoveryScopeMigration');
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(model.find('live')).toMatchObject({ label: 'A' });
+    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
+    expect(storage.get('dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}')).toBeUndefined();
+    expect(storage.keys('dbl:scope:RecoveryScopeMigration:')).toHaveLength(1);
+    expect(diagnostics().snapshot()).toMatchObject({ corruptionModelResets: 0, scopeKeyMigrations: 1 });
+  });
+
+  it('does not repeat a completed scope-key migration', async () => {
+    const storage = configureRecoveryRuntime([
+      { key: 'dbl:row:RecoveryScopeMigrationOnce:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScopeMigrationOnce:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
+    ]);
+    defineRecoveryModel('RecoveryScopeMigrationOnce');
+    writeMatchingManifest();
+    diagnostics().reset();
+    await bootDb();
+
+    configureDb({ storage, transport: createMockTransport() });
+    const model = defineRecoveryModel('RecoveryScopeMigrationOnce');
+    writeMatchingManifest();
+    diagnostics().reset();
+    await bootDb();
+
+    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
+    expect(diagnostics().snapshot()).toMatchObject({ corruptionModelResets: 0, scopeKeyMigrations: 0 });
+  });
+
   it('safe-drops corrupt checkpointed WAL records', async () => {
     diagnostics().reset();
     const storage = configureRecoveryRuntime([
@@ -94,6 +133,7 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:journal:3')).toBeUndefined();
     expect(diagnostics().snapshot()).toMatchObject({ corruptionJournalDrops: 1, corruptionJournalLosses: 0 });
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-checkpointed-drop', model: '__runtime__', count: 1 });
   });
 
   it('reports loss for corrupt WAL records newer than the checkpoint', async () => {
@@ -107,6 +147,7 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:journal:3')).toBeUndefined();
     expect(diagnostics().snapshot()).toMatchObject({ corruptionJournalDrops: 0, corruptionJournalLosses: 1 });
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-loss', model: '__runtime__', count: 1 });
   });
 
   it('cold-resets a corrupt operation ledger', async () => {
@@ -117,5 +158,6 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:ops')).toBeUndefined();
     expect(diagnostics().snapshot().corruptionLedgerResets).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
   });
 });

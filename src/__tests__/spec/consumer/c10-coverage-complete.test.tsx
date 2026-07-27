@@ -1,6 +1,6 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type FriendState = { userId: string; id: string; kind: string; fullName: string };
 type QueryState = { userId: string; id: string; kind: string; fullName: string };
@@ -81,6 +81,7 @@ describe('coverage complete and scope isolation', () => {
     expect(blockedReader.result().map(row => row.id)).toEqual(['blocked-1']);
     expect(blockedReader.renders() - before).toBe(1);
     expect(users.find('blocked-2')).toBeTruthy();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'scope-complete-detach', model: users.modelId, count: 1 });
 
     blockedReader.unmount();
     queryReader.unmount();

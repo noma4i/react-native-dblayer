@@ -1,5 +1,5 @@
 import type { JournalOp } from '../core/apply/journal';
-import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
+import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';
 import { noteIngestFailure } from '../core/diagnostics';
 import type { ExtractSink } from './defineQuery';
@@ -30,10 +30,14 @@ type IngestModel = {
 };
 
 const modelsByName = new Map<string, IngestModel>();
+const modelGenerations = new Map<string, number>();
 
 /** Register a model for the named-model lookup exposed to fused custom ingest handlers. */
 export const registerIngestModel = (name: string, model: IngestModel): void => {
+  const generation = getRuntimeGeneration();
+  if (modelsByName.has(name) && modelGenerations.get(name) === generation) throw new Error(`Ingest model already registered for name ${name}`);
   modelsByName.set(name, model);
+  modelGenerations.set(name, generation);
 };
 
 export type ModelIngestTools = {

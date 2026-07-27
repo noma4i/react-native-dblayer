@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../../index';
+import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime, scope } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
-import { renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for GC roots/exemption, reset registration, and subscription utilities.
 
@@ -21,6 +21,7 @@ describe('collectGarbage', () => {
     const report = collectGarbage();
     expect(rows.find('r-1')).toBeUndefined();
     expect(report.evicted.SpecConsumerGcRowsEvict).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'gc-row-eviction', model: rows.modelId, count: 1 });
   });
 
   it('keeps rows of a gc-exempt model', () => {
@@ -30,6 +31,32 @@ describe('collectGarbage', () => {
     const report = collectGarbage();
     expect(rows.find('r-1')?.label).toBe('kept');
     expect(report.evicted.SpecConsumerGcRowsExempt).toBeUndefined();
+  });
+
+  it('reports removal of an inactive scope', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: 'r-1', bucket: 'a', label: 'idle' }] } as TData }) })
+    });
+    const rows = defineModel({
+      id: 'SpecConsumerGcIdleScope',
+      name: 'SpecConsumerGcIdleScope',
+      fields: { bucket: f.str(), label: f.str() },
+      scopes: { feed: scope<{ id: string; bucket: string; label: string }>({ by: { bucket: 'bucket' } }) },
+      maintenance: { dropIdleScopesAfterMs: 0 }
+    });
+    const query = rows.query<{ rows: Array<{ id: string; bucket: string; label: string }> }, { bucket: string }, { bucket: string }, { id: string; bucket: string; label: string }>('idle-scope', {
+      document: { kind: 'Document', definitions: [] } as never,
+      vars: value => value,
+      select: data => data.rows,
+      into: rows.scopes.feed,
+      coverage: 'complete'
+    });
+
+    await query.fetch({ bucket: 'a' });
+    collectGarbage();
+
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'gc-scope-removal', model: rows.modelId, count: 1 });
   });
 
   it('treats mounted readers as GC roots', () => {

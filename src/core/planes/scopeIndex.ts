@@ -1,5 +1,7 @@
 import type { StoragePlane } from './storagePlane';
 import { CorruptionError } from '../recovery';
+import { noteDataLoss, noteScopeKeyMigration } from '../diagnostics';
+import { compositeKey } from '../serialize';
 import { sortBy } from 'es-toolkit';
 
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
@@ -217,6 +219,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const previous = scopes.get(key) ?? empty();
       const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
       const result = reconcileNext(key, coverage, incoming, opts);
+      if (result.detachedIds.length > 0) noteDataLoss('scope-complete-detach', modelId, result.detachedIds.length);
       return { next: commit(key, result.next, boundaryAdd?.ids), detachedIds: result.detachedIds };
     },
     reconcileNext,
@@ -231,7 +234,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     },
     trim: (key, maxRows) => {
       const result = trimNext(key, maxRows);
-      if (result.trimmedIds.length > 0) commit(key, result.next);
+      if (result.trimmedIds.length > 0) {
+        commit(key, result.next);
+        noteDataLoss('scope-retention-trim', modelId, result.trimmedIds.length);
+      }
       return result.trimmedIds;
     },
     trimValue,
@@ -287,19 +293,40 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       keysByRow.clear();
       reactiveEpochs.clear();
       accessTimes.clear();
+      const loaded = new Map<string, { raw: string; value: ScopeIndexValue; canonical: boolean }>();
+      const migrated = new Map<string, string>();
+      const orderedScopeNames = [...(scopeNames ?? [])].sort((left, right) => right.length - left.length);
       for (const fullKey of storage.keys(storageKey(''))) {
-        const key = fullKey.slice(storageKey('').length);
-        if (scopeNames !== undefined && !scopeNames.some(scopeName => key.startsWith(`${scopeName}:`))) {
-          throw new CorruptionError('scope', fullKey);
-        }
+        const persistedKey = fullKey.slice(storageKey('').length);
+        const canonicalScopeName = orderedScopeNames.find(scopeName => persistedKey.startsWith(compositeKey(scopeName, '')));
+        const colonDelimitedScopeName = canonicalScopeName ? undefined : orderedScopeNames.find(scopeName => persistedKey.startsWith(`${scopeName}:`));
+        const key = canonicalScopeName ? persistedKey : colonDelimitedScopeName ? compositeKey(colonDelimitedScopeName, persistedKey.slice(colonDelimitedScopeName.length + 1)) : null;
+        if (!key) throw new CorruptionError('scope', fullKey);
         const raw = storage.get(fullKey);
         if (!raw) continue;
         try {
-          scopes.set(key, JSON.parse(raw) as ScopeIndexValue);
-          accessTimes.set(key, Date.now());
+          const entry = { raw, value: JSON.parse(raw) as ScopeIndexValue, canonical: canonicalScopeName !== undefined };
+          const existing = loaded.get(key);
+          if (!existing || entry.canonical) loaded.set(key, entry);
+          if (colonDelimitedScopeName) migrated.set(fullKey, key);
         } catch {
           throw new CorruptionError('scope', fullKey);
         }
+      }
+      for (const [key, entry] of loaded) {
+        scopes.set(key, entry.value);
+        accessTimes.set(key, Date.now());
+      }
+      if (migrated.size > 0) {
+        const entries: Array<{ key: string; value: string | null }> = [];
+        const migratedKeys = new Set(migrated.values());
+        for (const key of migratedKeys) {
+          const entry = loaded.get(key)!;
+          if (!entry.canonical) entries.push({ key: storageKey(key), value: entry.raw });
+        }
+        for (const fullKey of migrated.keys()) entries.push({ key: fullKey, value: null });
+        storage.set(entries);
+        noteScopeKeyMigration(migrated.size);
       }
       memberSets.clear();
       keysByRow.clear();
