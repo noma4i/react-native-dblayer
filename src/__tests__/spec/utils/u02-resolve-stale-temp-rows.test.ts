@@ -1,4 +1,4 @@
-import { resolveStaleTempRows } from '../../../utils/runtimePrimitives';
+import { resolveStaleTempRows } from '../../../utils/modelMaintenance';
 
 type Row = { id: string; createdAt: string };
 
