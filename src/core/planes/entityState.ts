@@ -103,9 +103,11 @@ export const createEntityState = <T extends { id: string }>(options: {
   };
 
   return {
-    read: id => rows.get(id),
+    read: id => rows.get(String(id)),
     values: () => [...rows.values()],
     upsert: (row, options = {}) => {
+      const id = String(row.id);
+      if (row.id !== id) row = { ...row, id };
       const previous = rows.get(row.id);
       const mergePrevious = previous ?? options.mergeBase;
       if (previous === row) return { changedFields: [] };
@@ -141,17 +143,19 @@ export const createEntityState = <T extends { id: string }>(options: {
       return { changedFields };
     },
     destroy: (id, options = {}) => {
+      id = String(id);
       rows.delete(id);
       if (options.tombstone !== false) tombstones.set(id, { at: now() }); // Preserve delete-before-create protection through the tombstone and defineModel's isTombstoned gate within the TTL.
       dirty.set(id, 'delete');
       if (options.tombstone !== false) tombstonesDirty = true;
     },
     evict: id => {
+      id = String(id);
       if (!rows.delete(id)) return false;
       dirty.set(id, 'delete');
       return true;
     },
-    isTombstoned: id => tombstones.has(id),
+    isTombstoned: id => tombstones.has(String(id)),
     pruneTombstones: prune,
     persistEntries: () => {
       prune();
@@ -178,6 +182,7 @@ export const createEntityState = <T extends { id: string }>(options: {
         if (!raw) continue;
         try {
           const row = JSON.parse(raw) as T;
+          if (typeof row.id !== 'string') row.id = String(row.id);
           rows.set(row.id, row);
         } catch {
           throw new CorruptionError('row', fullKey);

@@ -482,8 +482,8 @@ describe('rerender matrix scope window view', () => {
   });
 
   it('holds retained g1 window on keepPrevious while switching to empty g3 and freezes retained patch', () => {
-    const rows = createScopedModel();
     setupSpecRuntime();
+    const rows = createScopedModel();
     seedRows(rows);
     const reader = renderWindow(
       rows.scopes.byGroup.useWindow as unknown as (

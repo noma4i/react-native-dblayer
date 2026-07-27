@@ -1,5 +1,7 @@
 import { uniq } from 'es-toolkit';
+import { compositeKey } from './serialize';
 import type { JournalOp } from './apply/journal';
+import { getRuntimeGeneration } from '../dsl/configure';
 
 /** Structural reference to a defined model; relation thunks resolve it after both models exist. */
 export type ModelRef<TStored> = {
@@ -124,10 +126,18 @@ type RelationHost = {
 };
 
 const hosts = new Map<string, RelationHost>();
+const hostGenerations = new Map<string, number>();
 
 export const registerRelationHost = (modelId: string, host: RelationHost): (() => void) => {
+  const generation = getRuntimeGeneration();
+  if (hosts.has(modelId) && hostGenerations.get(modelId) === generation) throw new Error(`Relation host already registered for model ${modelId}`);
   hosts.set(modelId, host);
-  return () => hosts.delete(modelId);
+  hostGenerations.set(modelId, generation);
+  return () => {
+    if (hosts.get(modelId) !== host) return;
+    hosts.delete(modelId);
+    hostGenerations.delete(modelId);
+  };
 };
 
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
@@ -150,7 +160,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   const queue: JournalOp[] = [];
   const overlay = new Map<string, Map<string, StoredRow | null>>();
   const out: JournalOp[] = [];
-  const authoritative = new Set(accepted.filter(row => row.origin !== undefined).map(row => `${row.model}:${row.id}`));
+  const authoritative = new Set(accepted.filter(row => row.origin !== undefined).map(row => compositeKey(row.model, row.id)));
   const counted = new Map<string, CounterRef>();
   const destroyed = new Set<string>();
   const touched = new Set<string>();
@@ -169,7 +179,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   };
   const accumulateMembership = (model: string, deltas: MembershipDelta[]): void => {
     for (const delta of deltas) {
-      const key = `${model}:${delta.scopeKey}`;
+      const key = compositeKey(model, delta.scopeKey);
       let entry = membership.get(key);
       if (!entry) {
         entry = { model, scopeKey: delta.scopeKey, append: new Set(), detach: new Set() };
@@ -198,10 +208,10 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     return typeof value === 'string' && value.length > 0 ? value : null;
   };
 
-  const countKeyOf = (modelId: string, childId: string, counter: CounterRef): string => `${modelId}:${childId}:${counter.model}:${counter.field}`;
+  const countKeyOf = (modelId: string, childId: string, counter: CounterRef): string => compositeKey(modelId, childId, counter.model, counter.field);
 
   const accumulateTouch = (relation: Extract<RelationDecl, { kind: 'belongsTo' }>, child: StoredRow, parentId: string): void => {
-    const parentKey = `${relation.model.modelId}:${parentId}`;
+    const parentKey = compositeKey(relation.model.modelId, parentId);
     if (!relation.touch || authoritative.has(parentKey) || touched.has(parentKey)) return;
     let entry = touchViews.get(parentKey);
     if (!entry) {
@@ -236,7 +246,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   };
 
   const destroyEffects = (modelId: string, id: string, row: StoredRow | undefined): void => {
-    const destroyKey = `${modelId}:${id}`;
+    const destroyKey = compositeKey(modelId, id);
     if (destroyed.has(destroyKey)) return;
     destroyed.add(destroyKey);
     const host = hosts.get(modelId);
@@ -259,7 +269,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
         const liveChildren = relation.model.where({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
         const overlayChildren = [...(overlayRows?.values() ?? [])].filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
         const ids = uniq([...liveChildren, ...overlayChildren].map(child => String(child.id)))
-          .filter(childId => !destroyed.has(`${relation.model.modelId}:${childId}`));
+          .filter(childId => !destroyed.has(compositeKey(relation.model.modelId, childId)));
         if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
       }
     }
@@ -291,7 +301,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     const flush = [...touchViews.values()];
     touchViews.clear();
     for (const entry of flush) {
-      const key = `${entry.model}:${entry.id}`;
+      const key = compositeKey(entry.model, entry.id);
       if (touched.has(key) || Object.keys(entry.patch).length === 0) continue;
       touched.add(key);
       queue.push({ kind: 'patch', model: entry.model, id: entry.id, patch: entry.patch });
@@ -301,14 +311,14 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   const placementIds = new Map<string, Set<string>>();
   for (const op of rawOps) {
     if (op.kind !== 'scope-delta') continue;
-    const ids = placementIds.get(`${op.model}:${op.scopeKey}`) ?? new Set<string>();
+    const ids = placementIds.get(compositeKey(op.model, op.scopeKey)) ?? new Set<string>();
     for (const row of op.append) if (row.order !== undefined) ids.add(row.id);
-    placementIds.set(`${op.model}:${op.scopeKey}`, ids);
+    placementIds.set(compositeKey(op.model, op.scopeKey), ids);
   }
   return [...out, ...[...membership.values()].flatMap(entry => {
     if (entry.append.size === 0 && entry.detach.size === 0) return [];
-    const placement = placementIds.get(`${entry.model}:${entry.scopeKey}`);
+    const placement = placementIds.get(compositeKey(entry.model, entry.scopeKey));
     const append = [...entry.append].filter(id => !placement?.has(id)).map(id => ({ id }));
     return append.length > 0 || entry.detach.size > 0 ? [{ kind: 'scope-delta' as const, model: entry.model, scopeKey: entry.scopeKey, append, detach: [...entry.detach] }] : [];
-  })].filter(op => !(op.kind === 'counter' && authoritative.has(`${op.model}:${op.id}`)));
+  })].filter(op => !(op.kind === 'counter' && authoritative.has(compositeKey(op.model, op.id))));
 };

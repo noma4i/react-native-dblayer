@@ -1,4 +1,4 @@
-import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
+import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
 
 type GcHost = {
@@ -18,11 +18,19 @@ type GcHost = {
 };
 
 const hosts = new Map<string, GcHost>();
+const hostGenerations = new Map<string, number>();
 
 /** Registered once per defineModel; survives resetRuntime like apply targets. */
 export const registerGcHost = (modelId: string, host: GcHost): (() => void) => {
+  const generation = getRuntimeGeneration();
+  if (hosts.has(modelId) && hostGenerations.get(modelId) === generation) throw new Error(`GC host already registered for model ${modelId}`);
   hosts.set(modelId, host);
-  return () => hosts.delete(modelId);
+  hostGenerations.set(modelId, generation);
+  return () => {
+    if (hosts.get(modelId) !== host) return;
+    hosts.delete(modelId);
+    hostGenerations.delete(modelId);
+  };
 };
 
 export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<string, number> };

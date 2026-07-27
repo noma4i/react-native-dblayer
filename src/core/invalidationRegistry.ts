@@ -14,6 +14,7 @@ const registry = new Map<string, Set<InvalidateFn>>();
  */
 export const registerModelInvalidation = (modelId: string, invalidate: InvalidateFn): (() => void) => {
   const fns = registry.get(modelId) ?? new Set<InvalidateFn>();
+  if (fns.has(invalidate)) throw new Error(`Invalidation callback already registered for model ${modelId}`);
   fns.add(invalidate);
   registry.set(modelId, fns);
   return () => {

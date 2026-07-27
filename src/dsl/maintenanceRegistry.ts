@@ -1,7 +1,10 @@
+import { getRuntimeGeneration } from './configure';
+
 /** One maintenance task outcome produced during `bootDb`. */
 export type MaintenanceReport = { model: string; task: 'maxRowsPerScope'; affected: number };
 
 const runners = new Map<string, () => MaintenanceReport[]>();
+const runnerGenerations = new Map<string, number>();
 
 /**
  * Register or replace one model's maintenance definition. This definition registry is intentionally not
@@ -12,7 +15,10 @@ const runners = new Map<string, () => MaintenanceReport[]>();
  * @returns Nothing.
  */
 export const registerModelMaintenance = (modelId: string, run: () => MaintenanceReport[]): void => {
+  const generation = getRuntimeGeneration();
+  if (runners.has(modelId) && runnerGenerations.get(modelId) === generation) throw new Error(`Maintenance runner already registered for model ${modelId}`);
   runners.set(modelId, run);
+  runnerGenerations.set(modelId, generation);
 };
 
 /**
