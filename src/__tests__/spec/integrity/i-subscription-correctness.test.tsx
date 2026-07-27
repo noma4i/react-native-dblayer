@@ -122,4 +122,17 @@ describe('subscription effects registry', () => {
     first.reset();
     second.reset();
   });
+
+  it('allows a named effect to recreate after the runtime generation changes while rejecting a same-generation duplicate', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const first = createDbSubscriptionEffects({ refreshedEffect: () => {} });
+
+    expect(() => createDbSubscriptionEffects({ refreshedEffect: () => {} })).toThrow('subscription effect already registered: refreshedEffect');
+
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const recreated = createDbSubscriptionEffects({ refreshedEffect: () => {} });
+
+    first.reset();
+    recreated.reset();
+  });
 });

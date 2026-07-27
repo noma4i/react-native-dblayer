@@ -4,6 +4,7 @@ import { getDbTransport } from './transport';
 import type { DbGraphQLDocument } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { createGenerationFence } from '../utils/runtimeGeneration';
+import { getRuntimeGeneration } from '../dsl/configure';
 import { registerReset } from './reset';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
@@ -11,10 +12,12 @@ const GLOBAL_DEBOUNCE_KEY = '__global__';
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30000;
 const namedEffects = new Map<string, (...args: unknown[]) => void>();
+const namedEffectGenerations = new Map<string, number>();
 
 /** Clear injected effect wrappers during runtime teardown. */
 const resetSubscriptionRuntimeEffects = (): void => {
   namedEffects.clear();
+  namedEffectGenerations.clear();
 };
 
 registerReset(resetSubscriptionRuntimeEffects);
@@ -89,14 +92,19 @@ export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects,
  * Entries call `channel.effects.onX(...)` where a UI reaction is needed; the app injects real
  * implementations with `configure` when its effect owner mounts and calls `reset` on teardown.
  *
+ * A duplicate effect name within one runtime generation throws; a later generation deliberately
+ * replaces the stale wrapper so recreated runtimes can reuse stable effect names. This is the same
+ * generation rule the apply-target, relation, GC, ingest, invalidation, and maintenance registries follow.
+ *
  * @param noopEffects Complete effect table with no-op implementations; defines the channel's keys.
  * @returns Stable `effects` table plus `configure`/`reset` controls.
  */
 export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffects, (...args: never[]) => void>>(noopEffects: TEffects): DbSubscriptionEffectsChannel<TEffects> => {
   let activeEffects: TEffects = noopEffects;
   const names = Object.keys(noopEffects);
+  const generation = getRuntimeGeneration();
   for (const name of names) {
-    if (namedEffects.has(name)) throw new Error(`subscription effect already registered: ${name}`);
+    if (namedEffects.has(name) && namedEffectGenerations.get(name) === generation) throw new Error(`subscription effect already registered: ${name}`);
   }
 
   /** Object.fromEntries cannot preserve the keyed function correlation represented by TEffects. */
@@ -109,11 +117,16 @@ export const createDbSubscriptionEffects = <TEffects extends Record<keyof TEffec
       }
     ])
   ) as unknown as TEffects;
-  for (const [name, effect] of Object.entries(effects)) namedEffects.set(name, effect as (...args: unknown[]) => void);
+  for (const [name, effect] of Object.entries(effects)) {
+    namedEffects.set(name, effect as (...args: unknown[]) => void);
+    namedEffectGenerations.set(name, generation);
+  }
   const unregisterNames = (): void => {
     for (const name of names) {
       const effect = effects[name as keyof TEffects] as unknown as (...args: unknown[]) => void;
-      if (namedEffects.get(name) === effect) namedEffects.delete(name);
+      if (namedEffects.get(name) !== effect) continue;
+      namedEffects.delete(name);
+      namedEffectGenerations.delete(name);
     }
   };
 

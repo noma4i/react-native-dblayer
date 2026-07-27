@@ -23,7 +23,16 @@ const noteLostRows = (batch: IncrementalCommitBatch): void => {
 
 getCommitBus().subscribeAll(noteLostRows);
 
-/** Register a query-owned ledger for loss notifications and foreground resume. */
+/**
+ * Register a query-owned ledger for loss notifications and foreground resume.
+ *
+ * This registry deliberately omits the runtime-generation barrier documented on `registerApplyTarget`.
+ * That barrier exists to stop a second registration from silently replacing an entry held under a
+ * stable name. Here membership is keyed by ledger instance in a `Set`, so re-adding the same instance
+ * is a no-op and two instances coexist - the silent-overwrite class the barrier defends against cannot
+ * occur. Every caller also registers exactly once from a module-level `defineQuery` or `defineFetch`
+ * body and discards the returned disposer, so no same-generation duplicate is reachable at all.
+ */
 export const registerFetchLedger = (ledger: RegisteredLedger): (() => void) => {
   ledgers.add(ledger);
   return () => ledgers.delete(ledger);
