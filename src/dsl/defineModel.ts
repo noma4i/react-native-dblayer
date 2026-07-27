@@ -1,11 +1,8 @@
-import { sortBy } from 'es-toolkit';
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
-import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
-import type { JournalOp } from '../core/apply/journal';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { registerGcHost } from '../core/gc';
 import { invalidateModel } from '../core/invalidationRegistry';
@@ -20,12 +17,12 @@ import { createModelContext } from './modelContext';
 import { createModelMembership } from './modelMembership';
 import { createModelWrites } from './modelWrites';
 import { createModelApplyTarget } from './modelApplyTarget';
-import { createModelReadAccess, sortRowsBySpec } from './modelReadAccess';
+import { createModelReadAccess } from './modelReadAccess';
+import { createModelScopeHandle } from './modelScopeHandle';
 import { useLiveRead, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
-import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
-import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState } from './configure';
+import { getApplyRuntime, getCommitBus, getOperationState } from './configure';
 import { defineFetch } from './defineFetch';
 import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
 import { defineDetachedOperation, type DetachedOperationConfig, type DetachedOperationHandle } from './defineDetachedOperation';
@@ -35,15 +32,15 @@ import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from '.
 import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
 import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
-import type { ScopeCoverage, ScopeSpec } from './scope';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ScopeSpec } from './scope';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
 import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
-import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
+import { registerInternalModelHandle } from '../core/internalHandles';
 
 export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
 
@@ -65,16 +62,8 @@ import type {
 
 export type { LiveQueryHandle, ModelConfig, ModelCore, ScopeHandle, ScopeValueOf, ScopeWindowResult } from '../types/dsl.model.types';
 
-const issuedScopeSequenceByKey = new Map<string, number>();
-
-registerReset(() => {
-  issuedScopeSequenceByKey.clear();
-});
-
 const EMPTY_ROWS: never[] = [];
 
-
-const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;
 
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
@@ -223,193 +212,22 @@ export const defineModel = <
     }
   });
 
-  const makeScopeHandle = (scopeName: string): ScopeHandle<Stored, Record<string, unknown>, Input> => {
-    const spec = ((config.scopes ?? {}) as Record<string, ScopeSpec<Stored>>)[scopeName];
-    const planScope = (
-      scopeKey: string,
-      liveRows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
-      coverage: ScopeCoverage,
-      opts?: { resetOrder?: boolean }
-    ): JournalOp => {
-      let { next, detachedIds } = planes().scopeIndex.reconcileNext(
-        scopeKey,
-        coverage,
-        liveRows.map(({ row, edge }) => ({ id: String(row.id), edge })),
-        opts
-      );
-      if (detachedIds.length > 0) noteDataLoss('scope-complete-detach', config.id, detachedIds.length);
-      const maxRows = spec?.retention?.maxRows;
-      if (maxRows != null && (opts?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
-        if (spec.sort && spec.sort !== 'server-order') {
-          const scopeSort = spec.sort;
-          const incomingById = new Map(
-            liveRows.flatMap(({ row }) => {
-              try {
-                const stored = normalize(row);
-                return [[String(stored.id), stored] as const];
-              } catch {
-                return [];
-              }
-            })
-          );
-          const rowsById = new Map(
-            next.entries.flatMap(entry => {
-              const row = incomingById.get(entry.id) ?? planes().entityState.read(entry.id);
-              return row ? [[entry.id, row] as const] : [];
-            })
-          );
-          const ordered = sortRowsBySpec([...rowsById.values()], scopeSort);
-          const positions = new Map(ordered.map((row, index) => [String(row.id), index]));
-          next = {
-            ...next,
-            entries: sortBy(next.entries, [entry => positions.get(entry.id) ?? Number.MAX_SAFE_INTEGER])
-          };
-        }
-        const trimmed = planes().scopeIndex.trimValue(next, maxRows);
-        if (trimmed.trimmedIds.length > 0) noteDataLoss('scope-retention-trim', config.id, trimmed.trimmedIds.length);
-        next = trimmed.next;
-      }
-      return { kind: 'scope', model: config.id, scopeKey, next };
-    };
-    const planApply = (
-      scopeValue: unknown,
-      rows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
-      coverage: ScopeCoverage,
-      opts?: { resetOrder?: boolean }
-    ): JournalOp[] => {
-      const liveRows = rows.filter(({ row }) => isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
-      const requestedScopeKey = keyForScope(scopeName, scopeValue);
-      const upsert: JournalOp = { kind: 'upsert', model: config.id, rows: liveRows.map(({ row }) => row) };
-      if (!spec?.by) return [upsert, planScope(requestedScopeKey, liveRows, coverage, opts)];
-
-      const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();
-      for (const entry of liveRows) {
-        if (!matchesMemberPredicate<Stored>(spec, entry.row as Stored)) continue;
-        const derivedValue = scopeValueFromRow(spec.by, entry.row);
-        if (!derivedValue) continue;
-        const derivedKey = keyForScope(scopeName, derivedValue);
-        const group = rowsByScope.get(derivedKey) ?? [];
-        group.push(entry);
-        rowsByScope.set(derivedKey, group);
-      }
-      const requestedRows = rowsByScope.get(requestedScopeKey) ?? [];
-      rowsByScope.delete(requestedScopeKey);
-      return [upsert, planScope(requestedScopeKey, requestedRows, coverage, opts), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
-    };
-    const readScopeRows = (scopeValue: unknown, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
-      const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
-      useScopeAccess(scopeKey);
-      return useScopeReadRows(
-        config.id,
-        scopeKey,
-        applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
-        () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
-        options
-      );
-    };
-    const scopeHandle = {
-      modelId: config.id,
-      use: readScopeRows,
-      useFirst: (scopeValue: unknown, options: { renderKeys?: readonly string[] } & KeepPreviousOption = {}) =>
-        readScopeRows(scopeValue, options as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
-      useWindow: (scopeValue: unknown, options: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
-        const pageSize = options?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
-        const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
-        const windowStateRef = useRef({ scopeKey, size: pageSize });
-        const [, setWindowRevision] = useState(0);
-        if (windowStateRef.current.scopeKey !== scopeKey) windowStateRef.current = { scopeKey, size: pageSize };
-        const windowSize = windowStateRef.current.size;
-        useScopeAccess(scopeKey);
-        const window = useScopeReadWindowRows(
-          config.id,
-          scopeKey,
-          applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
-          windowSize,
-          () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
-          options
-        );
-        return {
-          rows: window.rows,
-          totalCount: window.totalCount,
-          hasMore: window.totalCount > windowSize,
-          isPreviousData: window.isPreviousData,
-          resolved: window.resolved,
-          fetchNextPage: () => {
-            windowStateRef.current =
-              windowStateRef.current.scopeKey === scopeKey ? { ...windowStateRef.current, size: windowStateRef.current.size + pageSize } : { scopeKey, size: pageSize + pageSize };
-            setWindowRevision(current => current + 1);
-          }
-        };
-      },
-      useCount: (scopeValue: unknown) => {
-        const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
-        useScopeAccess(scopeKey);
-        return useLiveRead(
-          () => (scopeValue === null ? 0 : planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).entries.length),
-          scopeKey == null ? [] : [scopeDep(scopeKey)]
-        );
-      },
-      invalidate: (scopeValue?: unknown) => {
-        invalidateModel(config.id, scopeValue);
-      },
-      read: (scopeValue: unknown) => {
-        const scopeKey = keyForScope(scopeName, scopeValue);
-        planes().scopeIndex.noteAccess(scopeKey);
-        return scopeSortedRows(scopeName, scopeValue);
-      },
-      issueSequence: (scopeValue: unknown, field: keyof Stored & string) => {
-        if (scopeValue === null) throw new Error(`${config.name}.${scopeName}.issueSequence requires a scope value`);
-        const scopeKey = keyForScope(scopeName, scopeValue);
-        planes().scopeIndex.noteAccess(scopeKey);
-        const maxFieldValue = scopeSortedRows(scopeName, scopeValue).reduce((maximum, row) => {
-          const value = row[field];
-          return typeof value === 'number' && value > maximum ? value : maximum;
-        }, 0);
-        const issuedKey = compositeKey(config.id, scopeKey, field);
-        const maxIssuedThisSession = issuedScopeSequenceByKey.get(issuedKey) ?? 0;
-        const next = Math.max(maxFieldValue, maxIssuedThisSession) + 1;
-        issuedScopeSequenceByKey.set(issuedKey, next);
-        return next;
-      },
-      seed: (scopeValue: unknown, rows: Input[]) => {
-        const liveRows = rows
-          .filter(isPlanRow)
-          .filter(row => !planes().entityState.isTombstoned(String(row.id)))
-          .map(row => ({ row: row as Record<string, unknown> }));
-        applyEvent([
-          { kind: 'upsert', model: config.id, rows: liveRows.map(entry => entry.row) },
-          planScope(keyForScope(scopeName, scopeValue), liveRows, 'complete', { resetOrder: true })
-        ]);
-      }
-    } as ScopeHandle<Stored, Record<string, unknown>, Input>;
-    registerInternalScopeHandle(scopeHandle, {
-      apply: (scopeValue, rows, coverage, options) => {
-        applySnapshot(
-          planApply(
-            scopeValue,
-            rows.map(row => ({ row: row as Record<string, unknown> })),
-            coverage,
-            options
-          )
-        );
-      },
-      planApply,
-      key: scopeValue => keyForScope(scopeName, scopeValue),
-      isServerOrder: () => !spec?.sort || spec.sort === 'server-order',
-      planPlacement: (scopeValue, id, position) => {
-        const scopeKey = keyForScope(scopeName, scopeValue);
-        const entries = planes().scopeIndex.read(scopeKey).entries;
-        const order = position === 'prepend' ? Math.min(0, ...entries.map(entry => entry.order)) - 1 : Math.max(-1, ...entries.map(entry => entry.order)) + 1;
-        return [{ kind: 'scope-delta', model: config.id, scopeKey, append: [{ id, order }], detach: [] }];
-      },
-      readRows: scopeValue => scopeSortedRows(scopeName, scopeValue),
-      isResolved: scopeValue => planes().scopeIndex.read(keyForScope(scopeName, scopeValue)).generation > 0,
-      noteAccess: scopeValue => {
-        planes().scopeIndex.noteAccess(keyForScope(scopeName, scopeValue));
-      }
-    });
-    return scopeHandle;
-  };
+  const makeScopeHandle = createModelScopeHandle<Stored, Input>({
+    modelId: config.id,
+    modelName: config.name,
+    context,
+    scopes: config.scopes as Record<string, ScopeSpec<Stored>> | undefined,
+    keyForScope,
+    scopeValueFromRow,
+    isPlanRow,
+    normalize,
+    applyTarget,
+    scopeDep,
+    useScopeAccess,
+    scopeSortedRows,
+    applySnapshot,
+    applyEvent
+  });
 
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
     [K in keyof TScopes]: ScopeHandle<Stored, ScopeValueOf<TScopes[K]>, Input>;

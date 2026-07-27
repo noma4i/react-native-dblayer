@@ -9,6 +9,8 @@ export type ModelContext<TStored extends { id: string }> = {
   resolvedRelations(): Record<string, RelationDecl>;
   revision(): number;
   bumpRevision(): void;
+  issuedScopeSequence(key: string): number | undefined;
+  setIssuedScopeSequence(key: string, value: number): void;
   reset(): void;
 };
 
@@ -21,6 +23,7 @@ export const createModelContext = <TStored extends { id: string }>(options: {
   let planesRef: { entityState: EntityState<TStored>; scopeIndex: ScopeIndex } | null = null;
   let relationCache: Record<string, RelationDecl> | null = null;
   let revision = 0;
+  const issuedScopeSequences = new Map<string, number>();
   const planes = () => {
     if (planesRef) return planesRef;
     const runtime = getDbRuntimeConfig();
@@ -45,8 +48,13 @@ export const createModelContext = <TStored extends { id: string }>(options: {
     bumpRevision: () => {
       revision += 1;
     },
+    issuedScopeSequence: key => issuedScopeSequences.get(key),
+    setIssuedScopeSequence: (key, value) => {
+      issuedScopeSequences.set(key, value);
+    },
     reset: () => {
       revision += 1;
+      issuedScopeSequences.clear();
       planesRef?.entityState.reset();
       planesRef?.scopeIndex.reset();
       planesRef = null;
