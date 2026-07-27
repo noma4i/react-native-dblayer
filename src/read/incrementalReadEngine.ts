@@ -22,11 +22,21 @@ type EngineInput<T> = {
   deps: ReadonlyArray<Dependency>;
 };
 
-/** Internal incremental subscription bridge. The public CommitBus contract remains unchanged. */
-export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T>): T => {
+type ReadEngineHarnessInput<T, TResult> = EngineInput<T> & {
+  apply(engine: Engine<T>, batch: IncrementalCommitBatch | null): boolean;
+  select(engine: Engine<T>): TResult;
+  notifyEveryBatch?: boolean;
+};
+
+/** Shared React subscription harness for model and scope read engines. */
+export const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch = false }: ReadEngineHarnessInput<T, TResult>): TResult => {
   const bus = getCommitBus();
   const engineRef = useRef<Engine<T> | null>(null);
   const subscriptionRef = useRef<{ setDeps(next: ReadonlyArray<Dependency>): void; unsubscribe(): void } | null>(null);
+  const applyRef = useRef(apply);
+  const selectRef = useRef(select);
+  applyRef.current = apply;
+  selectRef.current = select;
   const generation = getRuntimeGeneration();
   if (engineRef.current === null || engineRef.current.signature !== signature || engineRef.current.generation !== generation) {
     engineRef.current = create();
@@ -38,11 +48,12 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
       let changed = false;
       const subscription = bus.subscribeIncremental(
         () => {
-          if (changed) onStoreChange();
+          if (notifyEveryBatch || changed) onStoreChange();
         },
         deps,
         batch => {
-          changed = batch === null && engineRef.current?.generation !== getRuntimeGeneration() ? false : engineRef.current?.apply(batch) === true;
+          const engine = engineRef.current;
+          changed = engine ? applyRef.current(engine, batch) : false;
         }
       );
       subscriptionRef.current = subscription;
@@ -51,19 +62,26 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
         subscription.unsubscribe();
       };
     },
-    [bus, deps]
+    [bus, deps, notifyEveryBatch]
   );
 
   useEffect(() => {
     subscriptionRef.current?.setDeps(deps);
   });
 
-  useSyncExternalStore(
-    subscribe,
-    () => engine.version,
-    () => engine.version
-  );
-  return engine.value;
+  const snapshot = useCallback(() => selectRef.current(engineRef.current!), []);
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
+};
+
+/** Internal model-read bridge over the shared engine harness. */
+export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T>): T => {
+  return useReadEngineHarness({
+    signature,
+    create,
+    deps,
+    apply: (engine, batch) => (batch === null && engine.generation !== getRuntimeGeneration() ? false : engine.apply(batch)),
+    select: engine => engine.value
+  });
 };
 
 type Row = { id: string; [key: string]: unknown };

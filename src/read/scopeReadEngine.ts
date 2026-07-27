@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import type { CommitSubscription, IncrementalCommitBatch } from '../core/apply/commitBus';
+import { useMemo, useRef } from 'react';
+import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
 import { getApplyTarget } from '../core/apply/transaction';
 import { noteScopeReadPass } from '../core/diagnostics';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { createProjectionGate, type ProjectionOptions, validateProjectionOptions } from './projectionGate';
 import { hasRequiredFields } from './requireFields';
 import { useScopeRetention } from './scopeRetention';
-import { incrementalSignature } from './incrementalReadEngine';
+import { incrementalSignature, useReadEngineHarness } from './incrementalReadEngine';
 import { arraysShallowEqual, rowsShallowEqual } from './useLiveRead';
 
 type StoredRowShape = { id: string } & Record<string, unknown>;
@@ -126,35 +126,19 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
 };
 
 const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: StoredRowShape[]) => TSnapshot): TSnapshot => {
-  const bus = getCommitBus();
   const signature = incrementalSignature('scope-read', modelId, scopeKey, sortMeta);
-  const engineRef = useRef<ReturnType<typeof createScopeReadEngine> | null>(null);
-  const subscriptionRef = useRef<CommitSubscription | null>(null);
-  if (engineRef.current === null || engineRef.current.signature !== signature || engineRef.current.generation !== getRuntimeGeneration()) {
-    engineRef.current = createScopeReadEngine(modelId, scopeKey, sortMeta);
-  }
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => {
-      const subscription = bus.subscribeIncremental(
-        onStoreChange,
-        scopeKey == null ? [] : [{ kind: 'scope', model: modelId, scopeKey }],
-        batch => {
-          engineRef.current?.apply(batch);
-        }
-      );
-      subscriptionRef.current = subscription;
-      return () => {
-        subscriptionRef.current = null;
-        subscription.unsubscribe();
-      };
+  const deps = useMemo<ReadonlyArray<Dependency>>(() => (scopeKey == null ? [] : [{ kind: 'scope', model: modelId, scopeKey }]), [modelId, scopeKey]);
+  return useReadEngineHarness({
+    signature,
+    create: () => createScopeReadEngine(modelId, scopeKey, sortMeta),
+    deps,
+    apply: (engine, batch) => {
+      engine.apply(batch);
+      return true;
     },
-    [bus, modelId, scopeKey]
-  );
-  useEffect(() => {
-    subscriptionRef.current?.setDeps(scopeKey == null ? [] : [{ kind: 'scope', model: modelId, scopeKey }]);
+    select: engine => snapshot(engine.value),
+    notifyEveryBatch: true
   });
-  const getSnapshot = useCallback(() => snapshot(engineRef.current!.value), [snapshot]);
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
 export function useScopeReadRows<TOutput extends Record<string, unknown> = StoredRowShape>(
