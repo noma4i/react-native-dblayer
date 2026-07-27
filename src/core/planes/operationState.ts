@@ -27,6 +27,38 @@ export type OperationRecord = {
   createdAt: number;
 };
 
+const ONCE_KEY_RECORD_FORMAT_VERSION = 1;
+type PersistedOnceKeyRecord = { formatVersion: number; keys: string[] };
+
+const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
+
+export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): string[] => {
+  const keys = new Set<string>();
+  const rawOnceKeys = storage.get(onceKeysKey(prefix));
+  if (rawOnceKeys) {
+    try {
+      const record = JSON.parse(rawOnceKeys) as PersistedOnceKeyRecord;
+      if (record.formatVersion === ONCE_KEY_RECORD_FORMAT_VERSION && Array.isArray(record.keys) && record.keys.every(key => typeof key === 'string')) {
+        for (const key of record.keys) keys.add(key);
+      }
+    } catch {}
+  }
+  const rawOperations = storage.get(`${prefix}ops`);
+  if (rawOperations) {
+    try {
+      for (const record of Object.values(JSON.parse(rawOperations) as Record<string, OperationRecord>)) {
+        if (record.status === 'committed' && record.once === true && typeof record.idempotencyKey === 'string') keys.add(record.idempotencyKey);
+      }
+    } catch {}
+  }
+  return [...keys].sort();
+};
+
+export const writeCommittedOnceKeys = (storage: StoragePlane, prefix: string, keys: readonly string[]): void => {
+  if (keys.length === 0) return;
+  storage.set([{ key: onceKeysKey(prefix), value: JSON.stringify({ formatVersion: ONCE_KEY_RECORD_FORMAT_VERSION, keys }) }]);
+};
+
 /** JSON-round-trip an operation input before it enters the persistent ledger. */
 export const serializeOperationInput = (input: unknown): { serializable: boolean; value: unknown } => {
   const seen = new Set<object>();
@@ -142,7 +174,11 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   };
   const opsKey = () => `${prefix()}ops`;
   const persistEntries = (): Array<{ key: string; value: string | null }> => {
-    return [{ key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null }];
+    const keys = [...committedKeys].sort();
+    return [
+      { key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null },
+      { key: onceKeysKey(prefix()), value: keys.length > 0 ? JSON.stringify({ formatVersion: ONCE_KEY_RECORD_FORMAT_VERSION, keys }) : null }
+    ];
   };
   const EMPTY_OWNED: ReadonlySet<string> = new Set();
 
@@ -298,6 +334,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         }
       }
       rebuildIndexes();
+      for (const key of readCommittedOnceKeys(storage, prefix())) committedKeys.add(key);
       pendingPatchCount = 0;
       for (const op of operations.values()) if (op.status === 'pending' && op.intent === 'patch' && op.patchedFields && op.patchedFields.length > 0) pendingPatchCount += 1;
     },

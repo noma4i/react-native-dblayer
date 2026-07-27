@@ -1,4 +1,4 @@
-import { configureDb, defineShape, f } from '../../../index';
+import { configureDb, defineCommand, defineShape, f } from '../../../index';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, registerSchemaDeclaration, type SchemaDeclaration, writePersistenceManifest } from '../../../core/schemaManifest';
 import { bootDb } from '../../../dsl/lifecycle';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
@@ -13,6 +13,10 @@ const declaration = (
   fields,
   scopes
 });
+
+const document = { kind: 'Document', definitions: [] } as never;
+type OnceResult = { action: { ok: true } };
+type OnceInput = { value: string };
 
 const configureManifestRuntime = (storage = createMemoryPlane(), dataVersion?: string) => {
   configureDb({ storage, transport: createMockTransport(), dataVersion });
@@ -105,7 +109,37 @@ describe('persistence schema manifest', () => {
     expect(storage.get('dbl:sentinel')).toBeUndefined();
     expect(JSON.parse(storage.get('dbl:manifest')!)).toEqual({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: 'build-2' });
     expect(diagnostics.snapshot().manifestResets).toBe(1);
-    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: '__runtime__', count: 1 });
+    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
+  });
+
+  it('retains a committed once key across a consumer data version migration', async () => {
+    const storage = createMemoryPlane();
+    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { action: { ok: true } } as TData }) });
+    configureDb({ storage, transport, dataVersion: 'build-1' });
+    await bootDb();
+    const first = defineCommand<OnceResult, OnceInput>('ManifestOnceMigration', { document, result: 'action', once: true });
+    await first.run({ value: 'once' });
+
+    configureDb({ storage, transport, dataVersion: 'build-2' });
+    const restarted = defineCommand<OnceResult, OnceInput>('ManifestOnceMigration', { document, result: 'action', once: true });
+    await bootDb();
+
+    expect(storage.get('dbl:ops')).toBeUndefined();
+    expect(await restarted.run({ value: 'once' })).toBeNull();
+    expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1);
+  });
+
+  it('does not classify a consumer data version migration as corruption recovery', async () => {
+    const storage = configureManifestRuntime(undefined, 'build-1');
+    await bootDb();
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
+    diagnostics.reset();
+
+    configureManifestRuntime(storage, 'build-2');
+    await bootDb();
+
+    expect(diagnostics.snapshot().dataLossEvents.some(event => event.mechanism === 'model-corruption-recovery')).toBe(false);
+    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
   });
 
   it('preserves persisted data when the consumer data version matches', async () => {

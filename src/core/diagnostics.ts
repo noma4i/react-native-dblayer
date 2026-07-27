@@ -16,6 +16,7 @@ export type DataLossMechanism =
   | 'detached-operation-discard'
   | 'detached-operation-rollback'
   | 'detached-resume-error'
+  | 'data-version-migration-reset'
   | 'model-corruption-recovery'
   | 'journal-corruption-checkpointed-drop'
   | 'journal-corruption-loss'

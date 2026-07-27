@@ -1,5 +1,6 @@
 import { sortBy } from 'es-toolkit';
-import { getDbRuntimeConfig, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
+import { getDbRuntimeConfig, getOperationState, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
+import { readCommittedOnceKeys, writeCommittedOnceKeys } from './planes/operationState';
 import { resetRuntime } from './reset';
 import { noteDataLoss, noteManifestReset } from './diagnostics';
 import { stableSerialize } from './serialize';
@@ -56,9 +57,13 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   const matches = stored?.formatVersion === current.formatVersion && stored.schemaFingerprint === current.schemaFingerprint && stored.dataVersion === current.dataVersion;
 
   if (!matches && (stored !== undefined || nonempty)) {
+    const committedOnceKeys = readCommittedOnceKeys(storage, prefix);
     resetRuntime();
+    writeCommittedOnceKeys(storage, prefix, committedOnceKeys);
+    getOperationState().hydrate();
     noteManifestReset();
-    noteDataLoss('model-corruption-recovery', '__runtime__', 1);
+    const dataVersionMigration = stored !== undefined && stored.formatVersion === current.formatVersion && stored.schemaFingerprint === current.schemaFingerprint && stored.dataVersion !== current.dataVersion;
+    noteDataLoss(dataVersionMigration ? 'data-version-migration-reset' : 'model-corruption-recovery', '__runtime__', 1);
     writePersistenceManifest(prefix, current);
     return { reset: true };
   }
