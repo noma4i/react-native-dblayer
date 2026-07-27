@@ -13,7 +13,8 @@ export type DataLossMechanism =
   | 'journal-corruption-checkpointed-drop'
   | 'journal-corruption-loss'
   | 'operation-ledger-corruption-reset'
-  | 'replacement-rejected';
+  | 'replacement-rejected'
+  | 'unranked-ladder-value';
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
 

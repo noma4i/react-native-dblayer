@@ -38,7 +38,7 @@ export const createModelNormalization = <
         groupedFields.add(field);
       }
     }
-    return compileWritePolicies<Stored>(groups ?? []);
+    return compileWritePolicies<Stored>(groups ?? [], config.id);
   })();
 
   const normalize = (input: unknown, complete = false): Stored => {

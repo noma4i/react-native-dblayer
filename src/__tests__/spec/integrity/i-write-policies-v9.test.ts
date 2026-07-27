@@ -1,6 +1,6 @@
 import { belongsTo, configureDb, defineModel, f } from '../../../index';
 import { isIncomingNewer } from '../../../core/invariants';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 describe('v9 model-owned write policies', () => {
   beforeEach(() => {
@@ -185,6 +185,26 @@ describe('v9 model-owned write policies', () => {
     expect(rows.find('row-1')?.blob).toEqual({ stage: 'd' });
     rows.insert({ id: 'row-1', blob: { stage: 'e' } });
     expect(rows.find('row-1')?.blob).toEqual({ stage: 'e' });
+  });
+
+  it('reports an unknown incoming ladder tier but not an absent incoming tier', () => {
+    const rows = defineModel({
+      id: 'V9LadderUnknown',
+      name: 'V9LadderUnknown',
+      fields: { blob: f.raw<Record<string, unknown>>() },
+      write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } } } }] }
+    });
+    rows.insert({ id: 'row-1', blob: { stage: 'd' } });
+    diagnostics().reset();
+
+    rows.insert({ id: 'row-1', blob: { stage: 'unknown' } });
+
+    expect(rows.find('row-1')?.blob).toEqual({ stage: 'd' });
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'unranked-ladder-value', model: rows.modelId, count: 1 });
+
+    diagnostics().reset();
+    rows.insert({ id: 'row-1', blob: {} });
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 
   it('composes ladder and tuple guards over nested paths', () => {

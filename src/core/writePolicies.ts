@@ -1,4 +1,5 @@
 import { isIncomingNewer } from './invariants';
+import { noteDataLoss } from './diagnostics';
 import { compareCodepoints } from './serialize';
 import { isNonArrayRecord, readIsoDate, readNumericLike } from '../utils/normalizeHelpers';
 
@@ -17,8 +18,8 @@ export type GuardedOrigin = Exclude<WriteOrigin, 'replace'>;
  *   numbers numerically and all other values with `compareCodepoints`.
  * - `nonEmpty: true` accepts when every group field is present and non-empty; empty incoming values
  *   retain the current group fields.
- * - `ladder` accepts when the incoming tier rank is not below the current rank; values outside all
- *   tiers rank `-1`, and an absent value on either side abstains and accepts.
+ * - `ladder` accepts when the incoming tier rank is not below the current rank; an incoming value
+ *   outside all tiers ranks `-1`, rejects, and records a data-loss event; an absent value on either side abstains and accepts.
  * - `present: path` accepts when the incoming path value is neither `null` nor `undefined`.
  * - `equal: path` accepts when incoming and current path values satisfy `Object.is`.
  * - `all` accepts when every nested specification accepts, including an empty list.
@@ -85,19 +86,25 @@ const isIncomingNewerBy = (path: string, incoming: Record<string, unknown>, prev
 
 const ladderRank = (value: unknown, tiers: readonly (readonly string[])[]): number => tiers.findIndex(tier => tier.includes(String(value)));
 
-const acceptsMonotonic = (spec: MonotonicSpec, fields: readonly string[], incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean => {
+const acceptsMonotonic = (spec: MonotonicSpec, fields: readonly string[], incoming: Record<string, unknown>, previous: Record<string, unknown>, modelId: string): boolean => {
   if ('newerBy' in spec) return isIncomingNewerBy(spec.newerBy, incoming, previous);
   if ('tuple' in spec) return isIncomingTupleNewer(spec.tuple, incoming, previous);
   if ('nonEmpty' in spec) return fields.every(field => field in incoming && isPresent(incoming[field]));
   if ('ladder' in spec) {
     const incomingValue = readPath(incoming, spec.ladder.path);
     const previousValue = readPath(previous, spec.ladder.path);
-    return incomingValue === undefined || previousValue === undefined || ladderRank(incomingValue, spec.ladder.tiers) >= ladderRank(previousValue, spec.ladder.tiers);
+    if (incomingValue === undefined || previousValue === undefined) return true;
+    const incomingRank = ladderRank(incomingValue, spec.ladder.tiers);
+    if (incomingRank < 0) {
+      noteDataLoss('unranked-ladder-value', modelId, 1);
+      return false;
+    }
+    return incomingRank >= ladderRank(previousValue, spec.ladder.tiers);
   }
   if ('present' in spec) return readPath(incoming, spec.present) != null;
   if ('equal' in spec) return Object.is(readPath(incoming, spec.equal), readPath(previous, spec.equal));
-  if ('all' in spec) return spec.all.every(item => acceptsMonotonic(item, fields, incoming, previous));
-  return spec.any.some(item => acceptsMonotonic(item, fields, incoming, previous));
+  if ('all' in spec) return spec.all.every(item => acceptsMonotonic(item, fields, incoming, previous, modelId));
+  return spec.any.some(item => acceptsMonotonic(item, fields, incoming, previous, modelId));
 };
 
 const appliesMonotonic = (policy: Extract<WritePolicy, { monotonic: MonotonicSpec; on?: readonly GuardedOrigin[] }>, origin: WriteOrigin): boolean =>
@@ -122,7 +129,7 @@ const applyNestedKeys = (previousValue: unknown, incomingValue: unknown, policy:
   return result;
 };
 
-const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: Record<string, unknown>, effective: Record<string, unknown>, ctx: WriteCtx): void => {
+const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: Record<string, unknown>, effective: Record<string, unknown>, ctx: WriteCtx, modelId: string): void => {
   if (policy === 'server') return;
   if (policy === 'continuity') {
     for (const field of fields) if (field in effective && effective[field] == null) effective[field] = previous[field];
@@ -137,7 +144,7 @@ const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: R
     return;
   }
   if (!appliesMonotonic(policy, ctx.origin)) return;
-  if (!acceptsMonotonic(policy.monotonic, fields, effective, previous)) {
+  if (!acceptsMonotonic(policy.monotonic, fields, effective, previous, modelId)) {
     for (const field of fields) effective[field] = previous[field];
   }
 };
@@ -150,13 +157,13 @@ const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: R
  * `snapshot` shallow-folds objects, and nested-key policies protect declared object keys. `newerBy`
  * normalizes values through `readIsoDate` before `isIncomingNewer`.
  */
-export const compileWritePolicies = <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[]) =>
+export const compileWritePolicies = <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[], modelId: string) =>
   (previous: TRow, incoming: TRow, ctx: WriteCtx): TRow => {
     const effective: Record<string, unknown> = { ...previous, ...incoming };
     if (ctx.origin === 'replace') return effective as TRow;
     for (const group of groups) {
       const policies = Array.isArray(group.policy) ? group.policy : [group.policy];
-      for (const policy of policies) applyPolicy(policy, group.fields, previous, effective, ctx);
+      for (const policy of policies) applyPolicy(policy, group.fields, previous, effective, ctx, modelId);
     }
     return effective as TRow;
   };
