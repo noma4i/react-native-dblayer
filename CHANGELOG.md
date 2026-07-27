@@ -11,6 +11,7 @@
 ### Testing infrastructure
 
 - Bind the jest `react-native-mmkv` fake to the real package's `MMKV` instance type (`ReturnType<typeof createMMKV>`) instead of a hand-written mirror, so a future API rename (the class of defect behind the 8.0.0-beta.4 boot crash) fails `tsc` instead of silently crashing on device. Add a storage contract suite exercising the real `mmkvStorage` -> `mmkvStoragePlane` -> manifest boot path chain against the typed fake.
+- Mutation-prove the internal "transport not configured" and "unknown model/scope handle" guards - both were correct but had zero test coverage of their throw branch, so a future refactor could silently turn either into a no-op.
 
 ### Environment
 
