@@ -1,5 +1,6 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { createScopeIndex } from '../../../core/planes/scopeIndex';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ScopeRow = { id: string; bucket: string; rank: number; label: string };
@@ -164,5 +165,35 @@ describe('scope order cache reset contract', () => {
 
     expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-3']);
     reader.unmount();
+  });
+
+  it('K1/K2 reconciles, trims, and evicts scope keys without retaining departed reverse memberships', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeReverseIndex', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeA = 'byBucket\0{"bucket":"a"}';
+    const scopeB = 'byBucket\0{"bucket":"b"}';
+
+    index.reconcile(scopeA, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
+    index.reconcile(scopeB, 'complete', [{ id: 'row-1' }]);
+    index.reconcile(scopeA, 'complete', [{ id: 'row-2' }]);
+    expect(index.keysOf('row-1')).toEqual([scopeB]);
+
+    index.reconcile(scopeA, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
+    index.trim(scopeA, 0);
+    expect(index.keysOf('row-1')).toEqual([scopeB]);
+
+    index.reconcile(scopeA, 'complete', [{ id: 'row-1' }]);
+    index.remove(scopeA);
+    expect(index.keysOf('row-1')).toEqual([scopeB]);
+
+  });
+
+  it('K3 removes the final reverse membership through the destroy detach path', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeReverseIndexDestroy', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeKey = 'byBucket\0{"bucket":"destroy"}';
+
+    index.reconcile(scopeKey, 'complete', [{ id: 'row-1' }]);
+    index.detach(scopeKey, ['row-1']);
+
+    expect(index.keysOf('row-1')).toEqual([]);
   });
 });

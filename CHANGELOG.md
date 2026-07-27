@@ -4,6 +4,9 @@
 
 ### Persistence and reconciliation
 
+- Preserve relation counters and dependent children across optimistic identity swaps: the `replace` destroy half is now neutral for relation effects, while ordinary destroy behavior is unchanged.
+- Recover persisted entity rows, tombstones, and scope keys per corrupt key instead of cold-resetting an otherwise valid model cache.
+- Add mutation-proven reverse scope-index cleanup coverage for reconciliation, retention trim, scope eviction, and destroy detach paths.
 - Fix `computeSchemaFingerprint` sorting declaration ids by locale-dependent order (`localeCompare`) instead of codepoint order - reuse the canonical `compareCodepoints` comparator so the persistence-compatibility fingerprint is stable across locales and environments.
 - Reject an unparseable (non-`Date`-parseable) `updatedAt` string the same way as a nullish one in `isIncomingNewer`: an incoming value that fails to parse can never prove novelty (rejected), and an existing value that fails to parse can never block a parseable incoming write (accepted). Previously both cases silently fell through to a `NaN` comparison that always resolved to `false`.
 - Fix `resolveStaleTempRows` treating a temp row with an unparseable `createdAt` as permanently protected from cleanup; it is now treated as maximally stale and resolved immediately instead of leaking forever.
