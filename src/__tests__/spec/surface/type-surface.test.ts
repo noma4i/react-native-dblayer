@@ -55,12 +55,13 @@ describe('public type surface', () => {
 
     for (const row of first.split('\n')) expect(row).not.toContain('import("/');
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(76);
+    expect(first.split('\n')).toHaveLength(77);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbRetryClass: any
 DbRetryPolicy: any
 DbTransport: any
+DbTransportError: any
 DbWhere: any
 DbWhereOp: any
 EnsuredRowResult: any

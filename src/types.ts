@@ -39,15 +39,24 @@ type DbMutationOperation<TData = unknown, TVariables = Record<string, unknown>> 
   variables?: TVariables;
 } & Record<string, unknown>;
 
+/** One GraphQL error returned in a resolved transport response. */
+export type DbTransportError = {
+  message: string;
+  path?: readonly (string | number)[];
+  extensions?: Record<string, unknown>;
+};
+
 type TransportResult<TData> = {
   /** Operation response data returned by the transport. */
   data: TData;
+  /** GraphQL response errors, including partial responses with non-empty `data`. Absence means no errors, not an unknown status. */
+  errors?: readonly DbTransportError[];
 };
 
 export type DbTransport = {
-  /** Execute a GraphQL query and resolve to `{ data }`. */
+  /** Execute a GraphQL query and resolve to `{ data, errors? }`; GraphQL errors must be populated even when partial data is present. */
   query: <TData = unknown, TVariables = Record<string, unknown>>(operation: DbQueryOperation<TData, TVariables>) => Promise<TransportResult<TData>>;
-  /** Execute a GraphQL mutation and resolve to `{ data }`. */
+  /** Execute a GraphQL mutation and resolve to `{ data, errors? }`; GraphQL errors must be populated even when partial data is present. */
   mutation: <TData = unknown, TVariables = Record<string, unknown>>(operation: DbMutationOperation<TData, TVariables>) => Promise<TransportResult<TData>>;
   /**
    * Subscribe to a GraphQL document and push response `data` objects to the provided callbacks.

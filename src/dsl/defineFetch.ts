@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { DbGraphQLDocument, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { buildScopeKey } from '../core/compileDbWhere';
-import { getDbTransport } from '../core/transport';
+import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { getDbLogger } from '../core/logger';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
@@ -89,7 +89,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
         data = await config.fetcher(input);
       } else {
         const variables = config.vars?.(input) ?? {};
-        data = (await getDbTransport().query({ query: config.document, variables })).data as TData;
+        data = responseDataOrThrow(await getDbTransport().query({ query: config.document, variables }));
       }
     } catch (error) {
       const reported = error instanceof Error ? error : new Error(String(error));

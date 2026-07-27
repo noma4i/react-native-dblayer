@@ -12,6 +12,7 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import { getDbLogger } from '../core/logger';
+import { responseDataOrThrow } from '../core/transport';
 import type { ScopeHandle } from './defineModel';
 import type { ScopeCoverage } from './scope';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
@@ -317,7 +318,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const generationFence = createGenerationFence();
     let data: TResponse;
     try {
-      data = (await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars })).data as TResponse;
+      data = responseDataOrThrow(await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars }));
     } catch (error) {
       const reported = error instanceof Error ? error : new Error(String(error));
       try {

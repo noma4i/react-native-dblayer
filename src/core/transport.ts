@@ -1,4 +1,4 @@
-import type { DbTransport } from '../types';
+import type { DbTransport, DbTransportError } from '../types';
 import { createConfiguredSlot } from './configuredSlot';
 
 export type { DbTransport };
@@ -31,3 +31,11 @@ export const setDbTransport = (transport: DbTransport): void => {
  * @returns The transport passed to `configureDb`/`setDbTransport`; throws if none has been configured yet.
  */
 export const getDbTransport = (): DbTransport => currentDbTransport.get();
+
+/** Reject resolved GraphQL responses with errors before any caller can apply their partial data. */
+export const responseDataOrThrow = <TData>(response: { data: TData; errors?: readonly DbTransportError[] }): TData => {
+  if (!response.errors || response.errors.length === 0) return response.data;
+  const error = new Error(response.errors.map(item => item.message).join('; '));
+  (error as Error & { cause: readonly DbTransportError[] }).cause = response.errors;
+  throw error;
+};

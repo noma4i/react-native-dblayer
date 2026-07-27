@@ -10,11 +10,23 @@ const createMediaModel = (id: string) => {
     id,
     name: id,
     fields: { body: f.str(), media: f.object(media) },
+    maintenance: { dropTempRowsAfterMs: 1000 },
     write: { groups: [{ fields: ['media'] as const, policy: { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', thumbUrl: 'nonEmpty', coverUrl: 'nonEmpty', blurHash: 'nonEmpty' } } }] }
   });
 };
 
 describe('model-owned write declarations', () => {
+  it('G3 does not apply a query response with GraphQL errors', async () => {
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', body: 'rejected', media: { width: null, height: null, fileUrl: null, blurHash: null } }] } as TData, errors: [{ message: 'forbidden' }] }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createMediaModel('WriteDeclarationGraphqlErrors');
+    const query = rows.query<{ rows: Array<{ id: string; body: string; media: { width: number | null; height: number | null; fileUrl: string | null; blurHash: string | null } }> }, void, Record<string, never>, { id: string; body: string; media: { width: number | null; height: number | null; fileUrl: string | null; blurHash: string | null } }>('graphql-errors', { document, select: data => data.rows, into: rows });
+
+    await expect(query.fetch({})).rejects.toThrow('forbidden');
+
+    expect(rows.find('row-1')).toBeUndefined();
+  });
+
   it('keeps an optimistic patch through a foreign event patch and accepts its committed server value', async () => {
     let resolveMutation!: (value: { data: { pin: { id: string; pinned: boolean } } }) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) });
@@ -130,7 +142,8 @@ describe('model-owned write declarations', () => {
     const rows = defineModel({
       id: 'WriteDeclarationAccept',
       name: 'WriteDeclarationAccept',
-      fields: { body: f.str() }
+      fields: { body: f.str() },
+      maintenance: { dropTempRowsAfterMs: 1000 }
     });
     rows.insert({ id: 'row-1', body: 'snapshot' });
     rows.ingest({ received: { handler: () => ({ upsert: { id: 'row-1', body: 'event' } }) } }).apply('received', {});
