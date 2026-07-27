@@ -58,8 +58,8 @@ export const serializeOperationInput = (input: unknown): { serializable: boolean
 const CLOSED_TTL_MS = 60 * 60 * 1000;
 export type OperationState = {
   begin(operation: Omit<OperationRecord, 'status'>, options?: { persist?: boolean }): void;
-  /** Terminal status is immutable; repeated close calls are idempotent no-ops. */
-  close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
+  /** Terminal status is immutable; repeated close calls are idempotent no-ops. Pass `{ persist: false }` to defer the ledger write onto a caller-owned `apply(..., { extraEntries })` batch. */
+  close(operationId: string, status: Exclude<OperationStatus, 'pending'>, options?: { persist?: boolean }): void;
   get(operationId: string): OperationRecord | undefined;
   /** True when a retained `once` key or exact operation id already committed. */
   hasCommitted(idempotencyKey: string): boolean;
@@ -76,8 +76,8 @@ export type OperationState = {
   clearFailed(operationId: string): void;
   /** Re-open a retained failed operation for durable retry. */
   reopen(operationId: string): OperationRecord | undefined;
-  /** Remove any operation after an explicit discard or failed atomic start. */
-  remove(operationId: string): void;
+  /** Remove any operation after an explicit discard or failed atomic start. Pass `{ persist: false }` to defer the ledger write onto a caller-owned `apply(..., { extraEntries })` batch. */
+  remove(operationId: string, options?: { persist?: boolean }): void;
   /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
   hydratedPending(): OperationRecord[];
   /** Consume hydrated pending records matching one boot reconciler exactly once. */
@@ -156,7 +156,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (options?.persist !== false) storage.set(persistEntries());
       notify?.(record);
     },
-    close: (operationId, status) => {
+    close: (operationId, status, options) => {
       const operation = operations.get(operationId);
       if (!operation || operation.status !== 'pending') return;
       const wasPatchOwner = operation.status === 'pending' && operation.intent === 'patch' && !!operation.patchedFields && operation.patchedFields.length > 0;
@@ -169,7 +169,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       indexRecordRows(record);
       if (wasPatchOwner) pendingPatchCount -= 1;
       indexOperation(record);
-      storage.set(persistEntries());
+      if (options?.persist !== false) storage.set(persistEntries());
       notify?.(record);
     },
     get: operationId => operations.get(operationId),
@@ -214,13 +214,13 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       notify?.(record);
       return record;
     },
-    remove: operationId => {
+    remove: (operationId, options) => {
       const operation = operations.get(operationId);
       if (!operation) return;
       hydratedPendingIds.delete(operationId);
       operations.delete(operationId);
       rebuildIndexes();
-      storage.set(persistEntries());
+      if (options?.persist !== false) storage.set(persistEntries());
       notify?.(operation);
     },
     hydratedPending: () =>

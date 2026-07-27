@@ -56,13 +56,21 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     if (record.status !== 'pending') return;
     const input = record.failedInput as TInput | undefined;
     if (config.failure === 'rollback') {
-      getApplyRuntime().apply([{ kind: 'destroy', model: model.modelId, ids: record.tempIds, tombstone: false }]);
-      getOperationState().close(record.operationId, 'rolledback');
+      getOperationState().close(record.operationId, 'rolledback', { persist: false });
+      getApplyRuntime().apply([{ kind: 'destroy', model: model.modelId, ids: record.tempIds, tombstone: false }], {
+        extraEntries: () => getOperationState().persistEntries()
+      });
       noteDataLoss('detached-operation-rollback', model.modelId, record.tempIds.length);
     } else {
       const patch = input === undefined ? undefined : config.onFailurePatch?.(input);
-      if (patch && record.tempIds[0]) model.update(record.tempIds[0], patch);
-      getOperationState().close(record.operationId, 'failed');
+      if (patch && record.tempIds[0]) {
+        getOperationState().close(record.operationId, 'failed', { persist: false });
+        getApplyRuntime().apply([{ kind: 'patch', model: model.modelId, id: record.tempIds[0], patch }], {
+          extraEntries: () => getOperationState().persistEntries()
+        });
+      } else {
+        getOperationState().close(record.operationId, 'failed');
+      }
     }
     reportFailure(error, model.modelId);
   };
@@ -110,8 +118,9 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     complete: (operationId, serverNode) => {
       const operation = getOperationState().get(operationId);
       if (!operation || operation.kind !== kind || operation.status !== 'pending' || !operation.tempIds[0]) return;
-      getApplyRuntime().apply(getInternalModelHandle(model).planReplace(operation.tempIds[0], serverNode));
-      getOperationState().close(operationId, 'committed');
+      const ops = getInternalModelHandle(model).planReplace(operation.tempIds[0], serverNode);
+      getOperationState().close(operationId, 'committed', { persist: false });
+      getApplyRuntime().apply(ops, { extraEntries: () => getOperationState().persistEntries() });
     },
     fail: (operationId, error) => {
       const operation = getOperationState().get(operationId);
@@ -128,8 +137,14 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     discard: operationId => {
       const operation = getOperationState().get(operationId);
       if (!operation || operation.kind !== kind) return;
-      if (operation.tempIds.length > 0) getApplyRuntime().apply([{ kind: 'destroy', model: model.modelId, ids: operation.tempIds, tombstone: false }]);
-      getOperationState().remove(operationId);
+      if (operation.tempIds.length > 0) {
+        getOperationState().remove(operationId, { persist: false });
+        getApplyRuntime().apply([{ kind: 'destroy', model: model.modelId, ids: operation.tempIds, tombstone: false }], {
+          extraEntries: () => getOperationState().persistEntries()
+        });
+      } else {
+        getOperationState().remove(operationId);
+      }
       noteDataLoss('detached-operation-discard', model.modelId, operation.tempIds.length);
     }
   };

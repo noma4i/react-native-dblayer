@@ -1,10 +1,22 @@
 import { act } from 'react-test-renderer';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
-import { flushPersistence, getOperationState } from '../../../dsl/configure';
+import { flushPersistence, getOperationState, replayJournal } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
+import { createFaultStorage } from '../helpers/faultStorage';
+
+/** Arms the fault plane so the storage batch AFTER the next `settleCount` successful batches fails once. */
+const failAfterSettledBatches = (storage: ReturnType<typeof createFaultStorage>, settleCount: number): void => {
+  const set = storage.plane.set;
+  let seen = 0;
+  storage.plane.set = entries => {
+    seen += 1;
+    set(entries);
+    if (seen === settleCount) storage.failNextSet(1);
+  };
+};
 
 type Row = { id: string; bucket: string; label: string; state: 'pending' | 'failed' | 'complete'; createdAt: string };
 type Input = { bucket: string; label: string };
@@ -270,5 +282,123 @@ describe('detached operations', () => {
     };
 
     expect(run(1)).toEqual(run(200));
+  });
+
+  /** Attempts `attempt()` with a fault armed for the operation's own last write; disarms any unused fault before the caller inspects durable state. Returns whether the fault actually fired. */
+  const attemptWithLastWriteFaulted = (storage: ReturnType<typeof createFaultStorage>, settleCount: number, attempt: () => void): boolean => {
+    failAfterSettledBatches(storage, settleCount);
+    let threw = false;
+    try {
+      attempt();
+    } catch (error) {
+      threw = true;
+      expect((error as Error).message).toBe('fault: set failed');
+    }
+    storage.failNextSet(0);
+    return threw;
+  };
+
+  it('B1 never persists a replaced row with its operation still pending', () => {
+    const storage = createFaultStorage();
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const rows = defineRows('DetachedCompleteAtomic');
+    const handle = declare(rows, 'complete-atomic', async () => 'continue');
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    writeManifest();
+
+    const threw = attemptWithLastWriteFaulted(storage, 2, () =>
+      handle.complete(entry.operationId, { id: 'server-1', bucket: 'a', label: 'done', state: 'complete', createdAt: new Date().toISOString() })
+    );
+
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const restartedRows = defineRows('DetachedCompleteAtomic');
+    declare(restartedRows, 'complete-atomic', async () => 'continue');
+    replayJournal();
+
+    const replaced = restartedRows.find('server-1') !== undefined;
+    const stillPending = getOperationState().get(entry.operationId)?.status === 'pending';
+    expect(replaced && stillPending).toBe(false);
+    if (!threw) {
+      expect(replaced).toBe(true);
+      expect(stillPending).toBe(false);
+    }
+  });
+
+  it('B2 never persists a rollback destroy with its operation still pending', () => {
+    const storage = createFaultStorage();
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const rows = defineRows('DetachedRollbackAtomic');
+    const declareRollback = (model: ReturnType<typeof defineRows>) =>
+      model.detached<Input>('rollback-atomic', {
+        build: input => ({ bucket: input.bucket, label: input.label, state: 'pending', createdAt: new Date().toISOString() }),
+        resume: async () => 'continue',
+        failure: 'rollback'
+      });
+    const handle = declareRollback(rows);
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    writeManifest();
+
+    const threw = attemptWithLastWriteFaulted(storage, 2, () => handle.fail(entry.operationId, new Error('offline')));
+
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const restartedRows = defineRows('DetachedRollbackAtomic');
+    declareRollback(restartedRows);
+    replayJournal();
+
+    const destroyed = restartedRows.find(entry.tempId) === undefined;
+    const stillPending = getOperationState().get(entry.operationId)?.status === 'pending';
+    expect(destroyed && stillPending).toBe(false);
+    if (!threw) {
+      expect(destroyed).toBe(true);
+      expect(stillPending).toBe(false);
+    }
+  });
+
+  it('B3 never persists a keep-failure patch with its operation still pending', () => {
+    const storage = createFaultStorage();
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const rows = defineRows('DetachedFailKeepAtomic');
+    const handle = declare(rows, 'fail-keep-atomic', async () => 'continue');
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    writeManifest();
+
+    const threw = attemptWithLastWriteFaulted(storage, 2, () => handle.fail(entry.operationId, new Error('offline')));
+
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const restartedRows = defineRows('DetachedFailKeepAtomic');
+    declare(restartedRows, 'fail-keep-atomic', async () => 'continue');
+    replayJournal();
+
+    const patched = restartedRows.find(entry.tempId)?.state === 'failed';
+    const stillPending = getOperationState().get(entry.operationId)?.status === 'pending';
+    expect(patched && stillPending).toBe(false);
+    if (!threw) {
+      expect(patched).toBe(true);
+      expect(stillPending).toBe(false);
+    }
+  });
+
+  it('B4 never persists a discard destroy with its operation still tracked as pending', () => {
+    const storage = createFaultStorage();
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const rows = defineRows('DetachedDiscardAtomic');
+    const handle = declare(rows, 'discard-atomic', async () => 'continue');
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    writeManifest();
+
+    const threw = attemptWithLastWriteFaulted(storage, 2, () => handle.discard(entry.operationId));
+
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    const restartedRows = defineRows('DetachedDiscardAtomic');
+    declare(restartedRows, 'discard-atomic', async () => 'continue');
+    replayJournal();
+
+    const destroyed = restartedRows.find(entry.tempId) === undefined;
+    const stillTracked = getOperationState().get(entry.operationId) !== undefined;
+    expect(destroyed && stillTracked).toBe(false);
+    if (!threw) {
+      expect(destroyed).toBe(true);
+      expect(stillTracked).toBe(false);
+    }
   });
 });
