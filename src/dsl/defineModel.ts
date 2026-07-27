@@ -1,5 +1,4 @@
 import type { DbWhere, ModelFieldSpecs } from '../types';
-import { invalidateModel } from '../core/invalidationRegistry';
 import { registerRelationHost } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
@@ -13,8 +12,8 @@ import { createModelReadAccess } from './modelReadAccess';
 import { createModelReactiveReads } from './modelReactiveReads';
 import { createModelScopeHandle } from './modelScopeHandle';
 import { createModelDefinitions } from './modelDefinitions';
+import { createModelDirectAccess } from './modelDirectAccess';
 import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
-import { limitRows, sortModelReadRows } from '../read/incrementalReadEngine';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeSpec } from './scope';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
@@ -160,45 +159,16 @@ export const defineModel = <
   const model: ModelCore<Stored, Input> & { scopes: typeof scopeHandles } = {
     modelId: config.id,
     ...createModelDefinitions<Stored, Input>({ modelId: config.id, context }),
-    find: id => (id == null ? undefined : planes().entityState.read(String(id))),
-    where: (where, options) => {
-      const rows = planes()
-        .entityState.values()
-        .filter(row => matchesCriteria(row, where));
-      const order = options?.orderBy ?? config.defaultOrder;
-      if (!order) return limitRows(rows, options?.limit);
-      return sortModelReadRows(rows, [{ field: String(order.field), direction: order.direction }], options?.limit);
-    },
-    all: () => planes().entityState.values(),
-    update: (id, patch) => applyEvent([{ kind: 'patch', model: config.id, id: String(id), patch: patch as Record<string, unknown> }]),
-    destroy: id => applyEvent([{ kind: 'destroy', model: config.id, ids: [String(id)] }]),
-    destroyMany: ids => applyEvent([{ kind: 'destroy', model: config.id, ids: ids.map(id => String(id)) }]),
-    updateAll: (where, patch) => {
-      const rows = planes()
-        .entityState.values()
-        .filter(row => matchesCriteria(row, where));
-      if (rows.length === 0) return 0;
-      applyEvent(rows.map(row => ({ kind: 'patch', model: config.id, id: String(row.id), patch: patch as Record<string, unknown> })));
-      return rows.length;
-    },
-    destroyAll: where => {
-      const ids = planes()
-        .entityState.values()
-        .filter(row => matchesCriteria(row, where))
-        .map(row => String(row.id));
-      if (ids.length === 0) return 0;
-      applyEvent([{ kind: 'destroy', model: config.id, ids }]);
-      return ids.length;
-    },
-    insert: row => applyEvent([{ kind: 'upsert', model: config.id, rows: [row] }]),
-    insertMany: rows => applyEvent([{ kind: 'upsert', model: config.id, rows }]),
-    seed: rows => applyEvent(planRows(rows)),
-    replace: (oldId, next) => applyEvent(planReplace(String(oldId), next)),
-    build: input => normalize(input, true),
-    normalize: input => normalize(input),
-    invalidate: scope => {
-      invalidateModel(config.id, scope);
-    },
+    ...createModelDirectAccess<Stored, Input>({
+      modelId: config.id,
+      context,
+      defaultOrder: config.defaultOrder,
+      matchesCriteria,
+      applyEvent,
+      planRows,
+      planReplace,
+      normalize
+    }),
     use: createModelReactiveReads<Stored, Input>({
       modelId: config.id,
       modelName: config.name,

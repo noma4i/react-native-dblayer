@@ -100,6 +100,22 @@ export type ModelRuntimeRegistrationOptions<TStored extends { id: string; update
   planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
 };
 
+export type ModelDirectAccess<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<
+  ModelCore<TStored, TInput>,
+  'find' | 'where' | 'all' | 'update' | 'destroy' | 'destroyMany' | 'updateAll' | 'destroyAll' | 'insert' | 'insertMany' | 'seed' | 'replace' | 'build' | 'normalize' | 'invalidate'
+>;
+
+export type ModelDirectAccessOptions<TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput> = {
+  modelId: string;
+  context: ModelContext<TStored>;
+  defaultOrder?: DbReadOptions<TStored>['orderBy'];
+  matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
+  applyEvent(ops: JournalOp[]): void;
+  planRows(rows: unknown[]): JournalOp[];
+  planReplace(oldId: string, next: unknown): JournalOp[];
+  normalize(input: unknown, build?: boolean): TStored;
+};
+
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
  * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ groupId }`); `null`/`undefined`
