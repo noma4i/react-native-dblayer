@@ -96,7 +96,7 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
     await bootDb();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
-    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number } };
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
     diagnostics.reset();
 
     configureManifestRuntime(storage, 'build-2');
@@ -105,6 +105,7 @@ describe('persistence schema manifest', () => {
     expect(storage.get('dbl:sentinel')).toBeUndefined();
     expect(JSON.parse(storage.get('dbl:manifest')!)).toEqual({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: 'build-2' });
     expect(diagnostics.snapshot().manifestResets).toBe(1);
+    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: '__runtime__', count: 1 });
   });
 
   it('preserves persisted data when the consumer data version matches', async () => {
@@ -154,11 +155,12 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated', dataVersion: null });
-    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number } };
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
     diagnostics.reset();
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(diagnostics.snapshot().manifestResets).toBe(1);
+    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: '__runtime__', count: 1 });
   });
 
   it('resets nonempty storage without a manifest', async () => {

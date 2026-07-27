@@ -1,7 +1,7 @@
 import { sortBy } from 'es-toolkit';
 import { getDbRuntimeConfig, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
 import { resetRuntime } from './reset';
-import { noteManifestReset } from './diagnostics';
+import { noteDataLoss, noteManifestReset } from './diagnostics';
 import { stableSerialize } from './serialize';
 
 export const DB_FORMAT_VERSION = 2;
@@ -58,6 +58,7 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   if (!matches && (stored !== undefined || nonempty)) {
     resetRuntime();
     noteManifestReset();
+    noteDataLoss('model-corruption-recovery', '__runtime__', 1);
     writePersistenceManifest(prefix, current);
     return { reset: true };
   }
