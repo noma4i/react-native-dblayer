@@ -5,7 +5,7 @@ import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler, type CheckpointScheduler } from '../core/apply/checkpoint';
 import { createApplyRuntime, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
-import { readJournalRecord } from '../core/apply/journal';
+import { readJournalRecord, type JournalOp } from '../core/apply/journal';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
@@ -195,11 +195,15 @@ export const replayJournal = (): number => {
     }
   };
   const orphaned = operations.takeHydratedPending(operation => operation.kind === undefined);
-  for (const operation of orphaned) {
-    if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
-      runtime.apply([{ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false }]);
+  if (orphaned.length > 0) {
+    const orphanDestroyOps: JournalOp[] = [];
+    for (const operation of orphaned) {
+      if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
+        orphanDestroyOps.push({ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false });
+      }
+      operations.close(operation.operationId, 'rolledback', { persist: false });
     }
-    operations.close(operation.operationId, 'rolledback');
+    runtime.apply(orphanDestroyOps, { extraEntries: () => operations.persistEntries() });
   }
   const candidates = new Map<string, Set<string>>();
   const noteCandidate = (model: string, id: unknown): void => {

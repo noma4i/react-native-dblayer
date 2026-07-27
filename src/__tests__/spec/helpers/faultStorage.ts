@@ -53,3 +53,67 @@ export function createFaultStorage(): {
     setCalls: () => batches.map(batch => batch.map(entry => ({ ...entry })))
   };
 }
+
+type FaultStorage = ReturnType<typeof createFaultStorage>;
+
+/** Arms `storage` so the write batch AFTER the next `settleCount` successful batches fails once. */
+export const failAfterSettledBatches = (storage: FaultStorage, settleCount: number): void => {
+  const set = storage.plane.set;
+  let seen = 0;
+  storage.plane.set = entries => {
+    seen += 1;
+    set(entries);
+    if (seen === settleCount) storage.failNextSet(1);
+  };
+};
+
+/**
+ * Attempts `attempt()` with a fault armed for the operation's own last write; disarms any unused fault
+ * before the caller inspects durable state. Returns whether the fault actually fired.
+ */
+export const attemptWithLastWriteFaulted = (storage: FaultStorage, settleCount: number, attempt: () => void): boolean => {
+  failAfterSettledBatches(storage, settleCount);
+  let threw = false;
+  try {
+    attempt();
+  } catch (error) {
+    threw = true;
+    expect((error as Error).message).toBe('fault: set failed');
+  }
+  storage.failNextSet(0);
+  return threw;
+};
+
+/** Async counterpart of `attemptWithLastWriteFaulted`, for attempts whose failure surfaces as a rejected promise. */
+export const attemptAsyncWithLastWriteFaulted = async (storage: FaultStorage, settleCount: number, attempt: () => Promise<unknown>): Promise<boolean> => {
+  failAfterSettledBatches(storage, settleCount);
+  let threw = false;
+  try {
+    await attempt();
+  } catch (error) {
+    threw = true;
+    expect((error as Error).message).toBe('fault: set failed');
+  }
+  storage.failNextSet(0);
+  return threw;
+};
+
+/**
+ * Captures the full durable storage content right after the `count`-th write batch settles, without
+ * ever failing a write - for code paths wrapped in their own try/catch, where a thrown fault would be
+ * intercepted by that catch's own rollback instead of leaving the true "killed here" snapshot to inspect.
+ * Returns a reader for whatever was captured (`{}` if fewer than `count` batches ever happened).
+ */
+export const snapshotAfterBatches = (storage: FaultStorage, count: number): (() => Record<string, string | null>) => {
+  const set = storage.plane.set;
+  let seen = 0;
+  let captured: Record<string, string | null> | null = null;
+  storage.plane.set = entries => {
+    seen += 1;
+    set(entries);
+    if (seen === count && captured === null) {
+      captured = Object.fromEntries(storage.plane.keys('').map(key => [key, storage.plane.get(key) ?? null]));
+    }
+  };
+  return () => captured ?? {};
+};

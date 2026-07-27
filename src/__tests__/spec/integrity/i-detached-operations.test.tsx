@@ -5,18 +5,7 @@ import { flushPersistence, getOperationState, replayJournal } from '../../../dsl
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
-import { createFaultStorage } from '../helpers/faultStorage';
-
-/** Arms the fault plane so the storage batch AFTER the next `settleCount` successful batches fails once. */
-const failAfterSettledBatches = (storage: ReturnType<typeof createFaultStorage>, settleCount: number): void => {
-  const set = storage.plane.set;
-  let seen = 0;
-  storage.plane.set = entries => {
-    seen += 1;
-    set(entries);
-    if (seen === settleCount) storage.failNextSet(1);
-  };
-};
+import { attemptWithLastWriteFaulted, createFaultStorage } from '../helpers/faultStorage';
 
 type Row = { id: string; bucket: string; label: string; state: 'pending' | 'failed' | 'complete'; createdAt: string };
 type Input = { bucket: string; label: string };
@@ -283,20 +272,6 @@ describe('detached operations', () => {
 
     expect(run(1)).toEqual(run(200));
   });
-
-  /** Attempts `attempt()` with a fault armed for the operation's own last write; disarms any unused fault before the caller inspects durable state. Returns whether the fault actually fired. */
-  const attemptWithLastWriteFaulted = (storage: ReturnType<typeof createFaultStorage>, settleCount: number, attempt: () => void): boolean => {
-    failAfterSettledBatches(storage, settleCount);
-    let threw = false;
-    try {
-      attempt();
-    } catch (error) {
-      threw = true;
-      expect((error as Error).message).toBe('fault: set failed');
-    }
-    storage.failNextSet(0);
-    return threw;
-  };
 
   it('B1 never persists a replaced row with its operation still pending', () => {
     const storage = createFaultStorage();

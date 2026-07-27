@@ -256,33 +256,44 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     const generationFence = createGenerationFence();
 
     try {
-    if (tracked && methodPatchOptimistic) {
-      const patch = optimistic.selectPatch(input) as Record<string, unknown>;
-      operations.begin({
-        operationId,
-        model: optimistic.model.modelId,
-        tempIds: [],
-        rowIds: [String(optimistic.selectId(input))],
-        intent: 'patch',
-        idempotencyKey: dedupeKey ?? operationId,
-        once: config.once === true,
-        patchedFields: Object.keys(patch),
-        patchedValues: patch,
-        createdAt: Date.now()
-      });
-    }
-
     if (optimistic && isRespondOptimistic(optimistic)) {
       tempId = generateTempId('row');
       insertedTempId = tempId;
       const fabricated = optimistic.respond(input, { tempId, operationId });
       respondInverse = inverseFromRespond(fabricated, { tempId, operationId }, optimistic);
       const optimisticOps = planFromRespond(fabricated, { tempId, operationId }, optimistic, input);
-      if (optimisticOps.length > 0) getApplyRuntime().apply(optimisticOps);
+      const beginFields = {
+        operationId,
+        model: optimistic.model.modelId,
+        tempIds: [tempId],
+        rowIds: [tempId],
+        intent: 'insert' as const,
+        idempotencyKey: dedupeKey ?? operationId,
+        once: config.once === true,
+        createdAt: Date.now()
+      };
+      if (optimisticOps.length > 0) {
+        operations.begin(beginFields, { persist: false });
+        getApplyRuntime().apply(optimisticOps, { extraEntries: () => operations.persistEntries() });
+      } else {
+        operations.begin(beginFields);
+      }
     } else if (optimistic && !isMethodOptimistic(optimistic)) {
+      if (persistedFailedInput && !persistedFailedInput.serializable) noteDataLoss('failed-input-unserializable', optimistic.model.modelId, 1);
       const reuseId = forcedTempId ?? optimistic.existingTempId?.(input) ?? null;
       if (reuseId != null && (forcedTempId != null || optimistic.model.find(reuseId) !== undefined)) {
         tempId = reuseId;
+        operations.begin({
+          operationId,
+          model: optimistic.model.modelId,
+          tempIds: [tempId],
+          rowIds: [tempId],
+          intent: 'insert',
+          idempotencyKey: dedupeKey ?? operationId,
+          once: config.once === true,
+          ...(persistedFailedInput?.serializable ? { failedInput: persistedFailedInput.value } : {}),
+          createdAt: Date.now()
+        });
       } else {
         const newTempId = generateTempId(optimistic.tempIdPrefix ?? 'row');
         tempId = newTempId;
@@ -294,12 +305,38 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         if (placement) {
           ops.push(...getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), newTempId, position));
         }
-        getApplyRuntime().apply(ops);
+        operations.begin({
+          operationId,
+          model: optimistic.model.modelId,
+          tempIds: [newTempId],
+          rowIds: [newTempId],
+          intent: 'insert',
+          idempotencyKey: dedupeKey ?? operationId,
+          once: config.once === true,
+          ...(persistedFailedInput?.serializable ? { failedInput: persistedFailedInput.value } : {}),
+          createdAt: Date.now()
+        }, { persist: false });
+        getApplyRuntime().apply(ops, { extraEntries: () => operations.persistEntries() });
       }
     } else if (optimistic && optimistic.method === 'patch') {
       const id = optimistic.selectId(input);
       previous = optimistic.model.find(id);
-      getInternalModelHandle(optimistic.model).applyPatch(String(id), optimistic.selectPatch(input) as Record<string, unknown>, operationId);
+      const patch = optimistic.selectPatch(input) as Record<string, unknown>;
+      operations.begin({
+        operationId,
+        model: optimistic.model.modelId,
+        tempIds: [],
+        rowIds: [String(id)],
+        intent: 'patch',
+        idempotencyKey: dedupeKey ?? operationId,
+        once: config.once === true,
+        patchedFields: Object.keys(patch),
+        patchedValues: patch,
+        createdAt: Date.now()
+      }, { persist: false });
+      getApplyRuntime().apply([{ kind: 'patch', model: optimistic.model.modelId, id: String(id), patch, operationId }], {
+        extraEntries: () => operations.persistEntries()
+      });
     } else if (optimistic && optimistic.method === 'destroy') {
       if (hasDependentCascade(optimistic.model.modelId)) {
         throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
@@ -307,28 +344,30 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
       const id = optimistic.selectId(input);
       previous = optimistic.model.find(id);
       previousMemberships = getInternalModelHandle(optimistic.model).captureMembership(id);
-      optimistic.model.destroy(id);
-    }
-    if (tracked && !methodPatchOptimistic) {
-      const operationIds = tempId ? [tempId] : optimistic && isMethodOptimistic(optimistic) ? [String(optimistic.selectId(input))] : [];
       operations.begin({
         operationId,
-        model: optimistic?.model.modelId ?? '',
-        tempIds: tempId ? [tempId] : [],
-        rowIds: operationIds,
-        intent: optimistic ? (isMethodOptimistic(optimistic) ? optimistic.method : 'insert') : 'patch',
+        model: optimistic.model.modelId,
+        tempIds: [],
+        rowIds: [String(id)],
+        intent: 'destroy',
         idempotencyKey: dedupeKey ?? operationId,
         once: config.once === true,
-        ...(persistedFailedInput?.serializable ? { failedInput: persistedFailedInput.value } : {}),
-        ...(optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch'
-          ? (() => {
-              const patch = optimistic.selectPatch(input) as Record<string, unknown>;
-              return { patchedFields: Object.keys(patch), patchedValues: patch };
-            })()
-          : {}),
+        createdAt: Date.now()
+      }, { persist: false });
+      getApplyRuntime().apply([{ kind: 'destroy', model: optimistic.model.modelId, ids: [String(id)] }], {
+        extraEntries: () => operations.persistEntries()
+      });
+    } else if (tracked) {
+      operations.begin({
+        operationId,
+        model: '',
+        tempIds: [],
+        rowIds: [],
+        intent: 'patch',
+        idempotencyKey: dedupeKey ?? operationId,
+        once: config.once === true,
         createdAt: Date.now()
       });
-      if (persistedFailedInput && !persistedFailedInput.serializable) noteDataLoss('failed-input-unserializable', optimistic!.model.modelId, 1);
     }
     context = { tempId, operationId };
     config.onMutate?.(input, context);
@@ -354,18 +393,27 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     const commitOps = methodPatchOptimistic
       ? ops.map(op => (op.kind === 'upsert' && op.model === optimistic.model.modelId ? { ...op, operationId } : op))
       : ops;
-    if (commitOps.length > 0) getApplyRuntime().apply(commitOps);
-    if (tracked) operations.close(operationId, 'committed');
+    if (tracked) {
+      if (commitOps.length > 0) {
+        operations.close(operationId, 'committed', { persist: false });
+        getApplyRuntime().apply(commitOps, { extraEntries: () => operations.persistEntries() });
+      } else {
+        operations.close(operationId, 'committed');
+      }
+    } else if (commitOps.length > 0) {
+      getApplyRuntime().apply(commitOps);
+    }
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
+      const rollbackOps: JournalOp[] = [];
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
-        if (respondInverse.length > 0) getApplyRuntime().apply(respondInverse);
+        if (respondInverse.length > 0) rollbackOps.push(...respondInverse);
       } else if (optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic)) {
         if (optimistic.failure === 'rollback') {
-          if (insertedTempId) getApplyRuntime().apply([{ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false }]);
+          if (insertedTempId) rollbackOps.push({ kind: 'destroy', model: optimistic.model.modelId, ids: [insertedTempId], tombstone: false });
         } else if (tempId) {
           const patch = optimistic.onFailurePatch?.(input);
-          if (patch) optimistic.model.update(tempId, patch as Record<string, unknown>);
+          if (patch) rollbackOps.push({ kind: 'patch', model: optimistic.model.modelId, id: tempId, patch: patch as Record<string, unknown> });
         }
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
@@ -373,10 +421,10 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
         const patchValues = optimistic.selectPatch(input) as Record<string, unknown>;
         const current = optimistic.model.find(optimistic.selectId(input)) as Record<string, unknown> | undefined;
         const rowId = String(optimistic.selectId(input));
-        const operations = getOperationState();
+        const operationsRead = getOperationState();
         const restore: Record<string, unknown> = {};
         for (const key of Object.keys(patchValues)) {
-          const other = operations.latestPendingValue(optimistic.model.modelId, rowId, key, operationId);
+          const other = operationsRead.latestPendingValue(optimistic.model.modelId, rowId, key, operationId);
           if (other.found) {
             restore[key] = other.value;
             continue;
@@ -384,16 +432,20 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
           if (current && !Object.is(current[key], patchValues[key])) continue;
           restore[key] = key in previousRecord ? previousRecord[key] : undefined;
         }
-        if (Object.keys(restore).length > 0) getInternalModelHandle(optimistic.model).applyPatch(String(optimistic.selectId(input)), restore, operationId);
+        if (Object.keys(restore).length > 0) rollbackOps.push({ kind: 'patch', model: optimistic.model.modelId, id: rowId, patch: restore, operationId });
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
-        getApplyRuntime().apply(getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships));
+        rollbackOps.push(...getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships));
       }
-      if (tracked)
-        operations.close(
-          operationId,
-          optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback'
-        );
+      if (tracked) {
+        const status = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback';
+        if (rollbackOps.length > 0) {
+          operations.close(operationId, status, { persist: false });
+          getApplyRuntime().apply(rollbackOps, { extraEntries: () => operations.persistEntries() });
+        } else {
+          operations.close(operationId, status);
+        }
+      }
       const reported = error instanceof Error ? error : new Error(String(error));
       try {
         getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
