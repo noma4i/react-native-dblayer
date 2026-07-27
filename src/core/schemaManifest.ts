@@ -1,7 +1,7 @@
 import { getDbRuntimeConfig, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
 import { resetRuntime } from './reset';
 import { noteManifestReset } from './diagnostics';
-import { stableSerialize } from './serialize';
+import { compareCodepoints, stableSerialize } from './serialize';
 
 export const DB_FORMAT_VERSION = 2;
 
@@ -17,7 +17,7 @@ export const registerSchemaDeclaration = (declaration: SchemaDeclaration): void 
   declarations.set(declaration.id, declaration);
 };
 
-export const computeSchemaFingerprint = (): string => stableSerialize([...declarations.values()].sort((left, right) => left.id.localeCompare(right.id)));
+export const computeSchemaFingerprint = (): string => stableSerialize([...declarations.values()].sort((left, right) => compareCodepoints(left.id, right.id)));
 
 const manifestKey = (prefix: string): string => `${prefix}manifest`;
 

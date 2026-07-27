@@ -60,7 +60,14 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
-  { spec: path.resolve(specRoot, 'consumer/c-row-waiters.test.ts'), source: path.resolve(specRoot, '../../dsl/configure.ts') }
+  { spec: path.resolve(specRoot, 'consumer/c-row-waiters.test.ts'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-schema-fingerprint-order.test.ts'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-schema-fingerprint-order.test.ts'), source: path.resolve(specRoot, '../../core/serialize.ts') },
+  { spec: path.resolve(specRoot, 'utils/u02-resolve-stale-temp-rows.test.ts'), source: path.resolve(specRoot, '../../utils/runtimePrimitives.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../core/planes/storagePlane.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../utils/mmkvStorage.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../../__mocks__/mmkvMockFactory.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Persistence and reconciliation
+
+- Fix `computeSchemaFingerprint` sorting declaration ids by locale-dependent order (`localeCompare`) instead of codepoint order - reuse the canonical `compareCodepoints` comparator so the persistence-compatibility fingerprint is stable across locales and environments.
+- Reject an unparseable (non-`Date`-parseable) `updatedAt` string the same way as a nullish one in `isIncomingNewer`: an incoming value that fails to parse can never prove novelty (rejected), and an existing value that fails to parse can never block a parseable incoming write (accepted). Previously both cases silently fell through to a `NaN` comparison that always resolved to `false`.
+- Fix `resolveStaleTempRows` treating a temp row with an unparseable `createdAt` as permanently protected from cleanup; it is now treated as maximally stale and resolved immediately instead of leaking forever.
+
+### Testing infrastructure
+
+- Bind the jest `react-native-mmkv` fake to the real package's `MMKV` instance type (`ReturnType<typeof createMMKV>`) instead of a hand-written mirror, so a future API rename (the class of defect behind the 8.0.0-beta.4 boot crash) fails `tsc` instead of silently crashing on device. Add a storage contract suite exercising the real `mmkvStorage` -> `mmkvStoragePlane` -> manifest boot path chain against the typed fake.
+
+### Environment
+
+- Bump the devDependency versions of `react` to `19.2.3`, `react-native` to `0.86.0`, and `react-test-renderer` to match, aligning the dev/test environment with the consumer app.
+
 ## 8.0.0-beta.4 - 2026-07-27
 
 - Fix a startup crash on react-native-mmkv v4: the storage adapter called a non-existent `allKeys()` (v4 API is `getAllKeys()`), killing the JS runtime before app registration on the first manifest boot (endless splash in release builds). Adapter types now derive from the real `react-native-mmkv` package instead of a hand-written mirror, so any future API drift fails typecheck.
