@@ -13,12 +13,13 @@ import { type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
-import { registerRelationHost, type MembershipDelta, type RelationDecl } from '../core/relations';
+import { registerRelationHost, type RelationDecl } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
 import { createModelScopeKeys } from './modelScopeKeys';
 import { createModelCriteria } from './modelCriteria';
 import { createModelContext } from './modelContext';
+import { createModelMembership } from './modelMembership';
 import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
@@ -117,27 +118,13 @@ export const defineModel = <
   const { keyForScope, scopeValueFromRow } = createModelScopeKeys(config, scopeByFieldMap);
   const { matches: matchesCriteria } = createModelCriteria<Stored>(config.fields);
 
-  const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.has(scopeKey, id);
-
-  /** Declarative membership: an event row joins/leaves its `by` scopes inside the SAME plan. */
-  const membershipForUpsert = (before: Stored | undefined, after: Record<string, unknown>): MembershipDelta[] => {
-    const id = String(after.id);
-    const deltas: MembershipDelta[] = [];
-    for (const [scopeName, spec] of membershipScopes) {
-      const beforeValue = before && matchesMemberPredicate<Stored>(spec, before) ? scopeValueFromRow(spec.by, before) : null;
-      const afterValue = matchesMemberPredicate<Stored>(spec, after as Stored) ? scopeValueFromRow(spec.by, after) : null;
-      const beforeKey = beforeValue ? keyForScope(scopeName, beforeValue) : null;
-      const afterKey = afterValue ? keyForScope(scopeName, afterValue) : null;
-      if (beforeKey && beforeKey !== afterKey && isScopeMember(beforeKey, id)) deltas.push({ scopeKey: beforeKey, detach: [id] });
-      if (afterKey && !isScopeMember(afterKey, id)) deltas.push({ scopeKey: afterKey, append: [id] });
-    }
-    return deltas;
-  };
-
-  const detachForDestroy = (id: string): MembershipDelta[] =>
-    planes()
-      .scopeIndex.keysOf(id)
-      .map(scopeKey => ({ scopeKey, detach: [id] }));
+  const { membershipForUpsert, detachForDestroy } = createModelMembership<Stored>({
+    membershipScopes,
+    keyForScope,
+    scopeValueFromRow,
+    isScopeMember: (scopeKey, id) => planes().scopeIndex.has(scopeKey, id),
+    scopeKeysOf: id => planes().scopeIndex.keysOf(id)
+  });
 
   registerRelationHost(config.id, {
     relations: resolvedRelations,
