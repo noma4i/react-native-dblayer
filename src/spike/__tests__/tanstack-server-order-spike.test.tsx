@@ -32,6 +32,8 @@ type TanStackMeasurement = {
   logicalSyncCommits: number;
   entitySyncWrites: number;
   membershipSyncWrites: number;
+  resultChangedKeys: number;
+  intermediateResultHasAppendedRow: boolean;
   readerNotifications: number;
   selectCalls: number;
   orderKeyCalls: number;
@@ -84,13 +86,14 @@ class SyncAppendTransaction {
 
   constructor(private readonly entityFeed: SyncFeed<MessageRow>, private readonly membershipFeed: SyncFeed<MembershipRow>) {}
 
-  append(entity: MessageRow, membership: MembershipRow): void {
+  append(entity: MessageRow, membership: MembershipRow, afterMembershipCommit: () => void): void {
     this.entityFeed.begin();
     this.membershipFeed.begin();
     this.entityFeed.write(entity);
     this.membershipFeed.write(membership);
-    this.entityFeed.commit();
     this.membershipFeed.commit();
+    afterMembershipCommit();
+    this.entityFeed.commit();
     this.commits += 1;
   }
 }
@@ -198,12 +201,21 @@ const measureTanStack = async (size: number): Promise<TanStackMeasurement> => {
   const previousRows = reader.result();
   selectCalls = 0;
   orderKeyCalls = 0;
+  const resultChangedKeys = new Set<string | number>();
+  let intermediateResultHasAppendedRow = true;
+  const resultSubscription = scopedMessages.subscribeChanges(changes => {
+    for (const change of changes) resultChangedKeys.add(change.key);
+  }, { includeInitialState: false });
   const append = new SyncAppendTransaction(entityFeed, membershipFeed);
   append.append(
     { id: `message-${size}`, threadId: 'thread-1', body: `body-${size}` },
-    { scopeKey: 'thread-1', entityKey: `message-${size}`, order: size }
+    { scopeKey: 'thread-1', entityKey: `message-${size}`, order: size },
+    () => {
+      intermediateResultHasAppendedRow = Array.from(scopedMessages.values()).some(row => row.id === `message-${size}`);
+    }
   );
   await settle();
+  resultSubscription.unsubscribe();
 
   const nextRows = reader.result();
   expect(nextRows.map(row => row.id)).toEqual(Array.from({ length: size + 1 }, (_, index) => `message-${index}`));
@@ -212,6 +224,8 @@ const measureTanStack = async (size: number): Promise<TanStackMeasurement> => {
     logicalSyncCommits: append.commits,
     entitySyncWrites: entityFeed.writes,
     membershipSyncWrites: membershipFeed.writes,
+    resultChangedKeys: resultChangedKeys.size,
+    intermediateResultHasAppendedRow,
     readerNotifications: reader.renders() - rendersBeforeAppend,
     selectCalls,
     orderKeyCalls,
@@ -241,6 +255,8 @@ describe('TanStack server-order scope spike', () => {
       expect(tanstack.logicalSyncCommits).toBe(1);
       expect(tanstack.entitySyncWrites).toBe(1);
       expect(tanstack.membershipSyncWrites).toBe(1);
+      expect(tanstack.resultChangedKeys).toBe(2);
+      expect(tanstack.intermediateResultHasAppendedRow).toBe(false);
       expect(tanstack.readerNotifications).toBe(1);
       expect(tanstack.selectCalls).toBe(0);
       expect(tanstack.orderKeyCalls).toBe(0);
