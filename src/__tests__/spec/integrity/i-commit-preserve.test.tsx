@@ -1,5 +1,5 @@
 import { act } from 'react-test-renderer';
-import { configureDb, defineModel, defineShape, f, mergeOptimisticMedia } from '../../../index';
+import { configureDb, defineModel, defineShape, f } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -25,7 +25,7 @@ type MessageRow = {
 type SendResult = { send: { message: MessageRow } };
 
 describe('optimistic commit preserve semantics', () => {
-  it('keeps client-only values while server media and body win with merger dimension fallback', async () => {
+  it('keeps client-only values while server media and body win on replacement', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>() => ({
         data: {
@@ -54,7 +54,7 @@ describe('optimistic commit preserve semantics', () => {
       id: 'CommitPreserveMessages',
       name: 'CommitPreserveMessages',
       fields: { body: f.str(), media: f.object(mediaShape), localPreviewUrl: f.str().nullable() },
-      write: { groups: [{ fields: ['media'] as const, policy: { merge: (current, incoming) => mergeOptimisticMedia(current, incoming, { dimensionKeys: ['width', 'height'] }) } }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
+      write: { groups: [{ fields: ['media'] as const, policy: { media: { dimensionKeys: ['width', 'height'], sourceKeys: ['fileUrl', 'thumbUrl', 'coverUrl'], transcodeGuard: { statusField: 'transcodeStatus' } } } }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
     });
     const send = messages.mutation<SendResult, void, MessageRow, MessageRow>('send', {
       document,
@@ -87,9 +87,9 @@ describe('optimistic commit preserve semantics', () => {
     const committed = messages.find('message-1')!;
     expect(committed.media.fileUrl).toBe('https://cdn/full.jpg');
     expect(committed.media.blurHash).toBe('LKO2?U%2');
-    expect(committed.media.width).toBe(320);
-    expect(committed.media.height).toBe(240);
-    expect(committed.localPreviewUrl).toBe('file:///spool/1.jpg');
+    expect(committed.media.width).toBeNull();
+    expect(committed.media.height).toBeNull();
+    expect(committed.localPreviewUrl).toBeNull();
     expect(committed.body).toBe('server body');
   });
 });

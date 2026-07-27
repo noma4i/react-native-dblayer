@@ -57,9 +57,7 @@ const MessageModel = defineModel({
   maintenance: {
     maxRowsPerScope: [{ scopeField: 'chatId', limit: 500, compare: (a, b) => Number(b.createdAt) - Number(a.createdAt) }]
   },
-  write: {
-    accept: (existing, incoming, ctx) => ctx.origin === 'replace' || isIncomingNewer(existing.updatedAt, incoming.updatedAt)
-  },
+  write: { groups: [{ fields: ['localEcho'], policy: 'continuity' }] },
   statics: model => ({
     forChat: (chatId: string) => model.where({ chatId })
   })
@@ -81,8 +79,7 @@ const MessageModel = defineModel({
 | `scopes`                | `Record<string, ScopeSpec>`                    | Named `ScopeSpec` definitions built with `scope(...)`. Each entry becomes a `model.scopes.<name>` handle.                                                                                                                               |
 | `gc`                    | `'exempt'`                                     | Keeps this model's rows out of garbage-collection sweeps even when unreferenced by any scope. See [runtime.md](./runtime.md#garbage-collection).                                                                                        |
 | `maintenance`           | `{ maxRowsPerScope?, dropIdleScopesAfterMs? }` | Boot-time/in-session maintenance declarations. See [runtime.md](./runtime.md#maintenance).                                                                                                                                              |
-| `write.accept` | `(existing, incoming, ctx) => boolean` | Existing-row acceptance gate. Return `false` to retain the current row and drop the incoming write. It receives `snapshot`, `event`, `replace`, or `patch` origin, except replace bypasses acceptance so its identity transition always completes. |
-| `write.groups` | `{ fields, policy }[]` | Per-field policies for accepted existing-row writes. Fields outside groups use incoming server values, including explicit null. A field may appear in only one group. |
+| `write.groups` | `{ fields, policy }[]` | Closed per-field policies. Fields outside groups use incoming server values, including explicit null. A field may appear in only one group. |
 | `statics`               | `(model: ModelCore) => TExt`                   | Build extra static members merged onto the returned model. Receives the base model so statics can call back into `get`/`patch`/`use`/etc. Throws at `defineModel` time if a returned key collides with a base model key.                |
 
 `normalize`/`build` read every configured field from raw input on every write; invalid rows
@@ -91,16 +88,17 @@ thrown into the apply pipeline - a single bad row in a batch never fails the res
 
 ## Write policy
 
-`write` controls acceptance and field protection for every existing-row entity write: query rows and
-extracts, ingest, sync, relation touches, mutation commits, replace, and sparse `patch`. New rows
-bypass write rules. `accept` can reject a whole write except replace. Groups run only after acceptance:
-`'server'` is the explicit incoming-wins default, `'continuity'` keeps current for nullish incoming
-values but accepts `''`, `{ monotonic }` retains all group fields when a changed present field fails,
-and `{ merge }` resolves each present field while an `undefined` result keeps current. Sparse patches
-only expose their present keys to groups.
+`write` controls field protection for every existing-row entity write: query rows and extracts,
+ingest, sync, relation touches, mutation commits, replace, and sparse `patch`. New rows bypass write
+rules. `'server'` is the explicit incoming-wins default, `'continuity'` keeps current for nullish
+incoming values but accepts `''`, `{ monotonic: { newerBy } }`, `{ monotonic: { tuple } }`, and
+`{ monotonic: { nonEmpty: true } }` retain group fields on a rejected update, `{ media }` preserves
+declared media dimensions, sources, and transcode progress, and `{ snapshot: true }` shallow-folds
+objects. Monotonic policies run for snapshot/event by default; media also covers patch; replace is
+always server-authoritative.
 
 ```ts
-import { defineModel, f, isIncomingNewer } from '@noma4i/react-native-dblayer';
+import { defineModel, f } from '@noma4i/react-native-dblayer';
 
 const ChatModel = defineModel({
   id: 'chats',
@@ -116,7 +114,7 @@ const ChatModel = defineModel({
     groups: [
       {
         fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'],
-        policy: { monotonic: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) }
+        policy: { monotonic: { newerBy: 'updatedAt' } }
       }
     ]
   }

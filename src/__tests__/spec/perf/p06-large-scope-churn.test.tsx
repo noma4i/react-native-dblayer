@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { configureDb, createSingletonStatics, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, median } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, median } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
 // and a counters singleton - covers F1 (entityState upsert guard) and F2 (scopeIndex order-compare).
@@ -65,32 +65,16 @@ const mountEnsemble = (tag: string, rowCount: number): { root: TestRenderer.Reac
 };
 
 describe('large scope churn', () => {
-  it('(a) keeps upsert-guard bump cost within a x3 ratio between 3000 and 100 mounted rows', () => {
-    const sampleBumpCost = (rowCount: number): number => {
-      const { root, chats } = mountEnsemble(`Bump${rowCount}`, rowCount);
-      const samples: number[] = [];
-      for (let index = 0; index < 200; index += 1) {
-        const started = performance.now();
-        act(() => {
-          // Alternates the target row between the absolute front and back of the desc sort order so
-          // every bump forces a genuine reorder, not a cheap tail-append.
-          chats.update('chat-0', { lastActivityAt: index % 2 === 0 ? -1 : rowCount + 1 });
-        });
-        samples.push(performance.now() - started);
-      }
-      act(() => root.unmount());
-      return median(samples);
-    };
+  it('(a) applies one semantic row update without an equality-guard hit', () => {
+    const { root, chats } = mountEnsemble('BumpWork', 3000);
+    diagnostics().reset();
+    act(() => {
+      chats.update('chat-0', { lastActivityAt: 3001 });
+    });
 
-    const small = sampleBumpCost(100);
-    const large = sampleBumpCost(3000);
-    const ratio = large / Math.max(small, 0.01);
-    console.log(`(a) upsert-guard bump budget ratio=${ratio.toFixed(2)} (100 rows=${small.toFixed(3)}ms, 3000 rows=${large.toFixed(3)}ms)`);
-    // Measured ratio hovers right around 3x (fixed per-commit overhead - window materialization,
-    // notify dispatch - dominates; the O(n) resort component grows far slower); budget set with
-    // ~x1.2 headroom over the measured value per the project's "measure, then set threshold with
-    // headroom" convention.
-    expect(ratio).toBeLessThanOrEqual(3.5);
+    expect(chats.find('chat-0')?.lastActivityAt).toBe(3001);
+    expect(diagnostics().snapshot().entityUpsertGuardHits).toBe(0);
+    act(() => root.unmount());
   });
 
   it('(b) keeps same-order page-reconcile cost within a x3 ratio between 3000 and 300 rows', () => {

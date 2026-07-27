@@ -157,7 +157,6 @@ see [reading.md](./reading.md).
 | `reconcileOptimisticRows`     | value | [runtime.md](./runtime.md#reconcileoptimisticrowsmodel-nodes-options)           |
 | `patchWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |
-| `mergeOptimisticMedia`        | value | [runtime.md](./runtime.md#mergeoptimisticmediaoptimistic-server)                |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md#createthrottledsingleflightfn-options) |
 | `createSingleFlight`          | value | [runtime.md](./runtime.md#createsingleflightfn-options)          |
 | `createKeyedArrayPatcher`     | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |
@@ -166,7 +165,6 @@ see [reading.md](./reading.md).
 | `createSingletonStatics`      | value | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
 | `generateTempId`              | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `isTempId`                    | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-| `isIncomingNewer`             | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `stringifyNullish`            | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `pickDefined`                 | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `pickPresent`                 | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |

@@ -43,6 +43,9 @@ import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenanc
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
+import type { WriteOrigin, WritePolicy } from '../core/writePolicies';
+
+export type { MediaPolicySpec, MonotonicSpec, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
 
 const issuedScopeSequenceByKey = new Map<string, number>();
 
@@ -363,12 +366,6 @@ type QueryScopeReads<TStored extends { id: string }, TQueryScopes> = {
   [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
 };
 
-/** Origin of a write reaching entity apply. */
-export type WriteOrigin = 'snapshot' | 'event' | 'replace' | 'patch';
-
-/** Context supplied to model-owned write declarations. `operationId` identifies an internal optimistic method-patch or rollback, which bypasses pending-field overlay; foreign writes omit it and preserve pending owned fields. */
-export type WriteCtx = { origin: WriteOrigin; operationId?: string };
-
 export type ModelConfig<
   TFields extends ModelFieldSpecs,
   TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>,
@@ -439,26 +436,12 @@ export type ModelConfig<
   };
   write?: {
     /**
-     * Row-level acceptance when a row with the same id already exists. Return `false` to keep the
-     * existing row and drop the incoming write entirely. NOT invoked for origin `'replace'` - identity
-     * transition must always happen; field protection on replace comes from groups.
-     */
-    accept?: (existing: InferStoredFields<TFields>, incoming: InferStoredFields<TFields>, ctx: WriteCtx) => boolean;
-    /**
-     * Field-group write policies applied to an accepted existing-row write while computing the effective
-     * row. A field belongs to at most one group; fields outside groups use the `'server'` default, where
-     * incoming values win including explicit null. `'continuity'` keeps current for incoming nullish
-     * values but accepts empty strings. `{ monotonic }` keeps every group field when any changed present
-     * field fails its predicate. `{ merge }` resolves each present field and keeps current when it returns
-     * undefined. Patch groups see only keys present in the sparse patch. New rows bypass write rules.
+     * Closed field-group policies. Fields outside groups use server values. `monotonic` defaults to
+     * snapshot/event only, media guards additionally cover patch, and neither can guard replace.
      */
     groups?: Array<{
       fields: readonly (keyof InferStoredFields<TFields> & string)[];
-      policy:
-        | 'server'
-        | 'continuity'
-        | { monotonic: (incoming: Readonly<Partial<InferStoredFields<TFields>>>, current: Readonly<InferStoredFields<TFields>>, ctx: WriteCtx) => boolean }
-        | { merge: (current: unknown, incoming: unknown, ctx: WriteCtx) => unknown };
+      policy: WritePolicy;
     }>;
   };
   /**
@@ -652,14 +635,23 @@ export const defineModel = <
         continue;
       }
       if (origin === undefined && planes().entityState.isTombstoned(incoming.id)) continue;
-      const current = planes().entityState.read(incoming.id);
-      let gatedIncoming: Stored = config.write ? incoming : { ...current, ...incoming };
-      const result = planes().entityState.upsert(gatedIncoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot', operationId } });
+      const result = planes().entityState.upsert(incoming, { mergeBase: origin === 'replace' ? mergeBase : undefined, ctx: { origin: origin ?? 'snapshot', operationId } });
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
     if (changes.length > 0) revision += 1;
     return changes;
+  };
+
+  const patchRow = (id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null => {
+    const key = String(id);
+    const current = planes().entityState.read(key);
+    if (!current) return null;
+    const row = { ...patch, id: key } as Stored;
+    const result = planes().entityState.upsert(row, { ctx: { origin: 'patch', operationId } });
+    if (result.changedFields !== null && result.changedFields.length === 0) return null;
+    revision += 1;
+    return { id: key, changedFields: result.changedFields };
   };
 
   const applyTarget = {
@@ -701,16 +693,7 @@ export const defineModel = <
     },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     upsert: writeRows,
-    patch: (id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null => {
-      const key = String(id);
-      const current = planes().entityState.read(key);
-      if (!current) return null;
-      const row = (config.write ? { ...patch, id: key } : { ...current, ...patch, id: key }) as Stored;
-      const result = planes().entityState.upsert(row, { ctx: { origin: 'patch', operationId } });
-      if (result.changedFields !== null && result.changedFields.length === 0) return null;
-      revision += 1;
-      return { id: key, changedFields: result.changedFields };
-    },
+    patch: patchRow,
     destroy: (ids: string[], tombstone?: boolean): string[] => {
       const removed: string[] = [];
       for (const id of ids) {
@@ -724,12 +707,8 @@ export const defineModel = <
     },
     counter: (id: string, field: string, delta: number, next?: number): boolean => {
       const key = String(id);
-      const row = planes().entityState.read(key);
-      if (!row) return false;
-      const result = planes().entityState.upsert({ ...row, id: key, [field]: next ?? ((row[field] as number | undefined) ?? 0) + delta });
-      if (result.changedFields !== null && result.changedFields.length === 0) return false;
-      revision += 1;
-      return true;
+      const current = planes().entityState.read(key)?.[field];
+      return patchRow(key, { [field]: next ?? ((current as number | undefined) ?? 0) + delta }) !== null;
     },
     counterValue: (id: string, field: string): number | null => {
       const value = planes().entityState.read(id)?.[field];

@@ -29,7 +29,7 @@ describe('effects derive from accepted rows', () => {
           counterCache: { field: 'unreadCount' }
         })
       }),
-      write: { accept: existing => existing === undefined }
+      write: { groups: [{ fields: ['chatId', 'body', 'createdAt'] as const, policy: { monotonic: { tuple: ['createdAt'] } } }] }
     });
     chats.insertMany([
       { id: 'chat-1', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 },
@@ -37,7 +37,7 @@ describe('effects derive from accepted rows', () => {
     ]);
     messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
 
-    messages.ingest({ received: { handler: () => ({ upsert: { id: 'message-1', chatId: 'chat-2', body: 'rejected', createdAt: 2 } }) } }).apply('received', {});
+    messages.ingest({ received: { handler: () => ({ upsert: { id: 'message-1', chatId: 'chat-2', body: 'rejected', createdAt: 0 } }) } }).apply('received', {});
 
     expect(messages.find('message-1')).toEqual({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1', lastActivityAt: 1 });
@@ -59,8 +59,8 @@ describe('effects derive from accepted rows', () => {
       extract: ({ data }) => [{ into: chats, rows: [data.pin] }]
     });
     const target = getApplyTarget(chats.modelId);
-    const originalUpsert = target.upsert;
     let failApply = false;
+    const originalUpsert = target.upsert;
     target.upsert = (...args) => {
       if (failApply) throw new Error('injected apply failure');
       return originalUpsert(...args);

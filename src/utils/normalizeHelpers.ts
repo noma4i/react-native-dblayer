@@ -27,6 +27,14 @@ export const readNullableString = (value: unknown): string | null | undefined =>
 /** Read a number or return undefined for missing or malformed values. */
 export const readNumber = (value: unknown): number | undefined => (typeof value === 'number' ? value : undefined);
 
+/** Read a finite number or non-empty numeric string; malformed, blank, and non-finite values return undefined. */
+export const readNumericLike = (value: unknown): number | undefined => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
 /** Read a number while preserving explicit null writes. */
 export const readNullableNumber = (value: unknown): number | null | undefined => {
   if (value === null) return null;

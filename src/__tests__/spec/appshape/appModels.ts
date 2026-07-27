@@ -6,8 +6,6 @@ import {
   f,
   hasMany,
   hasOne,
-  isIncomingNewer,
-  mergeOptimisticMedia,
   projectShape,
   references,
   scope
@@ -134,14 +132,6 @@ const mediaBucketOf = (message: any): string | null => {
   return null;
 };
 
-const transcodeDoesNotRegress = (incoming: any, current: any): boolean => {
-  const incomingMedia = incoming.media;
-  const currentMedia = current.media;
-  if (!incomingMedia || !currentMedia) return true;
-  if (currentMedia.transcodeStatus === 'completed' && incomingMedia.transcodeStatus !== 'completed') return false;
-  return Number(incomingMedia.transcodeProgress ?? 0) >= Number(currentMedia.transcodeProgress ?? 0);
-};
-
 export const createAppModels = (tag: string) => {
   const users = defineModel({
     id: `AppShapeUser:${tag}`,
@@ -181,7 +171,7 @@ export const createAppModels = (tag: string) => {
       hasPhoto: f.bool(), hasGoodPhoto: f.bool(), hasInitialMoment: f.bool(), stickyLocation: f.bool(), status: f.enum(['active', 'blocked'] as const), preferenceNotifyConnection: f.bool(),
       preferenceNotifyMessage: f.bool(), preferenceVibration: f.bool(), receivedGifts: f.raw<any>()
     },
-    write: { groups: [{ fields: ['locationCity', 'locationName', 'locationLat', 'locationLng', 'stickyLocation'] as const, policy: { monotonic: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) } }] },
+    write: { groups: [{ fields: ['locationCity', 'locationName', 'locationLat', 'locationLng', 'stickyLocation'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] },
     statics: model => ({ currentId: () => model.all()[0]?.id })
   });
 
@@ -235,7 +225,13 @@ export const createAppModels = (tag: string) => {
       chat: belongsTo<any, any>(chats, { foreignKey: 'chatId', touch: (message, chat) => compareMessagesNewest(message, { ...chat, id: chat.lastMessageId ?? '', createdAt: chat.lastMessageAt ?? '', sequenceNumber: chat.lastSequenceNumber }) < 0 ? { lastActivityAt: message.createdAt, lastMessageAt: message.createdAt, lastMessageId: message.id, lastSequenceNumber: message.sequenceNumber } : null, counterCache: { field: 'unreadCount', filter: message => message.userId !== currentUser.currentId() } }),
       replyTarget: references<any, any>(messages, { ids: message => message.replyToId })
     }),
-    write: { groups: [{ fields: ['media'] as const, policy: { merge: (current, incoming) => mergeOptimisticMedia(current, incoming, { dimensionKeys: ['width', 'height'] }) } }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }, { fields: ['clientId'] as const, policy: { monotonic: (incoming, current) => incoming.clientId != null || current.clientId == null } }] },
+    write: {
+      groups: [
+        { fields: ['media'] as const, policy: { media: { dimensionKeys: ['width', 'height'], sourceKeys: ['fileUrl', 'thumbUrl', 'coverUrl', 'gifUrl'], transcodeGuard: { statusField: 'transcodeStatus', progressField: 'transcodeProgress' } } } },
+        { fields: ['localPreviewUrl'] as const, policy: 'continuity' },
+        { fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }
+      ]
+    },
     maintenance: { maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }
   });
 
@@ -253,7 +249,7 @@ export const createAppModels = (tag: string) => {
       pinnedOrSystem: scope<any>({ by: { statusFilter: 'status' }, member: (chat: any) => chat.pinned === true || chat.kind === 'system', sort: { field: 'lastActivityAt', dir: 'desc' } })
     },
     relations: () => ({ messages: hasMany<any, any>(messages, { foreignKey: 'chatId', dependent: 'destroy' }), lastMessage: hasOne<any, any>(messages, { foreignKey: 'chatId', comparator: compareMessagesNewest }), memberUsers: references<any, any>(users, { ids: chat => chat.userIds ?? [] }) }),
-    write: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, policy: { monotonic: (incoming, current) => compareMessagesNewest({ id: incoming.lastMessageId ?? '', createdAt: incoming.lastMessageAt ?? '', sequenceNumber: incoming.lastSequenceNumber }, { id: current.lastMessageId ?? '', createdAt: current.lastMessageAt ?? '', sequenceNumber: current.lastSequenceNumber }) < 0 } }, { fields: ['pinned', 'muted'] as const, policy: { monotonic: (incoming, current) => isIncomingNewer(current.updatedAt, incoming.updatedAt) } }] }
+    write: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, policy: { monotonic: { tuple: ['lastSequenceNumber', 'lastMessageAt', 'lastMessageId'] } } }, { fields: ['pinned', 'muted'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
   });
 
   const moments = defineModel({
@@ -264,7 +260,7 @@ export const createAppModels = (tag: string) => {
     },
     scopes: { byUser: scope<any>({ by: { userId: 'userId' }, sort: { field: 'createdAt', dir: 'desc' } }), byUuid: scope<any>({ by: { uuid: 'uuid' } }), feed: scope<any>({ sort: 'server-order' }), myMoments: scope<any>({ sort: { comparator: compareCompassMoments, orderFields: ['unreadSimilarMomentsCount', 'createdAt'] } }), compassRelations: scope<any>({ sort: 'server-order' }) },
     relations: () => ({ user: belongsTo<any, any>(users, { foreignKey: 'userId' }) }),
-    write: { groups: [{ fields: ['media'] as const, policy: { monotonic: transcodeDoesNotRegress } }] }
+    write: { groups: [{ fields: ['media'] as const, policy: { media: { dimensionKeys: [], sourceKeys: [], transcodeGuard: { statusField: 'transcodeStatus', progressField: 'transcodeProgress' } } } }] }
   });
 
   return { users, chats, messages, moments, currentUser, counters, vibes, walletTransactions };

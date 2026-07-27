@@ -42,7 +42,7 @@ const createFixture = (suffix: string, guarded = false) => {
           groups: [
             {
               fields: ['pinned', 'muted', 'rev'] as const,
-              policy: { monotonic: (incoming, current) => (incoming.rev ?? current.rev) >= current.rev }
+              policy: { monotonic: { tuple: ['rev'] } }
             }
           ]
         }

@@ -1,7 +1,7 @@
 import { stableSerialize } from '../serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
 import { CorruptionError } from '../recovery';
-import type { WriteCtx } from '../../dsl/defineModel';
+import type { WriteCtx } from '../writePolicies';
 import type { StoragePlane } from './storagePlane';
 
 type Tombstone = { at: number };
@@ -61,7 +61,7 @@ export const createEntityState = <T extends { id: string }>(options: {
   now: () => number;
   storage: StoragePlane;
   prefix: () => string;
-  applyWriteGate?: (previous: T, incoming: T, ctx: WriteCtx) => T | null;
+  applyWriteGate: (previous: T, incoming: T, ctx: WriteCtx) => T;
   ownedFields?: (rowId: string, excludeOperationId?: string) => ReadonlySet<string>;
 }): EntityState<T> => {
   const { modelId, now, storage, prefix, applyWriteGate, ownedFields } = options;
@@ -125,11 +125,7 @@ export const createEntityState = <T extends { id: string }>(options: {
           row = overlaid ?? row;
         }
       }
-      if (mergePrevious && applyWriteGate) {
-        const gated = applyWriteGate(mergePrevious, row, ctx);
-        if (gated === null) return { changedFields: [] };
-        row = gated;
-      }
+      if (mergePrevious) row = applyWriteGate(mergePrevious, row, ctx);
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { changedFields };
       if (previous && changedFields !== null && changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))) {

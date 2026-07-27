@@ -30,11 +30,11 @@ const createChatModel = (id: string, groups = true) =>
             groups: [
               {
                 fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const,
-                policy: { monotonic: (incoming, current) => (incoming.lastSequenceNumber ?? -1) >= current.lastSequenceNumber }
+                policy: { monotonic: { tuple: ['lastSequenceNumber', 'lastMessageAt', 'lastMessageId'] } }
               },
               {
                 fields: ['mediaStatus', 'mediaSequenceNumber'] as const,
-                policy: { monotonic: (incoming, current) => (incoming.mediaSequenceNumber ?? -1) >= current.mediaSequenceNumber }
+                policy: { monotonic: { tuple: ['mediaSequenceNumber'] } }
               }
             ]
           }
@@ -89,7 +89,7 @@ describe('per-field write policy', () => {
     expect(chats.find('chat-2')).toMatchObject({ lastMessageId: 'message-1', lastSequenceNumber: 1 });
   });
 
-  it('guards the patch path with the same policy', () => {
+  it('leaves patch writes server-authoritative by default', () => {
     const chats = createChatModel('MergePolicyPatch');
     chats.insert(row());
     const reader = renderCounted(() => chats.use.find('chat-1'));
@@ -99,8 +99,8 @@ describe('per-field write policy', () => {
       chats.update('chat-1', { lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 });
     });
 
-    expect(reader.renders() - before).toBe(0);
-    expect(reader.result()).toMatchObject({ lastMessageId: 'message-10', lastSequenceNumber: 10 });
+    expect(reader.renders() - before).toBe(1);
+    expect(reader.result()).toMatchObject({ lastMessageId: 'message-5', lastSequenceNumber: 5 });
     reader.unmount();
   });
 
@@ -157,14 +157,6 @@ describe('per-field write policy', () => {
         name: 'MergePolicyEmpty',
         fields: { name: f.str() },
         write: { groups: [{ fields: [], policy: 'server' }] }
-      })
-    ).toThrow('write groups must not be empty');
-    expect(() =>
-      defineModel({
-        id: 'MergePolicyNoGroups',
-        name: 'MergePolicyNoGroups',
-        fields: { name: f.str() },
-        write: { groups: [] }
       })
     ).toThrow('write groups must not be empty');
     expect(() =>

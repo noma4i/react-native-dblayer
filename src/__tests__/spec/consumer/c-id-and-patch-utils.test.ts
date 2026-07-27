@@ -1,4 +1,4 @@
-import { generateTempId, isIncomingNewer, isTempId, pickDefined, pickPresent, stringifyNullish } from '../../../index';
+import { generateTempId, isTempId, pickDefined, pickPresent, stringifyNullish } from '../../../index';
 
 // Named behavioral contracts for pure utility exports that previously had no direct tests.
 
@@ -45,33 +45,5 @@ describe('pickDefined / pickPresent', () => {
 
   it('pickPresent drops both null and undefined', () => {
     expect(pickPresent(source, ['a', 'b', 'c', 'd'])).toEqual({ a: 1, d: 'keep' });
-  });
-});
-
-describe('isIncomingNewer', () => {
-  it('applies the documented nullish policy', () => {
-    expect(isIncomingNewer(null, null)).toBe(true);
-    expect(isIncomingNewer('2026-01-01T00:00:00Z', null)).toBe(false);
-    expect(isIncomingNewer(null, '2026-01-01T00:00:00Z')).toBe(true);
-  });
-
-  it('accepts equal timestamps and rejects strictly older incoming ones', () => {
-    expect(isIncomingNewer('2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')).toBe(true);
-    expect(isIncomingNewer('2026-01-01T00:00:01Z', '2026-01-01T00:00:00Z')).toBe(false);
-    expect(isIncomingNewer('2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z')).toBe(true);
-  });
-
-  it('compares across timezone offsets by instant, not by string', () => {
-    expect(isIncomingNewer('2026-01-01T00:00:00+11:00', '2025-12-31T13:00:00Z')).toBe(true);
-    expect(isIncomingNewer('2025-12-31T13:00:00Z', '2026-01-01T00:00:00+11:00')).toBe(true);
-  });
-
-  it('applies the same missing-value policy to an unparseable timestamp as to a nullish one', () => {
-    // An incoming value that fails to parse can never prove novelty - rejected, same as a nullish incoming.
-    expect(isIncomingNewer('2026-01-01T00:00:00Z', 'not-a-date')).toBe(false);
-    // An existing value that fails to parse can never block a parseable incoming write - accepted, same as a nullish existing.
-    expect(isIncomingNewer('not-a-date', '2026-01-01T00:00:00Z')).toBe(true);
-    // Both unparseable is symmetric with both nullish: accepted.
-    expect(isIncomingNewer('not-a-date', 'also-not-a-date')).toBe(true);
   });
 });

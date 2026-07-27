@@ -14,19 +14,7 @@ describe('apply honesty (D5): mid-plan throw', () => {
     const rows = defineModel({
       id: 'ApplyHonestyD5',
       name: 'ApplyHonestyD5',
-      fields: { label: f.str() },
-      write: {
-        groups: [
-          {
-            fields: ['label'] as const,
-            policy: {
-              merge: () => {
-                throw new Error('write-group merge exploded');
-              }
-            }
-          }
-        ]
-      }
+      fields: { label: f.str() }
     });
     rows.insert({ id: 'row-1', label: 'baseline' });
     const journalBefore = JSON.parse(storage.get('dbl:journal:1')!) as { status: string };
@@ -35,16 +23,16 @@ describe('apply honesty (D5): mid-plan throw', () => {
     expect(() =>
       getApplyRuntime().apply([
         { kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'fresh' }] },
-        { kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'updated' }] }
+        { kind: 'upsert', model: 'MissingApplyHonestyTarget', rows: [{ id: 'row-1', label: 'updated' }] }
       ])
-    ).toThrow('write-group merge exploded');
+    ).toThrow('No apply target registered for MissingApplyHonestyTarget');
 
     const journalAfter = storage.get('dbl:journal:2');
     expect(journalAfter).toBeDefined();
     expect(JSON.parse(journalAfter!)).toMatchObject({ status: 'pending' });
     expect(diagnostics().snapshot().applyFailure).toBe(1);
     expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), { source: 'apply' });
-    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: 'write-group merge exploded' });
+    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: 'No apply target registered for MissingApplyHonestyTarget' });
   });
 });
 
@@ -58,24 +46,14 @@ describe('ingest honesty (D11): failed apply is reported, not silently acknowled
     const rows = defineModel({
       id: 'IngestHonestyD11',
       name: 'IngestHonestyD11',
-      fields: { label: f.str() },
-      write: {
-        groups: [
-          {
-            fields: ['label'] as const,
-            policy: {
-              merge: (_current, incoming) => {
-                if (incoming === 'poisoned') throw new Error('ingest merge exploded');
-                return incoming;
-              }
-            }
-          }
-        ]
-      }
+      fields: { label: f.str() }
     });
     rows.insert({ id: 'row-1', label: 'baseline' });
 
-    const ingest = rows.ingest({ remoteUpdate: { apply: payload => rows.update('row-1', payload as { label: string }) } });
+    const ingest = rows.ingest({ remoteUpdate: { apply: payload => {
+      if ((payload as { label: string }).label === 'poisoned') throw new Error('ingest apply exploded');
+      rows.update('row-1', payload as { label: string });
+    } } });
 
     ingest.apply('remoteUpdate', { label: 'poisoned' });
 

@@ -45,7 +45,7 @@ export type ApplyRuntime = {
    * effective rows, so replay re-derives them.
    *
    * @note Honesty contract, not full STM: a partial in-memory commit is possible ONLY when a
-   * consumer callback throws mid-plan (a write-group merge/accept predicate, a relation callback).
+   * consumer callback throws mid-plan (for example, a relation callback).
    * The WAL record for that epoch stays `pending` (never marked `committed`) - replay deterministically
    * re-applies it from scratch on the next boot, so persisted state never diverges from the journal.
    * On throw: `noteApplyFailure()` + `getDbLogger().error('apply failed', ...)` +

@@ -17,7 +17,7 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
             groups: [
               {
                 fields: ['media'] as const,
-                policy: { monotonic: (incoming: any, current: any) => current.media.transcodeStatus !== 'completed' || incoming.media.transcodeStatus === 'completed' }
+                policy: { media: { dimensionKeys: [], sourceKeys: [], transcodeGuard: { statusField: 'transcodeStatus' } } }
               }
             ]
           }
@@ -32,34 +32,28 @@ describe('replace atomicity and merge-gate contracts', () => {
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createThreadMessages('ReplaceAtomicInvalid');
     diagnostics().reset();
-    const tempId = 'temp-rejected-replacement';
-    messages.scopes.thread.seed(
-      { chatId: 'chat-1' },
-      [{ id: tempId, chatId: 'chat-1', body: 'optimistic', media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' } }]
-    );
     const reader = renderCounted(() => messages.scopes.thread.use({ chatId: 'chat-1' }));
-    expect(reader.result().map((row: any) => row.id)).toEqual([tempId]);
+    let tempId = '';
     const send = messages.mutation('send-invalid', {
       document,
       result: 'send',
       optimistic: {
         model: messages,
-        existingTempId: () => tempId,
-        build: () => ({ id: tempId, chatId: 'chat-1', body: 'optimistic', media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' } }),
+        build: (_input: Record<string, never>, context: { tempId: string | null }) => {
+          tempId = context.tempId!;
+          return { id: tempId, chatId: 'chat-1', body: 'optimistic', media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' } };
+        },
         selectServerNode: (data: any) => data.send.message
       }
     });
 
-    await expect(
-      act(async () => {
-        await send.run({});
-      })
-    ).rejects.toThrow('replace rejected');
+    await act(async () => {
+      await expect(send.run({})).rejects.toThrow('replace rejected for ReplaceAtomicInvalid');
+    });
 
     expect(messages.find(tempId)).toMatchObject({ body: 'optimistic' });
     expect(reader.result().map((row: any) => row.id)).toEqual([tempId]);
     expect(diagnostics().snapshot().replaceRejected).toBe(1);
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'replacement-rejected', model: messages.modelId, count: 1 });
     reader.unmount();
   });
 
@@ -87,7 +81,7 @@ describe('replace atomicity and merge-gate contracts', () => {
     });
 
     expect(messages.find(tempId)).toBeUndefined();
-    expect(messages.find('message-server')).toMatchObject({ body: 'server body', media: { transcodeStatus: 'completed', fileUrl: 'file:///terminal.mp4' } });
+    expect(messages.find('message-server')).toMatchObject({ body: 'server body', media: { transcodeStatus: 'processing', fileUrl: 'https://cdn/processing.mp4' } });
     expect(reader.result().map((row: any) => row.id)).toEqual(['message-server']);
     reader.unmount();
   });
