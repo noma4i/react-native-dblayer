@@ -2,7 +2,55 @@ import { createEngineAdapter, syncEngineBatch } from '../../../engine/EngineAdap
 
 const byCodepoint = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
 
+const measureMembershipWritesForInsert = (size: number): { delta: number; rebuild: number } => {
+  const model = `EngineWriteScale${size}`;
+  const scopeKey = 'scope-1';
+  const ids = Array.from({ length: size }, (_, index) => `row-${index}`);
+  const rows = new Map(ids.map(id => [id, { id }]));
+  const scopeIds = [...ids];
+  const writes: Array<{ kind: 'delta' | 'rebuild'; count: number }> = [];
+  const adapter = createEngineAdapter({
+    onMembershipWrite: (kind, changes) => writes.push({ kind, count: changes.length })
+  });
+  const target = {
+    readRow: (id: string) => rows.get(id),
+    readAllRows: () => [...rows.values()],
+    readScopeOrder: (key: string) => key === scopeKey ? scopeIds : [],
+    readAllScopeKeys: () => [scopeKey],
+    scopeOrderAffected: () => false
+  };
+  const resolveAdapter = () => adapter;
+
+  syncEngineBatch({
+    rows: ids.map(id => ({ model, id, fields: null })),
+    scopes: [{ model, scopeKey }],
+    scopeChanges: [{ model, scopeKey, rebuild: true }]
+  }, () => target, true, resolveAdapter);
+  writes.length = 0;
+
+  const insertedId = 'row-inserted';
+  rows.set(insertedId, { id: insertedId });
+  scopeIds.splice(Math.floor(size / 2), 0, insertedId);
+  syncEngineBatch({
+    rows: [{ model, id: insertedId, fields: null }],
+    scopes: [{ model, scopeKey }],
+    scopeChanges: [{ model, scopeKey, appendIds: [insertedId], appendEntries: [{ id: insertedId, order: size / 2 }] }]
+  }, () => target, false, resolveAdapter);
+
+  return writes.reduce((totals, write) => ({
+    ...totals,
+    [write.kind]: totals[write.kind] + write.count
+  }), { delta: 0, rebuild: 0 });
+};
+
 describe('EngineAdapter', () => {
+  it('writes one delta membership for an inserted row at 300 and 3000 rows', () => {
+    expect({ small: measureMembershipWritesForInsert(300), large: measureMembershipWritesForInsert(3000) }).toEqual({
+      small: { delta: 1, rebuild: 0 },
+      large: { delta: 1, rebuild: 0 }
+    });
+  });
+
   it('writes only the inserted membership when a delta lands in the middle', () => {
     const writes: Array<{ kind: 'delta' | 'rebuild'; changes: ReadonlyArray<{ type: string; value?: { entityId: string } }> }> = [];
     const adapter = createEngineAdapter({

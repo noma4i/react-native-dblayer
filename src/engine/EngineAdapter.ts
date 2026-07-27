@@ -239,9 +239,6 @@ export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) =
     const adapter = resolveAdapter(model);
     const detailedScopes = batch.scopeChanges ?? [];
     const scopeByKey = new Map<string, EngineScopeChange>();
-    if (batch.rows.some(change => change.model === model)) {
-      for (const scopeKey of target.readAllScopeKeys()) scopeByKey.set(scopeKey, detailedScopes.find(detail => detail.model === model && detail.scopeKey === scopeKey) ?? { model, scopeKey });
-    }
     for (const scope of batch.scopes.filter(change => change.model === model)) {
       scopeByKey.set(scope.scopeKey, detailedScopes.find(detail => detail.model === model && detail.scopeKey === scope.scopeKey) ?? scope);
     }
@@ -249,15 +246,14 @@ export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) =
     const scopeChanges = [...scopeByKey.values()];
     adapter.apply({ entities: upsertRows(model, batch, target), memberships: [] });
     for (const change of scopeChanges) {
-      const rowChanges = batch.rows.filter(row => row.model === model && ((change.ids ?? []).includes(row.id) || change.ids === undefined));
-      const mustReplace = change.rebuild === true || rowChanges.length > 0;
-      if (mustReplace || (change.appendIds?.length ?? 0) !== (change.appendEntries?.length ?? 0)) {
+      if (change.rebuild === true) {
         adapter.replaceScope(change.scopeKey, target.readScopeOrder(change.scopeKey));
         continue;
       }
+      const appendIds = [...new Set([...(change.appendIds ?? []), ...(change.appendEntries ?? []).map(entry => entry.id)])];
       const memberships: MembershipChange[] = [
         ...(change.detachIds ?? []).map(entityId => ({ type: 'delete' as const, scopeKey: change.scopeKey, entityId })),
-        ...(change.appendEntries ?? []).map(entry => ({ type: 'upsert' as const, value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: '' } }))
+        ...appendIds.map(entityId => ({ type: 'upsert' as const, value: { scopeKey: change.scopeKey, entityId, orderKey: '' } }))
       ];
       if (memberships.length > 0) adapter.apply({ entities: [], memberships, scopeOrder: target.readScopeOrder(change.scopeKey) });
     }
