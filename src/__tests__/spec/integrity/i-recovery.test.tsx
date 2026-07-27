@@ -83,6 +83,44 @@ describe('persistence recovery protocol', () => {
     expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
   });
 
+  it('migrates a legacy scope key without dropping the model cache', async () => {
+    const storage = configureRecoveryRuntime([
+      { key: 'dbl:row:RecoveryScopeMigration:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
+    ]);
+    const model = defineRecoveryModel('RecoveryScopeMigration');
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(model.find('live')).toMatchObject({ label: 'A' });
+    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
+    expect(storage.get('dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}')).toBeUndefined();
+    expect(storage.keys('dbl:scope:RecoveryScopeMigration:')).toHaveLength(1);
+    expect(diagnostics().snapshot()).toMatchObject({ corruptionModelResets: 0, scopeKeyMigrations: 1 });
+  });
+
+  it('does not repeat a completed scope-key migration', async () => {
+    const storage = configureRecoveryRuntime([
+      { key: 'dbl:row:RecoveryScopeMigrationOnce:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScopeMigrationOnce:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
+    ]);
+    defineRecoveryModel('RecoveryScopeMigrationOnce');
+    writeMatchingManifest();
+    diagnostics().reset();
+    await bootDb();
+
+    configureDb({ storage, transport: createMockTransport() });
+    const model = defineRecoveryModel('RecoveryScopeMigrationOnce');
+    writeMatchingManifest();
+    diagnostics().reset();
+    await bootDb();
+
+    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
+    expect(diagnostics().snapshot()).toMatchObject({ corruptionModelResets: 0, scopeKeyMigrations: 0 });
+  });
+
   it('safe-drops corrupt checkpointed WAL records', async () => {
     diagnostics().reset();
     const storage = configureRecoveryRuntime([

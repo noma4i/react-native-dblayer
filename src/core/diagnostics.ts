@@ -20,6 +20,7 @@ type DiagnosticsState = {
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;
+  scopeKeyMigrations: number;
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;
@@ -46,6 +47,7 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
+  scopeKeyMigrations: 0,
   manifestResets: 0,
   replaceRejected: 0,
   applyFailure: 0,
@@ -104,6 +106,11 @@ export const noteCorruptionJournalLoss = (): void => {
 
 export const noteCorruptionLedgerReset = (): void => {
   diagnostics.corruptionLedgerResets += 1;
+};
+
+/** Count persisted scope keys rewritten from the colon-delimited format. */
+export const noteScopeKeyMigration = (count: number): void => {
+  diagnostics.scopeKeyMigrations += count;
 };
 
 export const noteManifestReset = (): void => {
