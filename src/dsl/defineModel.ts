@@ -9,8 +9,7 @@ import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngin
 import type { JournalOp } from '../core/apply/journal';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { registerGcHost } from '../core/gc';
-import { createEntityState, type EntityState } from '../core/planes/entityState';
-import { createScopeIndex, type ScopeIndex, type ScopeIndexValue } from '../core/planes/scopeIndex';
+import { type ScopeIndexValue } from '../core/planes/scopeIndex';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { getDbLogger } from '../core/logger';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
@@ -19,11 +18,12 @@ import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
 import { createModelScopeKeys } from './modelScopeKeys';
 import { createModelCriteria } from './modelCriteria';
+import { createModelContext } from './modelContext';
 import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
-import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix } from './configure';
+import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState } from './configure';
 import { defineFetch } from './defineFetch';
 import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
 import { defineDetachedOperation, type DetachedOperationConfig, type DetachedOperationHandle } from './defineDetachedOperation';
@@ -102,31 +102,14 @@ export const defineModel = <
 } & TExt => {
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
   type Input = InferBuildInput<TFields>;
-  type ModelPlanes = { entityState: EntityState<Stored>; scopeIndex: ScopeIndex };
   const { applyWriteGate, isPlanRow, normalize } = createModelNormalization(config);
-  let planesRef: ModelPlanes | null = null;
-  let revision = 0;
-  /** Planes are created and hydrated on first touch, so models can be defined before configureDb. */
-  const planes = (): ModelPlanes => {
-    if (planesRef) return planesRef;
-    const runtime = getDbRuntimeConfig();
-    const entityState = createEntityState<Stored>({
-      modelId: config.id,
-      now: () => Date.now(),
-      storage: runtime.storage,
-      prefix: getStoragePrefix,
-      applyWriteGate,
-      ownedFields: (rowId, operationId) => getOperationState().ownedFields(config.id, rowId, operationId)
-    });
-    const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
-    entityState.hydrate();
-    scopeIndex.hydrate();
-    planesRef = { entityState, scopeIndex };
-    return planesRef;
-  };
-
-  let relationCache: Record<string, RelationDecl> | null = null;
-  const resolvedRelations = (): Record<string, RelationDecl> => (relationCache ??= config.relations?.() ?? {});
+  const context = createModelContext<Stored>({
+    modelId: config.id,
+    scopeNames: Object.keys(config.scopes ?? {}),
+    relations: () => config.relations?.() ?? {},
+    applyWriteGate
+  });
+  const { planes, resolvedRelations } = context;
 
   const membershipScopes = Object.entries(config.scopes ?? {}).flatMap(([name, spec]) => (spec.by ? [[name, { ...spec, by: spec.by }] as const] : []));
 
@@ -186,7 +169,7 @@ export const defineModel = <
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: incoming.id, changedFields: result.changedFields });
     }
-    if (changes.length > 0) revision += 1;
+    if (changes.length > 0) context.bumpRevision();
     return changes;
   };
 
@@ -197,7 +180,7 @@ export const defineModel = <
     const row = { ...patch, id: key } as Stored;
     const result = planes().entityState.upsert(row, { ctx: { origin: 'patch', operationId } });
     if (result.changedFields !== null && result.changedFields.length === 0) return null;
-    revision += 1;
+    context.bumpRevision();
     return { id: key, changedFields: result.changedFields };
   };
 
@@ -249,7 +232,7 @@ export const defineModel = <
         planes().entityState.destroy(key, { tombstone });
         if (existed) removed.push(key);
       }
-      if (removed.length > 0) revision += 1;
+      if (removed.length > 0) context.bumpRevision();
       return removed;
     },
     counter: (id: string, field: string, delta: number, next?: number): boolean => {
@@ -987,7 +970,7 @@ export const defineModel = <
     captureMembership,
     planRestore,
     relations: resolvedRelations,
-    revision: () => revision,
+    revision: context.revision,
     dropTempRowsAfterMs: () => config.maintenance?.dropTempRowsAfterMs
   });
   registerIngestModel(config.name, model);
@@ -1022,10 +1005,7 @@ export const defineModel = <
   }
 
   registerReset(() => {
-    revision += 1;
-    planesRef?.entityState.reset();
-    planesRef?.scopeIndex.reset();
-    planesRef = null;
+    context.reset();
     // The apply target stays registered: a model must keep working after the kill-switch.
   });
 
