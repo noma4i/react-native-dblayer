@@ -27,22 +27,25 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
 };
 
 describe('replace atomicity and merge-gate contracts', () => {
-  it('surfaces an invalid commit replacement instead of ignoring it', async () => {
+  it('keeps the optimistic row and its scope membership when a commit replacement node is invalid', async () => {
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: { chatId: 'chat-1', body: 'invalid server node' } } } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createThreadMessages('ReplaceAtomicInvalid');
     diagnostics().reset();
+    const tempId = 'temp-rejected-replacement';
+    messages.scopes.thread.seed(
+      { chatId: 'chat-1' },
+      [{ id: tempId, chatId: 'chat-1', body: 'optimistic', media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' } }]
+    );
     const reader = renderCounted(() => messages.scopes.thread.use({ chatId: 'chat-1' }));
-    let tempId = '';
+    expect(reader.result().map((row: any) => row.id)).toEqual([tempId]);
     const send = messages.mutation('send-invalid', {
       document,
       result: 'send',
       optimistic: {
         model: messages,
-        build: (_input: Record<string, never>, context: { tempId: string | null }) => {
-          tempId = context.tempId!;
-          return { id: tempId, chatId: 'chat-1', body: 'optimistic', media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' } };
-        },
+        existingTempId: () => tempId,
+        build: () => ({ id: tempId, chatId: 'chat-1', body: 'optimistic', media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' } }),
         selectServerNode: (data: any) => data.send.message
       }
     });
@@ -54,7 +57,7 @@ describe('replace atomicity and merge-gate contracts', () => {
     ).rejects.toThrow('replace rejected');
 
     expect(messages.find(tempId)).toMatchObject({ body: 'optimistic' });
-    expect(reader.result()).toEqual([]);
+    expect(reader.result().map((row: any) => row.id)).toEqual([tempId]);
     expect(diagnostics().snapshot().replaceRejected).toBe(1);
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'replacement-rejected', model: messages.modelId, count: 1 });
     reader.unmount();
