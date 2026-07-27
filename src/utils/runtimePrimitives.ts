@@ -1,6 +1,4 @@
 import { isTempId } from './generateTempId';
-import type { AnyDbShape, InferShapeStored } from '../schema/infer';
-import { readShapeOrThrow } from '../schema/shape';
 import { getRuntimeGeneration } from '../dsl/configure';
 import { isRecord } from './normalizeHelpers';
 import { registerReset } from '../core/reset';
@@ -32,19 +30,6 @@ type SnapshotModel<TStored extends RowId> = {
 type DestroyManyModel<TStored extends RowId> = {
   all(): TStored[];
   destroyMany(ids: string[]): void;
-};
-
-type PatchModel<TStored extends RowId> = {
-  find(id: string): TStored | undefined;
-  update(id: string, updates: Partial<TStored>): boolean | void;
-};
-
-type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
-  insert(item: TStored): void;
-  use: {
-    find(id: string | null | undefined): TStored | undefined;
-    field<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
-  };
 };
 
 export type ReconcileScopeFields<TStored extends RowId, TNode extends RowId> =
@@ -369,143 +354,5 @@ export const createSingleFlight = <TArgs extends unknown[], TResult>(
     });
     inFlight = flight;
     return flight;
-  };
-};
-
-export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (
-  id: string,
-  ...args: TArgs
-) => boolean;
-
-export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
-  /** Replace an existing sub-row with the same key, then append the normalized sub-row. */
-  upsert(rows: TSub[] | null | undefined, input: unknown): TSub[];
-  /** Remove sub-rows whose key equals the supplied value. */
-  remove(rows: TSub[] | null | undefined, keyValue: string): TSub[];
-};
-
-export type IdArrayPatcher = {
-  /** Replace an existing id, then insert it at the requested edge. */
-  upsert(ids: string[] | null | undefined, id: string, position: 'prepend' | 'append'): string[];
-  /** Remove an id. */
-  remove(ids: string[] | null | undefined, id: string): string[];
-};
-
-/**
- * Create immutable patch helpers for an array of keyed shape sub-rows.
- *
- * @param shape Shape used to normalize incoming sub-rows.
- * @param options Key field used for replacement/removal.
- * @returns Immutable `upsert` and `remove` helpers for nullable arrays.
- */
-export const createKeyedArrayPatcher = <TShape extends AnyDbShape, TSub extends InferShapeStored<TShape>, TKey extends Extract<keyof TSub, string>>(
-  shape: TShape,
-  options: { key: TKey }
-): KeyedArrayPatcher<TSub, TKey> => ({
-  upsert(rows, input) {
-    const next = readShapeOrThrow(shape, input, 'Keyed array patch item') as TSub;
-    const keyValue = next[options.key];
-    return [...(rows ?? []).filter(entry => entry[options.key] !== keyValue), next];
-  },
-  remove(rows, keyValue) {
-    return (rows ?? []).filter(entry => entry[options.key] !== keyValue);
-  }
-});
-
-/**
- * Create immutable patch helpers for id arrays.
- *
- * @returns Immutable `upsert` and `remove` helpers that tolerate nullish arrays.
- */
-export const createIdArrayPatcher = (): IdArrayPatcher => ({
-  upsert(ids, id, position) {
-    const next = (ids ?? []).filter(existingId => existingId !== id);
-    return position === 'prepend' ? [id, ...next] : [...next, id];
-  },
-  remove(ids, id) {
-    return (ids ?? []).filter(existingId => existingId !== id);
-  }
-});
-
-/**
- * Create a shallow patcher for a nullable nested object field.
- *
- * @param model Model used to read and patch the containing row.
- * @param field Nested object field to patch.
- * @param transform Function that derives a partial nested update from the current nested value and caller args.
- * @returns A patcher that returns `false` when the row or nested object is missing.
- */
-export const createNestedObjectPatcher = <
-  TRow extends RowId,
-  TField extends Extract<keyof TRow, string>,
-  TArgs extends unknown[],
-  TNested extends object = NonNullable<TRow[TField]> & object
->(
-  model: PatchModel<TRow>,
-  field: TField,
-  transform: (current: TNested, ...args: TArgs) => Partial<TNested>
-): NestedObjectPatcher<TRow, TField, TArgs> => {
-  return (id, ...args) => {
-    const row = model.find(id);
-    const current = row?.[field];
-    if (!isRecord(current)) return false;
-
-    model.update(id, {
-      [field]: {
-        ...(current as TNested),
-        ...transform(current as TNested, ...args)
-      }
-    } as Partial<TRow>);
-    return true;
-  };
-};
-
-type NumericField<TStored> = {
-  [K in keyof TStored]: TStored[K] extends number ? K : never;
-}[keyof TStored];
-
-const removeSingletonId = <TStored extends RowId>(input: Partial<TStored>): Omit<Partial<TStored>, 'id'> => {
-  const { id: _ignoredId, ...updates } = input;
-  return updates;
-};
-
-/**
- * Build statics for a single-row model with defaults and clamped numeric updates.
- *
- * @param model Model that owns the singleton row.
- * @param recordId Stable singleton row id.
- * @param defaults Default row returned before insertion and used for first upsert.
- * @returns Singleton statics for reading, upserting, and clamped numeric patches.
- */
-export const createSingletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
-  const upsert = (input: Partial<TStored>): void => {
-    const updates = removeSingletonId(input);
-    const existing = model.find(recordId);
-    if (existing) {
-      model.update(recordId, updates as Partial<TStored>);
-      return;
-    }
-
-    model.insert({ ...defaults, ...updates, id: recordId } as TStored);
-  };
-
-  return {
-    recordId,
-    defaults,
-    current: (): TStored | undefined => model.find(recordId),
-    useCurrent: (): TStored => model.use.find(recordId) ?? defaults,
-    /** Reactive read of ONE singleton field with a field-level dependency: consumers re-render only when this field changes, unlike useCurrent which subscribes to the whole row. */
-    useCurrentField: <TField extends keyof TStored & string>(field: TField): TStored[TField] => (model.use.field(recordId, field) ?? defaults[field]) as TStored[TField],
-    upsertCurrent: upsert,
-    updateClamped: <TField extends Extract<NumericField<TStored>, string>>(field: TField, delta: number, min = 0): boolean => {
-      if (delta === 0) return false;
-      const current = model.find(recordId);
-      if (!current) return false;
-
-      const value = current[field];
-      const currentValue = typeof value === 'number' ? value : 0;
-      model.update(recordId, { [field]: Math.max(min, currentValue + delta) } as Partial<TStored>);
-      return true;
-    }
   };
 };
