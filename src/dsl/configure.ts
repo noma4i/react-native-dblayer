@@ -269,7 +269,7 @@ export const replayJournal = (): number => {
       return false;
     }
   };
-  const orphaned = operations.hydratedPending();
+  const orphaned = operations.takeHydratedPending(operation => operation.kind === undefined);
   for (const operation of orphaned) {
     if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
       runtime.apply([{ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false }]);

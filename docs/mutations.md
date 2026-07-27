@@ -9,6 +9,7 @@ model-less counterpart for mutations with no local write of their own.
 ## Contents
 
 - [`Model.mutation(name, config)`](#modelmutationname-config)
+- [`Model.detached(kind, config)`](#modeldetachedkind-config)
 - [Optimistic write variants](#optimistic-write-variants)
 - [Failure handling](#failure-handling)
 - [Dedupe](#dedupe)
@@ -55,6 +56,56 @@ await sendMessage.run(input); // same lifecycle, imperatively
 
 `name` sets the mutation's conventional dedupe key namespace (`<modelId>:<name>:<inputHash>`) -
 see Dedupe below.
+
+## `Model.detached(kind, config)`
+
+`Model.detached` is the second operation lifecycle. Unlike `Model.mutation`, `start(input)` does
+not call transport: it writes a temp row and durable ledger entry together, then a consumer-owned
+executor completes or fails it later. The declaration kind is stable and unique for the current
+runtime generation.
+
+```ts
+const handle = RecordModel.detached('background-record', {
+  build: (input: { groupId: string; title: string }, { tempId }) => ({
+    id: tempId,
+    groupId: input.groupId,
+    title: input.title,
+    state: 'pending',
+    createdAt: new Date().toISOString()
+  }),
+  resume: async ({ operationId, tempId, input }) => {
+    void operationId;
+    void tempId;
+    void input;
+    return 'continue';
+  },
+  failure: 'keep',
+  onFailurePatch: () => ({ state: 'failed' })
+});
+
+const entry = handle.start({ groupId: 'g-1', title: 'draft' });
+// A consumer-owned executor later chooses one terminal result:
+handle.complete(entry.operationId, serverRecord);
+handle.fail(entry.operationId, new Error('executor failed'));
+```
+
+| Method | Contract |
+| --- | --- |
+| `start(input)` | Creates the temp row and persistent operation together, then returns `{ operationId, tempId }`. No network call occurs. |
+| `complete(operationId, serverNode)` | Replaces the temp id with `serverNode` through the normal replacement plan, preserves scope membership, and is idempotent after close. |
+| `fail(operationId, error)` | Applies `failure` (`'keep'` by default or `'rollback'`) and optional `onFailurePatch`, then closes the operation. |
+| `retry(operationId)` | Reopens a failed operation and invokes `resume` with its persisted JSON-round-tripped input. It returns `null` when no serializable input was retained. |
+| `discard(operationId)` | Destroys the temp row and removes its ledger entry. |
+
+`maintenance.dropTempRowsAfterMs` is required on a detached model. While an operation is open,
+its ledger entry protects the temp row from pending-TTL cleanup and garbage collection. A closed
+failed row follows the normal TTL cleanup path.
+
+At `bootDb`, after hydration and journal replay but before GC and TTL maintenance, core invokes
+`resume` once for every open detached operation. Return `'continue'` when its executor remains
+alive; return `'orphaned'` when it cannot continue, and core applies the declaration's failure
+policy. A thrown `resume` is treated as `'orphaned'` and recorded as data loss. Consumers never
+scan or mark orphaned detached rows themselves.
 
 ### `MutationConfig`
 
@@ -109,8 +160,9 @@ optimistic: {
 }
 ```
 
-`mutation.retry(tempId)` reuses that exact temp id and retained input. It returns `null` after an
-app restart because input is intentionally in-memory only. `mutation.discard(tempId)` destroys a
+`mutation.retry(tempId)` reuses that exact temp id and retained JSON-round-tripped input, including
+after an app restart. It returns `null` only when no serializable input was retained.
+`mutation.discard(tempId)` destroys a
 retained failed row and clears its failure state. A server replacement through either mutation
 commit or `Model.replace(tempId, serverRow)` also clears the retained failure state. Use
 `failure: 'rollback'` when the previous insert rollback behavior is required; Patch, Destroy, and

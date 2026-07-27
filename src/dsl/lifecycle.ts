@@ -3,6 +3,7 @@ import { collectGarbage } from '../core/gc';
 import { ensurePersistenceCompatibility } from '../core/schemaManifest';
 import { runBootValidations } from './bootValidations';
 import { flushPersistence, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
+import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
 import { runModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
 
 /**
@@ -27,6 +28,7 @@ export const bootDb = async (): Promise<{ replayed: number; gc: GcReport; mainte
   runBootValidations();
   const compatibility = ensurePersistenceCompatibility();
   const replayed = await replayJournal();
+  await reconcileDetachedOperationsAtBoot();
   const gc = collectGarbage();
   purgeForeignStorageKeys();
   const maintenance = runModelMaintenance();

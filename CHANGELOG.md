@@ -4,6 +4,7 @@
 
 ### Persistence and reconciliation
 
+- Add `Model.detached(kind, config)`: a durable operation lifecycle for immediate temp rows whose consumer-owned executor completes later. Open entries survive restart, core resumes them once after hydration and before GC, and orphaned or throwing executors apply the declaration failure policy with inspectable loss diagnostics.
 - Reject GraphQL responses carrying non-empty `errors` before mutation, query, or fetch data is applied. Transport consumers must now populate optional `DbTransport.errors`, including partial responses with `data`, or the library cannot classify that response as a failure.
 - Persist serializable failed optimistic-insert inputs in the operation ledger so `retry(tempId)` survives runtime restart; report and skip retry for unserializable input. Optimistic insert declarations now require `maintenance.dropTempRowsAfterMs`.
 - Preserve relation counters and dependent children across optimistic identity swaps: the `replace` destroy half is now neutral for relation effects, while ordinary destroy behavior is unchanged.

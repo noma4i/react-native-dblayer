@@ -11,7 +11,7 @@ the [project README](../README.md).
 | 2   | [models.md](./models.md)                   | `defineModel` itself: the `f`/`defineShape` field DSL, writes, scopes (`sort`/`server-order`/`coverage`/`retention`), relations (`touch`/`counterCache`/`dependent`).                                                   |
 | 3   | [reading.md](./reading.md)                 | Every read surface: `use.row`/`field`/`first`/`where`/`byIds`/`count`/`related`, `select`/`renderKeys` projections and their identity guarantees, scope `use`/`useWindow`, `keepPrevious`, `use.pending`, `Model.view`. |
 | 4   | [queries.md](./queries.md)                 | `Model.query` (network reads into a model/scope, pagination, coverage semantics, loading state), `defineFetch` (`document`\|`fetcher`, `remove()`), `Model.fetch`.                                                      |
-| 5   | [mutations.md](./mutations.md)             | `Model.mutation` (optimistic lifecycle, temp-id replace, rollback, dedupe), `defineCommand`, `Model.crud`, `mergeOptimisticSnapshot`, mutation error policy.                                                            |
+| 5   | [mutations.md](./mutations.md)             | `Model.mutation` and `Model.detached` (optimistic or durable lifecycle, temp-id replace, rollback, retry), `defineCommand`, `Model.crud`, `mergeOptimisticSnapshot`, mutation error policy.                             |
 | 6   | [ingest-live.md](./ingest-live.md)         | `Model.ingest`, the subscription runtime (`createDbSubscriptionRuntime`/`defineDbSubscriptionEntry`/`createDbSubscriptionEffects`), `Model.query`'s live colocation, echo semantics.                                    |
 | 7   | [runtime.md](./runtime.md)                 | Maintenance, garbage collection, `resetRuntime`/`registerReset`, the persistence/journal model, `Model.poller`, row waiters, and the small cleanup/patcher/scalar helpers.                                              |
 
@@ -28,6 +28,7 @@ Every network-facing capability is a method on the model it belongs to. There ar
 | ------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | `Model.query(name, config)`    | Network reads into a model/scope.                                                         | [queries.md](./queries.md#modelqueryname-config)        |
 | `Model.mutation(name, config)` | Optimistic network writes.                                                                | [mutations.md](./mutations.md#modelmutationname-config) |
+| `Model.detached(kind, config)` | Durable local operation with a consumer-owned background executor.                        | [mutations.md](./mutations.md#modeldetachedkind-config) |
 | `Model.crud(sections)`         | Conventional list/get/create/update/destroy scaffold over `Model.query`/`Model.mutation`. | [mutations.md](./mutations.md#modelcrudsections)        |
 | `Model.fetch(name, config)`    | Ephemeral, store-free reads scoped to a model.                                            | [queries.md](./queries.md#modelfetchname-config)        |
 | `Model.poller(name, config)`   | Refcounted async status polling.                                                          | [runtime.md](./runtime.md#modelpollername-config)       |
@@ -132,7 +133,7 @@ see [reading.md](./reading.md).
 | `MutateCallbacks`         | type  | [mutations.md](./mutations.md#use-result-shape)          |
 | `ScopePlacement`          | type  | [mutations.md](./mutations.md#optimistic-write-variants) |
 
-`Model.mutation`/`Model.crud` themselves are methods, not separate barrel exports - see
+`Model.mutation`/`Model.detached`/`Model.crud` themselves are methods, not separate barrel exports - see
 [mutations.md](./mutations.md).
 
 ### Ingest and subscriptions
