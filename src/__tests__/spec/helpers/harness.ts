@@ -130,12 +130,12 @@ export type DiagnosticsSnapshot = {
   readEngineRebuilds: number;
   readEngineDeltaRows: number;
   readEngineScanRows: number;
-  mirrorScopePasses: number;
-  mirrorScopeResorts: number;
+  scopeReadPasses: number;
+  scopeReadResorts: number;
   resumeDrains: number;
   resumeRefetches: number;
   totalReadEngineMs: number;
-  totalMirrorMs: number;
+  totalScopeReadMs: number;
   entityUpsertGuardHits: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;

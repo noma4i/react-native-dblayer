@@ -84,7 +84,7 @@ describe('app-shaped speed contracts', () => {
     expect(second.commitFanoutCandidates).toBe(first.commitFanoutCandidates);
     expect(second.commitFanoutNotified).toBe(first.commitFanoutNotified);
     expect(second.readEngineApplies).toBe(first.readEngineApplies);
-    expect(second.mirrorScopePasses).toBe(first.mirrorScopePasses);
+    expect(second.scopeReadPasses).toBe(first.scopeReadPasses);
     expect(first.commits).toBe(3);
   });
 });

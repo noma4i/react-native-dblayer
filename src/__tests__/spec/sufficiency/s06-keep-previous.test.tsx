@@ -143,6 +143,19 @@ describe('keep previous scope handoff', () => {
     fresh.unmount();
   });
 
+  it('clears an active scope reader during resetRuntime', () => {
+    setupSpecRuntime();
+    const moments = createMoments('SpecKeepPreviousActiveReset');
+    insertMoment(moments, 'a-1', 'A');
+    const reader = renderWindow(moments.scopes.feed.useWindow as unknown as KeepWindow<Moment>, 'A');
+
+    act(() => resetRuntime());
+
+    expect(reader.result().rows).toEqual([]);
+    expect(reader.result().isPreviousData).toBe(false);
+    reader.unmount();
+  });
+
   it('drops retention state and subscriptions on unmount', () => {
     setupSpecRuntime();
     const moments = createMoments('SpecKeepPreviousTeardown');

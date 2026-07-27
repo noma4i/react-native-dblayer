@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Internals
+
+- Replace the TanStack DB scope mirror with one internal scope read engine backed directly by scope membership, entity rows, and commit-bus batches. Scope projections, local windows, `keepPrevious`, resolution, and row identity remain unchanged; diagnostics now report `scopeReadPasses` and `scopeReadResorts`.
+
 ### Persistence and reconciliation
 
 - Add `Model.detached(kind, config)`: a durable operation lifecycle for immediate temp rows whose consumer-owned executor completes later. Open entries survive restart, core resumes them once after hydration and before GC, and orphaned or throwing executors apply the declaration failure policy with inspectable loss diagnostics.

@@ -42,8 +42,6 @@ export type ScopeIndex = {
   has(key: string, id: string): boolean;
   /** All scope keys containing the row - the reverse membership index. */
   keysOf(id: string): string[];
-  /** Ephemeral read revision used by reactive scope subscribers; never persisted. */
-  reactiveEpoch(key: string): number;
   orderRevision(key: string): number;
   /** Bump the revisions of scopes that currently contain one of these rows. */
   touchMembers(ids: string[]): string[];
@@ -60,14 +58,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const removed = new Set<string>();
   const memberSets = new Map<string, Set<string>>();
   const keysByRow = new Map<string, Set<string>>();
-  const reactiveEpochs = new Map<string, number>();
   const orderRevisions = new Map<string, number>();
   const accessTimes = new Map<string, number>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
-  const touch = (key: string): void => {
-    reactiveEpochs.set(key, (reactiveEpochs.get(key) ?? 0) + 1);
-  };
 
   const boundaryAddFor = (
     key: string,
@@ -138,7 +132,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.delete(key);
       scopes.set(key, next);
       dirty.add(key);
-      touch(key);
       return next;
     }
     if (!sameEntryOrder(scopes.get(key)?.entries, next.entries)) orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
@@ -146,7 +139,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     indexCommit(key, scopes.get(key), next);
     scopes.set(key, next);
     dirty.add(key);
-    touch(key);
     return next;
   };
 
@@ -256,7 +248,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       dirty.delete(key);
       removed.add(key);
       accessTimes.delete(key);
-      touch(key);
     },
     keys: () => [...scopes.keys()],
     noteAccess: key => {
@@ -265,14 +256,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     lastAccess: key => accessTimes.get(key),
     has: (key, id) => memberSets.get(key)?.has(id) ?? false,
     keysOf: id => [...(keysByRow.get(id) ?? [])],
-    reactiveEpoch: key => reactiveEpochs.get(key) ?? 0,
     orderRevision: key => orderRevisions.get(key) ?? 0,
     touchMembers: ids => {
       const touched = new Set<string>();
       for (const id of ids) {
         for (const key of keysByRow.get(id) ?? []) touched.add(key);
       }
-      for (const key of touched) touch(key);
       return [...touched];
     },
     persistEntries: () => {
@@ -290,7 +279,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
       memberSets.clear();
       keysByRow.clear();
-      reactiveEpochs.clear();
       accessTimes.clear();
       const loaded = new Map<string, { raw: string; value: ScopeIndexValue; canonical: boolean }>();
       const migrated = new Map<string, string>();
@@ -334,7 +322,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       }
       memberSets.clear();
       keysByRow.clear();
-      reactiveEpochs.clear();
       for (const [key, value] of scopes) indexCommit(key, undefined, value);
     },
     reset: () => {
@@ -343,7 +330,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
       memberSets.clear();
       keysByRow.clear();
-      reactiveEpochs.clear();
       accessTimes.clear();
     }
   };

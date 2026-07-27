@@ -12,7 +12,7 @@ const DEFAULT_DEBOUNCE_MS = 1000;
  * just being a brand-new insert - `EntityState.upsert`'s `changedFields` is also `null` for a
  * first-ever write, so `fields === null` alone is ambiguous between "gone" and "just created".
  * Reads the model's current apply-target snapshot; an unregistered model (should not happen for a
- * row that was just in a commit batch, but mirrors the defensive pattern `tanstack/mirror.ts` uses
+ * row that was just in a commit batch, but follows the defensive scope-reader pattern
  * for the same lookup) is treated as not-disappeared.
  */
 const hasDisappeared = (row: RowChange): boolean => {

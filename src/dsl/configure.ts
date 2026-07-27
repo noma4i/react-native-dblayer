@@ -10,8 +10,6 @@ import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState, type OperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
-import { resetCollectionRegistry } from '../core/tanstack/facade';
-import { seedCollections, startCollectionMirror } from '../core/tanstack/mirror';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 
@@ -83,10 +81,7 @@ let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
 let runtimeGeneration = 0;
-let replayCompleted = false;
 const commitBus = createCommitBus();
-let stopCollectionMirror: (() => void) | null = null;
-let collectionRegistryResetRegistered = false;
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
 let queryClientResetRegistered = false;
@@ -109,7 +104,6 @@ const STORAGE_PREFIX = 'dbl:';
 export const configureDb = (options: ConfigureDbOptions): void => {
   runtimeConfig?.queryClient.clear();
   runtimeGeneration += 1;
-  replayCompleted = false;
   const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
   const retryOptions = (policy: DbRetryPolicy | undefined) => ({
     retry: policy?.classify
@@ -150,13 +144,6 @@ export const configureDb = (options: ConfigureDbOptions): void => {
     queryClientResetRegistered = true;
   }
   getApplyRuntime();
-  stopCollectionMirror?.();
-  resetCollectionRegistry();
-  stopCollectionMirror = startCollectionMirror(commitBus);
-  if (!collectionRegistryResetRegistered) {
-    registerReset(resetCollectionRegistry);
-    collectionRegistryResetRegistered = true;
-  }
   stopMaintenanceScheduler?.();
   stopMaintenanceScheduler = defaults.inSessionGc === false ? null : startMaintenanceScheduler(defaults.inSessionGc);
   if (!maintenanceSchedulerResetRegistered) {
@@ -175,9 +162,6 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
 
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
 export const isDbConfigured = (): boolean => runtimeConfig !== null;
-
-/** Internal: reports whether the current runtime completed journal replay. */
-export const hasReplayedJournal = (): boolean => replayCompleted;
 
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
 
@@ -253,12 +237,6 @@ export const replayJournal = (): number => {
   const runtime = getApplyRuntime();
   const storage = getDbRuntimeConfig().storage;
   const rowPrefix = `${getStoragePrefix()}row:`;
-  const models = new Set<string>();
-  for (const key of storage.keys(rowPrefix)) {
-    const model = key.slice(rowPrefix.length).split(':', 1)[0];
-    if (model) models.add(model);
-  }
-  seedCollections([...models]);
   const replayed = runtime.replay();
   const operations = getOperationState();
   const hasApplyTarget = (model: string): boolean => {
@@ -300,7 +278,6 @@ export const replayJournal = (): number => {
     if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]);
   }
   flushPersistence();
-  replayCompleted = true;
   return replayed;
 };
 

@@ -35,12 +35,12 @@ type DiagnosticsState = {
   readEngineRebuilds: number;
   readEngineDeltaRows: number;
   readEngineScanRows: number;
-  mirrorScopePasses: number;
-  mirrorScopeResorts: number;
+  scopeReadPasses: number;
+  scopeReadResorts: number;
   resumeDrains: number;
   resumeRefetches: number;
   totalReadEngineMs: number;
-  totalMirrorMs: number;
+  totalScopeReadMs: number;
   entityUpsertGuardHits: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
@@ -63,12 +63,12 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   readEngineRebuilds: 0,
   readEngineDeltaRows: 0,
   readEngineScanRows: 0,
-  mirrorScopePasses: 0,
-  mirrorScopeResorts: 0,
+  scopeReadPasses: 0,
+  scopeReadResorts: 0,
   resumeDrains: 0,
   resumeRefetches: 0,
   totalReadEngineMs: 0,
-  totalMirrorMs: 0,
+  totalScopeReadMs: 0,
   entityUpsertGuardHits: 0,
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
@@ -109,10 +109,10 @@ export const noteReadEngineScan = (rows: number): void => {
   diagnostics.readEngineScanRows += rows;
 };
 
-export const noteMirrorScopePass = (resorted: boolean, ms: number): void => {
-  diagnostics.mirrorScopePasses += 1;
-  if (resorted) diagnostics.mirrorScopeResorts += 1;
-  diagnostics.totalMirrorMs += ms;
+export const noteScopeReadPass = (resorted: boolean, ms: number): void => {
+  diagnostics.scopeReadPasses += 1;
+  if (resorted) diagnostics.scopeReadResorts += 1;
+  diagnostics.totalScopeReadMs += ms;
 };
 
 export const noteResumeDrain = (refetched: number): void => {

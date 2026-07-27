@@ -35,11 +35,14 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
+      let changed = false;
       const subscription = bus.subscribeIncremental(
-        () => onStoreChange(),
+        () => {
+          if (changed) onStoreChange();
+        },
         deps,
         batch => {
-          engineRef.current?.apply(batch);
+          changed = batch === null && engineRef.current?.generation !== getRuntimeGeneration() ? false : engineRef.current?.apply(batch) === true;
         }
       );
       subscriptionRef.current = subscription;

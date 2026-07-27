@@ -79,7 +79,7 @@ describe('large scope churn', () => {
     const small = measureBumpWork(100);
     const large = measureBumpWork(3000);
 
-    expect(large.mirrorScopeResorts).toBe(small.mirrorScopeResorts);
+    expect(large.scopeReadResorts).toBe(small.scopeReadResorts);
     expect(large.readEngineApplies).toBe(small.readEngineApplies);
     expect(large.readEngineRebuilds).toBe(small.readEngineRebuilds);
     expect(large.readEngineDeltaRows).toBe(small.readEngineDeltaRows);
@@ -112,8 +112,9 @@ describe('large scope churn', () => {
     expect(large.commits).toBe(small.commits);
     expect(large.commitFanoutCandidates).toBe(small.commitFanoutCandidates);
     expect(large.commitFanoutNotified).toBe(small.commitFanoutNotified);
-    expect(large.mirrorScopePasses).toBe(small.mirrorScopePasses);
-    expect(large.mirrorScopeResorts).toBe(small.mirrorScopeResorts);
+    expect(large.scopeReadPasses).toBe(small.scopeReadPasses);
+    expect(large.scopeReadResorts).toBe(small.scopeReadResorts);
+    expect(small.scopeReadResorts).toBe(0);
     expect(small.commits).toBe(1);
   });
 
@@ -131,8 +132,8 @@ describe('large scope churn', () => {
     const last = bumpWork(3001);
     act(() => root.unmount());
 
-    expect(last.mirrorScopePasses).toBe(first.mirrorScopePasses);
-    expect(last.mirrorScopeResorts).toBe(first.mirrorScopeResorts);
+    expect(last.scopeReadPasses).toBe(first.scopeReadPasses);
+    expect(last.scopeReadResorts).toBe(first.scopeReadResorts);
     expect(last.readEngineApplies).toBe(first.readEngineApplies);
     expect(last.readEngineRebuilds).toBe(first.readEngineRebuilds);
     expect(last.readEngineDeltaRows).toBe(first.readEngineDeltaRows);

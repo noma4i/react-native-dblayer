@@ -5,9 +5,7 @@ import { compositeKey } from '../core/serialize';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
-import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
-import type { StoredRowShape } from '../core/tanstack/facade';
-import { seedCollections } from '../core/tanstack/mirror';
+import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
 import type { JournalOp } from '../core/apply/journal';
 import { registerGcHost } from '../core/gc';
 import { createEntityState, type EntityState } from '../core/planes/entityState';
@@ -22,7 +20,7 @@ import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLi
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
-import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, hasReplayedJournal } from './configure';
+import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix } from './configure';
 import { defineFetch } from './defineFetch';
 import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
 import { defineDetachedOperation, type DetachedOperationConfig, type DetachedOperationHandle } from './defineDetachedOperation';
@@ -455,6 +453,7 @@ export type ModelConfig<
 };
 
 const EMPTY_ROWS: never[] = [];
+type StoredRowShape = { id: string } & Record<string, unknown>;
 
 type ScopeSortSpec<TRow> = { field: keyof TRow & string; dir: 'asc' | 'desc' } | { comparator: (a: TRow, b: TRow) => number; orderFields?: ReadonlyArray<keyof TRow & string> };
 
@@ -663,8 +662,8 @@ export const defineModel = <
           .entries.map(entry => entry.id);
       }
     },
-    readScopeEntries: (scopeKey: string): Array<{ id: string; order: number }> => planes().scopeIndex.read(scopeKey).entries,
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
+    readScopeGeneration: (scopeKey: string): number => planes().scopeIndex.read(scopeKey).generation,
     scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {
       if (fields === null || !planes().scopeIndex.has(scopeKey, id)) return true;
       const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
@@ -735,7 +734,6 @@ export const defineModel = <
       })
     )
   });
-  if (hasReplayedJournal()) seedCollections([config.id]);
   registerGcHost(config.id, {
     modelId: config.id,
     exempt: config.gc === 'exempt',
@@ -961,7 +959,7 @@ export const defineModel = <
     const readScopeRows = (scopeValue: unknown, options: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
       const scopeKey = scopeValue === null ? null : keyForScope(scopeName, scopeValue);
       useScopeAccess(scopeKey);
-      return useScopeLiveRows(
+      return useScopeReadRows(
         config.id,
         scopeKey,
         applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
@@ -982,7 +980,7 @@ export const defineModel = <
         if (windowStateRef.current.scopeKey !== scopeKey) windowStateRef.current = { scopeKey, size: pageSize };
         const windowSize = windowStateRef.current.size;
         useScopeAccess(scopeKey);
-        const window = useScopeLiveWindowRows(
+        const window = useScopeReadWindowRows(
           config.id,
           scopeKey,
           applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),

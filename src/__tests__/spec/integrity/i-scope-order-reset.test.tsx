@@ -196,4 +196,15 @@ describe('scope order cache reset contract', () => {
 
     expect(index.keysOf('row-1')).toEqual([]);
   });
+
+  it('keeps the order revision stable for an unchanged complete order', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeOrderRevision', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeKey = 'byBucket\0{"bucket":"stable"}';
+
+    index.reconcile(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
+    const revision = index.orderRevision(scopeKey);
+    index.reconcile(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
+
+    expect(index.orderRevision(scopeKey)).toBe(revision);
+  });
 });

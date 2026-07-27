@@ -7,7 +7,7 @@ import type { WriteOrigin } from '../../dsl/defineModel';
 import { deriveEffects, type AcceptedRow, type DestroyedRow } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
-import { noteApplyFailure } from '../diagnostics';
+import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
 
@@ -20,9 +20,8 @@ export type ApplyTarget = {
   readRow(id: string): Record<string, unknown> | undefined;
   readAllRows(): Array<Record<string, unknown>>;
   readScopeOrder(scopeKey: string): string[];
-  /** Returns scope entries in visible order with their sparse scope-index order values. */
-  readScopeEntries(scopeKey: string): Array<{ id: string; order: number }>;
   readScopeOrderRevision(scopeKey: string): number;
+  readScopeGeneration(scopeKey: string): number;
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
   scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
   readAllScopeKeys(): string[];
@@ -272,6 +271,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       } else {
         persistImmediate(recordedOps, record);
       }
+      noteCommit();
       bus.publish(batch);
       return batch;
     },
@@ -299,6 +299,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         } else {
           persistImmediate(ops, record);
         }
+        noteCommit();
         bus.publish(batch);
         replayed += 1;
       }

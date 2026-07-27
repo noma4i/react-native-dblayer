@@ -471,7 +471,7 @@ describe('app-scale lifecycle', () => {
         perCommitMs.push(diagnostics().snapshot().totalReadEngineMs - before);
       }
 
-      expect(diagnostics().snapshot().mirrorScopeResorts).toBeGreaterThan(0);
+      expect(diagnostics().snapshot().scopeReadResorts).toBeGreaterThan(0);
       expect(renders['chatQuery-0']).toBe(beforeChatRenders);
       expect(renders['view-open']).toBe(beforeUserRenders);
 

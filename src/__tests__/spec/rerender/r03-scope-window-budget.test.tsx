@@ -68,7 +68,7 @@ describe('rerender matrix scope window budget', () => {
     const before = reader.renders();
     act(() => rows.update('row-0', { rank: 99 }));
     expect(reader.renders() - before).toBe(1);
-    expect(reader.result()).toHaveLength(14);
+    expect(reader.result()).toHaveLength(15);
     expect(idsOf(reader.result()).at(-1)).toBe('row-0');
     reader.unmount();
   });
@@ -128,6 +128,44 @@ describe('rerender matrix scope window budget', () => {
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
     const initial = reader.result();
     act(() => unrelated.update('one', { value: 'after' }));
+    expect(reader.result()).toBe(initial);
+    reader.unmount();
+  });
+
+  it('does not rerender an unchanged scope order after a complete reconcile', () => {
+    setupSpecRuntime();
+    const rows = createRows();
+    seedRows(rows);
+    const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
+    const initial = reader.result();
+    const before = reader.renders();
+
+    act(() => {
+      rows.scopes.byGroup.seed(
+        { groupId: 'g1' },
+        initial.map(row => ({ ...row }))
+      );
+    });
+
+    expect(reader.result()).toBe(initial);
+    expect(reader.renders() - before).toBe(0);
+    reader.unmount();
+  });
+
+  it('preserves selected row identities across a fresh scope snapshot', () => {
+    setupSpecRuntime();
+    const rows = createRows();
+    seedRows(rows);
+    const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }, { select: row => ({ id: row.id, payload: { ...row } }) }));
+    const initial = reader.result();
+
+    act(() => {
+      rows.scopes.byGroup.seed(
+        { groupId: 'g1' },
+        rows.scopes.byGroup.read({ groupId: 'g1' }).map(row => ({ ...row }))
+      );
+    });
+
     expect(reader.result()).toBe(initial);
     reader.unmount();
   });
