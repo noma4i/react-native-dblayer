@@ -9,8 +9,9 @@ let dbStorage: MmkvStorage | null = null;
 
 const getDbStorage = (): MmkvStorage => {
   if (dbStorage === null) {
-    // The instance id is stable so persisted rows stay in one storage namespace.
-    dbStorage = require<MmkvModule>('react-native-mmkv').createMMKV({ id: 'dblayer' });
+    // The instance id is frozen: renaming it would orphan persisted rows on user devices.
+    // Never rename it for lexical scans; it predates and only historically matches the removed dependency name.
+    dbStorage = require<MmkvModule>('react-native-mmkv').createMMKV({ id: 'tanstack-db' });
   }
   return dbStorage;
 };

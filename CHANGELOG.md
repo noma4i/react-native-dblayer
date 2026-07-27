@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Fix scope reads dropping a member row after a reorder; ordered scope reads now retain the full current membership.
+
 ### Internals
 
 - Replace the TanStack DB scope mirror with one internal scope read engine backed directly by scope membership, entity rows, and commit-bus batches. Scope projections, local windows, `keepPrevious`, resolution, and row identity remain unchanged; diagnostics now report `scopeReadPasses` and `scopeReadResorts`.

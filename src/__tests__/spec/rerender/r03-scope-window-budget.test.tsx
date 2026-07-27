@@ -69,6 +69,7 @@ describe('rerender matrix scope window budget', () => {
     act(() => rows.update('row-0', { rank: 99 }));
     expect(reader.renders() - before).toBe(1);
     expect(reader.result()).toHaveLength(15);
+    expect(new Set(idsOf(reader.result()))).toEqual(new Set(Array.from({ length: 15 }, (_, index) => `row-${index}`)));
     expect(idsOf(reader.result()).at(-1)).toBe('row-0');
     reader.unmount();
   });

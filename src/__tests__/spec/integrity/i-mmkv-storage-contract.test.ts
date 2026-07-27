@@ -1,4 +1,6 @@
 import type { UsedMmkvMethods } from '../../../../__mocks__/mmkvMockFactory';
+import fs from 'node:fs';
+import path from 'node:path';
 import { configureDb } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { mmkvStoragePlane } from '../../../core/planes/storagePlane';
@@ -19,6 +21,14 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
 
   afterEach(() => {
     clearDbStorage();
+  });
+
+  it('keeps the historical MMKV instance id so an update does not orphan persisted user rows', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../utils/mmkvStorage.ts'), 'utf8');
+
+    if (!source.includes("createMMKV({ id: 'tanstack-db' })")) {
+      throw new Error('MMKV instance id must remain tanstack-db; renaming it orphans persisted user rows after an update.');
+    }
   });
 
   it('round-trips through the real mmkv-backed adapter (getItem/setItem/removeItem)', () => {
