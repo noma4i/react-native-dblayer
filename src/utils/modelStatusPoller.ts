@@ -2,7 +2,7 @@ import { union } from 'es-toolkit';
 import { useCallback, useSyncExternalStore } from 'react';
 import { getDbLogger } from '../core/logger';
 import { registerReset } from '../core/reset';
-import { createGenerationFence } from './runtimePrimitives';
+import { createGenerationFence } from './runtimeGeneration';
 import { createSingleFlight } from './singleFlight';
 
 export type ModelStatusPollerPhase = {

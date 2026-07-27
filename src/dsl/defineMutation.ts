@@ -4,7 +4,7 @@ import type { JournalOp } from '../core/apply/journal';
 import { hasDependentCascade } from '../core/relations';
 import { getDbLogger } from '../core/logger';
 import { generateTempId } from '../utils/generateTempId';
-import { createGenerationFence } from '../utils/runtimePrimitives';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isRecord } from '../utils/normalizeHelpers';
 import { registerBootValidation } from './bootValidations';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';

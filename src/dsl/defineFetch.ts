@@ -5,7 +5,7 @@ import { computeLoadingState, computePhase } from '../queries/base/loadingState'
 import { buildScopeKey } from '../core/compileDbWhere';
 import { getDbTransport } from '../core/transport';
 import { getDbLogger } from '../core/logger';
-import { createGenerationFence } from '../utils/runtimePrimitives';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
 
 type FetchConfigBase<TData, TInput, TSelected> = {

@@ -1,6 +1,6 @@
 import type { Dependency } from './apply/commitBus';
 import { getCommitBus } from '../dsl/configure';
-import { createGenerationFence } from '../utils/runtimePrimitives';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 import { noteDataLoss } from './diagnostics';
 
 type WaiterModel<TStored extends { id: string }> = {

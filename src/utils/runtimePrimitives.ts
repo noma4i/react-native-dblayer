@@ -1,15 +1,5 @@
-import { getRuntimeGeneration } from '../dsl/configure';
-
 /**
- * Capture the current runtime generation and expose a reset fence for async work.
- *
- * @param options Set `lazy` when a lifecycle owner captures only when it starts.
- * @returns A current-generation predicate and an explicit capture operation.
+ * `src/dsl/defineQuery.ts` still imports `createGenerationFence` from this path.
+ * Owned by `runtimeGeneration.ts`; this line is temporary until that consumer's import is updated.
  */
-export const createGenerationFence = (options?: { lazy?: boolean }): { isCurrent(): boolean; captureNow(): void } => {
-  let generation: number | null = options?.lazy ? null : getRuntimeGeneration();
-  return {
-    isCurrent: () => generation == null || generation === getRuntimeGeneration(),
-    captureNow: () => { generation = getRuntimeGeneration(); }
-  };
-};
+export { createGenerationFence } from './runtimeGeneration';

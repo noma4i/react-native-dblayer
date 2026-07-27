@@ -3,7 +3,7 @@ import { getDbLogger } from './logger';
 import { getDbTransport } from './transport';
 import type { DbGraphQLDocument } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import { createGenerationFence } from '../utils/runtimePrimitives';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 import { registerReset } from './reset';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
