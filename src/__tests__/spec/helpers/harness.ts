@@ -137,7 +137,6 @@ export type DiagnosticsSnapshot = {
   totalReadEngineMs: number;
   totalMirrorMs: number;
   entityUpsertGuardHits: number;
-  corruptionModelResets: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;

@@ -96,7 +96,7 @@ describe('persistence recovery protocol', () => {
     expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
     expect(storage.get('dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}')).toBeUndefined();
     expect(storage.keys('dbl:scope:RecoveryScopeMigration:')).toHaveLength(1);
-    expect(diagnostics().snapshot()).toMatchObject({ corruptionModelResets: 0, scopeKeyMigrations: 1 });
+    expect(diagnostics().snapshot()).toMatchObject({ scopeKeyMigrations: 1 });
   });
 
   it('does not repeat a completed scope-key migration', async () => {
@@ -116,7 +116,7 @@ describe('persistence recovery protocol', () => {
     await bootDb();
 
     expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
-    expect(diagnostics().snapshot()).toMatchObject({ corruptionModelResets: 0, scopeKeyMigrations: 0 });
+    expect(diagnostics().snapshot()).toMatchObject({ scopeKeyMigrations: 0 });
   });
 
   it('safe-drops corrupt checkpointed WAL records', async () => {

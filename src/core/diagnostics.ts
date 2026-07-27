@@ -38,7 +38,6 @@ type DiagnosticsState = {
   totalReadEngineMs: number;
   totalMirrorMs: number;
   entityUpsertGuardHits: number;
-  corruptionModelResets: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;
@@ -67,7 +66,6 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   totalReadEngineMs: 0,
   totalMirrorMs: 0,
   entityUpsertGuardHits: 0,
-  corruptionModelResets: 0,
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
@@ -120,10 +118,6 @@ export const noteResumeDrain = (refetched: number): void => {
 
 export const noteEntityUpsertGuardHit = (): void => {
   diagnostics.entityUpsertGuardHits += 1;
-};
-
-export const noteCorruptionModelReset = (): void => {
-  diagnostics.corruptionModelResets += 1;
 };
 
 export const noteCorruptionJournalDrop = (): void => {
