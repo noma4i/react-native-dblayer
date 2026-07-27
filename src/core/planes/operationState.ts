@@ -8,6 +8,8 @@ export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
 export type OperationRecord = {
   operationId: string;
+  /** Stable declaration kind for a detached operation. */
+  kind?: string;
   model: string;
   tempIds: string[];
   rowIds?: string[];
@@ -25,9 +27,37 @@ export type OperationRecord = {
   createdAt: number;
 };
 
+/** JSON-round-trip an operation input before it enters the persistent ledger. */
+export const serializeOperationInput = (input: unknown): { serializable: boolean; value: unknown } => {
+  const seen = new Set<object>();
+  const isJsonValue = (value: unknown): boolean => {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value !== 'object') return false;
+    if (seen.has(value)) return false;
+    if (Array.isArray(value)) {
+      seen.add(value);
+      const valid = value.every(isJsonValue);
+      seen.delete(value);
+      return valid;
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+    seen.add(value);
+    const valid = Object.values(value).every(isJsonValue);
+    seen.delete(value);
+    return valid;
+  };
+  if (!isJsonValue(input)) return { serializable: false, value: undefined };
+  try {
+    return { serializable: true, value: JSON.parse(JSON.stringify(input)) };
+  } catch {
+    return { serializable: false, value: undefined };
+  }
+};
+
 const CLOSED_TTL_MS = 60 * 60 * 1000;
 export type OperationState = {
-  begin(operation: Omit<OperationRecord, 'status'>): void;
+  begin(operation: Omit<OperationRecord, 'status'>, options?: { persist?: boolean }): void;
   /** Terminal status is immutable; repeated close calls are idempotent no-ops. */
   close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
   get(operationId: string): OperationRecord | undefined;
@@ -44,8 +74,14 @@ export type OperationState = {
   failedFor(model: string, rowId: string): OperationRecord | undefined;
   /** Remove one retained failed operation after retry, discard, or reconciliation. */
   clearFailed(operationId: string): void;
+  /** Re-open a retained failed operation for durable retry. */
+  reopen(operationId: string): OperationRecord | undefined;
+  /** Remove any operation after an explicit discard or failed atomic start. */
+  remove(operationId: string): void;
   /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
   hydratedPending(): OperationRecord[];
+  /** Consume hydrated pending records matching one boot reconciler exactly once. */
+  takeHydratedPending(matches: (record: OperationRecord) => boolean): OperationRecord[];
   prune(): number;
   /** Union of fields owned by still-pending optimistic patch ops on one model row (empty when none). */
   ownedFields(model: string, rowId: string, excludeOpId?: string): ReadonlySet<string>;
@@ -111,13 +147,13 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const EMPTY_OWNED: ReadonlySet<string> = new Set();
 
   return {
-    begin: operation => {
+    begin: (operation, options) => {
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
       indexOperation(record);
       indexRecordRows(record);
       if (record.status === 'pending' && record.intent === 'patch' && record.patchedFields && record.patchedFields.length > 0) pendingPatchCount += 1;
-      storage.set(persistEntries());
+      if (options?.persist !== false) storage.set(persistEntries());
       notify?.(record);
     },
     close: (operationId, status) => {
@@ -168,11 +204,40 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       storage.set(persistEntries());
       notify?.(operation);
     },
+    reopen: operationId => {
+      const operation = operations.get(operationId);
+      if (!operation || operation.status !== 'failed') return undefined;
+      const record: OperationRecord = { ...operation, status: 'pending' };
+      operations.set(operationId, record);
+      rebuildIndexes();
+      storage.set(persistEntries());
+      notify?.(record);
+      return record;
+    },
+    remove: operationId => {
+      const operation = operations.get(operationId);
+      if (!operation) return;
+      hydratedPendingIds.delete(operationId);
+      operations.delete(operationId);
+      rebuildIndexes();
+      storage.set(persistEntries());
+      notify?.(operation);
+    },
     hydratedPending: () =>
       [...hydratedPendingIds].flatMap(operationId => {
         const operation = operations.get(operationId);
         return operation?.status === 'pending' ? [operation] : [];
       }),
+    takeHydratedPending: matches => {
+      const pending: OperationRecord[] = [];
+      for (const operationId of [...hydratedPendingIds]) {
+        const operation = operations.get(operationId);
+        if (!operation || operation.status !== 'pending' || !matches(operation)) continue;
+        hydratedPendingIds.delete(operationId);
+        pending.push(operation);
+      }
+      return pending;
+    },
     prune: () => {
       const cutoff = now() - CLOSED_TTL_MS;
       let pruned = 0;

@@ -102,7 +102,8 @@ export const createJournal = (storage: StoragePlane, prefix: () => string) => {
   };
 
   return {
-    writePending: (record: JournalRecord) => storage.set([{ key: recordKey(record.epoch), value: JSON.stringify(record) }]),
+    /** Storage entry for one pending WAL record, composed with other durable state in one batch. */
+    pendingEntry: (record: JournalRecord): Array<{ key: string; value: string | null }> => [{ key: recordKey(record.epoch), value: JSON.stringify(record) }],
     /** Storage entries marking the record committed + pruning old committed records past the cap. */
     committedEntry: (record: JournalRecord, pruneBeforeEpoch = Number.POSITIVE_INFINITY): Array<{ key: string; value: string | null }> => {
       const index = committedIndex();

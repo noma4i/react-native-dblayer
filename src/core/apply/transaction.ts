@@ -52,7 +52,7 @@ export type ApplyRuntime = {
    * `defaults.onSyncError({source:'apply'})` fire, then the exception rethrows to the caller (mutation's
    * rollback path, ingest's `reportModelIngestError`, or replay's own boot-failure surface).
    */
-  apply(ops: JournalOp[]): CommitBatch;
+  apply(ops: JournalOp[], options?: { extraEntries?: () => Array<{ key: string; value: string | null }> }): CommitBatch;
   /**
    * Startup recovery: idempotently re-apply journal records not yet covered by each model's
    * persisted applied-epoch marker (survives torn checkpoint batches - the marker sits AFTER its
@@ -248,11 +248,11 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
   };
 
   return {
-    apply: ops => {
+    apply: (ops, options) => {
       const recordedOps = recordCounterValues(ops);
       epoch += 1;
       const record: JournalRecord = { epoch, status: 'pending', ops: recordedOps };
-      journal.writePending(record);
+      storage.set([...journal.pendingEntry(record), ...(options?.extraEntries?.() ?? [])]);
       let batch: IncrementalCommitBatch;
       try {
         batch = applyPlan(recordedOps);

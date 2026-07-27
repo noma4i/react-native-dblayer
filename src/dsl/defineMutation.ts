@@ -12,33 +12,7 @@ import type { ExtractSink } from './defineQuery';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 import { responseDataOrThrow } from '../core/transport';
 import { noteDataLoss } from '../core/diagnostics';
-
-const serializeFailedInput = (input: unknown): { serializable: boolean; value: unknown } => {
-  const seen = new Set<object>();
-  const isJsonValue = (value: unknown): boolean => {
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-    if (typeof value === 'number') return Number.isFinite(value);
-    if (typeof value !== 'object') return false;
-    if (seen.has(value)) return false;
-    if (Array.isArray(value)) {
-      seen.add(value);
-      const valid = value.every(isJsonValue);
-      seen.delete(value);
-      return valid;
-    }
-    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
-    seen.add(value);
-    const valid = Object.values(value).every(isJsonValue);
-    seen.delete(value);
-    return valid;
-  };
-  if (!isJsonValue(input)) return { serializable: false, value: undefined };
-  try {
-    return { serializable: true, value: JSON.parse(JSON.stringify(input)) };
-  } catch {
-    return { serializable: false, value: undefined };
-  }
-};
+import { serializeOperationInput } from '../core/planes/operationState';
 
 /** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
@@ -278,7 +252,7 @@ export const defineMutation = <TData, TInput, TStored extends { id: string }, TN
     let context!: OptimisticCtx;
     let data!: TData;
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
-    const persistedFailedInput = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) ? serializeFailedInput(input) : null;
+    const persistedFailedInput = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) ? serializeOperationInput(input) : null;
     const generationFence = createGenerationFence();
 
     try {

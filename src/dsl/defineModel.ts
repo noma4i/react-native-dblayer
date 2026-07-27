@@ -25,6 +25,7 @@ import { createModelReadEngine, incrementalSignature, limitRows, sortModelReadRo
 import { getApplyRuntime, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, hasReplayedJournal } from './configure';
 import { defineFetch } from './defineFetch';
 import { clearFailedOptimisticMutation, defineMutation, type MutationConfig } from './defineMutation';
+import { defineDetachedOperation, type DetachedOperationConfig, type DetachedOperationHandle } from './defineDetachedOperation';
 import { defineQuery, type EnsuredRowQueryHandle, type QueryHandle } from './defineQuery';
 import { defineView, type ViewConfig, type ViewHandle } from './defineView';
 import { defineModelIngest, registerIngestModel, type ModelIngestEntry } from './defineIngest';
@@ -185,6 +186,8 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     name: string,
     config: ModelMutationConfig<TData, TInput, TRow, TNode>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
+  /** Define a durable operation whose consumer-owned executor resumes through the core boot lifecycle. */
+  detached<TInput>(kind: string, config: DetachedOperationConfig<TInput, TStored>): DetachedOperationHandle<TInput, TStored>;
   /** Define a reactive joined projection over one declared scope and its current related rows. */
   view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(
     name: string,
@@ -1179,6 +1182,7 @@ export const defineModel = <
       const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => compositeKey(config.id, name, buildScopeKey(input)) });
       return defineMutation({ ...mutationConfig, dedupe });
     },
+    detached: (kind, detachedConfig) => defineDetachedOperation(model, kind, detachedConfig),
     fetch: <TData, TFetchInput, TSelected>(name: string, fetchConfig: ModelFetchConfig<TData, TFetchInput, TSelected>) =>
       defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? compositeKey(config.id, name) } as Parameters<
         typeof defineFetch<TData, TFetchInput, TSelected>
