@@ -1,5 +1,4 @@
 import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
-import { getDbRuntimeConfig } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type GroupRow = { id: string; groupId: string; label: string };
@@ -47,6 +46,6 @@ describe('query scope registry reset contract', () => {
     await query.fetch({ groupId: 'B', sessionId: 'after-reset' });
     query.invalidate({ groupId: 'B' });
 
-    expect(getDbRuntimeConfig().queryClient.getQueryCache().findAll({ queryKey: ['dbl'] })).toEqual([]);
+    expect(transport.calls).toHaveLength(2);
   });
 });

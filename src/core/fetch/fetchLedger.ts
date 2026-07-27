@@ -31,6 +31,13 @@ type RunContext = {
   isCurrent: () => boolean;
 };
 
+type ActiveRefetch = {
+  /** Drop the entry's freshness when this reader is a foreground-resume candidate. */
+  markResumeStale(): boolean;
+  /** Start a refetch after the coordinator has selected this reader's chunk. */
+  refetch(): Promise<void>;
+};
+
 type FetchLedger = {
   read(key: FetchKey): Readonly<FetchEntrySnapshot> | undefined;
   /** True when `lastAppliedAt` is within `staleTimeMs` of `now()`. False when never applied. */
@@ -45,12 +52,12 @@ type FetchLedger = {
   refetchStaleReaders(): Promise<void>;
   /** Drop freshness only after every committed identity behind a key was destroyed, evicted, or trimmed. */
   noteRowsLost(ids: readonly string[]): void;
-  /** Register a live reader and how to refetch it; returns the release callback. */
-  retain(key: FetchKey, refetch: () => Promise<void>): () => void;
+  /** Register a live reader and its foreground-resume policy; returns the release callback. */
+  retain(key: FetchKey, refetch: () => Promise<void>, markResumeStale?: () => boolean): () => void;
   /** Keys with at least one live reader, in registration order. */
   activeKeys(): FetchKey[];
   /** Internal coordinator bridge for globally chunked foreground resume. */
-  activeRefetches(): Array<() => Promise<void>>;
+  activeRefetches(): ActiveRefetch[];
   /** Walk `activeKeys()` in chunks of `chunkSize`, awaiting each chunk's refetches. */
   resume(chunkSize: number): Promise<void>;
   reset(): void;
@@ -68,7 +75,7 @@ export const createFetchLedger = (options: {
 }): FetchLedger => {
   const entries = new Map<FetchKey, FetchEntry>();
   const flights = new Map<FetchKey, Promise<RunStatus>>();
-  const readers = new Map<FetchKey, Map<number, () => Promise<void>>>();
+  const readers = new Map<FetchKey, Map<number, ActiveRefetch>>();
   const generations = new Map<FetchKey, number>();
   let nextReaderId = 0;
 
@@ -105,9 +112,9 @@ export const createFetchLedger = (options: {
 
   const activeKeys = (): FetchKey[] => [...readers.keys()];
 
-  const activeRefetches = (): Array<() => Promise<void>> => activeKeys().flatMap(key => [...(readers.get(key)?.values() ?? [])]);
+  const activeRefetches = (): ActiveRefetch[] => activeKeys().flatMap(key => [...(readers.get(key)?.values() ?? [])]);
   const refetchKey = async (key: FetchKey): Promise<void> => {
-    await Promise.all([...(readers.get(key)?.values() ?? [])].map(refetch => refetch().catch(() => {})));
+    await Promise.all([...(readers.get(key)?.values() ?? [])].map(reader => reader.refetch().catch(() => {})));
   };
 
   const reset = (): void => {
@@ -165,6 +172,7 @@ export const createFetchLedger = (options: {
             trimEntries();
             return 'applied';
           } catch (error) {
+            if (!options.isOnline()) return 'offline';
             const classification = options.retry.classify?.(error) ?? 'fatal';
             if (classification === 'fatal' || attempt > (options.retry.budgets?.[classification] ?? 0)) return 'failed';
             const baseMs = options.retry.backoff?.baseMs ?? 1000;
@@ -195,12 +203,12 @@ export const createFetchLedger = (options: {
         }
       }
     },
-    retain: (key, refetch) => {
-      const keyReaders = readers.get(key) ?? new Map<number, () => Promise<void>>();
+    retain: (key, refetch, markResumeStale = () => false) => {
+      const keyReaders = readers.get(key) ?? new Map<number, ActiveRefetch>();
       readers.set(key, keyReaders);
       const readerId = nextReaderId;
       nextReaderId += 1;
-      keyReaders.set(readerId, refetch);
+      keyReaders.set(readerId, { refetch, markResumeStale });
       let released = false;
       return () => {
         if (released) return;
@@ -216,7 +224,7 @@ export const createFetchLedger = (options: {
       const refetches = activeRefetches();
       for (let index = 0; index < refetches.length; index += chunkSize) {
         const chunk = refetches.slice(index, index + chunkSize);
-        await Promise.all(chunk.map(refetch => Promise.resolve().then(refetch).catch(() => {})));
+        await Promise.all(chunk.map(reader => Promise.resolve().then(reader.refetch).catch(() => {})));
       }
     },
     reset

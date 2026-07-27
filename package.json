@@ -98,7 +98,6 @@
     ]
   },
   "dependencies": {
-    "@tanstack/react-query": "5.101.2",
     "es-toolkit": "^1.49.0"
   }
 }

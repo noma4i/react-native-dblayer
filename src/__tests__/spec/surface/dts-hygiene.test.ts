@@ -52,7 +52,7 @@ describe('public declaration hygiene', () => {
       const declaration = target.valueDeclaration ?? target.declarations?.[0];
       const type = declaration ? checker.getTypeOfSymbolAtLocation(target, declaration) : checker.getDeclaredTypeOfSymbol(target);
       const paths = [...declarationPaths(target), ...declarationPaths(type.aliasSymbol), ...declarationPaths(type.getSymbol())];
-      return paths.some(file => file.includes('/node_modules/@tanstack/')) ? [exported.name] : [];
+      return paths.some(file => file.includes('/node_modules/legacy-query-client/')) ? [exported.name] : [];
     });
 
     expect(leaks).toEqual([]);

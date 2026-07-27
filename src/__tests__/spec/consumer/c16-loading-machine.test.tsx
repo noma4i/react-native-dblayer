@@ -1,7 +1,6 @@
 import { act } from 'react-test-renderer';
-import { focusManager, onlineManager } from '@tanstack/react-query';
 import { configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, recordTimelineInProvider, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, isTestNetworkOnline, recordTimelineInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type Row = { id: string; groupId: string; status: string };
 type ScopeValue = { groupId: string };
@@ -144,15 +143,13 @@ describe('loading machine timeline contracts', () => {
 
   it('LC6 exposes retry and offline observability during a failed fetch', async () => {
     const { pending, transport } = createDeferredQuery();
-    const wasFocused = focusManager.isFocused();
-    const wasOnline = onlineManager.isOnline();
+    const wasOnline = isTestNetworkOnline();
     configureDb({
       storage: createMemoryPlane(),
       transport,
       defaults: {
-        networkMode: 'always' as never,
         retry: { query: { classify: () => 'network', budgets: { network: 1 }, backoff: { baseMs: 1, maxMs: 1 } } }
-      } as never
+      }
     });
     const rows = createRows();
     const query = rows.query<Response, ScopeValue, ScopeValue, Row>('loading-observability', {
@@ -168,8 +165,7 @@ describe('loading machine timeline contracts', () => {
     });
 
     await settle();
-    focusManager.setFocused(true);
-    onlineManager.setOnline(true);
+    setTestNetworkOnline(true);
     pending.shift()?.reject(new Error('retry failure'));
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 5));
@@ -206,8 +202,7 @@ describe('loading machine timeline contracts', () => {
 
     const steadyFrame = normalTimeline.frames().at(-1);
     normalTimeline.unmount();
-    focusManager.setFocused(wasFocused);
-    onlineManager.setOnline(wasOnline);
+    setTestNetworkOnline(wasOnline);
     expect(steadyFrame).toMatchObject({ isRetrying: false, retryAttempt: 0, isOffline: false });
     // GAP: The public barrel and test harness do not expose a primitive for setting react-query fetchStatus to paused.
   });

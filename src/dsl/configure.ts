@@ -1,4 +1,3 @@
-import { QueryClient } from '@tanstack/react-query';
 import type { DbLogger, DbRetryPolicy, DbTransport } from '../types';
 import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
@@ -18,16 +17,12 @@ export interface DbDefaults {
   staleTime?: number;
   /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` and `defineFetch` results that omit their own. */
   emptyStaleTime?: number;
-  /** Package-wide default TanStack Query cache `gcTime` (ms) for `defineQuery` results that omit their own. */
-  gcTime?: number;
   /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
   pageSize?: number;
   /** Retry policies for query and mutation work. Missing classifiers disable retries. */
   retry?: { query?: DbRetryPolicy; mutation?: DbRetryPolicy };
-  /** Network behavior for internally owned query and mutation work. Defaults to `offlineFirst`. */
+  /** Compatibility input; coordinator-owned connectivity is shared by every fetch ledger. */
   networkMode?: 'offlineFirst' | 'online';
-  /** Whether queries refetch after network reconnection. Defaults to true. */
-  refetchOnReconnect?: boolean;
   /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
   refetchOnMount?: boolean;
   /**
@@ -61,7 +56,6 @@ export type ConfigureDbOptions = {
 };
 type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
   storage: StoragePlane;
-  queryClient: QueryClient;
   defaults: DbDefaults & { resumeStaleTime: number | null };
   dataVersion: string | null;
 };
@@ -73,7 +67,6 @@ let runtimeGeneration = 0;
 const commitBus = createCommitBus();
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
-let queryClientResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
@@ -91,47 +84,15 @@ const STORAGE_PREFIX = 'dbl:';
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
  */
 export const configureDb = (options: ConfigureDbOptions): void => {
-  runtimeConfig?.queryClient.clear();
   runtimeGeneration += 1;
   const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
-  const retryOptions = (policy: DbRetryPolicy | undefined) => ({
-    retry: policy?.classify
-      ? (failureCount: number, error: unknown) => {
-          const classification = policy.classify?.(error) ?? 'fatal';
-          if (classification === 'fatal') return false;
-          return failureCount < (policy.budgets?.[classification] ?? 0);
-        }
-      : false,
-    retryDelay: (attempt: number) => {
-      const baseMs = policy?.backoff?.baseMs ?? 1000;
-      const maxMs = policy?.backoff?.maxMs ?? 30000;
-      return Math.min(baseMs * Math.pow(2, attempt), maxMs);
-    }
-  });
-  const networkMode = defaults?.networkMode ?? 'offlineFirst';
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        ...retryOptions(defaults?.retry?.query),
-        networkMode,
-        refetchOnReconnect: defaults?.refetchOnReconnect ?? true,
-        refetchOnMount: defaults?.refetchOnMount ?? true,
-        refetchOnWindowFocus: false
-      },
-      mutations: { ...retryOptions(defaults?.retry?.mutation), networkMode }
-    }
-  });
-  runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), queryClient, dataVersion: options.dataVersion ?? null };
+  runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), dataVersion: options.dataVersion ?? null };
   applyRuntime = null;
   operationState = null;
   checkpointScheduler?.cancel();
   checkpointScheduler = null;
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
-  if (!queryClientResetRegistered) {
-    registerReset(() => runtimeConfig?.queryClient.clear());
-    queryClientResetRegistered = true;
-  }
   getApplyRuntime();
   stopMaintenanceScheduler?.();
   stopMaintenanceScheduler = defaults.inSessionGc === false ? null : startMaintenanceScheduler(defaults.inSessionGc);
@@ -166,9 +127,6 @@ export const advanceRuntimeGeneration = (): void => {
 };
 
 export const getCommitBus = () => commitBus;
-
-/** Internal: return the library-owned QueryClient for provider and query modules. */
-export const getInternalQueryClient = (): QueryClient => getDbRuntimeConfig().queryClient;
 
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter

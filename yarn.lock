@@ -1851,7 +1851,6 @@ __metadata:
     "@babel/core": "npm:^7"
     "@babel/preset-env": "npm:^7"
     "@graphql-typed-document-node/core": "npm:^3"
-    "@tanstack/react-query": "npm:5.101.2"
     "@testing-library/react-native": "npm:^14.0.1"
     "@types/jest": "npm:^29.5.14"
     "@types/react": "npm:^19.0.10"
@@ -2034,24 +2033,6 @@ __metadata:
   dependencies:
     "@sinonjs/commons": "npm:^3.0.0"
   checksum: 10c0/2e2fb6cc57f227912814085b7b01fede050cd4746ea8d49a1e44d5a0e56a804663b0340ae2f11af7559ea9bf4d087a11f2f646197a660ea3cb04e19efc04aa63
-  languageName: node
-  linkType: hard
-
-"@tanstack/query-core@npm:5.101.2":
-  version: 5.101.2
-  resolution: "@tanstack/query-core@npm:5.101.2"
-  checksum: 10c0/c3288757bfd563ca35cee21bf6ed0edb2f4425a8c92f75d84dcb36a0580a59e48bd97fcdbbc7c8d8e95a4c40376edfc5772b14665b85d183079a0ba7e17793b2
-  languageName: node
-  linkType: hard
-
-"@tanstack/react-query@npm:5.101.2":
-  version: 5.101.2
-  resolution: "@tanstack/react-query@npm:5.101.2"
-  dependencies:
-    "@tanstack/query-core": "npm:5.101.2"
-  peerDependencies:
-    react: ^18 || ^19
-  checksum: 10c0/076b2db0d85a6dc96d461789715ae0df2e439d9a20a41e629446275f8177a856c3b89d242ad3d31eadaf421f080b9834bcd9f94e5143f4cd7f947a10af9e42b3
   languageName: node
   linkType: hard
 

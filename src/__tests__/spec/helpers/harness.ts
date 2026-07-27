@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { focusManager, onlineManager } from '@tanstack/react-query';
 import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
+import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../../core/fetch/fetchLedgerRegistry';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
   const values = new Map<string, string>();
@@ -57,15 +57,15 @@ export function setupSpecRuntime() {
 
 /** Test-only connectivity adapter. Query-engine migrations update this seam without changing contracts. */
 export const setTestNetworkOnline = (online: boolean): void => {
-  onlineManager.setOnline(online);
+  setFetchNetworkOnline(online);
 };
 
 /** Test-only connectivity adapter state. */
-export const isTestNetworkOnline = (): boolean => onlineManager.isOnline();
+export const isTestNetworkOnline = (): boolean => isFetchNetworkOnline();
 
-/** Test-only focus adapter for lifecycle-triggered fetches. */
+/** Compatibility no-op after removing the client-owned focus manager. */
 export const setTestFocused = (focused: boolean): void => {
-  focusManager.setFocused(focused);
+  void focused;
 };
 
 export function renderCounted<T>(useHook: () => T) {
@@ -192,7 +192,7 @@ export function recordTimeline<T>(useHook: () => T) {
 
 /**
  * Same as `recordTimeline` but renders the hook inside `DbProvider`, for hooks that require the
- * owned QueryClient / boot gate (query/fetch/ensured-row reads). Frames begin once the boot gate
+ * owned boot gate (query/fetch/ensured-row reads). Frames begin once the boot gate
  * releases children.
  */
 export function recordTimelineInProvider<T>(useHook: () => T) {
