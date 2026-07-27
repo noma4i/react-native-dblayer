@@ -16,7 +16,7 @@ describe('model-owned write continuity', () => {
 describe('model-owned media policy', () => {
   it('preserves optimistic dimensions and sources for event holes but lets server values win on replace', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const media = defineModel({ id: 'ConsumerWriteMedia', name: 'ConsumerWriteMedia', fields: { media: f.raw<Record<string, unknown> | null>() }, write: { groups: [{ fields: ['media'] as const, policy: { media: { dimensionKeys: ['width', 'height'], sourceKeys: ['url'] } } }] } });
+    const media = defineModel({ id: 'ConsumerWriteMedia', name: 'ConsumerWriteMedia', fields: { media: f.raw<Record<string, unknown> | null>() }, write: { groups: [{ fields: ['media'] as const, policy: { keys: { width: 'positive', height: 'positive', url: 'nonEmpty' } } }] } });
     media.insert({ id: 'row-1', media: { width: 320, height: 240, url: 'local://file' } });
     media.ingest({ event: { handler: () => ({ upsert: { id: 'row-1', media: { width: 0, url: '' } } }) } }).apply('event', {});
     expect(media.find('row-1')?.media).toEqual({ width: 320, height: 240, url: 'local://file' });

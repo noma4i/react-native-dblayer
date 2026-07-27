@@ -45,7 +45,7 @@ import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { registerInternalModelHandle, registerInternalScopeHandle } from '../core/internalHandles';
 import type { WriteOrigin, WritePolicy } from '../core/writePolicies';
 
-export type { MediaPolicySpec, MonotonicSpec, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
+export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
 
 const issuedScopeSequenceByKey = new Map<string, number>();
 
@@ -90,7 +90,7 @@ type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineF
 
 /**
  * Reactive access to one named scope of a model (`model.scopes.<name>`), backed by the scope's
- * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ chatId }`); `null`/`undefined`
+ * membership index. `scopeValue` selects the concrete scope instance (e.g. `{ groupId }`); `null`/`undefined`
  * reads as empty without subscribing.
  */
 export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored> = {
@@ -437,11 +437,11 @@ export type ModelConfig<
   write?: {
     /**
      * Closed field-group policies. Fields outside groups use server values. `monotonic` defaults to
-     * snapshot/event only, media guards additionally cover patch, and neither can guard replace.
+     * snapshot/event only, and replace remains authoritative.
      */
     groups?: Array<{
       fields: readonly (keyof InferStoredFields<TFields> & string)[];
-      policy: WritePolicy;
+      policy: WritePolicy | readonly WritePolicy[];
     }>;
   };
   /**

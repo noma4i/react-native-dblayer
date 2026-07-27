@@ -227,7 +227,7 @@ export const createAppModels = (tag: string) => {
     }),
     write: {
       groups: [
-        { fields: ['media'] as const, policy: { media: { dimensionKeys: ['width', 'height'], sourceKeys: ['fileUrl', 'thumbUrl', 'coverUrl', 'gifUrl'], transcodeGuard: { statusField: 'transcodeStatus', progressField: 'transcodeProgress' } } } },
+        { fields: ['media'] as const, policy: [{ monotonic: { all: [{ ladder: { path: 'media.transcodeStatus', tiers: [['processing'], ['ready', 'failed', 'completed']] } }, { tuple: ['media.transcodeProgress'] }] } }, { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', thumbUrl: 'nonEmpty', coverUrl: 'nonEmpty', gifUrl: 'nonEmpty' } }] },
         { fields: ['localPreviewUrl'] as const, policy: 'continuity' },
         { fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }
       ]
@@ -260,7 +260,7 @@ export const createAppModels = (tag: string) => {
     },
     scopes: { byUser: scope<any>({ by: { userId: 'userId' }, sort: { field: 'createdAt', dir: 'desc' } }), byUuid: scope<any>({ by: { uuid: 'uuid' } }), feed: scope<any>({ sort: 'server-order' }), myMoments: scope<any>({ sort: { comparator: compareCompassMoments, orderFields: ['unreadSimilarMomentsCount', 'createdAt'] } }), compassRelations: scope<any>({ sort: 'server-order' }) },
     relations: () => ({ user: belongsTo<any, any>(users, { foreignKey: 'userId' }) }),
-    write: { groups: [{ fields: ['media'] as const, policy: { media: { dimensionKeys: [], sourceKeys: [], transcodeGuard: { statusField: 'transcodeStatus', progressField: 'transcodeProgress' } } } }] }
+    write: { groups: [{ fields: ['media'] as const, policy: { monotonic: { all: [{ ladder: { path: 'media.transcodeStatus', tiers: [['processing'], ['ready', 'failed', 'completed']] } }, { tuple: ['media.transcodeProgress'] }] } } }] }
   });
 
   return { users, chats, messages, moments, currentUser, counters, vibes, walletTransactions };

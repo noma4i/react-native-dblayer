@@ -11,7 +11,7 @@ export type { ScopeCoverage } from '../core/planes/scopeIndex';
 
 export interface ScopeSpec<TStored> {
   /**
-   * Automatic membership mapping from scope-value fields to stored row fields (e.g. `{ chatId: 'chatId' }`).
+   * Automatic membership mapping from scope-value fields to stored row fields (e.g. `{ groupId: 'groupId' }`).
    * When set, a row's membership in this scope is derived from its field values on every write: the row
    * joins the scope instance matching its current field values and leaves any scope instance it no longer
    * matches, in the same apply transaction as the write. Omit for scopes populated only by `defineQuery`

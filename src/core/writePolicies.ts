@@ -6,30 +6,61 @@ export type WriteOrigin = 'snapshot' | 'event' | 'replace' | 'patch';
 
 export type WriteCtx = { origin: WriteOrigin; operationId?: string };
 
-type GuardedOrigin = Exclude<WriteOrigin, 'replace'>;
+export type GuardedOrigin = Exclude<WriteOrigin, 'replace'>;
 
-export type MonotonicSpec = { newerBy: string } | { tuple: readonly [string, ...string[]] } | { nonEmpty: true };
+/**
+ * A closed predicate algebra for accepting monotonic group writes.
+ *
+ * - `newerBy: path` accepts when values at `path`, normalized through `readIsoDate`, pass the sole
+ *   time arbiter `isIncomingNewer`.
+ * - `tuple: [...paths]` accepts when the first differing path value is greater incoming, comparing
+ *   numbers numerically and all other values with `compareCodepoints`.
+ * - `nonEmpty: true` accepts when every group field is present and non-empty; empty incoming values
+ *   retain the current group fields.
+ * - `ladder` accepts when the incoming tier rank is not below the current rank; values outside all
+ *   tiers rank `-1`, and an absent value on either side abstains and accepts.
+ * - `present: path` accepts when the incoming path value is neither `null` nor `undefined`.
+ * - `equal: path` accepts when incoming and current path values satisfy `Object.is`.
+ * - `all` accepts when every nested specification accepts, including an empty list.
+ * - `any` accepts when at least one nested specification accepts; an empty list rejects.
+ */
+export type MonotonicSpec =
+  | { newerBy: string }
+  | { tuple: readonly [string, ...string[]] }
+  | { nonEmpty: true }
+  | { ladder: { path: string; tiers: readonly (readonly string[])[] } }
+  | { present: string }
+  | { equal: string }
+  | { all: readonly MonotonicSpec[] }
+  | { any: readonly MonotonicSpec[] };
 
-export type MediaPolicySpec = {
-  dimensionKeys: readonly string[];
-  sourceKeys: readonly string[];
-  transcodeGuard?: { statusField: string; progressField?: string };
-};
+export type NestedKeyPolicy = 'server' | 'continuity' | 'nonEmpty' | 'positive';
 
 export type WritePolicy =
   | 'server'
   | 'continuity'
   | { monotonic: MonotonicSpec; on?: readonly GuardedOrigin[] }
-  | { media: MediaPolicySpec }
-  | { snapshot: true };
+  | { snapshot: true }
+  | { keys: Readonly<Record<string, NestedKeyPolicy>>; rest?: 'server' | 'continuity' };
 
-export type WriteGroup = { fields: readonly string[]; policy: WritePolicy };
+/** A group accepts one policy or an ordered list; a rejected guard restores current fields before later policies run. */
+export type WriteGroup = { fields: readonly string[]; policy: WritePolicy | readonly WritePolicy[] };
 
 const isPresent = (value: unknown): boolean => {
   if (value == null) return false;
   if (typeof value === 'string' || Array.isArray(value)) return value.length > 0;
   if (isNonArrayRecord(value)) return Object.keys(value).length > 0;
   return true;
+};
+
+/** Read a dot-separated object path without traversing arrays or throwing on absent intermediate values. */
+const readPath = (row: Record<string, unknown>, path: string): unknown => {
+  let value: unknown = row;
+  for (const part of path.split('.')) {
+    if (!isNonArrayRecord(value)) return undefined;
+    value = value[part];
+  }
+  return value;
 };
 
 const compareTupleValue = (incoming: unknown, current: unknown): number => {
@@ -41,94 +72,91 @@ const compareTupleValue = (incoming: unknown, current: unknown): number => {
   return compareCodepoints(String(incoming), String(current));
 };
 
-const isIncomingTupleNewer = (fields: readonly string[], incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean => {
-  for (const field of fields) {
-    const comparison = compareTupleValue(incoming[field], previous[field]);
+const isIncomingTupleNewer = (paths: readonly string[], incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean => {
+  for (const path of paths) {
+    const comparison = compareTupleValue(readPath(incoming, path), readPath(previous, path));
     if (comparison !== 0) return comparison > 0;
   }
   return false;
 };
 
-const isIncomingNewerBy = (field: string, incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean =>
-  isIncomingNewer(readIsoDate(previous[field]), readIsoDate(incoming[field]));
+const isIncomingNewerBy = (path: string, incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean =>
+  isIncomingNewer(readIsoDate(readPath(previous, path)), readIsoDate(readPath(incoming, path)));
+
+const ladderRank = (value: unknown, tiers: readonly (readonly string[])[]): number => tiers.findIndex(tier => tier.includes(String(value)));
+
+const acceptsMonotonic = (spec: MonotonicSpec, fields: readonly string[], incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean => {
+  if ('newerBy' in spec) return isIncomingNewerBy(spec.newerBy, incoming, previous);
+  if ('tuple' in spec) return isIncomingTupleNewer(spec.tuple, incoming, previous);
+  if ('nonEmpty' in spec) return fields.every(field => field in incoming && isPresent(incoming[field]));
+  if ('ladder' in spec) {
+    const incomingValue = readPath(incoming, spec.ladder.path);
+    const previousValue = readPath(previous, spec.ladder.path);
+    return incomingValue === undefined || previousValue === undefined || ladderRank(incomingValue, spec.ladder.tiers) >= ladderRank(previousValue, spec.ladder.tiers);
+  }
+  if ('present' in spec) return readPath(incoming, spec.present) != null;
+  if ('equal' in spec) return Object.is(readPath(incoming, spec.equal), readPath(previous, spec.equal));
+  if ('all' in spec) return spec.all.every(item => acceptsMonotonic(item, fields, incoming, previous));
+  return spec.any.some(item => acceptsMonotonic(item, fields, incoming, previous));
+};
 
 const appliesMonotonic = (policy: Extract<WritePolicy, { monotonic: MonotonicSpec; on?: readonly GuardedOrigin[] }>, origin: WriteOrigin): boolean =>
   origin !== 'replace' && (policy.on ?? ['snapshot', 'event']).includes(origin);
 
-const terminalMediaStatuses = new Set(['ready', 'failed', 'completed']);
-
-const preservesMedia = (previous: Record<string, unknown>, incoming: Record<string, unknown>, spec: MediaPolicySpec): boolean => {
-  const guard = spec.transcodeGuard;
-  if (!guard) return false;
-  const previousStatus = previous[guard.statusField];
-  const incomingStatus = incoming[guard.statusField];
-  if (typeof previousStatus === 'string' && terminalMediaStatuses.has(previousStatus) && !terminalMediaStatuses.has(String(incomingStatus))) return true;
-  if (!guard.progressField) return false;
-  const previousProgress = readNumericLike(previous[guard.progressField]);
-  const incomingProgress = readNumericLike(incoming[guard.progressField]);
-  return previousProgress !== undefined && incomingProgress !== undefined && incomingProgress < previousProgress;
+const applyNestedKeyPolicy = (current: unknown, incoming: unknown, policy: NestedKeyPolicy): unknown => {
+  if (policy === 'server') return incoming;
+  if (policy === 'continuity') return incoming == null ? current : incoming;
+  if (policy === 'nonEmpty') return isPresent(incoming) ? incoming : current;
+  const currentNumber = readNumericLike(current);
+  const incomingNumber = readNumericLike(incoming);
+  return incomingNumber === undefined || incomingNumber <= 0 ? (currentNumber !== undefined && currentNumber > 0 ? current : incoming) : incoming;
 };
 
-const mergeMedia = (previousValue: unknown, incomingValue: unknown, spec: MediaPolicySpec, origin: WriteOrigin): unknown => {
-  if (incomingValue == null || !isNonArrayRecord(incomingValue)) return incomingValue;
-  if (!isNonArrayRecord(previousValue)) return incomingValue;
-  if (origin !== 'replace' && preservesMedia(previousValue, incomingValue, spec)) return previousValue;
-  const merged: Record<string, unknown> = { ...previousValue, ...incomingValue };
-  if (origin === 'replace') return merged;
-  for (const key of spec.dimensionKeys) {
-    const previous = readNumericLike(previousValue[key]);
-    const incoming = readNumericLike(incomingValue[key]);
-    if (previous !== undefined && previous > 0 && (incoming === undefined || incoming <= 0)) merged[key] = previousValue[key];
+const applyNestedKeys = (previousValue: unknown, incomingValue: unknown, policy: Extract<WritePolicy, { keys: Readonly<Record<string, NestedKeyPolicy>> }>): unknown => {
+  if (!isNonArrayRecord(incomingValue) || !isNonArrayRecord(previousValue)) return incomingValue;
+  const result: Record<string, unknown> = { ...previousValue, ...incomingValue };
+  for (const key of Object.keys(incomingValue)) {
+    const keyPolicy = policy.keys[key] ?? policy.rest ?? 'server';
+    result[key] = applyNestedKeyPolicy(previousValue[key], incomingValue[key], keyPolicy);
   }
-  for (const key of spec.sourceKeys) {
-    const previous = previousValue[key];
-    const incoming = incomingValue[key];
-    if (isPresent(previous) && !isPresent(incoming)) merged[key] = previous;
+  return result;
+};
+
+const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: Record<string, unknown>, effective: Record<string, unknown>, ctx: WriteCtx): void => {
+  if (policy === 'server') return;
+  if (policy === 'continuity') {
+    for (const field of fields) if (field in effective && effective[field] == null) effective[field] = previous[field];
+    return;
   }
-  return merged;
+  if ('snapshot' in policy) {
+    for (const field of fields) if (field in effective) effective[field] = isNonArrayRecord(previous[field]) && isNonArrayRecord(effective[field]) ? { ...previous[field], ...effective[field] } : effective[field];
+    return;
+  }
+  if ('keys' in policy) {
+    for (const field of fields) if (field in effective) effective[field] = applyNestedKeys(previous[field], effective[field], policy);
+    return;
+  }
+  if (!appliesMonotonic(policy, ctx.origin)) return;
+  if (!acceptsMonotonic(policy.monotonic, fields, effective, previous)) {
+    for (const field of fields) effective[field] = previous[field];
+  }
 };
 
 /**
  * Compile a closed, model-owned write declaration into the sole entity write gate.
  *
- * Origin matrix: monotonic policies run only for `snapshot` and `event` unless their `on`
- * list narrows that set; media guards also run for `patch`. Neither guard runs on `replace`,
- * so a mutation commit is an authoritative server echo. `server` fields always use incoming
- * values, `continuity` retains current nullish writes, and `snapshot` shallow-folds objects.
- * Media terminal statuses are `ready`, `failed`, and `completed`. `newerBy` normalizes both
- * values through `readIsoDate` before `isIncomingNewer`: when both are missing or unparseable
- * the incoming value is accepted, while a missing or unparseable incoming value loses to a valid
- * previous value.
+ * Monotonic policies run only for `snapshot` and `event` unless `on` narrows those origins; replace
+ * remains authoritative. `server` uses incoming values, `continuity` retains nullish values,
+ * `snapshot` shallow-folds objects, and nested-key policies protect declared object keys. `newerBy`
+ * normalizes values through `readIsoDate` before `isIncomingNewer`.
  */
 export const compileWritePolicies = <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[]) =>
   (previous: TRow, incoming: TRow, ctx: WriteCtx): TRow => {
     const effective: Record<string, unknown> = { ...previous, ...incoming };
     if (ctx.origin === 'replace') return effective as TRow;
     for (const group of groups) {
-      const { policy } = group;
-      if (policy === 'server') continue;
-      if (policy === 'continuity') {
-        for (const field of group.fields) if (field in incoming && incoming[field] == null) effective[field] = previous[field];
-        continue;
-      }
-      if ('snapshot' in policy) {
-        for (const field of group.fields) if (field in incoming) effective[field] = isNonArrayRecord(previous[field]) && isNonArrayRecord(incoming[field]) ? { ...previous[field], ...incoming[field] } : incoming[field];
-        continue;
-      }
-      if ('media' in policy) {
-        for (const field of group.fields) if (field in incoming) effective[field] = mergeMedia(previous[field], incoming[field], policy.media, ctx.origin);
-        continue;
-      }
-      if (!appliesMonotonic(policy, ctx.origin)) continue;
-      const changed = group.fields.some(field => field in incoming && !Object.is(incoming[field], previous[field]));
-      if (!changed) continue;
-      const spec = policy.monotonic;
-      if ('nonEmpty' in spec) {
-        for (const field of group.fields) if (field in incoming && !isPresent(incoming[field])) effective[field] = previous[field];
-        continue;
-      }
-      const accepted = 'newerBy' in spec ? isIncomingNewerBy(spec.newerBy, incoming, previous) : isIncomingTupleNewer(spec.tuple, incoming, previous);
-      if (!accepted) for (const field of group.fields) effective[field] = previous[field];
+      const policies = Array.isArray(group.policy) ? group.policy : [group.policy];
+      for (const policy of policies) applyPolicy(policy, group.fields, previous, effective, ctx);
     }
     return effective as TRow;
   };

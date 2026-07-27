@@ -91,38 +91,61 @@ thrown into the apply pipeline - a single bad row in a batch never fails the res
 `write` controls field protection for every existing-row entity write: query rows and extracts,
 ingest, sync, relation touches, mutation commits, replace, and sparse `patch`. New rows bypass write
 rules. `'server'` is the explicit incoming-wins default, `'continuity'` keeps current for nullish
-incoming values but accepts `''`, `{ monotonic: { newerBy } }`, `{ monotonic: { tuple } }`, and
-`{ monotonic: { nonEmpty: true } }` retain group fields on a rejected update, `{ media }` preserves
-declared media dimensions, sources, and transcode progress, and `{ snapshot: true }` shallow-folds
-objects. Monotonic policies run for snapshot/event by default; media also covers patch; replace is
-always server-authoritative.
+incoming values but accepts `''`, and `{ snapshot: true }` shallow-folds objects. `{ monotonic }`
+accepts `newerBy`, `tuple`, `nonEmpty`, `ladder`, `present`, `equal`, `all`, and `any` predicates;
+paths may address nested object values with dots. `{ keys }` shallow-folds an object and applies
+`server`, `continuity`, `nonEmpty`, or `positive` handling per declared key. A group policy may be
+an ordered array: a rejected guard restores current group fields before the next policy runs.
+`rest` selects `server` or `continuity` handling for unlisted incoming keys and defaults to
+`server`.
+Monotonic policies run for snapshot/event by default and replace remains server-authoritative.
 
 ```ts
 import { defineModel, f } from '@noma4i/react-native-dblayer';
 
-const ChatModel = defineModel({
-  id: 'chats',
-  name: 'ChatModel',
+const BlobModel = defineModel({
+  id: 'blobs',
+  name: 'BlobModel',
   fields: {
-    name: f.str(),
-    updatedAt: f.str(),
-    lastMessageId: f.str().nullable(),
-    lastMessageAt: f.str().nullable(),
-    lastSequenceNumber: f.num().nullable()
+    blob: f.raw<Record<string, unknown>>(),
+    headId: f.str().nullable(),
+    headAt: f.num(),
+    headSeq: f.num()
   },
   write: {
     groups: [
       {
-        fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'],
-        policy: { monotonic: { newerBy: 'updatedAt' } }
+        fields: ['blob'],
+        policy: [
+          {
+            monotonic: {
+              all: [
+                { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } },
+                { tuple: ['blob.progress'] }
+              ]
+            }
+          },
+          { keys: { w: 'positive', h: 'positive', url: 'nonEmpty', alt: 'nonEmpty' } }
+        ]
+      },
+      {
+        fields: ['headId', 'headAt', 'headSeq'],
+        policy: {
+          monotonic: {
+            all: [
+              { present: 'headId' },
+              { any: [{ equal: 'headId' }, { tuple: ['headAt', 'headSeq'] }] }
+            ]
+          }
+        }
       }
     ]
   }
 });
 ```
 
-This prevents an older list snapshot from regressing the chat preview after a newer message socket
-event or relation touch. Each group must contain at least one declared schema field, and a field can
+This prevents an older snapshot from regressing a declared record after a newer event or relation
+touch. Each group must contain at least one declared schema field, and a field can
 appear in only one group; invalid or overlapping declarations throw at `defineModel` time.
 
 ## Fields (`f`)

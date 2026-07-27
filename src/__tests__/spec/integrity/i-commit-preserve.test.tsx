@@ -54,7 +54,7 @@ describe('optimistic commit preserve semantics', () => {
       id: 'CommitPreserveMessages',
       name: 'CommitPreserveMessages',
       fields: { body: f.str(), media: f.object(mediaShape), localPreviewUrl: f.str().nullable() },
-      write: { groups: [{ fields: ['media'] as const, policy: { media: { dimensionKeys: ['width', 'height'], sourceKeys: ['fileUrl', 'thumbUrl', 'coverUrl'], transcodeGuard: { statusField: 'transcodeStatus' } } } }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
+      write: { groups: [{ fields: ['media'] as const, policy: [{ monotonic: { ladder: { path: 'media.transcodeStatus', tiers: [['processing'], ['ready', 'failed', 'completed']] } } }, { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', thumbUrl: 'nonEmpty', coverUrl: 'nonEmpty' } }] }, { fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
     });
     const send = messages.mutation<SendResult, void, MessageRow, MessageRow>('send', {
       document,

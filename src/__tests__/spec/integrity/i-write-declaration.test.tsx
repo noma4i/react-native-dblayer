@@ -10,7 +10,7 @@ const createMediaModel = (id: string) => {
     id,
     name: id,
     fields: { body: f.str(), media: f.object(media) },
-    write: { groups: [{ fields: ['media'] as const, policy: { media: { dimensionKeys: ['width', 'height'], sourceKeys: ['fileUrl', 'thumbUrl', 'coverUrl', 'blurHash'] } } }] }
+    write: { groups: [{ fields: ['media'] as const, policy: { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', thumbUrl: 'nonEmpty', coverUrl: 'nonEmpty', blurHash: 'nonEmpty' } } }] }
   });
 };
 

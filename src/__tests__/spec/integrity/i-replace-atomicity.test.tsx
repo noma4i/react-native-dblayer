@@ -17,7 +17,7 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
             groups: [
               {
                 fields: ['media'] as const,
-                policy: { media: { dimensionKeys: [], sourceKeys: [], transcodeGuard: { statusField: 'transcodeStatus' } } }
+                policy: { monotonic: { ladder: { path: 'media.transcodeStatus', tiers: [['processing'], ['completed']] } } }
               }
             ]
           }
