@@ -1,5 +1,9 @@
 # Changelog
 
+## 8.0.0-beta.4 - 2026-07-27
+
+- Fix a startup crash on react-native-mmkv v4: the storage adapter called a non-existent `allKeys()` (v4 API is `getAllKeys()`), killing the JS runtime before app registration on the first manifest boot (endless splash in release builds). Adapter types now derive from the real `react-native-mmkv` package instead of a hand-written mirror, so any future API drift fails typecheck.
+
 ## 8.0.0-beta.3 - 2026-07-27
 
 - Query handles accept `null` as a disabled scope across `use`, `useRowEnsured` and imperative `fetch`: a `null` scope is an idle read - no `vars`/`enabled` callbacks, no scope registration or subscription, no transport call; `fetch(null)` resolves as a no-op. Restores the documented "pass `null` for an absent scope" consumer contract lost in the v8 rewrite.
