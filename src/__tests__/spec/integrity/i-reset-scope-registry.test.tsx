@@ -9,7 +9,7 @@ type GroupResponse = { rows: GroupRow[] };
 const document = { kind: 'Document', definitions: [] } as never;
 
 describe('query scope registry reset contract', () => {
-  it('invalidates only scopes registered after resetRuntime', async () => {
+  it('keeps query freshness outside the TanStack cache after resetRuntime', async () => {
     const transport = createMockTransport({
       query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
         const variables = operation.variables as GroupScope;
@@ -42,25 +42,11 @@ describe('query scope registry reset contract', () => {
     await query.fetch({ groupId: 'account-A', sessionId: 'before-reset' });
     resetRuntime();
     configureDb({ storage: createMemoryPlane(), transport });
-    const invalidateQueries = jest.spyOn(getDbRuntimeConfig().queryClient, 'invalidateQueries');
-
     query.invalidate({ groupId: 'account-A' });
-
-    expect(
-      invalidateQueries.mock.calls.some(([filters]) => {
-        const scopeKey = filters?.queryKey?.[2];
-        return typeof scopeKey === 'string' && scopeKey.includes('"groupId":"account-A"') && scopeKey.includes('"sessionId":"before-reset"');
-      })
-    ).toBe(false);
 
     await query.fetch({ groupId: 'B', sessionId: 'after-reset' });
     query.invalidate({ groupId: 'B' });
 
-    expect(
-      invalidateQueries.mock.calls.some(([filters]) => {
-        const scopeKey = filters?.queryKey?.[2];
-        return typeof scopeKey === 'string' && scopeKey.includes('"groupId":"B"') && scopeKey.includes('"sessionId":"after-reset"');
-      })
-    ).toBe(true);
+    expect(getDbRuntimeConfig().queryClient.getQueryCache().findAll({ queryKey: ['dbl'] })).toEqual([]);
   });
 });

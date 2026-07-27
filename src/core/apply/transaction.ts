@@ -123,7 +123,7 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
       const beforeById = new Map(op.rows.flatMap(row => typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string' ? [[(row as { id: string }).id, target.readRow((row as { id: string }).id)] as const] : []));
       const changes = target.upsert(op.rows, op.origin, op.origin === 'replace' ? op.mergeBase as Record<string, unknown> | undefined : undefined, op.operationId);
       for (const change of changes) {
-        batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+        batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields, kind: 'upsert' });
         const after = target.readRow(change.id);
         if (after && change.changedFields !== null && change.changedFields.length > 0) accepted.push({ model: op.model, id: change.id, before: op.origin === 'replace' ? op.mergeBase as Record<string, unknown> | undefined : beforeById.get(change.id), after, origin: op.origin });
         if (after && change.changedFields === null) accepted.push({ model: op.model, id: change.id, before: beforeById.get(change.id), after, origin: op.origin });
@@ -139,7 +139,7 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
       const before = target.readRow(op.id);
       const change = target.patch(op.id, op.patch, op.operationId);
       if (change) {
-        batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields });
+        batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields, kind: 'upsert' });
         const after = target.readRow(change.id);
         if (after && change.changedFields !== null && change.changedFields.length > 0) accepted.push({ model: op.model, id: change.id, before, after });
       }
@@ -149,7 +149,7 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
       const before = new Map(op.ids.map(id => [id, target.readRow(id)]));
       const ids = target.destroy(op.ids, op.tombstone);
       for (const id of ids) {
-        batch.rows.push({ model: op.model, id, fields: null });
+        batch.rows.push({ model: op.model, id, fields: null, kind: 'destroy' });
         const row = before.get(id);
         if (row) destroyed.push({ model: op.model, id, before: row, origin: op.origin });
       }
@@ -157,7 +157,7 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
     }
     if (op.kind === 'counter') {
       if (target.counter(op.id, op.field, op.delta, op.next)) {
-        batch.rows.push({ model: op.model, id: op.id, fields: [op.field] });
+        batch.rows.push({ model: op.model, id: op.id, fields: [op.field], kind: 'upsert' });
         noteRows(op.model, target, [op.id]);
       }
     }

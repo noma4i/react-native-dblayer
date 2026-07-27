@@ -5,6 +5,7 @@ import type { Query } from '@tanstack/react-query';
 import { getDbRuntimeConfig, getInternalQueryClient } from './configure';
 import { bootDb, suspendDb } from './lifecycle';
 import { noteResumeDrain } from '../core/diagnostics';
+import { resumeFetchLedgers } from '../core/fetch/fetchLedgerRegistry';
 
 const resolveResumeStaleTime = (query: Query, fallback: number | null): number | null => {
   const metaValue = query.meta?.resumeStaleTime;
@@ -65,30 +66,29 @@ export const DbProvider = ({ children }: DbProviderProps) => {
           const resumedAt = Date.now();
           const predicate = (query: Query) => {
             const queryResumeStaleTime = resolveResumeStaleTime(query, resumeStaleTime);
-            return (query.queryKey[0] === 'dbl' || query.queryKey[0] === 'dbl-fetch') && queryResumeStaleTime !== null && resumedAt - query.state.dataUpdatedAt > queryResumeStaleTime;
+            return query.queryKey[0] === 'dbl-fetch' && queryResumeStaleTime !== null && resumedAt - query.state.dataUpdatedAt > queryResumeStaleTime;
           };
           const staleQueries = queryClient.getQueryCache().findAll({ predicate });
-          if (staleQueries.length > 0) {
-            const staleQuerySet = new Set(staleQueries);
-            const staleCandidate = (query: Query) => staleQuerySet.has(query);
-            const activeQueries = staleQueries.filter(query => query.getObserversCount() > 0);
-            const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
-            if (chunkSize <= 0) throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${chunkSize}`);
-            void (async () => {
-              let refetched = 0;
-              try {
-                await queryClient.invalidateQueries({ predicate: staleCandidate, refetchType: 'none' });
-                for (let index = 0; index < activeQueries.length; index += chunkSize) {
-                  if (resumeDrainGeneration.current !== generation) return;
-                  const chunk = activeQueries.slice(index, index + chunkSize);
-                  refetched += chunk.length;
-                  await Promise.allSettled(chunk.map(query => queryClient.refetchQueries({ queryKey: query.queryKey, exact: true })));
-                }
-              } finally {
-                noteResumeDrain(refetched);
+          const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
+          if (chunkSize <= 0) throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${chunkSize}`);
+          const staleQuerySet = new Set(staleQueries);
+          const staleCandidate = (query: Query) => staleQuerySet.has(query);
+          const activeQueries = staleQueries.filter(query => query.getObserversCount() > 0);
+          void (async () => {
+            let fetchRefetched = 0;
+            const drainFetch = async (): Promise<void> => {
+              await queryClient.invalidateQueries({ predicate: staleCandidate, refetchType: 'none' });
+              for (let index = 0; index < activeQueries.length; index += chunkSize) {
+                if (resumeDrainGeneration.current !== generation) return;
+                const chunk = activeQueries.slice(index, index + chunkSize);
+                fetchRefetched += chunk.length;
+                await Promise.allSettled(chunk.map(query => queryClient.refetchQueries({ queryKey: query.queryKey, exact: true })));
               }
-            })();
-          }
+            };
+            const queryRefetched = await resumeFetchLedgers(chunkSize, () => resumeDrainGeneration.current === generation);
+            await drainFetch();
+            noteResumeDrain(fetchRefetched + queryRefetched);
+          })();
         }
       } else if (state === 'background') {
         resumeDrainGeneration.current += 1;

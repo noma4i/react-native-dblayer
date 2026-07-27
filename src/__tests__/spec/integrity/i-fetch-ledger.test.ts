@@ -31,7 +31,7 @@ describe('fetch ledger integrity', () => {
   it('L1 stamps only outcomes applied to the current generation', async () => {
     const ledger = createLedger();
 
-    await expect(ledger.run('applied', async () => ({ applied: true, count: 0 }))).resolves.toBe('applied');
+    await expect(ledger.run('applied', async () => ({ applied: true, count: 0, ids: [] }))).resolves.toBe('applied');
     await expect(ledger.run('skipped', async () => ({ applied: false }))).resolves.toBe('skipped');
     await expect(ledger.run('failed', async () => { throw new Error('failed'); })).resolves.toBe('failed');
 
@@ -44,12 +44,12 @@ describe('fetch ledger integrity', () => {
     const onStamp = jest.fn();
     const ledger = createLedger({ onStamp });
 
-    await ledger.run('key', async () => ({ applied: true, count: 2 }));
+    await ledger.run('key', async () => ({ applied: true, count: 2, ids: ['Model\0first', 'Model\0second'] }));
     ledger.invalidate('key');
     ledger.invalidate('key');
-    await ledger.run('key', async () => ({ applied: true, count: 3 }));
-    ledger.noteRowsLost('key');
-    ledger.noteRowsLost('key');
+    await ledger.run('key', async () => ({ applied: true, count: 3, ids: ['Model\0first', 'Model\0second'] }));
+    ledger.noteRowsLost(['Model\0first', 'Model\0second']);
+    ledger.noteRowsLost(['Model\0first', 'Model\0second']);
 
     expect(onStamp).toHaveBeenCalledTimes(4);
     expect(onStamp).toHaveBeenNthCalledWith(1, 'key');
@@ -61,11 +61,11 @@ describe('fetch ledger integrity', () => {
 
   it('L3 skips an outcome that resolves after the runtime generation changes', async () => {
     const ledger = createLedger();
-    const deferred = createDeferred<{ applied: true; count: number }>();
+    const deferred = createDeferred<{ applied: true; count: number; ids: readonly string[] }>();
     const pending = ledger.run('key', async () => await deferred.promise);
 
     resetRuntime();
-    deferred.resolve({ applied: true, count: 1 });
+    deferred.resolve({ applied: true, count: 1, ids: [] });
 
     await expect(pending).resolves.toBe('skipped');
     expect(ledger.read('key')).toBeUndefined();
@@ -73,34 +73,34 @@ describe('fetch ledger integrity', () => {
 
   it('L4 clears entries and flights on reset', async () => {
     const ledger = createLedger();
-    await ledger.run('key', async () => ({ applied: true, count: 1 }));
+    await ledger.run('key', async () => ({ applied: true, count: 1, ids: [] }));
     const release = ledger.retain('key', async () => {});
 
     resetRuntime();
 
     expect(ledger.read('key')).toBeUndefined();
     expect(ledger.activeKeys()).toEqual([]);
-    await expect(ledger.run('key', async () => ({ applied: true, count: 2 }))).resolves.toBe('applied');
+    await expect(ledger.run('key', async () => ({ applied: true, count: 2, ids: [] }))).resolves.toBe('applied');
     expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 2, cursor: null, pages: 1 });
     release();
   });
 
   it('L6 shares same-key flights while allowing different keys to execute independently', async () => {
     const ledger = createLedger();
-    const deferred = createDeferred<{ applied: true; count: number }>();
+    const deferred = createDeferred<{ applied: true; count: number; ids: readonly string[] }>();
     const execute = jest.fn(async () => await deferred.promise);
 
     const first = ledger.run('same', execute);
     const second = ledger.run('same', execute);
-    const other = ledger.run('other', async () => ({ applied: true, count: 1 }));
-    deferred.resolve({ applied: true, count: 1 });
+    const other = ledger.run('other', async () => ({ applied: true, count: 1, ids: [] }));
+    deferred.resolve({ applied: true, count: 1, ids: [] });
 
     await expect(Promise.all([first, second, other])).resolves.toEqual(['applied', 'applied', 'applied']);
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it('L7 returns offline without invoking execute or changing freshness', async () => {
-    const execute = jest.fn(async () => ({ applied: true as const, count: 1 }));
+    const execute = jest.fn(async () => ({ applied: true as const, count: 1, ids: [] }));
     const ledger = createLedger({ isOnline: () => false });
 
     await expect(ledger.run('key', execute)).resolves.toBe('offline');
@@ -117,7 +117,7 @@ describe('fetch ledger integrity', () => {
       const pending = ledger.run('key', async ({ attempt }) => {
         calls += 1;
         if (attempt < 3) throw new Error('offline');
-        return { applied: true, count: 4 };
+        return { applied: true, count: 4, ids: [] };
       });
 
       await Promise.resolve();
@@ -154,7 +154,7 @@ describe('fetch ledger integrity', () => {
     const ledger = createLedger({ now: () => now });
 
     expect(ledger.isFresh('key', 1)).toBe(false);
-    await ledger.run('key', async () => ({ applied: true, count: 1 }));
+    await ledger.run('key', async () => ({ applied: true, count: 1, ids: [] }));
     now = 110;
     expect(ledger.isFresh('key', 10)).toBe(true);
     now = 111;
@@ -164,22 +164,22 @@ describe('fetch ledger integrity', () => {
   it('L5 evicts the oldest unretained entry and keeps retained entries beyond the limit', async () => {
     let now = 1;
     const ledger = createLedger({ now: () => now, maxEntries: 2 });
-    await ledger.run('oldest', async () => ({ applied: true, count: 1 }));
+    await ledger.run('oldest', async () => ({ applied: true, count: 1, ids: [] }));
     now = 2;
-    await ledger.run('retained', async () => ({ applied: true, count: 1 }));
+    await ledger.run('retained', async () => ({ applied: true, count: 1, ids: [] }));
     const release = ledger.retain('retained', async () => {});
     now = 3;
-    await ledger.run('newest', async () => ({ applied: true, count: 1 }));
+    await ledger.run('newest', async () => ({ applied: true, count: 1, ids: [] }));
 
     expect(ledger.read('oldest')).toBeUndefined();
     expect(ledger.read('retained')).toBeDefined();
     expect(ledger.read('newest')).toBeDefined();
 
     const protectedLedger = createLedger({ maxEntries: 1 });
-    await protectedLedger.run('retained', async () => ({ applied: true, count: 1 }));
+    await protectedLedger.run('retained', async () => ({ applied: true, count: 1, ids: [] }));
     const releaseProtected = protectedLedger.retain('retained', async () => {});
     const releaseOverflow = protectedLedger.retain('overflow', async () => {});
-    await protectedLedger.run('overflow', async () => ({ applied: true, count: 1 }));
+    await protectedLedger.run('overflow', async () => ({ applied: true, count: 1, ids: [] }));
 
     expect(protectedLedger.read('retained')).toBeDefined();
     expect(protectedLedger.read('overflow')).toBeDefined();
@@ -219,11 +219,11 @@ describe('fetch ledger integrity', () => {
 
     await ledger.run('key', async context => {
       expect(context.cursor).toBeNull();
-      return { applied: true, count: 1, cursor: 'second-page' };
+      return { applied: true, count: 1, ids: [], cursor: 'second-page' };
     });
     await ledger.run('key', async context => {
       expect(context.cursor).toBe('second-page');
-      return { applied: true, count: 2, cursor: 'third-page' };
+      return { applied: true, count: 2, ids: [], cursor: 'third-page' };
     });
 
     expect(ledger.read('key')).toEqual({ lastAppliedAt: 100, lastCount: 2, cursor: 'third-page', pages: 2 });
@@ -231,15 +231,15 @@ describe('fetch ledger integrity', () => {
 
   it('L12 invalidation and row loss reset the page chain', async () => {
     const ledger = createLedger();
-    await ledger.run('key', async () => ({ applied: true, count: 1, cursor: 'next-page' }));
+    await ledger.run('key', async () => ({ applied: true, count: 1, ids: ['Model\0row'], cursor: 'next-page' }));
 
     ledger.invalidate('key');
     expect(ledger.read('key')).toEqual({ lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
     await ledger.run('key', async context => {
       expect(context.cursor).toBeNull();
-      return { applied: true, count: 1, cursor: 'next-page' };
+      return { applied: true, count: 1, ids: ['Model\0row'], cursor: 'next-page' };
     });
-    ledger.noteRowsLost('key');
+    ledger.noteRowsLost(['Model\0row']);
 
     expect(ledger.read('key')).toEqual({ lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
   });
@@ -269,5 +269,43 @@ describe('fetch ledger integrity', () => {
     expect(fulfilled).toHaveBeenCalledTimes(1);
     releaseRejected();
     releaseFulfilled();
+  });
+
+  it('L15 keeps freshness and does not stamp when a committed identity partially survives', async () => {
+    const onStamp = jest.fn();
+    const ledger = createLedger({ onStamp });
+    await ledger.run('key', async () => ({ applied: true, count: 2, ids: ['Model\0first', 'Model\0second'] }));
+
+    ledger.noteRowsLost(['Model\0first']);
+
+    expect(ledger.isFresh('key', Infinity)).toBe(true);
+    expect(onStamp).toHaveBeenCalledTimes(1);
+  });
+
+  it('L16 drops freshness and stamps once when every committed identity is lost', async () => {
+    const onStamp = jest.fn();
+    const ledger = createLedger({ onStamp });
+    await ledger.run('key', async () => ({ applied: true, count: 2, ids: ['Model\0first', 'Model\0second'] }));
+
+    ledger.noteRowsLost(['Model\0first', 'Model\0second']);
+    ledger.noteRowsLost(['Model\0first', 'Model\0second']);
+
+    expect(ledger.isFresh('key', Infinity)).toBe(false);
+    expect(onStamp).toHaveBeenCalledTimes(2);
+  });
+
+  it('L17 replaces committed identities on a new application so old identities no longer affect freshness', async () => {
+    const onStamp = jest.fn();
+    const ledger = createLedger({ onStamp });
+    await ledger.run('key', async () => ({ applied: true, count: 1, ids: ['Model\0old'] }));
+    await ledger.run('key', async () => ({ applied: true, count: 1, ids: ['Model\0new'] }));
+
+    ledger.noteRowsLost(['Model\0new']);
+    expect(ledger.isFresh('key', Infinity)).toBe(false);
+    await ledger.run('key', async () => ({ applied: true, count: 1, ids: ['Model\0new'] }));
+    ledger.noteRowsLost(['Model\0old']);
+
+    expect(ledger.isFresh('key', Infinity)).toBe(true);
+    expect(onStamp).toHaveBeenCalledTimes(3);
   });
 });

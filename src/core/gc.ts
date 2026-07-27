@@ -53,7 +53,7 @@ export const collectGarbage = (): GcReport => {
   const marked = new Map<string, Set<string>>();
   const queue: Array<{ model: string; id: string }> = [];
   const maintainedModels = new Set<string>();
-  const rows: Array<{ model: string; id: string; fields: null }> = [];
+  const rows: Array<{ model: string; id: string; fields: null; kind: 'destroy' }> = [];
   const scopes: Array<{ model: string; scopeKey: string }> = [];
   const scopeChanges: Array<{ model: string; scopeKey: string; detachIds?: string[]; rebuild?: boolean }> = [];
   const report: GcReport = { evicted: {}, scopesRemoved: {} };
@@ -146,7 +146,7 @@ export const collectGarbage = (): GcReport => {
       if (live?.has(id)) continue;
       if (host.evict(id)) {
         evicted += 1;
-        rows.push({ model: host.modelId, id, fields: null });
+        rows.push({ model: host.modelId, id, fields: null, kind: 'destroy' });
       }
     }
     if (evicted > 0) {

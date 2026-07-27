@@ -13,9 +13,13 @@ type FetchEntry = {
   cursor: string | null;
   /** Pages applied in the current chain. */
   pages: number;
+  /** Opaque composite row identities from the latest applied result. */
+  ids: Set<string>;
 };
 
-type RunOutcome = { applied: true; count: number; cursor?: string | null } | { applied: false };
+type FetchEntrySnapshot = Omit<FetchEntry, 'ids'>;
+
+type RunOutcome = { applied: true; count: number; ids: readonly string[]; cursor?: string | null } | { applied: false };
 
 type RunStatus = 'applied' | 'skipped' | 'offline' | 'failed';
 
@@ -28,19 +32,25 @@ type RunContext = {
 };
 
 type FetchLedger = {
-  read(key: FetchKey): Readonly<FetchEntry> | undefined;
+  read(key: FetchKey): Readonly<FetchEntrySnapshot> | undefined;
   /** True when `lastAppliedAt` is within `staleTimeMs` of `now()`. False when never applied. */
   isFresh(key: FetchKey, staleTimeMs: number): boolean;
   /** Single-flight per key, retry policy, offline gate; stamps only on applied-while-current. */
   run(key: FetchKey, execute: (ctx: RunContext) => Promise<RunOutcome>): Promise<RunStatus>;
   /** Drop freshness so the next read refetches. */
   invalidate(key: FetchKey): void;
-  /** Drop freshness because committed rows behind this key were destroyed, evicted, or trimmed. */
-  noteRowsLost(key: FetchKey): void;
+  /** Internal coordinator bridge to refetch every active reader for one key. */
+  refetchKey(key: FetchKey): Promise<void>;
+  /** Internal coordinator bridge to refetch active readers whose freshness was dropped. */
+  refetchStaleReaders(): Promise<void>;
+  /** Drop freshness only after every committed identity behind a key was destroyed, evicted, or trimmed. */
+  noteRowsLost(ids: readonly string[]): void;
   /** Register a live reader and how to refetch it; returns the release callback. */
   retain(key: FetchKey, refetch: () => Promise<void>): () => void;
   /** Keys with at least one live reader, in registration order. */
   activeKeys(): FetchKey[];
+  /** Internal coordinator bridge for globally chunked foreground resume. */
+  activeRefetches(): Array<() => Promise<void>>;
   /** Walk `activeKeys()` in chunks of `chunkSize`, awaiting each chunk's refetches. */
   resume(chunkSize: number): Promise<void>;
   reset(): void;
@@ -59,13 +69,20 @@ export const createFetchLedger = (options: {
   const entries = new Map<FetchKey, FetchEntry>();
   const flights = new Map<FetchKey, Promise<RunStatus>>();
   const readers = new Map<FetchKey, Map<number, () => Promise<void>>>();
+  const generations = new Map<FetchKey, number>();
   let nextReaderId = 0;
 
   const clearEntry = (key: FetchKey): void => {
     const entry = entries.get(key);
     if (!entry || (entry.lastAppliedAt === null && entry.lastCount === null && entry.cursor === null && entry.pages === 0)) return;
-    entries.set(key, { lastAppliedAt: null, lastCount: null, cursor: null, pages: 0 });
+    entries.set(key, { lastAppliedAt: null, lastCount: null, cursor: null, pages: 0, ids: new Set() });
     options.onStamp(key);
+  };
+
+  const invalidate = (key: FetchKey): void => {
+    generations.set(key, (generations.get(key) ?? 0) + 1);
+    flights.delete(key);
+    clearEntry(key);
   };
 
   const trimEntries = (): void => {
@@ -88,16 +105,27 @@ export const createFetchLedger = (options: {
 
   const activeKeys = (): FetchKey[] => [...readers.keys()];
 
+  const activeRefetches = (): Array<() => Promise<void>> => activeKeys().flatMap(key => [...(readers.get(key)?.values() ?? [])]);
+  const refetchKey = async (key: FetchKey): Promise<void> => {
+    await Promise.all([...(readers.get(key)?.values() ?? [])].map(refetch => refetch().catch(() => {})));
+  };
+
   const reset = (): void => {
     entries.clear();
     flights.clear();
     readers.clear();
+    generations.clear();
   };
 
   registerReset(reset);
 
   return {
-    read: key => entries.get(key),
+    read: key => {
+      const entry = entries.get(key);
+      if (!entry) return undefined;
+      const { ids: _ids, ...snapshot } = entry;
+      return snapshot;
+    },
     isFresh: (key, staleTimeMs) => {
       const lastAppliedAt = entries.get(key)?.lastAppliedAt;
       return lastAppliedAt !== undefined && lastAppliedAt !== null && options.now() - lastAppliedAt <= staleTimeMs;
@@ -108,13 +136,15 @@ export const createFetchLedger = (options: {
       if (!options.isOnline()) return Promise.resolve('offline');
 
       const generationFence = createGenerationFence();
+      const keyGeneration = generations.get(key) ?? 0;
       const cursor = entries.get(key)?.cursor ?? null;
       const flight = (async (): Promise<RunStatus> => {
         let attempt = 1;
         while (true) {
           try {
-            const outcome = await execute({ cursor, attempt, isCurrent: generationFence.isCurrent });
-            if (!outcome.applied || !generationFence.isCurrent()) return 'skipped';
+            const isCurrent = (): boolean => generationFence.isCurrent() && (generations.get(key) ?? 0) === keyGeneration;
+            const outcome = await execute({ cursor, attempt, isCurrent });
+            if (!outcome.applied || !isCurrent()) return 'skipped';
 
             const previous = entries.get(key);
             const hasCursor = 'cursor' in outcome;
@@ -122,7 +152,8 @@ export const createFetchLedger = (options: {
               lastAppliedAt: options.now(),
               lastCount: outcome.count,
               cursor: hasCursor ? outcome.cursor ?? null : null,
-              pages: hasCursor ? (cursor === null ? 1 : (previous?.pages ?? 0) + 1) : 1
+              pages: hasCursor ? (cursor === null ? 1 : (previous?.pages ?? 0) + 1) : 1,
+              ids: new Set(outcome.ids)
             };
             entries.set(key, next);
             if (
@@ -148,8 +179,22 @@ export const createFetchLedger = (options: {
       flights.set(key, flight);
       return flight;
     },
-    invalidate: clearEntry,
-    noteRowsLost: clearEntry,
+    invalidate,
+    refetchKey,
+    refetchStaleReaders: async () => {
+      await Promise.all([...entries].filter(([, entry]) => entry.lastAppliedAt === null).map(([key]) => refetchKey(key)));
+    },
+    noteRowsLost: lostIds => {
+      if (lostIds.length === 0) return;
+      const lost = new Set(lostIds);
+      for (const [key, entry] of entries) {
+        if (entry.ids.size === 0) continue;
+        for (const id of lost) entry.ids.delete(id);
+        if (entry.ids.size === 0) {
+          clearEntry(key);
+        }
+      }
+    },
     retain: (key, refetch) => {
       const keyReaders = readers.get(key) ?? new Map<number, () => Promise<void>>();
       readers.set(key, keyReaders);
@@ -166,11 +211,12 @@ export const createFetchLedger = (options: {
       };
     },
     activeKeys,
+    activeRefetches,
     resume: async chunkSize => {
-      const keys = activeKeys();
-      for (let index = 0; index < keys.length; index += chunkSize) {
-        const refetches = keys.slice(index, index + chunkSize).flatMap(key => [...(readers.get(key)?.values() ?? [])]);
-        await Promise.all(refetches.map(refetch => Promise.resolve().then(refetch).catch(() => {})));
+      const refetches = activeRefetches();
+      for (let index = 0; index < refetches.length; index += chunkSize) {
+        const chunk = refetches.slice(index, index + chunkSize);
+        await Promise.all(chunk.map(refetch => Promise.resolve().then(refetch).catch(() => {})));
       }
     },
     reset

@@ -1,6 +1,6 @@
 import { noteCommitFanout } from '../diagnostics';
 
-export type RowChange = { model: string; id: string; fields: string[] | null };
+export type RowChange = { model: string; id: string; fields: string[] | null; kind?: 'upsert' | 'destroy' };
 type ScopeChange = { model: string; scopeKey: string };
 type PendingChange = { model: string; id: string };
 export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[]; pending?: PendingChange[] };

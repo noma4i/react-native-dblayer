@@ -231,7 +231,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
       appStateHandler?.('active');
     });
     await settle();
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     act(() => root.unmount());
   });
 
