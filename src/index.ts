@@ -34,7 +34,7 @@ export { isIncomingNewer } from './core/invariants';
 export { stringifyNullish } from './utils/normalizeHelpers';
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { mergeOptimisticMedia } from './utils/optimisticMedia';
-export { createThrottledSingleFlight, createSingleFlight } from './utils/runtimePrimitives';
+export { createThrottledSingleFlight, createSingleFlight } from './utils/singleFlight';
 export { createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher } from './utils/modelPatchers';
 export { createSingletonStatics } from './utils/singletonStatics';
 export { reconcileOptimisticRows } from './utils/optimisticReconcile';

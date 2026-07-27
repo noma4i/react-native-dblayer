@@ -2,7 +2,8 @@ import { union } from 'es-toolkit';
 import { useCallback, useSyncExternalStore } from 'react';
 import { getDbLogger } from '../core/logger';
 import { registerReset } from '../core/reset';
-import { createGenerationFence, createSingleFlight } from './runtimePrimitives';
+import { createGenerationFence } from './runtimePrimitives';
+import { createSingleFlight } from './singleFlight';
 
 export type ModelStatusPollerPhase = {
   phase: 'idle' | 'polling' | 'ready' | 'failed' | 'stalled';
