@@ -116,4 +116,14 @@ describe('spec import discipline', () => {
 
     expect(violations).toEqual([]);
   });
+
+  it('keeps perf and appshape gates free of wall-clock measurements', () => {
+    const gateFiles = ['perf', 'appshape'].flatMap(directory => sourceFiles(path.join(specRoot, directory)));
+
+    for (const file of gateFiles) {
+      const source = fs.readFileSync(file, 'utf8');
+      expect(source).not.toMatch(/performance\.now/);
+      expect(source).not.toMatch(/\bmedian\b/);
+    }
+  });
 });

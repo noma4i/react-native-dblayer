@@ -27,6 +27,7 @@ type DiagnosticsState = {
   readEngineApplies: number;
   readEngineRebuilds: number;
   readEngineDeltaRows: number;
+  readEngineScanRows: number;
   mirrorScopePasses: number;
   mirrorScopeResorts: number;
   resumeDrains: number;
@@ -55,6 +56,7 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   readEngineApplies: 0,
   readEngineRebuilds: 0,
   readEngineDeltaRows: 0,
+  readEngineScanRows: 0,
   mirrorScopePasses: 0,
   mirrorScopeResorts: 0,
   resumeDrains: 0,
@@ -95,6 +97,11 @@ export const noteReadEngineApply = (kind: 'delta' | 'rebuild', rows: number, ms:
   if (kind === 'rebuild') diagnostics.readEngineRebuilds += 1;
   else diagnostics.readEngineDeltaRows += rows;
   diagnostics.totalReadEngineMs += ms;
+};
+
+/** Record one model-read scan by its row count, without per-row instrumentation. */
+export const noteReadEngineScan = (rows: number): void => {
+  diagnostics.readEngineScanRows += rows;
 };
 
 export const noteMirrorScopePass = (resorted: boolean, ms: number): void => {

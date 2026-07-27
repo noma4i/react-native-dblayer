@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { defineModel, f, type DbWhere } from '../../../index';
-import { setupSpecRuntime } from '../helpers/harness';
+import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 type ScaleRow = { id: string; score: number; status: string };
 
@@ -16,26 +16,23 @@ const buildModel = (tag: string, size: number) => {
   return items;
 };
 
-const sampleMountScan = (size: number, tag: string, where: DbWhere<ScaleRow>): number => {
-  const items = buildModel(tag, size);
+const mountScanWork = (where: DbWhere<ScaleRow>) => {
+  const items = buildModel('Mount', 20_000);
   const Reader = () => {
     (items.use.where as unknown as (criteria: DbWhere<ScaleRow>) => { rows(): unknown[] })(where).rows();
     return null;
   };
-  const samples = Array.from({ length: 7 }, () => {
-    const started = performance.now();
-    let root!: TestRenderer.ReactTestRenderer;
-    act(() => {
-      root = TestRenderer.create(React.createElement(Reader));
-    });
-    const elapsed = performance.now() - started;
-    act(() => root.unmount());
-    return elapsed;
-  }).sort((left, right) => left - right);
-  return samples[Math.floor(samples.length / 2)]!;
+  diagnostics().reset();
+  let root!: TestRenderer.ReactTestRenderer;
+  act(() => {
+    root = TestRenderer.create(React.createElement(Reader));
+  });
+  const work = diagnostics().snapshot();
+  act(() => root.unmount());
+  return work;
 };
 
-const samplePatchUnderReader = (size: number): number => {
+const patchWork = (size: number) => {
   const items = buildModel('Patch', size);
   const Reader = () => {
     (items.use.where as unknown as (criteria: DbWhere<ScaleRow>) => { rows(): unknown[] })({ score: { gte: 50 } }).rows();
@@ -45,25 +42,32 @@ const samplePatchUnderReader = (size: number): number => {
   act(() => {
     root = TestRenderer.create(React.createElement(Reader));
   });
-  const samples = Array.from({ length: 7 }, (_, index) => {
-    const started = performance.now();
-    act(() => items.update('75', { score: 55 + index }));
-    return performance.now() - started;
-  }).sort((left, right) => left - right);
+  diagnostics().reset();
+  act(() => {
+    items.update('75', { score: 56 });
+  });
+  const work = diagnostics().snapshot();
   act(() => root.unmount());
-  return samples[Math.floor(samples.length / 2)]!;
+  return work;
 };
 
 describe('where operator scale', () => {
-  it('keeps operator scans within a constant factor of equality scans', () => {
-    const equality = sampleMountScan(20_000, 'Eq', { status: 'even' });
-    const operator = sampleMountScan(20_000, 'Op', { score: { gte: 50 } });
-    expect(operator / Math.max(equality, 0.01)).toBeLessThan(3);
+  it('scans the same number of rows for equality and operator criteria', () => {
+    const equality = mountScanWork({ status: 'even' });
+    const operator = mountScanWork({ score: { gte: 50 } });
+
+    expect(operator.readEngineScanRows).toBe(equality.readEngineScanRows);
   });
 
-  it('keeps one-row patch cost sublinear under a mounted operator reader', () => {
-    const small = samplePatchUnderReader(1_000);
-    const large = samplePatchUnderReader(20_000);
-    expect(large / Math.max(small, 0.01)).toBeLessThan(12);
+  it('keeps one-row patch work constant under a mounted operator reader', () => {
+    const small = patchWork(1_000);
+    const large = patchWork(20_000);
+
+    expect(large.readEngineApplies).toBe(small.readEngineApplies);
+    expect(large.readEngineRebuilds).toBe(small.readEngineRebuilds);
+    expect(large.readEngineDeltaRows).toBe(small.readEngineDeltaRows);
+    expect(small.readEngineApplies).toBe(1);
+    expect(small.readEngineRebuilds).toBe(0);
+    expect(small.readEngineDeltaRows).toBe(1);
   });
 });

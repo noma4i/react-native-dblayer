@@ -129,6 +129,7 @@ export type DiagnosticsSnapshot = {
   readEngineApplies: number;
   readEngineRebuilds: number;
   readEngineDeltaRows: number;
+  readEngineScanRows: number;
   mirrorScopePasses: number;
   mirrorScopeResorts: number;
   resumeDrains: number;
@@ -150,17 +151,6 @@ export type DiagnosticsSnapshot = {
 type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => void };
 
 export const diagnostics = (): DiagnosticsGlobal => (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as DiagnosticsGlobal;
-
-export const median = (samples: number[]): number => [...samples].sort((left, right) => left - right)[Math.floor(samples.length / 2)]!;
-
-export const measure = (fn: () => void, iterations: number, rounds: number): number =>
-  median(
-    Array.from({ length: rounds }, () => {
-      const started = performance.now();
-      for (let index = 0; index < iterations; index += 1) fn();
-      return performance.now() - started;
-    })
-  );
 
 /**
  * Record every rendered value of a hook in order, so a test can assert the FRAME SEQUENCE

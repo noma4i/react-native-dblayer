@@ -1,6 +1,6 @@
 import { act } from 'react-test-renderer';
 import { configureDb, resetRuntime } from '../../../index';
-import { createMemoryPlane, createMockTransport, median, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const write = (model: any, row: unknown): void => model.insert(row);
@@ -17,26 +17,29 @@ const seedAccountScale = (models: ReturnType<typeof createAppModels>): void => {
 };
 
 describe('app-shaped speed contracts', () => {
-  it('P1 inserts 1000 messages into one mounted thread window within the measured budget and two renders', () => {
-    const samples: number[] = [];
-    const renderSamples: number[] = [];
-    for (let sample = 0; sample < 5; sample += 1) {
+  it('P1 inserts 1000 messages into one mounted thread window in two renders with constant fanout work', () => {
+    const insertWork = (count: number) => {
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const models = createAppModels(`SpeedP1-${sample}`);
+      const models = createAppModels(`SpeedP1-${count}`);
       write(models.chats, chatRow('chat-1'));
       const reader = renderCounted(() => models.messages.scopes.thread.useWindow({ chatId: 'chat-1' }, { pageSize: 30 }));
-      const started = performance.now();
-      act(() => writeMany(models.messages, messageRows('chat-1', 1000)));
-      samples.push(performance.now() - started);
-      renderSamples.push(reader.renders());
-      expect(reader.result().rows).toHaveLength(30);
+      diagnostics().reset();
+      act(() => writeMany(models.messages, messageRows('chat-1', count)));
+      const work = diagnostics().snapshot();
+      expect(reader.result().rows).toHaveLength(Math.min(count, 30));
+      const renders = reader.renders();
       reader.unmount();
-    }
-    const elapsed = median(samples);
-    const renders = Math.max(...renderSamples);
-    console.log(`P1 insertMany-1000 median=${elapsed.toFixed(3)}ms renders=${renders}`);
-    expect(elapsed).toBeLessThanOrEqual(150);
-    expect(renders).toBeLessThanOrEqual(2);
+      return { work, renders };
+    };
+    const single = insertWork(1);
+    const batch = insertWork(1000);
+
+    expect(batch.renders).toBeLessThanOrEqual(2);
+    expect(batch.work.commits).toBe(1);
+    expect(batch.work.commits).toBe(single.work.commits);
+    expect(batch.work.commitFanoutCandidates).toBe(single.work.commitFanoutCandidates);
+    expect(batch.work.commitFanoutNotified).toBe(single.work.commitFanoutNotified);
+    expect(batch.work.readEngineApplies).toBe(single.work.readEngineApplies);
   });
 
   it('P2 patches one row in a 10000-row model without rendering three foreign thread windows', () => {
@@ -51,32 +54,37 @@ describe('app-shaped speed contracts', () => {
     ]);
     const foreignReaders = ['foreign-a', 'foreign-b', 'foreign-c'].map(chatId => renderCounted(() => models.messages.scopes.thread.useWindow({ chatId }, { pageSize: 30 })));
     const before = foreignReaders.map(reader => reader.renders());
-    const samples = Array.from({ length: 7 }, (_, index) => {
-      const started = performance.now();
-      act(() => models.messages.update('target-message-0', { body: `patched-${index}` }));
-      return performance.now() - started;
+    diagnostics().reset();
+    act(() => {
+      models.messages.update('target-message-0', { body: 'patched' });
     });
-    const elapsed = median(samples);
-    console.log(`P2 point-patch-10000 median=${elapsed.toFixed(3)}ms`);
+    const work = diagnostics().snapshot();
     foreignReaders.forEach((reader, index) => expect(reader.renders() - before[index]!).toBe(0));
     foreignReaders.forEach(reader => reader.unmount());
-    expect(elapsed).toBeLessThanOrEqual(5);
+    expect(work.commits).toBe(1);
+    expect(work.commitFanoutNotified).toBe(0);
+    expect(work.readEngineApplies).toBe(0);
   });
 
-  it('P3 resets and refills ten 300-message chats within the measured account-switch budget', () => {
+  it('P3 resets and refills ten 300-message chats with repeatable work counters', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const models = createAppModels('SpeedP3');
-    const samples = Array.from({ length: 5 }, () => {
-      const started = performance.now();
+    const refillWork = () => {
       act(() => {
         resetRuntime();
         seedAccountScale(models);
       });
       expect(models.messages.scopes.thread.read({ chatId: 'chat-0' })).toHaveLength(300);
-      return performance.now() - started;
-    });
-    const elapsed = median(samples);
-    console.log(`P3 reset-refill-3000 median=${elapsed.toFixed(3)}ms`);
-    expect(elapsed).toBeLessThanOrEqual(250);
+      return diagnostics().snapshot();
+    };
+    const first = refillWork();
+    const second = refillWork();
+
+    expect(second.commits).toBe(first.commits);
+    expect(second.commitFanoutCandidates).toBe(first.commitFanoutCandidates);
+    expect(second.commitFanoutNotified).toBe(first.commitFanoutNotified);
+    expect(second.readEngineApplies).toBe(first.readEngineApplies);
+    expect(second.mirrorScopePasses).toBe(first.mirrorScopePasses);
+    expect(first.commits).toBe(3);
   });
 });

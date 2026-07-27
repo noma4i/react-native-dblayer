@@ -1,7 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { configureDb, createSingletonStatics, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, diagnostics, median } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
 // and a counters singleton - covers F1 (entityState upsert guard) and F2 (scopeIndex order-compare).
@@ -87,60 +87,55 @@ describe('large scope churn', () => {
     expect(large.commitFanoutNotified).toBe(small.commitFanoutNotified);
     expect(small.entityUpsertGuardHits).toBe(0);
     expect(large.entityUpsertGuardHits).toBe(0);
+    expect(small.readEngineRebuilds).toBe(0);
   });
 
-  it('(b) keeps same-order page-reconcile cost within a x3 ratio between 3000 and 300 rows', () => {
-    const sampleLandCost = (rowCount: number): number => {
-      setupRuntime();
-      const chats = createChatsModel(`Land${rowCount}`);
+  it('(b) keeps same-order page-reconcile fanout constant between 300 and 3000 rows', () => {
+    const reconcileWork = (rowCount: number) => {
+      const { root, chats } = mountEnsemble(`Land${rowCount}`, rowCount);
       const rows = Array.from({ length: rowCount }, (_, index) => buildChatRow(index));
-      chats.scopes.active.seed({ bucket: 'all' }, rows);
-      const samples: number[] = [];
-      for (let index = 0; index < 100; index += 1) {
-        const started = performance.now();
+      diagnostics().reset();
+      act(() => {
         chats.scopes.active.seed(
           { bucket: 'all' },
           rows.map(row => ({ ...row }))
         );
-        samples.push(performance.now() - started);
-      }
-      return median(samples);
+      });
+      const work = diagnostics().snapshot();
+      act(() => root.unmount());
+      return work;
     };
 
-    const small = sampleLandCost(300);
-    const large = sampleLandCost(3000);
-    // A full-membership re-land of every row is inherently O(scope size) - every row still needs an
-    // entityState upsert check and the order-compare walks every entry - so a raw wall-time ratio
-    // cannot stay within x3 across a 10x row-count jump; that would require sub-linear work per row,
-    // which no correct reconcile can do. The achievable, honest claim F2 protects is per-row cost not
-    // growing super-linearly (i.e. no O(n log n)/O(n^2) regression sneaking back in via string-join
-    // allocation), so the budget is asserted on cost-per-row instead of total per-land cost.
-    const perRowSmall = small / 300;
-    const perRowLarge = large / 3000;
-    const ratio = perRowLarge / Math.max(perRowSmall, 0.0001);
-    console.log(
-      `(b) order-compare per-row budget ratio=${ratio.toFixed(2)} (300 rows=${small.toFixed(3)}ms total/${perRowSmall.toFixed(5)}ms per-row, 3000 rows=${large.toFixed(3)}ms total/${perRowLarge.toFixed(5)}ms per-row)`
-    );
-    expect(ratio).toBeLessThanOrEqual(3);
+    const small = reconcileWork(300);
+    const large = reconcileWork(3000);
+
+    expect(large.commits).toBe(small.commits);
+    expect(large.commitFanoutCandidates).toBe(small.commitFanoutCandidates);
+    expect(large.commitFanoutNotified).toBe(small.commitFanoutNotified);
+    expect(large.mirrorScopePasses).toBe(small.mirrorScopePasses);
+    expect(large.mirrorScopeResorts).toBe(small.mirrorScopeResorts);
+    expect(small.commits).toBe(1);
   });
 
-  it('(c) P9 measure: window materialization stays steady-state across repeated bumps at 3000 rows', () => {
+  it('(c) keeps window materialization work steady across repeated bumps at 3000 rows', () => {
     const { root, chats } = mountEnsemble('Window', 3000);
-    const samples: number[] = [];
-    for (let index = 0; index < 40; index += 1) {
-      const started = performance.now();
+    const bumpWork = (lastActivityAt: number) => {
+      diagnostics().reset();
       act(() => {
-        chats.update('chat-0', { lastActivityAt: index % 2 === 0 ? -1 : 3001 });
+        chats.update('chat-0', { lastActivityAt });
       });
-      samples.push(performance.now() - started);
-    }
+      return diagnostics().snapshot();
+    };
+    const first = bumpWork(-1);
+    for (let index = 0; index < 38; index += 1) bumpWork(index % 2 === 0 ? 3001 : -1);
+    const last = bumpWork(3001);
     act(() => root.unmount());
 
-    const average = (values: number[]): number => values.reduce((sum, value) => sum + value, 0) / values.length;
-    const firstTwenty = average(samples.slice(0, 20));
-    const lastTwenty = average(samples.slice(-20));
-    // P9 baseline: window reads currently materialize the full scope per notify - measured ~2ms @3000 rows; revisit if it grows.
-    console.log(`(c) P9 window materialization: first-20 avg=${firstTwenty.toFixed(3)}ms, last-20 avg=${lastTwenty.toFixed(3)}ms @3000 rows`);
-    expect(lastTwenty).toBeLessThanOrEqual(Math.max(firstTwenty, 0.01) * 3);
+    expect(last.mirrorScopePasses).toBe(first.mirrorScopePasses);
+    expect(last.mirrorScopeResorts).toBe(first.mirrorScopeResorts);
+    expect(last.readEngineApplies).toBe(first.readEngineApplies);
+    expect(last.readEngineRebuilds).toBe(first.readEngineRebuilds);
+    expect(last.readEngineDeltaRows).toBe(first.readEngineDeltaRows);
+    expect(first.readEngineRebuilds).toBe(0);
   });
 });

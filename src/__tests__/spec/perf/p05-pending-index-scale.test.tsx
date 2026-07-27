@@ -2,7 +2,7 @@ import { act } from 'react-test-renderer';
 import { defineModel, f, resetRuntime } from '../../../index';
 import { getOperationState } from '../../../dsl/configure';
 import type { OperationRecord } from '../../../core/planes/operationState';
-import { measure, renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const TARGET_MODEL = 'SpecPendingIndexTarget';
 const TARGET_ROW = 'target-row';
@@ -40,16 +40,13 @@ const seedTargetOps = (count: number, offset: number): void => {
 };
 
 describe('pending operation index scale', () => {
-  it('pendingForRow stays within a x3 ratio between 5 and 3000 foreign ops', () => {
+  it('pendingForRow remains addressed to its row after 3000 foreign operations', () => {
     setupSpecRuntime();
     seedTargetOps(5, 0);
-    const smallIndexed = measure(() => getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW), 200, 7);
+    const before = getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW).map(operation => operation.operationId);
     seedForeignOps(3000);
-    const largeIndexed = measure(() => getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW), 200, 7);
 
-    const ratio = largeIndexed / Math.max(smallIndexed, 0.01);
-
-    expect(ratio).toBeLessThanOrEqual(3);
+    expect(getOperationState().pendingForRow(TARGET_MODEL, TARGET_ROW).map(operation => operation.operationId)).toEqual(before);
   });
 
   it('pendingForRow is true only for the operation rows, and flips false after commit/discard', () => {

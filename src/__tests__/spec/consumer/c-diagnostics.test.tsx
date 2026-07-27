@@ -70,6 +70,7 @@ describe('read diagnostics', () => {
       readEngineApplies: 0,
       readEngineRebuilds: 0,
       readEngineDeltaRows: 0,
+      readEngineScanRows: 0,
       mirrorScopePasses: 0,
       mirrorScopeResorts: 0,
       replaceRejected: 0,

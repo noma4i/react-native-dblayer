@@ -1,34 +1,51 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { defineModel, f } from '../../../index';
-import { setupSpecRuntime } from '../helpers/harness';
+import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
-const samplePatch = (size: number): number => {
+const measurePatchWork = (size: number) => {
   setupSpecRuntime();
-  const users = defineModel({ id: `SpecProjectionScale${size}`, name: `SpecProjectionScale${size}`, fields: { name: f.str(), ignored: f.num() } });
-  users.insertMany(Array.from({ length: size }, (_, index) => ({ id: String(index), name: `User ${index}`, ignored: index })));
-  const readRow = users.use.find as unknown as (id: string, options: { select: (row: { name: string }) => { name: string } }) => { name: string };
+  const users = defineModel({
+    id: `SpecProjectionScale${size}`,
+    name: `SpecProjectionScale${size}`,
+    fields: { name: f.str(), ignored: f.num() }
+  });
+  users.insertMany(Array.from({ length: size }, (_, index) => ({ id: String(index), name: `user-${index}`, ignored: 0 })));
+  const renders = new Map<string, number>();
   const Reader = ({ id }: { id: string }) => {
-    readRow(id, { select: row => ({ name: row.name }) });
+    users.use.where({ id }).select(row => ({ name: row.name, ignored: row.ignored })).rows();
+    renders.set(id, (renders.get(id) ?? 0) + 1);
     return null;
   };
   let root!: TestRenderer.ReactTestRenderer;
   act(() => {
     root = TestRenderer.create(React.createElement(React.Fragment, null, Array.from({ length: 50 }, (_, index) => React.createElement(Reader, { id: String(index), key: index }))));
   });
-  const samples = Array.from({ length: 7 }, (_, index) => {
-    const started = performance.now();
-    act(() => users.update('25', { ignored: size + index }));
-    return performance.now() - started;
-  }).sort((left, right) => left - right);
+  const before = new Map(renders);
+  diagnostics().reset();
+  act(() => {
+    users.update('25', { ignored: 1 });
+  });
+  const work = diagnostics().snapshot();
+  const deltas = Array.from({ length: 50 }, (_, index) => (renders.get(String(index)) ?? 0) - (before.get(String(index)) ?? 0));
   act(() => root.unmount());
-  return samples[Math.floor(samples.length / 2)]!;
+  return { work, deltas };
 };
 
 describe('projection scale', () => {
-  it('keeps one-row patch cost sublinear with mounted selectors', () => {
-    const small = samplePatch(1_000);
-    const large = samplePatch(20_000);
-    expect(large / Math.max(small, 0.01)).toBeLessThan(12);
+  it('keeps one-row patch work constant under 50 mounted selectors', () => {
+    const small = measurePatchWork(1_000);
+    const large = measurePatchWork(20_000);
+
+    expect(large.work.readEngineApplies).toBe(small.work.readEngineApplies);
+    expect(large.work.readEngineRebuilds).toBe(small.work.readEngineRebuilds);
+    expect(large.work.readEngineDeltaRows).toBe(small.work.readEngineDeltaRows);
+    expect(small.work.readEngineApplies).toBe(50);
+    expect(small.work.readEngineRebuilds).toBe(0);
+    expect(small.work.readEngineDeltaRows).toBe(50);
+    expect(small.deltas[25]).toBe(1);
+    expect(large.deltas[25]).toBe(1);
+    small.deltas.forEach((renders, index) => expect(index === 25 ? renders : 0).toBe(index === 25 ? 1 : 0));
+    large.deltas.forEach((renders, index) => expect(index === 25 ? renders : 0).toBe(index === 25 ? 1 : 0));
   });
 });

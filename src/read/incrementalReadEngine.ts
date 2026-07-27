@@ -3,7 +3,7 @@ import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { compareCodepoints, semanticValue } from '../core/serialize';
 import { arraysShallowEqual } from './useLiveRead';
-import { noteReadEngineApply } from '../core/diagnostics';
+import { noteReadEngineApply, noteReadEngineScan } from '../core/diagnostics';
 
 type Engine<T> = {
   signature: string;
@@ -127,7 +127,9 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
   const rebuild = (): void => {
     rows?.clear();
     ids.clear();
-    for (const row of options.initial()) {
+    const initialRows = options.initial();
+    noteReadEngineScan(initialRows.length);
+    for (const row of initialRows) {
       if (!options.where(row)) continue;
       ids.add(row.id);
       rows?.set(row.id, row);
