@@ -1,5 +1,4 @@
 import type { StoragePlane } from './storagePlane';
-import { CorruptionError } from '../recovery';
 import { noteDataLoss, noteScopeKeyMigration } from '../diagnostics';
 import { compositeKey } from '../serialize';
 import { sortBy } from 'es-toolkit';
@@ -301,7 +300,11 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         const canonicalScopeName = orderedScopeNames.find(scopeName => persistedKey.startsWith(compositeKey(scopeName, '')));
         const colonDelimitedScopeName = canonicalScopeName ? undefined : orderedScopeNames.find(scopeName => persistedKey.startsWith(`${scopeName}:`));
         const key = canonicalScopeName ? persistedKey : colonDelimitedScopeName ? compositeKey(colonDelimitedScopeName, persistedKey.slice(colonDelimitedScopeName.length + 1)) : null;
-        if (!key) throw new CorruptionError('scope', fullKey);
+        if (!key) {
+          storage.set([{ key: fullKey, value: null }]);
+          noteDataLoss('corrupt-scope', modelId, 1);
+          continue;
+        }
         const raw = storage.get(fullKey);
         if (!raw) continue;
         try {
@@ -310,7 +313,8 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
           if (!existing || entry.canonical) loaded.set(key, entry);
           if (colonDelimitedScopeName) migrated.set(fullKey, key);
         } catch {
-          throw new CorruptionError('scope', fullKey);
+          storage.set([{ key: fullKey, value: null }]);
+          noteDataLoss('corrupt-scope', modelId, 1);
         }
       }
       for (const [key, entry] of loaded) {

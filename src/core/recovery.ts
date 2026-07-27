@@ -12,7 +12,7 @@ export class CorruptionError extends Error {
   }
 }
 
-/** Cold-model degradation: wipes every persisted snapshot key of the model (rows, tombstones, scopes, applied marker). WAL records are intentionally kept - replay re-applies un-checkpointed mutations over the clean slate. */
+/** Cold-model degradation reserved for unlocalizable persisted-state failures (for example manifest/schema incompatibility): wipes rows, tombstones, scopes, and the applied marker while retaining WAL records for replay. */
 export const coldResetModel = (storage: StoragePlane, prefix: string, modelId: string): void => {
   const keys = [
     ...storage.keys(`${prefix}row:${modelId}:`),

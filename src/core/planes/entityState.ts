@@ -1,6 +1,5 @@
 import { stableSerialize } from '../serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
-import { CorruptionError } from '../recovery';
 import type { WriteCtx } from '../writePolicies';
 import type { StoragePlane } from './storagePlane';
 
@@ -182,7 +181,8 @@ export const createEntityState = <T extends { id: string }>(options: {
           if (typeof row.id !== 'string') row.id = String(row.id);
           rows.set(row.id, row);
         } catch {
-          throw new CorruptionError('row', fullKey);
+          storage.set([{ key: fullKey, value: null }]);
+          noteDataLoss('corrupt-row', modelId, 1);
         }
       }
       const rawTombstones = storage.get(tombstonesKey());
@@ -190,7 +190,8 @@ export const createEntityState = <T extends { id: string }>(options: {
         try {
           for (const [id, tombstone] of Object.entries(JSON.parse(rawTombstones) as Record<string, Tombstone>)) tombstones.set(id, tombstone);
         } catch {
-          throw new CorruptionError('tombstones', tombstonesKey());
+          storage.set([{ key: tombstonesKey(), value: null }]);
+          noteDataLoss('corrupt-tombstones', modelId, 1);
         }
       }
     },

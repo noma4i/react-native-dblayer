@@ -5,7 +5,6 @@ import { compositeKey } from '../core/serialize';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
-import { coldResetModel, CorruptionError } from '../core/recovery';
 import { useScopeLiveRows, useScopeLiveWindowRows } from '../core/tanstack/liveScopeReads';
 import type { StoredRowShape } from '../core/tanstack/facade';
 import { seedCollections } from '../core/tanstack/mirror';
@@ -500,16 +499,8 @@ export const defineModel = <
       ownedFields: (rowId, operationId) => getOperationState().ownedFields(config.id, rowId, operationId)
     });
     const scopeIndex = createScopeIndex({ modelId: config.id, scopeNames: Object.keys(config.scopes ?? {}), storage: runtime.storage, prefix: getStoragePrefix });
-    try {
-      entityState.hydrate();
-      scopeIndex.hydrate();
-    } catch (error) {
-      if (!(error instanceof CorruptionError)) throw error;
-      coldResetModel(runtime.storage, getStoragePrefix(), config.id);
-      getDbLogger().error('cold-model recovery', { model: config.id, keyClass: error.keyClass, key: error.storageKey });
-      entityState.hydrate();
-      scopeIndex.hydrate();
-    }
+    entityState.hydrate();
+    scopeIndex.hydrate();
     planesRef = { entityState, scopeIndex };
     return planesRef;
   };

@@ -24,13 +24,11 @@ const defineRecoveryModel = (id: string) =>
 const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
 describe('persistence recovery protocol', () => {
-  it('cold-resets only the model whose row snapshot is corrupt', async () => {
+  it('C1 drops one corrupt row while hydrating the remaining rows', async () => {
     const storage = configureRecoveryRuntime([
       { key: 'dbl:row:RecoveryA:bad', value: '{broken' },
       { key: 'dbl:row:RecoveryA:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:tombstones:RecoveryA', value: JSON.stringify({ deleted: { at: 1 } }) },
-      { key: 'dbl:scope:RecoveryA:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [] }) },
-      { key: 'dbl:applied:RecoveryA', value: '5' },
+      { key: 'dbl:row:RecoveryA:kept', value: JSON.stringify({ id: 'kept', bucket: 'a', label: 'K' }) },
       { key: 'dbl:row:RecoveryB:kept', value: JSON.stringify({ id: 'kept', bucket: 'b', label: 'B' }) }
     ]);
     const modelA = defineRecoveryModel('RecoveryA');
@@ -41,18 +39,15 @@ describe('persistence recovery protocol', () => {
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
 
-    expect(modelA.find('live')).toBeUndefined();
+    expect(modelA.find('live')).toMatchObject({ label: 'A' });
+    expect(modelA.find('kept')).toMatchObject({ label: 'K' });
     expect(storage.get('dbl:row:RecoveryB:kept')).toBe(JSON.stringify({ id: 'kept', bucket: 'b', label: 'B' }));
     expect(modelB.find('kept')).toMatchObject({ label: 'B' });
-    expect(storage.keys('dbl:row:RecoveryA:')).toEqual([]);
-    expect(storage.keys('dbl:scope:RecoveryA:')).toEqual([]);
-    expect(storage.get('dbl:tombstones:RecoveryA')).toBeUndefined();
-    expect(storage.get('dbl:applied:RecoveryA')).toBeUndefined();
-    expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: modelA.modelId, count: 5 });
+    expect(storage.keys('dbl:row:RecoveryA:').sort()).toEqual(['dbl:row:RecoveryA:kept', 'dbl:row:RecoveryA:live']);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-row', model: modelA.modelId, count: 1 });
   });
 
-  it('cold-resets a malformed tombstone snapshot without resurrecting model rows', async () => {
+  it('C3 drops corrupt tombstones without discarding rows', async () => {
     const storage = configureRecoveryRuntime([
       { key: 'dbl:row:RecoveryTombstones:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
       { key: 'dbl:tombstones:RecoveryTombstones', value: '{broken' }
@@ -63,14 +58,15 @@ describe('persistence recovery protocol', () => {
 
     await bootDb();
 
-    expect(model.find('live')).toBeUndefined();
-    expect(storage.keys('dbl:row:RecoveryTombstones:')).toEqual([]);
-    expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
+    expect(model.find('live')).toMatchObject({ label: 'A' });
+    expect(storage.get('dbl:tombstones:RecoveryTombstones')).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-tombstones', model: model.modelId, count: 1 });
   });
 
-  it('treats an unknown scope name as a cold-model corruption', async () => {
+  it('C2 drops a corrupt scope key while retaining row and valid scope state', async () => {
     const storage = configureRecoveryRuntime([
       { key: 'dbl:row:RecoveryScope:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScope:feed\0{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) },
       { key: 'dbl:scope:RecoveryScope:renamed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [] }) }
     ]);
     const model = defineRecoveryModel('RecoveryScope');
@@ -79,9 +75,10 @@ describe('persistence recovery protocol', () => {
 
     await bootDb();
 
-    expect(model.find('live')).toBeUndefined();
-    expect(storage.keys('dbl:scope:RecoveryScope:')).toEqual([]);
-    expect(diagnostics().snapshot().corruptionModelResets).toBe(1);
+    expect(model.find('live')).toMatchObject({ label: 'A' });
+    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
+    expect(storage.get('dbl:scope:RecoveryScope:renamed:{"bucket":"a"}')).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: model.modelId, count: 1 });
   });
 
   it('migrates a legacy scope key without dropping the model cache', async () => {
