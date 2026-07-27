@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
+import { union, uniq } from 'es-toolkit';
 import { useEffect, useRef } from 'react';
 import type { DbGraphQLDocument, DbReadOptions, LoadingState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
@@ -242,7 +243,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const committedIdsOf = (rows: unknown[]): string[] => rows.flatMap(row => (isRecord(row) && row.id != null ? [String(row.id)] : []));
   const recordCommittedRows = (scope: TScope, resetOrder: boolean, ids: string[]): void => {
     const key = committedRowsKey(buildScopeKey(scope));
-    committedRowIdsByQueryScope.set(key, resetOrder ? [...new Set(ids)] : [...new Set([...(committedRowIdsByQueryScope.get(key) ?? []), ...ids])]);
+    committedRowIdsByQueryScope.set(key, resetOrder ? uniq(ids) : union(committedRowIdsByQueryScope.get(key) ?? [], ids));
   };
   const rowsSurvive = (scopeKey: string): boolean => {
     const ids = committedRowIdsByQueryScope.get(committedRowsKey(scopeKey));

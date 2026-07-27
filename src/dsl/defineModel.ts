@@ -1,3 +1,4 @@
+import { sortBy } from 'es-toolkit';
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
@@ -1018,7 +1019,7 @@ export const defineModel = <
           const positions = new Map(ordered.map((row, index) => [String(row.id), index]));
           next = {
             ...next,
-            entries: [...next.entries].sort((left, right) => (positions.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (positions.get(right.id) ?? Number.MAX_SAFE_INTEGER))
+            entries: sortBy(next.entries, [entry => positions.get(entry.id) ?? Number.MAX_SAFE_INTEGER])
           };
         }
         const trimmed = planes().scopeIndex.trimValue(next, maxRows);

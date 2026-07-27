@@ -1,3 +1,4 @@
+import { uniq } from 'es-toolkit';
 import { noteCorruptionModelReset, noteDataLoss } from './diagnostics';
 import { getDbLogger } from './logger';
 import type { StoragePlane } from './planes/storagePlane';
@@ -19,7 +20,7 @@ export const coldResetModel = (storage: StoragePlane, prefix: string, modelId: s
     `${prefix}tombstones:${modelId}`,
     `${prefix}applied:${modelId}`
   ];
-  const uniqueKeys = [...new Set(keys)];
+  const uniqueKeys = uniq(keys);
   storage.set(uniqueKeys.map(key => ({ key, value: null })));
   noteCorruptionModelReset();
   noteDataLoss('model-corruption-recovery', modelId, uniqueKeys.length);

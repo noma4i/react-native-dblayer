@@ -1,3 +1,4 @@
+import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { CommitSubscription, Dependency } from '../core/apply/commitBus';
 import { getCommitBus } from '../dsl/configure';
@@ -30,8 +31,7 @@ export const arraysShallowEqual = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>):
 
 /** Shallow row equality across both key sets; array values compare element identity one level deep. */
 export const rowsShallowEqual = (left: object, right: object): boolean => {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  return [...keys].every(key => {
+  return union(Object.keys(left), Object.keys(right)).every(key => {
     const leftValue = Reflect.get(left, key);
     const rightValue = Reflect.get(right, key);
     return Array.isArray(leftValue) && Array.isArray(rightValue) ? arraysShallowEqual(leftValue, rightValue) : leftValue === rightValue;

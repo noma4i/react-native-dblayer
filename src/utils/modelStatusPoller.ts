@@ -1,3 +1,4 @@
+import { union } from 'es-toolkit';
 import { useCallback, useSyncExternalStore } from 'react';
 import { getDbLogger } from '../core/logger';
 import { registerReset } from '../core/reset';
@@ -195,7 +196,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   const getPhase = (id: string): ModelStatusPollerPhase => snapshots.get(id) ?? IDLE_PHASE;
 
   registerReset(() => {
-    const ids = new Set([...sessions.keys(), ...snapshots.keys()]);
+    const ids = union([...sessions.keys()], [...snapshots.keys()]);
     for (const session of sessions.values()) clearTimer(session);
     sessions.clear();
     snapshots.clear();

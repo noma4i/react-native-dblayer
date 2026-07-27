@@ -17,6 +17,10 @@
 
 - Bump the devDependency versions of `react` to `19.2.3`, `react-native` to `0.86.0`, and `react-test-renderer` to match, aligning the dev/test environment with the consumer app.
 
+### Internals
+
+- Replace hand-written array-union and array-uniq reimplementations (`[...new Set(...)]` variants) with `es-toolkit`'s `union`/`uniq` in `gc.ts`, `operationState.ts`, `defineQuery.ts`, `useLiveRead.ts`, `modelStatusPoller.ts`, `recovery.ts`, and `transaction.ts`, and hand-written single-key object sort comparators with `es-toolkit`'s `sortBy` in `schemaManifest.ts`, `journal.ts`, and `defineModel.ts`. Behavior is unchanged; a few structurally-equivalent hot-path candidates (`commitBus.ts`, `tanstack/mirror.ts`, `scopeIndex.ts`, `entityState.ts`) were deliberately left on their manual implementation because the library call would have added array/Set conversions on the per-commit path.
+
 ## 8.0.0-beta.4 - 2026-07-27
 
 - Fix a startup crash on react-native-mmkv v4: the storage adapter called a non-existent `allKeys()` (v4 API is `getAllKeys()`), killing the JS runtime before app registration on the first manifest boot (endless splash in release builds). Adapter types now derive from the real `react-native-mmkv` package instead of a hand-written mirror, so any future API drift fails typecheck.

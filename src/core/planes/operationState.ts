@@ -1,3 +1,4 @@
+import { union } from 'es-toolkit';
 import type { StoragePlane } from './storagePlane';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
@@ -66,10 +67,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
    * (rowIds-or-tempIds vs rowIds-only vs union) within the bucket - the union key is a safe superset for
    * all three, so results stay identical to the prior full-array scans, just O(bucket-size). */
   const opsByRowKey = new Map<string, Set<OperationRecord>>();
-  const rowKeysFor = (record: OperationRecord): string[] => {
-    const rowIds = new Set([...record.tempIds, ...(record.rowIds ?? [])]);
-    return [...rowIds].map(rowId => compositeKey(record.model, rowId));
-  };
+  const rowKeysFor = (record: OperationRecord): string[] => union(record.tempIds, record.rowIds ?? []).map(rowId => compositeKey(record.model, rowId));
   const indexRecordRows = (record: OperationRecord): void => {
     for (const key of rowKeysFor(record)) {
       let bucket = opsByRowKey.get(key);

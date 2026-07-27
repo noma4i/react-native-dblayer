@@ -204,7 +204,7 @@ const applyPlan = (ops: JournalOp[]): IncrementalCommitBatch => {
   return batch;
 };
 
-const touchedModelsOf = (ops: JournalOp[]): string[] => [...new Set(ops.map(op => op.model))];
+const touchedModelsOf = (ops: JournalOp[]): string[] => uniq(ops.map(op => op.model));
 
 const recordCounterValues = (ops: JournalOp[]): JournalOp[] => {
   const values = new Map<string, number | null>();

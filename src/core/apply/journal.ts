@@ -1,3 +1,4 @@
+import { sortBy } from 'es-toolkit';
 import type { ScopeIndexValue } from '../planes/scopeIndex';
 import type { StoragePlane } from '../planes/storagePlane';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
@@ -80,11 +81,13 @@ export const createJournal = (storage: StoragePlane, prefix: () => string) => {
   const recordKey = (epoch: number) => key(`journal:${epoch}`);
 
   const allRecords = (): JournalRecord[] =>
-    storage
-      .keys(key('journal:'))
-      .map(journalKey => readJournalRecord(storage, prefix(), journalKey))
-      .filter((record): record is JournalRecord => record !== null)
-      .sort((a, b) => a.epoch - b.epoch);
+    sortBy(
+      storage
+        .keys(key('journal:'))
+        .map(journalKey => readJournalRecord(storage, prefix(), journalKey))
+        .filter((record): record is JournalRecord => record !== null),
+      [record => record.epoch]
+    );
 
   /** In-memory committed-epoch index, loaded once - the hot path never re-reads the journal. */
   let committedEpochs: number[] | null = null;
