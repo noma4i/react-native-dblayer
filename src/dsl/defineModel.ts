@@ -1,6 +1,6 @@
 import { sortBy } from 'es-toolkit';
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
-import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
+import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import type { Dependency } from '../core/apply/commitBus';
 import { registerApplyTarget } from '../core/apply/transaction';
@@ -18,6 +18,7 @@ import { registerRelationHost, type MembershipDelta, type RelationDecl } from '.
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
 import { createModelScopeKeys } from './modelScopeKeys';
+import { createModelCriteria } from './modelCriteria';
 import { useLiveRead, arraysShallowEqual, rowsShallowEqual } from '../read/useLiveRead';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
@@ -35,7 +36,6 @@ import { hasRequiredFields } from '../read/requireFields';
 import type { RequiredFields } from './readBuilder';
 import type { ScopeCoverage, ScopeSpec } from './scope';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { stringifyNullish } from '../utils/normalizeHelpers';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 import { getDbTransport } from '../core/transport';
 import { createModelStatusPoller, type ModelStatusPoller } from '../utils/modelStatusPoller';
@@ -132,41 +132,7 @@ export const defineModel = <
 
   const scopeByFieldMap = new Map(membershipScopes.map(([name, spec]) => [name, spec.by] as const));
   const { keyForScope, scopeValueFromRow } = createModelScopeKeys(config, scopeByFieldMap);
-  const criteriaCache = new WeakMap<object, DbWhere<Stored>>();
-  const normalizeCriteria = (where: DbWhere<Stored>): DbWhere<Stored> => {
-    if (typeof where !== 'object' || where === null || Array.isArray(where)) return where;
-    const record = where as Record<string, unknown>;
-    if ('and' in record) return { and: (record.and as Array<DbWhere<Stored>>).map(normalizeCriteria) } as DbWhere<Stored>;
-    if ('or' in record) return { or: (record.or as Array<DbWhere<Stored>>).map(normalizeCriteria) } as DbWhere<Stored>;
-    if ('not' in record) return { not: normalizeCriteria(record.not as DbWhere<Stored>) } as DbWhere<Stored>;
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(record)) {
-      const fieldSpec = config.fields[key];
-      const normalizeOperand = (operand: unknown): unknown => {
-        if (operand === undefined || operand === null) return operand;
-        if (key === 'id') return stringifyNullish(operand);
-        const normalized = fieldSpec ? fieldSpec.readValue(operand) : undefined;
-        return normalized === undefined || normalized === null ? operand : normalized;
-      };
-      if (isWhereOperatorValue(value)) {
-        out[key] = Object.fromEntries(
-          Object.entries(value).map(([operator, operand]) => [operator, Array.isArray(operand) ? operand.map(normalizeOperand) : normalizeOperand(operand)])
-        );
-        continue;
-      }
-      out[key] = normalizeOperand(value);
-    }
-    return out as DbWhere<Stored>;
-  };
-  const matchesCriteria = (row: Stored, where: DbWhere<Stored>): boolean => {
-    if (typeof where !== 'object' || where === null) return matchesDbWhere(row, where);
-    let normalized = criteriaCache.get(where);
-    if (!normalized) {
-      normalized = normalizeCriteria(where);
-      criteriaCache.set(where, normalized);
-    }
-    return matchesDbWhere(row, normalized);
-  };
+  const { matches: matchesCriteria } = createModelCriteria<Stored>(config.fields);
 
   const isScopeMember = (scopeKey: string, id: string): boolean => planes().scopeIndex.has(scopeKey, id);
 
