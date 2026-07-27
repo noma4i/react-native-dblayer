@@ -10,6 +10,7 @@ import { compositeKey } from '../serialize';
 import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
+import { syncEngineBatch } from '../../engine/EngineAdapter';
 
 const commitEnvelopeBrand: unique symbol = Symbol('commit-envelope');
 
@@ -122,6 +123,8 @@ export const getApplyTarget = (model: string): ApplyTarget => {
   if (!target) throw new Error(`No apply target registered for ${model}`);
   return target;
 };
+
+export const getApplyTargets = (): Array<[string, ApplyTarget]> => [...targets];
 
 type ApplyPhase = { batch: IncrementalCommitBatch; accepted: AcceptedRow[]; destroyed: DestroyedRow[] };
 
@@ -292,6 +295,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       let batch: IncrementalCommitBatch;
       try {
         batch = applyPlan(recordedOps);
+        syncEngineBatch(batch, getApplyTarget, true);
       } catch (error) {
         noteApplyFailure();
         getDbLogger().error('apply failed', { epoch, error });
@@ -330,6 +334,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           continue;
         }
         const batch = applyPlan(ops);
+        syncEngineBatch(batch, getApplyTarget);
         if (checkpoint) {
           storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
           checkpoint.notePlan(touchedModelsOf(ops), record.epoch);

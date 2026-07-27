@@ -80,7 +80,8 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-write-policies-v9.test.ts'), source: path.resolve(specRoot, '../../core/invariants.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-scope-order-reset.test.tsx'), source: path.resolve(specRoot, '../../core/planes/scopeIndex.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-fetch-ledger.test.ts'), source: path.resolve(specRoot, '../../core/fetch/fetchLedger.ts') },
-  { spec: path.resolve(specRoot, 'helpers/harness.ts'), source: path.resolve(specRoot, '../../core/fetch/fetchLedgerRegistry.ts') }
+  { spec: path.resolve(specRoot, 'helpers/harness.ts'), source: path.resolve(specRoot, '../../core/fetch/fetchLedgerRegistry.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-engine-adapter-contract.test.ts'), source: path.resolve(specRoot, '../../engine/EngineAdapter.ts') }
 ];
 
 const sourceFiles = (directory: string): string[] =>

@@ -11,6 +11,7 @@ import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
+import { resetEngines } from '../engine/EngineAdapter';
 
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
@@ -85,6 +86,7 @@ const STORAGE_PREFIX = 'dbl:';
  */
 export const configureDb = (options: ConfigureDbOptions): void => {
   runtimeGeneration += 1;
+  resetEngines();
   const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
   runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), dataVersion: options.dataVersion ?? null };
   applyRuntime = null;

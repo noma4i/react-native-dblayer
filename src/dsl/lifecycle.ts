@@ -5,6 +5,8 @@ import { runBootValidations } from './bootValidations';
 import { flushPersistence, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
 import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
 import { runModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
+import { getApplyTargets } from '../core/apply/transaction';
+import { hydrateEngines, markEnginesReady } from '../engine/EngineAdapter';
 
 /**
  * Recommended data-startup sequence after `configureDb`: deferred definition validation, persistence
@@ -28,6 +30,8 @@ export const bootDb = async (): Promise<{ replayed: number; gc: GcReport; mainte
   runBootValidations();
   const compatibility = ensurePersistenceCompatibility();
   const replayed = await replayJournal();
+  hydrateEngines(getApplyTargets());
+  markEnginesReady();
   await reconcileDetachedOperationsAtBoot();
   const gc = collectGarbage();
   purgeForeignStorageKeys();
