@@ -62,8 +62,7 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
     writeCommittedOnceKeys(storage, prefix, committedOnceKeys);
     getOperationState().hydrate();
     noteManifestReset();
-    const dataVersionMigration = stored !== undefined && stored.formatVersion === current.formatVersion && stored.schemaFingerprint === current.schemaFingerprint && stored.dataVersion !== current.dataVersion;
-    noteDataLoss(dataVersionMigration ? 'data-version-migration-reset' : 'model-corruption-recovery', '__runtime__', 1);
+    noteDataLoss(stored !== undefined ? 'data-version-migration-reset' : 'model-corruption-recovery', '__runtime__', 1);
     writePersistenceManifest(prefix, current);
     return { reset: true };
   }

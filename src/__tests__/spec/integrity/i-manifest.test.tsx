@@ -142,6 +142,22 @@ describe('persistence schema manifest', () => {
     expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
   });
 
+  it('does not classify a schema and consumer data version migration as corruption recovery', async () => {
+    const storage = configureManifestRuntime(undefined, 'build-1');
+    const id = 'manifest-version-and-schema';
+    registerSchemaDeclaration(declaration(id));
+    await bootDb();
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
+    diagnostics.reset();
+
+    registerSchemaDeclaration(declaration(id, { title: { kind: 'num', mode: 'required', hasDefault: false } }));
+    configureManifestRuntime(storage, 'build-2');
+    await bootDb();
+
+    expect(diagnostics.snapshot().dataLossEvents.some(event => event.mechanism === 'model-corruption-recovery')).toBe(false);
+    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
+  });
+
   it('preserves persisted data when the consumer data version matches', async () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
     await bootDb();
@@ -194,7 +210,7 @@ describe('persistence schema manifest', () => {
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(diagnostics.snapshot().manifestResets).toBe(1);
-    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'model-corruption-recovery', model: '__runtime__', count: 1 });
+    expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
   });
 
   it('resets nonempty storage without a manifest', async () => {
