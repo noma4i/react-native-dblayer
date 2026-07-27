@@ -20,6 +20,7 @@
 ### Internals
 
 - Replace hand-written array-union and array-uniq reimplementations (`[...new Set(...)]` variants) with `es-toolkit`'s `union`/`uniq` in `gc.ts`, `operationState.ts`, `defineQuery.ts`, `useLiveRead.ts`, `modelStatusPoller.ts`, `recovery.ts`, and `transaction.ts`, and hand-written single-key object sort comparators with `es-toolkit`'s `sortBy` in `schemaManifest.ts`, `journal.ts`, and `defineModel.ts`. Behavior is unchanged; a few structurally-equivalent hot-path candidates (`commitBus.ts`, `tanstack/mirror.ts`, `scopeIndex.ts`, `entityState.ts`) were deliberately left on their manual implementation because the library call would have added array/Set conversions on the per-commit path.
+- Split the six unrelated subsystems in `src/utils/runtimePrimitives.ts` (511 lines) into dedicated modules: `modelPatchers.ts` (keyed array, id array, nested object patchers), `singletonStatics.ts` (`createSingletonStatics`), `modelMaintenance.ts` (`trimRowsPerScope`, `resolveStaleTempRows`), `optimisticReconcile.ts` (`reconcileOptimisticRows` and its candidate-matching helpers), `singleFlight.ts` (`createSingleFlight`, `createThrottledSingleFlight`), and `runtimeGeneration.ts` (`createGenerationFence`). Public export names, generics, and return shapes are unchanged. Pure code movement, no behavior change.
 
 ## 8.0.0-beta.4 - 2026-07-27
 
