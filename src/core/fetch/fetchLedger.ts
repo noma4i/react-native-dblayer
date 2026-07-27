@@ -1,4 +1,4 @@
-import type { DbRetryPolicy } from '../../index';
+import type { DbRetryPolicy } from '../../types';
 import { registerReset } from '../reset';
 import { createGenerationFence } from '../../utils/runtimeGeneration';
 

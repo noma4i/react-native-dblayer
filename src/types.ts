@@ -22,6 +22,17 @@ export type DbLogger = {
   error: (...args: unknown[]) => void;
 };
 
+export type DbRetryClass = 'network' | 'server' | 'retriable' | 'fatal';
+
+export type DbRetryPolicy = {
+  /** Classify one failure before its retry budget is consulted. Omit for no retries. */
+  classify?: (error: unknown) => DbRetryClass;
+  /** Maximum retry attempts for each non-fatal class. Defaults to zero. */
+  budgets?: Partial<Record<Exclude<DbRetryClass, 'fatal'>, number>>;
+  /** Exponential retry delay bounds in milliseconds. Defaults to 1000 and 30000. */
+  backoff?: { baseMs: number; maxMs: number };
+};
+
 /** GraphQL document accepted by the transport adapter. */
 export type DbGraphQLDocument<TData = unknown, TVariables = never> = TypedDocumentNode<TData, TVariables> | DocumentNode;
 

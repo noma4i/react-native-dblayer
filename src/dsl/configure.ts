@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { DbLogger, DbTransport } from '../types';
+import type { DbLogger, DbRetryPolicy, DbTransport } from '../types';
 import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
@@ -12,17 +12,6 @@ import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
-
-export type DbRetryClass = 'network' | 'server' | 'retriable' | 'fatal';
-
-export type DbRetryPolicy = {
-  /** Classify one failure before its retry budget is consulted. Omit for no retries. */
-  classify?: (error: unknown) => DbRetryClass;
-  /** Maximum retry attempts for each non-fatal class. Defaults to zero. */
-  budgets?: Partial<Record<Exclude<DbRetryClass, 'fatal'>, number>>;
-  /** Exponential retry delay bounds in milliseconds. Defaults to 1000 and 30000. */
-  backoff?: { baseMs: number; maxMs: number };
-};
 
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
