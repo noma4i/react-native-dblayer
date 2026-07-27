@@ -43,9 +43,7 @@ describe('projection scale', () => {
     expect(small.work.readEngineApplies).toBe(50);
     expect(small.work.readEngineRebuilds).toBe(0);
     expect(small.work.readEngineDeltaRows).toBe(50);
-    expect(small.deltas[25]).toBe(1);
-    expect(large.deltas[25]).toBe(1);
-    small.deltas.forEach((renders, index) => expect(index === 25 ? renders : 0).toBe(index === 25 ? 1 : 0));
-    large.deltas.forEach((renders, index) => expect(index === 25 ? renders : 0).toBe(index === 25 ? 1 : 0));
+    small.deltas.forEach((renders, index) => expect(renders).toBe(index === 25 ? 1 : 0));
+    large.deltas.forEach((renders, index) => expect(renders).toBe(index === 25 ? 1 : 0));
   });
 });
