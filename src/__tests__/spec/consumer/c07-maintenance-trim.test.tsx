@@ -147,13 +147,13 @@ describe('maintenance trim contracts', () => {
 
 type TempRow = { id: string; createdAt: string; label: string };
 
-const createTempRows = (id: string, maxAgeMs?: number) =>
+const createTempRows = (id: string, maxAgeMs?: number, protectTempRows?: () => ReadonlySet<string>) =>
   defineModel({
     id,
     name: id,
     gc: 'exempt',
     fields: { createdAt: f.str(), label: f.str() },
-    ...(maxAgeMs === undefined ? {} : { maintenance: { dropTempRowsAfterMs: maxAgeMs } })
+    ...(maxAgeMs === undefined ? {} : { maintenance: { dropTempRowsAfterMs: maxAgeMs, ...(protectTempRows ? { protectTempRows } : {}) } })
   });
 
 describe('unresolved temp row retention', () => {
@@ -255,5 +255,52 @@ describe('unresolved temp row retention', () => {
     rows.insertMany([{ id: 'temp-a', createdAt: old(), label: 'a' }, { id: 'temp-b', createdAt: old(), label: 'b' }]);
     collectGarbage();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'stale-temp-row-expiry', model: rows.modelId, count: 2 });
+  });
+
+  it('keeps an old row protected by the model source', () => {
+    setupSpecRuntime();
+    const protectedIds = new Set(['temp-model']);
+    const rows = createTempRows('PendingTtlModelProtected', 1000, () => protectedIds);
+    rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
+    collectGarbage();
+    expect(rows.find('temp-model')).toBeTruthy();
+  });
+
+  it('reads the model protection source again for the next cleanup', () => {
+    setupSpecRuntime();
+    const protectedIds = new Set(['temp-model']);
+    const rows = createTempRows('PendingTtlModelLive', 1000, () => protectedIds);
+    rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
+    collectGarbage();
+    protectedIds.clear();
+    collectGarbage();
+    expect(rows.find('temp-model')).toBeUndefined();
+  });
+
+  it('unions model and pending-operation protection', async () => {
+    let resolve!: (value: { data: { save: TempRow } }) => void;
+    const transport = createMockTransport({ mutation: async <TData,>() => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const protectedIds = new Set(['temp-model']);
+    const rows = createTempRows('PendingTtlProtectionUnion', 1000, () => protectedIds);
+    rows.insert({ id: 'temp-model', createdAt: old(), label: 'model' });
+    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save } });
+    const pending = save.run();
+    collectGarbage();
+    expect(rows.all()).toHaveLength(2);
+    resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
+    await pending;
+  });
+
+  it('applies model protection during boot and GC', async () => {
+    setupSpecRuntime();
+    const protectedIds = new Set(['temp-model']);
+    const rows = createTempRows('PendingTtlBootAndGc', 1000, () => protectedIds);
+    rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
+    persistCurrentManifest();
+    await bootDb();
+    expect(rows.find('temp-model')).toBeTruthy();
+    collectGarbage();
+    expect(rows.find('temp-model')).toBeTruthy();
   });
 });

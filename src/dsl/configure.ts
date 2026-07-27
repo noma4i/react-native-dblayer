@@ -13,6 +13,7 @@ import { registerReset } from '../core/reset';
 import { resetCollectionRegistry } from '../core/tanstack/facade';
 import { seedCollections, startCollectionMirror } from '../core/tanstack/mirror';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
+import { isTempRowProtectedByModel } from './maintenanceRegistry';
 
 export type DbRetryClass = 'network' | 'server' | 'retriable' | 'fatal';
 
@@ -295,7 +296,7 @@ export const replayJournal = (): number => {
   }
   const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {
-    const orphanIds = [...ids].filter(id => !pendingTempIds.has(id) && !operations.failedFor(model, id));
+    const orphanIds = [...ids].filter(id => !pendingTempIds.has(id) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
     if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.apply([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]);
   }
   flushPersistence();

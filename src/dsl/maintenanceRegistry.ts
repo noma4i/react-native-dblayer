@@ -3,7 +3,7 @@ import { getRuntimeGeneration } from './configure';
 /** One maintenance task outcome produced during `bootDb`. */
 export type MaintenanceReport = { model: string; task: 'maxRowsPerScope' | 'dropTempRows'; affected: number };
 
-type MaintenanceRunner = { boot(): MaintenanceReport[]; pendingTempRows(): MaintenanceReport[] };
+type MaintenanceRunner = { boot(): MaintenanceReport[]; pendingTempRows(): MaintenanceReport[]; protectedTempIds(): ReadonlySet<string> };
 
 const runners = new Map<string, MaintenanceRunner>();
 const runnerGenerations = new Map<string, number>();
@@ -32,3 +32,6 @@ export const runModelMaintenance = (): MaintenanceReport[] => [...runners.values
 
 /** Run the model-owned unresolved-temp cleanup executor from any maintenance cadence. */
 export const runPendingTempRowMaintenance = (): MaintenanceReport[] => [...runners.values()].flatMap(runner => runner.pendingTempRows());
+
+/** Return the current model-declared protection set used by every unresolved-temp cleanup path. */
+export const isTempRowProtectedByModel = (modelId: string, id: string): boolean => runners.get(modelId)?.protectedTempIds().has(id) ?? false;

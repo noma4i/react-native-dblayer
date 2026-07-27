@@ -428,6 +428,8 @@ export type ModelConfig<
     dropIdleScopesAfterMs?: number;
     /** Opt-in age limit for unresolved temp-id rows. Pending operations remain protected. */
     dropTempRowsAfterMs?: number;
+    /** Runtime source of temp ids protected from unresolved-row cleanup. */
+    protectTempRows?: () => ReadonlySet<string> | readonly string[];
     maxRowsPerScope?: Array<{
       scopeField: keyof InferStoredFields<TFields> & string;
       limit: number;
@@ -1466,7 +1468,10 @@ export const defineModel = <
     const pendingTempRows = (): MaintenanceReport[] => {
       const maxAgeMs = config.maintenance?.dropTempRowsAfterMs;
       if (maxAgeMs === undefined) return [];
-      const protectedIds = new Set(getOperationState().pending().filter(operation => operation.model === config.id).flatMap(operation => operation.tempIds));
+      const protectedIds = new Set([
+        ...getOperationState().pending().filter(operation => operation.model === config.id).flatMap(operation => operation.tempIds),
+        ...modelProtectedTempIds()
+      ]);
       const ids: string[] = [];
       resolveStaleTempRows(model, { maxAgeMs, protectedIds, onStale: row => ids.push(row.id) });
       if (ids.length === 0) return [];
@@ -1475,6 +1480,7 @@ export const defineModel = <
       noteDataLoss('stale-temp-row-expiry', config.id, ids.length);
       return [{ model: config.id, task: 'dropTempRows', affected: ids.length }];
     };
+    const modelProtectedTempIds = (): ReadonlySet<string> => new Set(config.maintenance?.protectTempRows?.() ?? []);
     registerModelMaintenance(config.id, {
       boot: () => {
         const reports: MaintenanceReport[] = [];
@@ -1483,7 +1489,8 @@ export const defineModel = <
         }
         return [...reports, ...pendingTempRows()];
       },
-      pendingTempRows
+      pendingTempRows,
+      protectedTempIds: modelProtectedTempIds
     });
   }
 
