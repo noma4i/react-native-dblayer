@@ -4,7 +4,7 @@ import { noteDataLoss } from '../core/diagnostics';
 import { registerReset } from '../core/reset';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
 import { getApplyRuntime, getOperationState } from './configure';
-import { clearFailedOptimisticMutation } from './defineMutation';
+import { clearFailedOptimisticMutation } from './mutationRuntime';
 import { registerIngestModel } from './defineIngest';
 import { registerInternalModelHandle } from '../core/internalHandles';
 import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';

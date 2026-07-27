@@ -2,7 +2,8 @@ import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from 
 import type { RelationDecl } from '../core/relations';
 import type { ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
-import type { defineMutation, MutationConfig } from '../dsl/defineMutation';
+import type { defineMutation } from '../dsl/defineMutation';
+import type { MutationConfig } from './dsl.mutation.types';
 import type { DetachedOperationConfig, DetachedOperationHandle } from '../dsl/defineDetachedOperation';
 import type { EnsuredRowQueryHandle, QueryHandle } from '../dsl/defineQuery';
 import type { defineQuery } from '../dsl/defineQuery';

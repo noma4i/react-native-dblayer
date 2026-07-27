@@ -1,6 +1,7 @@
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
-import { defineMutation, type MutationConfig } from './defineMutation';
+import { defineMutation } from './defineMutation';
+import type { MutationConfig } from '../types/dsl.mutation.types';
 
 type CommandConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe' | 'optimistic'> & {
   dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
