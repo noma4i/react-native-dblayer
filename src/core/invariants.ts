@@ -1,19 +1,26 @@
-/** Date.getTime() comparison - handles timezone offsets (Rails +11:00 vs client Z) */
-const compareTimestamps = (a: string, b: string): number => new Date(a).getTime() - new Date(b).getTime();
+/** Date.getTime() comparison - handles timezone offsets (Rails +11:00 vs client Z). NaN for an unparseable string. */
+const parseTimestamp = (value: string): number => new Date(value).getTime();
 
 /**
  * Return true when an incoming `updatedAt` is newer than or equal to the existing one - the newer-wins
- * acceptance gate used to decide whether an incoming write should overwrite a stored row. Nullish
- * timestamps are permissive: both nullish accepts, only-existing-nullish accepts, only-incoming-nullish
- * rejects (an incoming row with no timestamp cannot prove it is newer).
+ * acceptance gate used to decide whether an incoming write should overwrite a stored row. Nullish AND
+ * unparseable (NaN-parsing) timestamps are treated identically as "missing": both missing accepts,
+ * only-existing-missing accepts, only-incoming-missing rejects (an incoming row with no provable
+ * timestamp cannot prove it is newer, so an unparseable string is never silently treated as a match
+ * via `NaN` comparisons - it is explicitly folded into the same missing-value branch as `null`/`undefined`).
  *
- * @param existingUpdatedAt The stored row's `updatedAt`, or nullish if absent/never set.
- * @param incomingUpdatedAt The incoming row's `updatedAt`, or nullish if absent.
+ * @param existingUpdatedAt The stored row's `updatedAt`, or nullish/unparseable if absent/never set.
+ * @param incomingUpdatedAt The incoming row's `updatedAt`, or nullish/unparseable if absent.
  * @returns `true` when the incoming write should be accepted.
  */
 export const isIncomingNewer = (existingUpdatedAt: string | null | undefined, incomingUpdatedAt: string | null | undefined): boolean => {
-  if (!incomingUpdatedAt && !existingUpdatedAt) return true;
-  if (!incomingUpdatedAt) return false;
-  if (!existingUpdatedAt) return true;
-  return compareTimestamps(incomingUpdatedAt, existingUpdatedAt) >= 0;
+  const existingMs = existingUpdatedAt ? parseTimestamp(existingUpdatedAt) : Number.NaN;
+  const incomingMs = incomingUpdatedAt ? parseTimestamp(incomingUpdatedAt) : Number.NaN;
+  const existingMissing = Number.isNaN(existingMs);
+  const incomingMissing = Number.isNaN(incomingMs);
+
+  if (incomingMissing && existingMissing) return true;
+  if (incomingMissing) return false;
+  if (existingMissing) return true;
+  return incomingMs - existingMs >= 0;
 };

@@ -84,6 +84,12 @@ const toTimestamp = (value: CreatedAtLike): number => {
   return Number.NaN;
 };
 
+/**
+ * Absolute `createdAt` gap between a candidate and an incoming node, in milliseconds. Missing or
+ * unparseable `createdAt` on either side makes `toTimestamp` return `NaN`, which propagates through
+ * `Math.abs` to a `NaN` delta - the `!Number.isFinite(delta)` guard in `findBestOptimisticCandidate`
+ * deliberately excludes a NaN delta from candidate ranking (never treated as a 0 or best match).
+ */
 const createdAtDelta = (candidate: CreatedAtRow, node: CreatedAtRow): number => Math.abs(toTimestamp(candidate.createdAt) - toTimestamp(node.createdAt));
 
 const resolveScopedCandidates = <TStored extends RowId, TNode extends RowId>(
@@ -252,7 +258,10 @@ type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
 };
 
 /**
- * Run `onStale` for temp-id rows older than the age threshold and not protected.
+ * Run `onStale` for temp-id rows older than the age threshold and not protected. A row whose
+ * `createdAt` cannot be parsed (missing, malformed, or otherwise NaN) is treated as maximally old and
+ * resolved immediately - an unparseable timestamp must not grant a stale row indefinite protection
+ * from cleanup.
  *
  * @param model Snapshot model used to scan temp rows.
  * @param options Age threshold, optional protected ids, and stale-row callback.
@@ -269,7 +278,8 @@ export const resolveStaleTempRows = <TStored extends CreatedAtRow>(
   for (const row of model.all()) {
     if (!isTempId(row.id) || protectedIds.has(row.id)) continue;
     const createdAt = toTimestamp(row.createdAt);
-    if (!Number.isFinite(createdAt) || now - createdAt <= options.maxAgeMs) continue;
+    const age = Number.isFinite(createdAt) ? now - createdAt : Number.POSITIVE_INFINITY;
+    if (age <= options.maxAgeMs) continue;
 
     options.onStale(row);
     resolved += 1;

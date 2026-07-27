@@ -65,4 +65,13 @@ describe('isIncomingNewer', () => {
     expect(isIncomingNewer('2026-01-01T00:00:00+11:00', '2025-12-31T13:00:00Z')).toBe(true);
     expect(isIncomingNewer('2025-12-31T13:00:00Z', '2026-01-01T00:00:00+11:00')).toBe(true);
   });
+
+  it('applies the same missing-value policy to an unparseable timestamp as to a nullish one', () => {
+    // An incoming value that fails to parse can never prove novelty - rejected, same as a nullish incoming.
+    expect(isIncomingNewer('2026-01-01T00:00:00Z', 'not-a-date')).toBe(false);
+    // An existing value that fails to parse can never block a parseable incoming write - accepted, same as a nullish existing.
+    expect(isIncomingNewer('not-a-date', '2026-01-01T00:00:00Z')).toBe(true);
+    // Both unparseable is symmetric with both nullish: accepted.
+    expect(isIncomingNewer('not-a-date', 'also-not-a-date')).toBe(true);
+  });
 });
