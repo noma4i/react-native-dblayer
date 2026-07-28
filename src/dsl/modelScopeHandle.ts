@@ -1,5 +1,5 @@
 import { sortBy } from 'es-toolkit';
-import type { ApplyTarget, Dependency, JournalOp, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape } from '../types';
+import type { ApplyTarget, Dependency, JournalOp, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape , ProjectionOptions } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';
@@ -10,7 +10,6 @@ import { useLiveRead } from '../read/useLiveRead';
 import { useRef, useState } from 'react';
 import { getDbRuntimeConfig } from './configure';
 import { sortRowsBySpec } from './modelReadAccess';
-import type { ProjectionOptions } from '../read/projectionGate';
 
 const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;
 

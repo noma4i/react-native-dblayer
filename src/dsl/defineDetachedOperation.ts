@@ -1,4 +1,4 @@
-import type { JournalOp, OperationRecord } from '../types';
+import type { DetachedOperationConfig, DetachedOperationHandle, JournalOp, OperationRecord } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle } from '../core/internalHandles';
@@ -9,21 +9,6 @@ import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGener
 type DetachedModel<TStored extends { id: string }> = {
   modelId: string;
   update(id: string, patch: Partial<TStored>): void;
-};
-
-export type DetachedOperationConfig<TInput, TStored extends { id: string }> = {
-  build: (input: TInput, ctx: { tempId: string }) => Omit<TStored, 'id'> | TStored;
-  resume: (entry: { operationId: string; tempId: string; input: TInput }) => Promise<'continue' | 'orphaned'>;
-  failure?: 'rollback' | 'keep';
-  onFailurePatch?: (input: TInput) => Partial<TStored>;
-};
-
-export type DetachedOperationHandle<TInput> = {
-  start(input: TInput): { operationId: string; tempId: string };
-  complete(operationId: string, serverNode: unknown): void;
-  fail(operationId: string, error: Error): void;
-  retry(operationId: string): Promise<'continue' | 'orphaned' | null>;
-  discard(operationId: string): void;
 };
 
 type Declaration = {

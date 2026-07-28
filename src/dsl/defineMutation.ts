@@ -3,7 +3,6 @@ import { validateMutationConfig } from './mutationConfiguration';
 import { useMutationHandle } from './mutationHook';
 import type { DefinedMutation, MutationConfig } from '../types';
 
-export type { DefinedMutation } from '../types';
 
 /**
  * Define hook and imperative mutation paths with one lifecycle: optimistic write -> transport call ->

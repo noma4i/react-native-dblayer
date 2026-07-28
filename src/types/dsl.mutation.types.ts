@@ -1,6 +1,6 @@
 import type { DbGraphQLDocument } from './db.types';
-import type { ExtractSink } from '../dsl/defineQuery';
-import type { MutationHandle } from '../dsl/mutationHook';
+import type { JournalOp } from './core.apply.journal.types';
+import type { ExtractSink } from './dsl.query.types';
 
 export type DefinedMutation<TData, TInput> = {
   run(input: TInput): Promise<TData | null>;
@@ -101,4 +101,16 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
   invalidate?: (ctx: { input: TInput; data: TData }) => void;
   /** Called after a successful commit for analytics/tracking; errors are logged and do not fail the mutation. */
   track?: (ctx: { input: TInput; data: TData }) => void;
+};
+
+export type MutationHandle<TData, TInput> = {
+  mutate(input: TInput, callbacks?: MutateCallbacks<TData>): void;
+  mutateAsync(input: TInput): Promise<TData | null>;
+  isPending: boolean;
+  error: Error | null;
+};
+
+export type MutationResponder<TData, TInput, TNode> = {
+  planFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[];
+  inverseFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[];
 };

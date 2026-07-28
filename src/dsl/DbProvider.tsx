@@ -4,11 +4,7 @@ import { getDbRuntimeConfig } from './configure';
 import { bootDb, suspendDb } from './lifecycle';
 import { noteResumeDrain } from '../core/diagnostics';
 import { resumeFetchLedgers } from '../core/fetch/fetchLedgerRegistry';
-
-export type DbProviderProps = {
-  /** Application subtree that may read the database after boot completes. */
-  children: React.ReactNode;
-};
+import type { DbProviderProps } from '../types';
 
 /**
  * Provide the boot gate and foreground-resume dispatcher for coordinator-owned reads.

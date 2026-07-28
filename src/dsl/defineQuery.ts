@@ -1,6 +1,6 @@
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
-import type { DbGraphQLDocument, DbReadOptions, JournalOp, LoadingState, ScopeCoverage, ScopeHandle } from '../types';
+import type { DbGraphQLDocument, DbReadOptions, EnsuredRowQueryHandle, EnsuredRowResult, ExtractSink, JournalOp, QueryHandle, QueryResult, ScopeCoverage, ScopeHandle } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { buildScopeKey } from '../core/compileDbWhere';
@@ -16,21 +16,6 @@ import { isFetchNetworkOnline, registerFetchLedger, subscribeFetchNetwork } from
 import { registerReset } from '../core/reset';
 type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
 type ConnectionLike = { nodes?: unknown[]; edges?: Array<{ node?: unknown } & Record<string, unknown>>; pageInfo?: PageInfoLike };
-export type QueryResult<T> = {
-  data: T[] | T | undefined; loadingState: LoadingState; error: Error | null; hasNextPage: boolean;
-  isFetchingNextPage: boolean; fetchNextPage: () => void; refetch: () => Promise<void>;
-};
-export type EnsuredRowResult<TStored> = {
-  row: TStored | undefined; loadingState: LoadingState; error: Error | null; refetch: () => Promise<void>;
-};
-export type QueryHandle<TStored, TScope> = {
-  use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored>; fetch(scope: TScope | null): Promise<void>; invalidate(scope?: TScope): void;
-};
-export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope> & {
-  useRowEnsured(scope: TScope, rowId: string | null | undefined, readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored>;
-};
-type PlanRowsSink = { modelId: string };
-export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
  *

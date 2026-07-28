@@ -1,11 +1,11 @@
 import { buildScopeKey } from '../core/compileDbWhere';
 import { createModelReadEngine, incrementalSignature, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
-import { createProjectionGate, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
+import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../read/useLiveRead';
-import type { DbWhere, Dependency, ModelReadAccess, ScopeSortSpec, ScopeSpec , ModelContext } from '../types';
+import type { DbWhere, Dependency, ModelContext, ModelReadAccess, ModelReadBuilder, ProjectionOptions, ReadOrder, ScopeSortSpec, ScopeSpec } from '../types';
 import { useEffect, useRef } from 'react';
-import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
+import { createReadBuilder } from './readBuilder';
 
 export const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] =>
   'comparator' in sort ? [...rows].sort(sort.comparator) : sortModelReadRows(rows, [{ field: String(sort.field), direction: sort.dir }]);

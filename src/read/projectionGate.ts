@@ -1,24 +1,13 @@
 import { useRef } from 'react';
-import type { Dependency } from '../types';
+import type { Dependency, ProjectionGate, ProjectionOptions } from '../types';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from './useLiveRead';
 
 type Row = { id: string; [key: string]: unknown };
-
-export type ProjectionOptions<TStored extends Row, TProjection extends Record<string, unknown> = TStored> =
-  | { select: (row: TStored) => TProjection; renderKeys?: never }
-  | { select?: never; renderKeys: readonly (keyof TStored & string)[] }
-  | { select?: never; renderKeys?: never };
 
 type GateEntry<TOutput extends Record<string, unknown>> = {
   source: unknown;
   output: TOutput;
   equalityValue: Record<string, unknown>;
-};
-
-export type ProjectionGate<TStored extends Row, TOutput extends Record<string, unknown>> = {
-  projectValue(id: string, source: unknown, output: TOutput, renderKeys?: readonly string[]): TOutput;
-  project(row: TStored, options: ProjectionOptions<TStored, TOutput>): TOutput;
-  projectRows(rows: TStored[], options: ProjectionOptions<TStored, TOutput>): TOutput[];
 };
 
 const equalityValue = <TStored extends Row, TOutput extends Record<string, unknown>>(
