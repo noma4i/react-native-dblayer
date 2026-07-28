@@ -1,4 +1,4 @@
-import type { FieldSpec } from './fieldSpec';
+import type { FieldSpec } from './schema.fieldSpec.types';
 
 declare const fieldsInputType: unique symbol;
 

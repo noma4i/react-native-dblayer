@@ -1,5 +1,5 @@
-import type { FieldSpec } from '../schema/fieldSpec';
-import type { DbShape } from '../schema/shape';
+import type { FieldSpec } from './schema.fieldSpec.types';
+import type { DbShape } from './schema.shape.types';
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 type FieldKeys<TFields extends AnyFields> = Extract<keyof TFields, string>;

@@ -1,12 +1,6 @@
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import type { DefinedFields } from './fields';
-import type { AnyFields, InferShapeStored } from '../types';
 
-type ShapeFields<_TInput> = AnyFields;
-
-export type DbShape<TInput, TFields extends ShapeFields<TInput>> = {
-  fields: TFields;
-};
+import type { DbShape, DefinedFields, InferShapeStored, ShapeFields } from '../types';
 
 /**
  * Define a reusable field group for model fields, object fields, and array items.

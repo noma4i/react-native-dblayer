@@ -1,20 +1,11 @@
-import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessage, type ChangeMessageOrDeleteKeyMessage, type Collection } from '@tanstack/db';
+import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage, type Collection } from '@tanstack/db';
+import type { EngineAdapter, EngineEntityChange, EngineEntityRow, EngineMembershipChange, EngineMembershipRow, EngineScopeChange, EngineScopeCollection, EngineScopeRow } from '../types';
 
-type EntityRow = { id: string } & Record<string, unknown>;
-type MembershipRow = { scopeKey: string; entityId: string; orderKey: string };
 type SyncMethods<T extends object> = {
   begin: () => void;
   write: (message: ChangeMessageOrDeleteKeyMessage<T, string>) => void;
   commit: () => void;
   markReady: () => void;
-};
-type EntityChange = { type: 'upsert'; value: EntityRow } | { type: 'delete'; id: string };
-type MembershipChange = { type: 'upsert'; value: MembershipRow } | { type: 'delete'; scopeKey: string; entityId: string };
-export type EngineScopeRow = { id?: string; orderKey: string };
-export type EngineScopeChange = ChangeMessage<EngineScopeRow, string | number>;
-export type EngineScopeCollection = {
-  toArray(): EngineScopeRow[];
-  subscribe(listener: (changes: EngineScopeChange[]) => void): () => void;
 };
 type EngineApplyTarget = {
   readRow(id: string): Record<string, unknown> | undefined;
@@ -34,25 +25,10 @@ type LiveScopeCollection = Pick<Collection<EngineScopeRow, string | number>, 'to
   subscribeChanges(callback: (changes: EngineScopeChange[]) => void, options: { includeInitialState: boolean }): { unsubscribe(): void };
 };
 
-export type EnginePlan = {
-  entities: readonly EntityChange[];
-  memberships: readonly MembershipChange[];
-  membershipWriteKind?: 'delta' | 'rebuild';
-  scopeOrder?: readonly string[];
-};
-export type EngineAdapter = {
-  apply(plan: EnginePlan): void;
-  markReady(): void;
-  readEntity(id: string): EntityRow | undefined;
-  readScope(scopeKey: string): string[];
-  scopeCollection(scopeKey: string): EngineScopeCollection;
-  replaceScope(scopeKey: string, entityIds: readonly string[]): void;
-  dispose(): void;
-};
 
 type EngineAdapterOptions = {
   onPhase?: (name: 'entities' | 'memberships', current: EngineAdapter) => void;
-  onMembershipWrite?: (kind: 'delta' | 'rebuild', changes: readonly MembershipChange[]) => void;
+  onMembershipWrite?: (kind: 'delta' | 'rebuild', changes: readonly EngineMembershipChange[]) => void;
 };
 
 class SyncFeed<T extends object> {
@@ -122,15 +98,15 @@ let engineScopeCollectionCount = 0;
 
 export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineAdapter => {
   const adapterId = engineAdapterSequence += 1;
-  const entityFeed = new SyncFeed<EntityRow>();
-  const membershipFeed = new SyncFeed<MembershipRow>();
-  const entities = createCollection<EntityRow>({
+  const entityFeed = new SyncFeed<EngineEntityRow>();
+  const membershipFeed = new SyncFeed<EngineMembershipRow>();
+  const entities = createCollection<EngineEntityRow>({
     id: 'dblayer-engine-entities',
     getKey: row => row.id,
     startSync: true,
     sync: { sync: entityFeed.sync }
   });
-  const memberships = createCollection<MembershipRow>({
+  const memberships = createCollection<EngineMembershipRow>({
     id: 'dblayer-engine-memberships',
     getKey: row => membershipKey(row.scopeKey, row.entityId),
     startSync: true,
@@ -139,8 +115,8 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
   entities.createIndex(row => row.id, { indexType: BasicIndex });
   const membershipsByScope = memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
 
-  const entityRows = new Map<string, EntityRow>();
-  const membershipRows = new Map<string, MembershipRow>();
+  const entityRows = new Map<string, EngineEntityRow>();
+  const membershipRows = new Map<string, EngineMembershipRow>();
   const scopeCollections = new Map<string, { collection: LiveScopeCollection; consumers: number }>();
   let ready = false;
   const getScopeCollection = (scopeKey: string) => {
@@ -176,7 +152,7 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
     engineScopeCollectionCount -= scopeCollections.size;
     scopeCollections.clear();
   };
-  const membershipsForScopeOrder = (changes: readonly MembershipChange[], scopeOrder: readonly string[]): MembershipChange[] => {
+  const membershipsForScopeOrder = (changes: readonly EngineMembershipChange[], scopeOrder: readonly string[]): EngineMembershipChange[] => {
     const scopeKey = changes.find(change => change.type === 'upsert')?.value.scopeKey ?? changes.find(change => change.type === 'delete')?.scopeKey;
     if (!scopeKey) return [...changes];
     const upserts = new Map(changes.flatMap(change => change.type === 'upsert' ? [[change.value.entityId, change] as const] : []));
@@ -259,11 +235,11 @@ export const createEngineAdapter = (options: EngineAdapterOptions = {}): EngineA
     }),
     replaceScope: (scopeKey, entityIds) => {
       const nextIds = new Set(entityIds);
-      const memberships: MembershipChange[] = [
+      const memberships: EngineMembershipChange[] = [
         ...[...membershipRows.values()]
           .filter(row => row.scopeKey === scopeKey && !nextIds.has(row.entityId))
           .map(row => ({ type: 'delete' as const, scopeKey, entityId: row.entityId })),
-        ...entityIds.reduce<Array<Extract<MembershipChange, { type: 'upsert' }>>>((changes, entityId) => {
+        ...entityIds.reduce<Array<Extract<EngineMembershipChange, { type: 'upsert' }>>>((changes, entityId) => {
           const previous = changes.at(-1)?.value.orderKey;
           changes.push({ type: 'upsert', value: { scopeKey, entityId, orderKey: fractionalOrderKey(previous, undefined) } });
           return changes;
@@ -285,12 +261,12 @@ const adapterFor = (model: string): EngineAdapter => {
   return next;
 };
 
-const upsertRows = (model: string, batch: EngineBatch, target: EngineApplyTarget): EntityChange[] =>
+const upsertRows = (model: string, batch: EngineBatch, target: EngineApplyTarget): EngineEntityChange[] =>
   batch.rows
     .filter(change => change.model === model)
     .map(change => {
       const row = target.readRow(change.id);
-      return row ? { type: 'upsert' as const, value: row as EntityRow } : { type: 'delete' as const, id: change.id };
+      return row ? { type: 'upsert' as const, value: row as EngineEntityRow } : { type: 'delete' as const, id: change.id };
     });
 
 export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) => EngineApplyTarget, readyAfterApply = false, resolveAdapter: (model: string) => EngineAdapter = adapterFor): void => {
@@ -313,7 +289,7 @@ export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) =
         continue;
       }
       const appendIds = [...new Set([...(change.appendIds ?? []), ...(change.appendEntries ?? []).map(entry => entry.id)])];
-      const memberships: MembershipChange[] = [
+      const memberships: EngineMembershipChange[] = [
         ...(change.detachIds ?? []).map(entityId => ({ type: 'delete' as const, scopeKey: change.scopeKey, entityId })),
         ...appendIds.map(entityId => ({ type: 'upsert' as const, value: { scopeKey: change.scopeKey, entityId, orderKey: '' } }))
       ];
@@ -326,7 +302,7 @@ export const syncEngineBatch = (batch: EngineBatch, getTarget: (model: string) =
 export const hydrateEngines = (targets: ReadonlyArray<readonly [string, EngineApplyTarget]>): void => {
   for (const [model, target] of targets) {
     const adapter = adapterFor(model);
-    adapter.apply({ entities: target.readAllRows().map(value => ({ type: 'upsert', value: value as EntityRow })), memberships: [] });
+    adapter.apply({ entities: target.readAllRows().map(value => ({ type: 'upsert', value: value as EngineEntityRow })), memberships: [] });
     for (const scopeKey of target.readAllScopeKeys()) adapter.replaceScope(scopeKey, target.readScopeOrder(scopeKey));
   }
 };

@@ -1,7 +1,6 @@
 import { readBoolean, readId, readIsoDate, readNullableNumber, readNullableString, readNumber, readString } from '../utils/normalizeHelpers';
 import { createFieldSpec, preserveNull, readObjectField } from './fieldSpec';
-import type { EmptyDefaultFieldSpec, FieldSpec, FieldValueReader } from './fieldSpec';
-import type { AnyDbShape, InferShapeStored } from '../types';
+import type { EmptyDefaultFieldSpec, FieldSpec, FieldValueReader , AnyDbShape, InferShapeStored } from '../types';
 import { readShape } from './shape';
 
 const definedPassthrough = <T>(value: unknown): T | undefined => (value == null ? undefined : (value as T));
