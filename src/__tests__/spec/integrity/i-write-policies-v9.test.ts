@@ -324,3 +324,66 @@ describe('v9 model-owned write policies', () => {
     expect(parents.find('parent-1')?.childCount).toBe(6);
   });
 });
+
+describe('v9 policy primitive edges', () => {
+  beforeEach(() => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+  });
+
+  it('rejects a nonEmpty group when the guarded field is absent from the payload', () => {
+    const rows = defineModel({
+      id: 'V9NonEmptyAbsent',
+      name: 'V9NonEmptyAbsent',
+      fields: { clientId: f.str(), body: f.str() },
+      write: { groups: [{ fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }] }
+    });
+    rows.insert({ id: 'row-1', clientId: 'client-1', body: 'first' });
+    rows.insert({ id: 'row-1', body: 'second' } as never);
+
+    expect(rows.find('row-1')).toMatchObject({ clientId: 'client-1' });
+  });
+
+  it('treats numeric zero as a present nonEmpty value', () => {
+    const rows = defineModel({
+      id: 'V9NonEmptyZero',
+      name: 'V9NonEmptyZero',
+      fields: { rank: f.num() },
+      write: { groups: [{ fields: ['rank'] as const, policy: { monotonic: { nonEmpty: true } } }] }
+    });
+    rows.insert({ id: 'row-1', rank: 5 });
+    rows.insert({ id: 'row-1', rank: 0 });
+
+    expect(rows.find('row-1')).toMatchObject({ rank: 0 });
+  });
+
+  it('compares numeric-like tuple parts numerically and falls through equal parts', () => {
+    const rows = defineModel({
+      id: 'V9TupleNumeric',
+      name: 'V9TupleNumeric',
+      fields: { headAt: f.str(), headSeq: f.str(), body: f.str() },
+      write: { groups: [{ fields: ['headAt', 'headSeq', 'body'] as const, policy: { monotonic: { tuple: ['headAt', 'headSeq'] } } }] }
+    });
+    rows.insert({ id: 'row-1', headAt: '9', headSeq: '5', body: 'first' });
+    rows.insert({ id: 'row-1', headAt: '10', headSeq: '1', body: 'numeric-win' });
+    expect(rows.find('row-1')).toMatchObject({ body: 'numeric-win' });
+
+    rows.insert({ id: 'row-1', headAt: '10', headSeq: '2', body: 'tiebreak-win' });
+    expect(rows.find('row-1')).toMatchObject({ body: 'tiebreak-win' });
+
+    rows.insert({ id: 'row-1', headAt: '10', headSeq: '2', body: 'equal-loses' });
+    expect(rows.find('row-1')).toMatchObject({ body: 'tiebreak-win' });
+  });
+
+  it('restores the whole rejected group so a stale partial can never tear paired fields', () => {
+    const rows = defineModel({
+      id: 'V9GroupAtomic',
+      name: 'V9GroupAtomic',
+      fields: { updatedAt: f.str(), body: f.str(), unguarded: f.str() },
+      write: { groups: [{ fields: ['updatedAt', 'body'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
+    });
+    rows.insert({ id: 'row-1', updatedAt: '2026-07-02T00:00:00Z', body: 'fresh', unguarded: 'old' });
+    rows.insert({ id: 'row-1', updatedAt: '2026-07-01T00:00:00Z', body: 'stale', unguarded: 'new' });
+
+    expect(rows.find('row-1')).toMatchObject({ updatedAt: '2026-07-02T00:00:00Z', body: 'fresh', unguarded: 'new' });
+  });
+});

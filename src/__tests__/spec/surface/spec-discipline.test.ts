@@ -29,6 +29,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-journal-corruption.test.ts'), source: path.resolve(specRoot, '../../core/apply/journal.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-batch.test.ts'), source: path.resolve(specRoot, '../../core/apply/transaction.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-operation-ledger.test.ts'), source: path.resolve(specRoot, '../../core/planes/operationState.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-scope-key.test.ts'), source: path.resolve(specRoot, '../../core/compileDbWhere.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-operation-ledger.test.ts'), source: path.resolve(specRoot, '../../types') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-batch.test.ts'), source: path.resolve(specRoot, '../../core/apply/commitBus.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-batch.test.ts'), source: path.resolve(specRoot, '../../types') },

@@ -234,3 +234,25 @@ describe('persistence schema manifest', () => {
     expect(storage.snapshotKeys()).toEqual(['dbl:manifest']);
   });
 });
+
+describe('manifest shape guard', () => {
+  it('treats every malformed persisted manifest as corruption and cold-resets a nonempty store', async () => {
+    const malformed = [
+      '{not-json',
+      JSON.stringify(42),
+      JSON.stringify({ formatVersion: '2', schemaFingerprint: 'fp', dataVersion: null }),
+      JSON.stringify({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 7, dataVersion: null }),
+      JSON.stringify({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'fp', dataVersion: 7 })
+    ];
+    for (const value of malformed) {
+      const storage = configureManifestRuntime();
+      storage.set([
+        { key: 'dbl:manifest', value },
+        { key: 'dbl:sentinel', value: 'stale' }
+      ]);
+
+      await expect(bootDb()).resolves.toMatchObject({ reset: true });
+      expect(storage.get('dbl:sentinel')).toBeUndefined();
+    }
+  });
+});

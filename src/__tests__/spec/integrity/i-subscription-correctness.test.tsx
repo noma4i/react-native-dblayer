@@ -166,3 +166,82 @@ describe('subscription effects registry', () => {
     recreated.reset();
   });
 });
+
+describe('subscription attempt races', () => {
+  const document = { kind: 'Document', definitions: [] } as never;
+
+  it('ignores a late payload from a superseded activation attempt', () => {
+    const handlerSets: Array<{ next: (data: unknown) => void; error: (error: unknown) => void }> = [];
+    const transport = createMockTransport({
+      subscribe: (_options, handlers) => {
+        handlerSets.push(handlers);
+        return jest.fn();
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const received: string[] = [];
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+    runtime.setActive(true);
+    runtime.setActive(false);
+    runtime.setActive(true);
+
+    handlerSets[0]!.next({ event: { id: 'stale' } });
+    handlerSets[1]!.next({ event: { id: 'live' } });
+
+    expect(received).toEqual(['live']);
+    runtime.stop();
+  });
+
+  it('cancels pending debounced deliveries when deactivated', () => {
+    jest.useFakeTimers();
+    try {
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
+      const received: string[] = [];
+      const runtime = createDbSubscriptionRuntime([
+        { key: 'event', query: document, debounce: { ms: 50 }, onData: payload => received.push((payload as { id: string }).id) }
+      ]);
+      runtime.setActive(true);
+      runtime.dispatch('event', { id: 'buffered' });
+
+      runtime.setActive(false);
+      jest.advanceTimersByTime(200);
+
+      expect(received).toEqual([]);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('resets the retry backoff after a successful delivery', () => {
+    jest.useFakeTimers();
+    try {
+      let attempts = 0;
+      let liveHandlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      const transport = createMockTransport({
+        subscribe: (_options, handlers) => {
+          attempts += 1;
+          liveHandlers = handlers;
+          return jest.fn();
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      runtime.setActive(true);
+      expect(attempts).toBe(1);
+
+      liveHandlers.error(new Error('first failure'));
+      jest.advanceTimersByTime(1000);
+      expect(attempts).toBe(2);
+
+      liveHandlers.next({ event: { id: 'recovered' } });
+      liveHandlers.error(new Error('second failure'));
+      jest.advanceTimersByTime(1000);
+
+      expect(attempts).toBe(3);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
