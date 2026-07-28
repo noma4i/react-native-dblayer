@@ -92,8 +92,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-detached-operations.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-write-policies-v9.test.ts'), source: path.resolve(specRoot, '../../core/invariants.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-scope-order-reset.test.tsx'), source: path.resolve(specRoot, '../../core/planes/scopeIndex.ts') },
-  { spec: path.resolve(specRoot, 'integrity/i-fetch-ledger.test.ts'), source: path.resolve(specRoot, '../../core/fetch/fetchLedger.ts') },
-  { spec: path.resolve(specRoot, 'helpers/harness.ts'), source: path.resolve(specRoot, '../../core/fetch/fetchLedgerRegistry.ts') },
+  { spec: path.resolve(specRoot, 'helpers/harness.ts'), source: path.resolve(specRoot, '../../core/fetch/networkState.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-store-contract.test.ts'), source: path.resolve(specRoot, '../../core/store.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-apply-batch.test.ts'), source: path.resolve(specRoot, '../../core/store.ts') }
 ];

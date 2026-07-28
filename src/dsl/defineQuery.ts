@@ -1,5 +1,6 @@
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { CancelledError, QueryObserver } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { DbGraphQLDocument, DbReadOptions, EnsuredRowQueryHandle, EnsuredRowResult, ExtractSink, JournalOp, QueryHandle, QueryResult, ScopeCoverage, ScopeHandle } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/transaction';
@@ -7,12 +8,12 @@ import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
-import { getApplyRuntime, getDbRuntimeConfig } from './configure';
+import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
-import { createFetchLedger } from '../core/fetch/fetchLedger';
-import { isFetchNetworkOnline, registerFetchLedger, subscribeFetchNetwork } from '../core/fetch/fetchLedgerRegistry';
+import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchLedgerRegistry';
+import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { registerReset } from '../core/reset';
 type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
 type ConnectionLike = { nodes?: unknown[]; edges?: Array<{ node?: unknown } & Record<string, unknown>>; pageInfo?: PageInfoLike };
@@ -55,6 +56,8 @@ type QueryConfig<TResponse, TVars, TScope, TStored> = {
 };
 type PageMeta = { endCursor: string | null; hasNextPage: boolean; count: number };
 type RequestState = { isFetching: boolean; isFetchingNextPage: boolean; isFetched: boolean; isPaused: boolean; retryAttempt: number; error: Error | null; hasNextPage: boolean };
+/** The value stored per query key in the package-owned QueryClient: fetch chain meta only - rows live in the store. */
+type ChainMeta = { lastCount: number; cursor: string | null; pages: number; hasNextPage: boolean; ids: string[] };
 const issuedResetSeqByBucket = new Map<string, number>();
 const appliedResetSeqByBucket = new Map<string, number>();
 registerReset(() => { issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); });
@@ -73,45 +76,39 @@ const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown
   return [{ node: value, edgeSource: value }];
 };
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
-/** Define a coordinator-owned GraphQL query that applies results into the local model store. */
+/** Define a coordinator-owned GraphQL query: react-query drives freshness/single-flight/retry, results land through the store's write seams. */
 export const defineQuery = <TResponse, TVars, TScope, TStored>(
   config: QueryConfig<TResponse, TVars, TScope, TStored>
 ): QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope> => {
   const keyName = operationKey(config.document, config.key);
   const registeredScopes = new Map<string, TScope>();
-  const states = new Map<string, RequestState>();
-  const listeners = new Map<string, Set<() => void>>();
-  const versions = new Map<string, number>();
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
   const destinationModelId = (config.into as { modelId?: string }).modelId ?? keyName;
-  const stateOf = (key: string): RequestState => states.get(key) ?? { isFetching: false, isFetchingNextPage: false, isFetched: false, isPaused: false, retryAttempt: 0, error: null, hasNextPage: false };
-  const emit = (key: string): void => {
-    versions.set(key, (versions.get(key) ?? 0) + 1);
-    for (const listener of listeners.get(key) ?? []) listener();
+  /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
+  const localStates = new Map<string, { isPaused: boolean; isFetchingNextPage: boolean }>();
+  const localListeners = new Map<string, Set<() => void>>();
+  const localVersions = new Map<string, number>();
+  const localStateOf = (key: string) => localStates.get(key) ?? { isPaused: false, isFetchingNextPage: false };
+  const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => {
+    const previous = localStateOf(key);
+    const merged = { ...previous, ...next };
+    if (merged.isPaused === previous.isPaused && merged.isFetchingNextPage === previous.isFetchingNextPage) return;
+    localStates.set(key, merged);
+    localVersions.set(key, (localVersions.get(key) ?? 0) + 1);
+    for (const listener of localListeners.get(key) ?? []) listener();
   };
-  const setState = (key: string, next: Partial<RequestState>): void => {
-    states.set(key, { ...stateOf(key), ...next });
-    emit(key);
-  };
-  const subscribe = (key: string, listener: () => void): (() => void) => {
-    const keyListeners = listeners.get(key) ?? new Set<() => void>();
-    listeners.set(key, keyListeners);
+  const subscribeLocal = (key: string, listener: () => void): (() => void) => {
+    const keyListeners = localListeners.get(key) ?? new Set<() => void>();
+    localListeners.set(key, keyListeners);
     keyListeners.add(listener);
     return () => {
       keyListeners.delete(listener);
-      if (keyListeners.size === 0) listeners.delete(key);
+      if (keyListeners.size === 0) localListeners.delete(key);
     };
   };
-  const ledger = createFetchLedger({
-    now: Date.now,
-    retry: getDbRuntimeConfig().defaults.retry?.query ?? {},
-    isOnline: isFetchNetworkOnline,
-    onStamp: emit,
-    maxEntries: Number.MAX_SAFE_INTEGER
-  });
-  registerFetchLedger(ledger);
-  registerReset(() => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); states.clear(); versions.clear(); });
+  registerReset(() => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localStates.clear(); localVersions.clear(); });
   const ledgerKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
+  const queryKeyOf = (key: string): [string, string] => [keyName, key];
   const registerScope = (scope: TScope | null): scope is TScope => {
     if (scope === null) return false;
     if (isScopeDestination(config.into)) getInternalScopeHandle(config.into).key(scope);
@@ -147,7 +144,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const ids = committedRows.flatMap(row => (isRecord(row) && row.id != null ? [compositeKey(destinationModelId, String(row.id))] : []));
     return { meta: pageMetaOf(config.page ? config.page(data) : null), ids };
   };
-  const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; attempt: number; isCurrent: () => boolean }) => {
+  const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
     const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(context.cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(context.cursor) : context.cursor } : {}) };
     const scopeKey = buildScopeKey(scope);
@@ -167,55 +164,76 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       }
       throw error;
     }
-    if (!context.isCurrent()) return { applied: false as const };
+    if (!context.isCurrent()) return null;
     const applied = appliedResetSeqByBucket.get(guardKey) ?? 0;
-    if ((reset && issued < applied) || (!reset && issued < (issuedResetSeqByBucket.get(guardKey) ?? 0))) return { applied: false as const };
+    if ((reset && issued < applied) || (!reset && issued < (issuedResetSeqByBucket.get(guardKey) ?? 0))) return null;
     if (reset) appliedResetSeqByBucket.set(guardKey, issued);
     const result = applyResponse(scope, data, reset, resurrectDestroyed);
-    setState(key, { hasNextPage: result.meta.hasNextPage });
-    return config.page
-      ? { applied: true as const, count: result.meta.count, ids: result.ids, cursor: result.meta.hasNextPage ? result.meta.endCursor : null }
-      : { applied: true as const, count: result.meta.count, ids: result.ids };
+    const previousPages = (getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined)?.pages ?? 0;
+    return {
+      lastCount: result.meta.count,
+      cursor: config.page && result.meta.hasNextPage ? result.meta.endCursor : null,
+      pages: config.page ? (reset ? 1 : previousPages + 1) : 1,
+      hasNextPage: result.meta.hasNextPage,
+      ids: result.ids
+    };
   };
   const staleTimeOf = (key: string): number => {
-    const entry = ledger.read(key);
+    const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return entry?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
+    return meta?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
   };
   const run = async (scope: TScope, options: { restart: boolean; resurrectDestroyed?: boolean; nextPage?: boolean; propagateFailure?: boolean }): Promise<void> => {
     if (config.enabled && !config.enabled(scope)) return;
     const key = ledgerKeyOf(scope);
-    if (options.restart) ledger.invalidate(key);
-    setState(key, { isFetching: true, isFetchingNextPage: options.nextPage === true, isPaused: false, error: null, retryAttempt: 0 });
-    let lastError: Error | null = null;
-    const status = await ledger.run(key, async context => {
-      setState(key, { retryAttempt: context.attempt - 1 });
-      try {
-        return await execute(scope, key, options.resurrectDestroyed === true, context);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        throw error;
+    const client = getDbQueryClient();
+    const queryKey = queryKeyOf(key);
+    if (!isFetchNetworkOnline()) {
+      setLocalState(key, { isPaused: true });
+      return;
+    }
+    // Cancellation is synchronous; awaiting it would open a microtask window where a
+    // concurrent restart dedupes into the fetch this one is about to supersede.
+    if (options.restart) void client.cancelQueries({ queryKey });
+    setLocalState(key, { isPaused: false, isFetchingNextPage: options.nextPage === true });
+    const generation = getRuntimeGeneration();
+    try {
+      await client.fetchQuery<ChainMeta | null>({
+        queryKey,
+        queryFn: async () => {
+          const chainCursor = options.restart ? null : ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null);
+          const cursor = options.nextPage || !options.restart ? chainCursor : null;
+          const meta = await execute(scope, key, options.resurrectDestroyed === true, { cursor, isCurrent: () => getRuntimeGeneration() === generation });
+          if (meta === null) return (client.getQueryData(queryKey) as ChainMeta | undefined) ?? { lastCount: 0, cursor: null, pages: 0, hasNextPage: false, ids: [] };
+          return meta;
+        },
+        staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
+      });
+    } catch (error) {
+      // A newer restart cancelled this fetch; the superseding run now owns key state and outcome.
+      if (error instanceof CancelledError) return;
+      if (!isFetchNetworkOnline()) {
+        setLocalState(key, { isPaused: true, isFetchingNextPage: false });
+        return;
       }
-    });
-    setState(key, {
-      isFetching: false,
-      isFetchingNextPage: false,
-      isPaused: status === 'offline',
-      isFetched: stateOf(key).isFetched || status === 'applied' || status === 'failed',
-      retryAttempt: 0,
-      error: status === 'failed' ? lastError : null
-    });
-    if (status === 'failed' && options.propagateFailure) throw lastError ?? new Error('react-native-dblayer: query failed without an error');
+      setLocalState(key, { isFetchingNextPage: false });
+      if (options.propagateFailure) throw error instanceof Error ? error : new Error(String(error));
+      return;
+    }
+    setLocalState(key, { isPaused: false, isFetchingNextPage: false });
   };
   const fetch = async (scope: TScope | null): Promise<void> => {
     if (!registerScope(scope)) return;
     await run(scope, { restart: true, propagateFailure: true });
   };
   const invalidate = (scope?: TScope): void => {
+    const client = getDbQueryClient();
     const invalidateScope = (registered: TScope) => {
-      const key = ledgerKeyOf(registered);
-      ledger.invalidate(key);
-      void ledger.refetchKey(key);
+      const queryKey = queryKeyOf(ledgerKeyOf(registered));
+      // Invalidation is lazy: freshness drops for everyone, but only mounted readers refetch now.
+      void client.invalidateQueries({ queryKey, refetchType: 'none' }).then(() => {
+        refetchActiveFetchReaders(queryKey);
+      });
     };
     if (scope === undefined) {
       for (const registered of registeredScopes.values()) invalidateScope(registered);
@@ -225,46 +243,88 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     for (const registered of registeredScopes.values()) if (matchesPartialScope(registered, scope)) invalidateScope(registered);
   };
   if (destinationModelId) registerModelInvalidation(destinationModelId, scope => invalidate(scope as TScope | undefined));
-  const useVersion = (key: string): number => useSyncExternalStore(listener => subscribe(key, listener), () => versions.get(key) ?? 0, () => 0);
-  const useDestinationRows: (scope: TScope | null) => TStored[] | undefined = isScopeDestination(config.into)
-    ? scope => (config.into as ScopeDestination<TStored, TScope>).use(scope) as TStored[]
-    : () => undefined;
+  const useObservedState = (key: string): RequestState => {
+    const client = getDbQueryClient();
+    const generation = getRuntimeGeneration();
+    const observerRef = useRef<{ key: string; generation: number; observer: QueryObserver<ChainMeta | null> } | null>(null);
+    if (observerRef.current === null || observerRef.current.key !== key || observerRef.current.generation !== generation) {
+      observerRef.current = { key, generation, observer: new QueryObserver<ChainMeta | null>(client, { queryKey: queryKeyOf(key), enabled: false, staleTime: Infinity }) };
+    }
+    const observer = observerRef.current.observer;
+    const subscribe = useCallback(
+      (onStoreChange: () => void) => {
+        const unsubscribeObserver = observer.subscribe(onStoreChange);
+        const unsubscribeLocal = subscribeLocal(key, onStoreChange);
+        return () => {
+          unsubscribeObserver();
+          unsubscribeLocal();
+        };
+      },
+      [key, observer]
+    );
+    const getSnapshot = useCallback(() => `${observer.getCurrentResult().fetchStatus}:${observer.getCurrentResult().status}:${observer.getCurrentResult().failureCount}:${observer.getCurrentResult().dataUpdatedAt}:${localVersions.get(key) ?? 0}`, [key, observer]);
+    useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const result = observer.getCurrentResult();
+    const local = localStateOf(key);
+    const meta = (result.data ?? undefined) as ChainMeta | undefined;
+    return {
+      isFetching: result.fetchStatus === 'fetching',
+      isFetchingNextPage: local.isFetchingNextPage && result.fetchStatus === 'fetching',
+      isFetched: result.dataUpdatedAt > 0 || result.errorUpdatedAt > 0,
+      isPaused: local.isPaused,
+      retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
+      error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null,
+      hasNextPage: meta?.hasNextPage ?? false
+    };
+  };
   const useReader = (scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean, forceAbsentRefetch: boolean): RequestState => {
     const key = scope === null ? compositeKey(keyName, 'inactive') : ledgerKeyOf(scope);
-    const version = useVersion(key);
+    const state = useObservedState(key);
     const mountedKey = useRef<string | null>(null);
     const forcedRefetch = useRef(false);
-    const state = stateOf(key);
     if (mountedKey.current !== key) forcedRefetch.current = false;
     useEffect(() => {
       if (scope === null || !enabled) return;
+      const client = getDbQueryClient();
+      const queryKey = queryKeyOf(key);
       const resumeWindow = (): number | null => config.resumeStaleTime === undefined ? getDbRuntimeConfig().defaults.resumeStaleTime : config.resumeStaleTime;
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
-        if (window === null || ledger.isFresh(key, window)) return false;
-        ledger.invalidate(key);
+        const state = client.getQueryState(queryKey);
+        const fresh = state?.dataUpdatedAt !== undefined && state.dataUpdatedAt > 0 && Date.now() - state.dataUpdatedAt <= window! && !state.isInvalidated;
+        if (window === null || fresh) return false;
+        void client.invalidateQueries({ queryKey, refetchType: 'none' });
         return true;
       };
-      const release = ledger.retain(key, () => run(scope, { restart: false, resurrectDestroyed }), markResumeStale);
+      const release = registerActiveFetchReaders({
+        queryKey,
+        markResumeStale,
+        refetch: () => run(scope, { restart: false, resurrectDestroyed }).catch(() => {})
+      });
       const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
+      const queryState = client.getQueryState(queryKey);
+      const isFresh = queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= staleTimeOf(key) && !queryState.isInvalidated;
       const canRefetch = !firstMount || !state.isFetched || config.refetchOnMount !== false;
       const shouldFetch = firstMount && canRefetch;
-      if (shouldFetch && !ledger.isFresh(key, staleTimeOf(key)) && !state.isFetching) {
+      if (shouldFetch && !isFresh && !state.isFetching) {
         void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
       }
       if (forceAbsentRefetch && state.isFetched && !state.isFetching && !forcedRefetch.current) {
         forcedRefetch.current = true;
-        void run(scope, { restart: true, resurrectDestroyed });
+        void run(scope, { restart: true, resurrectDestroyed }).catch(() => {});
       }
       const unsubscribeOnline = subscribeFetchNetwork(() => {
-        if (isFetchNetworkOnline() && !ledger.isFresh(key, staleTimeOf(key))) void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
+        if (!isFetchNetworkOnline()) return;
+        const currentState = client.getQueryState(queryKey);
+        const fresh = currentState?.dataUpdatedAt !== undefined && currentState.dataUpdatedAt > 0 && Date.now() - currentState.dataUpdatedAt <= staleTimeOf(key) && !currentState.isInvalidated;
+        if (!fresh) void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
       });
       return () => {
         unsubscribeOnline();
         release();
       };
-    }, [enabled, forceAbsentRefetch, key, resurrectDestroyed, scope, state.isFetched, state.isFetching, version]);
+    }, [enabled, forceAbsentRefetch, key, resurrectDestroyed, scope, state.isFetched, state.isFetching]);
     return state;
   };
   const buildResult = (rows: TStored[] | undefined, enabled: boolean, state: RequestState, scope: TScope | null): QueryResult<TStored> => {
@@ -295,6 +355,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       }
     };
   };
+  const useDestinationRows: (scope: TScope | null) => TStored[] | undefined = isScopeDestination(config.into)
+    ? scope => (config.into as ScopeDestination<TStored, TScope>).use(scope) as TStored[]
+    : () => undefined;
   const use = (scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
     registerScope(scope);
     const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);

@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { CancelledError, QueryObserver } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { FetchConfig, FetchHandle, FetchResult } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { getDbLogger } from '../core/logger';
-import { createFetchLedger } from '../core/fetch/fetchLedger';
-import { isFetchNetworkOnline, registerFetchLedger, subscribeFetchNetwork } from '../core/fetch/fetchLedgerRegistry';
-import { getDbRuntimeConfig } from './configure';
-import { registerReset } from '../core/reset';
+import { registerActiveFetchReaders } from '../core/fetch/fetchLedgerRegistry';
+import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 
 type FetchState = { isFetching: boolean; isFetched: boolean; isPaused: boolean; retryAttempt: number; error: Error | null };
+/** Per-key value stored in the package QueryClient: the selected payload plus its emptiness for `emptyStaleTime`. */
+type FetchData<TSelected> = { selected: TSelected; empty: boolean };
+
+let fetchHandleSequence = 0;
 
 /**
  * Define an ephemeral coordinator-owned fetch with no model-store writes.
@@ -22,52 +26,37 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const hasDocument = config.document !== undefined;
   const hasFetcher = config.fetcher !== undefined;
   if (hasDocument === hasFetcher) throw new Error('defineFetch requires exactly one of document or fetcher');
-  const values = new Map<string, TSelected>();
-  const inputs = new Map<string, TInput>();
-  const states = new Map<string, FetchState>();
-  const listeners = new Map<string, Set<() => void>>();
-  const versions = new Map<string, number>();
+  const handleKey = `fetch:${config.key ?? (fetchHandleSequence += 1)}`;
   const isEmpty = config.isEmpty ?? ((data: TSelected) => data == null || (Array.isArray(data) && data.length === 0));
   const keyOf = (input: TInput): string => buildScopeKey(input);
-  const stateOf = (key: string): FetchState => states.get(key) ?? { isFetching: false, isFetched: false, isPaused: false, retryAttempt: 0, error: null };
-  const emit = (key: string): void => {
-    versions.set(key, (versions.get(key) ?? 0) + 1);
-    for (const listener of listeners.get(key) ?? []) listener();
+  const queryKeyOf = (key: string): [string, string] => [handleKey, key];
+  /** Offline pause is the one flag react-query's state machine does not carry in our vocabulary. */
+  const pausedKeys = new Set<string>();
+  const pausedListeners = new Map<string, Set<() => void>>();
+  const pausedVersions = new Map<string, number>();
+  const setPaused = (key: string, paused: boolean): void => {
+    if (pausedKeys.has(key) === paused) return;
+    if (paused) pausedKeys.add(key);
+    else pausedKeys.delete(key);
+    pausedVersions.set(key, (pausedVersions.get(key) ?? 0) + 1);
+    for (const listener of pausedListeners.get(key) ?? []) listener();
   };
-  const setState = (key: string, next: Partial<FetchState>): void => {
-    states.set(key, { ...stateOf(key), ...next });
-    emit(key);
-  };
-  const subscribe = (key: string, listener: () => void): (() => void) => {
-    const keyListeners = listeners.get(key) ?? new Set<() => void>();
-    listeners.set(key, keyListeners);
+  const subscribePaused = (key: string, listener: () => void): (() => void) => {
+    const keyListeners = pausedListeners.get(key) ?? new Set<() => void>();
+    pausedListeners.set(key, keyListeners);
     keyListeners.add(listener);
     return () => {
       keyListeners.delete(listener);
-      if (keyListeners.size === 0) listeners.delete(key);
+      if (keyListeners.size === 0) pausedListeners.delete(key);
     };
   };
-  const ledger = createFetchLedger({
-    now: Date.now,
-    retry: getDbRuntimeConfig().defaults.retry?.query ?? {},
-    isOnline: isFetchNetworkOnline,
-    onStamp: emit,
-    maxEntries: Number.MAX_SAFE_INTEGER
-  });
-  registerFetchLedger(ledger);
-  registerReset(() => {
-    values.clear();
-    inputs.clear();
-    states.clear();
-    versions.clear();
-  });
 
   const staleTimeOf = (key: string): number => {
-    const entry = ledger.read(key);
+    const data = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return entry?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
+    return data?.empty === true && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
   };
-  const execute = async (input: TInput, key: string, context: { attempt: number; isCurrent: () => boolean }) => {
+  const execute = async (input: TInput): Promise<FetchData<TSelected>> => {
     let data: TData;
     try {
       data = config.fetcher ? await config.fetcher(input) : responseDataOrThrow(await getDbTransport().query({ query: config.document, variables: config.vars?.(input) ?? {} }));
@@ -80,79 +69,129 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       }
       throw error;
     }
-    if (!context.isCurrent()) return { applied: false as const };
     const selected = config.select(data);
-    values.set(key, selected);
-    return { applied: true as const, count: isEmpty(selected) ? 0 : 1, ids: [] };
+    return { selected, empty: isEmpty(selected) };
+  };
+  const isFreshKey = (key: string): boolean => {
+    const client = getDbQueryClient();
+    const state = client.getQueryState(queryKeyOf(key));
+    return state?.dataUpdatedAt !== undefined && state.dataUpdatedAt > 0 && Date.now() - state.dataUpdatedAt <= staleTimeOf(key) && !state.isInvalidated;
   };
   const run = async (input: TInput, options: { restart: boolean; propagateFailure?: boolean }): Promise<TSelected> => {
     const key = keyOf(input);
-    inputs.set(key, input);
-    if (options.restart) ledger.invalidate(key);
-    setState(key, { isFetching: true, isPaused: false, error: null, retryAttempt: 0 });
-    let lastError: Error | null = null;
-    const status = await ledger.run(key, async context => {
-      setState(key, { retryAttempt: context.attempt - 1 });
-      try {
-        return await execute(input, key, context);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        throw error;
+    const client = getDbQueryClient();
+    const queryKey = queryKeyOf(key);
+    if (!isFetchNetworkOnline()) {
+      setPaused(key, true);
+      return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
+    }
+    // Cancellation is synchronous; awaiting it would open a microtask window where a
+    // concurrent restart dedupes into the fetch this one is about to supersede.
+    if (options.restart) void client.cancelQueries({ queryKey });
+    setPaused(key, false);
+    const generation = getRuntimeGeneration();
+    try {
+      const data = await client.fetchQuery<FetchData<TSelected>>({
+        queryKey,
+        queryFn: async () => {
+          const result = await execute(input);
+          if (getRuntimeGeneration() !== generation) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined) ?? result;
+          return result;
+        },
+        staleTime: options.restart ? 0 : staleTimeOf(key)
+      });
+      return data.selected;
+    } catch (error) {
+      // A newer restart cancelled this fetch; the superseding run now owns key state and outcome.
+      if (error instanceof CancelledError) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
+      if (!isFetchNetworkOnline()) {
+        setPaused(key, true);
+        return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
       }
-    });
-    setState(key, { isFetching: false, isPaused: status === 'offline', isFetched: stateOf(key).isFetched || status === 'applied' || status === 'failed', retryAttempt: 0, error: status === 'failed' ? lastError : null });
-    if (status === 'failed' && options.propagateFailure) throw lastError ?? new Error('react-native-dblayer: fetch failed without an error');
-    return values.get(key) as TSelected;
+      if (options.propagateFailure) throw error instanceof Error ? error : new Error(String(error));
+      return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
+    }
   };
   const fetch = async (input: TInput): Promise<TSelected> => {
     const generationFence = createGenerationFence();
     const key = keyOf(input);
-    if (values.has(key) && ledger.isFresh(key, staleTimeOf(key))) return values.get(key) as TSelected;
+    const cached = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
+    if (cached !== undefined && isFreshKey(key)) return cached.selected;
     const selected = await run(input, { restart: false, propagateFailure: true });
     if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
     return selected;
   };
   const remove = (): void => {
-    for (const key of inputs.keys()) {
-      ledger.invalidate(key);
-      values.delete(key);
-      states.delete(key);
-      emit(key);
-    }
-    inputs.clear();
+    getDbQueryClient().removeQueries({ queryKey: [handleKey] });
+    pausedKeys.clear();
   };
   const use = (input: TInput): FetchResult<TSelected> => {
     const key = keyOf(input);
-    inputs.set(key, input);
     const enabled = config.enabled?.(input) ?? true;
-    const version = useSyncExternalStore(listener => subscribe(key, listener), () => versions.get(key) ?? 0, () => 0);
+    const client = getDbQueryClient();
+    const generation = getRuntimeGeneration();
+    const observerRef = useRef<{ key: string; generation: number; observer: QueryObserver<FetchData<TSelected>> } | null>(null);
+    if (observerRef.current === null || observerRef.current.key !== key || observerRef.current.generation !== generation) {
+      observerRef.current = { key, generation, observer: new QueryObserver<FetchData<TSelected>>(client, { queryKey: queryKeyOf(key), enabled: false, staleTime: Infinity }) };
+    }
+    const observer = observerRef.current.observer;
+    const subscribe = useCallback(
+      (onStoreChange: () => void) => {
+        const unsubscribeObserver = observer.subscribe(onStoreChange);
+        const unsubscribePaused = subscribePaused(key, onStoreChange);
+        return () => {
+          unsubscribeObserver();
+          unsubscribePaused();
+        };
+      },
+      [key, observer]
+    );
+    const getSnapshot = useCallback(() => {
+      const result = observer.getCurrentResult();
+      return `${result.fetchStatus}:${result.status}:${result.failureCount}:${result.dataUpdatedAt}:${pausedVersions.get(key) ?? 0}`;
+    }, [key, observer]);
+    useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    const result = observer.getCurrentResult();
+    const state: FetchState = {
+      isFetching: result.fetchStatus === 'fetching',
+      isFetched: result.dataUpdatedAt > 0 || result.errorUpdatedAt > 0,
+      isPaused: pausedKeys.has(key),
+      retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
+      error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null
+    };
     const mountedKey = useRef<string | null>(null);
-    const state = stateOf(key);
     useEffect(() => {
       if (!enabled) return;
+      const queryKey = queryKeyOf(key);
       const resumeWindow = (): number | null => config.resumeStaleTime === undefined ? getDbRuntimeConfig().defaults.resumeStaleTime : config.resumeStaleTime;
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
-        if (window === null || ledger.isFresh(key, window)) return false;
-        ledger.invalidate(key);
+        const queryState = client.getQueryState(queryKey);
+        const fresh = queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= window! && !queryState.isInvalidated;
+        if (window === null || fresh) return false;
+        void client.invalidateQueries({ queryKey, refetchType: 'none' });
         return true;
       };
-      const release = ledger.retain(key, async () => {
-        await run(input, { restart: false });
-      }, markResumeStale);
+      const release = registerActiveFetchReaders({
+        queryKey,
+        markResumeStale,
+        refetch: async () => {
+          await run(input, { restart: false });
+        }
+      });
       const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
       const canRefetch = !firstMount || !state.isFetched || getDbRuntimeConfig().defaults.refetchOnMount !== false;
-      if (firstMount && canRefetch && !ledger.isFresh(key, staleTimeOf(key)) && !state.isFetching) void run(input, { restart: false }).catch(() => {});
+      if (firstMount && canRefetch && !isFreshKey(key) && !state.isFetching) void run(input, { restart: false }).catch(() => {});
       const unsubscribeOnline = subscribeFetchNetwork(() => {
-        if (isFetchNetworkOnline() && !ledger.isFresh(key, staleTimeOf(key))) void run(input, { restart: false }).catch(() => {});
+        if (isFetchNetworkOnline() && !isFreshKey(key)) void run(input, { restart: false }).catch(() => {});
       });
       return () => {
         unsubscribeOnline();
         release();
       };
-    }, [enabled, input, key, state.isFetched, state.isFetching, version]);
-    const data = values.get(key);
+    }, [client, enabled, input, key, state.isFetched, state.isFetching]);
+    const data = (result.data as FetchData<TSelected> | undefined)?.selected;
     const hasData = data !== undefined && !isEmpty(data);
     const phaseInput = {
       isInactive: !enabled && !hasData,

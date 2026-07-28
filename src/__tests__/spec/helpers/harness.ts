@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
-import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../../core/fetch/fetchLedgerRegistry';
+import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../../core/fetch/networkState';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
   const values = new Map<string, string>();
@@ -113,7 +113,7 @@ export function renderCountedInProvider<T>(useHook: () => T) {
 }
 
 /** Drains microtasks by default (safe with fake timers); macro mode drains setTimeout work and must not run with fake timers. */
-export const settle = async (ticks = 6, opts?: { macro?: boolean }): Promise<void> => {
+export const settle = async (ticks = 12, opts?: { macro?: boolean }): Promise<void> => {
   for (let tick = 0; tick < ticks; tick += 1) {
     await act(async () => {
       if (opts?.macro) await new Promise<void>(resolve => setTimeout(resolve, 0));

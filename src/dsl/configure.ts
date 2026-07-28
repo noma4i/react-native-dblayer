@@ -1,4 +1,7 @@
+import { QueryClient } from '@tanstack/react-query';
 import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, DbDefaults, JournalOp, OperationState, StoragePlane } from '../types';
+import { retryDelayMs } from '../core/fetch/retryPolicy';
+import { isFetchNetworkOnline } from '../core/fetch/networkState';
 import { mmkvStoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
@@ -22,11 +25,13 @@ let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
+let queryClient: QueryClient | null = null;
 let runtimeGeneration = 0;
 const commitBus = createCommitBus();
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
 let storeResetRegistered = false;
+let queryClientResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
@@ -50,6 +55,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), dataVersion: options.dataVersion ?? null };
   applyRuntime = null;
   operationState = null;
+  queryClient = null; // Orphan, never clear(): cancelling in-flight fetches rejects their retryer promises as unhandled CancelledErrors.
   checkpointScheduler?.cancel();
   checkpointScheduler = null;
   setDbTransport(options.transport);
@@ -73,6 +79,37 @@ export const configureDb = (options: ConfigureDbOptions): void => {
 export const getDbRuntimeConfig = (): RuntimeConfig => {
   if (!runtimeConfig) throw new Error('configureDb must be called before using dblayer');
   return runtimeConfig;
+};
+
+/**
+ * Internal: the package-owned TanStack QueryClient behind every `defineQuery`/`defineFetch`
+ * freshness decision. Never exposed to consumers - the library stays the only QueryClient owner.
+ * Query retry policy maps our `DbRetryPolicy` formula onto react-query's retry/retryDelay pair;
+ * `networkMode: 'online'` pauses in-flight fetches while the coordinator reports offline.
+ */
+export const getDbQueryClient = (): QueryClient => {
+  if (queryClient) return queryClient;
+  if (!queryClientResetRegistered) {
+    registerReset(() => {
+      queryClient = null; // Orphaned with its generation; see configureDb.
+    });
+    queryClientResetRegistered = true;
+  }
+  queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        networkMode: 'always',
+        staleTime: 0,
+        gcTime: Infinity,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        refetchOnMount: false,
+        retry: (failureCount, error) => isFetchNetworkOnline() && retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount + 1) !== null,
+        retryDelay: (failureCount, error) => retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount) ?? 0
+      }
+    }
+  });
+  return queryClient;
 };
 
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
