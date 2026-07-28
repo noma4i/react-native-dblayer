@@ -2,13 +2,25 @@
 
 ## Unreleased
 
+### Breaking changes and migration
+
+- BREAKING: `@tanstack/db` collections are now the primary row store - the entity and scope-membership collections are the single runtime copy of every row (the previous planes/adapter/mirror stack held up to four). Reads, scopes, write policies, relations, persistence format, and the WAL journal are unchanged for consumers. One declared deviation: model reads without an `orderBy` and without a model `defaultOrder` now return deterministic id order instead of insertion order (insertion order never survived a restart).
+- BREAKING: query and fetch freshness now runs on `@tanstack/react-query` (a package-owned client; TanStack stays fully encapsulated - no provider, no re-exports). `staleTime`/`emptyStaleTime`/`resumeStaleTime`, the retry policy formula, offline pause and resume chunking keep their existing semantics; rows still land through the store's write seams, never through a query cache.
+- `Model.query`/`defineFetch` runtime dependencies: `@tanstack/react-query` and `@tanstack/query-db-collection` are new pinned dependencies.
+
+### Added
+
+- Add `optimistic.correlate` (`{ fields, match?, createdAtWindowMs? }`) to insert mutations: channel-agnostic correlation that replaces a pending optimistic temp row with the matching server row no matter which channel lands it first - query landing, scope landing, ingest echo, or the mutation's own response - and closes the pending operation. Opt-in per mutation; candidates come from the durable operation ledger only.
+
 ### Fixed
 
 - Fix scope reads dropping a member row after a reorder; ordered scope reads now retain the full current membership.
+- Fix a forced same-key refetch racing an older in-flight response: the newer request now cancels and supersedes the older one synchronously, the superseded call resolves silently, and an older response that resolves last can never overwrite the newer applied result.
+- Fix `invalidate` refetching scopes that no one is reading: invalidation drops freshness for every registered scope, but only mounted readers refetch.
 
 ### Internals
 
-- Replace the TanStack DB scope mirror with one internal scope read engine backed directly by scope membership, entity rows, and commit-bus batches. Scope projections, local windows, `keepPrevious`, resolution, and row identity remain unchanged; diagnostics now report `scopeReadPasses` and `scopeReadResorts`.
+- Delete the scope mirror/adapter stack (`EngineAdapter`, `entityState`, the fetch ledger and its request-state machine) - collections plus the react-query client own those responsibilities now. Scope projections, local windows, `keepPrevious`, resolution, and row identity remain unchanged; diagnostics report `scopeReadPasses` and `scopeReadResorts`.
 
 ### Persistence and reconciliation
 
