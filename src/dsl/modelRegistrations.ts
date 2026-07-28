@@ -7,8 +7,8 @@ import { getApplyRuntime, getOperationState } from './configure';
 import { clearFailedOptimisticMutation } from './mutationRuntime';
 import { registerIngestModel } from './defineIngest';
 import { registerInternalModelHandle } from '../core/internalHandles';
-import { registerModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
-import type { ModelCore, ModelRuntimeRegistrationOptions, ModelSchemaRegistrationOptions } from '../types';
+import { registerModelMaintenance } from './maintenanceRegistry';
+import type { MaintenanceReport , ModelCore, ModelRuntimeRegistrationOptions, ModelSchemaRegistrationOptions } from '../types';
 import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
 
 export const registerModelSchemaAndGc = <TStored extends { id: string } & Record<string, unknown>>(options: ModelSchemaRegistrationOptions<TStored>): void => {

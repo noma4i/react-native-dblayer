@@ -1,6 +1,5 @@
 import { createJournal } from './journal';
-import type { StoragePlane } from '../planes/storagePlane';
-import type { CheckpointScheduler, CommitBatch, CommitBus, IncrementalCommitBatch, IncrementalScopeChange, JournalOp, JournalRecord, WriteOrigin } from '../../types';
+import type { StoragePlane , CheckpointScheduler, CommitBatch, CommitBus, IncrementalCommitBatch, IncrementalScopeChange, JournalOp, JournalRecord, WriteOrigin } from '../../types';
 import { deriveEffects, type AcceptedRow, type DestroyedRow } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
@@ -59,7 +58,12 @@ export type ApplyTarget = {
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
   scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
   readAllScopeKeys(): string[];
-  upsert(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Record<string, unknown>, operationId?: string): Array<{ id: string; changedFields: string[] | null }>;
+  upsert(
+    rows: unknown[],
+    origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
+    mergeBase?: Record<string, unknown>,
+    operationId?: string
+  ): Array<{ id: string; changedFields: string[] | null }>;
   patch(id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null;
   destroy(ids: string[], tombstone?: boolean): string[];
   counter(id: string, field: string, delta: number, next?: number): boolean;
@@ -156,12 +160,25 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
   for (const op of ops) {
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
-      const beforeById = new Map(op.rows.flatMap(row => typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string' ? [[(row as { id: string }).id, target.readRow((row as { id: string }).id)] as const] : []));
-      const changes = target.upsert(op.rows, op.origin, op.origin === 'replace' ? op.mergeBase as Record<string, unknown> | undefined : undefined, op.operationId);
+      const beforeById = new Map(
+        op.rows.flatMap(row =>
+          typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string'
+            ? [[(row as { id: string }).id, target.readRow((row as { id: string }).id)] as const]
+            : []
+        )
+      );
+      const changes = target.upsert(op.rows, op.origin, op.origin === 'replace' ? (op.mergeBase as Record<string, unknown> | undefined) : undefined, op.operationId);
       for (const change of changes) {
         batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields, kind: 'upsert' });
         const after = target.readRow(change.id);
-        if (after && change.changedFields !== null && change.changedFields.length > 0) accepted.push({ model: op.model, id: change.id, before: op.origin === 'replace' ? op.mergeBase as Record<string, unknown> | undefined : beforeById.get(change.id), after, origin: op.origin });
+        if (after && change.changedFields !== null && change.changedFields.length > 0)
+          accepted.push({
+            model: op.model,
+            id: change.id,
+            before: op.origin === 'replace' ? (op.mergeBase as Record<string, unknown> | undefined) : beforeById.get(change.id),
+            after,
+            origin: op.origin
+          });
         if (after && change.changedFields === null) accepted.push({ model: op.model, id: change.id, before: beforeById.get(change.id), after, origin: op.origin });
       }
       noteRows(

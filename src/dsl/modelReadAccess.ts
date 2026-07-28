@@ -3,9 +3,8 @@ import { createModelReadEngine, incrementalSignature, sortModelReadRows, useIncr
 import { createProjectionGate, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../read/useLiveRead';
-import type { DbWhere, Dependency, ModelReadAccess, ScopeSortSpec, ScopeSpec } from '../types';
+import type { DbWhere, Dependency, ModelReadAccess, ScopeSortSpec, ScopeSpec , ModelContext } from '../types';
 import { useEffect, useRef } from 'react';
-import type { ModelContext } from './modelContext';
 import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
 
 export const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] =>

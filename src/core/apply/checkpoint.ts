@@ -1,11 +1,9 @@
-import type { StoragePlane } from '../planes/storagePlane';
-import type { CheckpointScheduler } from '../../types';
+import type { StoragePlane , CheckpointScheduler } from '../../types';
 
 type CheckpointTarget = {
   persistEntries(): Array<{ key: string; value: string | null }>;
   ackPersist(): void;
 };
-
 
 /**
  * Checkpoint side of the WAL pair: plans persist only their journal record on the hot path

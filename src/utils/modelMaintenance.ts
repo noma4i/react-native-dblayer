@@ -1,8 +1,6 @@
 import { isTempId } from './generateTempId';
-import { toTimestamp, type TimestampInput } from './normalizeHelpers';
-
-type RowId = { id: string };
-type CreatedAtRow = RowId & { createdAt?: TimestampInput };
+import { toTimestamp } from './normalizeHelpers';
+import type { CreatedAtRow, RowId } from '../types';
 
 type DestroyManyModel<TStored extends RowId> = {
   all(): TStored[];

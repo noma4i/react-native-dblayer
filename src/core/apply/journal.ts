@@ -1,8 +1,7 @@
 import { sortBy } from 'es-toolkit';
-import type { StoragePlane } from '../planes/storagePlane';
+import type { StoragePlane , Journal, JournalOp, JournalRecord } from '../../types';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import type { Journal, JournalOp, JournalRecord } from '../../types';
 
 const COMMITTED_CAP = 50;
 
@@ -78,7 +77,10 @@ export const createJournal = (storage: StoragePlane, prefix: () => string): Jour
 
   /** In-memory committed-epoch index, loaded once - the hot path never re-reads the journal. */
   let committedEpochs: number[] | null = null;
-  const committedIndex = (): number[] => (committedEpochs ??= allRecords().filter(record => record.status === 'committed').map(record => record.epoch));
+  const committedIndex = (): number[] =>
+    (committedEpochs ??= allRecords()
+      .filter(record => record.status === 'committed')
+      .map(record => record.epoch));
   const pruneCommitted = (pruneBeforeEpoch: number): Array<{ key: string; value: string | null }> => {
     const index = committedIndex();
     const prunable = index.filter(epoch => epoch <= pruneBeforeEpoch).sort((a, b) => a - b);
@@ -93,9 +95,7 @@ export const createJournal = (storage: StoragePlane, prefix: () => string): Jour
     /** Storage entries marking the record committed + pruning old committed records past the cap. */
     committedEntry: (record: JournalRecord, pruneBeforeEpoch = Number.POSITIVE_INFINITY): Array<{ key: string; value: string | null }> => {
       const index = committedIndex();
-      const entries: Array<{ key: string; value: string | null }> = [
-        { key: recordKey(record.epoch), value: JSON.stringify({ ...record, status: 'committed' }) }
-      ];
+      const entries: Array<{ key: string; value: string | null }> = [{ key: recordKey(record.epoch), value: JSON.stringify({ ...record, status: 'committed' }) }];
       if (!index.includes(record.epoch)) index.push(record.epoch);
       entries.push(...pruneCommitted(pruneBeforeEpoch));
       return entries;

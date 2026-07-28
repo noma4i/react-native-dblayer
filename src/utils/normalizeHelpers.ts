@@ -1,6 +1,5 @@
 import { isPlainObject } from 'es-toolkit';
-
-export type TimestampInput = string | number | Date | null | undefined;
+import type { TimestampInput } from '../types';
 
 /** Normalize a date-like input to epoch milliseconds; missing or malformed values become NaN. */
 export const toTimestamp = (value: TimestampInput): number => {

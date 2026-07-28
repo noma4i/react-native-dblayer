@@ -3,11 +3,6 @@ import { getRuntimeGeneration } from '../dsl/configure';
 
 type RetainedScopeSnapshot<T> = { rows: T[]; totalCount: number };
 
-export type KeepPreviousOption = {
-  /** Retain the prior non-empty scope key until the current key produces its first resolved snapshot. Defaults to false. */
-  keepPrevious?: boolean;
-};
-
 type RetentionState<T, TSnapshot extends RetainedScopeSnapshot<T>> = {
   generation: number;
   scopeKey: string | null;

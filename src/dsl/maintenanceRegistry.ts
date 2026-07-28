@@ -1,7 +1,5 @@
+import type { MaintenanceReport } from '../types';
 import { getRuntimeGeneration } from './configure';
-
-/** One maintenance task outcome produced during `bootDb`. */
-export type MaintenanceReport = { model: string; task: 'maxRowsPerScope' | 'dropTempRows'; affected: number };
 
 type MaintenanceRunner = { boot(): MaintenanceReport[]; pendingTempRows(): MaintenanceReport[]; protectedTempIds(): ReadonlySet<string> };
 

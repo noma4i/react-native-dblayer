@@ -1,11 +1,6 @@
 import { isRecord } from './normalizeHelpers';
 import { registerReset } from '../core/reset';
-
-export type ThrottledSingleFlightOptions<TArgs extends unknown[]> = {
-  minIntervalMs: number;
-  /** Override throttle suppression; defaults to reading `args[0].force === true`. */
-  isForced?: (...args: TArgs) => boolean;
-};
+import type { SingleFlightOptions, ThrottledSingleFlightOptions } from '../types';
 
 const defaultIsForced = (arg: unknown): boolean =>
   isRecord(arg) && arg.force === true;
@@ -52,11 +47,6 @@ export const createThrottledSingleFlight = <TArgs extends unknown[], TResult>(
 
     return inFlight;
   };
-};
-
-export type SingleFlightOptions = {
-  /** Clear the shared in-flight promise on runtime reset so a stale fetch never satisfies post-reset callers. */
-  resetOnRuntimeReset?: boolean;
 };
 
 /**

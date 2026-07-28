@@ -1,11 +1,5 @@
 import { getDbStorageAdapter } from '../storage';
-
-/** Atomic-enough synchronous storage seam used by all state planes. */
-export interface StoragePlane {
-  get(key: string): string | undefined;
-  set(entries: Array<{ key: string; value: string | null }>): void;
-  keys(prefix: string): string[];
-}
+import type { StoragePlane } from '../../types';
 
 /**
  * Build a {@link StoragePlane} backed by the configured MMKV storage adapter (`getDbStorageAdapter()`).
@@ -26,5 +20,8 @@ export const mmkvStoragePlane = (): StoragePlane => ({
       else storage.setItem(entry.key, entry.value);
     }
   },
-  keys: prefix => getDbStorageAdapter().allKeys().filter(key => key.startsWith(prefix))
+  keys: prefix =>
+    getDbStorageAdapter()
+      .allKeys()
+      .filter(key => key.startsWith(prefix))
 });

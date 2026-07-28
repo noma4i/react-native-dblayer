@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Dependency , ModelCore, RelationDecl, ScopeHandle } from '../types';
+import type { Dependency , ModelCore, RelationDecl, ScopeHandle , KeepPreviousOption } from '../types';
 import { noteFkIndex } from '../core/diagnostics';
 import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
-import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetention';
+import { useScopeRetention } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
 import { getCommitBus, getDbRuntimeConfig } from './configure';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';

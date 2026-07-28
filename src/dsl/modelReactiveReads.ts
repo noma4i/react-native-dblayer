@@ -1,11 +1,10 @@
-import type { Dependency , DbReadOptions, DbWhere, ModelCore, StoredRowShape } from '../types';
+import type { Dependency , DbReadOptions, DbWhere, ModelCore, StoredRowShape , ModelContext } from '../types';
 import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getCommitBus, getOperationState } from './configure';
-import type { ModelContext } from './modelContext';
 import type { ModelReadBuilder } from './readBuilder';
 
 const EMPTY_ROWS: never[] = [];

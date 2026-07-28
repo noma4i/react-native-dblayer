@@ -1,6 +1,5 @@
 import { union } from 'es-toolkit';
-import type { OperationRecord, OperationState } from '../../types';
-import type { StoragePlane } from './storagePlane';
+import type { OperationRecord, OperationState , StoragePlane } from '../../types';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';

@@ -1,10 +1,10 @@
-import type { GcReport } from '../types';
+import type { GcReport , MaintenanceReport } from '../types';
 import { collectGarbage } from '../core/gc';
 import { ensurePersistenceCompatibility } from '../core/schemaManifest';
 import { runBootValidations } from './bootValidations';
 import { flushPersistence, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
 import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
-import { runModelMaintenance, type MaintenanceReport } from './maintenanceRegistry';
+import { runModelMaintenance } from './maintenanceRegistry';
 import { getApplyTargets } from '../core/apply/transaction';
 import { hydrateEngines, markEnginesReady } from '../engine/EngineAdapter';
 

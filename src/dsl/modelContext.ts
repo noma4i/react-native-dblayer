@@ -1,19 +1,7 @@
-import type { EntityState, RelationDecl, WriteCtx } from '../types';
+import type { EntityState, ModelContext, RelationDecl, ScopeIndex, WriteCtx } from '../types';
 import { createEntityState } from '../core/planes/entityState';
-import { createScopeIndex, type ScopeIndex } from '../core/planes/scopeIndex';
+import { createScopeIndex } from '../core/planes/scopeIndex';
 import { getDbRuntimeConfig, getOperationState, getStoragePrefix } from './configure';
-
-export type ModelContext<TStored extends { id: string }> = {
-  planes(): { entityState: EntityState<TStored>; scopeIndex: ScopeIndex };
-  resolvedRelations(): Record<string, RelationDecl>;
-  revision(): number;
-  bumpRevision(): void;
-  issuedScopeSequence(key: string): number | undefined;
-  setIssuedScopeSequence(key: string, value: number): void;
-  model<TModel>(): TModel;
-  setModel(model: unknown): void;
-  reset(): void;
-};
 
 export const createModelContext = <TStored extends { id: string }>(options: {
   modelId: string;
