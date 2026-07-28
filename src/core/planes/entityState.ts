@@ -2,6 +2,8 @@ import { stableSerialize } from '../serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
 import type { WriteCtx } from '../writePolicies';
 import type { StoragePlane } from './storagePlane';
+import type { EntityState } from '../../types/core.planes.entityState.types';
+export type { EntityState } from '../../types/core.planes.entityState.types';
 
 type Tombstone = { at: number };
 
@@ -24,25 +26,6 @@ const TOMBSTONE_TTL_MS = 24 * 60 * 60 * 1000;
 const TOMBSTONE_MIN_AGE_MS = 10 * 60 * 1000;
 const TOMBSTONE_CAP = 10_000;
 const TOMBSTONE_OVERFLOW_CAP = TOMBSTONE_CAP * 2;
-
-type UpsertResult = { changedFields: string[] | null };
-
-export type EntityState<T extends { id: string }> = {
-  read(id: string): T | undefined;
-  values(): T[];
-  /** Returns changed top-level fields vs the previous row, or null when the row is new. */
-  upsert(row: T, options?: { mergeBase?: T; ctx?: WriteCtx }): UpsertResult;
-  destroy(id: string, options?: { tombstone?: boolean }): void;
-  /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
-  evict(id: string): boolean;
-  isTombstoned(id: string): boolean;
-  pruneTombstones(): number;
-  /** Serialize rows+tombstones into storage entries for the transaction's single persist batch. */
-  persistEntries(): Array<{ key: string; value: string | null }>;
-  ackPersist(): void;
-  hydrate(): void;
-  reset(): void;
-};
 
 const diffTopLevelFields = <T extends object>(previous: T, next: T): string[] => {
   const fields = new Set<string>();
