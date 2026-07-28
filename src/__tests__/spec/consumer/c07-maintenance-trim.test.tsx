@@ -2,6 +2,7 @@ import { act } from 'react';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { collectGarbage } from '../../../core/gc';
+import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
@@ -185,12 +186,17 @@ describe('unresolved temp row retention', () => {
     await pending;
   });
 
-  it('drops a failed temp row after its configured age', async () => {
+  it('keeps an aged failed temp row until its operation is discarded', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createTempRows('PendingTtlFailed', 1000);
     const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'failed' }), selectServerNode: data => data.save } });
     await expect(save.run()).rejects.toThrow('offline');
+
+    collectGarbage();
+    expect(rows.all()).toHaveLength(1);
+
+    clearFailedOptimisticMutation(rows.modelId, rows.all()[0]!.id);
     collectGarbage();
     expect(rows.all()).toEqual([]);
   });

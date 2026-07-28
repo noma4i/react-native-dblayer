@@ -221,9 +221,9 @@ export const replayJournal = (): number => {
       for (const row of operation.rows) noteCandidate(operation.model, typeof row === 'object' && row !== null ? (row as { id?: unknown }).id : undefined);
     }
   }
-  const pendingTempIds = new Set(operations.pending().flatMap(operation => operation.tempIds));
+  const openTempIds = new Set(operations.open().flatMap(operation => operation.tempIds));
   for (const [model, ids] of candidates) {
-    const orphanIds = [...ids].filter(id => !pendingTempIds.has(id) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
+    const orphanIds = [...ids].filter(id => !openTempIds.has(id) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
     if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.commit(createCommitEnvelope([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
   flushPersistence();

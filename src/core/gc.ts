@@ -104,7 +104,7 @@ export const collectGarbage = (): GcReport => {
       }
     }
   }
-  for (const operation of getOperationState().pending()) {
+  for (const operation of getOperationState().open()) {
     for (const id of union(operation.tempIds, operation.rowIds ?? [])) mark(operation.model, id);
   }
   for (const dependency of getCommitBus().activeDependencies()) {

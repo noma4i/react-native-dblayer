@@ -93,7 +93,7 @@ export const registerModelRuntime = <TStored extends { id: string; updatedAt?: s
       const maxAgeMs = options.maintenance?.dropTempRowsAfterMs;
       if (maxAgeMs === undefined) return [];
       const protectedIds = new Set([
-        ...getOperationState().pending().filter(operation => operation.model === options.modelId).flatMap(operation => operation.tempIds),
+        ...getOperationState().open().filter(operation => operation.model === options.modelId).flatMap(operation => operation.tempIds),
         ...modelProtectedTempIds()
       ]);
       const ids: string[] = [];
