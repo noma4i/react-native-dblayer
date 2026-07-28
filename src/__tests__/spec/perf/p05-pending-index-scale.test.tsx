@@ -19,7 +19,7 @@ const seedForeignOps = (count: number): void => {
       patchedFields: ['score'],
       patchedValues: { score: index },
       createdAt: index
-    });
+    }, { persist: false });
   }
 };
 
@@ -35,7 +35,7 @@ const seedTargetOps = (count: number, offset: number): void => {
       patchedFields: ['score'],
       patchedValues: { score: offset + index },
       createdAt: 10_000 + offset + index
-    });
+    }, { persist: false });
   }
 };
 
