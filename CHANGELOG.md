@@ -1,6 +1,6 @@
 # Changelog
 
-## 10.0.0-beta.1 - 2026-07-29
+## 9.0.0-beta.3 - 2026-07-29
 
 ### Breaking changes and migration
 
