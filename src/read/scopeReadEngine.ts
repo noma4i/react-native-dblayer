@@ -158,7 +158,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
             const nextRevision = getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
             const orderChanged = nextRevision !== revision;
             revision = nextRevision;
-            noteScopeReadPass(orderChanged, 0);
+            noteScopeReadPass(orderChanged);
           }
         }
       );

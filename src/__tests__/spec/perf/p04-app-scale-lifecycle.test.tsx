@@ -459,16 +459,20 @@ describe('app-scale lifecycle', () => {
       const beforeChatRenders = renders['chatQuery-0']!;
       const beforeUserRenders = renders['view-open']!;
 
-      const perCommitMs: number[] = [];
+      const perCommitWork: number[] = [];
+      const workNow = (): number => {
+        const snapshot = diagnostics().snapshot();
+        return snapshot.readEngineDeltaRows + snapshot.readEngineScanRows;
+      };
       for (let index = 0; index < 50; index += 1) {
-        const before = diagnostics().snapshot().totalReadEngineMs;
+        const before = workNow();
         act(() => {
           // Alternates the patched row between the front and back of the sort order so every commit
           // forces a genuine reorder of thread-0 (a monotonically increasing sequenceNumber would only
           // ever append at the tail, which the mirror can skip without a resort).
           models.messages.update('thread-0-msg-12', { sequenceNumber: index % 2 === 0 ? -1 : MESSAGES_PER_THREAD + 1 });
         });
-        perCommitMs.push(diagnostics().snapshot().totalReadEngineMs - before);
+        perCommitWork.push(workNow() - before);
       }
 
       expect(diagnostics().snapshot().scopeReadResorts).toBeGreaterThan(0);
@@ -476,9 +480,9 @@ describe('app-scale lifecycle', () => {
       expect(renders['view-open']).toBe(beforeUserRenders);
 
       const average = (values: number[]): number => values.reduce((sum, value) => sum + value, 0) / values.length;
-      const firstTen = average(perCommitMs.slice(0, 10));
-      const lastTen = average(perCommitMs.slice(-10));
-      expect(lastTen).toBeLessThan(Math.max(firstTen, 0.01) * 3);
+      const firstTen = average(perCommitWork.slice(0, 10));
+      const lastTen = average(perCommitWork.slice(-10));
+      expect(lastTen).toBeLessThan(Math.max(firstTen, 1) * 3);
     } finally {
       act(() => root.unmount());
     }

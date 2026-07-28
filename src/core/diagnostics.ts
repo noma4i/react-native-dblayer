@@ -16,8 +16,6 @@ type DiagnosticsState = {
   scopeReadResorts: number;
   resumeDrains: number;
   resumeRefetches: number;
-  totalReadEngineMs: number;
-  totalScopeReadMs: number;
   entityUpsertGuardHits: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
@@ -44,8 +42,6 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   scopeReadResorts: 0,
   resumeDrains: 0,
   resumeRefetches: 0,
-  totalReadEngineMs: 0,
-  totalScopeReadMs: 0,
   entityUpsertGuardHits: 0,
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
@@ -74,11 +70,10 @@ export const noteFkIndex = (kind: 'full' | 'incremental', rows: number): void =>
   else diagnostics.fkIndexIncrementalUpdates += rows;
 };
 
-export const noteReadEngineApply = (kind: 'delta' | 'rebuild', rows: number, ms: number): void => {
+export const noteReadEngineApply = (kind: 'delta' | 'rebuild', rows: number): void => {
   diagnostics.readEngineApplies += 1;
   if (kind === 'rebuild') diagnostics.readEngineRebuilds += 1;
   else diagnostics.readEngineDeltaRows += rows;
-  diagnostics.totalReadEngineMs += ms;
 };
 
 /** Record one model-read scan by its row count, without per-row instrumentation. */
@@ -86,10 +81,9 @@ export const noteReadEngineScan = (rows: number): void => {
   diagnostics.readEngineScanRows += rows;
 };
 
-export const noteScopeReadPass = (resorted: boolean, ms: number): void => {
+export const noteScopeReadPass = (resorted: boolean): void => {
   diagnostics.scopeReadPasses += 1;
   if (resorted) diagnostics.scopeReadResorts += 1;
-  diagnostics.totalScopeReadMs += ms;
 };
 
 export const noteResumeDrain = (refetched: number): void => {

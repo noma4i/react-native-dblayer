@@ -157,7 +157,6 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
   };
   rebuild();
   engine.apply = batch => {
-    const startedAt = globalThis.performance?.now?.() ?? Date.now();
     const relevant = batch?.rows.filter(change => change.model === options.model) ?? [];
     const requiresRebuild =
       batch === null ||
@@ -170,7 +169,7 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
       rebuild();
       if (!(options.isEqual ?? engineValuesEqual)(previous, engine.value)) engine.version += 1;
       else engine.value = previous;
-      noteReadEngineApply('rebuild', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
+      noteReadEngineApply('rebuild', relevant.length);
       return true;
     }
     if (relevant.length === 0) return false;
@@ -200,7 +199,7 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
       }
     }
     if (!changed) {
-      noteReadEngineApply('delta', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
+      noteReadEngineApply('delta', relevant.length);
       return false;
     }
     const previous = engine.value;
@@ -212,11 +211,11 @@ export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineO
     }
     if ((options.isEqual ?? engineValuesEqual)(previous, engine.value)) {
       engine.value = previous;
-      noteReadEngineApply('delta', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
+      noteReadEngineApply('delta', relevant.length);
       return false;
     }
     engine.version += 1;
-    noteReadEngineApply('delta', relevant.length, (globalThis.performance?.now?.() ?? Date.now()) - startedAt);
+    noteReadEngineApply('delta', relevant.length);
     return true;
   };
   return engine;

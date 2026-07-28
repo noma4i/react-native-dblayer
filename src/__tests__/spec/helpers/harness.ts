@@ -148,8 +148,6 @@ export type DiagnosticsSnapshot = {
   scopeReadResorts: number;
   resumeDrains: number;
   resumeRefetches: number;
-  totalReadEngineMs: number;
-  totalScopeReadMs: number;
   entityUpsertGuardHits: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
