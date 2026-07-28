@@ -91,6 +91,14 @@ describe('order key sequences', () => {
     expectStrictlyIncreasing([lower, ...between, upper]);
   });
 
+  it('falls back to a chained walk when the bounds are too tight for even distribution', () => {
+    let tail = keyBetween(undefined, undefined);
+    for (let index = 0; index < 60; index += 1) tail = keyAfter(tail);
+    const appended = keysForSequence(50, tail);
+    expect(appended).toHaveLength(50);
+    expectStrictlyIncreasing([tail, ...appended]);
+  });
+
   it('keeps every generated sequence deterministic for identical inputs', () => {
     expect(keysForSequence(20, undefined, undefined)).toEqual(keysForSequence(20, undefined, undefined));
   });

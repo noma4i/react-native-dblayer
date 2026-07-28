@@ -171,17 +171,18 @@ describe('scope order cache reset contract', () => {
     const index = createScopeIndex({ modelId: 'SpecIntegrityScopeReverseIndex', storage: createMemoryPlane(), prefix: () => 'dbl:' });
     const scopeA = 'byBucket\0{"bucket":"a"}';
     const scopeB = 'byBucket\0{"bucket":"b"}';
+    const land = (key: string, ids: string[]) => index.write(key, index.reconcileNext(key, 'complete', ids.map(id => ({ id }))).next);
 
-    index.reconcile(scopeA, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
-    index.reconcile(scopeB, 'complete', [{ id: 'row-1' }]);
-    index.reconcile(scopeA, 'complete', [{ id: 'row-2' }]);
+    land(scopeA, ['row-1', 'row-2']);
+    land(scopeB, ['row-1']);
+    land(scopeA, ['row-2']);
     expect(index.keysOf('row-1')).toEqual([scopeB]);
 
-    index.reconcile(scopeA, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
-    index.trim(scopeA, 0);
+    land(scopeA, ['row-1', 'row-2']);
+    index.write(scopeA, index.trimValue(index.read(scopeA), 0).next);
     expect(index.keysOf('row-1')).toEqual([scopeB]);
 
-    index.reconcile(scopeA, 'complete', [{ id: 'row-1' }]);
+    land(scopeA, ['row-1']);
     index.remove(scopeA);
     expect(index.keysOf('row-1')).toEqual([scopeB]);
 
@@ -191,7 +192,7 @@ describe('scope order cache reset contract', () => {
     const index = createScopeIndex({ modelId: 'SpecIntegrityScopeReverseIndexDestroy', storage: createMemoryPlane(), prefix: () => 'dbl:' });
     const scopeKey = 'byBucket\0{"bucket":"destroy"}';
 
-    index.reconcile(scopeKey, 'complete', [{ id: 'row-1' }]);
+    index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }]).next);
     index.detach(scopeKey, ['row-1']);
 
     expect(index.keysOf('row-1')).toEqual([]);
@@ -201,9 +202,9 @@ describe('scope order cache reset contract', () => {
     const index = createScopeIndex({ modelId: 'SpecIntegrityScopeOrderRevision', storage: createMemoryPlane(), prefix: () => 'dbl:' });
     const scopeKey = 'byBucket\0{"bucket":"stable"}';
 
-    index.reconcile(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
+    index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]).next);
     const revision = index.orderRevision(scopeKey);
-    index.reconcile(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]);
+    index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]).next);
 
     expect(index.orderRevision(scopeKey)).toBe(revision);
   });

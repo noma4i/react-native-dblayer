@@ -178,7 +178,7 @@ describe('rerender matrix scope window budget', () => {
     act(() => {
       rows.scopes.byGroup.seed(
         { groupId: 'g1' },
-        [...initial].reverse().map(row => ({ ...row }))
+        initial.map((row, index) => ({ ...row, rank: initial.length - index }))
       );
     });
     const reordered = diagnostics().snapshot();

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getApplyTarget } from '../core/apply/transaction';
+import { compareCodepoints } from '../core/serialize';
 import { noteScopeReadPass } from '../core/diagnostics';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { storeScopeCollection } from '../core/store';
@@ -63,7 +64,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     return resolved;
   };
   const compareEntries = (left: StoreScopeRow, right: StoreScopeRow): number =>
-    left.orderKey < right.orderKey ? -1 : left.orderKey > right.orderKey ? 1 : (left.id ?? '').localeCompare(right.id ?? '');
+    compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id ?? '', right.id ?? '');
   const insertionIndex = (entry: StoreScopeRow): number => {
     let lower = 0;
     let upper = entries.length;

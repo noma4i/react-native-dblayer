@@ -1,4 +1,3 @@
-import { sortBy } from 'es-toolkit';
 import type { ApplyTarget, Dependency, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape, ProjectionOptions, WriteOp } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
@@ -9,7 +8,8 @@ import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngin
 import { useLiveRead } from '../read/useLiveRead';
 import { useRef, useState } from 'react';
 import { getDbRuntimeConfig } from './configure';
-import { sortRowsBySpec } from './modelReadAccess';
+import { compareRowsBySpec } from './modelReadAccess';
+import { keyAfter, keyBefore, keysForSequence } from '../core/orderKey';
 
 const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;
 
@@ -39,41 +39,55 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp => {
-      const reconciliation = planes().scopeIndex.reconcileNext(
-        scopeKey,
-        coverage,
-        liveRows.map(({ row, edge }) => ({ id: String(row.id), edge })),
-        planOptions
-      );
+      let incoming = liveRows.map(({ row, edge }) => ({ id: String(row.id), edge }) as { id: string; edge?: Record<string, unknown>; orderKey?: string });
+      if (spec?.sort && spec.sort !== 'server-order') {
+        /** Sorted scopes: order keys are born HERE, on planning - the plane and the store only carry them. */
+        const compare = compareRowsBySpec(spec.sort);
+        const rowsById = new Map<string, TStored>();
+        for (const { row } of liveRows) {
+          try {
+            const stored = options.normalize(row);
+            rowsById.set(String(stored.id), stored);
+          } catch {
+            /* keyless rows fall to the reconcile tail */
+          }
+        }
+        if (coverage === 'complete' || planOptions?.resetOrder === true) {
+          incoming = [...incoming].sort((left, right) => {
+            const a = rowsById.get(left.id);
+            const b = rowsById.get(right.id);
+            return a && b ? compare(a, b) : 0;
+          });
+        } else {
+          const entries = planes().scopeIndex.read(scopeKey).entries;
+          const memberIds = new Set(entries.map(entry => entry.id));
+          const anchors = entries.flatMap(entry => {
+            const row = rowsById.get(entry.id) ?? planes().entityState.read(entry.id);
+            return row ? [{ orderKey: entry.orderKey, row }] : [];
+          });
+          incoming = incoming.map(item => {
+            if (memberIds.has(item.id)) return item;
+            const row = rowsById.get(item.id);
+            if (!row) return item;
+            let lower = 0;
+            let upper = anchors.length;
+            while (lower < upper) {
+              const middle = Math.floor((lower + upper) / 2);
+              if (compare(anchors[middle]!.row, row) < 0) lower = middle + 1;
+              else upper = middle;
+            }
+            const orderKey = keysForSequence(1, anchors[lower - 1]?.orderKey, anchors[lower]?.orderKey)[0]!;
+            anchors.splice(lower, 0, { orderKey, row });
+            return { ...item, orderKey };
+          });
+        }
+      }
+      const reconciliation = planes().scopeIndex.reconcileNext(scopeKey, coverage, incoming, planOptions);
       let { next } = reconciliation;
       const { detachedIds } = reconciliation;
       if (detachedIds.length > 0) noteDataLoss('scope-complete-detach', options.modelId, detachedIds.length);
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (planOptions?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
-        if (spec.sort && spec.sort !== 'server-order') {
-          const incomingById = new Map(
-            liveRows.flatMap(({ row }) => {
-              try {
-                const stored = options.normalize(row);
-                return [[String(stored.id), stored] as const];
-              } catch {
-                return [];
-              }
-            })
-          );
-          const rowsById = new Map(
-            next.entries.flatMap(entry => {
-              const row = incomingById.get(entry.id) ?? planes().entityState.read(entry.id);
-              return row ? [[entry.id, row] as const] : [];
-            })
-          );
-          const ordered = sortRowsBySpec([...rowsById.values()], spec.sort);
-          const positions = new Map(ordered.map((row, index) => [String(row.id), index]));
-          next = {
-            ...next,
-            entries: sortBy(next.entries, [entry => positions.get(entry.id) ?? Number.MAX_SAFE_INTEGER])
-          };
-        }
         const trimmed = planes().scopeIndex.trimValue(next, maxRows);
         if (trimmed.trimmedIds.length > 0) noteDataLoss('scope-retention-trim', options.modelId, trimmed.trimmedIds.length);
         next = trimmed.next;
@@ -209,8 +223,8 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       planPlacement: (scopeValue, id, position) => {
         const scopeKey = options.keyForScope(scopeName, scopeValue);
         const entries = planes().scopeIndex.read(scopeKey).entries;
-        const order = position === 'prepend' ? Math.min(0, ...entries.map(entry => entry.order)) - 1 : Math.max(-1, ...entries.map(entry => entry.order)) + 1;
-        return [{ kind: 'scope-delta', model: options.modelId, scopeKey, append: [{ id, order }], detach: [] }];
+        const orderKey = position === 'prepend' ? keyBefore(entries[0]?.orderKey) : keyAfter(entries.at(-1)?.orderKey);
+        return [{ kind: 'scope-delta', model: options.modelId, scopeKey, append: [{ id, orderKey }], detach: [] }];
       },
       readRows: scopeValue => options.scopeSortedRows(scopeName, scopeValue),
       isResolved: scopeValue => planes().scopeIndex.read(options.keyForScope(scopeName, scopeValue)).generation > 0,

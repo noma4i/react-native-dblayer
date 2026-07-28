@@ -1,4 +1,5 @@
 import { union } from 'es-toolkit';
+import { publishProjectedBatch } from './store';
 import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
@@ -38,7 +39,7 @@ export const collectGarbage = (): GcReport => {
   const maintainedModels = new Set<string>();
   const rows: Array<{ model: string; id: string; fields: null; kind: 'destroy' }> = [];
   const scopes: Array<{ model: string; scopeKey: string }> = [];
-  const scopeChanges: Array<{ model: string; scopeKey: string; detachIds?: string[]; rebuild?: boolean }> = [];
+  const scopeChanges: Array<{ model: string; scopeKey: string; detachIds?: string[]; entries?: Array<{ id: string; orderKey: string }> }> = [];
   const report: GcReport = { evicted: {}, scopesRemoved: {} };
   // Age-based unresolved temp cleanup deliberately precedes reachability marking: scope membership and
   // mounted readers are ordinary GC roots, but an expired temp id is an explicit retention exception.
@@ -47,7 +48,7 @@ export const collectGarbage = (): GcReport => {
     report.scopesRemoved[host.modelId] = (report.scopesRemoved[host.modelId] ?? 0) + 1;
     maintainedModels.add(host.modelId);
     scopes.push({ model: host.modelId, scopeKey: key });
-    scopeChanges.push({ model: host.modelId, scopeKey: key, rebuild: true });
+    scopeChanges.push({ model: host.modelId, scopeKey: key, entries: [] });
     noteDataLoss('gc-scope-removal', host.modelId, 1);
   };
   const mark = (model: string, id: string): void => {
@@ -146,7 +147,7 @@ export const collectGarbage = (): GcReport => {
   if (maintainedModels.size > 0) {
     const models = [...maintainedModels];
     noteMaintenancePersistence(models);
-    getCommitBus().publish({ rows, scopes, mode: 'maintenance', scopeChanges, maintenanceModels: models });
+    publishProjectedBatch(getCommitBus(), { rows, scopes, mode: 'maintenance', scopeChanges, maintenanceModels: models });
   }
 
   flushPersistence();

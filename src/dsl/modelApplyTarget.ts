@@ -1,6 +1,8 @@
 import { createCommitEnvelope, registerApplyTarget } from '../core/apply/transaction';
+import { keysForSequence } from '../core/orderKey';
 import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin , ModelContext } from '../types';
 import { getApplyRuntime } from './configure';
+import { compareRowsBySpec } from './modelReadAccess';
 
 export const createModelApplyTarget = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;
@@ -21,17 +23,46 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   const applyTarget: ModelApplyTargetResult['applyTarget'] = {
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
     readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
-    readScopeOrder: (scopeKey: string): string[] => {
-      const separator = scopeKey.indexOf(`\0`);
-      const scopeName = separator < 0 ? scopeKey : scopeKey.slice(0, separator);
-      const rawValue = separator < 0 ? `{}` : scopeKey.slice(separator + 1);
-      try {
-        return options.scopeSortedRows(scopeName, JSON.parse(rawValue)).map(row => String(row.id));
-      } catch {
-        return planes()
-          .scopeIndex.read(scopeKey)
-          .entries.map(entry => entry.id);
+    readScopeEntries: (scopeKey: string): Array<{ id: string; orderKey: string }> =>
+      planes()
+        .scopeIndex.read(scopeKey)
+        .entries.map(entry => ({ id: entry.id, orderKey: entry.orderKey })),
+    planScopePlacement: (scopeKey, ids, readRow) => {
+      const entries = planes().scopeIndex.read(scopeKey).entries;
+      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
+      const sort = options.scopes?.[scopeName]?.sort;
+      const pending = new Set(ids);
+      if (!sort || sort === 'server-order') {
+        const tail = entries.filter(entry => !pending.has(entry.id)).at(-1)?.orderKey;
+        const keys = keysForSequence(ids.length, tail);
+        return ids.map((id, index) => ({ id, orderKey: keys[index]! }));
       }
+      const compare = compareRowsBySpec(sort);
+      const anchors: Array<{ orderKey: string; row: TStored }> = [];
+      for (const entry of entries) {
+        if (pending.has(entry.id)) continue;
+        const row = readRow(options.modelId, entry.id) as TStored | undefined;
+        if (row) anchors.push({ orderKey: entry.orderKey, row });
+      }
+      const placements: Array<{ id: string; orderKey: string }> = [];
+      for (const id of ids) {
+        const row = readRow(options.modelId, id) as TStored | undefined;
+        if (!row) {
+          placements.push({ id, orderKey: keysForSequence(1, anchors.at(-1)?.orderKey)[0]! });
+          continue;
+        }
+        let lower = 0;
+        let upper = anchors.length;
+        while (lower < upper) {
+          const middle = Math.floor((lower + upper) / 2);
+          if (compare(anchors[middle]!.row, row) < 0) lower = middle + 1;
+          else upper = middle;
+        }
+        const orderKey = keysForSequence(1, anchors[lower - 1]?.orderKey, anchors[lower]?.orderKey)[0]!;
+        anchors.splice(lower, 0, { orderKey, row });
+        placements.push({ id, orderKey });
+      }
+      return placements;
     },
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
     readScopeGeneration: (scopeKey: string): number => planes().scopeIndex.read(scopeKey).generation,
@@ -74,9 +105,8 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     scope: (scopeKey: string, next: unknown): void => {
       planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
     },
-    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }): void => {
-      if (delta.detach.length > 0) planes().scopeIndex.detach(scopeKey, delta.detach);
-      if (delta.append.length > 0) planes().scopeIndex.reconcile(scopeKey, 'delta', delta.append);
+    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; orderKey: string; edge?: Record<string, unknown> }>; detach: string[] }): void => {
+      planes().scopeIndex.applyDelta(scopeKey, delta.append, delta.detach);
     },
     reactiveScopes: (ids: string[]) => planes().scopeIndex.touchMembers(ids),
     persistEntries: () => [...planes().entityState.persistEntries(), ...planes().scopeIndex.persistEntries()],

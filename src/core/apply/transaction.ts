@@ -21,7 +21,7 @@ import { compositeKey } from '../serialize';
 import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
-import { runInApplyBatch, syncStoreScopes } from '../store';
+import { publishProjectedBatch, runInApplyBatch } from '../store';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 
 const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
@@ -103,7 +103,8 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
           id,
           before: op.origin === 'replace' ? mergeBase : previous,
           after: prepared.row,
-          origin: op.origin
+          origin: op.origin,
+          changedFields: prepared.changedFields
         });
       }
       if (rows.length > 0) preparedOps.push({ kind: 'upsert', model: op.model, rows, ...(op.origin === 'replace' ? { origin: op.origin } : {}) });
@@ -116,7 +117,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       const id = String(prepared.row.id);
       writePlannedRow(overlay, op.model, id, prepared.row);
       preparedOps.push({ kind: 'upsert', model: op.model, rows: [prepared.row] });
-      accepted.push({ model: op.model, id, before: previous, after: prepared.row });
+      accepted.push({ model: op.model, id, before: previous, after: prepared.row, changedFields: prepared.changedFields });
       continue;
     }
     if (op.kind === 'counter') {
@@ -129,7 +130,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       const id = String(prepared.row.id);
       writePlannedRow(overlay, op.model, id, prepared.row);
       preparedOps.push({ kind: 'upsert', model: op.model, rows: [prepared.row] });
-      accepted.push({ model: op.model, id, before: previous, after: prepared.row });
+      accepted.push({ model: op.model, id, before: previous, after: prepared.row, changedFields: prepared.changedFields });
       continue;
     }
     if (op.kind === 'destroy') {
@@ -139,6 +140,19 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         writePlannedRow(overlay, op.model, id, null);
       }
       preparedOps.push(op);
+      continue;
+    }
+    if (op.kind === 'scope-delta') {
+      /** Planning-time key finalization: key-less appends (relation effects) get sort-aware keys here, never in apply. */
+      const keyless = op.append.filter(entry => entry.orderKey === undefined).map(entry => entry.id);
+      const placed = keyless.length > 0 ? new Map(target.planScopePlacement(op.scopeKey, keyless, (model, id) => readPlannedRow(overlay, model, id)).map(entry => [entry.id, entry.orderKey] as const)) : new Map<string, string>();
+      preparedOps.push({
+        kind: 'scope-delta',
+        model: op.model,
+        scopeKey: op.scopeKey,
+        append: op.append.map(entry => ({ id: entry.id, orderKey: entry.orderKey ?? placed.get(entry.id)!, ...(entry.edge ? { edge: entry.edge } : {}) })),
+        detach: op.detach
+      });
       continue;
     }
     preparedOps.push(op);
@@ -153,6 +167,7 @@ const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
   const planned: JournalOp[] = [];
   let phase = prepareOperations(initialOps, overlay);
   planned.push(...phase.ops);
+  const allAccepted = [...phase.accepted];
   while (phase.accepted.length > 0 || phase.destroyed.length > 0) {
     const effects = deriveEffects(phase.accepted, phase.destroyed, sourceOps, {
       read: (model, id) => readPlannedRow(overlay, model, id),
@@ -162,7 +177,32 @@ const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
     sourceOps.push(...effects);
     phase = prepareOperations(effects, overlay);
     planned.push(...phase.ops);
+    allAccepted.push(...phase.accepted);
   }
+  /**
+   * Repositions: an accepted row whose changed fields affect a sorted scope's order gets a fresh
+   * key computed on planning; apply and replay move the member mechanically. Repositions change no
+   * row content, so they derive no further effects.
+   */
+  const repositioned = new Map<string, JournalOp>();
+  /** A row already placed or detached by this plan's own scope-deltas must not be re-added by a reposition. */
+  const planTouched = new Set<string>();
+  for (const op of planned) {
+    if (op.kind !== 'scope-delta') continue;
+    for (const entry of op.append) planTouched.add(compositeKey(op.model, op.scopeKey, entry.id));
+    for (const id of op.detach) planTouched.add(compositeKey(op.model, op.scopeKey, id));
+  }
+  for (const row of allAccepted) {
+    const target = getApplyTarget(row.model);
+    for (const scopeKey of target.reactiveScopes?.([row.id]) ?? []) {
+      if (planTouched.has(compositeKey(row.model, scopeKey, row.id))) continue;
+      if (target.scopeSortMeta(scopeKey).kind === 'server-order') continue;
+      if (!target.scopeOrderAffected(scopeKey, row.id, row.changedFields ?? null)) continue;
+      const [placement] = target.planScopePlacement(scopeKey, [row.id], (model, id) => readPlannedRow(overlay, model, id));
+      if (placement) repositioned.set(compositeKey(row.model, scopeKey, row.id), { kind: 'scope-delta', model: row.model, scopeKey, append: [{ id: placement.id, orderKey: placement.orderKey }], detach: [] });
+    }
+  }
+  planned.push(...repositioned.values());
   return planned;
 };
 
@@ -193,24 +233,20 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
     const key = compositeKey(model, scopeKey);
     const current = scopeChanges.get(key) ?? { model, scopeKey };
-    const mergeIds = (left?: string[], right?: string[]) => (left || right ? uniq([...(left ?? []), ...(right ?? [])]) : undefined);
-    const mergeAppendEntries = (left?: Array<{ id: string; order: number }>, right?: Array<{ id: string; order: number }>) => {
+    const mergeUpserts = (left?: Array<{ id: string; orderKey: string }>, right?: Array<{ id: string; orderKey: string }>) => {
       if (!left && !right) return undefined;
       return uniqBy([...(right ?? []), ...(left ?? [])], entry => entry.id);
     };
     scopeChanges.set(key, {
       ...current,
-      ids: mergeIds(current.ids, change.ids),
-      appendIds: mergeIds(current.appendIds, change.appendIds),
-      appendEntries: mergeAppendEntries(current.appendEntries, change.appendEntries),
-      detachIds: mergeIds(current.detachIds, change.detachIds),
-      rebuild: current.rebuild === true || change.rebuild === true
+      entries: change.entries ?? current.entries,
+      upserts: mergeUpserts(current.upserts, change.upserts),
+      detachIds: current.detachIds || change.detachIds ? uniq([...(current.detachIds ?? []), ...(change.detachIds ?? [])]) : undefined
     });
   };
   const noteRows = (model: string, target: ApplyTarget, ids: string[]): void => {
     for (const scopeKey of target.reactiveScopes?.(ids) ?? []) {
       batch.scopes.push({ model, scopeKey });
-      noteScope(model, scopeKey, { ids });
     }
   };
   for (const op of ops) {
@@ -237,14 +273,13 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
     if (op.kind === 'scope') {
       target.scope(op.scopeKey, op.next);
       batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
-      noteScope(op.model, op.scopeKey, { rebuild: true });
+      noteScope(op.model, op.scopeKey, { entries: op.next.entries.map(entry => ({ id: entry.id, orderKey: entry.orderKey })) });
     }
     if (op.kind === 'scope-delta') {
       target.scopeDelta(op.scopeKey, { append: op.append, detach: op.detach });
       batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
       noteScope(op.model, op.scopeKey, {
-        appendIds: op.append.map(row => row.id),
-        appendEntries: op.append.filter(row => typeof row.order === 'number').map(row => ({ id: row.id, order: row.order! })),
+        upserts: op.append.map(row => ({ id: row.id, orderKey: row.orderKey })),
         detachIds: op.detach
       });
     }
@@ -299,7 +334,6 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       let batch: IncrementalCommitBatch;
       try {
         batch = runInApplyBatch(() => applyOperations(ops));
-        syncStoreScopes(batch, getApplyTarget, true);
       } catch (error) {
         noteApplyFailure();
         getDbLogger().error('apply failed', { epoch, error });
@@ -317,7 +351,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         persistImmediate(ops, record);
       }
       noteCommit();
-      bus.publish(batch);
+      publishProjectedBatch(bus, batch, { readyAfterApply: true });
       return batch;
     },
     replay: () => {
@@ -344,7 +378,6 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           continue;
         }
         const batch = runInApplyBatch(() => applyOperations(ops));
-        syncStoreScopes(batch, getApplyTarget);
         if (checkpoint) {
           storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
           checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
@@ -352,7 +385,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           persistImmediate(ops, record);
         }
         noteCommit();
-        bus.publish(batch);
+        publishProjectedBatch(bus, batch);
         replayed += 1;
       }
       return replayed;

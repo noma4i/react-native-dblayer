@@ -132,8 +132,9 @@ describe('large scope churn', () => {
       });
       return diagnostics().snapshot();
     };
-    const first = bumpWork(-1);
-    for (let index = 0; index < 12; index += 1) bumpWork(index % 2 === 0 ? 801 : -1);
+    /** first and last measure the SAME move class - a tail-to-head reposition - so steady state compares like with like. */
+    const first = bumpWork(801);
+    for (let index = 0; index < 13; index += 1) bumpWork(index % 2 === 0 ? -1 : 801);
     const last = bumpWork(801);
     act(() => root.unmount());
 

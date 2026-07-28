@@ -88,14 +88,14 @@ export const defineModel = <
     detachForDestroy
   });
 
-  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
+  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }> =>
     planes()
       .scopeIndex.keysOf(id)
       .flatMap(scopeKey => {
         const entry = planes()
           .scopeIndex.read(scopeKey)
           .entries.find(candidate => candidate.id === id);
-        return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
+        return entry ? [{ id, scopeKey, orderKey: entry.orderKey, edge: entry.edge }] : [];
       });
   const { prepareRow, preparePatch, putRows, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<Stored>({
     modelId: config.id,

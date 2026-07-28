@@ -45,7 +45,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     if (changes.length > 0) options.bumpRevision();
     return changes;
   };
-  const restoreMembership = (nextId: string, memberships: ModelMembership[]): WriteOp[] => memberships.map(membership => ({ kind: 'scope-delta', model: options.modelId, scopeKey: membership.scopeKey, append: [{ id: nextId, order: membership.order, edge: membership.edge }], detach: [membership.id] }));
+  const restoreMembership = (nextId: string, memberships: ModelMembership[]): WriteOp[] => memberships.map(membership => ({ kind: 'scope-delta', model: options.modelId, scopeKey: membership.scopeKey, append: [{ id: nextId, orderKey: membership.orderKey, edge: membership.edge }], detach: [membership.id] }));
   const replacementId = (next: unknown): string | null => {
     try {
       return options.normalize(next).id;

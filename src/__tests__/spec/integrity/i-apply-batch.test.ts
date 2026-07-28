@@ -24,7 +24,8 @@ const createTargetMock = () => {
   const target: ApplyTarget = {
     readRow: id => rows.get(id),
     readAllRows: () => [...rows.values()],
-    readScopeOrder: () => [],
+    readScopeEntries: () => [],
+    planScopePlacement: (_scopeKey, ids) => ids.map((id, index) => ({ id, orderKey: `P${index}` })),
     readScopeOrderRevision: () => 0,
     readScopeGeneration: () => 0,
     scopeOrderAffected: () => false,
@@ -117,7 +118,7 @@ describe('apply pipeline batching', () => {
     const { storage, mock, bus } = setup();
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
     const ops: WriteOp[] = [
-      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: ['row-1'] as never },
+      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V' }] } },
       { kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }], origin: 'event' }
     ];
 
@@ -139,12 +140,12 @@ describe('apply pipeline batching', () => {
         model: MODEL,
         scopeKey: 'scope-1',
         append: [
-          { id: 'row-c', order: 7 },
+          { id: 'row-c', orderKey: '7' },
           { id: 'row-d' }
         ],
         detach: ['row-e']
       },
-      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: [] as never }
+      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [] } }
     ];
 
     runtime.commit(createCommitEnvelope(ops));
@@ -154,11 +155,12 @@ describe('apply pipeline batching', () => {
     expect(changes[0]).toEqual({
       model: MODEL,
       scopeKey: 'scope-1',
-      ids: ['row-a', 'row-b'],
-      appendIds: ['row-c', 'row-d'],
-      appendEntries: [{ id: 'row-c', order: 7 }],
-      detachIds: ['row-e'],
-      rebuild: true
+      entries: [],
+      upserts: [
+        { id: 'row-c', orderKey: '7' },
+        { id: 'row-d', orderKey: 'P0' }
+      ],
+      detachIds: ['row-e']
     });
   });
 

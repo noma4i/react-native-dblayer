@@ -1,7 +1,7 @@
 import type { StoragePlane , IncomingScopeRow, ReconcileResult, ScopeCoverage, ScopeEntry, ScopeIndex, ScopeIndexValue } from '../../types';
-import { noteDataLoss, noteScopeKeyMigration } from '../diagnostics';
-import { compositeKey } from '../serialize';
-import { sortBy } from 'es-toolkit';
+import { noteDataLoss } from '../diagnostics';
+import { compareCodepoints, compositeKey } from '../serialize';
+import { keysForSequence } from '../orderKey';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 import { isRecord } from '../../utils/normalizeHelpers';
 
@@ -10,14 +10,17 @@ const isScopeIndexValue = (value: unknown): value is ScopeIndexValue =>
   typeof value.generation === 'number' &&
   (value.coverage === 'delta' || value.coverage === 'page' || value.coverage === 'complete') &&
   Array.isArray(value.entries) &&
-  value.entries.every(
-    entry =>
-      isRecord(entry) &&
-      typeof entry.id === 'string' &&
-      typeof entry.order === 'number' &&
-      typeof entry.seq === 'number' &&
-      (entry.edge === undefined || isRecord(entry.edge))
-  );
+  value.entries.every(entry => isRecord(entry) && typeof entry.id === 'string' && typeof entry.orderKey === 'string' && (entry.edge === undefined || isRecord(entry.edge)));
+
+const compareEntries = (left: ScopeEntry, right: ScopeEntry): number => compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id, right.id);
+
+const sameIdSequence = (previous: ScopeEntry[], nextIds: readonly string[]): boolean => {
+  if (previous.length !== nextIds.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    if (previous[index]!.id !== nextIds[index]) return false;
+  }
+  return true;
+};
 
 export const createScopeIndex = (options: { modelId: string; scopeNames?: string[]; storage: StoragePlane; prefix: () => string }): ScopeIndex => {
   const { modelId, scopeNames, storage, prefix } = options;
@@ -30,24 +33,6 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const accessTimes = new Map<string, number>();
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
-
-  const boundaryAddFor = (
-    key: string,
-    previous: ScopeIndexValue,
-    coverage: ScopeCoverage,
-    incoming: IncomingScopeRow[],
-    opts?: { resetOrder?: boolean }
-  ): { side: 'head' | 'tail'; ids: string[] } | undefined => {
-    if ((coverage !== 'delta' && coverage !== 'page') || opts?.resetOrder || incoming.some(row => typeof row.order !== 'number')) return undefined;
-    const members = memberSets.get(key);
-    if (incoming.some(row => members?.has(row.id))) return undefined;
-    if (previous.entries.length === 0) return { side: 'tail', ids: incoming.map(row => row.id) };
-    const headOrder = previous.entries[0]!.order;
-    const tailOrder = previous.entries.at(-1)!.order;
-    if (incoming.every(row => row.order! < headOrder)) return { side: 'head', ids: incoming.map(row => row.id) };
-    if (incoming.every(row => row.order! > tailOrder)) return { side: 'tail', ids: incoming.map(row => row.id) };
-    return undefined;
-  };
 
   const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
     const nextIds = new Set(next.entries.map(entry => entry.id));
@@ -73,11 +58,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
 
   const sameEntryOrder = (previous: ScopeEntry[] | undefined, next: ScopeEntry[]): boolean => {
     if (!previous) return next.length === 0;
-    if (previous.length !== next.length) return false;
-    for (let index = 0; index < previous.length; index += 1) {
-      if (previous[index]!.id !== next[index]!.id) return false;
-    }
-    return true;
+    return sameIdSequence(previous, next.map(entry => entry.id));
   };
 
   const commit = (key: string, next: ScopeIndexValue, fastAdd?: string[]): ScopeIndexValue => {
@@ -110,16 +91,20 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     return next;
   };
 
+  /** Merge entries carrying final keys into an existing key-ordered list; a re-appearing id lands on its new key. */
+  const mergeByKey = (previous: ScopeEntry[], incoming: ScopeEntry[]): ScopeEntry[] => {
+    const replaced = new Set(incoming.map(entry => entry.id));
+    const merged = previous.filter(entry => !replaced.has(entry.id));
+    merged.push(...incoming);
+    merged.sort(compareEntries);
+    return merged;
+  };
+
   const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
     const previous = scopes.get(key) ?? empty();
     const generation = previous.generation + 1;
-    const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
-
-    if (boundaryAdd) {
-      const sortedIncoming = sortBy(incoming, [row => row.order, row => row.id]).map(row => ({ id: row.id, order: row.order!, seq: generation, edge: row.edge }));
-      const entries = boundaryAdd.side === 'head' ? [...sortedIncoming, ...previous.entries] : [...previous.entries, ...sortedIncoming];
-      return { next: { generation, coverage: previous.coverage === 'complete' ? 'complete' : coverage, entries }, detachedIds: [] };
-    }
+    const previousById = new Map(previous.entries.map(entry => [entry.id, entry] as const));
+    const retainedCoverage = previous.coverage === 'complete' ? 'complete' : coverage;
 
     if (coverage === 'complete') {
       /** Complete snapshots deduplicate like delta/page: the last payload occurrence supplies the retained entry. */
@@ -128,35 +113,41 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const deduplicated = [...incomingById.values()];
       const incomingIds = new Set(deduplicated.map(row => row.id));
       const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id)).map(entry => entry.id);
-      const entries = deduplicated.map((row, index) => ({ id: row.id, order: row.order ?? index, seq: generation + index, edge: row.edge }));
-      return { next: { generation, coverage, entries }, detachedIds };
+      if (sameIdSequence(previous.entries, deduplicated.map(row => row.id))) {
+        const entries = previous.entries.map((entry, index) => ({ ...entry, edge: deduplicated[index]!.edge ?? entry.edge }));
+        return { next: { generation, coverage, entries }, detachedIds };
+      }
+      const keys = keysForSequence(deduplicated.length);
+      const entries = deduplicated.map((row, index) => ({ id: row.id, orderKey: row.orderKey ?? keys[index]!, edge: row.edge }));
+      return { next: { generation, coverage, entries: [...entries].sort(compareEntries) }, detachedIds };
     }
 
     if (coverage === 'page' && opts?.resetOrder) {
-      const previousById = new Map(previous.entries.map(entry => [entry.id, entry] as const));
-      const incomingIds = new Set(incoming.map(row => row.id));
-      const head = incoming.map((row, order) => ({ id: row.id, order, seq: generation, edge: row.edge ?? previousById.get(row.id)?.edge }));
-      const tail = previous.entries
-        .filter(entry => !incomingIds.has(entry.id))
-        .sort((a, b) => a.order - b.order)
-        .map((entry, index) => ({ ...entry, order: incoming.length + index }));
-      return { next: { generation, coverage: previous.coverage === 'complete' ? 'complete' : coverage, entries: [...head, ...tail] }, detachedIds: [] };
+      const incomingById = new Map<string, IncomingScopeRow>();
+      for (const row of incoming) incomingById.set(row.id, row);
+      const head = [...incomingById.values()];
+      const tail = previous.entries.filter(entry => !incomingById.has(entry.id));
+      if (sameIdSequence(previous.entries, [...head.map(row => row.id), ...tail.map(entry => entry.id)])) {
+        const entries = previous.entries.map(entry => ({ ...entry, edge: incomingById.get(entry.id)?.edge ?? entry.edge }));
+        return { next: { generation, coverage: retainedCoverage, entries }, detachedIds: [] };
+      }
+      const headKeys = keysForSequence(head.length, undefined, tail[0]?.orderKey);
+      const headEntries = head.map((row, index) => ({ id: row.id, orderKey: headKeys[index]!, edge: row.edge ?? previousById.get(row.id)?.edge }));
+      return { next: { generation, coverage: retainedCoverage, entries: [...headEntries, ...tail] }, detachedIds: [] };
     }
 
-    const byId = new Map(previous.entries.map(entry => [entry.id, entry] as const));
-    let appendOrder = previous.entries.reduce((max, entry) => Math.max(max, entry.order), -1) + 1;
+    const keyed: ScopeEntry[] = [];
+    const keyless: IncomingScopeRow[] = [];
     for (const row of incoming) {
-      const existing = byId.get(row.id);
-      if (existing) {
-        byId.set(row.id, { ...existing, order: row.order ?? existing.order, seq: generation, edge: row.edge ?? existing.edge });
-      } else {
-        const order = row.order ?? appendOrder;
-        byId.set(row.id, { id: row.id, order, seq: generation, edge: row.edge });
-        appendOrder = Math.max(appendOrder, order + 1);
-      }
+      const existing = previousById.get(row.id);
+      if (row.orderKey !== undefined) keyed.push({ id: row.id, orderKey: row.orderKey, edge: row.edge ?? existing?.edge });
+      else if (existing) keyed.push({ ...existing, edge: row.edge ?? existing.edge });
+      else keyless.push(row);
     }
-    const entries = [...byId.values()].sort((a, b) => a.order - b.order);
-    return { next: { generation, coverage: previous.coverage === 'complete' ? 'complete' : coverage, entries }, detachedIds: [] };
+    const afterKeyed = mergeByKey(previous.entries, keyed);
+    const tailKeys = keysForSequence(keyless.length, afterKeyed.at(-1)?.orderKey);
+    const entries = [...afterKeyed, ...keyless.map((row, index) => ({ id: row.id, orderKey: tailKeys[index]!, edge: row.edge }))];
+    return { next: { generation, coverage: retainedCoverage, entries }, detachedIds: [] };
   };
 
   const trimValue = (value: ScopeIndexValue, maxRows: number): { next: ScopeIndexValue; trimmedIds: string[] } => {
@@ -167,21 +158,25 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     };
   };
 
-  const trimNext = (key: string, maxRows: number): { next: ScopeIndexValue; trimmedIds: string[] } => trimValue(scopes.get(key) ?? empty(), maxRows);
-
   return {
     read: key => scopes.get(key) ?? empty(),
     write: (key, next) => {
       commit(key, next);
     },
-    reconcile: (key, coverage, incoming, opts) => {
-      const previous = scopes.get(key) ?? empty();
-      const boundaryAdd = boundaryAddFor(key, previous, coverage, incoming, opts);
-      const result = reconcileNext(key, coverage, incoming, opts);
-      if (result.detachedIds.length > 0) noteDataLoss('scope-complete-detach', modelId, result.detachedIds.length);
-      return { next: commit(key, result.next, boundaryAdd?.ids), detachedIds: result.detachedIds };
-    },
     reconcileNext,
+    applyDelta: (key, append, detach) => {
+      const previous = scopes.get(key) ?? empty();
+      const removal = new Set(detach);
+      const base = removal.size > 0 ? previous.entries.filter(entry => !removal.has(entry.id)) : previous.entries;
+      const members = memberSets.get(key);
+      const pureAppend =
+        removal.size === 0 &&
+        append.every(entry => !members?.has(entry.id)) &&
+        (base.length === 0 || append.every(entry => compareCodepoints(entry.orderKey, base.at(-1)!.orderKey) > 0));
+      const entries = pureAppend ? [...base, ...[...append].sort(compareEntries)] : mergeByKey(base, append);
+      const next = { generation: previous.generation + 1, coverage: previous.coverage, entries };
+      return commit(key, next, pureAppend ? append.map(entry => entry.id) : undefined);
+    },
     detach: (key, ids) => {
       const previous = scopes.get(key) ?? empty();
       const removal = new Set(ids);
@@ -191,16 +186,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         entries: previous.entries.filter(entry => !removal.has(entry.id))
       });
     },
-    trim: (key, maxRows) => {
-      const result = trimNext(key, maxRows);
-      if (result.trimmedIds.length > 0) {
-        commit(key, result.next);
-        noteDataLoss('scope-retention-trim', modelId, result.trimmedIds.length);
-      }
-      return result.trimmedIds;
-    },
     trimValue,
-    trimNext,
     remove: key => {
       const members = memberSets.get(key);
       if (members) {
@@ -248,53 +234,21 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       memberSets.clear();
       keysByRow.clear();
       accessTimes.clear();
-      const loaded = new Map<string, { raw: string; value: ScopeIndexValue; canonical: boolean }>();
-      const migrated = new Map<string, string>();
-      const orderedScopeNames = [...(scopeNames ?? [])].sort((left, right) => right.length - left.length);
       for (const fullKey of storage.keys(storageKey(''))) {
-        const persistedKey = fullKey.slice(storageKey('').length);
-        const canonicalScopeName = orderedScopeNames.find(scopeName => persistedKey.startsWith(compositeKey(scopeName, '')));
-        const colonDelimitedScopeName = canonicalScopeName ? undefined : orderedScopeNames.find(scopeName => persistedKey.startsWith(`${scopeName}:`));
-        const key = canonicalScopeName
-          ? persistedKey
-          : colonDelimitedScopeName
-            ? compositeKey(colonDelimitedScopeName, persistedKey.slice(colonDelimitedScopeName.length + 1))
-            : null;
-        if (!key) {
-          storage.set([{ key: fullKey, value: null }]);
-          noteDataLoss('corrupt-scope', modelId, 1);
-          continue;
-        }
+        const key = fullKey.slice(storageKey('').length);
         const raw = storage.get(fullKey);
         if (!raw) continue;
-        const value = decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isScopeIndexValue);
+        /** A key that does not belong to a declared scope (renamed/removed scope, foreign format) is stale state: drop it as corrupt. */
+        const declared = scopeNames === undefined || scopeNames.some(scopeName => key.startsWith(compositeKey(scopeName, '')));
+        const value = declared ? decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isScopeIndexValue) : undefined;
         if (value) {
-          const entry = { raw, value, canonical: canonicalScopeName !== undefined };
-          const existing = loaded.get(key);
-          if (!existing || entry.canonical) loaded.set(key, entry);
-          if (colonDelimitedScopeName) migrated.set(fullKey, key);
+          scopes.set(key, value);
+          accessTimes.set(key, Date.now());
         } else {
           storage.set([{ key: fullKey, value: null }]);
           noteDataLoss('corrupt-scope', modelId, 1);
         }
       }
-      for (const [key, entry] of loaded) {
-        scopes.set(key, entry.value);
-        accessTimes.set(key, Date.now());
-      }
-      if (migrated.size > 0) {
-        const entries: Array<{ key: string; value: string | null }> = [];
-        const migratedKeys = new Set(migrated.values());
-        for (const key of migratedKeys) {
-          const entry = loaded.get(key)!;
-          if (!entry.canonical) entries.push({ key: storageKey(key), value: entry.raw });
-        }
-        for (const fullKey of migrated.keys()) entries.push({ key: fullKey, value: null });
-        storage.set(entries);
-        noteScopeKeyMigration(migrated.size);
-      }
-      memberSets.clear();
-      keysByRow.clear();
       for (const [key, value] of scopes) indexCommit(key, undefined, value);
     },
     reset: () => {

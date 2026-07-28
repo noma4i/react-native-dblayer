@@ -10,8 +10,8 @@ export type InternalModelHandle = {
   applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
   planRows(rows: unknown[], options?: { origin?: 'event' }): WriteOp[];
   planReplace(oldId: string, next: unknown): WriteOp[];
-  captureMembership(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
-  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): WriteOp[];
+  captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>;
+  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>): WriteOp[];
   relations(): Record<string, RelationDecl>;
   revision(): number;
   dropTempRowsAfterMs(): number | undefined;

@@ -67,7 +67,7 @@ describe('persistence recovery protocol', () => {
   it('C2 drops a corrupt scope key while retaining row and valid scope state', async () => {
     const storage = configureRecoveryRuntime([
       { key: 'dbl:row:RecoveryScope:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScope:feed\0{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) },
+      { key: 'dbl:scope:RecoveryScope:feed\0{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', orderKey: 'V' }] }) },
       { key: 'dbl:scope:RecoveryScope:renamed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] }) }
     ]);
     const model = defineRecoveryModel('RecoveryScope');
@@ -80,44 +80,6 @@ describe('persistence recovery protocol', () => {
     expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
     expect(storage.get('dbl:scope:RecoveryScope:renamed:{"bucket":"a"}')).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: model.modelId, count: 1 });
-  });
-
-  it('migrates a legacy scope key without dropping the model cache', async () => {
-    const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryScopeMigration:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
-    ]);
-    const model = defineRecoveryModel('RecoveryScopeMigration');
-    writeMatchingManifest();
-    diagnostics().reset();
-
-    await bootDb();
-
-    expect(model.find('live')).toMatchObject({ label: 'A' });
-    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
-    expect(storage.get('dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}')).toBeUndefined();
-    expect(storage.keys('dbl:scope:RecoveryScopeMigration:')).toHaveLength(1);
-    expect(diagnostics().snapshot()).toMatchObject({ scopeKeyMigrations: 1 });
-  });
-
-  it('does not repeat a completed scope-key migration', async () => {
-    const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryScopeMigrationOnce:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScopeMigrationOnce:feed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
-    ]);
-    defineRecoveryModel('RecoveryScopeMigrationOnce');
-    writeMatchingManifest();
-    diagnostics().reset();
-    await bootDb();
-
-    configureDb({ storage, transport: createMockTransport() });
-    const model = defineRecoveryModel('RecoveryScopeMigrationOnce');
-    writeMatchingManifest();
-    diagnostics().reset();
-    await bootDb();
-
-    expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
-    expect(diagnostics().snapshot()).toMatchObject({ scopeKeyMigrations: 0 });
   });
 
   it('safe-drops corrupt checkpointed WAL records', async () => {

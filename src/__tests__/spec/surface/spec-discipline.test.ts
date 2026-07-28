@@ -28,6 +28,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-recovery.test.tsx'), source: path.resolve(specRoot, '../../core/persistenceCodec.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-serialize-identity.test.ts'), source: path.resolve(specRoot, '../../core/serialize.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-order-key.test.ts'), source: path.resolve(specRoot, '../../core/orderKey.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-store-contract.test.ts'), source: path.resolve(specRoot, '../../core/orderKey.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-order-key.test.ts'), source: path.resolve(specRoot, '../../core/serialize.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-journal-corruption.test.ts'), source: path.resolve(specRoot, '../../core/apply/journal.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-journal-corruption.test.ts'), source: path.resolve(specRoot, '../../core/persistenceCodec.ts') },

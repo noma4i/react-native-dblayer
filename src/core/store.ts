@@ -1,7 +1,7 @@
 import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
 import { stableSerialize } from './serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
-import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreMembershipRow, StoreScopeChange, StoreScopeCollection, StoreScopeSyncChange, StoreScopeSyncSource, StoreSyncMethods, Tombstone, WriteCtx } from '../types';
+import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreMembershipRow, StoreScopeChange, StoreScopeCollection, StoreScopeSyncChange, StoreSyncMethods, Tombstone, WriteCtx } from '../types';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { isRecord } from '../utils/normalizeHelpers';
 
@@ -42,24 +42,6 @@ class SyncFeed<T extends object> {
 }
 
 const membershipKey = (scopeKey: string, entityId: string): string => `${scopeKey}:${entityId}`;
-const rankAlphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
-
-const fractionalOrderKey = (lower: string | undefined, upper: string | undefined): string => {
-  let prefix = '';
-  for (let index = 0; ; index += 1) {
-    const lowerCharacter = lower?.[index] ?? rankAlphabet[0]!;
-    const upperCharacter = upper?.[index] ?? rankAlphabet.at(-1)!;
-    if (lowerCharacter === upperCharacter) {
-      prefix += lowerCharacter;
-      continue;
-    }
-    const lowerIndex = rankAlphabet.indexOf(lowerCharacter);
-    const upperIndex = rankAlphabet.indexOf(upperCharacter);
-    if (lowerIndex < 0 || upperIndex < 0 || lowerIndex > upperIndex) throw new Error('Invalid fractional order bounds');
-    if (upperIndex - lowerIndex > 1) return `${prefix}${rankAlphabet[Math.floor((lowerIndex + upperIndex) / 2)]!}`;
-    return `${prefix}${lowerCharacter}${lower?.slice(index + 1) ?? ''}${rankAlphabet[Math.floor(rankAlphabet.length / 2)]!}`;
-  }
-};
 
 /**
  * Tombstone retention tuning. Three tiers, from gentlest to most aggressive:
@@ -311,39 +293,31 @@ export const createModelStore = <T extends RowRecord>(options: {
     membershipFeed.finish();
   };
 
-  const membershipUpsertsWithOrder = (appendIds: readonly string[], detachIds: ReadonlySet<string>, scopeKey: string, scopeOrder: readonly string[]): Array<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>> => {
-    const pendingIds = new Set(appendIds);
-    const ranks = new Map(
-      scopeMembers(scopeKey)
-        .filter(row => !detachIds.has(row.entityId) && !pendingIds.has(row.entityId))
-        .map(row => [row.entityId, row.orderKey] as const)
-    );
-    const upserts: Array<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>> = [];
-    for (let index = 0; index < scopeOrder.length; index += 1) {
-      const entityId = scopeOrder[index]!;
-      if (!pendingIds.has(entityId)) continue;
-      const lower = scopeOrder.slice(0, index).reverse().map(id => ranks.get(id)).find(Boolean);
-      const upper = scopeOrder.slice(index + 1).map(id => ranks.get(id)).find(Boolean);
-      const orderKey = fractionalOrderKey(lower, upper);
-      ranks.set(entityId, orderKey);
-      const value = { scopeKey, entityId, orderKey };
-      upserts.push({ type: memberships.has(membershipKey(scopeKey, entityId)) ? 'update' : 'insert', value });
+  /** Project ready-made membership instructions; the store never computes an order key. */
+  const projectScopeChange = (change: StoreScopeSyncChange): void => {
+    const messages: Array<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>> = [];
+    if (change.entries) {
+      const current = new Map(scopeMembers(change.scopeKey).map(row => [row.entityId, row.orderKey] as const));
+      const nextIds = new Set(change.entries.map(entry => entry.id));
+      for (const [entityId] of current) {
+        if (!nextIds.has(entityId)) messages.push({ type: 'delete', key: membershipKey(change.scopeKey, entityId) });
+      }
+      for (const entry of change.entries) {
+        const existing = current.get(entry.id);
+        if (existing === entry.orderKey) continue;
+        messages.push({ type: existing === undefined ? 'insert' : 'update', value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: entry.orderKey } });
+      }
     }
-    return upserts;
-  };
-
-  const replaceScope = (scopeKey: string, entityIds: readonly string[]): void => {
-    const nextIds = new Set(entityIds);
-    const deletes: Array<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>> = scopeMembers(scopeKey)
-      .filter(row => !nextIds.has(row.entityId))
-      .map(row => ({ type: 'delete', key: membershipKey(scopeKey, row.entityId) }));
-    let previousOrderKey: string | undefined;
-    const upserts = entityIds.map((entityId): ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string> => {
-      previousOrderKey = fractionalOrderKey(previousOrderKey, undefined);
-      const value = { scopeKey, entityId, orderKey: previousOrderKey };
-      return { type: memberships.has(membershipKey(scopeKey, entityId)) ? 'update' : 'insert', value };
-    });
-    writeMemberships([...deletes, ...upserts]);
+    for (const entityId of change.detachIds ?? []) {
+      if (memberships.has(membershipKey(change.scopeKey, entityId))) messages.push({ type: 'delete', key: membershipKey(change.scopeKey, entityId) });
+    }
+    for (const entry of change.upserts ?? []) {
+      const key = membershipKey(change.scopeKey, entry.id);
+      const existing = memberships.get(key);
+      if (existing?.orderKey === entry.orderKey) continue;
+      messages.push({ type: existing === undefined ? 'insert' : 'update', value: { scopeKey: change.scopeKey, entityId: entry.id, orderKey: entry.orderKey } });
+    }
+    writeMemberships(messages);
   };
 
   const previewUpsert = (
@@ -523,20 +497,8 @@ export const createModelStore = <T extends RowRecord>(options: {
         };
       }
     }),
-    replaceScope,
-    applyScopeChanges: (changes, rowChanges, source) => {
-      for (const change of changes) {
-        const orderChanged = rowChanges.some(row => source.scopeOrderAffected(change.scopeKey, row.id, row.fields));
-        if (change.rebuild === true || orderChanged) {
-          replaceScope(change.scopeKey, source.readScopeOrder(change.scopeKey));
-          continue;
-        }
-        const appendIds = [...new Set([...(change.appendIds ?? []), ...(change.appendEntries ?? []).map(entry => entry.id)])];
-        const detachIds = new Set(change.detachIds ?? []);
-        const deletes: Array<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>> = [...detachIds].map(entityId => ({ type: 'delete', key: membershipKey(change.scopeKey, entityId) }));
-        const upserts = appendIds.length > 0 ? membershipUpsertsWithOrder(appendIds, detachIds, change.scopeKey, source.readScopeOrder(change.scopeKey)) : [];
-        writeMemberships([...deletes, ...upserts]);
-      }
+    applyScopeChanges: changes => {
+      for (const change of changes) projectScopeChange(change);
     },
     markReady: () => {
       entityFeed.markReady();
@@ -554,28 +516,26 @@ export const createModelStore = <T extends RowRecord>(options: {
   return store;
 };
 
-/** Project this commit batch's scope changes into the membership collections (rows are already in the entity collections). */
-export const syncStoreScopes = (batch: IncrementalCommitBatch, getSource: (model: string) => StoreScopeSyncSource, readyAfterApply = false): void => {
+/**
+ * THE publish seam: project this batch's scope changes into the membership collections, then
+ * publish on the commit bus. Every scope-carrying batch - commit, replay, and GC - goes through
+ * here, so a scope-plane mutation can never bypass the store projection.
+ */
+export const publishProjectedBatch = (bus: { publish(batch: IncrementalCommitBatch): void }, batch: IncrementalCommitBatch, options?: { readyAfterApply?: boolean }): void => {
   const models = new Set([...batch.rows.map(change => change.model), ...batch.scopes.map(change => change.model), ...(batch.scopeChanges ?? []).map(change => change.model)]);
   for (const model of models) {
-    const source = getSource(model);
     const store = ensureModelStore(model);
-    const detailedScopes = batch.scopeChanges ?? [];
-    const scopeByKey = new Map<string, StoreScopeSyncChange>();
-    for (const scope of batch.scopes.filter(change => change.model === model)) {
-      scopeByKey.set(scope.scopeKey, detailedScopes.find(detail => detail.model === model && detail.scopeKey === scope.scopeKey) ?? scope);
-    }
-    for (const scope of detailedScopes.filter(change => change.model === model)) scopeByKey.set(scope.scopeKey, scope);
-    store.applyScopeChanges([...scopeByKey.values()], batch.rows.filter(row => row.model === model), source);
-    if (readyAfterApply) store.markReady();
+    store.applyScopeChanges((batch.scopeChanges ?? []).filter(change => change.model === model));
+    if (options?.readyAfterApply) store.markReady();
   }
+  bus.publish(batch);
 };
 
-/** Boot-time projection: rebuild every persisted scope's membership rows from the hydrated stores. */
-export const hydrateStoreScopes = (sources: ReadonlyArray<readonly [string, StoreScopeSyncSource & { readAllScopeKeys(): string[] }]>): void => {
+/** Boot-time projection: rebuild every persisted scope's membership rows straight from persisted entries. */
+export const hydrateStoreScopes = (sources: ReadonlyArray<readonly [string, { readScopeEntries(scopeKey: string): Array<{ id: string; orderKey: string }>; readAllScopeKeys(): string[] }]>): void => {
   for (const [model, source] of sources) {
     const store = ensureModelStore(model);
-    for (const scopeKey of source.readAllScopeKeys()) store.replaceScope(scopeKey, source.readScopeOrder(scopeKey));
+    store.applyScopeChanges(source.readAllScopeKeys().map(scopeKey => ({ scopeKey, entries: source.readScopeEntries(scopeKey) })));
   }
 };
 

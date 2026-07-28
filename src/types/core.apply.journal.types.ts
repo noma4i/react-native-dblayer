@@ -12,7 +12,7 @@ export type WriteOp =
   /** `replace` marks the destroy half of an identity swap during relation planning. */
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace' }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
-  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] }
+  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; orderKey?: string }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };
 
 /** Callback-free operation persisted in WAL and applied verbatim by commit and replay. */
@@ -20,7 +20,7 @@ export type JournalOp =
   | { kind: 'upsert'; model: string; rows: StoredRow[]; origin?: 'replace' }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace' }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
-  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; order?: number }>; detach: string[] };
+  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey: string; edge?: Record<string, unknown> }>; detach: string[] };
 
 export type JournalRecord = {
   txId: string;

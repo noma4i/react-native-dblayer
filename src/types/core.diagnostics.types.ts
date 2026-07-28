@@ -44,7 +44,6 @@ export type DiagnosticsState = {
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;
-  scopeKeyMigrations: number;
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;

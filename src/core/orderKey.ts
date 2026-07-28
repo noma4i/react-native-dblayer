@@ -78,7 +78,17 @@ export const keysForSequence = (count: number, lower?: string, upper?: string): 
   let bounds = boundsAt(length);
   while (bounds.ceiling - bounds.floor < 2 * (count + 1)) {
     length += 1;
-    if (length > MAX_SEQUENCE_KEY_LENGTH) throw new Error('Order key sequence exceeds addressable space');
+    if (length > MAX_SEQUENCE_KEY_LENGTH) {
+      /** Bounds too tight for even distribution (deep midpoint tails): fall back to a chained walk - unbounded precision, keys just grow longer. */
+      const keys: string[] = [];
+      let previous = lower;
+      for (let index = 0; index < count; index += 1) {
+        const next = keyBetween(previous, upper);
+        keys.push(next);
+        previous = next;
+      }
+      return keys;
+    }
     bounds = boundsAt(length);
   }
   const step = Math.floor((bounds.ceiling - bounds.floor) / (count + 1));

@@ -282,7 +282,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   for (const op of rawOps) {
     if (op.kind !== 'scope-delta') continue;
     const ids = placementIds.get(compositeKey(op.model, op.scopeKey)) ?? new Set<string>();
-    for (const row of op.append) if (row.order !== undefined) ids.add(row.id);
+    for (const row of op.append) if (row.orderKey !== undefined) ids.add(row.id);
     placementIds.set(compositeKey(op.model, op.scopeKey), ids);
   }
   return [

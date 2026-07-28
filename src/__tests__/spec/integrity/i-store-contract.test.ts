@@ -1,4 +1,5 @@
 import { createModelStore, runInApplyBatch } from '../../../core/store';
+import { keysForSequence } from '../../../core/orderKey';
 import { createMemoryPlane } from '../helpers/harness';
 
 type Row = { id: string } & Record<string, unknown>;
@@ -14,10 +15,10 @@ const buildStore = () =>
     applyWriteGate: (_previous, incoming) => incoming
   });
 
-const scopeSource = (order: () => string[], affected = false) => ({
-  readScopeOrder: () => order(),
-  scopeOrderAffected: () => affected
-});
+const entriesFor = (ids: readonly string[]): Array<{ id: string; orderKey: string }> => {
+  const keys = keysForSequence(ids.length);
+  return ids.map((id, index) => ({ id, orderKey: keys[index]! }));
+};
 
 describe('model store', () => {
   it('lands an inserted row into a live scope as one delta change at 300 and 3000 rows', () => {
@@ -25,16 +26,18 @@ describe('model store', () => {
       const store = buildStore();
       const ids = Array.from({ length: size }, (_, index) => `row-${index}`);
       for (const id of ids) store.upsert({ id });
-      store.replaceScope('scope-1', ids);
+      const entries = entriesFor(ids);
+      store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
       store.markReady();
       const scope = store.scopeCollection('scope-1');
       const seen: unknown[] = [];
       const unsubscribe = scope.subscribe(changes => seen.push(...changes));
 
       const insertedId = 'row-inserted';
-      ids.splice(Math.floor(size / 2), 0, insertedId);
       store.upsert({ id: insertedId });
-      store.applyScopeChanges([{ scopeKey: 'scope-1', appendIds: [insertedId] }], [{ id: insertedId, fields: null }], scopeSource(() => ids));
+      const middle = Math.floor(size / 2);
+      const between = `${entries[middle - 1]!.orderKey}V`;
+      store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: insertedId, orderKey: between }] }]);
 
       const position = scope.toArray().findIndex(row => row.id === insertedId);
       unsubscribe();
@@ -48,7 +51,7 @@ describe('model store', () => {
   it('keeps scope reads empty until the store is marked ready', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1', label: 'first' });
-    store.replaceScope('scope-1', ['row-1']);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
 
     expect(store.scopeCollection('scope-1').toArray()).toEqual([]);
 
@@ -60,7 +63,7 @@ describe('model store', () => {
   it('serves buffered same-batch reads while the live scope holds the pre-batch value', () => {
     const store = buildStore();
     store.upsert({ id: 'seed', label: 'before' });
-    store.replaceScope('scope-1', ['seed']);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['seed']) }]);
     store.markReady();
     const scope = store.scopeCollection('scope-1');
     expect(scope.toArray()).toMatchObject([{ id: 'seed', label: 'before' }]);
@@ -97,11 +100,11 @@ describe('model store', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1', label: 'first' });
     store.upsert({ id: 'row-2', label: 'second' });
-    store.replaceScope('scope-1', ['row-1', 'row-2']);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1', 'row-2']) }]);
     store.markReady();
 
     store.destroy('row-1');
-    store.applyScopeChanges([{ scopeKey: 'scope-1', detachIds: ['row-1'] }], [], scopeSource(() => ['row-2']));
+    store.applyScopeChanges([{ scopeKey: 'scope-1', detachIds: ['row-1'] }]);
 
     expect(store.read('row-1')).toBeUndefined();
     expect(store.read('row-2')).toMatchObject({ id: 'row-2' });
@@ -116,7 +119,7 @@ describe('model store', () => {
 
     const store = buildStore();
     for (const key of keys) store.upsert({ id: `row-${key}` });
-    store.replaceScope('scope-1', codepoint.map(key => `row-${key}`));
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: keys.map(key => ({ id: `row-${key}`, orderKey: key })) }]);
     store.markReady();
 
     expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(codepoint.map(key => `row-${key}`));
@@ -126,22 +129,41 @@ describe('model store', () => {
     const store = buildStore();
     store.upsert({ id: 'scope-1-row' });
     store.upsert({ id: 'scope-2-row' });
-    store.replaceScope('scope-1', ['scope-1-row']);
-    store.replaceScope('scope-2', ['scope-2-row']);
+    store.applyScopeChanges([
+      { scopeKey: 'scope-1', entries: entriesFor(['scope-1-row']) },
+      { scopeKey: 'scope-2', entries: entriesFor(['scope-2-row']) }
+    ]);
     store.markReady();
 
     expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(['scope-1-row']);
   });
 
-  it('rebuilds membership order when a changed row affects scope order', () => {
+  it('projects reposition upserts verbatim without recomputing any order', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1' });
     store.upsert({ id: 'row-2' });
-    store.replaceScope('scope-1', ['row-1', 'row-2']);
+    const entries = entriesFor(['row-1', 'row-2']);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
     store.markReady();
 
-    store.applyScopeChanges([{ scopeKey: 'scope-1', ids: ['row-1'] }], [{ id: 'row-1', fields: ['rank'] }], scopeSource(() => ['row-2', 'row-1'], true));
+    store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: 'row-1', orderKey: `${entries[1]!.orderKey}V` }] }]);
 
     expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(['row-2', 'row-1']);
+  });
+
+  it('writes nothing for a replaceAll whose id and key pairs are unchanged', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-1' });
+    store.upsert({ id: 'row-2' });
+    const entries = entriesFor(['row-1', 'row-2']);
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
+    store.markReady();
+    const seen: unknown[] = [];
+    const unsubscribe = store.scopeCollection('scope-1').subscribe(changes => seen.push(...changes));
+
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
+
+    expect(seen).toEqual([]);
+    unsubscribe();
   });
 });

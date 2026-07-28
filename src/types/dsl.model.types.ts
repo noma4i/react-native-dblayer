@@ -46,7 +46,7 @@ export type ModelReadAccess<TStored extends { id: string } & Record<string, unkn
 };
 
 export type ModelWriteResult = { id: string; changedFields: string[] | null };
-export type ModelMembership = { id: string; scopeKey: string; order: number; edge?: Record<string, unknown> };
+export type ModelMembership = { id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> };
 
 export type ModelWrites<TStored extends { id: string } & Record<string, unknown>> = {
   prepareRow(
@@ -139,8 +139,8 @@ export type ModelRuntimeRegistrationOptions<TStored extends { id: string; update
   applySnapshot(ops: WriteOp[]): void;
   planRows(rows: unknown[]): WriteOp[];
   planReplace(oldId: string, next: unknown): WriteOp[];
-  captureMembership(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
-  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): WriteOp[];
+  captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>;
+  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>): WriteOp[];
 };
 
 export type ModelDirectAccess<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<
