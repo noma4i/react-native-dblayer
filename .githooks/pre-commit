@@ -4,6 +4,9 @@ set -e
 echo "pre-commit: typecheck"
 npx tsc --noEmit
 
+echo "pre-commit: lint"
+yarn lint
+
 echo "pre-commit: jsdoc"
 node scripts/check-jsdoc.mjs
 
