@@ -1,7 +1,6 @@
 import type { DbTransport, DbTransportError } from '../types';
 import { createConfiguredSlot } from './configuredSlot';
 
-export type { DbTransport };
 
 const notConfigured = (): never => {
   throw new Error('react-native-dblayer: transport not configured - call setDbTransport(...) at app start');

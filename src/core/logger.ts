@@ -1,7 +1,6 @@
 import type { DbLogger } from '../types';
 import { createConfiguredSlot } from './configuredSlot';
 
-export type { DbLogger };
 
 const noop = (): void => {};
 

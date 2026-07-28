@@ -1,7 +1,6 @@
 import type { StorageAdapter } from '../types';
 import { createConfiguredSlot } from './configuredSlot';
 
-export type { StorageAdapter };
 
 type MmkvStorageModule = typeof import('../utils/mmkvStorage');
 
