@@ -64,7 +64,11 @@ describe('defaultOrder', () => {
     expect(items.where({}).map(row => row.id)).toEqual(['a', 'z']);
   });
 
-  it('keeps natural storage order for models without defaultOrder', () => {
+  // DEVIATION(9.0): order-less reads on models without defaultOrder return the store's
+  // deterministic id-ordered sequence. The previous insertion order was only stable within one
+  // session (hydration re-read rows in storage-key order), so the collection-backed store pins
+  // the one ordering that survives restarts.
+  it('serves a deterministic id-ordered sequence for models without defaultOrder', () => {
     setupSpecRuntime();
     const plain = defineModel({
       id: 'SpecConsumerDefaultOrderPlain',
@@ -72,6 +76,6 @@ describe('defaultOrder', () => {
       fields: { id: f.str(), score: f.num(), name: f.str() }
     });
     seedShuffled(plain);
-    expect(plain.where({}).map(row => row.id)).toEqual(['b', 'c', 'a']);
+    expect(plain.where({}).map(row => row.id)).toEqual(['a', 'b', 'c']);
   });
 });

@@ -11,7 +11,7 @@ import { isTempId } from '../utils/generateTempId';
 import { registerReset } from '../core/reset';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
-import { resetEngines } from '../engine/EngineAdapter';
+import { resetStores } from '../core/store';
 
 type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
   storage: StoragePlane;
@@ -26,7 +26,7 @@ let runtimeGeneration = 0;
 const commitBus = createCommitBus();
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
-let engineResetRegistered = false;
+let storeResetRegistered = false;
 
 /** Single flat key namespace for everything the library persists. */
 const STORAGE_PREFIX = 'dbl:';
@@ -45,7 +45,7 @@ const STORAGE_PREFIX = 'dbl:';
  */
 export const configureDb = (options: ConfigureDbOptions): void => {
   runtimeGeneration += 1;
-  resetEngines();
+  resetStores();
   const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
   runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), dataVersion: options.dataVersion ?? null };
   applyRuntime = null;
@@ -64,9 +64,9 @@ export const configureDb = (options: ConfigureDbOptions): void => {
     });
     maintenanceSchedulerResetRegistered = true;
   }
-  if (!engineResetRegistered) {
-    registerReset(resetEngines);
-    engineResetRegistered = true;
+  if (!storeResetRegistered) {
+    registerReset(resetStores);
+    storeResetRegistered = true;
   }
 };
 

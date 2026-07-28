@@ -34,7 +34,7 @@ export type * from './schema.infer.types';
 export type * from './schema.fieldSpec.types';
 export type * from './schema.fields.types';
 export type * from './schema.shape.types';
-export type * from './engine.adapter.types';
+export type * from './core.store.types';
 export type * from './subscription.types';
 export type * from './utils.singletonStatics.types';
 export type * from './utils.singleFlight.types';

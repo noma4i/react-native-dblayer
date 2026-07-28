@@ -1,6 +1,7 @@
 import { configureDb } from '../../../index';
 import { createApplyRuntime, createCommitEnvelope, registerApplyTarget } from '../../../core/apply/transaction';
 import { createCommitBus } from '../../../core/apply/commitBus';
+import { createModelStore, registerModelStoreFactory } from '../../../core/store';
 import type { ApplyTarget, CheckpointScheduler, IncrementalCommitBatch, JournalOp } from '../../../types';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -71,6 +72,9 @@ const setup = () => {
   configureDb({ storage, transport: createMockTransport() });
   const mock = createTargetMock();
   registerApplyTarget(MODEL, mock.target);
+  registerModelStoreFactory(MODEL, () =>
+    createModelStore({ modelId: MODEL, now: () => Date.now(), storage, prefix: () => PREFIX, applyWriteGate: (_previous, incoming) => incoming })
+  );
   const bus = createCommitBus();
   const published: IncrementalCommitBatch[] = [];
   bus.subscribeAll(batch => published.push(batch as IncrementalCommitBatch));

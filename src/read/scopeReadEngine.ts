@@ -2,8 +2,8 @@ import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getApplyTarget } from '../core/apply/transaction';
 import { noteScopeReadPass } from '../core/diagnostics';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
-import { engineScopeCollection } from '../engine/EngineAdapter';
-import type { EngineScopeChange, EngineScopeRow , ProjectionOptions } from '../types';
+import { storeScopeCollection } from '../core/store';
+import type { StoreScopeChange, StoreScopeRow , ProjectionOptions } from '../types';
 import { createProjectionGate, validateProjectionOptions } from './projectionGate';
 import { hasRequiredFields } from './requireFields';
 import { useScopeRetention } from './scopeRetention';
@@ -53,8 +53,8 @@ const readRequireGate = (cache: { current: RequireGate }, source: StoredRowShape
 const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {
   const rowCache = new Map<string, StoredRowShape>();
   const sourceCache = new WeakMap<StoredRowShape, StoredRowShape>();
-  const source = scopeKey == null ? null : engineScopeCollection(modelId, scopeKey);
-  let entries: EngineScopeRow[] = [];
+  const source = scopeKey == null ? null : storeScopeCollection(modelId, scopeKey);
+  let entries: StoreScopeRow[] = [];
   let rows = EMPTY_ROWS;
   let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
   const resolveRow = (sourceRow: StoredRowShape, kind: keyof ScopeReadWorkSnapshot): StoredRowShape => {
@@ -68,9 +68,9 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     sourceCache.set(sourceRow, resolved);
     return resolved;
   };
-  const compareEntries = (left: EngineScopeRow, right: EngineScopeRow): number =>
+  const compareEntries = (left: StoreScopeRow, right: StoreScopeRow): number =>
     left.orderKey < right.orderKey ? -1 : left.orderKey > right.orderKey ? 1 : (left.id ?? '').localeCompare(right.id ?? '');
-  const insertionIndex = (entry: EngineScopeRow): number => {
+  const insertionIndex = (entry: StoreScopeRow): number => {
     let lower = 0;
     let upper = entries.length;
     while (lower < upper) {
@@ -80,8 +80,8 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     }
     return lower;
   };
-  const isScopeRow = (entry: EngineScopeRow): entry is EngineScopeRow & { id: string } => typeof entry.id === 'string' && typeof entry.orderKey === 'string';
-  const updateValue = (entry: EngineScopeRow, kind: keyof ScopeReadWorkSnapshot): boolean => {
+  const isScopeRow = (entry: StoreScopeRow): entry is StoreScopeRow & { id: string } => typeof entry.id === 'string' && typeof entry.orderKey === 'string';
+  const updateValue = (entry: StoreScopeRow, kind: keyof ScopeReadWorkSnapshot): boolean => {
     if (!isScopeRow(entry)) return false;
     const currentIndex = entries.findIndex(current => current.id === entry.id);
     const previousEntry = currentIndex < 0 ? undefined : entries[currentIndex]!;
@@ -112,7 +112,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     entries = source.toArray().filter(isScopeRow);
     rows = entries.map(entry => resolveRow(entry as StoredRowShape, 'fullRows'));
   }
-  const applyChanges = (changes: EngineScopeChange[]): boolean => {
+  const applyChanges = (changes: StoreScopeChange[]): boolean => {
     let changed = false;
     for (const change of changes) {
       const didChange = change.type === 'delete' ? removeValue(change.key) : updateValue(change.value, 'incrementalRows');

@@ -9,8 +9,8 @@ type ScopeReadWork = { fullRows: number; incrementalRows: number };
 const scopeReadWork = (): { snapshot: () => ScopeReadWork; reset: () => void } =>
   (globalThis as Record<string, unknown>).__DBLAYER_SCOPE_READ_WORK__ as { snapshot: () => ScopeReadWork; reset: () => void };
 
-const engineScopeCollections = (): { count: () => number } =>
-  (globalThis as Record<string, unknown>).__DBLAYER_ENGINE_SCOPE_COLLECTIONS__ as { count: () => number };
+const storeScopeCollections = (): { count: () => number } =>
+  (globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ as { count: () => number };
 
 const createRows = (tag: string) =>
   defineModel({
@@ -22,7 +22,7 @@ const createRows = (tag: string) =>
     }
   });
 
-describe('engine scope collection', () => {
+describe('store scope collection', () => {
   it('(a) processes one inserted scope row without a size-dependent full read', () => {
     const measure = (size: number): ScopeReadWork => {
       setupSpecRuntime();
@@ -63,23 +63,23 @@ describe('engine scope collection', () => {
       root = TestRenderer.create(React.createElement(Reader));
     });
 
-    expect(engineScopeCollections().count()).toBe(1);
+    expect(storeScopeCollections().count()).toBe(1);
     for (let index = 1; index < 20; index += 1) {
       act(() => {
         setBucket(`bucket-${index}`);
       });
-      expect(engineScopeCollections().count()).toBe(1);
+      expect(storeScopeCollections().count()).toBe(1);
     }
 
     act(() => root.unmount());
-    expect(engineScopeCollections().count()).toBe(0);
+    expect(storeScopeCollections().count()).toBe(0);
 
     act(() => {
       root = TestRenderer.create(React.createElement(Reader));
     });
-    expect(engineScopeCollections().count()).toBe(1);
+    expect(storeScopeCollections().count()).toBe(1);
     resetRuntime();
-    expect(engineScopeCollections().count()).toBe(0);
+    expect(storeScopeCollections().count()).toBe(0);
     act(() => root.unmount());
   });
 });

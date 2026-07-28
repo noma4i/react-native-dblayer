@@ -6,7 +6,7 @@ import { compositeKey } from '../serialize';
 import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
-import { syncEngineBatch } from '../../engine/EngineAdapter';
+import { runInApplyBatch, syncStoreScopes } from '../store';
 
 const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
 
@@ -236,8 +236,8 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       storage.set([...journal.pendingEntry(record), ...(envelope.extraEntries?.() ?? [])]);
       let batch: IncrementalCommitBatch;
       try {
-        batch = applyPlan(recordedOps);
-        syncEngineBatch(batch, getApplyTarget, true);
+        batch = runInApplyBatch(() => applyPlan(recordedOps));
+        syncStoreScopes(batch, getApplyTarget, true);
       } catch (error) {
         noteApplyFailure();
         getDbLogger().error('apply failed', { epoch, error });
@@ -275,8 +275,8 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           if (record.status === 'pending') storage.set(journal.committedEntry(record, checkpoint?.flushedEpoch()));
           continue;
         }
-        const batch = applyPlan(ops);
-        syncEngineBatch(batch, getApplyTarget);
+        const batch = runInApplyBatch(() => applyPlan(ops));
+        syncStoreScopes(batch, getApplyTarget);
         if (checkpoint) {
           storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
           checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
