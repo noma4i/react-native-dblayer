@@ -1,4 +1,4 @@
-import type { EntityState } from './core.planes.entityState.types';
+import type { EntityState } from './core.store.types';
 import type { RelationDecl } from './core.relations.types';
 import type { ScopeIndex } from './core.planes.scopeIndex.types';
 

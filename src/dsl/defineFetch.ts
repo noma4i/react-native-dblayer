@@ -5,7 +5,7 @@ import { computeLoadingState, computePhase } from '../queries/base/loadingState'
 import { buildScopeKey } from '../core/compileDbWhere';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { getDbLogger } from '../core/logger';
-import { registerActiveFetchReaders } from '../core/fetch/fetchLedgerRegistry';
+import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';

@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { getDbRuntimeConfig } from './configure';
 import { bootDb, suspendDb } from './lifecycle';
 import { noteResumeDrain } from '../core/diagnostics';
-import { resumeFetchLedgers } from '../core/fetch/fetchLedgerRegistry';
+import { resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import type { DbProviderProps } from '../types';
 
 /**
@@ -43,7 +43,7 @@ export const DbProvider = ({ children }: DbProviderProps): React.ReactNode => {
         const generation = ++resumeDrainGeneration.current;
         const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
         if (chunkSize <= 0) throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${chunkSize}`);
-        void resumeFetchLedgers(chunkSize, () => resumeDrainGeneration.current === generation).then(noteResumeDrain);
+        void resumeFetchReaders(chunkSize, () => resumeDrainGeneration.current === generation).then(noteResumeDrain);
       } else if (state === 'background') {
         resumeDrainGeneration.current += 1;
         suspendDb();

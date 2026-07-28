@@ -12,7 +12,7 @@ import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGenera
 import { getDbLogger } from '../core/logger';
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
-import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchLedgerRegistry';
+import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { registerReset } from '../core/reset';
 type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
@@ -107,7 +107,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     };
   };
   registerReset(() => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localStates.clear(); localVersions.clear(); });
-  const ledgerKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
+  const bucketKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
   const queryKeyOf = (key: string): [string, string] => [keyName, key];
   const registerScope = (scope: TScope | null): scope is TScope => {
     if (scope === null) return false;
@@ -185,7 +185,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   };
   const run = async (scope: TScope, options: { restart: boolean; resurrectDestroyed?: boolean; nextPage?: boolean; propagateFailure?: boolean }): Promise<void> => {
     if (config.enabled && !config.enabled(scope)) return;
-    const key = ledgerKeyOf(scope);
+    const key = bucketKeyOf(scope);
     const client = getDbQueryClient();
     const queryKey = queryKeyOf(key);
     if (!isFetchNetworkOnline()) {
@@ -229,7 +229,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const invalidate = (scope?: TScope): void => {
     const client = getDbQueryClient();
     const invalidateScope = (registered: TScope) => {
-      const queryKey = queryKeyOf(ledgerKeyOf(registered));
+      const queryKey = queryKeyOf(bucketKeyOf(registered));
       // Invalidation is lazy: freshness drops for everyone, but only mounted readers refetch now.
       void client.invalidateQueries({ queryKey, refetchType: 'none' }).then(() => {
         refetchActiveFetchReaders(queryKey);
@@ -278,7 +278,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     };
   };
   const useReader = (scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean, forceAbsentRefetch: boolean): RequestState => {
-    const key = scope === null ? compositeKey(keyName, 'inactive') : ledgerKeyOf(scope);
+    const key = scope === null ? compositeKey(keyName, 'inactive') : bucketKeyOf(scope);
     const state = useObservedState(key);
     const mountedKey = useRef<string | null>(null);
     const forcedRefetch = useRef(false);

@@ -63,7 +63,7 @@ export const refetchActiveFetchReaders = (queryKey: QueryKey): void => {
 };
 
 /** Resume every active reader whose freshness lapsed, in provider-owned chunks. */
-export const resumeFetchLedgers = async (chunkSize: number, isCurrent: () => boolean): Promise<number> => {
+export const resumeFetchReaders = async (chunkSize: number, isCurrent: () => boolean): Promise<number> => {
   const refetches = [...readers].filter(reader => reader.markResumeStale());
   let refetched = 0;
   for (let index = 0; index < refetches.length; index += chunkSize) {
