@@ -1,11 +1,10 @@
-import type { JournalOp } from '../types';
+import type { JournalOp , DbSubscriptionEntry } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';
 import { noteIngestFailure } from '../core/diagnostics';
 import type { ExtractSink } from './defineQuery';
 import { getDbSubscriptionEffect } from '../core/subscriptionRuntime';
-import type { DbSubscriptionEntry } from '../types';
 import { getInternalModelHandle } from '../core/internalHandles';
 
 export type IngestDecl = {

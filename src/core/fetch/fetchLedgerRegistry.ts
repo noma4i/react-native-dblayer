@@ -1,4 +1,4 @@
-import type { IncrementalCommitBatch } from '../apply/commitBus';
+import type { IncrementalCommitBatch } from '../../types';
 import { getCommitBus } from '../../dsl/configure';
 import { compositeKey } from '../serialize';
 

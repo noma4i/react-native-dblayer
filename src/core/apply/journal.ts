@@ -2,7 +2,7 @@ import { sortBy } from 'es-toolkit';
 import type { StoragePlane } from '../planes/storagePlane';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import type { JournalOp, JournalRecord } from '../../types';
+import type { Journal, JournalOp, JournalRecord } from '../../types';
 
 const COMMITTED_CAP = 50;
 
@@ -22,14 +22,6 @@ const checkpointEpoch = (storage: StoragePlane, prefix: string): number => {
 const epochFromKey = (prefix: string, journalKey: string): number => Number(journalKey.slice(`${prefix}journal:`.length));
 
 const VALID_JOURNAL_OP_KINDS = new Set(['upsert', 'patch', 'destroy', 'scope', 'scope-delta', 'counter']);
-type JournalStorage = {
-  pendingEntry: (record: JournalRecord) => Array<{ key: string; value: string | null }>;
-  committedEntry: (record: JournalRecord, pruneBeforeEpoch?: number) => Array<{ key: string; value: string | null }>;
-  pruneCommitted: (pruneBeforeEpoch: number) => Array<{ key: string; value: string | null }>;
-  allRecords: () => JournalRecord[];
-  pending: () => JournalRecord[];
-  lastEpoch: () => number;
-};
 
 const isValidJournalOp = (value: unknown): value is JournalOp => {
   if (typeof value !== 'object' || value === null) return false;
@@ -71,7 +63,7 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
   return isValidJournalRecord(parsed) ? parsed : dropAsCorrupt();
 };
 
-export const createJournal = (storage: StoragePlane, prefix: () => string): JournalStorage => {
+export const createJournal = (storage: StoragePlane, prefix: () => string): Journal => {
   const key = (name: string) => `${prefix()}${name}`;
   const recordKey = (epoch: number) => key(`journal:${epoch}`);
 

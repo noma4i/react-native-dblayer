@@ -1,21 +1,4 @@
-type RowId = { id: string };
-
-type PatchModel<TStored extends RowId> = {
-  find(id: string): TStored | undefined;
-  update(id: string, updates: Partial<TStored>): boolean | void;
-};
-
-type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
-  insert(item: TStored): void;
-  use: {
-    find(id: string | null | undefined): TStored | undefined;
-    field<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
-  };
-};
-
-type NumericField<TStored> = {
-  [K in keyof TStored]: TStored[K] extends number ? K : never;
-}[keyof TStored];
+import type { NumericField, RowId, SingletonModel, SingletonStatics } from '../types';
 
 const removeSingletonId = <TStored extends RowId>(input: Partial<TStored>): Omit<Partial<TStored>, 'id'> => {
   const { id: _ignoredId, ...updates } = input;
@@ -30,7 +13,7 @@ const removeSingletonId = <TStored extends RowId>(input: Partial<TStored>): Omit
  * @param defaults Default row returned before insertion and used for first upsert.
  * @returns Singleton statics for reading, upserting, and clamped numeric patches.
  */
-export const createSingletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored) => {
+export const createSingletonStatics = <TStored extends RowId>(model: SingletonModel<TStored>, recordId: string, defaults: TStored): SingletonStatics<TStored> => {
   const upsert = (input: Partial<TStored>): void => {
     const updates = removeSingletonId(input);
     const existing = model.find(recordId);

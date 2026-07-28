@@ -1,4 +1,4 @@
-import type { JournalOp, MutationConfig, OptimisticCtx, RespondOptimistic } from '../types';
+import type { DefinedMutation, JournalOp, MutationConfig, OptimisticCtx, RespondOptimistic } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -28,7 +28,7 @@ type MutationRuntimeContext<TData, TInput, TStored, TNode> = {
   inverseFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>) => JournalOp[];
 };
 
-export const createMutationRuntime = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
+export const createMutationRuntime = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): Pick<DefinedMutation<TData, TInput>, 'run' | 'retry' | 'discard'> => {
   const runtime: MutationRuntimeContext<TData, TInput, TStored, TNode> = { config, optimisticConfig: config.optimistic, ...createMutationResponder(config) };
 
   const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<TData | null> => {

@@ -12,13 +12,48 @@ import type { ModelReadBuilder, RequiredFields } from '../dsl/readBuilder';
 import type { ScopeSpec } from './dsl.scope.types';
 import type { InferBuildInput, InferStoredFields } from './schema.infer.types';
 import type { ModelStatusPoller } from '../utils/modelStatusPoller';
-import type { WritePolicy } from './core.writePolicies.types';
+import type { WritePolicy , WriteCtx, WriteOrigin } from './core.writePolicies.types';
 import type { ModelIngestEntry } from '../dsl/defineIngest';
 import type { ModelContext } from '../dsl/modelContext';
 import type { JournalOp } from './core.apply.journal.types';
+import type { Dependency } from './core.apply.commitBus.types';
+import type { ApplyTarget } from '../core/apply/transaction';
 
 /** Row shape every model read path narrows to before projection. */
 export type StoredRowShape = { id: string } & Record<string, unknown>;
+
+export type ModelApplyTargetResult = {
+  applyTarget: ApplyTarget;
+  applySnapshot(ops: JournalOp[]): void;
+  applyEvent(ops: JournalOp[]): void;
+};
+
+export type ModelNormalization<TStored extends Record<string, unknown>> = {
+  applyWriteGate(previous: TStored, incoming: TStored, ctx: WriteCtx): TStored;
+  isPlanRow(value: unknown): boolean;
+  normalize(input: unknown, complete?: boolean): TStored;
+};
+
+export type ModelReadAccess<TStored extends { id: string } & Record<string, unknown>> = {
+  rowDep(id: string, fields?: ReadonlyArray<string>): Dependency;
+  modelDep: Dependency;
+  scopeDep(scopeKey: string): Dependency;
+  memberDeps(scopeKey: string): Dependency[];
+  useScopeAccess(scopeKey: string | null): void;
+  scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
+  whereRead(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
+};
+
+export type ModelWriteResult = { id: string; changedFields: string[] | null };
+export type ModelMembership = { id: string; scopeKey: string; order: number; edge?: Record<string, unknown> };
+
+export type ModelWrites<TStored extends { id: string } & Record<string, unknown>> = {
+  writeRows(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): ModelWriteResult[];
+  patchRow(id: string, patch: Record<string, unknown>, operationId?: string): ModelWriteResult | null;
+  planRows(rows: unknown[], planOptions?: { origin?: 'event' }): JournalOp[];
+  planReplace(oldId: string, next: unknown): JournalOp[];
+  planRestore(next: unknown, memberships: ModelMembership[]): JournalOp[];
+};
 
 /** Declarative sort for a scope: by field, or by a consumer comparator with the fields it reads. */
 export type ScopeSortSpec<TRow> = { field: keyof TRow & string; dir: 'asc' | 'desc' } | { comparator: (a: TRow, b: TRow) => number; orderFields?: ReadonlyArray<keyof TRow & string> };

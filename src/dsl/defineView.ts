@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Dependency } from '../core/apply/commitBus';
+import type { Dependency , ModelCore, RelationDecl, ScopeHandle } from '../types';
 import { noteFkIndex } from '../core/diagnostics';
-import type { ModelCore, RelationDecl, ScopeHandle } from '../types';
 import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import type { DbGraphQLDocument, LoadingState } from '../types';
+import type { FetchConfig, FetchHandle, FetchResult } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
@@ -10,40 +10,6 @@ import { getDbRuntimeConfig } from './configure';
 import { registerReset } from '../core/reset';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 
-type FetchConfigBase<TData, TInput, TSelected> = {
-  /** Stable cache-key namespace; inputs map to independent coordinator entries. */
-  key: string;
-  /** Pick the payload to expose as `data`; the raw response is never returned. */
-  select: (data: TData) => TSelected;
-  /** Derive GraphQL variables from the hook/imperative call input. Omit for input-less queries. */
-  vars?: (input: TInput) => Record<string, unknown>;
-  /** Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`. */
-  enabled?: (input: TInput) => boolean;
-  /** Freshness window (ms) before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`. */
-  staleTime?: number;
-  /** Per-query foreground-resume freshness window (ms). Overrides the package default from DbDefaults.resumeStaleTime; null exempts this query from resume invalidation entirely. */
-  resumeStaleTime?: number | null;
-  /** Freshness window (ms) used instead of `staleTime` when `isEmpty` classifies the last selected result as empty. Defaults to `DbDefaults.emptyStaleTime`. */
-  emptyStaleTime?: number;
-  /** Classify a selected result as empty. Defaults to nullish values and empty arrays. */
-  isEmpty?: (data: TSelected) => boolean;
-};
-
-type FetchConfig<TData, TInput, TSelected> = FetchConfigBase<TData, TInput, TSelected> &
-  ({ document: DbGraphQLDocument<TData, never>; fetcher?: never } | { fetcher: (input: TInput) => Promise<TData>; document?: never });
-
-/** Reactive result of `fetchQuery.use(input)`. */
-export type FetchResult<TSelected> = {
-  /** The selected payload; `undefined` before the first successful fetch. */
-  data: TSelected | undefined;
-  /** UI loading-state machine derived from fetch status and whether `data` is present. */
-  loadingState: LoadingState;
-  /** The last fetch error, or `null`. */
-  error: unknown;
-  /** Re-run the fetch, replacing `data` on success. Does not return a promise - await `fetch(input)` instead. */
-  refetch: () => void;
-};
-
 type FetchState = { isFetching: boolean; isFetched: boolean; isPaused: boolean; retryAttempt: number; error: Error | null };
 
 /**
@@ -52,7 +18,7 @@ type FetchState = { isFetching: boolean; isFetched: boolean; isPaused: boolean; 
  * @param config Document or fetcher plus selection and freshness policy.
  * @returns Coordinator-backed reactive and imperative fetch methods.
  */
-export const defineFetch = <TData, TInput = void, TSelected = TData>(config: FetchConfig<TData, TInput, TSelected>) => {
+export const defineFetch = <TData, TInput = void, TSelected = TData>(config: FetchConfig<TData, TInput, TSelected>): FetchHandle<TInput, TSelected> => {
   const hasDocument = config.document !== undefined;
   const hasFetcher = config.fetcher !== undefined;
   if (hasDocument === hasFetcher) throw new Error('defineFetch requires exactly one of document or fetcher');

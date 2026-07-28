@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
+import type { Dependency, IncrementalCommitBatch } from '../types';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { compareCodepoints, semanticValue } from '../core/serialize';
 import { arraysShallowEqual } from './useLiveRead';

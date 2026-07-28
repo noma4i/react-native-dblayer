@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import type { Dependency } from '../core/apply/commitBus';
+import type { Dependency } from '../types';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from './useLiveRead';
 
 type Row = { id: string; [key: string]: unknown };

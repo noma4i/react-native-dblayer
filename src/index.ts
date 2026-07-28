@@ -21,7 +21,7 @@ export type { EnsuredRowResult, QueryResult, ExtractSink } from './dsl/defineQue
 export { bridgeWindowPagination } from './dsl/pagination';
 export type { WindowPaginationBridge } from './dsl/pagination';
 export { defineFetch } from './dsl/defineFetch';
-export type { FetchResult } from './dsl/defineFetch';
+export type { FetchConfig, FetchHandle, FetchResult } from './types';
 export type { MutateCallbacks, ScopePlacement } from './types';
 export type { LiveQueryHandle } from './types';
 export { defineCommand } from './dsl/defineCommand';
@@ -35,6 +35,7 @@ export { pickDefined, pickPresent } from './utils/pickDefined';
 export { createThrottledSingleFlight, createSingleFlight } from './utils/singleFlight';
 export { createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher } from './utils/modelPatchers';
 export { createSingletonStatics } from './utils/singletonStatics';
+export type { NumericField, PatchModel, RowId, SingletonModel, SingletonStatics } from './types';
 export { reconcileOptimisticRows } from './utils/optimisticReconcile';
 export { updateWhenRowExists, waitForRow } from './core/rowWaiters';
 export { useMergedScopeRows } from './read/useMergedScopeRows';

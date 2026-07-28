@@ -13,3 +13,12 @@ export type JournalOp =
   | { kind: 'counter'; model: string; id: string; field: string; delta: number; next?: number };
 
 export type JournalRecord = { epoch: number; status: 'pending' | 'committed'; ops: JournalOp[] };
+
+export type Journal = {
+  pendingEntry(record: JournalRecord): Array<{ key: string; value: string | null }>;
+  committedEntry(record: JournalRecord, pruneBeforeEpoch?: number): Array<{ key: string; value: string | null }>;
+  pruneCommitted(pruneBeforeEpoch: number): Array<{ key: string; value: string | null }>;
+  allRecords(): JournalRecord[];
+  pending(): JournalRecord[];
+  lastEpoch(): number;
+};

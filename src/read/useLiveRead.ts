@@ -1,6 +1,6 @@
 import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import type { CommitSubscription, Dependency } from '../core/apply/commitBus';
+import type { CommitSubscription, Dependency } from '../types';
 import { getCommitBus } from '../dsl/configure';
 
 type LiveReadState<T> = {

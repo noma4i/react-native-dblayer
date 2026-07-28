@@ -1,5 +1,5 @@
-import { createCommitEnvelope, registerApplyTarget, type ApplyTarget } from '../core/apply/transaction';
-import type { JournalOp, ScopeIndexValue, ScopeSpec, WriteOrigin } from '../types';
+import { createCommitEnvelope, registerApplyTarget } from '../core/apply/transaction';
+import type { JournalOp, ModelApplyTargetResult, ScopeIndexValue, ScopeSpec, WriteOrigin } from '../types';
 import { getApplyRuntime } from './configure';
 import type { ModelContext } from './modelContext';
 
@@ -10,9 +10,9 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
   writeRows(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): Array<{ id: string; changedFields: string[] | null }>;
   patchRow(id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null;
-}) => {
+}): ModelApplyTargetResult => {
   const { planes } = options.context;
-  const applyTarget: ApplyTarget = {
+  const applyTarget: ModelApplyTargetResult['applyTarget'] = {
     readRow: (id: string): Record<string, unknown> | undefined => planes().entityState.read(id),
     readAllRows: (): Array<Record<string, unknown>> => planes().entityState.values(),
     readScopeOrder: (scopeKey: string): string[] => {

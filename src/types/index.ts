@@ -11,6 +11,8 @@ export type * from './core.writePolicies.types';
 export type * from './db.types';
 export type * from './dsl.model.types';
 export type * from './dsl.mutation.types';
+export type * from './dsl.fetch.types';
 export type * from './dsl.scope.types';
 export type * from './schema.infer.types';
 export type * from './subscription.types';
+export type * from './utils.singletonStatics.types';

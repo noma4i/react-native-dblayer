@@ -1,13 +1,9 @@
 import { createMutationRuntime } from './mutationRuntime';
 import { validateMutationConfig } from './mutationConfiguration';
-import { useMutationHandle, type MutationHandle } from './mutationHook';
-import type { MutationConfig } from '../types';
-export type DefinedMutation<TData, TInput> = {
-  run(input: TInput): Promise<TData | null>;
-  retry(tempId: string): Promise<TData | null>;
-  discard(tempId: string): void;
-  use(): MutationHandle<TData, TInput>;
-};
+import { useMutationHandle } from './mutationHook';
+import type { DefinedMutation, MutationConfig } from '../types';
+
+export type { DefinedMutation } from '../types';
 
 /**
  * Define hook and imperative mutation paths with one lifecycle: optimistic write -> transport call ->

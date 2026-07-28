@@ -3,7 +3,7 @@ import { createModelReadEngine, incrementalSignature, sortModelReadRows, useIncr
 import { createProjectionGate, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../read/useLiveRead';
-import type { DbWhere, Dependency, ScopeSortSpec, ScopeSpec } from '../types';
+import type { DbWhere, Dependency, ModelReadAccess, ScopeSortSpec, ScopeSpec } from '../types';
 import { useEffect, useRef } from 'react';
 import type { ModelContext } from './modelContext';
 import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
@@ -18,7 +18,7 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
   defaultOrder?: ReadOrder<TStored>;
   keyForScope(scopeName: string, scopeValue: unknown): string;
   matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
-}) => {
+}): ModelReadAccess<TStored> => {
   const { planes } = options.context;
   const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: options.modelId, id, ...(fields ? { fields } : {}) });
   const modelDep: Dependency = { kind: 'model', model: options.modelId };

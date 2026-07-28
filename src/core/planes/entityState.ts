@@ -1,8 +1,7 @@
 import { stableSerialize } from '../serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
-import type { WriteCtx } from '../../types';
+import type { WriteCtx , EntityState } from '../../types';
 import type { StoragePlane } from './storagePlane';
-import type { EntityState } from '../../types';
 
 type Tombstone = { at: number };
 

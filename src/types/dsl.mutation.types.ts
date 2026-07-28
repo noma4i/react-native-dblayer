@@ -1,5 +1,13 @@
 import type { DbGraphQLDocument } from './db.types';
 import type { ExtractSink } from '../dsl/defineQuery';
+import type { MutationHandle } from '../dsl/mutationHook';
+
+export type DefinedMutation<TData, TInput> = {
+  run(input: TInput): Promise<TData | null>;
+  retry(tempId: string): Promise<TData | null>;
+  discard(tempId: string): void;
+  use(): MutationHandle<TData, TInput>;
+};
 
 export type MutationModel = {
   modelId: string;

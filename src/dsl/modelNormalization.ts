@@ -2,8 +2,7 @@ import { getDbLogger } from '../core/logger';
 import { compileWritePolicies } from '../core/writePolicies';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
 import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
-import type { InferStoredFields, ModelConfig, ModelFieldSpecs } from '../types';
-import type { ScopeSpec } from '../types';
+import type { InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization, ScopeSpec } from '../types';
 
 type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
 
@@ -21,7 +20,7 @@ export const createModelNormalization = <
   TExt extends Record<string, unknown>
 >(
   config: ModelConfig<TFields, TScopes, TExt, any>
-) => {
+): ModelNormalization<InferStoredFields<TFields> & Record<string, unknown>> => {
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
   const applyWriteGate = (() => {
     const groups = config.write?.groups;

@@ -1,4 +1,4 @@
-import type { Dependency } from './apply/commitBus';
+import type { Dependency } from '../types';
 import { getCommitBus } from '../dsl/configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { noteDataLoss } from './diagnostics';

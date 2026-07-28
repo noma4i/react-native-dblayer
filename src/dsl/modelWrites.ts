@@ -1,9 +1,7 @@
-import type { EntityState, JournalOp, WriteOrigin } from '../types';
+import type { EntityState, JournalOp, ModelMembership, ModelWriteResult, ModelWrites, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
 import { clearFailedOptimisticMutation } from './mutationRuntime';
-
-type Membership = { id: string; scopeKey: string; order: number; edge?: Record<string, unknown> };
 
 export const createModelWrites = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;
@@ -12,10 +10,10 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
   normalize(input: unknown): TStored;
   isPlanRow(input: unknown): boolean;
   bumpRevision(): void;
-  captureMembership(id: string): Membership[];
-}) => {
-  const writeRows = (rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): Array<{ id: string; changedFields: string[] | null }> => {
-    const changes: Array<{ id: string; changedFields: string[] | null }> = [];
+  captureMembership(id: string): ModelMembership[];
+}): ModelWrites<TStored> => {
+  const writeRows = (rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): ModelWriteResult[] => {
+    const changes: ModelWriteResult[] = [];
     for (const value of rows) {
       let incoming: TStored;
       try {
@@ -32,7 +30,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     if (changes.length > 0) options.bumpRevision();
     return changes;
   };
-  const patchRow = (id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null => {
+  const patchRow = (id: string, patch: Record<string, unknown>, operationId?: string): ModelWriteResult | null => {
     const key = String(id);
     if (!options.entityState().read(key)) return null;
     const result = options.entityState().upsert({ ...patch, id: key } as TStored, { ctx: { origin: 'patch', operationId } });
@@ -40,7 +38,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     options.bumpRevision();
     return { id: key, changedFields: result.changedFields };
   };
-  const restoreMembership = (nextId: string, memberships: Membership[]): JournalOp[] => memberships.map(membership => ({ kind: 'scope-delta', model: options.modelId, scopeKey: membership.scopeKey, append: [{ id: nextId, order: membership.order, edge: membership.edge }], detach: [membership.id] }));
+  const restoreMembership = (nextId: string, memberships: ModelMembership[]): JournalOp[] => memberships.map(membership => ({ kind: 'scope-delta', model: options.modelId, scopeKey: membership.scopeKey, append: [{ id: nextId, order: membership.order, edge: membership.edge }], detach: [membership.id] }));
   const replacementId = (next: unknown): string | null => {
     try {
       return options.normalize(next).id;
@@ -67,7 +65,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     const accepted = rows.filter(options.isPlanRow);
     return [{ kind: 'upsert', model: options.modelId, rows: accepted, ...(planOptions?.origin ? { origin: planOptions.origin } : {}) }];
   };
-  return { writeRows, patchRow, planRows, planReplace, planRestore: (next: unknown, memberships: Membership[]): JournalOp[] => {
+  return { writeRows, patchRow, planRows, planReplace, planRestore: (next: unknown, memberships: ModelMembership[]): JournalOp[] => {
     const nextId = replacementId(next);
     return [{ kind: 'upsert', model: options.modelId, rows: [next], origin: 'replace' }, ...(nextId == null ? [] : restoreMembership(nextId, memberships))];
   } };

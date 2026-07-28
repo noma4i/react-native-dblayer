@@ -2,7 +2,7 @@ import { getCommitBus } from '../dsl/configure';
 import { collectGarbage } from './gc';
 import { getApplyTarget } from './apply/transaction';
 import { getDbLogger } from './logger';
-import type { IncrementalCommitBatch, RowChange } from './apply/commitBus';
+import type { IncrementalCommitBatch, RowChange } from '../types';
 
 const DEFAULT_THRESHOLD = 500;
 const DEFAULT_DEBOUNCE_MS = 1000;

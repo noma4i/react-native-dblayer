@@ -1,4 +1,4 @@
-import type { CheckpointScheduler, DbLogger, DbRetryPolicy, DbTransport, JournalOp, OperationState } from '../types';
+import type { CheckpointScheduler, CommitBus, DbLogger, DbRetryPolicy, DbTransport, JournalOp, OperationState } from '../types';
 import { mmkvStoragePlane, type StoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
@@ -133,7 +133,7 @@ export const advanceRuntimeGeneration = (): void => {
   runtimeGeneration += 1;
 };
 
-export const getCommitBus = () => commitBus;
+export const getCommitBus = (): CommitBus => commitBus;
 
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter

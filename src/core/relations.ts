@@ -1,8 +1,7 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
-import type { JournalOp } from '../types';
+import type { JournalOp , MembershipDelta, ModelRef, RelationDecl } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
-import type { MembershipDelta, ModelRef, RelationDecl } from '../types';
 
 type StoredRow = Record<string, unknown>;
 type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
