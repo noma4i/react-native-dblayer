@@ -33,7 +33,7 @@
   "jsonReporter": {
     "fileName": "reports/mutation/full.json"
   },
-  "concurrency": 3,
+  "concurrency": 8,
   "timeoutMS": 120000,
   "logLevel": "info"
 }
