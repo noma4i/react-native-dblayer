@@ -197,6 +197,11 @@ export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRe
   return useScopeRetention(scopeKey, { rows: store.rows, totalCount: store.rows.length }, store.resolved, options.keepPrevious === true).snapshot.rows;
 }
 
+/** One count for one row set: the same engine source that feeds `use()`/`useWindow` (`totalCount`), so a membership without a materialized row is never counted. */
+export function useScopeReadCount(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta): number {
+  return useScopeReadSnapshot(modelId, scopeKey, sortMeta, rows => rows.length);
+}
+
 export function useScopeReadWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number, isResolved: () => boolean, options: ScopeProjectionOptions<Record<string, unknown>> = {}): ScopeWindowSnapshot {
   validateProjectionOptions(options, `${modelId}.scope.useWindow`);
   const optionsRef = useRef(options);

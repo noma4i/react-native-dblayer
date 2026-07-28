@@ -2,7 +2,7 @@ import { configureDb, defineModel, f, scope } from '../../../index';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { bootDb } from '../../../dsl/lifecycle';
 import { encodePersistence } from '../../../core/persistenceCodec';
-import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; bucket: string; label: string };
 
@@ -80,6 +80,24 @@ describe('persistence recovery protocol', () => {
     expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
     expect(storage.get('dbl:scope:RecoveryScope:renamed:{"bucket":"a"}')).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: model.modelId, count: 1 });
+  });
+
+  it('counts only materialized members after a corrupt member row is dropped on boot', async () => {
+    configureRecoveryRuntime([
+      { key: 'dbl:row:RecoveryCount:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:row:RecoveryCount:bad', value: '{broken' },
+      { key: 'dbl:scope:RecoveryCount:feed\0{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', orderKey: 'V' }, { id: 'bad', orderKey: 'W' }] }) }
+    ]);
+    const model = defineRecoveryModel('RecoveryCount');
+    writeMatchingManifest();
+    await bootDb();
+
+    const reader = renderCounted(() => model.scopes.feed.use({ bucket: 'a' }));
+    const counter = renderCounted(() => model.scopes.feed.useCount({ bucket: 'a' }));
+    expect(reader.result().map(row => row.id)).toEqual(['live']);
+    expect(counter.result()).toBe(1);
+    counter.unmount();
+    reader.unmount();
   });
 
   it('safe-drops corrupt checkpointed WAL records', async () => {

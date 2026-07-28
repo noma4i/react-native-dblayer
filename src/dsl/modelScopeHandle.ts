@@ -3,9 +3,8 @@ import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';
 import { compositeKey } from '../core/serialize';
-import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
+import { useScopeReadCount, useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
 
-import { useLiveRead } from '../read/useLiveRead';
 import { useRef, useState } from 'react';
 import { getDbRuntimeConfig } from './configure';
 import { compareRowsBySpec } from './modelReadAccess';
@@ -168,10 +167,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       useCount: (scopeValue: unknown) => {
         const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);
         options.useScopeAccess(scopeKey);
-        return useLiveRead(
-          () => (scopeValue === null ? 0 : planes().scopeIndex.read(options.keyForScope(scopeName, scopeValue)).entries.length),
-          scopeKey == null ? [] : [options.scopeDep(scopeKey)]
-        );
+        return useScopeReadCount(options.modelId, scopeKey, options.applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')));
       },
       invalidate: (scopeValue?: unknown) => {
         invalidateModel(options.modelId, scopeValue);

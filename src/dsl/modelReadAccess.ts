@@ -30,7 +30,6 @@ export const compareRowsBySpec = <TRow extends { id: string }>(sort: ScopeSortSp
   };
 };
 
-export const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] => [...rows].sort(compareRowsBySpec(sort));
 
 export const createModelReadAccess = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;
@@ -50,12 +49,10 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
       if (scopeKey != null) planes().scopeIndex.noteAccess(scopeKey);
     }, [scopeKey]);
   };
+  /** Mechanical projection of the plane's persisted entry order - order keys are born on planning, never on read. */
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): TStored[] => {
-    const spec = options.scopes?.[scopeName];
     const value = planes().scopeIndex.read(options.keyForScope(scopeName, scopeValue));
-    const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is TStored => row !== undefined);
-    if (!spec?.sort || spec.sort === 'server-order') return rows;
-    return sortRowsBySpec(rows, spec.sort);
+    return value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is TStored => row !== undefined);
   };
   const whereRead = (where: DbWhere<TStored> | null): ModelReadBuilder<TStored> => {
     const defaultOrders: ReadonlyArray<ReadOrder<TStored>> = options.defaultOrder ? [options.defaultOrder] : [];
