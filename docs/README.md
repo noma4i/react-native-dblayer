@@ -7,11 +7,11 @@ the [project README](../README.md).
 
 | #   | Page                                       | Covers                                                                                                                                                                                                                  |
 | --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | [getting-started.md](./getting-started.md) | Boot sequence: register models, `configureDb`, `DbProvider`, `bootDb` (incl. `wipe`) and automatic background suspension, storage/transport seams, runtime prerequisites. Start here.                                                           |
+| 1   | [getting-started.md](./getting-started.md) | Boot sequence: register models, `configureDb`, `DbProvider`, the internal boot sequence and automatic background suspension, storage/transport seams, runtime prerequisites. Start here.                                                           |
 | 2   | [models.md](./models.md)                   | `defineModel` itself: the `f`/`defineShape` field DSL, writes, scopes (`sort`/`server-order`/`coverage`/`retention`), relations (`touch`/`counterCache`/`dependent`).                                                   |
 | 3   | [reading.md](./reading.md)                 | Every read surface: `use.row`/`field`/`first`/`where`/`byIds`/`count`/`related`, `select`/`renderKeys` projections and their identity guarantees, scope `use`/`useWindow`, `keepPrevious`, `use.pending`, `Model.view`. |
 | 4   | [queries.md](./queries.md)                 | `Model.query` (network reads into a model/scope, pagination, coverage semantics, loading state), `defineFetch` (`document`\|`fetcher`, `remove()`), `Model.fetch`.                                                      |
-| 5   | [mutations.md](./mutations.md)             | `Model.mutation` and `Model.detached` (optimistic or durable lifecycle, temp-id replace, rollback, retry), `defineCommand`, `Model.crud`, `mergeOptimisticSnapshot`, mutation error policy.                             |
+| 5   | [mutations.md](./mutations.md)             | `Model.mutation` and `Model.detached` (optimistic or durable lifecycle, temp-id replace, rollback, retry), `defineCommand`, `Model.crud`, mutation error policy.                             |
 | 6   | [ingest-live.md](./ingest-live.md)         | `Model.ingest`, the subscription runtime (`createDbSubscriptionRuntime`/`defineDbSubscriptionEntry`/`createDbSubscriptionEffects`), `Model.query`'s live colocation, echo semantics.                                    |
 | 7   | [runtime.md](./runtime.md)                 | Maintenance, garbage collection, `resetRuntime`/`registerReset`, the persistence/journal model, `Model.poller`, row waiters, and the small cleanup/patcher/scalar helpers.                                              |
 
@@ -52,7 +52,6 @@ somewhere under `docs/`.
 | `DbDefaults`        | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryClass`      | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryPolicy`     | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `BootDbOptions`     | type  | [getting-started.md](./getting-started.md#bootdboptions)            |
 | `MaintenanceReport` | type  | [getting-started.md](./getting-started.md#bootdboptions)            |
 | `DbProvider`        | value | [getting-started.md](./getting-started.md#dbprovider)               |
 | `DbProviderProps`   | type  | [getting-started.md](./getting-started.md#dbprovider)               |
@@ -129,7 +128,6 @@ see [reading.md](./reading.md).
 | Export                    | Kind  | Home                                                     |
 | ------------------------- | ----- | -------------------------------------------------------- |
 | `defineCommand`           | value | [mutations.md](./mutations.md#definecommandname-config)  |
-| `mergeOptimisticSnapshot` | value | [mutations.md](./mutations.md#mergeoptimisticsnapshot)   |
 | `MutateCallbacks`         | type  | [mutations.md](./mutations.md#use-result-shape)          |
 | `ScopePlacement`          | type  | [mutations.md](./mutations.md#optimistic-write-variants) |
 
@@ -156,7 +154,7 @@ see [reading.md](./reading.md).
 | `registerReset`               | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
 | `GcReport`                    | type  | [runtime.md](./runtime.md#garbage-collection)                                   |
 | `reconcileOptimisticRows`     | value | [runtime.md](./runtime.md#reconcileoptimisticrowsmodel-nodes-options)           |
-| `patchWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
+| `updateWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md#createthrottledsingleflightfn-options) |
 | `createSingleFlight`          | value | [runtime.md](./runtime.md#createsingleflightfn-options)          |

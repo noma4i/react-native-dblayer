@@ -24,10 +24,10 @@ Three steps, in this order, once per app process:
    barrel that re-exports every model file, imported at the app's entry point.
 2. **Call `configureDb(options)`** once, synchronously, before rendering `DbProvider` - it wires the
    transport/storage seams and package-wide defaults that `bootDb` and every model read need.
-3. **Render `<DbProvider bootOptions={{ wipe }}>`** around the app subtree. On mount it runs
-   `bootDb(bootOptions)` itself (journal replay, garbage collection, foreign-key cleanup, declared
-   model maintenance), gates `children` until that completes, and wires app-foreground/background
-   events to query refetch-on-focus and automatic background suspension.
+3. **Render `<DbProvider>`** around the app subtree. On mount it runs the internal boot sequence
+   itself (journal replay, garbage collection, foreign-key cleanup, declared model maintenance),
+   gates `children` until that completes, and wires app-foreground/background events to query
+   refetch-on-focus and automatic background suspension.
 
 ```ts
 // models/index.ts
@@ -56,7 +56,7 @@ configureDb({
 import { DbProvider } from '@noma4i/react-native-dblayer';
 
 export const Root = () => (
-  <DbProvider bootOptions={{ wipe: shouldWipeForSchemaBump }}>
+  <DbProvider>
     <App />
   </DbProvider>
 );
@@ -131,45 +131,48 @@ configured `DbLogger`, never re-thrown into the pipeline that reported it.
 ```tsx
 import { DbProvider } from '@noma4i/react-native-dblayer';
 
-<DbProvider bootOptions={{ wipe: false }}>
+<DbProvider>
   <App />
 </DbProvider>;
 ```
 
 The library-owned React provider: owns the query runtime internally - no extra provider is
-needed - and renders `children` only once boot completes. On mount it calls `bootDb(bootOptions)`
+needed - and renders `children` only once boot completes. On mount it calls the internal `bootDb()`
 exactly once (a re-render never re-triggers it) and gates `children` behind the resulting promise -
 render nothing (or a splash screen conditioned on the same signal your app already uses) above it
 while booting. It also wires `react-native`'s `AppState` for automatic focus-based refresh:
 foreground enables refetch-on-focus, and background flushes persistence and suspends the runtime
 automatically.
 
-`bootOptions` is `BootDbOptions` (`{ wipe? }`) - see [`bootDb`](#bootdboptions) below.
 `configureDb` must already have run before `DbProvider` mounts; `DbProvider` does not call it.
+To boot from an empty store (consumer-side cache bump), call `resetRuntime()` before mounting
+`DbProvider`, or bump `configureDb`'s `dataVersion` and let the compatibility gate clear
+incompatible persisted state automatically.
 
-## `bootDb(options)`
+## `bootDb()`
 
 **Internal - not exported.** `DbProvider` is the sole owner of the boot sequence described below;
 there is no standalone `bootDb` import for a custom boot sequence. This section documents what
 `DbProvider` does on mount, for anyone reading the runtime's behavior rather than calling it
 directly.
 
-`bootDb(options)` assumes `configureDb` already ran, and runs, in order: deferred definition
-validation (see below), optionally `resetRuntime()` when `wipe: true`, journal replay (recovers
+`bootDb()` assumes `configureDb` already ran, and runs, in order: deferred definition
+validation (see below), the persistence compatibility gate (an incompatible persisted
+schema/`dataVersion` clears the persisted state), journal replay (recovers
 WAL-only writes from a crash), a `collectGarbage()` sweep (reclaims rows left unreachable by that
 replay), foreign storage key cleanup, then every declared `ModelConfig.maintenance` task (see
-[runtime.md](./runtime.md#maintenance)). Every model module MUST be imported before calling it -
+[runtime.md](./runtime.md#maintenance)). Every model module MUST be imported before it runs -
 replay throws on a journal record whose model has no registered apply target, and `bootDb` does not
-catch or swallow any step's error; a silent partial boot is worse than a startup crash. Returns
-`{ replayed, gc, maintenance }`: the replayed journal record count, the `collectGarbage` report for
-the post-replay sweep (see [runtime.md](./runtime.md#garbage-collection)), and one
+catch or swallow any step's error; a silent partial boot is worse than a startup crash. Resolves to
+`{ replayed, gc, maintenance, reset }`: the replayed journal record count, the `collectGarbage`
+report for the post-replay sweep (see [runtime.md](./runtime.md#garbage-collection)), one
 `MaintenanceReport` (`{ model, task: 'maxRowsPerScope', affected }`) per declared maintenance task
-across every model.
+across every model, and whether the compatibility gate cleared incompatible persisted state.
 
-Pass `wipe: true` to discard all persisted and in-memory library state before replay - the
-`resetRuntime` kill-switch (see [runtime.md](./runtime.md#resetruntime-kill-switch)) runs after
-deferred validation but before journal replay, so boot starts from an empty store. Use it for
-consumer-side schema/cache-version bumps where stale persisted rows must not be rehydrated.
+To boot from an empty store deliberately (consumer-side schema/cache-version bumps where stale
+persisted rows must not be rehydrated), call `resetRuntime()` (see
+[runtime.md](./runtime.md#resetruntime-kill-switch)) before mounting `DbProvider`, or bump
+`configureDb`'s `dataVersion` so the compatibility gate clears the store for you.
 
 **Deferred definition validation.** Some definitions cannot be fully checked until every model
 module has been imported - `bootDb` runs these checks first, so a bad definition fails loudly at

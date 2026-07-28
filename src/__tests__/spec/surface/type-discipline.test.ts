@@ -113,4 +113,21 @@ describe('type discipline', () => {
 
     expect(duplicated).toEqual([]);
   });
+
+  it('re-exports types only from the two entry points', () => {
+    // Both re-export forms count: `export type {...} from '...'` and the bare `export type { X };`.
+    const entryPoints = new Set(['src/index.ts', 'src/types/index.ts']);
+    const offenders = walker(srcRoot)
+      .filter(file => !relative(file).startsWith('src/__tests__/') && !entryPoints.has(relative(file)))
+      .flatMap(file =>
+        fs
+          .readFileSync(file, 'utf8')
+          .split('\n')
+          .filter(line => /^export type \{[^}]*\}/.test(line))
+          .map(line => `${relative(file)}: ${line.trim()}`)
+      )
+      .sort();
+
+    expect(offenders).toEqual([]);
+  });
 });

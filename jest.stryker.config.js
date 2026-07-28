@@ -17,7 +17,6 @@ module.exports = {
     '/src/__tests__/spec/surface/',
     '/src/__tests__/spec/perf/',
     '/src/__tests__/spec/appshape/',
-    '/src/__tests__/spec/rerender/',
-    '/src/spike/'
+    '/src/__tests__/spec/rerender/'
   ]
 };

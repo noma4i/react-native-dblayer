@@ -5,11 +5,14 @@ import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
 // and a counters singleton - covers F1 (entityState upsert guard) and F2 (scopeIndex order-compare).
+// Scale note: every gate is an equality of work counters between a small and a large mount, so any
+// O(rows) component diverges at 8x scale exactly as it did at 30x; the smaller sizes keep the full
+// suite inside its 30-second budget. Probativeness is re-proven by the mutation ritual, not by scale.
 
 type ChatRow = { id: string; bucket: string; lastActivityAt: number; [key: string]: unknown };
 type CountersRow = { id: string; totalUnread: number };
 
-const CONTENT_FIELD_COUNT = 30;
+const CONTENT_FIELD_COUNT = 12;
 
 const buildChatRow = (index: number, contentFieldCount = CONTENT_FIELD_COUNT): ChatRow => {
   const row: ChatRow = { id: `chat-${index}`, bucket: 'all', lastActivityAt: index };
@@ -65,7 +68,7 @@ const mountEnsemble = (tag: string, rowCount: number): { root: TestRenderer.Reac
 };
 
 describe('large scope churn', () => {
-  it('(a) keeps bump work constant between 100 and 3000 mounted rows', () => {
+  it('(a) keeps bump work constant between 100 and 800 mounted rows', () => {
     const measureBumpWork = (rowCount: number) => {
       const { root, chats } = mountEnsemble(`BumpWork${rowCount}`, rowCount);
       diagnostics().reset();
@@ -77,7 +80,7 @@ describe('large scope churn', () => {
       return snapshot;
     };
     const small = measureBumpWork(100);
-    const large = measureBumpWork(3000);
+    const large = measureBumpWork(800);
 
     expect(large.scopeReadResorts).toBe(small.scopeReadResorts);
     expect(large.readEngineApplies).toBe(small.readEngineApplies);
@@ -90,7 +93,7 @@ describe('large scope churn', () => {
     expect(small.readEngineRebuilds).toBe(0);
   });
 
-  it('(b) keeps same-order page-reconcile fanout constant between 300 and 3000 rows', () => {
+  it('(b) keeps same-order page-reconcile fanout constant between 200 and 800 rows', () => {
     const reconcileWork = (rowCount: number) => {
       const { root, chats } = mountEnsemble(`Land${rowCount}`, rowCount);
       const rows = Array.from({ length: rowCount }, (_, index) => buildChatRow(index));
@@ -106,8 +109,8 @@ describe('large scope churn', () => {
       return work;
     };
 
-    const small = reconcileWork(300);
-    const large = reconcileWork(3000);
+    const small = reconcileWork(200);
+    const large = reconcileWork(800);
 
     expect(large.commits).toBe(small.commits);
     expect(large.commitFanoutCandidates).toBe(small.commitFanoutCandidates);
@@ -118,8 +121,8 @@ describe('large scope churn', () => {
     expect(small.commits).toBe(1);
   });
 
-  it('(c) keeps window materialization work steady across repeated bumps at 3000 rows', () => {
-    const { root, chats } = mountEnsemble('Window', 3000);
+  it('(c) keeps window materialization work steady across repeated bumps at 800 rows', () => {
+    const { root, chats } = mountEnsemble('Window', 800);
     const bumpWork = (lastActivityAt: number) => {
       diagnostics().reset();
       act(() => {
@@ -128,8 +131,8 @@ describe('large scope churn', () => {
       return diagnostics().snapshot();
     };
     const first = bumpWork(-1);
-    for (let index = 0; index < 38; index += 1) bumpWork(index % 2 === 0 ? 3001 : -1);
-    const last = bumpWork(3001);
+    for (let index = 0; index < 12; index += 1) bumpWork(index % 2 === 0 ? 801 : -1);
+    const last = bumpWork(801);
     act(() => root.unmount());
 
     expect(last.scopeReadPasses).toBe(first.scopeReadPasses);

@@ -13,6 +13,8 @@ const createExportSurface = () => {
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
+    // Without a jsx mode the program skips .tsx modules, leaving their exports as an unresolved `unknown: any` row.
+    jsx: ts.JsxEmit.ReactJSX,
     skipLibCheck: true
   });
   const checker = program.getTypeChecker();
@@ -54,10 +56,13 @@ describe('public type surface', () => {
     const first = printSurface();
 
     for (const row of first.split('\n')) expect(row).not.toContain('import("/');
+    // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
+    for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
     expect(first.split('\n')).toHaveLength(84);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
+DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
 DbProviderProps: any
 DbRetryClass: any
 DbRetryPolicy: any
@@ -137,7 +142,6 @@ registerReset: (reset: () => void | Promise<void>) => () => void
 resetRuntime: () => void
 scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("<root>/src/types/dsl.scope.types").ScopeSpec<TStored>): import("<root>/src/types/dsl.scope.types").ScopeSpec<TStored>; }
 stringifyNullish: (v: unknown) => string | null | undefined
-unknown: any
 updateWhenRowExists: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, patch: import("<root>/src/types/core.rowWaiters.types").RowPatch<TStored>, options: import("<root>/src/types/core.rowWaiters.types").UpdateWhenRowExistsOptions) => void
 useMergedScopeRows: <TRow extends { id: string; }>(baseRows: readonly TRow[], extraRows: readonly TRow[], options?: MergeOptions<TRow> | undefined) => readonly TRow[]
 waitForRow: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, options: import("<root>/src/types/core.rowWaiters.types").WaitForRowOptions) => Promise<TStored | undefined>"
