@@ -91,6 +91,16 @@ describe('DbWhere comparison operators', () => {
     reader.unmount();
   });
 
+  it('treats an undefined leaf value as no condition', () => {
+    setupSpecRuntime();
+    const items = createItems('UndefinedLeaf');
+    seedItems(items);
+    const reader = renderCounted(() => items.use.where({ status: undefined, score: { gt: 1 } }).orderBy('score').rows());
+    expect(reader.result().map(row => row.id)).toEqual(['2', '3']);
+    expect(items.where({ status: undefined }).map(row => row.id).sort()).toEqual(['1', '2', '3']);
+    reader.unmount();
+  });
+
   it('serves use.first and use.count with operator criteria', () => {
     setupSpecRuntime();
     const items = createItems('FirstCount');
