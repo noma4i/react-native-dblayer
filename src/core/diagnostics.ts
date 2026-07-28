@@ -112,9 +112,9 @@ export const noteDataLoss = (mechanism: DataLossMechanism, model: string, count:
   if (diagnostics.dataLossEvents.length > 100) diagnostics.dataLossEvents.splice(0, diagnostics.dataLossEvents.length - 100);
 };
 
-export const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics, dataLossEvents: [...diagnostics.dataLossEvents] });
+const snapshotDiagnostics = (): DiagnosticsState => ({ ...diagnostics, dataLossEvents: [...diagnostics.dataLossEvents] });
 
-export const resetDiagnostics = (): void => {
+const resetDiagnostics = (): void => {
   diagnostics = emptyDiagnostics();
 };
 

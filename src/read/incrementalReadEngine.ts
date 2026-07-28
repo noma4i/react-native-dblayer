@@ -9,7 +9,7 @@ import { noteReadEngineApply, noteReadEngineScan } from '../core/diagnostics';
 export const incrementalSignature = (kind: string, ...values: unknown[]): string => `${kind}:${values.map(semanticValue).join(':')}`;
 
 /** Shared React subscription harness for model and scope read engines. */
-export const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch = false }: ReadEngineHarnessInput<T, TResult>): TResult => {
+const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch = false }: ReadEngineHarnessInput<T, TResult>): TResult => {
   const bus = getCommitBus();
   const engineRef = useRef<Engine<T> | null>(null);
   const subscriptionRef = useRef<{ setDeps(next: ReadonlyArray<Dependency>): void; unsubscribe(): void } | null>(null);

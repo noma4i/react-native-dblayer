@@ -1,5 +1,5 @@
+import { toTimestamp } from '../utils/normalizeHelpers';
 /** Date.getTime() comparison - handles timezone offsets (Rails +11:00 vs client Z). NaN for an unparseable string. */
-const parseTimestamp = (value: string): number => new Date(value).getTime();
 
 /**
  * Return true when an incoming `updatedAt` is newer than or equal to the existing one - the newer-wins
@@ -14,8 +14,8 @@ const parseTimestamp = (value: string): number => new Date(value).getTime();
  * @returns `true` when the incoming write should be accepted.
  */
 export const isIncomingNewer = (existingUpdatedAt: string | null | undefined, incomingUpdatedAt: string | null | undefined): boolean => {
-  const existingMs = existingUpdatedAt ? parseTimestamp(existingUpdatedAt) : Number.NaN;
-  const incomingMs = incomingUpdatedAt ? parseTimestamp(incomingUpdatedAt) : Number.NaN;
+  const existingMs = existingUpdatedAt ? toTimestamp(existingUpdatedAt) : Number.NaN;
+  const incomingMs = incomingUpdatedAt ? toTimestamp(incomingUpdatedAt) : Number.NaN;
   const existingMissing = Number.isNaN(existingMs);
   const incomingMissing = Number.isNaN(incomingMs);
 

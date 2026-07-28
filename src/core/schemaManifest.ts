@@ -27,7 +27,7 @@ const isPersistenceManifest = (value: unknown): value is PersistenceManifest =>
   typeof value.schemaFingerprint === 'string' &&
   (value.dataVersion === null || typeof value.dataVersion === 'string');
 
-export const readPersistenceManifest = (prefix: string): PersistenceManifest | undefined => {
+const readPersistenceManifest = (prefix: string): PersistenceManifest | undefined => {
   const raw = getDbRuntimeConfig().storage.get(manifestKey(prefix));
   if (!raw) return undefined;
   return decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isPersistenceManifest) ?? undefined;

@@ -25,6 +25,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-reset-definition-registries.test.tsx'), source: path.resolve(specRoot, '../../dsl/bootValidations.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-reset-definition-registries.test.tsx'), source: path.resolve(specRoot, '../../core/fetch/networkState.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-subscription-correctness.test.tsx'), source: path.resolve(specRoot, '../../core/fetch/networkState.ts') },
+  { spec: path.resolve(specRoot, 'utils/u03-keyed-local-state.test.ts'), source: path.resolve(specRoot, '../../core/fetch/keyedLocalState.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-reset-definition-registries.test.tsx'), source: path.resolve(specRoot, '../../core/subscriptionRuntime.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-reset-definition-registries.test.tsx'), source: path.resolve(specRoot, '../../core/invalidationRegistry.ts') },
   { spec: path.resolve(specRoot, 'consumer/c07-maintenance-trim.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },

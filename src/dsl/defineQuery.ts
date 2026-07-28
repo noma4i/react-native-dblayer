@@ -18,7 +18,7 @@ import type {
   ScopeHandle,
   WriteOp
 } from '../types';
-import { computeLoadingState, computePhase } from '../queries/base/loadingState';
+import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
@@ -31,6 +31,7 @@ import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle 
 import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { registerKeyedReset, registerReset } from '../core/reset';
+import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
  *
@@ -66,28 +67,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
   const destinationModelId = (config.into as { modelId?: string }).modelId ?? keyName;
   /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
-  const localStates = new Map<string, { isPaused: boolean; isFetchingNextPage: boolean }>();
-  const localListeners = new Map<string, Set<() => void>>();
-  const localVersions = new Map<string, number>();
-  const localStateOf = (key: string) => localStates.get(key) ?? { isPaused: false, isFetchingNextPage: false };
-  const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => {
-    const previous = localStateOf(key);
-    const merged = { ...previous, ...next };
-    if (merged.isPaused === previous.isPaused && merged.isFetchingNextPage === previous.isFetchingNextPage) return;
-    localStates.set(key, merged);
-    localVersions.set(key, (localVersions.get(key) ?? 0) + 1);
-    for (const listener of localListeners.get(key) ?? []) listener();
-  };
-  const subscribeLocal = (key: string, listener: () => void): (() => void) => {
-    const keyListeners = localListeners.get(key) ?? new Set<() => void>();
-    localListeners.set(key, keyListeners);
-    keyListeners.add(listener);
-    return () => {
-      keyListeners.delete(listener);
-      if (keyListeners.size === 0) localListeners.delete(key);
-    };
-  };
-  registerKeyedReset(`query:${keyName}`, () => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localStates.clear(); localVersions.clear(); });
+  const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false });
+  const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => localState.set(key, next);
+  registerKeyedReset(`query:${keyName}`, () => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localState.clear(); });
   const bucketKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
   const queryKeyOf = (key: string): [string, string] => [keyName, key];
   const registerScope = (scope: TScope | null): scope is TScope => {
@@ -238,7 +220,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const subscribe = useCallback(
       (onStoreChange: () => void) => {
         const unsubscribeObserver = observer.subscribe(onStoreChange);
-        const unsubscribeLocal = subscribeLocal(key, onStoreChange);
+        const unsubscribeLocal = localState.subscribe(key, onStoreChange);
         return () => {
           unsubscribeObserver();
           unsubscribeLocal();
@@ -246,15 +228,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       },
       [key, observer]
     );
-    const getSnapshot = useCallback(() => `${observer.getCurrentResult().fetchStatus}:${observer.getCurrentResult().status}:${observer.getCurrentResult().failureCount}:${observer.getCurrentResult().dataUpdatedAt}:${localVersions.get(key) ?? 0}`, [key, observer]);
+    const getSnapshot = useCallback(() => `${observer.getCurrentResult().fetchStatus}:${observer.getCurrentResult().status}:${observer.getCurrentResult().failureCount}:${observer.getCurrentResult().dataUpdatedAt}:${localState.version(key)}`, [key, observer]);
     useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
     const result = observer.getCurrentResult();
-    const local = localStateOf(key);
+    const local = localState.get(key);
     const meta = (result.data ?? undefined) as ChainMeta | undefined;
     return {
       isFetching: result.fetchStatus === 'fetching',
       isFetchingNextPage: local.isFetchingNextPage && result.fetchStatus === 'fetching',
-      isFetched: result.dataUpdatedAt > 0 || result.errorUpdatedAt > 0,
+      isFetched: isFetchedResult(result),
       isPaused: local.isPaused,
       retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
       error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null,

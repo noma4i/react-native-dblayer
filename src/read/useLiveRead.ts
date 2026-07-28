@@ -2,17 +2,18 @@ import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { CommitSubscription, Dependency, LiveReadState } from '../types';
 import { getCommitBus } from '../dsl/configure';
+import { compositeKey } from '../core/serialize';
 
 const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
   deps
     .map(dep =>
       dep.kind === 'model'
-        ? `m:${dep.model}`
+        ? compositeKey('m', dep.model)
         : dep.kind === 'scope'
-          ? `s:${dep.model}:${dep.scopeKey}`
+          ? compositeKey('s', dep.model, dep.scopeKey)
           : dep.kind === 'pending'
-            ? `p:${dep.model}:${dep.id}`
-            : `r:${dep.model}:${dep.id}:${dep.fields?.join(',') ?? ''}`
+            ? compositeKey('p', dep.model, dep.id)
+            : compositeKey('r', dep.model, dep.id, dep.fields?.join(',') ?? '')
     )
     .join('|');
 

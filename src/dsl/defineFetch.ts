@@ -1,9 +1,10 @@
 import { CancelledError, QueryObserver } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { FetchConfig, FetchData, FetchHandle, FetchResult, FetchState } from '../types';
-import { computeLoadingState, computePhase } from '../queries/base/loadingState';
+import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { registerKeyedReset } from '../core/reset';
+import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { getDbLogger } from '../core/logger';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
@@ -29,30 +30,9 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const keyOf = (input: TInput): string => buildScopeKey(input);
   const queryKeyOf = (key: string): [string, string] => [handleKey, key];
   /** Offline pause is the one flag react-query's state machine does not carry in our vocabulary. */
-  const pausedKeys = new Set<string>();
-  const pausedListeners = new Map<string, Set<() => void>>();
-  const pausedVersions = new Map<string, number>();
-  registerKeyedReset(`fetch:${handleKey}`, () => {
-    pausedKeys.clear();
-    pausedListeners.clear();
-    pausedVersions.clear();
-  });
-  const setPaused = (key: string, paused: boolean): void => {
-    if (pausedKeys.has(key) === paused) return;
-    if (paused) pausedKeys.add(key);
-    else pausedKeys.delete(key);
-    pausedVersions.set(key, (pausedVersions.get(key) ?? 0) + 1);
-    for (const listener of pausedListeners.get(key) ?? []) listener();
-  };
-  const subscribePaused = (key: string, listener: () => void): (() => void) => {
-    const keyListeners = pausedListeners.get(key) ?? new Set<() => void>();
-    pausedListeners.set(key, keyListeners);
-    keyListeners.add(listener);
-    return () => {
-      keyListeners.delete(listener);
-      if (keyListeners.size === 0) pausedListeners.delete(key);
-    };
-  };
+  const localState = createKeyedLocalState({ isPaused: false });
+  registerKeyedReset(`fetch:${handleKey}`, () => localState.clear());
+  const setPaused = (key: string, paused: boolean): void => localState.set(key, { isPaused: paused });
 
   const staleTimeOf = (key: string): number => {
     const data = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
@@ -126,7 +106,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   };
   const remove = (): void => {
     getDbQueryClient().removeQueries({ queryKey: [handleKey] });
-    pausedKeys.clear();
+    localState.clear();
   };
   const use = (input: TInput): FetchResult<TSelected> => {
     const key = keyOf(input);
@@ -141,7 +121,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     const subscribe = useCallback(
       (onStoreChange: () => void) => {
         const unsubscribeObserver = observer.subscribe(onStoreChange);
-        const unsubscribePaused = subscribePaused(key, onStoreChange);
+        const unsubscribePaused = localState.subscribe(key, onStoreChange);
         return () => {
           unsubscribeObserver();
           unsubscribePaused();
@@ -151,14 +131,14 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     );
     const getSnapshot = useCallback(() => {
       const result = observer.getCurrentResult();
-      return `${result.fetchStatus}:${result.status}:${result.failureCount}:${result.dataUpdatedAt}:${pausedVersions.get(key) ?? 0}`;
+      return `${result.fetchStatus}:${result.status}:${result.failureCount}:${result.dataUpdatedAt}:${localState.version(key)}`;
     }, [key, observer]);
     useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
     const result = observer.getCurrentResult();
     const state: FetchState = {
       isFetching: result.fetchStatus === 'fetching',
-      isFetched: result.dataUpdatedAt > 0 || result.errorUpdatedAt > 0,
-      isPaused: pausedKeys.has(key),
+      isFetched: isFetchedResult(result),
+      isPaused: localState.get(key).isPaused,
       retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
       error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null
     };

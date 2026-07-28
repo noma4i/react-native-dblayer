@@ -10,6 +10,9 @@ import type { ComputePhaseInput, LoadingPhase, LoadingState } from '../../types'
  * @param input Query, sync, and data-presence flags for one query/read.
  * @returns The current `LoadingPhase`.
  */
+/** One answer to "has this observer result ever completed a request" - data OR error landed at least once. */
+export const isFetchedResult = (result: { dataUpdatedAt: number; errorUpdatedAt: number }): boolean => result.dataUpdatedAt > 0 || result.errorUpdatedAt > 0;
+
 export const computePhase = (input: ComputePhaseInput): LoadingPhase => {
   if (input.isInactive) return 'idle';
   if (input.isError && !input.hasFetchedData) return 'error';

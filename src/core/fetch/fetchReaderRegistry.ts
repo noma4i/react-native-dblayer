@@ -2,11 +2,11 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { IncrementalCommitBatch , ActiveFetchReader } from '../../types';
 import { getCommitBus, getDbQueryClient, isDbConfigured } from '../../dsl/configure';
 import { registerReset } from '../reset';
-import { compositeKey } from '../serialize';
+import { compositeKey, stableSerialize } from '../serialize';
 
 const readers = new Set<ActiveFetchReader>();
 registerReset(() => readers.clear());
-const serializedKeyOf = (queryKey: QueryKey): string => JSON.stringify(queryKey);
+const serializedKeyOf = (queryKey: QueryKey): string => stableSerialize(queryKey);
 
 /**
  * Committed-row loss feed: when every row identity behind a query's applied result is destroyed,
