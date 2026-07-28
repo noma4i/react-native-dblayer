@@ -120,8 +120,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (keyListeners.size === 0) listeners.delete(key);
     };
   };
-  let ledger!: ReturnType<typeof createFetchLedger>;
-  ledger = createFetchLedger({
+  const ledger = createFetchLedger({
     now: Date.now,
     retry: getDbRuntimeConfig().defaults.retry?.query ?? {},
     isOnline: isFetchNetworkOnline,
@@ -283,7 +282,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         unsubscribeOnline();
         release();
       };
-    }, [enabled, forceAbsentRefetch, key, resurrectDestroyed, scope, version]);
+    }, [enabled, forceAbsentRefetch, key, resurrectDestroyed, scope, state.isFetched, state.isFetching, version]);
     return state;
   };
   const buildResult = (rows: TStored[] | undefined, enabled: boolean, state: RequestState, scope: TScope | null): QueryResult<TStored> => {

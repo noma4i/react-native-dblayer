@@ -185,7 +185,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
         unsubscribeOnline();
         release();
       };
-    }, [enabled, input, key, version]);
+    }, [enabled, input, key, state.isFetched, state.isFetching, version]);
     const data = values.get(key);
     const hasData = data !== undefined && !isEmpty(data);
     const phaseInput = {
@@ -200,7 +200,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       isError: state.error !== null,
       hasFetchedData: state.isFetched
     };
-    const loadingState = useMemo(() => computeLoadingState(computePhase(phaseInput), phaseInput), [phaseInput.hasData, phaseInput.isFetching, phaseInput.isPaused, phaseInput.retryAttempt, phaseInput.isError, phaseInput.hasFetchedData]);
+    const loadingState = computeLoadingState(computePhase(phaseInput), phaseInput);
     return useMemo(() => ({ data, loadingState, error: state.error, refetch: () => void run(input, { restart: true }) }), [data, loadingState, state.error, input]);
   };
   return { use, fetch, remove };

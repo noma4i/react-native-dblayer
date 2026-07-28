@@ -1,10 +1,16 @@
 import { createMutationRuntime } from './mutationRuntime';
 import { validateMutationConfig } from './mutationConfiguration';
-import { useMutationHandle } from './mutationHook';
+import { useMutationHandle, type MutationHandle } from './mutationHook';
 import type { MutateCallbacks as MutationMutateCallbacks, MutationConfig, ScopePlacement as MutationScopePlacement } from '../types/dsl.mutation.types';
 
 export type MutateCallbacks<TData> = MutationMutateCallbacks<TData>;
 export type ScopePlacement<TInput> = MutationScopePlacement<TInput>;
+export type DefinedMutation<TData, TInput> = {
+  run(input: TInput): Promise<TData | null>;
+  retry(tempId: string): Promise<TData | null>;
+  discard(tempId: string): void;
+  use(): MutationHandle<TData, TInput>;
+};
 
 /**
  * Define hook and imperative mutation paths with one lifecycle: optimistic write -> transport call ->
@@ -17,7 +23,7 @@ export type ScopePlacement<TInput> = MutationScopePlacement<TInput>;
  * or `null` when dedupe skipped it. `use()` is a hook returning `{ mutate, mutateAsync, isPending, error }`,
  * where `mutate` fires-and-forgets with optional `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
  */
-export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
+export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): DefinedMutation<TData, TInput> => {
   validateMutationConfig(config);
   const runtime = createMutationRuntime(config);
   return { run: runtime.run, retry: runtime.retry, discard: runtime.discard, use: () => useMutationHandle(runtime.run) };

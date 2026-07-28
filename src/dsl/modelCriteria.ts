@@ -2,7 +2,9 @@ import { isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
 import type { DbWhere, ModelFieldSpecs } from '../types';
 import { stringifyNullish } from '../utils/normalizeHelpers';
 
-export const createModelCriteria = <TRow extends Record<string, unknown>>(fields: ModelFieldSpecs) => {
+type ModelCriteria<TRow extends Record<string, unknown>> = { matches(row: TRow, where: DbWhere<TRow>): boolean };
+
+export const createModelCriteria = <TRow extends Record<string, unknown>>(fields: ModelFieldSpecs): ModelCriteria<TRow> => {
   const cache = new WeakMap<object, DbWhere<TRow>>();
   const normalize = (where: DbWhere<TRow>): DbWhere<TRow> => {
     if (typeof where !== 'object' || where === null || Array.isArray(where)) return where;

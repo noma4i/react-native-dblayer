@@ -172,7 +172,7 @@ describe('unresolved temp row retention', () => {
 
   it('keeps an old temp row while its mutation is pending', async () => {
     let resolve!: (value: { data: { save: TempRow } }) => void;
-    const transport = createMockTransport({ mutation: async <TData,>() => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
+    const transport = createMockTransport({ mutation: () => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createTempRows('PendingTtlPending', 1000);
     const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save } });
@@ -279,7 +279,7 @@ describe('unresolved temp row retention', () => {
 
   it('unions model and pending-operation protection', async () => {
     let resolve!: (value: { data: { save: TempRow } }) => void;
-    const transport = createMockTransport({ mutation: async <TData,>() => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
+    const transport = createMockTransport({ mutation: () => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
     configureDb({ storage: createMemoryPlane(), transport });
     const protectedIds = new Set(['temp-model']);
     const rows = createTempRows('PendingTtlProtectionUnion', 1000, () => protectedIds);

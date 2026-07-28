@@ -14,14 +14,12 @@ import { createModelScopeHandle } from './modelScopeHandle';
 import { createModelDefinitions } from './modelDefinitions';
 import { createModelDirectAccess } from './modelDirectAccess';
 import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
-import type { RequiredFields } from './readBuilder';
 import type { ScopeSpec } from './scope';
 import type { InferBuildInput, InferStoredFields } from '../schema/infer';
 
 export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
 
 import type {
-  LiveQueryHandle,
   ModelConfig,
   ModelCore,
   QueryScopeReads,
@@ -29,7 +27,6 @@ import type {
   RequiredReadUse,
   ScopeHandle,
   ScopeValueOf,
-  ScopeWindowResult,
 } from '../types/dsl.model.types';
 
 export type { LiveQueryHandle, ModelConfig, ModelCore, ScopeHandle, ScopeValueOf, ScopeWindowResult } from '../types/dsl.model.types';
@@ -109,7 +106,7 @@ export const defineModel = <
     captureMembership
   });
 
-  const { rowDep, modelDep, scopeDep, memberDeps, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<Stored>({
+  const { rowDep, modelDep, scopeDep, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<Stored>({
     modelId: config.id,
     context,
     scopes: config.scopes as Record<string, ScopeSpec<Stored>> | undefined,

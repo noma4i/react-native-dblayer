@@ -9,10 +9,16 @@ export type ProjectionOptions<TStored extends Row, TProjection extends Record<st
   | { select?: never; renderKeys: readonly (keyof TStored & string)[] }
   | { select?: never; renderKeys?: never };
 
-type GateEntry<TStored extends Row, TOutput extends Record<string, unknown>> = {
+type GateEntry<TOutput extends Record<string, unknown>> = {
   source: unknown;
   output: TOutput;
   equalityValue: Record<string, unknown>;
+};
+
+export type ProjectionGate<TStored extends Row, TOutput extends Record<string, unknown>> = {
+  projectValue(id: string, source: unknown, output: TOutput, renderKeys?: readonly string[]): TOutput;
+  project(row: TStored, options: ProjectionOptions<TStored, TOutput>): TOutput;
+  projectRows(rows: TStored[], options: ProjectionOptions<TStored, TOutput>): TOutput[];
 };
 
 const equalityValue = <TStored extends Row, TOutput extends Record<string, unknown>>(
@@ -35,8 +41,8 @@ export const validateProjectionOptions = (
 };
 
 /** Create one hook-local row projection gate with stable item and array references. */
-export const createProjectionGate = <TStored extends Row, TOutput extends Record<string, unknown>>() => {
-  const entries = new Map<string, GateEntry<TStored, TOutput>>();
+export const createProjectionGate = <TStored extends Row, TOutput extends Record<string, unknown>>(): ProjectionGate<TStored, TOutput> => {
+  const entries = new Map<string, GateEntry<TOutput>>();
   let previousRows: TOutput[] = [];
   let previousSource: unknown = undefined;
   let previousOptionsSignature: { select: unknown; renderKeys: readonly string[] | undefined } | null = null;

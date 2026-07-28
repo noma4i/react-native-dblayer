@@ -1,7 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import type { MutateCallbacks } from './defineMutation';
 
-export const useMutationHandle = <TData, TInput>(run: (input: TInput) => Promise<TData | null>) => {
+export type MutationHandle<TData, TInput> = {
+  mutate(input: TInput, callbacks?: MutateCallbacks<TData>): void;
+  mutateAsync(input: TInput): Promise<TData | null>;
+  isPending: boolean;
+  error: Error | null;
+};
+
+export const useMutationHandle = <TData, TInput>(run: (input: TInput) => Promise<TData | null>): MutationHandle<TData, TInput> => {
   const runRef = useRef(run);
   runRef.current = run;
   const [isPending, setPending] = useState(false);

@@ -1,5 +1,4 @@
 import type { DbWhere } from '../types';
-import { hasRequiredFields } from '../read/requireFields';
 import type { ProjectionOptions } from '../read/projectionGate';
 
 export type ReadOrder<TStored> = { field: keyof TStored & string; direction: 'asc' | 'desc' };

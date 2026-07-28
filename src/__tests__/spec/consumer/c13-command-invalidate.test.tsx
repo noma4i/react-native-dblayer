@@ -1,5 +1,5 @@
 import { configureDb, defineCommand, defineFetch, defineModel, f } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, settle, renderCountedInProvider } from '../helpers/harness';
 
 type UserRow = { id: string; balance: number };
 type CommandResult = { reward: { ok: true; user: UserRow } };

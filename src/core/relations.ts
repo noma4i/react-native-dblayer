@@ -65,7 +65,7 @@ export const belongsTo = <TChild, TParent>(
  * since a cascaded destroy cannot be rolled back.
  * @returns A hasMany relation declaration for a child-collection edge.
  */
-export const hasMany = <TParent, TChild>(model: ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }): RelationDecl => ({
+export const hasMany = <_TParent, TChild>(model: ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }): RelationDecl => ({
   kind: 'hasMany',
   model: model as ModelRef<StoredRow>,
   foreignKey: options.foreignKey,
@@ -82,7 +82,7 @@ export const hasMany = <TParent, TChild>(model: ModelRef<TChild>, options: { for
  * use the first match in read order.
  * @returns A hasOne relation declaration for a single-child edge.
  */
-export const hasOne = <TParent, TChild>(
+export const hasOne = <_TParent, TChild>(
   model: ModelRef<TChild>,
   options: { foreignKey: keyof TChild & string; comparator?: (left: TChild, right: TChild) => number }
 ): RelationDecl => ({
@@ -167,11 +167,6 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   const touchViews = new Map<string, TouchEntry>();
   const membership = new Map<string, { model: string; scopeKey: string; append: Set<string>; detach: Set<string> }>();
   const explicitScopeModels = new Set(rawOps.filter(op => op.kind === 'scope').map(op => op.model));
-  const overlayRead = (modelId: string, id: string): StoredRow | undefined => {
-    const rows = overlay.get(modelId);
-    if (rows?.has(id)) return rows.get(id) ?? undefined;
-    return hosts.get(modelId)?.read(id);
-  };
   const overlayWrite = (modelId: string, id: string, row: StoredRow | null): void => {
     const rows = overlay.get(modelId) ?? new Map<string, StoredRow | null>();
     rows.set(id, row);

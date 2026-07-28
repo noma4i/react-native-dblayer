@@ -223,7 +223,7 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
     const scopeKey = scopeValue == null ? null : sourceInternal.key(scopeValue);
     useEffect(() => {
       if (scopeKey != null) sourceInternal.noteAccess(scopeValue as TScope);
-    }, [scopeKey]);
+    }, [scopeKey, scopeValue]);
     const evaluate = (): { items: TItem[]; totalCount: number; resolved: boolean; deps: Dependency[] } => {
       const rows = scopeValue == null ? [] : sourceInternal.readRows(scopeValue);
       const visibleRows = limit === null ? rows : rows.slice(0, limit);

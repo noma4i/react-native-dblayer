@@ -3,7 +3,12 @@ import { getInternalModelHandle, getInternalScopeHandle } from '../core/internal
 import { isRecord } from '../utils/normalizeHelpers';
 import type { MutationConfig, MutationModel, OptimisticCtx, RespondOptimistic } from '../types/dsl.mutation.types';
 
-export const createMutationResponder = <TData, TInput, TStored, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => {
+export type MutationResponder<TData, TInput, TNode> = {
+  planFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[];
+  inverseFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[];
+};
+
+export const createMutationResponder = <TData, TInput, TStored, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): MutationResponder<TData, TInput, TNode> => {
   const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[] => {
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
     if (payload == null) throw new Error(`${config.result} returned no data`);

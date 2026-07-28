@@ -151,7 +151,7 @@ export const createAppModels = (tag: string) => {
       byUuid: scope<any>({ by: { uuid: 'uuid' } }),
       visitors: scope<any>({ sort: 'server-order' })
     },
-    statics: model => ({ toAttachedSnapshot: (user: any) => projectShape(attachedUserSchema, user) })
+    statics: () => ({ toAttachedSnapshot: (user: any) => projectShape(attachedUserSchema, user) })
   });
 
   const currentUser = defineModel({
@@ -202,9 +202,7 @@ export const createAppModels = (tag: string) => {
     scopes: { all: scope<any>({ sort: { field: 'createdAt', dir: 'desc' } }), byKind: scope<any>({ by: { kind: 'kind' }, sort: { field: 'createdAt', dir: 'desc' } }) }
   });
 
-  let chats: any;
-  let messages: any;
-  messages = defineModel({
+  const messages: any = defineModel({
     id: `AppShapeMessage:${tag}`,
     name: `AppShapeMessage:${tag}`,
     fields: {
@@ -235,7 +233,7 @@ export const createAppModels = (tag: string) => {
     maintenance: { dropTempRowsAfterMs: 60_000, maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }
   });
 
-  chats = defineModel({
+  const chats = defineModel({
     id: `AppShapeChat:${tag}`,
     name: `AppShapeChat:${tag}`,
     fields: {

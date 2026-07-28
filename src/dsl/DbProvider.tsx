@@ -16,7 +16,7 @@ export type DbProviderProps = {
  * @param props Application subtree that becomes available after boot.
  * @returns Booted application subtree, or null while boot is pending.
  */
-export const DbProvider = ({ children }: DbProviderProps) => {
+export const DbProvider = ({ children }: DbProviderProps): React.ReactNode => {
   const [booted, setBooted] = useState(false);
   const [bootError, setBootError] = useState<unknown>(null);
   const bootPromise = useRef<ReturnType<typeof bootDb> | null>(null);

@@ -41,8 +41,6 @@ export const useReadEngineHarness = <T, TResult>({ signature, create, deps, appl
   if (engineRef.current === null || engineRef.current.signature !== signature || engineRef.current.generation !== generation) {
     engineRef.current = create();
   }
-  const engine = engineRef.current;
-
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       let changed = false;

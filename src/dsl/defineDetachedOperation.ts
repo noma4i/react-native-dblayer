@@ -18,7 +18,7 @@ export type DetachedOperationConfig<TInput, TStored extends { id: string }> = {
   onFailurePatch?: (input: TInput) => Partial<TStored>;
 };
 
-export type DetachedOperationHandle<TInput, TStored extends { id: string }> = {
+export type DetachedOperationHandle<TInput> = {
   start(input: TInput): { operationId: string; tempId: string };
   complete(operationId: string, serverNode: unknown): void;
   fail(operationId: string, error: Error): void;
@@ -46,7 +46,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
   model: DetachedModel<TStored>,
   kind: string,
   config: DetachedOperationConfig<TInput, TStored>
-): DetachedOperationHandle<TInput, TStored> => {
+): DetachedOperationHandle<TInput> => {
   const generation = getRuntimeGeneration();
   const existing = declarations.get(kind);
   if (existing && existing.generation === generation) throw new Error(`Detached operation kind already registered: ${kind}`);
@@ -90,7 +90,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     }
   };
 
-  const handle: DetachedOperationHandle<TInput, TStored> = {
+  const handle: DetachedOperationHandle<TInput> = {
     start: input => {
       const operationId = generateTempId('op');
       const tempId = generateTempId('row');

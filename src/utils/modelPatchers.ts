@@ -9,12 +9,12 @@ type PatchModel<TStored extends RowId> = {
   update(id: string, updates: Partial<TStored>): boolean | void;
 };
 
-export type NestedObjectPatcher<TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[]> = (
+export type NestedObjectPatcher<_TRow extends RowId, _TField extends string, TArgs extends unknown[]> = (
   id: string,
   ...args: TArgs
 ) => boolean;
 
-export type KeyedArrayPatcher<TSub extends object, TKey extends Extract<keyof TSub, string>> = {
+export type KeyedArrayPatcher<TSub extends object, _TKey extends Extract<keyof TSub, string>> = {
   /** Replace an existing sub-row with the same key, then append the normalized sub-row. */
   upsert(rows: TSub[] | null | undefined, input: unknown): TSub[];
   /** Remove sub-rows whose key equals the supplied value. */

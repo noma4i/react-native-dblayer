@@ -33,7 +33,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
   const runtime: MutationRuntimeContext<TData, TInput, TStored, TNode> = { config, optimisticConfig: config.optimistic, ...createMutationResponder(config) };
 
   const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<TData | null> => {
-    const { config, inverseFromRespond, optimisticConfig, planFromRespond } = runtime;
+    const { config, inverseFromRespond, planFromRespond } = runtime;
     const operations = getOperationState();
     const dedupeKey = config.dedupe === false ? undefined : config.dedupe?.key(input);
     if (dedupeKey != null) {

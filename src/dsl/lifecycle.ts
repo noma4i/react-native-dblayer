@@ -29,7 +29,7 @@ import { hydrateEngines, markEnginesReady } from '../engine/EngineAdapter';
 export const bootDb = async (): Promise<{ replayed: number; gc: GcReport; maintenance: MaintenanceReport[]; reset: boolean }> => {
   runBootValidations();
   const compatibility = ensurePersistenceCompatibility();
-  const replayed = await replayJournal();
+  const replayed = replayJournal();
   hydrateEngines(getApplyTargets());
   markEnginesReady();
   await reconcileDetachedOperationsAtBoot();

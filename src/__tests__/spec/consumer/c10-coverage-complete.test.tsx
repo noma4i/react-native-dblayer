@@ -7,11 +7,7 @@ type QueryState = { userId: string; id: string; kind: string; fullName: string }
 type QueryResponse = { users: QueryState[] };
 type ScopeValue = { userId: string; kind: string };
 
-type CallEntry = { kind: 'query'; operation: { variables: ScopeValue } };
-
 const document = { kind: 'Document', definitions: [] } as never;
-
-type Model = ReturnType<typeof createUserModel>;
 
 const createUserModel = () =>
   defineModel({

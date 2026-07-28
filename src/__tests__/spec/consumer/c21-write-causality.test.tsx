@@ -109,7 +109,7 @@ describe('optimistic write causality', () => {
     expect(frames.last()).toBe(true);
 
     act(() => {
-      queryReader.result().refetch();
+      void queryReader.result().refetch();
     });
     await settle(6, { macro: true });
     queries.shift()?.resolve({ chats: [initialRow] });

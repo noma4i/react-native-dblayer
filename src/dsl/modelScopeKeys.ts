@@ -4,10 +4,15 @@ import type { ModelFieldSpecs } from '../types';
 import { readModelField } from './modelNormalization';
 import { isRecord } from '../utils/normalizeHelpers';
 
+type ModelScopeKeys = {
+  keyForScope(scopeName: string, scopeValue: unknown): string;
+  scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
+};
+
 export const createModelScopeKeys = (
   config: { name: string; fields: ModelFieldSpecs },
   scopeByFieldMap: ReadonlyMap<string, Record<string, string>>
-) => {
+): ModelScopeKeys => {
   const scopeValueFromRow = (by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null => {
     const value: Record<string, unknown> = {};
     for (const [scopeField, rowField] of Object.entries(by)) {

@@ -19,7 +19,7 @@ type CommandConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<
 export const defineCommand = <TData, TInput, TStored extends { id: string } = { id: string }, TNode = TStored>(
   name: string,
   config: CommandConfig<TData, TInput, TStored, TNode>
-) => {
+): ReturnType<typeof defineMutation<TData, TInput, TStored, TNode>> => {
   const dedupe = config.dedupe === false ? false : (config.dedupe ?? { key: input => compositeKey(name, buildScopeKey(input)) });
   return defineMutation({ ...config, dedupe });
 };

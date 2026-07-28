@@ -1,6 +1,5 @@
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
 import type { RelationDecl } from '../core/relations';
-import type { ProjectionOptions } from '../read/projectionGate';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import type { defineMutation } from '../dsl/defineMutation';
 import type { MutationConfig } from './dsl.mutation.types';
@@ -64,7 +63,7 @@ export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | 
   'query' | 'mutation' | 'detached' | 'fetch' | 'view' | 'poller' | 'ingest'
 >;
 
-export type ModelDefinitionsOptions<TStored extends { id: string; updatedAt?: string | null }, TInput> = {
+export type ModelDefinitionsOptions<TStored extends { id: string; updatedAt?: string | null }, _TInput> = {
   modelId: string;
   context: ModelContext<TStored>;
 };
@@ -79,7 +78,7 @@ export type ModelSchemaRegistrationOptions<TStored extends { id: string } & Reco
   context: ModelContext<TStored>;
 };
 
-export type ModelRuntimeRegistrationOptions<TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput> = {
+export type ModelRuntimeRegistrationOptions<TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, _TInput> = {
   modelId: string;
   modelName: string;
   context: ModelContext<TStored>;
@@ -105,7 +104,7 @@ export type ModelDirectAccess<TStored extends { id: string; updatedAt?: string |
   'find' | 'where' | 'all' | 'update' | 'destroy' | 'destroyMany' | 'updateAll' | 'destroyAll' | 'insert' | 'insertMany' | 'seed' | 'replace' | 'build' | 'normalize' | 'invalidate'
 >;
 
-export type ModelDirectAccessOptions<TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput> = {
+export type ModelDirectAccessOptions<TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, _TInput> = {
   modelId: string;
   context: ModelContext<TStored>;
   defaultOrder?: DbReadOptions<TStored>['orderBy'];
@@ -215,7 +214,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     config: ModelMutationConfig<TData, TInput, TRow, TNode>
   ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
   /** Define a durable operation whose consumer-owned executor resumes through the core boot lifecycle. */
-  detached<TInput>(kind: string, config: DetachedOperationConfig<TInput, TStored>): DetachedOperationHandle<TInput, TStored>;
+  detached<TInput>(kind: string, config: DetachedOperationConfig<TInput, TStored>): DetachedOperationHandle<TInput>;
   /** Define a reactive joined projection over one declared scope and its current related rows. */
   view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(
     name: string,

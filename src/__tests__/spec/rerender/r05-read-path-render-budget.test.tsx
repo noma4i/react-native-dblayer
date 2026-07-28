@@ -6,7 +6,6 @@ import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 type ScopeRow = { id: string; groupId: string; title: string };
 type ProjectedScopeRow = { id: string; title: string };
 type AuthorRow = { id: string; name: string };
-type PostRow = { id: string; authorId: string; title: string };
 type ChildRow = { id: string; parentId: string; title: string; rank: number };
 type ViewRow = { id: string; groupId: string; title: string };
 type CommentRow = { id: string; parentId: string; body: string };

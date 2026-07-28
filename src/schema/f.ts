@@ -83,7 +83,7 @@ export const f = {
    *
    * @returns A field spec that stores `string`.
    */
-  str: () => valueField('str', readString, readNullableString),
+  str: (): FieldSpec<unknown, string> => valueField('str', readString, readNullableString),
   /**
    * Read number values and skip every other input type.
    *
@@ -91,14 +91,14 @@ export const f = {
    *
    * @returns A field spec that stores `number`.
    */
-  num: () => valueField('num', readNumber, readNullableNumber),
+  num: (): FieldSpec<unknown, number> => valueField('num', readNumber, readNullableNumber),
   /**
    * ISO-8601 date-time string field. Strings are kept as-is when parseable; `Date` instances and
    * epoch-milliseconds numbers are stored as `toISOString()`; unparseable values are dropped.
    * Stored as a string, so codepoint ordering (orderBy, DbWhereOp gt/lt) is chronological for
    * same-format ISO values.
    */
-  date: () => valueField<string>('date', readIsoDate),
+  date: (): FieldSpec<unknown, string> => valueField<string>('date', readIsoDate),
   /**
    * Read boolean values and skip every other input type.
    *
@@ -106,7 +106,7 @@ export const f = {
    *
    * @returns A field spec that stores `boolean`.
    */
-  bool: () => valueField('bool', readBoolean),
+  bool: (): FieldSpec<unknown, boolean> => valueField('bool', readBoolean),
   /**
    * Read string or number ids and normalize them to strings.
    *
@@ -114,13 +114,13 @@ export const f = {
    *
    * @returns A field spec that stores a string id.
    */
-  id: () => valueField('id', readId),
+  id: (): FieldSpec<unknown, string> => valueField('id', readId),
   /**
    * Enum field with runtime validation: only the declared string values are stored; any other value
    * is dropped like other unreadable values. The stored type is the union of the declared literals -
    * pass an explicit generic for codegen enums: `f.enum<GqlKind>(Object.values(GqlKind))`.
    */
-  enum: <TValue extends string>(values: readonly TValue[]) => {
+  enum: <TValue extends string>(values: readonly TValue[]): FieldSpec<unknown, TValue> => {
     const allowed = new Set<string>(values);
     return valueField<TValue>('enum', value => (typeof value === 'string' && allowed.has(value) ? (value as TValue) : undefined));
   },
@@ -131,7 +131,7 @@ export const f = {
    *
    * @returns A field spec that stores the supplied raw type.
    */
-  raw: <T>() => valueField<T>('raw', definedPassthrough),
+  raw: <T>(): FieldSpec<unknown, T> => valueField<T>('raw', definedPassthrough),
   /**
    * Read a value from the whole input object with a custom selector.
    *
@@ -140,7 +140,7 @@ export const f = {
    * @param read Selector that receives the full input object.
    * @returns A field spec that stores the selector output type.
    */
-  custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => customField<TInput, TOut>('custom', input => read(input as TInput)),
+  custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined): FieldSpec<TInput, TOut> => customField<TInput, TOut>('custom', input => read(input as TInput)),
   /**
    * Read a nested object through a reusable shape.
    *
@@ -149,7 +149,7 @@ export const f = {
    * @param shape Shape created by `defineShape`.
    * @returns A field spec that stores the shape output object.
    */
-  object: <TShape extends AnyDbShape>(shape: TShape) => objectField(shape),
+  object: <TShape extends AnyDbShape>(shape: TShape): EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>> => objectField(shape),
   /**
    * Read arrays of shapes or scalar field specs and drop unreadable elements.
    *
@@ -158,5 +158,5 @@ export const f = {
    * @param item Shape or scalar field spec used to read each array element.
    * @returns A field spec that stores an array of readable element outputs.
    */
-  array: <TItem extends ArrayItem>(item: TItem) => valueField<ArrayItemOut<TItem>[]>('array', readArray(item))
+  array: <TItem extends ArrayItem>(item: TItem): FieldSpec<unknown, ArrayItemOut<TItem>[]> => valueField<ArrayItemOut<TItem>[]>('array', readArray(item))
 };

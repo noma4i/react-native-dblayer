@@ -44,12 +44,14 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): JournalOp => {
-      let { next, detachedIds } = planes().scopeIndex.reconcileNext(
+      const reconciliation = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
         liveRows.map(({ row, edge }) => ({ id: String(row.id), edge })),
         planOptions
       );
+      let { next } = reconciliation;
+      const { detachedIds } = reconciliation;
       if (detachedIds.length > 0) noteDataLoss('scope-complete-detach', options.modelId, detachedIds.length);
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (planOptions?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {

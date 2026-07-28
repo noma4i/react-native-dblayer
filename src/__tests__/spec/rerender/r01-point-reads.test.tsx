@@ -368,7 +368,7 @@ describe('rerender matrix point reads', () => {
         selectId: input => input.id,
         selectPatch: input => ({ name: input.name })
       },
-      extract: ({ data }) => []
+      extract: () => []
     });
     const readers = mountReaders(rows);
     const before = capture(readers);
