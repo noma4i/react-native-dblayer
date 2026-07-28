@@ -1,3 +1,4 @@
+import type { GcReport } from '../types';
 type GcHost = {
     modelId: string;
     exempt: boolean;
@@ -18,10 +19,6 @@ type GcHost = {
 };
 /** Registered once per defineModel; survives resetRuntime like apply targets. */
 export declare const registerGcHost: (modelId: string, host: GcHost) => (() => void);
-export type GcReport = {
-    evicted: Record<string, number>;
-    scopesRemoved: Record<string, number>;
-};
 /**
  * Reachability GC over all registered models. Roots: scope members, exempt models, pending
  * operations, mounted readers, and non-idle scopes. Edges: belongsTo/references of live rows.

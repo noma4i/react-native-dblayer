@@ -1,6 +1,4 @@
-import type { JournalOp } from './apply/journal';
-import type { RelationDecl } from './relations';
-import type { ScopeCoverage } from './planes/scopeIndex';
+import type { JournalOp, RelationDecl, ScopeCoverage } from '../types';
 type InternalModelHandle = {
     readRow(id: string): {
         id: string;
@@ -26,6 +24,7 @@ type InternalModelHandle = {
     }>): JournalOp[];
     relations(): Record<string, RelationDecl>;
     revision(): number;
+    dropTempRowsAfterMs(): number | undefined;
 };
 type InternalScopeHandle = {
     apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: {

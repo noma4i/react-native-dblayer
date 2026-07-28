@@ -1,42 +1,5 @@
-import type { JournalOp } from './apply/journal';
-/** Structural reference to a defined model; relation thunks resolve it after both models exist. */
-export type ModelRef<TStored> = {
-    modelId: string;
-    find(id: string | null | undefined): TStored | undefined;
-    all(): TStored[];
-    where(where: Record<string, unknown>): TStored[];
-};
+import type { AcceptedRow, DestroyedRow, JournalOp, MembershipDelta, ModelRef, RelationDecl } from '../types';
 type StoredRow = Record<string, unknown>;
-type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
-export type RelationDecl = {
-    kind: 'belongsTo';
-    model: ModelRef<StoredRow>;
-    foreignKey: string;
-    touch?: TouchFn;
-    counterCache?: {
-        field: string;
-        filter?: (child: StoredRow) => boolean;
-    };
-} | {
-    kind: 'hasMany';
-    model: ModelRef<StoredRow>;
-    foreignKey: string;
-    dependent?: 'destroy';
-} | {
-    kind: 'hasOne';
-    model: ModelRef<StoredRow>;
-    foreignKey: string;
-    comparator?: (left: StoredRow, right: StoredRow) => number;
-} | {
-    kind: 'references';
-    model: ModelRef<StoredRow>;
-    ids: (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined;
-};
-export type MembershipDelta = {
-    scopeKey: string;
-    append?: string[];
-    detach?: string[];
-};
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
@@ -73,7 +36,7 @@ export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, opti
  * since a cascaded destroy cannot be rolled back.
  * @returns A hasMany relation declaration for a child-collection edge.
  */
-export declare const hasMany: <TParent, TChild>(model: ModelRef<TChild>, options: {
+export declare const hasMany: <_TParent, TChild>(model: ModelRef<TChild>, options: {
     foreignKey: keyof TChild & string;
     dependent?: "destroy";
 }) => RelationDecl;
@@ -87,7 +50,7 @@ export declare const hasMany: <TParent, TChild>(model: ModelRef<TChild>, options
  * use the first match in read order.
  * @returns A hasOne relation declaration for a single-child edge.
  */
-export declare const hasOne: <TParent, TChild>(model: ModelRef<TChild>, options: {
+export declare const hasOne: <_TParent, TChild>(model: ModelRef<TChild>, options: {
     foreignKey: keyof TChild & string;
     comparator?: (left: TChild, right: TChild) => number;
 }) => RelationDecl;
@@ -120,18 +83,6 @@ type RelationHost = {
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
 export declare const hasDependentCascade: (modelId: string) => boolean;
-export type AcceptedRow = {
-    model: string;
-    id: string;
-    before: StoredRow | undefined;
-    after: StoredRow;
-    origin?: 'event' | 'replace';
-};
-export type DestroyedRow = {
-    model: string;
-    id: string;
-    before: StoredRow;
-};
 /**
  * Derive relation effects from rows accepted by entity application. Raw journal operations never
  * contain these effects, so replay re-runs the same derivation against effective rows.

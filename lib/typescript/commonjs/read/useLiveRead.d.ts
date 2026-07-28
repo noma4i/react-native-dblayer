@@ -1,4 +1,4 @@
-import type { Dependency } from '../core/apply/commitBus';
+import type { Dependency } from '../types';
 /** Shallow element-identity equality; rows keep stable refs in EntityState until replaced. */
 export declare const arraysShallowEqual: <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>) => boolean;
 /** Shallow row equality across both key sets; array values compare element identity one level deep. */

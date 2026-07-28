@@ -11,6 +11,11 @@ type MergeOptions<TRow> = {
  * Identity contract: when no extras survive dedup and no comparator is given,
  * the base array is returned as-is (same reference). Repeated renders with
  * referentially identical inputs return the previously built array.
+ *
+ * @param baseRows Base rows from the primary scope read.
+ * @param extraRows Additional rows that should be merged into the base.
+ * @param options Optional merge options including comparator.
+ * @returns Merged rows with deduplication and optional sorting.
  */
 export declare const useMergedScopeRows: <TRow extends {
     id: string;

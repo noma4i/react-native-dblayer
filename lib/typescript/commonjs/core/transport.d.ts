@@ -1,5 +1,4 @@
-import type { DbTransport } from '../types';
-export type { DbTransport };
+import type { DbTransport, DbTransportError } from '../types';
 /**
  * Set the GraphQL transport used by `defineQuery`/`defineMutation` runtimes. Normally set once via
  * `configureDb({ transport })`; call directly only to swap the transport after initial configuration
@@ -14,4 +13,9 @@ export declare const setDbTransport: (transport: DbTransport) => void;
  * @returns The transport passed to `configureDb`/`setDbTransport`; throws if none has been configured yet.
  */
 export declare const getDbTransport: () => DbTransport;
+/** Reject resolved GraphQL responses with errors before any caller can apply their partial data. */
+export declare const responseDataOrThrow: <TData>(response: {
+    data: TData;
+    errors?: readonly DbTransportError[];
+}) => TData;
 //# sourceMappingURL=transport.d.ts.map

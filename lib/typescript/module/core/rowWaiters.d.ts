@@ -1,21 +1,4 @@
-type WaiterModel<TStored extends {
-    id: string;
-}> = {
-    modelId: string;
-    find(id: string | null | undefined): TStored | undefined;
-    update(id: string, patch: Record<string, unknown>): void;
-};
-export type RowPatch<TStored> = Partial<TStored> | ((row: TStored) => Partial<TStored>);
-export type UpdateWhenRowExistsOptions = {
-    /** Maximum time to keep a deferred patch before dropping it. */
-    ttlMs: number;
-};
-export type WaitForRowOptions = {
-    /** Maximum time to wait before resolving with `undefined`. */
-    timeoutMs: number;
-    /** Optional abort signal that resolves the waiter with `undefined` and cleans up immediately. */
-    signal?: AbortSignal;
-};
+import type { RowPatch, UpdateWhenRowExistsOptions, WaitForRowOptions, WaiterModel } from '../types';
 /**
  * Apply the patch now when the row exists, otherwise defer it on the commit bus until the row
  * appears or the TTL expires. Deferred patches for one row apply in registration order because
@@ -42,5 +25,4 @@ export declare const updateWhenRowExists: <TStored extends {
 export declare const waitForRow: <TStored extends {
     id: string;
 }>(model: WaiterModel<TStored>, id: string, options: WaitForRowOptions) => Promise<TStored | undefined>;
-export {};
 //# sourceMappingURL=rowWaiters.d.ts.map

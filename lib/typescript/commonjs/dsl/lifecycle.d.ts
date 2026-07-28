@@ -1,5 +1,4 @@
-import type { GcReport } from '../core/gc';
-import { type MaintenanceReport } from './maintenanceRegistry';
+import type { GcReport, MaintenanceReport } from '../types';
 /**
  * Recommended data-startup sequence after `configureDb`: deferred definition validation, persistence
  * compatibility validation, then

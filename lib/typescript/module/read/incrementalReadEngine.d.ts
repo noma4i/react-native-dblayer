@@ -1,4 +1,4 @@
-import type { Dependency, IncrementalCommitBatch } from '../core/apply/commitBus';
+import type { Dependency, IncrementalCommitBatch } from '../types';
 type Engine<T> = {
     signature: string;
     generation: number;
@@ -13,7 +13,14 @@ type EngineInput<T> = {
     create(): Engine<T>;
     deps: ReadonlyArray<Dependency>;
 };
-/** Internal incremental subscription bridge. The public CommitBus contract remains unchanged. */
+type ReadEngineHarnessInput<T, TResult> = EngineInput<T> & {
+    apply(engine: Engine<T>, batch: IncrementalCommitBatch | null): boolean;
+    select(engine: Engine<T>): TResult;
+    notifyEveryBatch?: boolean;
+};
+/** Shared React subscription harness for model and scope read engines. */
+export declare const useReadEngineHarness: <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch }: ReadEngineHarnessInput<T, TResult>) => TResult;
+/** Internal model-read bridge over the shared engine harness. */
 export declare const useIncrementalRead: <T>({ signature, create, deps }: EngineInput<T>) => T;
 type Row = {
     id: string;

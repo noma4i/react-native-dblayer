@@ -1,3 +1,6 @@
+import type { TimestampInput } from '../types';
+/** Normalize a date-like input to epoch milliseconds; missing or malformed values become NaN. */
+export declare const toTimestamp: (value: TimestampInput) => number;
 /** Narrow a value to a non-null object. Arrays also satisfy this check - callers that need to exclude them do so themselves. */
 export declare const isRecord: (value: unknown) => value is Record<string, unknown>;
 /** Narrow a value to a non-null, non-array record. */
@@ -16,6 +19,8 @@ export declare const readString: (value: unknown) => string | undefined;
 export declare const readNullableString: (value: unknown) => string | null | undefined;
 /** Read a number or return undefined for missing or malformed values. */
 export declare const readNumber: (value: unknown) => number | undefined;
+/** Read a finite number or non-empty numeric string; malformed, blank, and non-finite values return undefined. */
+export declare const readNumericLike: (value: unknown) => number | undefined;
 /** Read a number while preserving explicit null writes. */
 export declare const readNullableNumber: (value: unknown) => number | null | undefined;
 /** Read a boolean or return undefined for missing or malformed values. */

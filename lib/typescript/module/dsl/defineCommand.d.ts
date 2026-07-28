@@ -1,4 +1,5 @@
-import { type MutationConfig } from './defineMutation';
+import { defineMutation } from './defineMutation';
+import type { MutationConfig } from '../types';
 type CommandConfig<TData, TInput, TStored extends {
     id: string;
 }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe' | 'optimistic'> & {
@@ -17,16 +18,6 @@ export declare const defineCommand: <TData, TInput, TStored extends {
     id: string;
 } = {
     id: string;
-}, TNode = TStored>(name: string, config: CommandConfig<TData, TInput, TStored, TNode>) => {
-    run: (input: TInput) => Promise<TData | null>;
-    retry: (tempId: string) => Promise<TData | null>;
-    discard: (tempId: string) => void;
-    use: () => {
-        mutate: (input: TInput, callbacks?: import("./defineMutation").MutateCallbacks<TData> | undefined) => void;
-        mutateAsync: (input: TInput) => Promise<TData | null>;
-        isPending: boolean;
-        error: Error | null;
-    };
-};
+}, TNode = TStored>(name: string, config: CommandConfig<TData, TInput, TStored, TNode>) => ReturnType<typeof defineMutation<TData, TInput, TStored, TNode>>;
 export {};
 //# sourceMappingURL=defineCommand.d.ts.map

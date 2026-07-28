@@ -1,8 +1,8 @@
-/** One maintenance task outcome produced during `bootDb`. */
-export type MaintenanceReport = {
-    model: string;
-    task: 'maxRowsPerScope';
-    affected: number;
+import type { MaintenanceReport } from '../types';
+type MaintenanceRunner = {
+    boot(): MaintenanceReport[];
+    pendingTempRows(): MaintenanceReport[];
+    protectedTempIds(): ReadonlySet<string>;
 };
 /**
  * Register or replace one model's maintenance definition. This definition registry is intentionally not
@@ -12,11 +12,16 @@ export type MaintenanceReport = {
  * @param run Definition-bound runner evaluated during boot.
  * @returns Nothing.
  */
-export declare const registerModelMaintenance: (modelId: string, run: () => MaintenanceReport[]) => void;
+export declare const registerModelMaintenance: (modelId: string, runner: MaintenanceRunner) => void;
 /**
  * Run every registered model maintenance definition.
  *
  * @returns Flat reports for every configured maintenance task.
  */
 export declare const runModelMaintenance: () => MaintenanceReport[];
+/** Run the model-owned unresolved-temp cleanup executor from any maintenance cadence. */
+export declare const runPendingTempRowMaintenance: () => MaintenanceReport[];
+/** Return the current model-declared protection set used by every unresolved-temp cleanup path. */
+export declare const isTempRowProtectedByModel: (modelId: string, id: string) => boolean;
+export {};
 //# sourceMappingURL=maintenanceRegistry.d.ts.map

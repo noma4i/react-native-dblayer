@@ -1,6 +1,4 @@
-import type { EmptyDefaultFieldSpec, FieldSpec } from './fieldSpec';
-import type { AnyDbShape } from './infer';
-import type { InferShapeStored } from './infer';
+import type { EmptyDefaultFieldSpec, FieldSpec, AnyDbShape, InferShapeStored } from '../types';
 type ArrayItem = AnyDbShape | FieldSpec<any, any, any, any>;
 type ArrayItemOut<TItem extends ArrayItem> = TItem extends AnyDbShape ? InferShapeStored<TItem> : TItem extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
 /**
@@ -16,7 +14,7 @@ export declare const f: {
      *
      * @returns A field spec that stores `string`.
      */
-    str: () => FieldSpec<unknown, string, "required", false>;
+    str: () => FieldSpec<unknown, string>;
     /**
      * Read number values and skip every other input type.
      *
@@ -24,14 +22,14 @@ export declare const f: {
      *
      * @returns A field spec that stores `number`.
      */
-    num: () => FieldSpec<unknown, number, "required", false>;
+    num: () => FieldSpec<unknown, number>;
     /**
      * ISO-8601 date-time string field. Strings are kept as-is when parseable; `Date` instances and
      * epoch-milliseconds numbers are stored as `toISOString()`; unparseable values are dropped.
      * Stored as a string, so codepoint ordering (orderBy, DbWhereOp gt/lt) is chronological for
      * same-format ISO values.
      */
-    date: () => FieldSpec<unknown, string, "required", false>;
+    date: () => FieldSpec<unknown, string>;
     /**
      * Read boolean values and skip every other input type.
      *
@@ -39,7 +37,7 @@ export declare const f: {
      *
      * @returns A field spec that stores `boolean`.
      */
-    bool: () => FieldSpec<unknown, boolean, "required", false>;
+    bool: () => FieldSpec<unknown, boolean>;
     /**
      * Read string or number ids and normalize them to strings.
      *
@@ -47,13 +45,13 @@ export declare const f: {
      *
      * @returns A field spec that stores a string id.
      */
-    id: () => FieldSpec<unknown, string, "required", false>;
+    id: () => FieldSpec<unknown, string>;
     /**
      * Enum field with runtime validation: only the declared string values are stored; any other value
      * is dropped like other unreadable values. The stored type is the union of the declared literals -
      * pass an explicit generic for codegen enums: `f.enum<GqlKind>(Object.values(GqlKind))`.
      */
-    enum: <TValue extends string>(values: readonly TValue[]) => FieldSpec<unknown, TValue, "required", false>;
+    enum: <TValue extends string>(values: readonly TValue[]) => FieldSpec<unknown, TValue>;
     /**
      * Pass through any non-nullish raw value as the supplied TypeScript type.
      *
@@ -61,7 +59,7 @@ export declare const f: {
      *
      * @returns A field spec that stores the supplied raw type.
      */
-    raw: <T>() => FieldSpec<unknown, T, "required", false>;
+    raw: <T>() => FieldSpec<unknown, T>;
     /**
      * Read a value from the whole input object with a custom selector.
      *
@@ -70,7 +68,7 @@ export declare const f: {
      * @param read Selector that receives the full input object.
      * @returns A field spec that stores the selector output type.
      */
-    custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => FieldSpec<TInput, TOut, "required", false>;
+    custom: <TOut, TInput = unknown>(read: (input: TInput) => TOut | null | undefined) => FieldSpec<TInput, TOut>;
     /**
      * Read a nested object through a reusable shape.
      *
@@ -79,7 +77,7 @@ export declare const f: {
      * @param shape Shape created by `defineShape`.
      * @returns A field spec that stores the shape output object.
      */
-    object: <TShape extends AnyDbShape>(shape: TShape) => EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>, "required", false>;
+    object: <TShape extends AnyDbShape>(shape: TShape) => EmptyDefaultFieldSpec<unknown, InferShapeStored<TShape>>;
     /**
      * Read arrays of shapes or scalar field specs and drop unreadable elements.
      *
@@ -88,7 +86,7 @@ export declare const f: {
      * @param item Shape or scalar field spec used to read each array element.
      * @returns A field spec that stores an array of readable element outputs.
      */
-    array: <TItem extends ArrayItem>(item: TItem) => FieldSpec<unknown, ArrayItemOut<TItem>[], "required", false>;
+    array: <TItem extends ArrayItem>(item: TItem) => FieldSpec<unknown, ArrayItemOut<TItem>[]>;
 };
 export {};
 //# sourceMappingURL=f.d.ts.map
