@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'r
 import type { FetchConfig, FetchData, FetchHandle, FetchResult, FetchState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { buildScopeKey } from '../core/compileDbWhere';
+import { registerKeyedReset } from '../core/reset';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { getDbLogger } from '../core/logger';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
@@ -31,6 +32,11 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const pausedKeys = new Set<string>();
   const pausedListeners = new Map<string, Set<() => void>>();
   const pausedVersions = new Map<string, number>();
+  registerKeyedReset(`fetch:${handleKey}`, () => {
+    pausedKeys.clear();
+    pausedListeners.clear();
+    pausedVersions.clear();
+  });
   const setPaused = (key: string, paused: boolean): void => {
     if (pausedKeys.has(key) === paused) return;
     if (paused) pausedKeys.add(key);

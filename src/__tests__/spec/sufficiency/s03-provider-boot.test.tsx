@@ -73,7 +73,7 @@ describe('provider-owned query runtime', () => {
 
   it('throws the boot rejection in render instead of gating children forever', async () => {
     setupSpecRuntime();
-    registerBootValidation(() => {
+    registerBootValidation('s03-probe', () => {
       throw new Error('boot validation exploded');
     });
     let renders = 0;
@@ -103,6 +103,8 @@ describe('provider-owned query runtime', () => {
     expect(renders).toBe(0);
     expect((caught as Error)?.message).toBe('boot validation exploded');
     act(() => root.unmount());
+    /** Definition registries survive reset; redefinition under the same key is the canonical cleanup. */
+    registerBootValidation('s03-probe', () => {});
   });
 
   it('flushes pending persistence on background and stays available on active', async () => {

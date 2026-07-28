@@ -31,7 +31,7 @@ import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
-import { registerReset } from '../core/reset';
+import { registerKeyedReset, registerReset } from '../core/reset';
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
  *
@@ -88,7 +88,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (keyListeners.size === 0) localListeners.delete(key);
     };
   };
-  registerReset(() => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localStates.clear(); localVersions.clear(); });
+  registerKeyedReset(`query:${keyName}`, () => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localStates.clear(); localVersions.clear(); });
   const bucketKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
   const queryKeyOf = (key: string): [string, string] => [keyName, key];
   const registerScope = (scope: TScope | null): scope is TScope => {
@@ -224,7 +224,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     registerScope(scope);
     for (const registered of registeredScopes.values()) if (matchesPartialScope(registered, scope)) invalidateScope(registered);
   };
-  if (destinationModelId) registerModelInvalidation(destinationModelId, scope => invalidate(scope as TScope | undefined));
+  if (destinationModelId) registerModelInvalidation(destinationModelId, keyName, scope => invalidate(scope as TScope | undefined));
   const useObservedState = (key: string): RequestState => {
     const client = getDbQueryClient();
     const generation = getRuntimeGeneration();

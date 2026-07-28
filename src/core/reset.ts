@@ -1,6 +1,7 @@
 import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, isDbConfigured, resetPersistenceRuntime } from '../dsl/configure';
 
 const resetters = new Set<() => void | Promise<void>>();
+const keyedResetters = new Map<string, () => void | Promise<void>>();
 
 /**
  * Register in-memory runtime state that `resetRuntime`'s kill-switch must clear. `defineModel` calls this
@@ -12,6 +13,18 @@ const resetters = new Set<() => void | Promise<void>>();
 export const registerReset = (reset: () => void | Promise<void>): (() => void) => {
   resetters.add(reset);
   return () => resetters.delete(reset);
+};
+
+/**
+ * Keyed variant of {@link registerReset} for state owned by a re-runnable DEFINITION (a
+ * `define*` call). Re-registering the same key REPLACES the previous resetter, so redefining a
+ * query/model (e.g. Fast Refresh) never accumulates resetters for dead closures.
+ *
+ * @param key Stable definition identity, e.g. `query:<keyName>` or `model:<modelId>`.
+ * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
+ */
+export const registerKeyedReset = (key: string, reset: () => void | Promise<void>): void => {
+  keyedResetters.set(key, reset);
 };
 
 /**
@@ -31,7 +44,7 @@ export const resetRuntime = (): void => {
   const { storage } = getDbRuntimeConfig();
   storage.set(storage.keys(getStoragePrefix()).map(key => ({ key, value: null })));
   const resetErrors: unknown[] = [];
-  for (const reset of resetters) {
+  for (const reset of [...resetters, ...keyedResetters.values()]) {
     try {
       const result = reset();
       if (result instanceof Promise) throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');

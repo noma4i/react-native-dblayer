@@ -1,17 +1,20 @@
-import { registerReset } from '../core/reset';
+/**
+ * Definition registry: validations are declared by `define*` calls at app-module load and outlive
+ * `resetRuntime` - the next boot re-runs every declared check. Registering the same key REPLACES
+ * the previous validation, so redefining a declaration never accumulates duplicates.
+ */
+const validations = new Map<string, () => void>();
 
-let validations: Array<() => void> = [];
-
-/** Register a deferred definition check that runs during `bootDb` after every model has registered. */
-export const registerBootValidation = (validation: () => void): void => {
-  validations.push(validation);
+/**
+ * Register a deferred definition check that runs during `bootDb` after every model has registered.
+ * @param key Stable definition identity; re-registration replaces the previous validation.
+ * @param validation Check to run on every boot; throw to fail the boot.
+ */
+export const registerBootValidation = (key: string, validation: () => void): void => {
+  validations.set(key, validation);
 };
 
 /** Run all deferred definition checks before journal replay starts. */
 export const runBootValidations = (): void => {
-  for (const validation of validations) validation();
+  for (const validation of validations.values()) validation();
 };
-
-registerReset(() => {
-  validations = [];
-});

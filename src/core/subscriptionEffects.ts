@@ -1,18 +1,14 @@
 import { getRuntimeGeneration } from '../dsl/configure';
-import { registerReset } from './reset';
 import type { DbSubscriptionEffectsChannel, SubscriptionEffectsRegistry } from '../types';
 
 const createSubscriptionEffectsRegistry = (): SubscriptionEffectsRegistry => ({ effects: new Map(), generations: new Map() });
 
+/**
+ * Definition registry: effect channels are created once at app-module load and outlive
+ * `resetRuntime`, so the registry survives the kill-switch. Same-generation duplicate names still
+ * throw; a later-generation registration replaces the previous one.
+ */
 const effectsRegistry = createSubscriptionEffectsRegistry();
-
-/** Clear injected effect wrappers during runtime teardown. */
-const resetSubscriptionRuntimeEffects = (): void => {
-  effectsRegistry.effects.clear();
-  effectsRegistry.generations.clear();
-};
-
-registerReset(resetSubscriptionRuntimeEffects);
 
 /** Resolve an injected subscription effect by its stable application name. */
 export const getSubscriptionEffect = (name: string): ((...args: never[]) => void) | undefined => effectsRegistry.effects.get(name);

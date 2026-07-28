@@ -24,7 +24,7 @@ export const validateMutationConfig = <TData, TInput, TStored, TNode>(config: Mu
     throw new Error(`${optimistic.model.modelId} must declare maintenance.dropTempRowsAfterMs to be used in an optimistic insert mutation`);
   }
   if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy') {
-    registerBootValidation(() => {
+    registerBootValidation(`optimistic-destroy-cascade:${optimistic.model.modelId}`, () => {
       if (hasDependentCascade(optimistic.model.modelId)) {
         throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
       }

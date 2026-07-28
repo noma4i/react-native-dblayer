@@ -1,7 +1,7 @@
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { registerGcHost } from '../core/gc';
 import { noteDataLoss } from '../core/diagnostics';
-import { registerReset } from '../core/reset';
+import { registerKeyedReset } from '../core/reset';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
 import { getApplyRuntime, getOperationState } from './configure';
 import { clearFailedOptimisticMutation } from './mutationRuntime';
@@ -117,7 +117,7 @@ export const registerModelRuntime = <TStored extends { id: string; updatedAt?: s
       protectedTempIds: modelProtectedTempIds
     });
   }
-  registerReset(() => {
+  registerKeyedReset(`model:${options.modelId}`, () => {
     options.context.reset();
     // The apply target stays registered: a model must keep working after the kill-switch.
   });
