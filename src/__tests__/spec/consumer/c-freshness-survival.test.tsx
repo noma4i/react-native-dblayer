@@ -2,6 +2,7 @@ import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime, scope } from '../../../index';
+import { collectGarbage } from '../../../core/gc';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -31,6 +32,74 @@ describe('freshness follows committed-row survival and foreground resume', () =>
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
+  });
+
+  it('refetches an Infinity-fresh query on remount after GC evicted its committed rows', async () => {
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: `row-${++calls}`, name: 'Collected', group: null }] } as TData }) })
+    });
+    const rows = createRowsModel('FreshnessGcEvicted');
+    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-gc-evicted', select: data => data.rows, staleTime: Infinity });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => {
+      collectGarbage();
+    });
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+
+    expect(rows.find('row-1')).toBeUndefined();
+    expect(calls).toBe(2);
+    act(() => root.unmount());
+  });
+
+  it('honors defaults.refetchOnMount=false for query remounts with fetched stale data', async () => {
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          return { data: { rows: [{ id: 'row-1', name: 'Cached', group: null }] } as TData };
+        }
+      }),
+      defaults: { refetchOnMount: false }
+    });
+    const rows = createRowsModel('FreshnessQueryMountDefault');
+    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-query-mount-default', select: data => data.rows, staleTime: 0 });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+
+    expect(calls).toBe(1);
+    act(() => root.unmount());
   });
 
   it('refetches an Infinity-fresh detail query on remount after its committed row was destroyed', async () => {

@@ -314,3 +314,20 @@ Small scalar/id helpers, standalone or used internally by the schema and mutatio
 | `stringifyNullish`  | `(v: unknown) => string \| null \| undefined`               | `String(v)`, preserving explicit `null`/`undefined` as-is instead of stringifying them. Does not filter empty strings.                                                                                                                                                                                                                                                                                            |
 | `pickDefined`       | `(source, keys) => Partial<Pick<TSource, TKey>>`            | Picks the listed keys whose values are not `undefined`; explicit `null` values are kept.                                                                                                                                                                                                                                                                                                                          |
 | `pickPresent`       | `(source, keys) => Partial<...>`                            | Picks the listed keys whose values are neither `null` nor `undefined`.                                                                                                                                                                                                                                                                                                                                            |
+
+## setFetchNetworkOnline(online)
+
+Host connectivity input. Wire the app's reachability source (e.g. `@react-native-community/netinfo`)
+to the coordinator once at startup:
+
+```ts
+import NetInfo from '@react-native-community/netinfo';
+import { setFetchNetworkOnline } from 'react-native-dblayer';
+
+NetInfo.addEventListener(state => setFetchNetworkOnline(state.isConnected === true));
+```
+
+While offline the coordinator pauses query/fetch requests (readers report `loadingState.isOffline`)
+and holds subscription retries instead of burning backoff attempts; the first report of restored
+connectivity resumes stale fetch paths and resubscribes dropped subscriptions. Without a host wire
+the flag stays `true` and requests fail through the normal retry policy.

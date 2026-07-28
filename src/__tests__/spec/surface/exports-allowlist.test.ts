@@ -35,6 +35,7 @@ const runtimeExportAllowlist = [
   'registerReset',
   'resetRuntime',
   'scope',
+  'setFetchNetworkOnline',
   'stringifyNullish',
   'updateWhenRowExists',
   'useMergedScopeRows',

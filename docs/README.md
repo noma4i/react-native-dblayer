@@ -152,6 +152,7 @@ see [reading.md](./reading.md).
 | ----------------------------- | ----- | ------------------------------------------------------------------------------- |
 | `resetRuntime`                | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
 | `registerReset`               | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
+| `setFetchNetworkOnline`       | value | [runtime.md](./runtime.md#setfetchnetworkonlineonline)                          |
 | `GcReport`                    | type  | [runtime.md](./runtime.md#garbage-collection)                                   |
 | `reconcileOptimisticRows`     | value | [runtime.md](./runtime.md#reconcileoptimisticrowsmodel-nodes-options)           |
 | `updateWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |

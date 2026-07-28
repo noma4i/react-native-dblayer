@@ -1,4 +1,5 @@
 import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime } from '../../../index';
+import { setFetchNetworkOnline } from '../../../core/fetch/networkState';
 import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -35,6 +36,39 @@ describe('subscription runtime correctness', () => {
       expect(received).toEqual(['event-2']);
       runtime.stop();
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('holds subscription retries while offline and resubscribes once on reconnect', () => {
+    jest.useFakeTimers();
+    try {
+      let attempts = 0;
+      const transport = createMockTransport({
+        subscribe: (_options, handlers) => {
+          attempts += 1;
+          if (attempts === 1) {
+            handlers.error(new Error('connection dropped'));
+            return jest.fn();
+          }
+          return jest.fn();
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      setFetchNetworkOnline(false);
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+
+      runtime.setActive(true);
+      jest.advanceTimersByTime(120000);
+      expect(attempts).toBe(1);
+
+      setFetchNetworkOnline(true);
+      jest.advanceTimersByTime(0);
+
+      expect(attempts).toBe(2);
+      runtime.stop();
+    } finally {
+      setFetchNetworkOnline(true);
       jest.useRealTimers();
     }
   });

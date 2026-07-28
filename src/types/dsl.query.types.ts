@@ -1,4 +1,4 @@
-import type { DbGraphQLDocument, DbReadOptions, LoadingState } from './db.types';
+import type { DbGraphQLDocument, LoadingState } from './db.types';
 import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { ScopeHandle } from './dsl.model.types';
 
@@ -12,7 +12,7 @@ export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: stri
 export type ModelDestination<TStored> = {
   modelId: string;
   get?: (id: string | null | undefined) => TStored | undefined;
-  use: { find(id: string | null | undefined, opts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined };
+  use: { find(id: string | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined };
 };
 /** Either landing destination accepted by `Model.query`'s `into`. */
 export type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope> | ModelDestination<TStored>;
@@ -63,5 +63,5 @@ export type QueryHandle<TStored, TScope> = {
 };
 
 export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope> & {
-  useRowEnsured(scope: TScope, rowId: string | null | undefined, readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored>;
+  useRowEnsured(scope: TScope, rowId: string | null | undefined, readOpts?: { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored>;
 };

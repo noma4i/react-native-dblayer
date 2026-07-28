@@ -23,6 +23,54 @@ const createMoments = (suffix: string) =>
   });
 
 describe('feed cursor pagination consumer contracts', () => {
+  it('caps pagination at maxPages: hasNextPage turns false and no further request leaves', async () => {
+    const pageAt = (sequence: number): FeedResponse => ({
+      feed: {
+        nodes: [{ id: `m${sequence}`, vibeId: 'v1', sequenceNumber: sequence }],
+        pageInfo: { hasNextPage: true, endCursor: `cursor-${sequence}` },
+        lastSequenceNumber: sequence
+      }
+    });
+    let served = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: pageAt(200 - (served += 1)) as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createMoments('MaxPages');
+    const feedQuery = moments.query<FeedResponse, ScopeValue & { afterSequence?: number }, ScopeValue, FeedRow>('feed-max-pages', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments.scopes.feed,
+      coverage: 'page',
+      maxPages: 2,
+      getCursor: page => String((page as FeedResponse['feed']).lastSequenceNumber),
+      cursorVar: 'afterSequence',
+      mapCursor: cursor => Number(cursor)
+    });
+
+    const queryReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(queryReader.result().hasNextPage).toBe(true);
+
+    act(() => {
+      queryReader.result().fetchNextPage();
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(queryReader.result().hasNextPage).toBe(false);
+    act(() => {
+      queryReader.result().fetchNextPage();
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(transport.calls).toHaveLength(2);
+    queryReader.unmount();
+  });
+
   it('fetches the next page with afterSequence derived from the last row of the previous page', async () => {
     const page1: FeedResponse = {
       feed: {

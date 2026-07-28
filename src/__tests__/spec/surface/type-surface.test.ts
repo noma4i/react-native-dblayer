@@ -59,7 +59,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(84);
+    expect(first.split('\n')).toHaveLength(85);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -141,6 +141,7 @@ references: <TChild, TRef>(model: import("<root>/src/types/core.relations.types"
 registerReset: (reset: () => void | Promise<void>) => () => void
 resetRuntime: () => void
 scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("<root>/src/types/dsl.scope.types").ScopeSpec<TStored>): import("<root>/src/types/dsl.scope.types").ScopeSpec<TStored>; }
+setFetchNetworkOnline: (nextOnline: boolean) => void
 stringifyNullish: (v: unknown) => string | null | undefined
 updateWhenRowExists: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, patch: import("<root>/src/types/core.rowWaiters.types").RowPatch<TStored>, options: import("<root>/src/types/core.rowWaiters.types").UpdateWhenRowExistsOptions) => void
 useMergedScopeRows: <TRow extends { id: string; }>(baseRows: readonly TRow[], extraRows: readonly TRow[], options?: import("<root>/src/types/read.liveRead.types").MergeOptions<TRow> | undefined) => readonly TRow[]

@@ -5,7 +5,6 @@ import type {
   ChainMeta,
   ConnectionLike,
   DbGraphQLDocument,
-  DbReadOptions,
   EnsuredRowQueryHandle,
   EnsuredRowResult,
   ExtractSink,
@@ -152,11 +151,14 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (reset) appliedResetSeqByBucket.set(guardKey, issued);
     const result = applyResponse(scope, data, reset, resurrectDestroyed);
     const previousPages = (getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined)?.pages ?? 0;
+    const pages = config.page ? (reset ? 1 : previousPages + 1) : 1;
+    /** maxPages is a hard ceiling: once reached, the chain reports exhaustion and fetchNextPage stops issuing requests. */
+    const hasNextPage = result.meta.hasNextPage && (config.maxPages === undefined || pages < config.maxPages);
     return {
       lastCount: result.meta.count,
-      cursor: config.page && result.meta.hasNextPage ? result.meta.endCursor : null,
-      pages: config.page ? (reset ? 1 : previousPages + 1) : 1,
-      hasNextPage: result.meta.hasNextPage,
+      cursor: config.page && hasNextPage ? result.meta.endCursor : null,
+      pages,
+      hasNextPage,
       ids: result.ids
     };
   };
@@ -287,7 +289,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       mountedKey.current = key;
       const queryState = client.getQueryState(queryKey);
       const isFresh = queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= staleTimeOf(key) && !queryState.isInvalidated;
-      const canRefetch = !firstMount || !state.isFetched || config.refetchOnMount !== false;
+      const canRefetch = !firstMount || !state.isFetched || (config.refetchOnMount ?? getDbRuntimeConfig().defaults.refetchOnMount) !== false;
       const shouldFetch = firstMount && canRefetch;
       if (shouldFetch && !isFresh && !state.isFetching) {
         void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
@@ -349,7 +351,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const handle: QueryHandle<TStored, TScope> = { use, fetch, invalidate };
   if (isScopeDestination(config.into)) return handle;
   const destination = config.into as ModelDestination<TStored>;
-  const useRowEnsured = (scope: TScope, rowId: string | null | undefined, readOpts?: DbReadOptions<TStored> & { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored> => {
+  const useRowEnsured = (scope: TScope, rowId: string | null | undefined, readOpts?: { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored> => {
     registerScope(scope);
     const row = destination.use.find(rowId, readOpts);
     const enabled = row === undefined && rowId != null && (config.enabled?.(scope) ?? true);

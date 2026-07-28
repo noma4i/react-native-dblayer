@@ -10,8 +10,6 @@ export interface DbDefaults {
   pageSize?: number;
   /** Retry policies for query and mutation work. Missing classifiers disable retries. */
   retry?: { query?: DbRetryPolicy; mutation?: DbRetryPolicy };
-  /** Compatibility input; coordinator-owned connectivity is shared by every fetch ledger. */
-  networkMode?: 'offlineFirst' | 'online';
   /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
   refetchOnMount?: boolean;
   /**

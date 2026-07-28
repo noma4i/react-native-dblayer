@@ -1,3 +1,5 @@
+import { backoffDelayMs } from './fetch/retryPolicy';
+import { isFetchNetworkOnline, subscribeFetchNetwork } from './fetch/networkState';
 import { getDbLogger } from './logger';
 import { getDbTransport } from './transport';
 import { registerReset } from './reset';
@@ -8,10 +10,6 @@ import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeI
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
 const GLOBAL_DEBOUNCE_KEY = '__global__';
-const BASE_RETRY_DELAY_MS = 1000;
-const MAX_RETRY_DELAY_MS = 30000;
-
-const nextRetryDelay = (attempts: number): number => Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempts), MAX_RETRY_DELAY_MS);
 
 /** Create the activation, delivery, debounce, retry, and reset lifecycle for static subscription entries. */
 export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonly DbSubscriptionEntry<TPayload>[]): DbSubscriptionRuntime => {
@@ -124,7 +122,16 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   const scheduleRetry = (state: SubscriptionEntryState, epoch: number, token: number): void => {
     if (!isCurrentAttempt(state, epoch, token)) return;
     clearRetryTimer(state);
-    const delay = nextRetryDelay(state.retryAttempts);
+    /** Offline gate: never burn retry attempts without a network - resubscribe once connectivity returns. */
+    if (!isFetchNetworkOnline()) {
+      const release = subscribeFetchNetwork(() => {
+        release();
+        if (!isFetchNetworkOnline() || !isCurrentAttempt(state, epoch, token) || state.unsubscribe) return;
+        subscribeEntry(state);
+      });
+      return;
+    }
+    const delay = backoffDelayMs(state.retryAttempts);
     state.retryAttempts += 1;
     state.retryTimer = setTimeout(() => {
       state.retryTimer = null;

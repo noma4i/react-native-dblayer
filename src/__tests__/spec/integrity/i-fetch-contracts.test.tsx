@@ -149,7 +149,6 @@ describe('fetch lifecycle contracts', () => {
         storage: createMemoryPlane(),
         transport,
         defaults: {
-          networkMode: 'offlineFirst',
           retry: { query: { classify: () => 'retriable', budgets: { retriable: 1 }, backoff: { baseMs: 1, maxMs: 1 } } }
         }
       });

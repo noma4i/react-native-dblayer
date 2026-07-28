@@ -5,6 +5,7 @@ export { DbProvider } from './dsl/DbProvider';
 export type { DbProviderProps } from './types';
 export type { MaintenanceReport } from './types';
 export { resetRuntime, registerReset } from './core/reset';
+export { setFetchNetworkOnline } from './core/fetch/networkState';
 export type { StoragePlane } from './types';
 export { defineModel } from './dsl/defineModel';
 export type { GuardedOrigin, ModelConfig, MonotonicSpec, NestedKeyPolicy, ScopeHandle, ScopeWindowResult, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from './types';
