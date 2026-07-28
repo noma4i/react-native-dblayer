@@ -19,6 +19,7 @@ export type DataLossMechanism =
   | 'journal-corruption-checkpointed-drop'
   | 'journal-corruption-loss'
   | 'operation-ledger-corruption-reset'
+  | 'corrupt-once-keys'
   | 'replacement-rejected'
   | 'unranked-ladder-value';
 

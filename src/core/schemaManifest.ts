@@ -57,8 +57,9 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   if (!matches && (stored !== undefined || nonempty)) {
     const committedOnceKeys = readCommittedOnceKeys(storage, prefix);
     resetRuntime();
-    writeCommittedOnceKeys(storage, prefix, committedOnceKeys);
+    writeCommittedOnceKeys(storage, prefix, committedOnceKeys.keys);
     getOperationState().hydrate();
+    if (committedOnceKeys.corruptSources > 0) noteDataLoss('corrupt-once-keys', '__operations__', committedOnceKeys.corruptSources);
     noteManifestReset();
     noteDataLoss(stored !== undefined ? 'data-version-migration-reset' : 'model-corruption-recovery', '__runtime__', 1);
     writePersistenceManifest(prefix, current);

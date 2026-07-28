@@ -9,8 +9,11 @@ type PersistedOnceKeyRecord = { formatVersion: number; keys: string[] };
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
 
-export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): string[] => {
+/** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`
+ * (which clears diagnostics) right after this read, so it reports the loss itself once reset is done. */
+export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { keys: string[]; corruptSources: number } => {
   const keys = new Set<string>();
+  let corruptSources = 0;
   const rawOnceKeys = storage.get(onceKeysKey(prefix));
   if (rawOnceKeys) {
     try {
@@ -18,7 +21,9 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): st
       if (record.formatVersion === ONCE_KEY_RECORD_FORMAT_VERSION && Array.isArray(record.keys) && record.keys.every(key => typeof key === 'string')) {
         for (const key of record.keys) keys.add(key);
       }
-    } catch {}
+    } catch {
+      corruptSources += 1;
+    }
   }
   const rawOperations = storage.get(`${prefix}ops`);
   if (rawOperations) {
@@ -26,9 +31,11 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): st
       for (const record of Object.values(JSON.parse(rawOperations) as Record<string, OperationRecord>)) {
         if (record.status === 'committed' && record.once === true && typeof record.idempotencyKey === 'string') keys.add(record.idempotencyKey);
       }
-    } catch {}
+    } catch {
+      corruptSources += 1;
+    }
   }
-  return [...keys].sort();
+  return { keys: [...keys].sort(), corruptSources };
 };
 
 export const writeCommittedOnceKeys = (storage: StoragePlane, prefix: string, keys: readonly string[]): void => {
@@ -275,7 +282,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         }
       }
       rebuildIndexes();
-      for (const key of readCommittedOnceKeys(storage, prefix())) committedKeys.add(key);
+      for (const key of readCommittedOnceKeys(storage, prefix()).keys) committedKeys.add(key);
       pendingPatchCount = 0;
       for (const op of operations.values()) if (op.status === 'pending' && op.intent === 'patch' && op.patchedFields && op.patchedFields.length > 0) pendingPatchCount += 1;
     },

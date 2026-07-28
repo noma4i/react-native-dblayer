@@ -25,6 +25,8 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-manifest.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-manifest.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-recovery.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-once-keys-corruption.test.ts'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-once-keys-corruption.test.ts'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-recovery.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'consumer/c07-maintenance-trim.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-failure-contract.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
