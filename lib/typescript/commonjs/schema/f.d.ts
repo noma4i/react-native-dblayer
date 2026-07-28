@@ -1,6 +1,4 @@
-import type { EmptyDefaultFieldSpec, FieldSpec, AnyDbShape, InferShapeStored } from '../types';
-type ArrayItem = AnyDbShape | FieldSpec<any, any, any, any>;
-type ArrayItemOut<TItem extends ArrayItem> = TItem extends AnyDbShape ? InferShapeStored<TItem> : TItem extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
+import type { AnyDbShape, ArrayItem, ArrayItemOut, EmptyDefaultFieldSpec, FieldSpec, InferShapeStored } from '../types';
 /**
  * Build field specs for declarative `defineModel({ fields })` schemas.
  *
@@ -88,5 +86,4 @@ export declare const f: {
      */
     array: <TItem extends ArrayItem>(item: TItem) => FieldSpec<unknown, ArrayItemOut<TItem>[]>;
 };
-export {};
 //# sourceMappingURL=f.d.ts.map

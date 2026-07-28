@@ -1,6 +1,7 @@
-import type { CommitBatch } from './core.apply.commitBus.types';
+import type { CommitBatch, IncrementalCommitBatch } from './core.apply.commitBus.types';
 import type { JournalOp } from './core.apply.journal.types';
 import type { WriteOrigin } from './core.writePolicies.types';
+import type { AcceptedRow, DestroyedRow } from './core.relations.types';
 declare const commitEnvelopeBrand: unique symbol;
 /** Complete write plan accepted by the sole runtime write entry point. */
 export type CommitEnvelope = {
@@ -89,6 +90,12 @@ export type ApplyRuntime = {
      */
     replay(): number;
     currentEpoch(): number;
+};
+/** One apply pass output: the incremental batch plus accepted/destroyed rows for relation effects. */
+export type ApplyPhase = {
+    batch: IncrementalCommitBatch;
+    accepted: AcceptedRow[];
+    destroyed: DestroyedRow[];
 };
 export {};
 //# sourceMappingURL=core.apply.transaction.types.d.ts.map

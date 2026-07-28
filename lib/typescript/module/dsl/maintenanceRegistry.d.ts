@@ -1,9 +1,4 @@
-import type { MaintenanceReport } from '../types';
-type MaintenanceRunner = {
-    boot(): MaintenanceReport[];
-    pendingTempRows(): MaintenanceReport[];
-    protectedTempIds(): ReadonlySet<string>;
-};
+import type { MaintenanceReport, MaintenanceRunner } from '../types';
 /**
  * Register or replace one model's maintenance definition. This definition registry is intentionally not
  * cleared by `resetRuntime`, matching model definitions which remain available after a runtime reset.
@@ -23,5 +18,4 @@ export declare const runModelMaintenance: () => MaintenanceReport[];
 export declare const runPendingTempRowMaintenance: () => MaintenanceReport[];
 /** Return the current model-declared protection set used by every unresolved-temp cleanup path. */
 export declare const isTempRowProtectedByModel: (modelId: string, id: string) => boolean;
-export {};
 //# sourceMappingURL=maintenanceRegistry.d.ts.map

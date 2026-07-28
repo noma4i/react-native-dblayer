@@ -1,7 +1,4 @@
-import type { DbSubscriptionEntry, IngestDecl, IngestModel, ModelIngestEntry } from '../types';
-type IngestHandle = {
-    apply(event: string, payload: unknown): IngestDecl | null;
-};
+import type { DbSubscriptionEntry, IngestDecl, IngestHandle, IngestModel, ModelIngestEntry } from '../types';
 /** Register a model for the named-model lookup exposed to fused custom ingest handlers. */
 export declare const registerIngestModel: (name: string, model: IngestModel) => void;
 /**
@@ -29,5 +26,4 @@ export declare const defineModelIngest: (model: IngestModel, entries: Record<str
  * treated as already-processed.
  */
 export declare const defineIngest: (model: IngestModel, handlers: Record<string, (payload: unknown) => IngestDecl | null>) => IngestHandle;
-export {};
 //# sourceMappingURL=defineIngest.d.ts.map

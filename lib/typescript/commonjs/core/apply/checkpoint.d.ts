@@ -1,11 +1,4 @@
-import type { StoragePlane, CheckpointScheduler } from '../../types';
-type CheckpointTarget = {
-    persistEntries(): Array<{
-        key: string;
-        value: string | null;
-    }>;
-    ackPersist(): void;
-};
+import type { StoragePlane, CheckpointScheduler, CheckpointTarget } from '../../types';
 /**
  * Checkpoint side of the WAL pair: plans persist only their journal record on the hot path
  * (O(plan)); full model snapshots (O(model) serialization) leave the frame and flush here -
@@ -23,5 +16,4 @@ export declare const createCheckpointScheduler: (options: {
         value: string | null;
     }>;
 }) => CheckpointScheduler;
-export {};
 //# sourceMappingURL=checkpoint.d.ts.map

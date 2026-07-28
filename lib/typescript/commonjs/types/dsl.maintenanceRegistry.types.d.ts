@@ -4,4 +4,10 @@ export type MaintenanceReport = {
     task: 'maxRowsPerScope' | 'dropTempRows';
     affected: number;
 };
+/** Internal per-model maintenance runner: boot tasks, temp-row TTL sweep, and protected temp ids. */
+export type MaintenanceRunner = {
+    boot(): MaintenanceReport[];
+    pendingTempRows(): MaintenanceReport[];
+    protectedTempIds(): ReadonlySet<string>;
+};
 //# sourceMappingURL=dsl.maintenanceRegistry.types.d.ts.map

@@ -1,19 +1,4 @@
-import type { ModelStatusPoller, ModelStatusPollerPhase } from '../types';
-type ModelStatusPollerStopReason = NonNullable<ModelStatusPollerPhase['reason']>;
-type ModelStatusPollerConfig<TResult> = {
-    /** Fetch the latest status payload for an id. */
-    fetch: (id: string) => Promise<TResult>;
-    /** Apply a fetched status payload to the owning model. */
-    apply: (id: string, result: TResult) => void;
-    /** Classify a fetched payload as ready, failed, or non-terminal. */
-    classify?: (result: TResult) => 'ready' | 'failed' | null;
-    /** Called once when a session reaches a terminal payload, exhausts its budget, or is detached. */
-    onSessionStop?: (id: string, reason: ModelStatusPollerStopReason) => void;
-    /** Interval between scheduled status refreshes. */
-    intervalMs: number;
-    /** Maximum number of fetch attempts before a non-terminal session stalls. */
-    maxAttempts: number;
-};
+import type { ModelStatusPoller, ModelStatusPollerConfig } from '../types';
 /**
  * Create a refcounted per-id status poller for model-backed async status updates.
  *
@@ -25,5 +10,4 @@ type ModelStatusPollerConfig<TResult> = {
  * @returns Refcounted polling controls plus stable synchronous and reactive phase snapshots.
  */
 export declare const createModelStatusPoller: <TResult>(config: ModelStatusPollerConfig<TResult>) => ModelStatusPoller;
-export {};
 //# sourceMappingURL=modelStatusPoller.d.ts.map

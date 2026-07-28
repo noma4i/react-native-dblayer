@@ -1,5 +1,16 @@
 # Changelog
 
+## 9.0.0-beta.2 - 2026-07-28
+
+### Internals
+
+- Finish the types-store extraction: every `type`/`interface` declaration now lives in `src/types/<area>.<subject>.types.ts` (91 module-local declarations moved), structurally duplicated shapes are collapsed into shared generics (`RowRecord`, `StoredRow`), and every moved type carries editor-facing JSDoc. A new surface gate turns any declaration outside `src/types` into a red test.
+- True up spec wording and suite names to the TanStack core (`c-merge-policy` -> `c-write-policy-groups`; stale mirror-era comments removed).
+
+### Documentation
+
+- Remove phantom API mentions from docs: `mergeOptimisticSnapshot`, `patchWhenRowExists` (renamed `updateWhenRowExists`), `BootDbOptions`/`bootOptions.wipe` (`DbProvider` takes no boot options; a deliberate empty-store boot goes through `resetRuntime()` or a `dataVersion` bump). The export-reference table is now gated two-way against the real barrel.
+
 ## 9.0.0-beta.1 - 2026-07-28
 
 ### Breaking changes and migration

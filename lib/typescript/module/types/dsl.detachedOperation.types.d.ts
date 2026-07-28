@@ -1,3 +1,4 @@
+import type { OperationRecord } from './core.planes.operationState.types';
 export type DetachedOperationConfig<TInput, TStored extends {
     id: string;
 }> = {
@@ -21,5 +22,17 @@ export type DetachedOperationHandle<TInput> = {
     fail(operationId: string, error: Error): void;
     retry(operationId: string): Promise<'continue' | 'orphaned' | null>;
     discard(operationId: string): void;
+};
+/** Minimal model surface a detached operation needs for its patches. */
+export type DetachedModel<TStored extends {
+    id: string;
+}> = {
+    modelId: string;
+    update(id: string, patch: Partial<TStored>): void;
+};
+/** One registered detached declaration awaiting boot-time resume, tagged with its runtime generation. */
+export type DetachedDeclaration = {
+    generation: number;
+    resume(record: OperationRecord): Promise<void>;
 };
 //# sourceMappingURL=dsl.detachedOperation.types.d.ts.map

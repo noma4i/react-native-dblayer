@@ -1,10 +1,4 @@
-import type { MembershipDelta } from '../types';
-type ModelMembership<TStored extends {
-    id: string;
-}> = {
-    membershipForUpsert(before: TStored | undefined, after: Record<string, unknown>): MembershipDelta[];
-    detachForDestroy(id: string): MembershipDelta[];
-};
+import type { ModelMembershipPlanner } from '../types';
 export declare const createModelMembership: <TStored extends {
     id: string;
 }>(options: {
@@ -16,6 +10,5 @@ export declare const createModelMembership: <TStored extends {
     scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
     isScopeMember(scopeKey: string, id: string): boolean;
     scopeKeysOf(id: string): string[];
-}) => ModelMembership<TStored>;
-export {};
+}) => ModelMembershipPlanner<TStored>;
 //# sourceMappingURL=modelMembership.d.ts.map

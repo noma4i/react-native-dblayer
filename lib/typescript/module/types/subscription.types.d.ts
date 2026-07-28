@@ -1,3 +1,4 @@
+import type { Debouncer } from '@tanstack/pacer';
 import type { ResultOf, TypedDocumentNode, VariablesOf } from '@graphql-typed-document-node/core';
 import type { DbGraphQLDocument } from './db.types';
 /** Static subscription registration consumed by `createDbSubscriptionRuntime`. */
@@ -58,5 +59,33 @@ export type DbSubscriptionRuntime = {
     inspect(): DbSubscriptionRuntimeInspectRow[];
     /** Final teardown for transport subscriptions and pending debounce/retry timers. */
     stop(): void;
+};
+/** Live state for one subscription entry: channel handle, pacing buckets, retry and telemetry. */
+export type SubscriptionEntryState = {
+    entry: DbSubscriptionEntry;
+    unsubscribe: (() => void) | null;
+    debounceBuckets: Map<string, Debouncer<(payload: unknown) => void>>;
+    retryTimer: ReturnType<typeof setTimeout> | null;
+    retryAttempts: number;
+    eventCount: number;
+    lastEventAt: number | null;
+    errorCount: number;
+    attemptToken: number;
+};
+/** One lifecycle runtime: entries plus activation state and the generation fence. */
+export type SubscriptionLifecycleContext = {
+    states: SubscriptionEntryState[];
+    byKey: Map<string, SubscriptionEntryState>;
+    active: boolean;
+    activationEpoch: number;
+    generationFence: {
+        isCurrent(): boolean;
+        captureNow(): void;
+    };
+};
+/** Injected-effects registry: named effect handlers with their runtime generations. */
+export type SubscriptionEffectsRegistry = {
+    effects: Map<string, (...args: never[]) => void>;
+    generations: Map<string, number>;
 };
 //# sourceMappingURL=subscription.types.d.ts.map

@@ -15,4 +15,10 @@ export type SchemaDeclaration = {
     fields: Record<string, FieldDeclaration>;
     scopes: Record<string, ScopeDeclaration>;
 };
+/** Persisted schema manifest used by the boot compatibility gate. */
+export type PersistenceManifest = {
+    formatVersion: number;
+    schemaFingerprint: string;
+    dataVersion: string | null;
+};
 //# sourceMappingURL=core.schemaManifest.types.d.ts.map

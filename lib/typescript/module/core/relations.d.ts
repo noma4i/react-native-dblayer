@@ -1,5 +1,4 @@
-import type { AcceptedRow, DestroyedRow, JournalOp, MembershipDelta, ModelRef, RelationDecl } from '../types';
-type StoredRow = Record<string, unknown>;
+import type { AcceptedRow, DestroyedRow, JournalOp, ModelRef, RelationDecl, RelationHost } from '../types';
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
@@ -66,20 +65,6 @@ export declare const hasOne: <_TParent, TChild>(model: ModelRef<TChild>, options
 export declare const references: <TChild, TRef>(model: ModelRef<TRef>, options: {
     ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined;
 }) => RelationDecl;
-/**
- * Model-side capabilities the plan expander needs. Registered once per defineModel; the registry
- * survives resetRuntime the same way apply targets do - models keep working after the kill-switch.
- * Membership hooks derive declarative scope membership from ScopeSpec.by so event rows join and
- * leave their scopes in the SAME plan (same-tick visibility for optimistic/ingest rows).
- */
-type RelationHost = {
-    relations(): Record<string, RelationDecl>;
-    has(id: string): boolean;
-    read(id: string): StoredRow | undefined;
-    normalize(input: unknown): StoredRow | null;
-    membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
-    detachForDestroy(id: string): MembershipDelta[];
-};
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
 export declare const hasDependentCascade: (modelId: string) => boolean;
@@ -88,5 +73,4 @@ export declare const hasDependentCascade: (modelId: string) => boolean;
  * contain these effects, so replay re-runs the same derivation against effective rows.
  */
 export declare const deriveEffects: (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: JournalOp[]) => JournalOp[];
-export {};
 //# sourceMappingURL=relations.d.ts.map

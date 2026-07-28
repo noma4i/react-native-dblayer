@@ -1,10 +1,5 @@
 import { defineMutation } from './defineMutation';
-import type { MutationConfig } from '../types';
-type CommandConfig<TData, TInput, TStored extends {
-    id: string;
-}, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe' | 'optimistic'> & {
-    dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
-};
+import type { CommandConfig } from '../types';
 /**
  * Define a model-less GraphQL command with a conventional input-sensitive in-flight guard. Commands use
  * the standard mutation runner and hook lifecycle but cannot perform an optimistic model write. Set
@@ -19,5 +14,4 @@ export declare const defineCommand: <TData, TInput, TStored extends {
 } = {
     id: string;
 }, TNode = TStored>(name: string, config: CommandConfig<TData, TInput, TStored, TNode>) => ReturnType<typeof defineMutation<TData, TInput, TStored, TNode>>;
-export {};
 //# sourceMappingURL=defineCommand.d.ts.map

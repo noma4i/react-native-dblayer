@@ -51,4 +51,8 @@ export type ModelIngestEntry = {
         when: 'before' | 'after';
     };
 };
+/** Internal ingest dispatcher: resolves one subscription event into its declared decl. */
+export type IngestHandle = {
+    apply(event: string, payload: unknown): IngestDecl | null;
+};
 //# sourceMappingURL=dsl.ingest.types.d.ts.map

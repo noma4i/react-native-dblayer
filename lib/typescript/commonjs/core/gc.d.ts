@@ -1,22 +1,4 @@
-import type { GcReport } from '../types';
-type GcHost = {
-    modelId: string;
-    exempt: boolean;
-    rowIds(): string[];
-    hasRow(id: string): boolean;
-    scopeKeys(): string[];
-    scopeEntryIds(key: string): string[];
-    detachScopeEntries(key: string, ids: string[]): void;
-    scopeEntryCount(key: string): number;
-    removeScope(key: string): void;
-    idleScopeAfterMs?(): number | undefined;
-    scopeLastAccess?(key: string): number | undefined;
-    evict(id: string): boolean;
-    referencesOf(id: string): Array<{
-        model: string;
-        id: string;
-    }>;
-};
+import type { GcHost, GcReport } from '../types';
 /** Registered once per defineModel; survives resetRuntime like apply targets. */
 export declare const registerGcHost: (modelId: string, host: GcHost) => (() => void);
 /**
@@ -31,5 +13,4 @@ export declare const registerGcHost: (modelId: string, host: GcHost) => (() => v
  * @returns Reachability report with evicted row and removed scope counts by model.
  */
 export declare const collectGarbage: () => GcReport;
-export {};
 //# sourceMappingURL=gc.d.ts.map

@@ -65,5 +65,11 @@ export type CommitBus = {
     publishAll(): void;
     subscriberCount(): number;
 };
+/** One commit-bus subscriber: its dependency set and notification callbacks. */
+export type CommitSubscriber = {
+    deps: ReadonlyArray<Dependency>;
+    notify: () => void;
+    onBatch?: (batch: IncrementalCommitBatch | null) => void;
+};
 export {};
 //# sourceMappingURL=core.apply.commitBus.types.d.ts.map

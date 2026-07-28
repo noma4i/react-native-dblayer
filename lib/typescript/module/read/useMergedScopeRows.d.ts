@@ -1,6 +1,4 @@
-type MergeOptions<TRow> = {
-    comparator?: (left: TRow, right: TRow) => number;
-};
+import type { MergeOptions } from '../types';
 /**
  * Merges a base scope read with extra rows from a second scope read.
  * Extras whose id already exists in the base array are dropped; surviving
@@ -20,5 +18,4 @@ type MergeOptions<TRow> = {
 export declare const useMergedScopeRows: <TRow extends {
     id: string;
 }>(baseRows: ReadonlyArray<TRow>, extraRows: ReadonlyArray<TRow>, options?: MergeOptions<TRow>) => ReadonlyArray<TRow>;
-export {};
 //# sourceMappingURL=useMergedScopeRows.d.ts.map

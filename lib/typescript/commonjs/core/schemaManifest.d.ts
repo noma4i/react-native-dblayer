@@ -1,10 +1,5 @@
 export declare const DB_FORMAT_VERSION = 2;
-import type { SchemaDeclaration } from '../types';
-type PersistenceManifest = {
-    formatVersion: number;
-    schemaFingerprint: string;
-    dataVersion: string | null;
-};
+import type { PersistenceManifest, SchemaDeclaration } from '../types';
 /** Register one model declaration for the persistence compatibility fingerprint. Nested array and object shape recursion is intentionally not fingerprinted. */
 export declare const registerSchemaDeclaration: (declaration: SchemaDeclaration) => void;
 export declare const computeSchemaFingerprint: () => string;
@@ -14,5 +9,4 @@ export declare const writePersistenceManifest: (prefix: string, manifest: Persis
 export declare const ensurePersistenceCompatibility: () => {
     reset: boolean;
 };
-export {};
 //# sourceMappingURL=schemaManifest.d.ts.map

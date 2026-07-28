@@ -1,9 +1,4 @@
-import type { CreatedAtRow, RowId } from '../types';
-type DestroyManyModel<TStored extends RowId> = {
-    all(): TStored[];
-    destroyMany(ids: string[]): void;
-};
-type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
+import type { CreatedAtRow, DestroyManyModel, ResolveStaleTempRowsOptions, RowId, RowProtect } from '../types';
 /**
  * Keep at most `maxPerScope` unprotected rows in each scope.
  *
@@ -17,11 +12,6 @@ type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlyS
  * @returns Number of rows deleted.
  */
 export declare const trimRowsPerScope: <TStored extends RowId, TScopeField extends Extract<keyof TStored, string>>(model: DestroyManyModel<TStored>, scopeField: TScopeField, maxPerScope: number, compare: (left: TStored, right: TStored) => number, protect?: RowProtect<TStored>) => number;
-type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
-    maxAgeMs: number;
-    protectedIds?: ReadonlySet<string> | readonly string[];
-    onStale: (row: TStored) => void;
-};
 /**
  * Run `onStale` for temp-id rows older than the age threshold and not protected. A row whose
  * `createdAt` cannot be parsed (missing, malformed, or otherwise NaN) is treated as maximally old and
@@ -33,5 +23,4 @@ type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
  * @returns Number of stale temp rows resolved.
  */
 export declare const resolveStaleTempRows: <TStored extends CreatedAtRow>(model: Pick<DestroyManyModel<TStored>, "all">, options: ResolveStaleTempRowsOptions<TStored>) => number;
-export {};
 //# sourceMappingURL=modelMaintenance.d.ts.map

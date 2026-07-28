@@ -29,5 +29,18 @@ export type FetchHandle<TInput, TSelected> = {
     fetch(input: TInput): Promise<TSelected>;
     remove(): void;
 };
+/** Per-key fetch state derived for `defineFetch` readers. */
+export type FetchState = {
+    isFetching: boolean;
+    isFetched: boolean;
+    isPaused: boolean;
+    retryAttempt: number;
+    error: Error | null;
+};
+/** Per-key value stored in the package QueryClient for a fetch: the selected payload plus its emptiness for `emptyStaleTime`. */
+export type FetchData<TSelected> = {
+    selected: TSelected;
+    empty: boolean;
+};
 export {};
 //# sourceMappingURL=dsl.fetch.types.d.ts.map

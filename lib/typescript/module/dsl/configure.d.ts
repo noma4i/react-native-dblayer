@@ -1,12 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { ApplyRuntime, CommitBus, ConfigureDbOptions, DbDefaults, OperationState, StoragePlane } from '../types';
-type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
-    storage: StoragePlane;
-    defaults: DbDefaults & {
-        resumeStaleTime: number | null;
-    };
-    dataVersion: string | null;
-};
+import type { ApplyRuntime, CommitBus, ConfigureDbOptions, OperationState, RuntimeConfig } from '../types';
 /**
  * Configure the injected runtime seams (transport, storage, logger) and package-wide
  * defaults. Must be called once before any model, query, or mutation runs; calling it again advances the
@@ -78,5 +71,4 @@ export declare const purgeForeignStorageKeys: () => number;
 export declare const resetPersistenceRuntime: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
 export declare const getOperationState: () => OperationState;
-export {};
 //# sourceMappingURL=configure.d.ts.map

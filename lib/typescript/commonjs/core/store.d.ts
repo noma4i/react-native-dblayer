@@ -1,8 +1,5 @@
-import type { IncrementalCommitBatch, ModelStore, StoragePlane, StoreScopeCollection, StoreScopeSyncSource, WriteCtx } from '../types';
-type StoreRecord = {
-    id: string;
-} & Record<string, unknown>;
-export declare const registerModelStoreFactory: <T extends StoreRecord>(modelId: string, factory: () => ModelStore<T>) => void;
+import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreScopeCollection, StoreScopeSyncSource, WriteCtx } from '../types';
+export declare const registerModelStoreFactory: <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>) => void;
 /**
  * Run one apply pass with batched collection flushes: every store write inside `run` lands in a
  * per-store transactional buffer (readable through the store immediately) and is committed to the
@@ -11,7 +8,7 @@ export declare const registerModelStoreFactory: <T extends StoreRecord>(modelId:
  * partial-application semantics of a mid-batch failure.
  */
 export declare const runInApplyBatch: <T>(run: () => T) => T;
-export declare const createModelStore: <T extends StoreRecord>(options: {
+export declare const createModelStore: <T extends RowRecord>(options: {
     modelId: string;
     now: () => number;
     storage: StoragePlane;
@@ -28,5 +25,4 @@ export declare const hydrateStoreScopes: (sources: ReadonlyArray<readonly [strin
 export declare const markStoresReady: () => void;
 export declare const resetStores: () => void;
 export declare const storeScopeCollection: (model: string, scopeKey: string) => StoreScopeCollection;
-export {};
 //# sourceMappingURL=store.d.ts.map
