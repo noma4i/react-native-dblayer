@@ -44,6 +44,11 @@ const rules: PatternRule[] = [
 
 const allowlist: AllowedViolation[] = [
   {
+    file: 'src/core/apply/transaction.ts',
+    pattern: 'as unknown as',
+    reason: 'createCommitEnvelope is the single brand-stamping factory; the CommitEnvelope brand symbol is type-only (declared in src/types) and cannot be produced structurally'
+  },
+  {
     file: 'src/core/subscriptionRuntime.ts',
     pattern: 'as unknown as',
     reason: 'TypedDocumentNode variance plus Object.fromEntries, dynamic-key tuple, and runtime payload erasure at external type boundaries'

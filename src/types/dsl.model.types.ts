@@ -17,7 +17,7 @@ import type { ModelIngestEntry } from '../dsl/defineIngest';
 import type { ModelContext } from './dsl.modelContext.types';
 import type { JournalOp } from './core.apply.journal.types';
 import type { Dependency } from './core.apply.commitBus.types';
-import type { ApplyTarget } from '../core/apply/transaction';
+import type { ApplyTarget } from './core.apply.transaction.types';
 
 /** Row shape every model read path narrows to before projection. */
 export type StoredRowShape = { id: string } & Record<string, unknown>;

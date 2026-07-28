@@ -7,9 +7,7 @@ import { stableSerialize } from './serialize';
 
 export const DB_FORMAT_VERSION = 2;
 
-type FieldDeclaration = { kind: string; mode: string; hasDefault: boolean };
-type ScopeDeclaration = { by: Record<string, string> | null; sort: string };
-export type SchemaDeclaration = { id: string; name: string; fields: Record<string, FieldDeclaration>; scopes: Record<string, ScopeDeclaration> };
+import type { SchemaDeclaration } from '../types';
 type PersistenceManifest = { formatVersion: number; schemaFingerprint: string; dataVersion: string | null };
 
 const declarations = new Map<string, SchemaDeclaration>();

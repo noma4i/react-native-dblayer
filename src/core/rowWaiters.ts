@@ -1,27 +1,7 @@
-import type { Dependency } from '../types';
+import type { Dependency, RowPatch, UpdateWhenRowExistsOptions, WaitForRowOptions, WaiterModel } from '../types';
 import { getCommitBus } from '../dsl/configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { noteDataLoss } from './diagnostics';
-
-type WaiterModel<TStored extends { id: string }> = {
-  modelId: string;
-  find(id: string | null | undefined): TStored | undefined;
-  update(id: string, patch: Record<string, unknown>): void;
-};
-
-export type RowPatch<TStored> = Partial<TStored> | ((row: TStored) => Partial<TStored>);
-
-export type UpdateWhenRowExistsOptions = {
-  /** Maximum time to keep a deferred patch before dropping it. */
-  ttlMs: number;
-};
-
-export type WaitForRowOptions = {
-  /** Maximum time to wait before resolving with `undefined`. */
-  timeoutMs: number;
-  /** Optional abort signal that resolves the waiter with `undefined` and cleans up immediately. */
-  signal?: AbortSignal;
-};
 
 const rowDepOf = <TStored extends { id: string }>(model: WaiterModel<TStored>, id: string): Dependency => ({ kind: 'row', model: model.modelId, id });
 

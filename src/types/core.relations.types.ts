@@ -16,3 +16,6 @@ export type RelationDecl =
   | { kind: 'references'; model: ModelRef<StoredRow>; ids: (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined };
 
 export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: string[] };
+
+export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace' };
+export type DestroyedRow = { model: string; id: string; before: StoredRow; origin?: 'replace' };

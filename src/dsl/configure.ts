@@ -1,10 +1,10 @@
-import type { CheckpointScheduler, CommitBus, DbLogger, DbRetryPolicy, DbTransport, JournalOp, OperationState , StoragePlane } from '../types';
+import type { CheckpointScheduler, CommitBus, DbLogger, DbRetryPolicy, DbTransport, JournalOp, OperationState , StoragePlane , ApplyRuntime } from '../types';
 import { mmkvStoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler } from '../core/apply/checkpoint';
-import { createApplyRuntime, createCommitEnvelope, getApplyTarget, type ApplyRuntime } from '../core/apply/transaction';
+import { createApplyRuntime, createCommitEnvelope, getApplyTarget } from '../core/apply/transaction';
 import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';

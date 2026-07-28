@@ -65,6 +65,8 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-apply-honesty.test.tsx'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-row-waiters.test.ts'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-schema-fingerprint-order.test.ts'), source: path.resolve(specRoot, '../../core/schemaManifest.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-schema-fingerprint-order.test.ts'), source: path.resolve(specRoot, '../../types') },
+  { spec: path.resolve(specRoot, 'integrity/i-manifest.test.tsx'), source: path.resolve(specRoot, '../../types') },
   { spec: path.resolve(specRoot, 'integrity/i-schema-fingerprint-order.test.ts'), source: path.resolve(specRoot, '../../core/serialize.ts') },
   { spec: path.resolve(specRoot, 'utils/u02-resolve-stale-temp-rows.test.ts'), source: path.resolve(specRoot, '../../utils/modelMaintenance.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-mmkv-storage-contract.test.ts'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },

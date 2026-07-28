@@ -1,4 +1,7 @@
 export type * from './core.apply.checkpoint.types';
+export type * from './core.apply.transaction.types';
+export type * from './core.rowWaiters.types';
+export type * from './core.schemaManifest.types';
 export type * from './core.apply.journal.types';
 export type * from './core.diagnostics.types';
 export type * from './core.apply.commitBus.types';

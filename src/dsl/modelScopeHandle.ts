@@ -1,6 +1,5 @@
 import { sortBy } from 'es-toolkit';
-import type { ApplyTarget } from '../core/apply/transaction';
-import type { Dependency, JournalOp, KeepPreviousOption, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape , ModelContext } from '../types';
+import type { ApplyTarget, Dependency, JournalOp, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';

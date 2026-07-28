@@ -1,5 +1,6 @@
 import { configureDb, defineCommand, defineShape, f } from '../../../index';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, registerSchemaDeclaration, type SchemaDeclaration, writePersistenceManifest } from '../../../core/schemaManifest';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, registerSchemaDeclaration, writePersistenceManifest } from '../../../core/schemaManifest';
+import type { SchemaDeclaration } from '../../../types';
 import { bootDb } from '../../../dsl/lifecycle';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 

@@ -138,9 +138,9 @@ scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored
 stringifyNullish: (v: unknown) => string | null | undefined
 unknown: any
 unknown: any
-updateWhenRowExists: <TStored extends { id: string; }>(model: WaiterModel<TStored>, id: string, patch: import("<root>/src/core/rowWaiters").RowPatch<TStored>, options: import("<root>/src/core/rowWaiters").UpdateWhenRowExistsOptions) => void
+updateWhenRowExists: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, patch: import("<root>/src/types/core.rowWaiters.types").RowPatch<TStored>, options: import("<root>/src/types/core.rowWaiters.types").UpdateWhenRowExistsOptions) => void
 useMergedScopeRows: <TRow extends { id: string; }>(baseRows: readonly TRow[], extraRows: readonly TRow[], options?: MergeOptions<TRow> | undefined) => readonly TRow[]
-waitForRow: <TStored extends { id: string; }>(model: WaiterModel<TStored>, id: string, options: import("<root>/src/core/rowWaiters").WaitForRowOptions) => Promise<TStored | undefined>"
+waitForRow: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, options: import("<root>/src/types/core.rowWaiters.types").WaitForRowOptions) => Promise<TStored | undefined>"
 `);
   });
 });

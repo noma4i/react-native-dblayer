@@ -1,6 +1,6 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
-import type { JournalOp , MembershipDelta, ModelRef, RelationDecl } from '../types';
+import type { AcceptedRow, DestroyedRow, JournalOp, MembershipDelta, ModelRef, RelationDecl } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
 
 type StoredRow = Record<string, unknown>;
@@ -133,8 +133,6 @@ export const hasDependentCascade = (modelId: string): boolean => {
 
 type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
 type CounterRef = { model: string; id: string; field: string };
-export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace' };
-export type DestroyedRow = { model: string; id: string; before: StoredRow; origin?: 'replace' };
 
 /**
  * Derive relation effects from rows accepted by entity application. Raw journal operations never
