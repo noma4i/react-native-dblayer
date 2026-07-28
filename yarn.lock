@@ -2280,7 +2280,9 @@ __metadata:
     "@stryker-mutator/jest-runner": "npm:^9.6.1"
     "@tanstack/db": "npm:0.6.17"
     "@tanstack/pacer": "npm:0.21.1"
+    "@tanstack/query-db-collection": "npm:1.2.1"
     "@tanstack/react-db": "npm:0.1.95"
+    "@tanstack/react-query": "npm:5.101.4"
     "@testing-library/react-native": "npm:^14.0.1"
     "@types/jest": "npm:^29.5.14"
     "@types/react": "npm:^19.0.10"
@@ -2640,6 +2642,26 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tanstack/query-core@npm:5.101.4":
+  version: 5.101.4
+  resolution: "@tanstack/query-core@npm:5.101.4"
+  checksum: 10c0/a407960303431e6498c6518cf6f8cc7283d3e4a95dbdc5e9fa42c217b9dd7afaffb82a4f2d36b38f578f745e8cf69ff8551abb947f5abcc0a290f3e3e75dc654
+  languageName: node
+  linkType: hard
+
+"@tanstack/query-db-collection@npm:1.2.1":
+  version: 1.2.1
+  resolution: "@tanstack/query-db-collection@npm:1.2.1"
+  dependencies:
+    "@standard-schema/spec": "npm:^1.1.0"
+    "@tanstack/db": "npm:0.6.17"
+  peerDependencies:
+    "@tanstack/query-core": ^5.0.0
+    typescript: ">=4.7"
+  checksum: 10c0/4483e8fcf47ce90eff4c203a97536486311ea2afa0a8ad498f1297b0c91c5ff2bf64882e650df6a2aed16393bddefb16b58c2b75f76bcf6dcd5305920e97123a
+  languageName: node
+  linkType: hard
+
 "@tanstack/react-db@npm:0.1.95":
   version: 0.1.95
   resolution: "@tanstack/react-db@npm:0.1.95"
@@ -2649,6 +2671,17 @@ __metadata:
   peerDependencies:
     react: ">=16.8.0"
   checksum: 10c0/c3c7b880505240215e279c6453eb92311c21e249380ba4530dea4c1d3ae346804f777e2fb032caebb79ffa57f4f5d109737ced0e392b1800b4ef6062fc1c5c33
+  languageName: node
+  linkType: hard
+
+"@tanstack/react-query@npm:5.101.4":
+  version: 5.101.4
+  resolution: "@tanstack/react-query@npm:5.101.4"
+  dependencies:
+    "@tanstack/query-core": "npm:5.101.4"
+  peerDependencies:
+    react: ^18 || ^19
+  checksum: 10c0/92e7c5b44740e753b05a6a19c166ea1a000df64c1bf5edb315d08a5b555a9f16a9d35288ac38f650bd38fc3015b135c392749fd6db24d09db42bfaf758d119fa
   languageName: node
   linkType: hard
 
