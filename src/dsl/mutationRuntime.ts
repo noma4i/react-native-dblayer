@@ -1,4 +1,4 @@
-import type { DefinedMutation, JournalOp, MutationConfig, OptimisticCtx, RespondOptimistic } from '../types';
+import type { DefinedMutation, JournalOp, MutationConfig, MutationRuntimeContext, OptimisticCtx } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -20,13 +20,6 @@ export const clearFailedOptimisticMutation = (model: string, tempId: string): vo
   const operations = getOperationState();
   const operation = operations.failedFor(model, tempId);
   if (operation) operations.clearFailed(operation.operationId);
-};
-
-type MutationRuntimeContext<TData, TInput, TStored, TNode> = {
-  config: MutationConfig<TData, TInput, TStored, TNode>;
-  optimisticConfig: MutationConfig<TData, TInput, TStored, TNode>['optimistic'];
-  planFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput) => JournalOp[];
-  inverseFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>) => JournalOp[];
 };
 
 export const createMutationRuntime = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): Pick<DefinedMutation<TData, TInput>, 'run' | 'retry' | 'discard'> => {

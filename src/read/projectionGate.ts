@@ -1,16 +1,8 @@
 import { useRef } from 'react';
-import type { Dependency, ProjectionGate, ProjectionOptions } from '../types';
+import type { Dependency, GateEntry, ProjectionGate, ProjectionOptions, RowRecord } from '../types';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from './useLiveRead';
 
-type Row = { id: string; [key: string]: unknown };
-
-type GateEntry<TOutput extends Record<string, unknown>> = {
-  source: unknown;
-  output: TOutput;
-  equalityValue: Record<string, unknown>;
-};
-
-const equalityValue = <TStored extends Row, TOutput extends Record<string, unknown>>(
+const equalityValue = <TStored extends RowRecord, TOutput extends Record<string, unknown>>(
   source: TStored,
   output: TOutput,
   options: ProjectionOptions<TStored, TOutput>
@@ -30,7 +22,7 @@ export const validateProjectionOptions = (
 };
 
 /** Create one hook-local row projection gate with stable item and array references. */
-export const createProjectionGate = <TStored extends Row, TOutput extends Record<string, unknown>>(): ProjectionGate<TStored, TOutput> => {
+export const createProjectionGate = <TStored extends RowRecord, TOutput extends Record<string, unknown>>(): ProjectionGate<TStored, TOutput> => {
   const entries = new Map<string, GateEntry<TOutput>>();
   let previousRows: TOutput[] = [];
   let previousSource: unknown = undefined;
@@ -74,7 +66,7 @@ export const createProjectionGate = <TStored extends Row, TOutput extends Record
 };
 
 /** Read and gate one optional stored row while keeping selector identity outside dependencies. */
-export const useProjectedLiveRow = <TStored extends Row, TOutput extends Record<string, unknown>>(
+export const useProjectedLiveRow = <TStored extends RowRecord, TOutput extends Record<string, unknown>>(
   compute: () => TStored | undefined,
   deps: ReadonlyArray<Dependency>,
   options: ProjectionOptions<TStored, TOutput>,
@@ -95,7 +87,7 @@ export const useProjectedLiveRow = <TStored extends Row, TOutput extends Record<
 };
 
 /** Read and gate stored rows while keeping selector identity outside dependencies. */
-export const useProjectedLiveRows = <TStored extends Row, TOutput extends Record<string, unknown>>(
+export const useProjectedLiveRows = <TStored extends RowRecord, TOutput extends Record<string, unknown>>(
   compute: () => TStored[],
   deps: ReadonlyArray<Dependency>,
   options: ProjectionOptions<TStored, TOutput>,

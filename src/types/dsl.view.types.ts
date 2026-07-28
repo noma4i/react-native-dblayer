@@ -1,5 +1,35 @@
+import type { Dependency } from './core.apply.commitBus.types';
+import type { RowRecord } from './db.types';
 import type { ScopeHandle } from './dsl.model.types';
 import type { KeepPreviousOption } from './read.scopeRetention.types';
+
+/** Resolved include values keyed by include name, as passed to a view `select`. */
+export type ViewIncluded = Record<string, unknown>;
+/** Computed include: a target model plus an id resolver over the source row. */
+export type InternalComputedInclude = [ViewIncludeModel, (row: RowRecord) => string | string[] | null];
+/** Relation-backed include with optional require/renderKeys projection hints. */
+export type InternalRelationInclude = { require?: readonly string[]; renderKeys?: readonly string[] };
+/** Id-resolver include with an explicit target model and projection hints. */
+export type InternalIdInclude = { model: ViewIncludeModel; ids: (row: RowRecord) => string | string[] | null; require?: readonly string[]; renderKeys?: readonly string[] };
+/** One normalized include declaration in any of its accepted authoring forms. */
+export type InternalIncludeConfig = string | InternalComputedInclude | InternalRelationInclude | InternalIdInclude;
+/** The untyped view config `defineView` works with after authoring-time generics are erased. */
+export type InternalViewConfig<TItem> = {
+  source: string | ScopeHandle<RowRecord, Record<string, unknown>>;
+  include: Record<string, InternalIncludeConfig>;
+  select?: (row: RowRecord, included: ViewIncluded, ctx: { index: number }) => TItem;
+  renderKeys?: readonly string[];
+};
+/** Per-row item cache entry: inputs (row + includes) and the projected item they produced. */
+export type ViewCacheEntry<TItem> = { row: RowRecord; included: ViewIncluded; item: TItem };
+/** Window-local cache of projected items for `useWindow` slices. */
+export type ViewWindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
+/** One evaluated snapshot of view items with its resolution flag. */
+export type ViewItemSnapshot<TItem> = { items: TItem[]; totalCount: number; resolved: boolean };
+/** A fully evaluated view: snapshot plus the commit-bus dependencies that invalidate it. */
+export type EvaluatedView<TItem> = { scopeKey: string | null; limit: number | null; snapshot: ViewItemSnapshot<TItem>; deps: Dependency[] };
+/** Incremental FK index for relation includes: rows grouped by foreign key with reverse lookup. */
+export type ViewForeignKeyIndex = { rowsByForeignKey: Map<string, RowRecord[]>; fkById: Map<string, string>; unsubscribe: () => void };
 
 /** Minimal snapshot reader accepted by computed view includes. Method syntax keeps concrete model readers assignable under strict function variance. */
 export type ViewIncludeModel = {

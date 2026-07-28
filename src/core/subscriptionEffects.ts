@@ -1,11 +1,6 @@
 import { getRuntimeGeneration } from '../dsl/configure';
 import { registerReset } from './reset';
-import type { DbSubscriptionEffectsChannel } from '../types';
-
-type SubscriptionEffectsRegistry = {
-  effects: Map<string, (...args: never[]) => void>;
-  generations: Map<string, number>;
-};
+import type { DbSubscriptionEffectsChannel, SubscriptionEffectsRegistry } from '../types';
 
 const createSubscriptionEffectsRegistry = (): SubscriptionEffectsRegistry => ({ effects: new Map(), generations: new Map() });
 

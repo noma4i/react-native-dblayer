@@ -24,3 +24,30 @@ export type DataLossMechanism =
   | 'unranked-ladder-value';
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
+
+/** Mutable work-counter state behind `__DBLAYER_DIAGNOSTICS__`. */
+export type DiagnosticsState = {
+  commits: number;
+  commitFanoutCandidates: number;
+  commitFanoutNotified: number;
+  fkIndexFullBuilds: number;
+  fkIndexIncrementalUpdates: number;
+  readEngineApplies: number;
+  readEngineRebuilds: number;
+  readEngineDeltaRows: number;
+  readEngineScanRows: number;
+  scopeReadPasses: number;
+  scopeReadResorts: number;
+  resumeDrains: number;
+  resumeRefetches: number;
+  entityUpsertGuardHits: number;
+  corruptionJournalDrops: number;
+  corruptionJournalLosses: number;
+  corruptionLedgerResets: number;
+  scopeKeyMigrations: number;
+  manifestResets: number;
+  replaceRejected: number;
+  applyFailure: number;
+  ingestFailed: number;
+  dataLossEvents: DataLossEvent[];
+};

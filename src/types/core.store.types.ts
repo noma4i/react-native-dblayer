@@ -1,4 +1,4 @@
-import type { ChangeMessage } from '@tanstack/db';
+import type { ChangeMessage, ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
 import type { WriteCtx } from './core.writePolicies.types';
 
 type UpsertResult = { changedFields: string[] | null };
@@ -60,3 +60,15 @@ export type ModelStore<T extends { id: string }> = EntityState<T> & {
   markReady(): void;
   dispose(): void;
 };
+
+/** Collection sync-feed controls: transactional begin/write/commit plus readiness and truncate. */
+export type StoreSyncMethods<T extends object> = {
+  begin: () => void;
+  write: (message: ChangeMessageOrDeleteKeyMessage<T, string>) => void;
+  commit: () => void;
+  markReady: () => void;
+  truncate: () => void;
+};
+
+/** Tombstone marker for a destroyed row, stamped for age-based pruning. */
+export type Tombstone = { at: number };

@@ -59,3 +59,6 @@ export type OperationState = {
   hydrate(): void;
   reset(): void;
 };
+
+/** Persisted once-key envelope with its storage format version. */
+export type PersistedOnceKeyRecord = { formatVersion: number; keys: string[] };

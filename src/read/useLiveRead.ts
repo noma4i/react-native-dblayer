@@ -1,16 +1,7 @@
 import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import type { CommitSubscription, Dependency } from '../types';
+import type { CommitSubscription, Dependency, LiveReadState } from '../types';
 import { getCommitBus } from '../dsl/configure';
-
-type LiveReadState<T> = {
-  value: T;
-  version: number;
-  signature: string;
-  compute: () => T;
-  isEqual: (a: T, b: T) => boolean;
-  deps: ReadonlyArray<Dependency>;
-};
 
 const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
   deps

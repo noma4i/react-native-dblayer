@@ -43,3 +43,10 @@ export type ConfigureDbOptions = {
   /** Consumer-owned cache version (e.g. the app build number). Changing it cold-resets the whole persisted library state at boot - stale data can never layer across versions. */
   dataVersion?: string;
 };
+
+/** Resolved runtime configuration after `configureDb` defaults are applied. */
+export type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
+  storage: StoragePlane;
+  defaults: DbDefaults & { resumeStaleTime: number | null };
+  dataVersion: string | null;
+};

@@ -131,3 +131,16 @@ export type MutationResponder<TData, TInput, TNode> = {
   planFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[];
   inverseFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[];
 };
+
+/** `defineCommand` configuration: a mutation without optimistic writes and with opt-out dedupe. */
+export type CommandConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe' | 'optimistic'> & {
+  dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
+};
+
+/** Internal wiring handed to the mutation runtime by `defineMutation`. */
+export type MutationRuntimeContext<TData, TInput, TStored, TNode> = {
+  config: MutationConfig<TData, TInput, TStored, TNode>;
+  optimisticConfig: MutationConfig<TData, TInput, TStored, TNode>['optimistic'];
+  planFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput) => JournalOp[];
+  inverseFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>) => JournalOp[];
+};

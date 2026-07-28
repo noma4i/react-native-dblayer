@@ -5,33 +5,7 @@ import { registerReset } from '../core/reset';
 import { createGenerationFence } from './runtimeGeneration';
 import { createSingleFlight } from './singleFlight';
 
-import type { ModelStatusPoller, ModelStatusPollerPhase } from '../types';
-
-type PollerSession = {
-  refs: number;
-  intervalId: ReturnType<typeof setInterval> | null;
-  attempts: number;
-  /** Single-flighted tick runner: overlapping callers share the one in-flight fetch instead of re-entering. */
-  runTick: () => Promise<void>;
-  phase: ModelStatusPollerPhase['phase'];
-};
-
-type ModelStatusPollerStopReason = NonNullable<ModelStatusPollerPhase['reason']>;
-
-type ModelStatusPollerConfig<TResult> = {
-  /** Fetch the latest status payload for an id. */
-  fetch: (id: string) => Promise<TResult>;
-  /** Apply a fetched status payload to the owning model. */
-  apply: (id: string, result: TResult) => void;
-  /** Classify a fetched payload as ready, failed, or non-terminal. */
-  classify?: (result: TResult) => 'ready' | 'failed' | null;
-  /** Called once when a session reaches a terminal payload, exhausts its budget, or is detached. */
-  onSessionStop?: (id: string, reason: ModelStatusPollerStopReason) => void;
-  /** Interval between scheduled status refreshes. */
-  intervalMs: number;
-  /** Maximum number of fetch attempts before a non-terminal session stalls. */
-  maxAttempts: number;
-};
+import type { ModelStatusPoller, ModelStatusPollerConfig, ModelStatusPollerPhase, ModelStatusPollerStopReason, PollerSession } from '../types';
 
 const IDLE_PHASE: ModelStatusPollerPhase = { phase: 'idle', attempts: 0 };
 

@@ -1,12 +1,9 @@
 import { readBoolean, readId, readIsoDate, readNullableNumber, readNullableString, readNumber, readString } from '../utils/normalizeHelpers';
 import { createFieldSpec, preserveNull, readObjectField } from './fieldSpec';
-import type { EmptyDefaultFieldSpec, FieldSpec, FieldValueReader , AnyDbShape, InferShapeStored } from '../types';
+import type { AnyDbShape, ArrayItem, ArrayItemOut, EmptyDefaultFieldSpec, FieldSpec, FieldValueReader, InferShapeStored } from '../types';
 import { readShape } from './shape';
 
 const definedPassthrough = <T>(value: unknown): T | undefined => (value == null ? undefined : (value as T));
-
-type ArrayItem = AnyDbShape | FieldSpec<any, any, any, any>;
-type ArrayItemOut<TItem extends ArrayItem> = TItem extends AnyDbShape ? InferShapeStored<TItem> : TItem extends FieldSpec<any, infer TOut, any, any> ? TOut : never;
 
 const valueField = <TOut>(kind: string, readValue: FieldValueReader<TOut>, readNullableValue: FieldValueReader<TOut> = preserveNull(readValue)): FieldSpec<unknown, TOut> =>
   createFieldSpec({

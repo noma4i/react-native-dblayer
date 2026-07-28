@@ -1,6 +1,6 @@
 import { CancelledError, QueryObserver } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import type { FetchConfig, FetchHandle, FetchResult } from '../types';
+import type { FetchConfig, FetchData, FetchHandle, FetchResult, FetchState } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
@@ -10,9 +10,6 @@ import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/netwo
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 
-type FetchState = { isFetching: boolean; isFetched: boolean; isPaused: boolean; retryAttempt: number; error: Error | null };
-/** Per-key value stored in the package QueryClient: the selected payload plus its emptiness for `emptyStaleTime`. */
-type FetchData<TSelected> = { selected: TSelected; empty: boolean };
 
 let fetchHandleSequence = 0;
 

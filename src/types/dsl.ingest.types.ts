@@ -52,3 +52,6 @@ export type ModelIngestEntry = {
   /** Invoke an injected named effect before or after apply. */
   effect?: { name: string; when: 'before' | 'after' };
 };
+
+/** Internal ingest dispatcher: resolves one subscription event into its declared decl. */
+export type IngestHandle = { apply(event: string, payload: unknown): IngestDecl | null };

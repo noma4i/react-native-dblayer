@@ -1,32 +1,12 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import type { Dependency, IncrementalCommitBatch } from '../types';
+import type { Dependency, Engine, EngineInput, ReadEngineHarnessInput, RowEngineOptions, RowRecord } from '../types';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { compareCodepoints, semanticValue } from '../core/serialize';
 import { arraysShallowEqual } from './useLiveRead';
 import { noteReadEngineApply, noteReadEngineScan } from '../core/diagnostics';
 
-type Engine<T> = {
-  signature: string;
-  generation: number;
-  value: T;
-  version: number;
-  apply(batch: IncrementalCommitBatch | null): boolean;
-};
-
 /** Canonical semantic descriptors preserve object identity only where leaf values require it. */
 export const incrementalSignature = (kind: string, ...values: unknown[]): string => `${kind}:${values.map(semanticValue).join(':')}`;
-
-type EngineInput<T> = {
-  signature: string;
-  create(): Engine<T>;
-  deps: ReadonlyArray<Dependency>;
-};
-
-type ReadEngineHarnessInput<T, TResult> = EngineInput<T> & {
-  apply(engine: Engine<T>, batch: IncrementalCommitBatch | null): boolean;
-  select(engine: Engine<T>): TResult;
-  notifyEveryBatch?: boolean;
-};
 
 /** Shared React subscription harness for model and scope read engines. */
 export const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch = false }: ReadEngineHarnessInput<T, TResult>): TResult => {
@@ -82,22 +62,8 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
   });
 };
 
-type Row = { id: string; [key: string]: unknown };
-
-type RowEngineOptions<T extends Row, TValue> = {
-  signature: string;
-  model: string;
-  where(row: T): boolean;
-  options?: { orderBy?: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>; limit?: number };
-  initial(): T[];
-  read(id: string): T | undefined;
-  select(rows: T[], count: number): TValue;
-  isEqual?: (left: TValue, right: TValue) => boolean;
-  countOnly?: boolean;
-};
-
 /** Sort model read results by declared keys with NULLS LAST and an implicit locale-independent id tie-breaker. */
-export const sortModelReadRows = <T extends Row>(rows: T[], orderBy: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit?: number): T[] => {
+export const sortModelReadRows = <T extends RowRecord>(rows: T[], orderBy: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit?: number): T[] => {
   const sorted = [...rows].sort((left, right) => {
     for (const order of orderBy) {
       const a = left[order.field];
@@ -122,7 +88,7 @@ export const limitRows = <T>(rows: T[], limit: number | undefined): T[] => (limi
 const engineValuesEqual = (left: unknown, right: unknown): boolean => (Array.isArray(left) && Array.isArray(right) ? arraysShallowEqual(left, right) : Object.is(left, right));
 
 /** P4 state: O(affected rows) delta application, with explicit rebuild fallback for bulk/reset paths. */
-export const createModelReadEngine = <T extends Row, TValue>(options: RowEngineOptions<T, TValue>): Engine<TValue> => {
+export const createModelReadEngine = <T extends RowRecord, TValue>(options: RowEngineOptions<T, TValue>): Engine<TValue> => {
   const rows = options.countOnly ? null : new Map<string, T>();
   const ids = new Set<string>();
   let ordered: T[] = [];

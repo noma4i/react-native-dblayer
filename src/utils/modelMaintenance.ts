@@ -1,11 +1,6 @@
 import { isTempId } from './generateTempId';
 import { toTimestamp } from './normalizeHelpers';
-import type { CreatedAtRow, RowId } from '../types';
-
-type DestroyManyModel<TStored extends RowId> = {
-  all(): TStored[];
-  destroyMany(ids: string[]): void;
-};
+import type { CreatedAtRow, DestroyManyModel, ResolveStaleTempRowsOptions, RowId, RowProtect } from '../types';
 
 const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
 
@@ -14,8 +9,6 @@ const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel
   model.destroyMany(ids);
   return ids.length;
 };
-
-type RowProtect<TStored extends RowId> = ((row: TStored) => boolean) | ReadonlySet<string> | readonly string[];
 
 const toProtectPredicate = <TStored extends RowId>(protect?: RowProtect<TStored>): ((row: TStored) => boolean) => {
   if (!protect) return () => false;
@@ -70,12 +63,6 @@ export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extr
   }
 
   return deleteManyForMaintenance(model, idsToDestroy);
-};
-
-type ResolveStaleTempRowsOptions<TStored extends CreatedAtRow> = {
-  maxAgeMs: number;
-  protectedIds?: ReadonlySet<string> | readonly string[];
-  onStale: (row: TStored) => void;
 };
 
 /**

@@ -114,6 +114,25 @@ describe('type discipline', () => {
     expect(duplicated).toEqual([]);
   });
 
+  it('declares types only inside src/types', () => {
+    // The types store is the single home for every type/interface declaration - exported or local.
+    // Runtime modules import their shapes from '../types'; a declaration outside src/types is a miss
+    // of the extraction convention, not a style choice.
+    const offenders = walker(srcRoot)
+      .filter(file => !relative(file).startsWith('src/__tests__/') && !relative(file).startsWith('src/types/'))
+      .flatMap(file =>
+        fs
+          .readFileSync(file, 'utf8')
+          .split('\n')
+          .map((line, index) => ({ line, index }))
+          .filter(({ line }) => /^(?:export )?(?:type|interface) [A-Za-z]/.test(line) && !/^export type \{/.test(line))
+          .map(({ line, index }) => `${relative(file)}:${index + 1}: ${line.trim().slice(0, 60)}`)
+      )
+      .sort();
+
+    expect(offenders).toEqual([]);
+  });
+
   it('re-exports types only from the two entry points', () => {
     // Both re-export forms count: `export type {...} from '...'` and the bare `export type { X };`.
     const entryPoints = new Set(['src/index.ts', 'src/types/index.ts']);

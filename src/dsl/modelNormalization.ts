@@ -1,10 +1,9 @@
+import type { SparseModelField , InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization, ScopeSpec } from '../types';
 import { getDbLogger } from '../core/logger';
 import { compileWritePolicies } from '../core/writePolicies';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
 import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
-import type { InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization, ScopeSpec } from '../types';
 
-type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
 
 export const readModelField = (field: ModelFieldSpecs[string], input: unknown, key: string, complete: boolean): unknown => {
   const value = complete ? field.read(input, key) : (field as SparseModelField)[fieldSpecSparseRead](input, key);

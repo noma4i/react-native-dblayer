@@ -1,3 +1,5 @@
+import type { DbWhere } from './db.types';
+import type { ProjectionOptions } from './read.projectionGate.types';
 
 export type ReadOrder<TStored> = { field: keyof TStored & string; direction: 'asc' | 'desc' };
 
@@ -31,4 +33,24 @@ export type ModelReadBuilder<TStored extends { id: string }, TOutput extends Rec
    * Re-renders only when the answer flips. `orderBy`/`limit`/`select` do not affect the result.
    */
   exists(): boolean;
+};
+
+/** Terminal executors behind the model read builder chain. */
+export type ReadBuilderTerminals<TStored extends { id: string }> = {
+  rows<TOutput extends Record<string, unknown>>(
+    where: DbWhere<TStored> | null,
+    orders: ReadonlyArray<ReadOrder<TStored>>,
+    limit: number | undefined,
+    required: readonly string[],
+    projection: ProjectionOptions<TStored, TOutput>
+  ): TOutput[];
+  pluck(
+    where: DbWhere<TStored> | null,
+    orders: ReadonlyArray<ReadOrder<TStored>>,
+    limit: number | undefined,
+    required: readonly string[],
+    projection: ProjectionOptions<TStored, Record<string, unknown>>,
+    field: string
+  ): unknown[];
+  exists(where: DbWhere<TStored> | null, required: readonly string[]): boolean;
 };

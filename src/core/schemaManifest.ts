@@ -7,9 +7,7 @@ import { stableSerialize } from './serialize';
 
 export const DB_FORMAT_VERSION = 2;
 
-import type { SchemaDeclaration } from '../types';
-type PersistenceManifest = { formatVersion: number; schemaFingerprint: string; dataVersion: string | null };
-
+import type { PersistenceManifest, SchemaDeclaration } from '../types';
 const declarations = new Map<string, SchemaDeclaration>();
 
 /** Register one model declaration for the persistence compatibility fingerprint. Nested array and object shape recursion is intentionally not fingerprinted. */

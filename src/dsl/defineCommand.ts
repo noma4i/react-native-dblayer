@@ -1,11 +1,7 @@
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import { defineMutation } from './defineMutation';
-import type { MutationConfig } from '../types';
-
-type CommandConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe' | 'optimistic'> & {
-  dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
-};
+import type { CommandConfig } from '../types';
 
 /**
  * Define a model-less GraphQL command with a conventional input-sensitive in-flight guard. Commands use

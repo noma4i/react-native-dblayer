@@ -1,8 +1,6 @@
 import { isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
-import type { DbWhere, ModelFieldSpecs } from '../types';
+import type { DbWhere, ModelCriteria, ModelFieldSpecs } from '../types';
 import { stringifyNullish } from '../utils/normalizeHelpers';
-
-type ModelCriteria<TRow extends Record<string, unknown>> = { matches(row: TRow, where: DbWhere<TRow>): boolean };
 
 export const createModelCriteria = <TRow extends Record<string, unknown>>(fields: ModelFieldSpecs): ModelCriteria<TRow> => {
   const cache = new WeakMap<object, DbWhere<TRow>>();

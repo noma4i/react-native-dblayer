@@ -1,5 +1,6 @@
 import { isNotNil, isUndefined, omitBy, pick, pickBy } from 'es-toolkit';
 
+import type { PresentPick } from '../types';
 /**
  * Pick listed keys whose values are not undefined. Explicit null values are kept.
  *
@@ -9,10 +10,6 @@ import { isNotNil, isUndefined, omitBy, pick, pickBy } from 'es-toolkit';
  */
 export const pickDefined = <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]): Partial<Pick<TSource, TKey>> =>
   omitBy(pick(source, [...keys]), isUndefined) as Partial<Pick<TSource, TKey>>;
-
-type PresentPick<TSource extends object, TKey extends keyof TSource> = Partial<{
-  [K in TKey]: NonNullable<TSource[K]>;
-}>;
 
 /**
  * Pick listed keys whose values are neither null nor undefined.

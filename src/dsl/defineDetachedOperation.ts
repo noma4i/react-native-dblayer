@@ -1,4 +1,4 @@
-import type { DetachedOperationConfig, DetachedOperationHandle, JournalOp, OperationRecord } from '../types';
+import type { DetachedDeclaration, DetachedModel, DetachedOperationConfig, DetachedOperationHandle, JournalOp, OperationRecord } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle } from '../core/internalHandles';
@@ -6,17 +6,7 @@ import { serializeOperationInput } from '../core/planes/operationState';
 import { generateTempId } from '../utils/generateTempId';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 
-type DetachedModel<TStored extends { id: string }> = {
-  modelId: string;
-  update(id: string, patch: Partial<TStored>): void;
-};
-
-type Declaration = {
-  generation: number;
-  resume(record: OperationRecord): Promise<void>;
-};
-
-const declarations = new Map<string, Declaration>();
+const declarations = new Map<string, DetachedDeclaration>();
 
 const reportFailure = (error: Error, model: string): void => {
   try {

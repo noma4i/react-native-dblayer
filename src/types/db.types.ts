@@ -2,6 +2,9 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
 import type { FieldSpec } from './schema.fieldSpec.types';
 
+/** Generic stored row: an id plus arbitrary model fields - the shared shape behind every untyped row seam. */
+export type RowRecord = { id: string } & Record<string, unknown>;
+
 export type StorageAdapter = {
   /** Read a persisted value synchronously. */
   getItem(key: string): string | null;
@@ -167,3 +170,11 @@ export type ComputePhaseInput = {
   /** Whether network data has been fetched at least once. */
   hasFetchedData: boolean;
 };
+
+/** Boolean composition operators accepted anywhere a `DbWhere` is accepted. */
+export type DbWhereOperator<T> = { and: Array<DbWhere<T>> } | { or: Array<DbWhere<T>> } | { not: DbWhere<T> };
+
+/** Result of `pickPresent`: the chosen keys with nullish values dropped from the type. */
+export type PresentPick<TSource extends object, TKey extends keyof TSource> = Partial<{
+  [K in TKey]: NonNullable<TSource[K]>;
+}>;

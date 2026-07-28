@@ -1,20 +1,8 @@
 import { isRecord } from '../utils/normalizeHelpers';
-import type { FieldDefault, FieldMode, FieldSpec, FieldValueReader, NullableMode, OptionalMode } from '../types';
+import type { FieldMode, FieldSpec, FieldSpecOptions, FieldValueReader, NullableMode, OptionalMode } from '../types';
 
 /** Select the raw source value for a field from an input object and key. */
-type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
 export const fieldSpecSparseRead = Symbol('fieldSpecSparseRead');
-
-type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
-  kind: string;
-  mode: TMode;
-  selectSource: FieldSourceSelector<TInput>;
-  readValue: FieldValueReader<TOut>;
-  readNullableValue: FieldValueReader<TOut>;
-  derived?: boolean;
-  defaultNull: boolean;
-  factoryDefault?: FieldDefault<TOut>;
-};
 
 /** Read `input[key]` when input is an object, otherwise return undefined. */
 export const readObjectField = <TInput>(input: TInput, key: string): unknown => {

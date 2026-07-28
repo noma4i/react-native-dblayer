@@ -4,32 +4,12 @@ import { registerReset } from './reset';
 import { Debouncer } from '@tanstack/pacer';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from '../types';
+import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow, SubscriptionEntryState, SubscriptionLifecycleContext } from '../types';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
 const GLOBAL_DEBOUNCE_KEY = '__global__';
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30000;
-
-type SubscriptionEntryState = {
-  entry: DbSubscriptionEntry;
-  unsubscribe: (() => void) | null;
-  debounceBuckets: Map<string, Debouncer<(payload: unknown) => void>>;
-  retryTimer: ReturnType<typeof setTimeout> | null;
-  retryAttempts: number;
-  eventCount: number;
-  lastEventAt: number | null;
-  errorCount: number;
-  attemptToken: number;
-};
-
-type SubscriptionLifecycleContext = {
-  states: SubscriptionEntryState[];
-  byKey: Map<string, SubscriptionEntryState>;
-  active: boolean;
-  activationEpoch: number;
-  generationFence: ReturnType<typeof createGenerationFence>;
-};
 
 const nextRetryDelay = (attempts: number): number => Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempts), MAX_RETRY_DELAY_MS);
 

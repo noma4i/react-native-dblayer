@@ -1,10 +1,7 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
-import type { AcceptedRow, DestroyedRow, JournalOp, MembershipDelta, ModelRef, RelationDecl } from '../types';
+import type { AcceptedRow, CounterRef, DestroyedRow, JournalOp, MembershipDelta, ModelRef, RelationDecl, RelationHost, StoredRow, TouchEntry, TouchFn } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
-
-type StoredRow = Record<string, unknown>;
-type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
@@ -100,15 +97,6 @@ export const references = <TChild, TRef>(
  * Membership hooks derive declarative scope membership from ScopeSpec.by so event rows join and
  * leave their scopes in the SAME plan (same-tick visibility for optimistic/ingest rows).
  */
-type RelationHost = {
-  relations(): Record<string, RelationDecl>;
-  has(id: string): boolean;
-  read(id: string): StoredRow | undefined;
-  normalize(input: unknown): StoredRow | null;
-  membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
-  detachForDestroy(id: string): MembershipDelta[];
-};
-
 const hosts = new Map<string, RelationHost>();
 const hostGenerations = new Map<string, number>();
 
@@ -130,9 +118,6 @@ export const hasDependentCascade = (modelId: string): boolean => {
   if (!host) return false;
   return Object.values(host.relations()).some(relation => relation.kind === 'hasMany' && relation.dependent === 'destroy');
 };
-
-type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
-type CounterRef = { model: string; id: string; field: string };
 
 /**
  * Derive relation effects from rows accepted by entity application. Raw journal operations never

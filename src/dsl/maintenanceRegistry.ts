@@ -1,7 +1,5 @@
-import type { MaintenanceReport } from '../types';
+import type { MaintenanceReport, MaintenanceRunner } from '../types';
 import { getRuntimeGeneration } from './configure';
-
-type MaintenanceRunner = { boot(): MaintenanceReport[]; pendingTempRows(): MaintenanceReport[]; protectedTempIds(): ReadonlySet<string> };
 
 const runners = new Map<string, MaintenanceRunner>();
 const runnerGenerations = new Map<string, number>();

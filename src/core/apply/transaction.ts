@@ -1,5 +1,5 @@
 import { createJournal } from './journal';
-import type { AcceptedRow, ApplyRuntime, ApplyTarget, CheckpointScheduler, CommitBus, CommitEnvelope, DestroyedRow, IncrementalCommitBatch, IncrementalScopeChange, JournalOp, JournalRecord, StoragePlane } from '../../types';
+import type { AcceptedRow, ApplyRuntime, ApplyTarget, CheckpointScheduler, CommitBus, CommitEnvelope, DestroyedRow, IncrementalCommitBatch, IncrementalScopeChange, JournalOp, JournalRecord, StoragePlane , ApplyPhase } from '../../types';
 import { deriveEffects } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
@@ -54,8 +54,6 @@ export const getApplyTarget = (model: string): ApplyTarget => {
 };
 
 export const getApplyTargets = (): Array<[string, ApplyTarget]> => [...targets];
-
-type ApplyPhase = { batch: IncrementalCommitBatch; accepted: AcceptedRow[]; destroyed: DestroyedRow[] };
 
 const applyOperations = (ops: JournalOp[]): ApplyPhase => {
   const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };

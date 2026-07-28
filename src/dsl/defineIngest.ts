@@ -1,12 +1,10 @@
-import type { DbSubscriptionEntry, IngestDecl, IngestModel, JournalOp, ModelIngestEntry, ModelIngestTools } from '../types';
+import type { DbSubscriptionEntry, IngestDecl, IngestHandle, IngestModel, JournalOp, ModelIngestEntry, ModelIngestTools } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';
 import { noteIngestFailure } from '../core/diagnostics';
 import { getDbSubscriptionEffect } from '../core/subscriptionRuntime';
 import { getInternalModelHandle } from '../core/internalHandles';
-
-type IngestHandle = { apply(event: string, payload: unknown): IngestDecl | null };
 
 const modelsByName = new Map<string, IngestModel>();
 const modelGenerations = new Map<string, number>();

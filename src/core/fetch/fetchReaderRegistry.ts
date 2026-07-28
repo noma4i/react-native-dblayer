@@ -1,16 +1,8 @@
 import type { QueryKey } from '@tanstack/react-query';
-import type { IncrementalCommitBatch } from '../../types';
+import type { IncrementalCommitBatch , ActiveFetchReader } from '../../types';
 import { getCommitBus, getDbQueryClient, isDbConfigured } from '../../dsl/configure';
 import { registerReset } from '../reset';
 import { compositeKey } from '../serialize';
-
-type ActiveFetchReader = {
-  queryKey: QueryKey;
-  /** Drop the reader's freshness when it is a foreground-resume candidate. */
-  markResumeStale(): boolean;
-  /** Refetch after the coordinator selected this reader's resume chunk. */
-  refetch(): Promise<void>;
-};
 
 const readers = new Set<ActiveFetchReader>();
 registerReset(() => readers.clear());

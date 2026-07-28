@@ -1,3 +1,4 @@
+import type { ModelFieldSpecs } from './db.types';
 export type FieldMode = 'required' | 'nullable' | 'optional' | 'optionalNullable';
 
 export type FieldDefault<TOut> = TOut | (() => TOut);
@@ -89,3 +90,23 @@ export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = '
 
 /** Read a selected raw value into a stored field value. */
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
+
+/** Field source selector: picks the raw input value for one declared field key. */
+export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
+
+/** Internal construction options behind every `f.*` field spec. */
+export type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
+  kind: string;
+  mode: TMode;
+  selectSource: FieldSourceSelector<TInput>;
+  readValue: FieldValueReader<TOut>;
+  readNullableValue: FieldValueReader<TOut>;
+  derived?: boolean;
+  defaultNull: boolean;
+  factoryDefault?: FieldDefault<TOut>;
+};
+
+/** Type-only bridge onto the runtime field-spec module (its sparse-read symbol key). */
+type FieldSpecModule = typeof import('../schema/fieldSpec');
+/** A field spec that also carries the sparse-read entry keyed by the runtime symbol. */
+export type SparseModelField = ModelFieldSpecs[string] & { [K in FieldSpecModule['fieldSpecSparseRead']]: (value: unknown, fieldKey: string) => unknown };

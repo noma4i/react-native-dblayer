@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, DbDefaults, JournalOp, OperationState, StoragePlane } from '../types';
+import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, JournalOp, OperationState, RuntimeConfig } from '../types';
 import { retryDelayMs } from '../core/fetch/retryPolicy';
 import { isFetchNetworkOnline } from '../core/fetch/networkState';
 import { mmkvStoragePlane } from '../core/planes/storagePlane';
@@ -16,11 +16,6 @@ import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
 
-type RuntimeConfig = Omit<ConfigureDbOptions, 'storage' | 'defaults' | 'dataVersion'> & {
-  storage: StoragePlane;
-  defaults: DbDefaults & { resumeStaleTime: number | null };
-  dataVersion: string | null;
-};
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;

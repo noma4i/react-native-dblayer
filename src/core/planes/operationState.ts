@@ -1,12 +1,10 @@
 import { union } from 'es-toolkit';
-import type { OperationRecord, OperationState , StoragePlane } from '../../types';
+import type { OperationRecord, OperationState , StoragePlane , PersistedOnceKeyRecord } from '../../types';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 
 const ONCE_KEY_RECORD_FORMAT_VERSION = 1;
-type PersistedOnceKeyRecord = { formatVersion: number; keys: string[] };
-
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
 
 /** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`

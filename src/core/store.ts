@@ -1,22 +1,12 @@
 import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
 import { stableSerialize } from './serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
-import type { IncrementalCommitBatch, ModelStore, StoragePlane, StoreMembershipRow, StoreScopeChange, StoreScopeCollection, StoreScopeSyncChange, StoreScopeSyncSource, WriteCtx } from '../types';
-
-type StoreRecord = { id: string } & Record<string, unknown>;
-
-type SyncMethods<T extends object> = {
-  begin: () => void;
-  write: (message: ChangeMessageOrDeleteKeyMessage<T, string>) => void;
-  commit: () => void;
-  markReady: () => void;
-  truncate: () => void;
-};
+import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreMembershipRow, StoreScopeChange, StoreScopeCollection, StoreScopeSyncChange, StoreScopeSyncSource, StoreSyncMethods, Tombstone, WriteCtx } from '../types';
 
 class SyncFeed<T extends object> {
-  private methods: SyncMethods<T> | null = null;
+  private methods: StoreSyncMethods<T> | null = null;
 
-  sync = (methods: SyncMethods<T>): (() => void) => {
+  sync = (methods: StoreSyncMethods<T>): (() => void) => {
     this.methods = methods;
     return () => {
       if (this.methods === methods) this.methods = null;
@@ -43,7 +33,7 @@ class SyncFeed<T extends object> {
     this.requireMethods().markReady();
   }
 
-  private requireMethods(): SyncMethods<T> {
+  private requireMethods(): StoreSyncMethods<T> {
     if (!this.methods) throw new Error('Store sync feed is not connected');
     return this.methods;
   }
@@ -89,9 +79,7 @@ const TOMBSTONE_MIN_AGE_MS = 10 * 60 * 1000;
 const TOMBSTONE_CAP = 10_000;
 const TOMBSTONE_OVERFLOW_CAP = TOMBSTONE_CAP * 2;
 
-type Tombstone = { at: number };
-
-const diffTopLevelFields = (previous: StoreRecord, next: StoreRecord): string[] => {
+const diffTopLevelFields = (previous: RowRecord, next: RowRecord): string[] => {
   const fields = new Set<string>();
   for (const key of Object.keys(next)) {
     if (!Object.is(previous[key], next[key])) fields.add(key);
@@ -105,8 +93,8 @@ const diffTopLevelFields = (previous: StoreRecord, next: StoreRecord): string[] 
 const DELETED = Symbol('store-row-deleted');
 
 /** Store factories are a definition registry (registered at defineModel time, replaced per generation); active stores die on reset. */
-const storeFactories = new Map<string, () => ModelStore<StoreRecord>>();
-const activeStores = new Map<string, ModelStore<StoreRecord>>();
+const storeFactories = new Map<string, () => ModelStore<RowRecord>>();
+const activeStores = new Map<string, ModelStore<RowRecord>>();
 let storeSequence = 0;
 let storeScopeCollectionCount = 0;
 let applyBatchDepth = 0;
@@ -116,11 +104,11 @@ const pendingBatchFlushes = new Set<() => void>();
   count: (): number => storeScopeCollectionCount
 };
 
-export const registerModelStoreFactory = <T extends StoreRecord>(modelId: string, factory: () => ModelStore<T>): void => {
-  storeFactories.set(modelId, factory as () => ModelStore<StoreRecord>);
+export const registerModelStoreFactory = <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>): void => {
+  storeFactories.set(modelId, factory as () => ModelStore<RowRecord>);
 };
 
-const ensureModelStore = (modelId: string): ModelStore<StoreRecord> => {
+const ensureModelStore = (modelId: string): ModelStore<RowRecord> => {
   const active = activeStores.get(modelId);
   if (active) return active;
   const factory = storeFactories.get(modelId);
@@ -149,7 +137,7 @@ export const runInApplyBatch = <T>(run: () => T): T => {
   }
 };
 
-export const createModelStore = <T extends StoreRecord>(options: {
+export const createModelStore = <T extends RowRecord>(options: {
   modelId: string;
   now: () => number;
   storage: StoragePlane;
@@ -158,11 +146,11 @@ export const createModelStore = <T extends StoreRecord>(options: {
   ownedFields?: (rowId: string, excludeOperationId?: string) => ReadonlySet<string>;
 }): ModelStore<T> => {
   const { modelId, now, storage, prefix, ownedFields } = options;
-  const applyWriteGate = options.applyWriteGate as (previous: StoreRecord, incoming: StoreRecord, ctx: WriteCtx) => StoreRecord;
+  const applyWriteGate = options.applyWriteGate as (previous: RowRecord, incoming: RowRecord, ctx: WriteCtx) => RowRecord;
   const storeId = storeSequence += 1;
-  const entityFeed = new SyncFeed<StoreRecord>();
+  const entityFeed = new SyncFeed<RowRecord>();
   const membershipFeed = new SyncFeed<StoreMembershipRow>();
-  const entities = createCollection<StoreRecord>({
+  const entities = createCollection<RowRecord>({
     id: `dblayer-${modelId}-entities-${storeId}`,
     getKey: row => row.id,
     startSync: true,
@@ -177,8 +165,8 @@ export const createModelStore = <T extends StoreRecord>(options: {
   const membershipsByScope = memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
 
   /** Enriched-to-clean row cache: collection reads return virtual-prop copies; our written row objects stay the canonical identities. */
-  const cleanRows = new WeakMap<object, StoreRecord>();
-  const buffer = new Map<string, StoreRecord | typeof DELETED>();
+  const cleanRows = new WeakMap<object, RowRecord>();
+  const buffer = new Map<string, RowRecord | typeof DELETED>();
   let bufferQueued = false;
   const tombstones = new Map<string, Tombstone>();
   const dirty = new Map<string, 'set' | 'delete'>();
@@ -188,15 +176,15 @@ export const createModelStore = <T extends StoreRecord>(options: {
   const rowsPrefix = () => `${prefix()}row:${modelId}:`;
   const tombstonesKey = () => `${prefix()}tombstones:${modelId}`;
 
-  const cleanOf = (enriched: object): StoreRecord => {
+  const cleanOf = (enriched: object): RowRecord => {
     const cached = cleanRows.get(enriched);
     if (cached) return cached;
-    const clean = Object.fromEntries(Object.entries(enriched).filter(([key]) => !key.startsWith('$'))) as StoreRecord;
+    const clean = Object.fromEntries(Object.entries(enriched).filter(([key]) => !key.startsWith('$'))) as RowRecord;
     cleanRows.set(enriched, clean);
     return clean;
   };
 
-  const readCommitted = (id: string): StoreRecord | undefined => {
+  const readCommitted = (id: string): RowRecord | undefined => {
     const enriched = entities.get(id);
     return enriched === undefined ? undefined : cleanOf(enriched);
   };
@@ -204,7 +192,7 @@ export const createModelStore = <T extends StoreRecord>(options: {
   const flushBuffer = (): void => {
     bufferQueued = false;
     if (buffer.size === 0) return;
-    const written: Array<[string, StoreRecord]> = [];
+    const written: Array<[string, RowRecord]> = [];
     entityFeed.start();
     for (const [id, entry] of buffer) {
       if (entry === DELETED) {
@@ -222,7 +210,7 @@ export const createModelStore = <T extends StoreRecord>(options: {
     }
   };
 
-  const bufferWrite = (id: string, entry: StoreRecord | typeof DELETED): void => {
+  const bufferWrite = (id: string, entry: RowRecord | typeof DELETED): void => {
     buffer.set(id, entry);
     if (applyBatchDepth > 0) {
       if (!bufferQueued) {
@@ -265,7 +253,7 @@ export const createModelStore = <T extends StoreRecord>(options: {
     return pruned;
   };
 
-  const read = (id: string): StoreRecord | undefined => {
+  const read = (id: string): RowRecord | undefined => {
     const key = String(id);
     const buffered = buffer.get(key);
     if (buffered !== undefined) return buffered === DELETED ? undefined : buffered;
@@ -355,7 +343,7 @@ export const createModelStore = <T extends StoreRecord>(options: {
   const store: ModelStore<T> = {
     read: id => read(id) as T | undefined,
     values: () => {
-      const rows: StoreRecord[] = [];
+      const rows: RowRecord[] = [];
       for (const enriched of entities.toArray) {
         const clean = cleanOf(enriched);
         const buffered = buffer.get(clean.id);
@@ -370,7 +358,7 @@ export const createModelStore = <T extends StoreRecord>(options: {
       return rows as T[];
     },
     upsert: (incoming, upsertOptions = {}) => {
-      let row: StoreRecord = incoming;
+      let row: RowRecord = incoming;
       const id = String(row.id);
       if (row.id !== id) row = { ...row, id };
       const previous = read(row.id);
@@ -380,11 +368,11 @@ export const createModelStore = <T extends StoreRecord>(options: {
       if (mergePrevious && ctx.origin !== 'replace' && ctx.operationId === undefined && ownedFields) {
         const owned = ownedFields(row.id, ctx.operationId);
         if (owned.size > 0) {
-          let overlaid: StoreRecord | undefined;
+          let overlaid: RowRecord | undefined;
           for (const field of owned) {
             if (!(field in mergePrevious)) continue;
             overlaid ??= { ...row };
-            overlaid[field] = (mergePrevious as StoreRecord)[field];
+            overlaid[field] = (mergePrevious as RowRecord)[field];
           }
           row = overlaid ?? row;
         }
@@ -440,12 +428,12 @@ export const createModelStore = <T extends StoreRecord>(options: {
       tombstones.clear();
       dirty.clear();
       tombstonesDirty = false;
-      const loaded: StoreRecord[] = [];
+      const loaded: RowRecord[] = [];
       for (const fullKey of storage.keys(rowsPrefix())) {
         const raw = storage.get(fullKey);
         if (!raw) continue;
         try {
-          const row = JSON.parse(raw) as StoreRecord;
+          const row = JSON.parse(raw) as RowRecord;
           if (typeof row.id !== 'string') row.id = String(row.id);
           loaded.push(row);
         } catch {
@@ -523,7 +511,7 @@ export const createModelStore = <T extends StoreRecord>(options: {
       if (activeStores.get(modelId) === store) activeStores.delete(modelId);
     }
   };
-  activeStores.set(modelId, store as ModelStore<StoreRecord>);
+  activeStores.set(modelId, store as ModelStore<RowRecord>);
   return store;
 };
 

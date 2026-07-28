@@ -3,23 +3,7 @@ import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
 import { runPendingTempRowMaintenance } from '../dsl/maintenanceRegistry';
-import type { GcReport } from '../types';
-
-type GcHost = {
-  modelId: string;
-  exempt: boolean;
-  rowIds(): string[];
-  hasRow(id: string): boolean;
-  scopeKeys(): string[];
-  scopeEntryIds(key: string): string[];
-  detachScopeEntries(key: string, ids: string[]): void;
-  scopeEntryCount(key: string): number;
-  removeScope(key: string): void;
-  idleScopeAfterMs?(): number | undefined;
-  scopeLastAccess?(key: string): number | undefined;
-  evict(id: string): boolean;
-  referencesOf(id: string): Array<{ model: string; id: string }>;
-};
+import type { GcHost, GcReport } from '../types';
 
 const hosts = new Map<string, GcHost>();
 const hostGenerations = new Map<string, number>();

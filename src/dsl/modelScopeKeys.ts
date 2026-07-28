@@ -1,13 +1,8 @@
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
-import type { ModelFieldSpecs } from '../types';
+import type { ModelFieldSpecs, ModelScopeKeys } from '../types';
 import { readModelField } from './modelNormalization';
 import { isRecord } from '../utils/normalizeHelpers';
-
-type ModelScopeKeys = {
-  keyForScope(scopeName: string, scopeValue: unknown): string;
-  scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
-};
 
 export const createModelScopeKeys = (
   config: { name: string; fields: ModelFieldSpecs },

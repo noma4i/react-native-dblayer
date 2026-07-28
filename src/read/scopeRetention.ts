@@ -1,14 +1,6 @@
 import { useRef } from 'react';
+import type { RetainedScopeSnapshot, RetentionState } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
-
-type RetainedScopeSnapshot<T> = { rows: T[]; totalCount: number };
-
-type RetentionState<T, TSnapshot extends RetainedScopeSnapshot<T>> = {
-  generation: number;
-  scopeKey: string | null;
-  currentResolved: boolean;
-  lastNonEmpty: TSnapshot | null;
-};
 
 /** Retain one hook's last non-empty scope snapshot only while a new key remains unresolved. */
 export const useScopeRetention = <T, TSnapshot extends RetainedScopeSnapshot<T>>(

@@ -16,3 +16,9 @@ export type CheckpointScheduler = {
   pendingPlans(): number;
   cancel(): void;
 };
+
+/** Anything the checkpoint can flush: persist entries plus the post-write acknowledgement. */
+export type CheckpointTarget = {
+  persistEntries(): Array<{ key: string; value: string | null }>;
+  ackPersist(): void;
+};

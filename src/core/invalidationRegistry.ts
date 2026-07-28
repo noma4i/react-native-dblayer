@@ -1,5 +1,4 @@
-type InvalidateFn = (scope?: unknown) => void;
-
+import type { InvalidateFn } from '../types';
 const registry = new Map<string, Set<InvalidateFn>>();
 
 /**

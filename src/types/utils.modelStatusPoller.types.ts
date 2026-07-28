@@ -18,3 +18,32 @@ export type ModelStatusPoller = {
   /** Reactively read the stable phase snapshot for one id. */
   usePhase: (id: string) => ModelStatusPollerPhase;
 };
+
+/** One live polling session: refcount, schedule, attempt budget and single-flighted tick. */
+export type PollerSession = {
+  refs: number;
+  intervalId: ReturnType<typeof setInterval> | null;
+  attempts: number;
+  /** Single-flighted tick runner: overlapping callers share the one in-flight fetch instead of re-entering. */
+  runTick: () => Promise<void>;
+  phase: ModelStatusPollerPhase['phase'];
+};
+
+/** Why a polling session stopped: terminal payload, exhausted budget, or detach. */
+export type ModelStatusPollerStopReason = NonNullable<ModelStatusPollerPhase['reason']>;
+
+/** `Model.poller` configuration: fetch/apply pair, terminal classification, cadence and budget. */
+export type ModelStatusPollerConfig<TResult> = {
+  /** Fetch the latest status payload for an id. */
+  fetch: (id: string) => Promise<TResult>;
+  /** Apply a fetched status payload to the owning model. */
+  apply: (id: string, result: TResult) => void;
+  /** Classify a fetched payload as ready, failed, or non-terminal. */
+  classify?: (result: TResult) => 'ready' | 'failed' | null;
+  /** Called once when a session reaches a terminal payload, exhausts its budget, or is detached. */
+  onSessionStop?: (id: string, reason: ModelStatusPollerStopReason) => void;
+  /** Interval between scheduled status refreshes. */
+  intervalMs: number;
+  /** Maximum number of fetch attempts before a non-terminal session stalls. */
+  maxAttempts: number;
+};

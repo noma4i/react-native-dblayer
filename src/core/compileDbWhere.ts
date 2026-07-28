@@ -1,9 +1,6 @@
-import type { DbWhere } from '../types';
+import type { DbWhere, DbWhereOperator, StoredRow } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { compareCodepoints, stableSerialize } from './serialize';
-
-type QueryRow = Record<string, unknown>;
-type DbWhereOperator<T> = { and: Array<DbWhere<T>> } | { or: Array<DbWhere<T>> } | { not: DbWhere<T> };
 
 const isOperatorNode = <TStored>(where: DbWhere<TStored>): where is DbWhereOperator<TStored> => {
   if (!isNonArrayRecord(where)) return false;
@@ -41,7 +38,7 @@ const operatorMatches = (rowValue: unknown, operators: Record<string, unknown>):
 const leafMatches = <TStored>(row: TStored, condition: Partial<TStored>): boolean =>
   Object.entries(condition)
     .filter(([, value]) => value !== undefined)
-    .every(([key, value]) => (isWhereOperatorValue(value) ? operatorMatches((row as QueryRow)[key], value) : (row as QueryRow)[key] === value));
+    .every(([key, value]) => (isWhereOperatorValue(value) ? operatorMatches((row as StoredRow)[key], value) : (row as StoredRow)[key] === value));
 
 export const matchesDbWhere = <TStored>(row: TStored, where: DbWhere<TStored> | undefined): boolean => {
   if (!where) return true;

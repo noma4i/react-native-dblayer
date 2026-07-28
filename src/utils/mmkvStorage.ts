@@ -1,8 +1,5 @@
-import type { createMMKV } from 'react-native-mmkv';
 
-type MmkvModule = { createMMKV: typeof createMMKV };
-type MmkvStorage = ReturnType<typeof createMMKV>;
-
+import type { MmkvModule, MmkvStorage } from '../types';
 declare const require: <T>(moduleName: string) => T;
 
 let dbStorage: MmkvStorage | null = null;

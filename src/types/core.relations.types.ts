@@ -6,8 +6,10 @@ export type ModelRef<TStored> = {
   where(where: Record<string, unknown>): TStored[];
 };
 
-type StoredRow = Record<string, unknown>;
-type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
+/** Untyped stored row: arbitrary model fields without an id requirement. */
+export type StoredRow = Record<string, unknown>;
+/** Parent-touch producer: derives a parent patch from a child write, or null to skip. */
+export type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
 
 export type RelationDecl =
   | { kind: 'belongsTo'; model: ModelRef<StoredRow>; foreignKey: string; touch?: TouchFn; counterCache?: { field: string; filter?: (child: StoredRow) => boolean } }
@@ -19,3 +21,19 @@ export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: st
 
 export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace' };
 export type DestroyedRow = { model: string; id: string; before: StoredRow; origin?: 'replace' };
+
+/** Model surface relation effects read and plan against. */
+export type RelationHost = {
+  relations(): Record<string, RelationDecl>;
+  has(id: string): boolean;
+  read(id: string): StoredRow | undefined;
+  normalize(input: unknown): StoredRow | null;
+  membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
+  detachForDestroy(id: string): MembershipDelta[];
+};
+
+/** One planned parent-touch application with its pre-touch view for inverse plans. */
+export type TouchEntry = { model: string; id: string; view: StoredRow; patch: StoredRow };
+
+/** Address of one counter-cache field on a parent row. */
+export type CounterRef = { model: string; id: string; field: string };

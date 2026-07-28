@@ -1,5 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Dependency, ModelCore, RelationDecl, ScopeHandle, ViewConfig, ViewHandle, ViewIncludeModel } from '../types';
+import type {
+  Dependency,
+  EvaluatedView,
+  InternalIdInclude,
+  InternalViewConfig,
+  ModelCore,
+  RelationDecl,
+  RowRecord,
+  ScopeHandle,
+  ViewCacheEntry,
+  ViewConfig,
+  ViewForeignKeyIndex,
+  ViewHandle,
+  ViewIncluded,
+  ViewIncludeModel,
+  ViewItemSnapshot,
+  ViewWindowCache
+} from '../types';
 import { noteFkIndex } from '../core/diagnostics';
 import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
@@ -10,31 +27,12 @@ import { hasRequiredFields } from '../read/requireFields';
 import { getCommitBus, getDbRuntimeConfig } from './configure';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 
-type Row = { id: string; [key: string]: unknown };
-type Included = Record<string, unknown>;
-type InternalComputedInclude = [ViewIncludeModel, (row: Row) => string | string[] | null];
-type InternalRelationInclude = { require?: readonly string[]; renderKeys?: readonly string[] };
-type InternalIdInclude = { model: ViewIncludeModel; ids: (row: Row) => string | string[] | null; require?: readonly string[]; renderKeys?: readonly string[] };
-type InternalIncludeConfig = string | InternalComputedInclude | InternalRelationInclude | InternalIdInclude;
-type InternalViewConfig<TItem> = {
-  source: string | ScopeHandle<Row, Record<string, unknown>>;
-  include: Record<string, InternalIncludeConfig>;
-  select?: (row: Row, included: Included, ctx: { index: number }) => TItem;
-  renderKeys?: readonly string[];
-};
 
-
-type CacheEntry<TItem> = { row: Row; included: Included; item: TItem };
-type WindowCache<TItem> = { items: TItem[]; size: number; rows: TItem[] };
-type ItemSnapshot<TItem> = { items: TItem[]; totalCount: number; resolved: boolean };
-type EvaluatedView<TItem> = { scopeKey: string | null; limit: number | null; snapshot: ItemSnapshot<TItem>; deps: Dependency[] };
-type ForeignKeyIndex = { rowsByForeignKey: Map<string, Row[]>; fkById: Map<string, string>; unsubscribe: () => void };
-
-const foreignKeyIndexes = new Map<string, ForeignKeyIndex>();
+const foreignKeyIndexes = new Map<string, ViewForeignKeyIndex>();
 
 const foreignKeyIndexKey = (targetModelId: string, foreignKey: string): string => compositeKey(targetModelId, foreignKey);
 
-const removeIndexedRow = (index: ForeignKeyIndex, foreignKey: string, id: string): void => {
+const removeIndexedRow = (index: ViewForeignKeyIndex, foreignKey: string, id: string): void => {
   const bucket = index.rowsByForeignKey.get(foreignKey);
   if (!bucket) return;
   const position = bucket.findIndex(row => row.id === id);
@@ -42,13 +40,13 @@ const removeIndexedRow = (index: ForeignKeyIndex, foreignKey: string, id: string
   if (bucket.length === 0) index.rowsByForeignKey.delete(foreignKey);
 };
 
-const foreignKeyIndexFor = (target: ViewIncludeModel, foreignKey: string): ForeignKeyIndex => {
+const foreignKeyIndexFor = (target: ViewIncludeModel, foreignKey: string): ViewForeignKeyIndex => {
   const key = foreignKeyIndexKey(target.modelId, foreignKey);
   const existing = foreignKeyIndexes.get(key);
   if (existing) return existing;
-  const rowsByForeignKey = new Map<string, Row[]>();
+  const rowsByForeignKey = new Map<string, RowRecord[]>();
   const fkById = new Map<string, string>();
-  for (const row of target.all() as Row[]) {
+  for (const row of target.all() as RowRecord[]) {
     const value = row[foreignKey];
     if (typeof value !== 'string') continue;
     const bucket = rowsByForeignKey.get(value) ?? [];
@@ -56,13 +54,13 @@ const foreignKeyIndexFor = (target: ViewIncludeModel, foreignKey: string): Forei
     rowsByForeignKey.set(value, bucket);
     fkById.set(row.id, value);
   }
-  const index: ForeignKeyIndex = { rowsByForeignKey, fkById, unsubscribe: () => undefined };
+  const index: ViewForeignKeyIndex = { rowsByForeignKey, fkById, unsubscribe: () => undefined };
   index.unsubscribe = getCommitBus().subscribeAll(batch => {
     let updates = 0;
     for (const change of batch.rows) {
       if (change.model !== target.modelId) continue;
       const previousForeignKey = index.fkById.get(change.id);
-      const next = target.find(change.id) as Row | null | undefined;
+      const next = target.find(change.id) as RowRecord | null | undefined;
       const nextForeignKey = typeof next?.[foreignKey] === 'string' ? (next[foreignKey] as string) : undefined;
       if (previousForeignKey && previousForeignKey !== nextForeignKey) removeIndexedRow(index, previousForeignKey, change.id);
       if (!nextForeignKey || !next) {
@@ -93,7 +91,7 @@ registerReset(() => {
 const idsOf = (value: string | string[] | null): string[] =>
   (Array.isArray(value) ? value : value == null ? [] : [value]).filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-const resolveRelation = (row: Row, relation: RelationDecl, rowsFor: (foreignKey: string, id: string) => Row[]): unknown => {
+const resolveRelation = (row: RowRecord, relation: RelationDecl, rowsFor: (foreignKey: string, id: string) => RowRecord[]): unknown => {
   if (relation.kind === 'belongsTo') {
     const id = row[relation.foreignKey];
     return typeof id === 'string' ? (relation.model.find(id) ?? null) : null;
@@ -121,13 +119,13 @@ const normalizeViewConfig = <TRow extends { id: string }, TIncluded extends Reco
  * @param config Source scope, include declarations, projection, and optional render identity keys.
  * @returns A hook handle with full-scope and local-window reads.
  */
-export const defineView = <TRow extends Row, TIncluded extends Record<string, unknown>, TItem, TScope>(
+export const defineView = <TRow extends RowRecord, TIncluded extends Record<string, unknown>, TItem, TScope>(
   model: ModelCore<TRow>,
   name: string,
   publicConfig: ViewConfig<TRow, TIncluded, TItem>
 ): ViewHandle<TItem, TScope> => {
   const config = normalizeViewConfig(publicConfig);
-  const source = (typeof config.source === 'string' ? model.scopes[config.source] : config.source) as ScopeHandle<Row, TScope> | undefined;
+  const source = (typeof config.source === 'string' ? model.scopes[config.source] : config.source) as ScopeHandle<RowRecord, TScope> | undefined;
   if (!source || source.modelId !== model.modelId) throw new Error(`${model.modelId} has no scope ${typeof config.source === 'string' ? config.source : name} for view ${name}`);
   validateProjectionOptions(config, `${model.modelId}.view.${name}`, { allowCombined: true });
   const relations = getInternalModelHandle(model).relations();
@@ -138,21 +136,21 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
     if (relationName && relations[relationName]!.kind === 'references') throw new Error(`Model.view does not support references includes`);
   }
 
-  const useItems = (scopeValue: TScope | null | undefined, limit: number | null): ItemSnapshot<TItem> => {
-    const cacheRef = useRef(new Map<string, CacheEntry<TItem>>());
-    const projectionGateRef = useRef(createProjectionGate<Row, Row>());
-    const includeProjectionGatesRef = useRef(new Map<string, ReturnType<typeof createProjectionGate<Row, Row>>>());
+  const useItems = (scopeValue: TScope | null | undefined, limit: number | null): ViewItemSnapshot<TItem> => {
+    const cacheRef = useRef(new Map<string, ViewCacheEntry<TItem>>());
+    const projectionGateRef = useRef(createProjectionGate<RowRecord, RowRecord>());
+    const includeProjectionGatesRef = useRef(new Map<string, ReturnType<typeof createProjectionGate<RowRecord, RowRecord>>>());
     const evaluatedRef = useRef<EvaluatedView<TItem> | null>(null);
-    const projectIncludedRow = (alias: string, row: Row, renderKeys: readonly string[] | undefined): Row => {
+    const projectIncludedRow = (alias: string, row: RowRecord, renderKeys: readonly string[] | undefined): RowRecord => {
       if (!renderKeys) return row;
       let gate = includeProjectionGatesRef.current.get(alias);
       if (!gate) {
-        gate = createProjectionGate<Row, Row>();
+        gate = createProjectionGate<RowRecord, RowRecord>();
         includeProjectionGatesRef.current.set(alias, gate);
       }
       return gate.projectValue(row.id, row, row, renderKeys);
     };
-    const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): Row[] => {
+    const rowsFor = (relation: RelationDecl, foreignKey: string, id: string): RowRecord[] => {
       const index = foreignKeyIndexFor(relation.model as unknown as ViewIncludeModel, foreignKey);
       // Callers transform results immediately and must not retain these mutable bucket arrays.
       return index.rowsByForeignKey.get(id) ?? [];
@@ -178,7 +176,7 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
       const liveIds = new Set(rows.map(row => row.id));
       const items = visibleRows.map((row, index) => {
         deps.push({ kind: 'row', model: model.modelId, id: row.id });
-        const included: Included = {};
+        const included: ViewIncluded = {};
         for (const [alias, include] of Object.entries(config.include)) {
           const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
           const includeRenderKeys = typeof include === 'object' && !Array.isArray(include) ? include.renderKeys : undefined;
@@ -187,16 +185,16 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
             const required = typeof include === 'object' && !Array.isArray(include) ? include.require : undefined;
             const resolved = resolveRelation(row, relation, (foreignKey, id) => rowsFor(relation, foreignKey, id));
             included[alias] = Array.isArray(resolved)
-              ? resolved.filter(candidate => hasRequiredFields(candidate as Row | null, required ?? [])).map(candidate => projectIncludedRow(alias, candidate as Row, includeRenderKeys))
-              : hasRequiredFields(resolved as Row | null, required ?? [])
-                ? projectIncludedRow(alias, resolved as Row, includeRenderKeys)
+              ? resolved.filter(candidate => hasRequiredFields(candidate as RowRecord | null, required ?? [])).map(candidate => projectIncludedRow(alias, candidate as RowRecord, includeRenderKeys))
+              : hasRequiredFields(resolved as RowRecord | null, required ?? [])
+                ? projectIncludedRow(alias, resolved as RowRecord, includeRenderKeys)
                 : null;
             if (relation.kind === 'belongsTo') {
               const id = row[relation.foreignKey];
               if (typeof id === 'string') deps.push({ kind: 'row', model: relation.model.modelId, id });
             } else {
               const relatedRows = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
-              for (const relatedRow of relatedRows) deps.push({ kind: 'row', model: relation.model.modelId, id: (relatedRow as Row).id });
+              for (const relatedRow of relatedRows) deps.push({ kind: 'row', model: relation.model.modelId, id: (relatedRow as RowRecord).id });
             }
           } else {
             const idInclude = include as InternalIdInclude;
@@ -208,14 +206,14 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
             const resolved = ids
               .map(id => target.find(id))
               .filter(candidate => hasRequiredFields(candidate, required ?? []))
-              .map(candidate => projectIncludedRow(alias, candidate as Row, includeRenderKeys));
+              .map(candidate => projectIncludedRow(alias, candidate as RowRecord, includeRenderKeys));
             included[alias] = Array.isArray(rawIds) ? resolved : (resolved[0] ?? null);
             for (const id of ids) deps.push({ kind: 'row', model: target.modelId, id });
           }
         }
         const current = cacheRef.current.get(row.id);
         if (current && current.row === row && rowsShallowEqual(current.included, included)) return current.item;
-        const candidate = (config.select ? config.select(row, included, { index }) : { ...row, ...included }) as Row;
+        const candidate = (config.select ? config.select(row, included, { index }) : { ...row, ...included }) as RowRecord;
         const item = projectionGateRef.current.projectValue(row.id, candidate, candidate, config.renderKeys) as TItem;
         cacheRef.current.set(row.id, { row, included, item });
         return item;
@@ -256,7 +254,7 @@ export const defineView = <TRow extends Row, TIncluded extends Record<string, un
       const [state, setState] = useState({ scopeKey, size: pageSize });
       const size = state.scopeKey === scopeKey ? state.size : pageSize;
       if (state.scopeKey !== scopeKey) setState({ scopeKey, size: pageSize });
-      const windowRef = useRef<WindowCache<TItem> | null>(null);
+      const windowRef = useRef<ViewWindowCache<TItem> | null>(null);
       const snapshot = useItems(scopeValue, size);
       const items = snapshot.items;
       const cached = windowRef.current;

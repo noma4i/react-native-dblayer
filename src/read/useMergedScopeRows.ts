@@ -1,9 +1,6 @@
 import { useMemo, useRef } from 'react';
+import type { MergeOptions } from '../types';
 import { arraysShallowEqual } from './useLiveRead';
-
-type MergeOptions<TRow> = {
-  comparator?: (left: TRow, right: TRow) => number;
-};
 
 /**
  * Merges a base scope read with extra rows from a second scope read.

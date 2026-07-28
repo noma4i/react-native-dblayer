@@ -1,8 +1,6 @@
-import type { StorageAdapter } from '../types';
+import type { MmkvStorageModule , StorageAdapter } from '../types';
 import { createConfiguredSlot } from './configuredSlot';
 
-
-type MmkvStorageModule = typeof import('../utils/mmkvStorage');
 
 declare const require: <T>(moduleName: string) => T;
 

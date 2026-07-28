@@ -3,22 +3,16 @@ import { getApplyTarget } from '../core/apply/transaction';
 import { noteScopeReadPass } from '../core/diagnostics';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { storeScopeCollection } from '../core/store';
-import type { StoreScopeChange, StoreScopeRow , ProjectionOptions } from '../types';
+import type { RequireGate, RowRecord, ScopeProjectionOptions, ScopeReadWorkSnapshot, ScopeSortMeta, ScopeWindowSnapshot, StoreScopeChange, StoreScopeRow } from '../types';
 import { createProjectionGate, validateProjectionOptions } from './projectionGate';
 import { hasRequiredFields } from './requireFields';
 import { useScopeRetention } from './scopeRetention';
 import { incrementalSignature } from './incrementalReadEngine';
 import { arraysShallowEqual, rowsShallowEqual } from './useLiveRead';
 
-type StoredRowShape = { id: string } & Record<string, unknown>;
-type ScopeSortMeta = { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
-type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<StoredRowShape, TOutput> & { keepPrevious?: boolean; require?: ReadonlyArray<string> };
-type ScopeWindowSnapshot = { rows: StoredRowShape[]; totalCount: number; isPreviousData: boolean; resolved: boolean };
-type RequireGate = { source: StoredRowShape[] | null; require: ReadonlyArray<string> | undefined; result: StoredRowShape[] };
 
-const EMPTY_ROWS: StoredRowShape[] = [];
+const EMPTY_ROWS: RowRecord[] = [];
 
-type ScopeReadWorkSnapshot = { fullRows: number; incrementalRows: number };
 
 const scopeReadWork: ScopeReadWorkSnapshot = { fullRows: 0, incrementalRows: 0 };
 
@@ -36,13 +30,13 @@ const noteScopeReadWork = (kind: keyof ScopeReadWorkSnapshot, count: number): vo
   scopeReadWork[kind] += count;
 };
 
-const requireFilteredRows = (rows: StoredRowShape[], require: ReadonlyArray<string> | undefined): StoredRowShape[] => {
+const requireFilteredRows = (rows: RowRecord[], require: ReadonlyArray<string> | undefined): RowRecord[] => {
   if (!require || require.length === 0) return rows;
   const filtered = rows.filter(row => hasRequiredFields(row, require));
   return filtered.length === rows.length ? rows : filtered;
 };
 
-const readRequireGate = (cache: { current: RequireGate }, source: StoredRowShape[], require: ReadonlyArray<string> | undefined): StoredRowShape[] => {
+const readRequireGate = (cache: { current: RequireGate }, source: RowRecord[], require: ReadonlyArray<string> | undefined): RowRecord[] => {
   const current = cache.current;
   if (current.source === source && current.require === require) return current.result;
   const result = requireFilteredRows(source, require);
@@ -51,16 +45,16 @@ const readRequireGate = (cache: { current: RequireGate }, source: StoredRowShape
 };
 
 const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {
-  const rowCache = new Map<string, StoredRowShape>();
-  const sourceCache = new WeakMap<StoredRowShape, StoredRowShape>();
+  const rowCache = new Map<string, RowRecord>();
+  const sourceCache = new WeakMap<RowRecord, RowRecord>();
   const source = scopeKey == null ? null : storeScopeCollection(modelId, scopeKey);
   let entries: StoreScopeRow[] = [];
   let rows = EMPTY_ROWS;
   let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
-  const resolveRow = (sourceRow: StoredRowShape, kind: keyof ScopeReadWorkSnapshot): StoredRowShape => {
+  const resolveRow = (sourceRow: RowRecord, kind: keyof ScopeReadWorkSnapshot): RowRecord => {
     const cached = sourceCache.get(sourceRow);
     if (cached) return cached;
-    const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as StoredRowShape;
+    const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;
     const current = rowCache.get(next.id);
     const resolved = current && rowsShallowEqual(current, next) ? current : next;
     if (resolved !== current) noteScopeReadWork(kind, 1);
@@ -90,7 +84,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
       entries.splice(currentIndex, 1);
       rows = [...rows.slice(0, currentIndex), ...rows.slice(currentIndex + 1)];
     }
-    const nextRow = resolveRow(entry as StoredRowShape, kind);
+    const nextRow = resolveRow(entry as RowRecord, kind);
     const nextIndex = insertionIndex(entry);
     entries.splice(nextIndex, 0, entry);
     rows = [...rows.slice(0, nextIndex), nextRow, ...rows.slice(nextIndex)];
@@ -110,7 +104,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
   };
   if (source) {
     entries = source.toArray().filter(isScopeRow);
-    rows = entries.map(entry => resolveRow(entry as StoredRowShape, 'fullRows'));
+    rows = entries.map(entry => resolveRow(entry as RowRecord, 'fullRows'));
   }
   const applyChanges = (changes: StoreScopeChange[]): boolean => {
     let changed = false;
@@ -171,7 +165,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
   return engine;
 };
 
-const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: StoredRowShape[]) => TSnapshot): TSnapshot => {
+const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: RowRecord[]) => TSnapshot): TSnapshot => {
   const signature = incrementalSignature('scope-read', modelId, scopeKey, sortMeta);
   const engineRef = useRef<ReturnType<typeof createScopeReadEngine> | null>(null);
   if (!engineRef.current || engineRef.current.signature !== signature || engineRef.current.generation !== getRuntimeGeneration()) {
@@ -185,10 +179,10 @@ const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | nu
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
-export function useScopeReadRows<TOutput extends Record<string, unknown> = StoredRowShape>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean, options: ScopeProjectionOptions<TOutput> = {}): TOutput[] {
+export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRecord>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean, options: ScopeProjectionOptions<TOutput> = {}): TOutput[] {
   validateProjectionOptions(options, `${modelId}.scope.use`);
   const optionsRef = useRef(options);
-  const gateRef = useRef(createProjectionGate<StoredRowShape, TOutput>());
+  const gateRef = useRef(createProjectionGate<RowRecord, TOutput>());
   const storeRef = useRef<{ rows: TOutput[]; resolved: boolean }>({ rows: [], resolved: false });
   const requireGateRef = useRef<RequireGate>({ source: null, require: undefined, result: EMPTY_ROWS });
   optionsRef.current = options;
@@ -205,12 +199,12 @@ export function useScopeReadRows<TOutput extends Record<string, unknown> = Store
 export function useScopeReadWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number, isResolved: () => boolean, options: ScopeProjectionOptions<Record<string, unknown>> = {}): ScopeWindowSnapshot {
   validateProjectionOptions(options, `${modelId}.scope.useWindow`);
   const optionsRef = useRef(options);
-  const gateRef = useRef(createProjectionGate<StoredRowShape, Record<string, unknown>>());
+  const gateRef = useRef(createProjectionGate<RowRecord, Record<string, unknown>>());
   const requireGateRef = useRef<RequireGate>({ source: null, require: undefined, result: EMPTY_ROWS });
-  const windowRef = useRef<{ source: StoredRowShape[]; size: number; resolved: boolean; snapshot: ScopeWindowSnapshot }>({ source: EMPTY_ROWS, size: 0, resolved: false, snapshot: { rows: EMPTY_ROWS, totalCount: 0, isPreviousData: false, resolved: false } });
+  const windowRef = useRef<{ source: RowRecord[]; size: number; resolved: boolean; snapshot: ScopeWindowSnapshot }>({ source: EMPTY_ROWS, size: 0, resolved: false, snapshot: { rows: EMPTY_ROWS, totalCount: 0, isPreviousData: false, resolved: false } });
   optionsRef.current = options;
   const snapshot = useScopeReadSnapshot(modelId, scopeKey, sortMeta, stored => {
-    const source = gateRef.current.projectRows(readRequireGate(requireGateRef, stored, optionsRef.current.require), optionsRef.current) as StoredRowShape[];
+    const source = gateRef.current.projectRows(readRequireGate(requireGateRef, stored, optionsRef.current.require), optionsRef.current) as RowRecord[];
     const resolved = isResolved();
     if (windowRef.current.source === source && windowRef.current.size === windowSize && windowRef.current.resolved === resolved) return windowRef.current.snapshot;
     const rows = source.slice(0, windowSize);
