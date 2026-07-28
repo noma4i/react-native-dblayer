@@ -39,6 +39,36 @@ describe('subscription runtime correctness', () => {
     }
   });
 
+  it('debounces each bucket on its own trailing window and delivers only the latest payload', () => {
+    jest.useFakeTimers();
+    try {
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      const received: string[] = [];
+      const runtime = createDbSubscriptionRuntime([
+        {
+          key: 'event',
+          query: document,
+          debounce: { ms: 50, keyOf: payload => (payload as { bucket: string }).bucket },
+          onData: payload => received.push((payload as { bucket: string; value: string }).value)
+        }
+      ]);
+
+      runtime.dispatch('event', { bucket: 'first', value: 'first-v1' });
+      runtime.dispatch('event', { bucket: 'second', value: 'second-v1' });
+      jest.advanceTimersByTime(49);
+      runtime.dispatch('event', { bucket: 'first', value: 'first-v2' });
+      jest.advanceTimersByTime(1);
+      expect(received).toEqual(['second-v1']);
+      jest.advanceTimersByTime(48);
+      expect(received).toEqual(['second-v1']);
+      jest.advanceTimersByTime(1);
+      expect(received).toEqual(['second-v1', 'first-v2']);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('rolls back earlier subscriptions when a later entry throws during activation', () => {
     let attempts = 0;
     let shouldThrow = true;

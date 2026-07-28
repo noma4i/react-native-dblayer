@@ -1,6 +1,7 @@
 import { getDbLogger } from './logger';
 import { getDbTransport } from './transport';
 import { registerReset } from './reset';
+import { Debouncer } from '@tanstack/pacer';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from '../types/subscription.types';
@@ -10,15 +11,10 @@ const GLOBAL_DEBOUNCE_KEY = '__global__';
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30000;
 
-type DebounceBucket = {
-  timer: ReturnType<typeof setTimeout>;
-  payload: unknown;
-};
-
 type SubscriptionEntryState = {
   entry: DbSubscriptionEntry;
   unsubscribe: (() => void) | null;
-  debounceBuckets: Map<string, DebounceBucket>;
+  debounceBuckets: Map<string, Debouncer<(payload: unknown) => void>>;
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryAttempts: number;
   eventCount: number;
@@ -48,7 +44,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   const states = runtimeEntries.map(entry => ({
     entry,
     unsubscribe: null,
-    debounceBuckets: new Map<string, DebounceBucket>(),
+    debounceBuckets: new Map<string, Debouncer<(payload: unknown) => void>>(),
     retryTimer: null,
     retryAttempts: 0,
     eventCount: 0,
@@ -66,7 +62,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   const isCurrentGeneration = (): boolean => context.generationFence.isCurrent();
 
   const clearDebounceBuckets = (state: SubscriptionEntryState): void => {
-    state.debounceBuckets.forEach(bucket => clearTimeout(bucket.timer));
+    state.debounceBuckets.forEach(bucket => bucket.cancel());
     state.debounceBuckets.clear();
   };
   const clearRetryTimer = (state: SubscriptionEntryState): void => {
@@ -99,15 +95,15 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
       return;
     }
     const bucketKey = debounce.keyOf?.(payload) ?? GLOBAL_DEBOUNCE_KEY;
-    const previous = state.debounceBuckets.get(bucketKey);
-    if (previous) clearTimeout(previous.timer);
-    const timer = setTimeout(() => {
-      const bucket = state.debounceBuckets.get(bucketKey);
-      if (!bucket) return;
-      state.debounceBuckets.delete(bucketKey);
-      runHandler(state, bucket.payload);
-    }, debounce.ms);
-    state.debounceBuckets.set(bucketKey, { timer, payload });
+    let bucket = state.debounceBuckets.get(bucketKey);
+    if (!bucket) {
+      bucket = new Debouncer(latestPayload => {
+        state.debounceBuckets.delete(bucketKey);
+        runHandler(state, latestPayload);
+      }, { wait: debounce.ms });
+      state.debounceBuckets.set(bucketKey, bucket);
+    }
+    bucket.maybeExecute(payload);
   };
   const isCurrentAttempt = (state: SubscriptionEntryState, epoch: number, token: number): boolean =>
     context.active && isCurrentGeneration() && epoch === context.activationEpoch && state.attemptToken === token;

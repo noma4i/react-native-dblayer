@@ -99,6 +99,7 @@
   },
   "dependencies": {
     "@tanstack/db": "0.6.17",
+    "@tanstack/pacer": "0.21.1",
     "@tanstack/react-db": "0.1.95",
     "es-toolkit": "^1.49.0"
   }
