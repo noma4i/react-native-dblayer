@@ -77,6 +77,7 @@ describe('read diagnostics', () => {
       resumeDrains: 0,
       resumeRefetches: 0,
       entityUpsertGuardHits: 0,
+      membershipWrites: 0,
       corruptionJournalDrops: 0,
       corruptionJournalLosses: 0,
       corruptionLedgerResets: 0,

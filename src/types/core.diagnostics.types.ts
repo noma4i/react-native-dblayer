@@ -41,6 +41,7 @@ export type DiagnosticsState = {
   resumeDrains: number;
   resumeRefetches: number;
   entityUpsertGuardHits: number;
+  membershipWrites: number;
   corruptionJournalDrops: number;
   corruptionJournalLosses: number;
   corruptionLedgerResets: number;

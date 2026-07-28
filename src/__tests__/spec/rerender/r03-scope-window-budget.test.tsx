@@ -189,6 +189,29 @@ describe('rerender matrix scope window budget', () => {
     reader.unmount();
   });
 
+  // A shuffled payload of UNCHANGED rows exercises the planner's canonicalization alone: no field
+  // changed, so no reposition pass runs, and only the plan-time sort keeps the scope order canonical.
+  it('keeps the canonical sorted order when a complete payload arrives shuffled', () => {
+    setupSpecRuntime();
+    const rows = createRows();
+    seedRows(rows);
+    const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));
+    const initial = reader.result();
+    expect(initial.map(row => row.rank)).toEqual([...initial.map(row => row.rank)].sort((a, b) => a - b));
+
+    diagnostics().reset();
+    act(() => {
+      rows.scopes.byGroup.seed(
+        { groupId: 'g1' },
+        [...initial].reverse().map(row => ({ ...row }))
+      );
+    });
+
+    expect(reader.result().map(row => row.id)).toEqual(initial.map(row => row.id));
+    expect(diagnostics().snapshot().scopeReadResorts).toBe(0);
+    reader.unmount();
+  });
+
   it('preserves selected row identities across a fresh scope snapshot', () => {
     setupSpecRuntime();
     const rows = createRows();

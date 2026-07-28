@@ -17,6 +17,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'consumer/c-failure-contract.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-failure-contract.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-gc-reset-and-subscription-utils.test.ts'), source: path.resolve(specRoot, '../../core/gc.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-gc-store-projection.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
   { spec: path.resolve(specRoot, 'consumer/c07-maintenance-trim.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
   { spec: path.resolve(specRoot, 'consumer/c07-maintenance-trim.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
   { spec: path.resolve(specRoot, 'integrity/i03-dedupe.test.ts'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },

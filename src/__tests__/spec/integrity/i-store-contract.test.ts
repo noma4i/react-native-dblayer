@@ -1,6 +1,6 @@
 import { createModelStore, runInApplyBatch } from '../../../core/store';
 import { keysForSequence } from '../../../core/orderKey';
-import { createMemoryPlane } from '../helpers/harness';
+import { createMemoryPlane, diagnostics } from '../helpers/harness';
 
 type Row = { id: string } & Record<string, unknown>;
 
@@ -160,10 +160,12 @@ describe('model store', () => {
     store.markReady();
     const seen: unknown[] = [];
     const unsubscribe = store.scopeCollection('scope-1').subscribe(changes => seen.push(...changes));
+    diagnostics().reset();
 
     store.applyScopeChanges([{ scopeKey: 'scope-1', entries }]);
 
     expect(seen).toEqual([]);
+    expect(diagnostics().snapshot().membershipWrites).toBe(0);
     unsubscribe();
   });
 });
