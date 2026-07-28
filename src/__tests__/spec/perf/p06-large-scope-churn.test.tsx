@@ -4,7 +4,9 @@ import { configureDb, createSingletonStatics, defineModel, f, scope } from '../.
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
-// and a counters singleton - covers F1 (entityState upsert guard) and F2 (scopeIndex order-compare).
+// and a counters singleton. Every gate is a work-counter equality between a small and a large mount over
+// the store-collection write path and the scopeIndex reconcile path: the per-upsert equality guard stays
+// at zero hits, same-order page landings stay resort-free, and window materialization stays scale-invariant.
 // Scale note: every gate is an equality of work counters between a small and a large mount, so any
 // O(rows) component diverges at 8x scale exactly as it did at 30x; the smaller sizes keep the full
 // suite inside its 30-second budget. Probativeness is re-proven by the mutation ritual, not by scale.

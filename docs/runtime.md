@@ -38,7 +38,7 @@ Declared on `ModelConfig.maintenance` (see [models.md](./models.md#definemodelco
 | `dropIdleScopesAfterMs`   | `number` (ms)                                          | Opt-in idle scope collection: a scope with no read in this window is removed on the next `collectGarbage()` sweep, and its rows then follow normal reachability (evicted too, unless another scope/reference/reader still roots them). Omit to keep every scope alive until it empties on its own. |
 
 `maxRowsPerScope` tasks run once, at boot, as part of `bootDb` (see
-[getting-started.md](./getting-started.md#bootdboptions)) - not on every write. Temp-row
+[getting-started.md](./getting-started.md#bootdb)) - not on every write. Temp-row
 cleanup does not need a maintenance entry: it is already handled by the replay orphan sweep during
 boot. Each declared model surfaces one `MaintenanceReport` per `maxRowsPerScope` task
 (`{ model, task: 'maxRowsPerScope', affected }`) in `bootDb`'s return value.
@@ -72,7 +72,7 @@ any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, b
 id.
 
 `collectGarbage` runs automatically as part of `bootDb`'s startup sequence and the automatic
-background suspension's teardown sequence (see [getting-started.md](./getting-started.md#bootdboptions));
+background suspension's teardown sequence (see [getting-started.md](./getting-started.md#bootdb));
 app code has no way to call it directly.
 
 ### In-session GC trigger
@@ -122,7 +122,7 @@ write (the app killed mid-flush) always leaves a replayable pending record rathe
 snapshot, since the two storage batches are never interleaved with a partial snapshot in between.
 
 At boot, deferred definition validation runs first (see
-[getting-started.md](./getting-started.md#bootdboptions)), then journal replay
+[getting-started.md](./getting-started.md#bootdb)), then journal replay
 re-applies every pending record left over from the last session (the recovery half of WAL), then a
 `collectGarbage()` sweep reclaims anything that replay left unreachable, foreign storage keys
 (outside the library's `dbl:` namespace - pre-migration leftovers) are cleared, and declared model

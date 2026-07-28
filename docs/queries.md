@@ -239,7 +239,7 @@ skuPricing.remove(); // drop every cached input for this key
 
 `document` and `fetcher` are mutually exclusive - exactly one is required; `defineFetch` throws
 `defineFetch requires exactly one of document or fetcher` at boot-validation time otherwise (see
-[getting-started.md](./getting-started.md#bootdboptions)).
+[getting-started.md](./getting-started.md#bootdb)).
 
 | Option      | Type                                         | Description                                                                                                        |
 | ----------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

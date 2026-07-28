@@ -59,7 +59,7 @@ describe('per-field write policy', () => {
   });
 
   it('rejects an older bulk snapshot for the guarded group while applying its other fields', () => {
-    const chats = createChatModel('MergePolicyOlderBulk');
+    const chats = createChatModel('WritePolicyOlderBulk');
     chats.insert(row());
 
     chats.insertMany([row({ name: 'Renamed', lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 })]);
@@ -73,7 +73,7 @@ describe('per-field write policy', () => {
   });
 
   it('accepts a newer write for the guarded group', () => {
-    const chats = createChatModel('MergePolicyNewer');
+    const chats = createChatModel('WritePolicyNewer');
     chats.insert(row());
 
     chats.insert(row({ lastMessageId: 'message-12', lastMessageAt: '2026-07-20T00:00:12Z', lastSequenceNumber: 12 }));
@@ -82,7 +82,7 @@ describe('per-field write policy', () => {
   });
 
   it('bypasses guards for brand-new rows', () => {
-    const chats = createChatModel('MergePolicyNewRow');
+    const chats = createChatModel('WritePolicyNewRow');
 
     chats.insert(row({ id: 'chat-2', lastMessageId: 'message-1', lastMessageAt: '2026-07-20T00:00:01Z', lastSequenceNumber: 1 }));
 
@@ -90,7 +90,7 @@ describe('per-field write policy', () => {
   });
 
   it('leaves patch writes server-authoritative by default', () => {
-    const chats = createChatModel('MergePolicyPatch');
+    const chats = createChatModel('WritePolicyPatch');
     chats.insert(row());
     const reader = renderCounted(() => chats.use.find('chat-1'));
     const before = reader.renders();
@@ -105,7 +105,7 @@ describe('per-field write policy', () => {
   });
 
   it('emits no wave when a rejected write leaves the row value-equal', () => {
-    const chats = createChatModel('MergePolicyNoWave');
+    const chats = createChatModel('WritePolicyNoWave');
     chats.insert(row());
     const reader = renderCounted(() => chats.use.find('chat-1'));
     const before = reader.renders();
@@ -121,7 +121,7 @@ describe('per-field write policy', () => {
   });
 
   it('independent groups reject and accept separately in one write', () => {
-    const chats = createChatModel('MergePolicyIndependentGroups');
+    const chats = createChatModel('WritePolicyIndependentGroups');
     chats.insert(row());
 
     chats.insert(row({
@@ -145,24 +145,24 @@ describe('per-field write policy', () => {
   it('rejects unknown fields and overlapping groups at define time', () => {
     expect(() =>
       defineModel({
-        id: 'MergePolicyUnknownField',
-        name: 'MergePolicyUnknownField',
+        id: 'WritePolicyUnknownField',
+        name: 'WritePolicyUnknownField',
         fields: { name: f.str() },
         write: { groups: [{ fields: ['missing'] as never, policy: 'server' }] }
       })
     ).toThrow('write field missing is not declared');
     expect(() =>
       defineModel({
-        id: 'MergePolicyEmpty',
-        name: 'MergePolicyEmpty',
+        id: 'WritePolicyEmpty',
+        name: 'WritePolicyEmpty',
         fields: { name: f.str() },
         write: { groups: [{ fields: [], policy: 'server' }] }
       })
     ).toThrow('write groups must not be empty');
     expect(() =>
       defineModel({
-        id: 'MergePolicyOverlap',
-        name: 'MergePolicyOverlap',
+        id: 'WritePolicyOverlap',
+        name: 'WritePolicyOverlap',
         fields: { name: f.str(), status: f.str() },
         write: {
           groups: [

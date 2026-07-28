@@ -10,7 +10,7 @@ down.
 - [`DbDefaults`](#dbdefaults)
 - [`onSyncError` policy](#onsyncerror-policy)
 - [`DbProvider`](#dbprovider)
-- [`bootDb(options)`](#bootdboptions)
+- [`bootDb()`](#bootdb)
 - [Storage seam](#storage-seam)
 - [Transport seam](#transport-seam)
 - [Runtime prerequisites](#runtime-prerequisites)
@@ -63,7 +63,7 @@ export const Root = () => (
 ```
 
 `configureDb` stays exported for callers that need to run it before `<DbProvider>` mounts;
-`bootDb` is internal to `DbProvider` (see [`bootDb`](#bootdboptions) below) - there is no
+`bootDb` is internal to `DbProvider` (see [`bootDb`](#bootdb) below) - there is no
 standalone boot-sequencing entry point outside the provider.
 
 ## `configureDb(options)`
