@@ -1,4 +1,4 @@
-import type { JournalOp } from '../core/apply/journal';
+import type { JournalOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';

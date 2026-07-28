@@ -1,4 +1,4 @@
-import type { JournalOp } from '../core/apply/journal';
+import type { JournalOp, MutationConfig, OptimisticCtx, RespondOptimistic } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -10,7 +10,6 @@ import { responseDataOrThrow } from '../core/transport';
 import { generateTempId } from '../utils/generateTempId';
 import { isRecord } from '../utils/normalizeHelpers';
 import { createGenerationFence } from '../utils/runtimeGeneration';
-import type { MutationConfig, OptimisticCtx, RespondOptimistic } from '../types/dsl.mutation.types';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import { isMethodOptimistic, isRespondOptimistic } from './mutationConfiguration';
 import { createMutationResponder } from './mutationResponder';

@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
-import type { FieldSpec } from './schema/fieldSpec';
+import type { FieldSpec } from '../schema/fieldSpec';
 
 export type StorageAdapter = {
   /** Read a persisted value synchronously. */

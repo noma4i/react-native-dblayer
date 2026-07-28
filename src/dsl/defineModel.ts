@@ -1,4 +1,4 @@
-import type { DbWhere, ModelFieldSpecs } from '../types';
+import type { DbWhere, InferBuildInput, InferStoredFields, ModelFieldSpecs, ModelConfig, ModelCore, QueryScopeReads, QueryScopeSpec, RequiredReadUse, ScopeHandle, ScopeValueOf } from '../types';
 import { registerRelationHost } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
@@ -15,22 +15,6 @@ import { createModelDefinitions } from './modelDefinitions';
 import { createModelDirectAccess } from './modelDirectAccess';
 import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
 import type { ScopeSpec } from './scope';
-import type { InferBuildInput, InferStoredFields } from '../schema/infer';
-
-export type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from '../core/writePolicies';
-
-import type {
-  ModelConfig,
-  ModelCore,
-  QueryScopeReads,
-  QueryScopeSpec,
-  RequiredReadUse,
-  ScopeHandle,
-  ScopeValueOf,
-} from '../types/dsl.model.types';
-
-export type { LiveQueryHandle, ModelConfig, ModelCore, ScopeHandle, ScopeValueOf, ScopeWindowResult } from '../types/dsl.model.types';
-
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage

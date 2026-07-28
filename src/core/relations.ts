@@ -1,6 +1,6 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
-import type { JournalOp } from './apply/journal';
+import type { JournalOp } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
 
 /** Structural reference to a defined model; relation thunks resolve it after both models exist. */

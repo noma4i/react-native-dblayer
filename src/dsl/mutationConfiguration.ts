@@ -1,7 +1,7 @@
 import { hasDependentCascade } from '../core/relations';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 import { registerBootValidation } from './bootValidations';
-import type { DestroyOptimistic, MutationConfig, PatchOptimistic, RespondOptimistic } from '../types/dsl.mutation.types';
+import type { DestroyOptimistic, MutationConfig, PatchOptimistic, RespondOptimistic } from '../types';
 
 export const isMethodOptimistic = <TData, TInput, TStored, TNode>(
   value: NonNullable<MutationConfig<TData, TInput, TStored, TNode>['optimistic']>

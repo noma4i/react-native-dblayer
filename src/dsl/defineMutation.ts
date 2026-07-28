@@ -1,7 +1,7 @@
 import { createMutationRuntime } from './mutationRuntime';
 import { validateMutationConfig } from './mutationConfiguration';
 import { useMutationHandle, type MutationHandle } from './mutationHook';
-import type { MutateCallbacks as MutationMutateCallbacks, MutationConfig, ScopePlacement as MutationScopePlacement } from '../types/dsl.mutation.types';
+import type { MutateCallbacks as MutationMutateCallbacks, MutationConfig, ScopePlacement as MutationScopePlacement } from '../types';
 
 export type MutateCallbacks<TData> = MutationMutateCallbacks<TData>;
 export type ScopePlacement<TInput> = MutationScopePlacement<TInput>;

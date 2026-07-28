@@ -3,8 +3,7 @@ import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
 import { runPendingTempRowMaintenance } from '../dsl/maintenanceRegistry';
-import type { GcReport } from '../types/core.gc.types';
-export type { GcReport } from '../types/core.gc.types';
+import type { GcReport } from '../types';
 
 type GcHost = {
   modelId: string;

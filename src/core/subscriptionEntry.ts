@@ -1,4 +1,4 @@
-import type { DbSubscriptionEntry, TypedDbSubscriptionEntry } from '../types/subscription.types';
+import type { DbSubscriptionEntry, TypedDbSubscriptionEntry } from '../types';
 import type { ResultOf, TypedDocumentNode } from '@graphql-typed-document-node/core';
 
 /** Erase a typed subscription entry at the heterogeneous runtime registry boundary. */

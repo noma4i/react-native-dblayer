@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { defineModel, f, resetRuntime } from '../../../index';
 import { getOperationState } from '../../../dsl/configure';
-import type { OperationRecord } from '../../../core/planes/operationState';
+import type { OperationRecord } from '../../../types';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const TARGET_MODEL = 'SpecPendingIndexTarget';

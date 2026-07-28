@@ -1,4 +1,4 @@
-import type { MembershipDelta } from '../core/relations';
+import type { MembershipDelta } from '../types';
 
 type ModelMembership<TStored extends { id: string }> = {
   membershipForUpsert(before: TStored | undefined, after: Record<string, unknown>): MembershipDelta[];

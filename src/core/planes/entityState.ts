@@ -2,8 +2,7 @@ import { stableSerialize } from '../serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
 import type { WriteCtx } from '../writePolicies';
 import type { StoragePlane } from './storagePlane';
-import type { EntityState } from '../../types/core.planes.entityState.types';
-export type { EntityState } from '../../types/core.planes.entityState.types';
+import type { EntityState } from '../../types';
 
 type Tombstone = { at: number };
 

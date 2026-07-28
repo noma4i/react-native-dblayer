@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dependency } from '../core/apply/commitBus';
 import { noteFkIndex } from '../core/diagnostics';
-import type { RelationDecl } from '../core/relations';
+import type { ModelCore, RelationDecl, ScopeHandle } from '../types';
 import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
 import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
@@ -9,7 +9,6 @@ import { createProjectionGate, validateProjectionOptions } from '../read/project
 import { useScopeRetention, type KeepPreviousOption } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
 import { getCommitBus, getDbRuntimeConfig } from './configure';
-import type { ModelCore, ScopeHandle } from './defineModel';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 
 type Row = { id: string; [key: string]: unknown };

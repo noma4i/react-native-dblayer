@@ -1,8 +1,6 @@
-import type { JournalOp } from '../core/apply/journal';
+import type { EntityState, JournalOp, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
-import type { EntityState } from '../core/planes/entityState';
-import type { WriteOrigin } from '../core/writePolicies';
 import { clearFailedOptimisticMutation } from './mutationRuntime';
 
 type Membership = { id: string; scopeKey: string; order: number; edge?: Record<string, unknown> };

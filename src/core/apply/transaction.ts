@@ -1,9 +1,7 @@
 import type { CommitBatch, CommitBus, IncrementalCommitBatch, IncrementalScopeChange } from './commitBus';
-import type { CheckpointScheduler } from './checkpoint';
-import type { JournalOp, JournalRecord } from './journal';
 import { createJournal } from './journal';
 import type { StoragePlane } from '../planes/storagePlane';
-import type { WriteOrigin } from '../../dsl/defineModel';
+import type { CheckpointScheduler, JournalOp, JournalRecord, WriteOrigin } from '../../types';
 import { deriveEffects, type AcceptedRow, type DestroyedRow } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';

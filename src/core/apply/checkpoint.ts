@@ -1,6 +1,5 @@
 import type { StoragePlane } from '../planes/storagePlane';
-import type { CheckpointScheduler } from '../../types/core.apply.checkpoint.types';
-export type { CheckpointScheduler } from '../../types/core.apply.checkpoint.types';
+import type { CheckpointScheduler } from '../../types';
 
 type CheckpointTarget = {
   persistEntries(): Array<{ key: string; value: string | null }>;

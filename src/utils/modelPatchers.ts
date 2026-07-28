@@ -1,4 +1,4 @@
-import type { AnyDbShape, InferShapeStored } from '../schema/infer';
+import type { AnyDbShape, InferShapeStored } from '../types';
 import { readShapeOrThrow } from '../schema/shape';
 import { isRecord } from './normalizeHelpers';
 

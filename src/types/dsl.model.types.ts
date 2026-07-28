@@ -1,5 +1,5 @@
-import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from '../types';
-import type { RelationDecl } from '../core/relations';
+import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from './db.types';
+import type { RelationDecl } from './core.relations.types';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import type { defineMutation } from '../dsl/defineMutation';
 import type { MutationConfig } from './dsl.mutation.types';
@@ -7,15 +7,15 @@ import type { DetachedOperationConfig, DetachedOperationHandle } from '../dsl/de
 import type { EnsuredRowQueryHandle, QueryHandle , defineQuery } from '../dsl/defineQuery';
 import type { defineFetch } from '../dsl/defineFetch';
 import type { ViewConfig, ViewHandle } from '../dsl/defineView';
-import type { ModelIngestEntry } from '../dsl/defineIngest';
-import type { DbSubscriptionEntry } from '../core/subscriptionRuntime';
+import type { DbSubscriptionEntry } from './subscription.types';
 import type { ModelReadBuilder, RequiredFields } from '../dsl/readBuilder';
-import type { ScopeSpec } from '../dsl/scope';
-import type { InferBuildInput, InferStoredFields } from '../schema/infer';
+import type { ScopeSpec } from './dsl.scope.types';
+import type { InferBuildInput, InferStoredFields } from './schema.infer.types';
 import type { ModelStatusPoller } from '../utils/modelStatusPoller';
-import type { WritePolicy } from '../core/writePolicies';
+import type { WritePolicy } from './core.writePolicies.types';
+import type { ModelIngestEntry } from '../dsl/defineIngest';
 import type { ModelContext } from '../dsl/modelContext';
-import type { JournalOp } from '../core/apply/journal';
+import type { JournalOp } from './core.apply.journal.types';
 
 /** Row shape every model read path narrows to before projection. */
 export type StoredRowShape = { id: string } & Record<string, unknown>;

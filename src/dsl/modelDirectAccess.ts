@@ -1,6 +1,6 @@
 import { invalidateModel } from '../core/invalidationRegistry';
 import { limitRows, sortModelReadRows } from '../read/incrementalReadEngine';
-import type { ModelDirectAccess, ModelDirectAccessOptions } from '../types/dsl.model.types';
+import type { ModelDirectAccess, ModelDirectAccessOptions } from '../types';
 
 export const createModelDirectAccess = <TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput>(
   options: ModelDirectAccessOptions<TStored, TInput>

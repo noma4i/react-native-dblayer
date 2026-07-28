@@ -1,4 +1,4 @@
-import type { ScopeIndexValue } from '../core/planes/scopeIndex';
+import type { ScopeIndexValue } from './core.planes.scopeIndex.types';
 
 export type JournalOp =
   | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; operationId?: string; mergeBase?: never }

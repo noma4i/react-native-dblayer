@@ -1,10 +1,3 @@
-import type { StoragePlane } from '../core/planes/storagePlane';
-
-type CheckpointTarget = {
-  persistEntries(): Array<{ key: string; value: string | null }>;
-  ackPersist(): void;
-};
-
 export type CheckpointScheduler = {
   /** Note one applied plan touching these models; schedules (or forces) a snapshot flush. */
   notePlan(models: ReadonlyArray<string>, epoch: number): void;

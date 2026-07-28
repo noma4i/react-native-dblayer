@@ -1,7 +1,7 @@
 import { sortBy } from 'es-toolkit';
 import type { ApplyTarget } from '../core/apply/transaction';
 import type { Dependency } from '../core/apply/commitBus';
-import type { JournalOp } from '../core/apply/journal';
+import type { JournalOp, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';
@@ -9,12 +9,10 @@ import { compositeKey } from '../core/serialize';
 import { useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
 import type { KeepPreviousOption } from '../read/scopeRetention';
 import { useLiveRead } from '../read/useLiveRead';
-import type { ScopeHandle, StoredRowShape } from '../types/dsl.model.types';
 import { useRef, useState } from 'react';
 import { getDbRuntimeConfig } from './configure';
 import type { ModelContext } from './modelContext';
 import { sortRowsBySpec } from './modelReadAccess';
-import type { ScopeCoverage, ScopeSpec } from './scope';
 import type { ProjectionOptions } from '../read/projectionGate';
 
 const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;

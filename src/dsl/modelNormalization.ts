@@ -1,11 +1,9 @@
-import type { ModelFieldSpecs } from '../types';
 import { getDbLogger } from '../core/logger';
 import { compileWritePolicies } from '../core/writePolicies';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
 import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
-import type { InferStoredFields } from '../schema/infer';
+import type { InferStoredFields, ModelConfig, ModelFieldSpecs } from '../types';
 import type { ScopeSpec } from './scope';
-import type { ModelConfig } from './defineModel';
 
 type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
 

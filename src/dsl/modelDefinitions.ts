@@ -3,7 +3,7 @@ import { getDbLogger } from '../core/logger';
 import { compositeKey } from '../core/serialize';
 import { createDbSubscriptionRuntime } from '../core/subscriptionRuntime';
 import { getDbTransport } from '../core/transport';
-import type { ModelCore, ModelDefinitions, ModelDefinitionsOptions, ModelFetchConfig } from '../types/dsl.model.types';
+import type { ModelCore, ModelDefinitions, ModelDefinitionsOptions, ModelFetchConfig } from '../types';
 import { createModelStatusPoller } from '../utils/modelStatusPoller';
 import { useEffect } from 'react';
 import { defineDetachedOperation } from './defineDetachedOperation';

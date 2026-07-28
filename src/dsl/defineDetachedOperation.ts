@@ -1,8 +1,8 @@
-import type { JournalOp } from '../core/apply/journal';
+import type { JournalOp, OperationRecord } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle } from '../core/internalHandles';
-import { serializeOperationInput, type OperationRecord } from '../core/planes/operationState';
+import { serializeOperationInput } from '../core/planes/operationState';
 import { generateTempId } from '../utils/generateTempId';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 

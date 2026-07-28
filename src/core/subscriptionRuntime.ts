@@ -8,7 +8,7 @@ import type {
   DbSubscriptionRuntime as SubscriptionRuntime,
   DbSubscriptionRuntimeInspectRow as SubscriptionRuntimeInspectRow,
   TypedDbSubscriptionEntry as TypedSubscriptionEntry
-} from '../types/subscription.types';
+} from '../types';
 
 /** Resolve an injected subscription effect by its stable application name. */
 export const getDbSubscriptionEffect = (name: string): ((...args: unknown[]) => void) | undefined =>

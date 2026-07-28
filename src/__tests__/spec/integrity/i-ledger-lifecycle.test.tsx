@@ -1,6 +1,7 @@
 import { configureDb, defineModel, f, registerReset, resetRuntime } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
-import { createOperationState, type OperationStatus } from '../../../core/planes/operationState';
+import { createOperationState } from '../../../core/planes/operationState';
+import type { OperationStatus } from '../../../types';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

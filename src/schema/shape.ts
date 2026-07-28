@@ -1,6 +1,6 @@
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import type { DefinedFields } from './fields';
-import type { AnyFields, InferShapeStored } from './infer';
+import type { AnyFields, InferShapeStored } from '../types';
 
 type ShapeFields<_TInput> = AnyFields;
 

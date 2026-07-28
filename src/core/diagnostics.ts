@@ -1,6 +1,5 @@
 import { registerReset } from './reset';
-import type { DataLossMechanism, DataLossEvent } from '../types/core.diagnostics.types';
-export type { DataLossMechanism, DataLossEvent } from '../types/core.diagnostics.types';
+import type { DataLossMechanism, DataLossEvent } from '../types';
 
 
 type DiagnosticsState = {

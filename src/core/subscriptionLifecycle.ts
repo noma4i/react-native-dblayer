@@ -4,7 +4,7 @@ import { registerReset } from './reset';
 import { Debouncer } from '@tanstack/pacer';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from '../types/subscription.types';
+import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow } from '../types';
 
 const LOG_PREFIX = 'DbSubscriptionRuntime';
 const GLOBAL_DEBOUNCE_KEY = '__global__';

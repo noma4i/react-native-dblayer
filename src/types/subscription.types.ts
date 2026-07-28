@@ -1,5 +1,5 @@
 import type { ResultOf, TypedDocumentNode, VariablesOf } from '@graphql-typed-document-node/core';
-import type { DbGraphQLDocument } from '../types';
+import type { DbGraphQLDocument } from './db.types';
 
 /** Static subscription registration consumed by `createDbSubscriptionRuntime`. */
 export type DbSubscriptionEntry<TPayload = unknown> = {

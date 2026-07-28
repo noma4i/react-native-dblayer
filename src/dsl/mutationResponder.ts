@@ -1,7 +1,6 @@
-import type { JournalOp } from '../core/apply/journal';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 import { isRecord } from '../utils/normalizeHelpers';
-import type { MutationConfig, MutationModel, OptimisticCtx, RespondOptimistic } from '../types/dsl.mutation.types';
+import type { JournalOp, MutationConfig, MutationModel, OptimisticCtx, RespondOptimistic } from '../types';
 
 export type MutationResponder<TData, TInput, TNode> = {
   planFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[];

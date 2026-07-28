@@ -1,8 +1,7 @@
-import type { RelationDecl } from '../core/relations';
-import { createEntityState, type EntityState } from '../core/planes/entityState';
+import type { EntityState, RelationDecl, WriteCtx } from '../types';
+import { createEntityState } from '../core/planes/entityState';
 import { createScopeIndex, type ScopeIndex } from '../core/planes/scopeIndex';
 import { getDbRuntimeConfig, getOperationState, getStoragePrefix } from './configure';
-import type { WriteCtx } from '../core/writePolicies';
 
 export type ModelContext<TStored extends { id: string }> = {
   planes(): { entityState: EntityState<TStored>; scopeIndex: ScopeIndex };

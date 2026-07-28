@@ -1,4 +1,4 @@
-import type { GcReport } from '../core/gc';
+import type { GcReport } from '../types';
 import { collectGarbage } from '../core/gc';
 import { ensurePersistenceCompatibility } from '../core/schemaManifest';
 import { runBootValidations } from './bootValidations';

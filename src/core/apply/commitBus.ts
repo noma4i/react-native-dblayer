@@ -24,6 +24,19 @@ export type Dependency =
   | { kind: 'pending'; model: string; id: string };
 
 export type CommitSubscription = { setDeps(deps: ReadonlyArray<Dependency>): void; unsubscribe(): void };
+export type CommitBus = {
+  subscribe(notify: () => void, deps?: ReadonlyArray<Dependency>, onBatch?: (batch: IncrementalCommitBatch | null) => void): CommitSubscription;
+  subscribeIncremental(
+    notify: () => void,
+    deps: ReadonlyArray<Dependency>,
+    onBatch: (batch: IncrementalCommitBatch | null) => void
+  ): CommitSubscription;
+  subscribeAll(onBatch: (batch: IncrementalCommitBatch) => void): () => void;
+  activeDependencies: () => ReadonlyArray<Dependency>;
+  publish(batch: IncrementalCommitBatch): void;
+  publishAll: () => void;
+  subscriberCount: () => number;
+};
 
 type Subscriber = { deps: ReadonlyArray<Dependency>; notify: () => void; onBatch?: (batch: IncrementalCommitBatch | null) => void };
 
@@ -45,7 +58,7 @@ const depMatches = (dep: Dependency, batch: CommitBatch): boolean => {
  * set (per-row, per-field, per-scope, per-pending-id, or whole-model) and is notified at most once per batch,
  * only when the batch intersects its dependencies.
  */
-export const createCommitBus = () => {
+export const createCommitBus = (): CommitBus => {
   const subscribers = new Set<Subscriber>();
   const subscribersByModel = new Map<string, Set<Subscriber>>();
   const allSubscribers = new Set<(batch: IncrementalCommitBatch) => void>();
@@ -121,5 +134,3 @@ export const createCommitBus = () => {
     subscriberCount: () => subscribers.size
   };
 };
-
-export type CommitBus = ReturnType<typeof createCommitBus>;

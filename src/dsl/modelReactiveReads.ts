@@ -3,8 +3,7 @@ import { createModelReadEngine, incrementalSignature, useIncrementalRead } from 
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
-import type { DbReadOptions, DbWhere } from '../types';
-import type { ModelCore, StoredRowShape } from '../types/dsl.model.types';
+import type { DbReadOptions, DbWhere, ModelCore, StoredRowShape } from '../types';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getCommitBus, getOperationState } from './configure';
 import type { ModelContext } from './modelContext';

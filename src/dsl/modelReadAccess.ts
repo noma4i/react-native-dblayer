@@ -1,15 +1,12 @@
-import type { Dependency } from '../core/apply/commitBus';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { createModelReadEngine, incrementalSignature, sortModelReadRows, useIncrementalRead } from '../read/incrementalReadEngine';
 import { createProjectionGate, validateProjectionOptions, type ProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../read/useLiveRead';
-import type { DbWhere } from '../types';
-import type { ScopeSortSpec } from '../types/dsl.model.types';
+import type { DbWhere, Dependency, ScopeSortSpec, ScopeSpec } from '../types';
 import { useEffect, useRef } from 'react';
 import type { ModelContext } from './modelContext';
 import { createReadBuilder, type ModelReadBuilder, type ReadOrder } from './readBuilder';
-import type { ScopeSpec } from './scope';
 
 export const sortRowsBySpec = <TRow extends { id: string }>(rows: TRow[], sort: ScopeSortSpec<TRow>): TRow[] =>
   'comparator' in sort ? [...rows].sort(sort.comparator) : sortModelReadRows(rows, [{ field: String(sort.field), direction: sort.dir }]);

@@ -64,6 +64,10 @@ export type SingleFlightOptions = {
  * Unlike createThrottledSingleFlight this primitive has no throttle window and
  * PROPAGATES rejections to every caller sharing the flight - use it when the
  * caller must observe failures (bootstrap fetches, config loads).
+ *
+ * @param fn Async function to wrap.
+ * @param options Optional reset control when runtime resets should clear the in-flight state.
+ * @returns Function that shares the current in-flight promise across concurrent callers.
  */
 export const createSingleFlight = <TArgs extends unknown[], TResult>(
   fn: (...args: TArgs) => Promise<TResult>,

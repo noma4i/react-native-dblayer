@@ -1,5 +1,4 @@
-import type { LoadingState } from '../types';
-import type { ScopeWindowResult } from './defineModel';
+import type { LoadingState, ScopeWindowResult } from '../types';
 import type { QueryResult } from './defineQuery';
 
 /** List-ready combination of a scope window (local pagination) and its backing query (network pagination). */

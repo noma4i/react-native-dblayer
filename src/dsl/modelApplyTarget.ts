@@ -1,7 +1,5 @@
 import { createCommitEnvelope, registerApplyTarget, type ApplyTarget } from '../core/apply/transaction';
-import type { JournalOp } from '../core/apply/journal';
-import type { ScopeIndexValue } from '../core/planes/scopeIndex';
-import type { WriteOrigin } from '../core/writePolicies';
+import type { JournalOp, ScopeIndexValue, WriteOrigin } from '../types';
 import { getApplyRuntime } from './configure';
 import type { ModelContext } from './modelContext';
 import type { ScopeSpec } from './scope';

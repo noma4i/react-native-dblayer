@@ -1,4 +1,4 @@
-import type { DbGraphQLDocument } from '../types';
+import type { DbGraphQLDocument } from './db.types';
 import type { ExtractSink } from '../dsl/defineQuery';
 
 export type MutationModel = {

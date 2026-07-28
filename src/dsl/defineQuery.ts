@@ -1,8 +1,7 @@
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
-import type { DbGraphQLDocument, DbReadOptions, LoadingState } from '../types';
+import type { DbGraphQLDocument, DbReadOptions, JournalOp, LoadingState, ScopeCoverage, ScopeHandle } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
-import type { JournalOp } from '../core/apply/journal';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
@@ -11,8 +10,6 @@ import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbRuntimeConfig } from './configure';
 import { getDbLogger } from '../core/logger';
 import { responseDataOrThrow } from '../core/transport';
-import type { ScopeHandle } from './defineModel';
-import type { ScopeCoverage } from './scope';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { createFetchLedger } from '../core/fetch/fetchLedger';
 import { isFetchNetworkOnline, registerFetchLedger, subscribeFetchNetwork } from '../core/fetch/fetchLedgerRegistry';
