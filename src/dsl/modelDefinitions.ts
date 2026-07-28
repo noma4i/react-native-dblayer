@@ -35,7 +35,9 @@ export const createModelDefinitions = <TStored extends { id: string; updatedAt?:
       runtime.setActive(true);
     };
     model.registerReset(() => {
-      runtime?.setActive(false);
+      // stop(), not setActive(false): the replaced runtime is discarded forever, so its own reset
+      // registration must be released too - otherwise every reset leaks one dead registry entry.
+      runtime?.stop();
       runtime = null;
       sync();
     });

@@ -171,7 +171,14 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     context.activationEpoch += 1;
     deactivateAll();
   };
-  const unregisterReset = registerReset(reset);
+  // Registry-driven reset only clears PAST-generation state: a runtime created inside the current
+  // resetRuntime pass (generation already advanced) must survive that same pass, otherwise a reset
+  // callback that re-creates its runtime gets the fresh subscription killed by this very iteration.
+  // stop() below stays unconditional - an explicit caller teardown is not generation-scoped.
+  const unregisterReset = registerReset(() => {
+    if (isCurrentGeneration()) return;
+    reset();
+  });
   const inspect = (): DbSubscriptionRuntimeInspectRow[] => context.states.map(state => ({
     key: state.entry.key,
     active: Boolean(state.unsubscribe),
