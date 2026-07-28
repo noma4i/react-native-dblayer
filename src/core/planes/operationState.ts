@@ -160,6 +160,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey) || operations.get(idempotencyKey)?.status === 'committed',
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
+    openInsertsFor: model =>
+      [...operations.values()].filter(operation => operation.model === model && operation.intent === 'insert' && (operation.status === 'pending' || operation.status === 'failed')),
     pendingForRow: (model, rowId) => {
       const bucket = bucketFor(model, rowId);
       if (!bucket) return [];

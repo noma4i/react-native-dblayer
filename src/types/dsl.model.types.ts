@@ -52,6 +52,7 @@ export type ModelWrites<TStored extends { id: string } & Record<string, unknown>
   writeRows(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): ModelWriteResult[];
   patchRow(id: string, patch: Record<string, unknown>, operationId?: string): ModelWriteResult | null;
   planRows(rows: unknown[], planOptions?: { origin?: 'event' }): JournalOp[];
+  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: JournalOp[] };
   planReplace(oldId: string, next: unknown): JournalOp[];
   planRestore(next: unknown, memberships: ModelMembership[]): JournalOp[];
 };

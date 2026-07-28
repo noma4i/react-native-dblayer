@@ -97,7 +97,7 @@ export const defineModel = <
           .entries.find(candidate => candidate.id === id);
         return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
       });
-  const { writeRows, patchRow, planRows, planReplace, planRestore } = createModelWrites<Stored>({
+  const { writeRows, patchRow, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<Stored>({
     modelId: config.id,
     modelName: config.name,
     entityState: () => planes().entityState,
@@ -146,6 +146,7 @@ export const defineModel = <
     scopeDep,
     useScopeAccess,
     scopeSortedRows,
+    splitCorrelatedRows,
     applySnapshot,
     applyEvent
   });

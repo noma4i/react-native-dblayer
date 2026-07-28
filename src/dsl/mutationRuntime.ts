@@ -12,6 +12,7 @@ import { isRecord } from '../utils/normalizeHelpers';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import { isMethodOptimistic, isRespondOptimistic } from './mutationConfiguration';
+import { registerMutationCorrelator } from './mutationCorrelation';
 import { createMutationResponder } from './mutationResponder';
 
 /** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
@@ -30,6 +31,9 @@ type MutationRuntimeContext<TData, TInput, TStored, TNode> = {
 
 export const createMutationRuntime = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): Pick<DefinedMutation<TData, TInput>, 'run' | 'retry' | 'discard'> => {
   const runtime: MutationRuntimeContext<TData, TInput, TStored, TNode> = { config, optimisticConfig: config.optimistic, ...createMutationResponder(config) };
+  if (config.optimistic && !isMethodOptimistic(config.optimistic) && !isRespondOptimistic(config.optimistic) && config.optimistic.correlate) {
+    registerMutationCorrelator(config.optimistic.model.modelId, config.optimistic.correlate);
+  }
 
   const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<TData | null> => {
     const { config, inverseFromRespond, planFromRespond } = runtime;

@@ -1,6 +1,7 @@
 import type { EntityState, JournalOp, ModelMembership, ModelWriteResult, ModelWrites, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
+import { closeCorrelatedOperation, correlateIncomingRow, modelHasCorrelators } from './mutationCorrelation';
 import { clearFailedOptimisticMutation } from './mutationRuntime';
 
 export const createModelWrites = <TStored extends { id: string } & Record<string, unknown>>(options: {
@@ -61,11 +62,43 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     const memberships = options.captureMembership(oldId);
     return [{ kind: 'destroy', model: options.modelId, ids: [oldId], origin: 'replace' }, { kind: 'upsert', model: options.modelId, rows: [next], origin: 'replace', mergeBase }, ...restoreMembership(normalized.id, memberships)];
   };
-  const planRows = (rows: unknown[], planOptions?: { origin?: 'event' }): JournalOp[] => {
-    const accepted = rows.filter(options.isPlanRow);
-    return [{ kind: 'upsert', model: options.modelId, rows: accepted, ...(planOptions?.origin ? { origin: planOptions.origin } : {}) }];
+  /**
+   * Channel-agnostic temp correlation seam: split already-accepted rows into plain upserts and
+   * replace plans for rows that logically ARE a still-open optimistic temp row (per the owning
+   * mutation's `correlate` declaration). Every planner of upsert rows (model plans and scope
+   * landings alike) routes through this split, so no delivery channel can create a duplicate.
+   */
+  const splitCorrelatedRows = (accepted: unknown[]): { plain: unknown[]; replaceOps: JournalOp[] } => {
+    if (!modelHasCorrelators(options.modelId)) return { plain: accepted, replaceOps: [] };
+    const plain: unknown[] = [];
+    const replaceOps: JournalOp[] = [];
+    const claimedTempIds = new Set<string>();
+    for (const value of accepted) {
+      let normalized: TStored | null;
+      try {
+        normalized = options.normalize(value);
+      } catch {
+        normalized = null; // writeRows rejects and logs it at apply time
+      }
+      const correlation = normalized
+        ? correlateIncomingRow(options.modelId, normalized, { readRow: id => options.entityState().read(id), claimedTempIds })
+        : null;
+      if (!correlation) {
+        plain.push(value);
+        continue;
+      }
+      claimedTempIds.add(correlation.tempId);
+      replaceOps.push(...planReplace(correlation.tempId, value));
+      closeCorrelatedOperation(correlation.operation);
+    }
+    return { plain, replaceOps };
   };
-  return { writeRows, patchRow, planRows, planReplace, planRestore: (next: unknown, memberships: ModelMembership[]): JournalOp[] => {
+  const planRows = (rows: unknown[], planOptions?: { origin?: 'event' }): JournalOp[] => {
+    const split = splitCorrelatedRows(rows.filter(options.isPlanRow));
+    const upsert: JournalOp[] = split.plain.length > 0 || split.replaceOps.length === 0 ? [{ kind: 'upsert', model: options.modelId, rows: split.plain, ...(planOptions?.origin ? { origin: planOptions.origin } : {}) }] : [];
+    return [...upsert, ...split.replaceOps];
+  };
+  return { writeRows, patchRow, planRows, planReplace, splitCorrelatedRows, planRestore: (next: unknown, memberships: ModelMembership[]): JournalOp[] => {
     const nextId = replacementId(next);
     return [{ kind: 'upsert', model: options.modelId, rows: [next], origin: 'replace' }, ...(nextId == null ? [] : restoreMembership(nextId, memberships))];
   } };

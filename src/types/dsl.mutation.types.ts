@@ -53,6 +53,23 @@ export type InsertOptimistic<TData, TInput, TStored, TNode> = {
   onRetryPatch?: (input: TInput) => Partial<TStored>;
   prependTo?: ScopePlacement<TInput>;
   appendTo?: ScopePlacement<TInput>;
+  correlate?: MutationCorrelate;
+};
+
+/**
+ * Channel-agnostic temp-row correlation rule for an insert-optimistic mutation: when any write
+ * channel (query landing, another mutation's extract sink, ingest, seed) plans a server row that is
+ * not in the store yet, the core matches it against this mutation's still-open temp rows and plans
+ * a replace instead of a duplicate insert. `fields` compare candidate/incoming values with
+ * `Object.is`; `match` further narrows candidates; `createdAtWindowMs` rejects candidates whose
+ * `createdAt` distance from the incoming row exceeds the window (missing/unparseable `createdAt` on
+ * either side rejects the candidate). Declarative and opt-in: without a declaration no channel
+ * correlates, because a false merge silently poisons row identity.
+ */
+export type MutationCorrelate = {
+  fields: ReadonlyArray<string>;
+  match?: (candidate: Record<string, unknown>, incoming: Record<string, unknown>) => boolean;
+  createdAtWindowMs?: number;
 };
 
 export type PatchOptimistic<TInput, TStored> = {

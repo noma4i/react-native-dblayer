@@ -1,14 +1,13 @@
 import { act } from 'react';
 import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
-// Documents the correlation-gap defect: a temp row is swapped for its server node ONLY inside the
-// commit of the mutation call that created it (planReplace, keyed by the tempId living in that call's
-// own closure). Every OTHER channel that can deliver the same logical row (query result application,
-// an unrelated mutation's extract sink, a subscription/ingest handler) writes a plain upsert by the
-// server id and has no idea a temp row for the same logical record already exists. Each case below
-// asserts the DESIRED behavior (one logical record, one row) and is expected to fail against the
-// current implementation, which leaves both rows present.
+// Channel-agnostic temp correlation (G1, closed in 9.0): a mutation that declares
+// `optimistic.correlate` gets its still-open temp rows collapsed into the matching server row no
+// matter which channel delivers it - query result application, an unrelated mutation's extract
+// sink, or a subscription/ingest handler. The correlation seam lives in `planRows`, the single
+// point every write channel plans upsert rows through, and draws candidates from the durable
+// operation ledger (open insert operations), so a false merge cannot come from a whole-model scan.
 
 type MessageRow = { id: string; chatId: string; body: string; status: 'Sending' | 'Failed' | 'Sent' };
 type ChatRow = { id: string; lastMessageId: string | null; lastActivityAt: number };
@@ -25,6 +24,7 @@ const createMessagesModel = (suffix: string) =>
       body: f.str(),
       status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent'])
     },
+    maintenance: { dropTempRowsAfterMs: 60_000 },
     scopes: {
       thread: scope<MessageRow>({ by: { chatId: 'chatId' } })
     }
@@ -39,12 +39,13 @@ const createSendMutation = (messages: ReturnType<typeof createMessagesModel>) =>
       tempIdPrefix: 'msg',
       build: (input, { tempId }) => ({ id: tempId!, chatId: input.chatId, body: input.body, status: 'Sending' }),
       selectServerNode: data => data.messageSend.message,
-      onFailurePatch: () => ({ status: 'Failed' })
+      onFailurePatch: () => ({ status: 'Failed' }),
+      correlate: { fields: ['chatId', 'body'] }
     }
   });
 
-describe('correlation gap (red-first, no fix)', () => {
-  test.failing('GATE-PENDING(G1) case 1: query-delivered server row does not collapse the still-pending temp row of the same logical message', async () => {
+describe('channel-agnostic temp correlation', () => {
+  it('case 1: a query-delivered server row collapses the still-pending temp row of the same logical message', async () => {
     const transport = createMockTransport({
       // The mutation response never arrives (lost/never processed) - mirrors the "response of own
       // mutation lost" scenario. The temp row is left permanently in 'Sending'.
@@ -87,7 +88,7 @@ describe('correlation gap (red-first, no fix)', () => {
     expect(rows[0]!.id).toBe('server-1');
   });
 
-  test.failing('GATE-PENDING(G1) case 2: an unrelated mutation extract sink does not collapse the still-pending temp row of the same logical message', async () => {
+  it('case 2: an unrelated mutation extract sink collapses the still-pending temp row of the same logical message', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>(operation: { variables?: unknown }) => {
         const variables = (operation.variables ?? {}) as { input?: { chatId?: string } };
@@ -121,7 +122,7 @@ describe('correlation gap (red-first, no fix)', () => {
     expect(rows[0]!.id).toBe('server-1');
   });
 
-  test.failing('GATE-PENDING(G1) case 3: a subscription/ingest handler does not collapse the still-pending temp row of the same logical message', async () => {
+  it('case 3: a subscription/ingest handler collapses the still-pending temp row of the same logical message', async () => {
     const transport = createMockTransport({ mutation: () => new Promise(() => {}) });
     configureDb({ storage: createMemoryPlane(), transport });
     const messages = createMessagesModel('Ingest');
@@ -146,7 +147,7 @@ describe('correlation gap (red-first, no fix)', () => {
     expect(rows[0]!.id).toBe('server-1');
   });
 
-  test.failing('GATE-PENDING(G1) case 4: a failed temp row is never resolved, even when the equivalent server row later arrives through another channel', async () => {
+  it('case 4: a failed temp row resolves when the equivalent server row arrives through another channel', async () => {
     const transport = createMockTransport({
       mutation: async () => Promise.reject(new Error('offline')),
       query: async <TData,>() => ({
@@ -189,6 +190,32 @@ describe('correlation gap (red-first, no fix)', () => {
     // and the confirmed server row is a second, independent row in the same scope.
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe('server-1');
+  });
+
+  it('case 6: closes the correlated pending operation as committed', async () => {
+    const transport = createMockTransport({ mutation: () => new Promise(() => {}) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const messages = createMessagesModel('CloseOp');
+    const send = createSendMutation(messages);
+    const ingest = messages.ingest({
+      messageCreated: { handler: payload => ({ upsert: (payload as { message: MessageRow }).message }) }
+    });
+
+    act(() => {
+      void send.run({ chatId: 'chat-1', body: 'hello' });
+    });
+    const tempId = messages.scopes.thread.read({ chatId: 'chat-1' })[0]!.id;
+    const pending = renderCounted(() => messages.use.pending(tempId));
+    expect(pending.result()).toBe(true);
+
+    act(() => {
+      ingest.apply('messageCreated', { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' } });
+    });
+
+    // The operation whose temp row was confirmed through another channel must not stay pending
+    // forever - it closes as committed at correlation time.
+    expect(pending.result()).toBe(false);
+    pending.unmount();
   });
 
   // Case 5, as specified, cannot be reproduced through the public API: `deriveEffects`

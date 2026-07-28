@@ -26,6 +26,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   scopeDep(scopeKey: string): Dependency;
   useScopeAccess(scopeKey: string | null): void;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
+  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: JournalOp[] };
   applySnapshot(ops: JournalOp[]): void;
   applyEvent(ops: JournalOp[]): void;
 }) => {
@@ -87,8 +88,9 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
     ): JournalOp[] => {
       const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
-      const upsert: JournalOp = { kind: 'upsert', model: options.modelId, rows: liveRows.map(({ row }) => row) };
-      if (!spec?.by) return [upsert, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
+      const split = options.splitCorrelatedRows(liveRows.map(({ row }) => row));
+      const rowOps: JournalOp[] = [{ kind: 'upsert', model: options.modelId, rows: split.plain }, ...split.replaceOps];
+      if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
 
       const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();
       for (const entry of liveRows) {
@@ -102,7 +104,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       }
       const requestedRows = rowsByScope.get(requestedScopeKey) ?? [];
       rowsByScope.delete(requestedScopeKey);
-      return [upsert, planScope(requestedScopeKey, requestedRows, coverage, planOptions), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
+      return [...rowOps, planScope(requestedScopeKey, requestedRows, coverage, planOptions), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
     };
     const useScopeRows = (scopeValue: unknown, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
       const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);
