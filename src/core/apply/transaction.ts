@@ -21,9 +21,6 @@ export const createCommitEnvelope = (ops: JournalOp[], extraEntries?: () => Arra
   epoch: getRuntimeGeneration(),
   entityOps: ops.filter(op => !isScopeOperation(op)),
   scopeOps: ops.filter(isScopeOperation),
-  identityOps: [],
-  relationOps: [],
-  operationOps: [],
   ...(extraEntries ? { extraEntries } : {})
 }) as unknown as CommitEnvelope;
 
@@ -227,7 +224,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
 
   return {
     commit: envelope => {
-      const ops = [...envelope.entityOps, ...envelope.scopeOps, ...envelope.identityOps, ...envelope.relationOps, ...envelope.operationOps];
+      const ops = [...envelope.entityOps, ...envelope.scopeOps];
       const recordedOps = recordCounterValues(ops);
       epoch += 1;
       const record: JournalRecord = { epoch, status: 'pending', ops: recordedOps };
