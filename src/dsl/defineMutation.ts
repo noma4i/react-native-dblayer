@@ -1,10 +1,7 @@
 import { createMutationRuntime } from './mutationRuntime';
 import { validateMutationConfig } from './mutationConfiguration';
 import { useMutationHandle, type MutationHandle } from './mutationHook';
-import type { MutateCallbacks as MutationMutateCallbacks, MutationConfig, ScopePlacement as MutationScopePlacement } from '../types';
-
-export type MutateCallbacks<TData> = MutationMutateCallbacks<TData>;
-export type ScopePlacement<TInput> = MutationScopePlacement<TInput>;
+import type { MutationConfig } from '../types';
 export type DefinedMutation<TData, TInput> = {
   run(input: TInput): Promise<TData | null>;
   retry(tempId: string): Promise<TData | null>;

@@ -1,6 +1,6 @@
 import { stableSerialize } from '../serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from '../diagnostics';
-import type { WriteCtx } from '../writePolicies';
+import type { WriteCtx } from '../../types';
 import type { StoragePlane } from './storagePlane';
 import type { EntityState } from '../../types';
 
@@ -109,7 +109,11 @@ export const createEntityState = <T extends { id: string }>(options: {
       if (mergePrevious) row = applyWriteGate(mergePrevious, row, ctx);
       const changedFields = previous ? diffTopLevelFields(previous, row) : null;
       if (changedFields !== null && changedFields.length === 0) return { changedFields };
-      if (previous && changedFields !== null && changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))) {
+      if (
+        previous &&
+        changedFields !== null &&
+        changedFields.every(field => stableSerialize((previous as Record<string, unknown>)[field]) === stableSerialize((row as Record<string, unknown>)[field]))
+      ) {
         noteEntityUpsertGuardHit();
         return { changedFields: [] };
       }

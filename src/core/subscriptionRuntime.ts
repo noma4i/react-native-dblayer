@@ -3,21 +3,15 @@ import { createSubscriptionEffects, getSubscriptionEffect } from './subscription
 import { eraseTypedDbSubscriptionEntry } from './subscriptionEntry';
 import { createSubscriptionLifecycle } from './subscriptionLifecycle';
 import type {
-  DbSubscriptionEffectsChannel as SubscriptionEffectsChannel,
-  DbSubscriptionEntry as SubscriptionEntry,
-  DbSubscriptionRuntime as SubscriptionRuntime,
-  DbSubscriptionRuntimeInspectRow as SubscriptionRuntimeInspectRow,
-  TypedDbSubscriptionEntry as TypedSubscriptionEntry
+  DbSubscriptionEffectsChannel,
+  DbSubscriptionEntry,
+  DbSubscriptionRuntime,
+  TypedDbSubscriptionEntry
 } from '../types';
 
 /** Resolve an injected subscription effect by its stable application name. */
 export const getDbSubscriptionEffect = (name: string): ((...args: unknown[]) => void) | undefined =>
   getSubscriptionEffect(name) as unknown as ((...args: unknown[]) => void) | undefined;
-export type DbSubscriptionEntry<TPayload = unknown> = SubscriptionEntry<TPayload>;
-export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: never[]) => void>> = SubscriptionEffectsChannel<TEffects>;
-export type DbSubscriptionRuntimeInspectRow = SubscriptionRuntimeInspectRow;
-export interface DbSubscriptionRuntime extends SubscriptionRuntime {}
-type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = TypedSubscriptionEntry<TDocument, TKey>;
 
 /**
  * Define a typed subscription entry for a heterogeneous runtime registry.
@@ -27,7 +21,7 @@ type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, never
  */
 export const defineDbSubscriptionEntry = <TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>>(
   entry: TypedDbSubscriptionEntry<TDocument, TKey>
-): DbSubscriptionEntry => eraseTypedDbSubscriptionEntry(entry);
+): DbSubscriptionEntry<unknown> => eraseTypedDbSubscriptionEntry(entry);
 
 /**
  * Create an injectable effects channel for subscription entries.

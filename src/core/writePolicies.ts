@@ -2,50 +2,7 @@ import { isIncomingNewer } from './invariants';
 import { noteDataLoss } from './diagnostics';
 import { compareCodepoints } from './serialize';
 import { isNonArrayRecord, readIsoDate, readNumericLike } from '../utils/normalizeHelpers';
-
-export type WriteOrigin = 'snapshot' | 'event' | 'replace' | 'patch';
-
-export type WriteCtx = { origin: WriteOrigin; operationId?: string };
-
-export type GuardedOrigin = Exclude<WriteOrigin, 'replace'>;
-
-/**
- * A closed predicate algebra for accepting monotonic group writes.
- *
- * - `newerBy: path` accepts when values at `path`, normalized through `readIsoDate`, pass the sole
- *   time arbiter `isIncomingNewer`.
- * - `tuple: [...paths]` accepts when the first differing path value is greater incoming, comparing
- *   numbers numerically and all other values with `compareCodepoints`.
- * - `nonEmpty: true` accepts when every group field is present and non-empty; empty incoming values
- *   retain the current group fields.
- * - `ladder` accepts when the incoming tier rank is not below the current rank; an incoming value
- *   outside all tiers ranks `-1`, rejects, and records a data-loss event; an absent value on either side abstains and accepts.
- * - `present: path` accepts when the incoming path value is neither `null` nor `undefined`.
- * - `equal: path` accepts when incoming and current path values satisfy `Object.is`.
- * - `all` accepts when every nested specification accepts, including an empty list.
- * - `any` accepts when at least one nested specification accepts; an empty list rejects.
- */
-export type MonotonicSpec =
-  | { newerBy: string }
-  | { tuple: readonly [string, ...string[]] }
-  | { nonEmpty: true }
-  | { ladder: { path: string; tiers: readonly (readonly string[])[] } }
-  | { present: string }
-  | { equal: string }
-  | { all: readonly MonotonicSpec[] }
-  | { any: readonly MonotonicSpec[] };
-
-export type NestedKeyPolicy = 'server' | 'continuity' | 'nonEmpty' | 'positive';
-
-export type WritePolicy =
-  | 'server'
-  | 'continuity'
-  | { monotonic: MonotonicSpec; on?: readonly GuardedOrigin[] }
-  | { snapshot: true }
-  | { keys: Readonly<Record<string, NestedKeyPolicy>>; rest?: 'server' | 'continuity' };
-
-/** A group accepts one policy or an ordered list; a rejected guard restores current fields before later policies run. */
-export type WriteGroup = { fields: readonly string[]; policy: WritePolicy | readonly WritePolicy[] };
+import type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WritePolicy, WriteOrigin } from '../types';
 
 const isPresent = (value: unknown): boolean => {
   if (value == null) return false;
@@ -129,14 +86,23 @@ const applyNestedKeys = (previousValue: unknown, incomingValue: unknown, policy:
   return result;
 };
 
-const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: Record<string, unknown>, effective: Record<string, unknown>, ctx: WriteCtx, modelId: string): void => {
+const applyPolicy = (
+  policy: WritePolicy,
+  fields: readonly string[],
+  previous: Record<string, unknown>,
+  effective: Record<string, unknown>,
+  ctx: WriteCtx,
+  modelId: string
+): void => {
   if (policy === 'server') return;
   if (policy === 'continuity') {
     for (const field of fields) if (field in effective && effective[field] == null) effective[field] = previous[field];
     return;
   }
   if ('snapshot' in policy) {
-    for (const field of fields) if (field in effective) effective[field] = isNonArrayRecord(previous[field]) && isNonArrayRecord(effective[field]) ? { ...previous[field], ...effective[field] } : effective[field];
+    for (const field of fields)
+      if (field in effective)
+        effective[field] = isNonArrayRecord(previous[field]) && isNonArrayRecord(effective[field]) ? { ...previous[field], ...effective[field] } : effective[field];
     return;
   }
   if ('keys' in policy) {
@@ -157,7 +123,8 @@ const applyPolicy = (policy: WritePolicy, fields: readonly string[], previous: R
  * `snapshot` shallow-folds objects, and nested-key policies protect declared object keys. `newerBy`
  * normalizes values through `readIsoDate` before `isIncomingNewer`.
  */
-export const compileWritePolicies = <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[], modelId: string) =>
+export const compileWritePolicies =
+  <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[], modelId: string) =>
   (previous: TRow, incoming: TRow, ctx: WriteCtx): TRow => {
     const effective: Record<string, unknown> = { ...previous, ...incoming };
     if (ctx.origin === 'replace') return effective as TRow;

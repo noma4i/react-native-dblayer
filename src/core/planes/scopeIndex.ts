@@ -2,12 +2,9 @@ import type { StoragePlane } from './storagePlane';
 import { noteDataLoss, noteScopeKeyMigration } from '../diagnostics';
 import { compositeKey } from '../serialize';
 import { sortBy } from 'es-toolkit';
-
-export type ScopeCoverage = 'complete' | 'page' | 'delta';
+import type { ScopeCoverage, ScopeIndexValue } from '../../types';
 
 type ScopeEntry = { id: string; order: number; seq: number; edge?: Record<string, unknown> };
-
-export type ScopeIndexValue = { generation: number; coverage: ScopeCoverage; entries: ScopeEntry[] };
 
 type IncomingScopeRow = { id: string; edge?: Record<string, unknown>; order?: number };
 
@@ -287,7 +284,11 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         const persistedKey = fullKey.slice(storageKey('').length);
         const canonicalScopeName = orderedScopeNames.find(scopeName => persistedKey.startsWith(compositeKey(scopeName, '')));
         const colonDelimitedScopeName = canonicalScopeName ? undefined : orderedScopeNames.find(scopeName => persistedKey.startsWith(`${scopeName}:`));
-        const key = canonicalScopeName ? persistedKey : colonDelimitedScopeName ? compositeKey(colonDelimitedScopeName, persistedKey.slice(colonDelimitedScopeName.length + 1)) : null;
+        const key = canonicalScopeName
+          ? persistedKey
+          : colonDelimitedScopeName
+            ? compositeKey(colonDelimitedScopeName, persistedKey.slice(colonDelimitedScopeName.length + 1))
+            : null;
         if (!key) {
           storage.set([{ key: fullKey, value: null }]);
           noteDataLoss('corrupt-scope', modelId, 1);

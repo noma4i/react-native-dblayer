@@ -1,8 +1,7 @@
 import { createCommitEnvelope, registerApplyTarget, type ApplyTarget } from '../core/apply/transaction';
-import type { JournalOp, ScopeIndexValue, WriteOrigin } from '../types';
+import type { JournalOp, ScopeIndexValue, ScopeSpec, WriteOrigin } from '../types';
 import { getApplyRuntime } from './configure';
 import type { ModelContext } from './modelContext';
-import type { ScopeSpec } from './scope';
 
 export const createModelApplyTarget = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;

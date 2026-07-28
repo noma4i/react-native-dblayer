@@ -3,7 +3,7 @@ import { compileWritePolicies } from '../core/writePolicies';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
 import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
 import type { InferStoredFields, ModelConfig, ModelFieldSpecs } from '../types';
-import type { ScopeSpec } from './scope';
+import type { ScopeSpec } from '../types';
 
 type SparseModelField = ModelFieldSpecs[string] & { [fieldSpecSparseRead]: (value: unknown, fieldKey: string) => unknown };
 

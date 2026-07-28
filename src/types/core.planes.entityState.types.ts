@@ -1,4 +1,4 @@
-import type { WriteCtx } from '../core/writePolicies';
+import type { WriteCtx } from './core.writePolicies.types';
 
 type UpsertResult = { changedFields: string[] | null };
 

@@ -4,7 +4,8 @@ import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGener
 import { getDbLogger } from '../core/logger';
 import { noteIngestFailure } from '../core/diagnostics';
 import type { ExtractSink } from './defineQuery';
-import { getDbSubscriptionEffect, type DbSubscriptionEntry } from '../core/subscriptionRuntime';
+import { getDbSubscriptionEffect } from '../core/subscriptionRuntime';
+import type { DbSubscriptionEntry } from '../types';
 import { getInternalModelHandle } from '../core/internalHandles';
 
 export type IngestDecl = {

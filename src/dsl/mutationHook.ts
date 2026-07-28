@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import type { MutateCallbacks } from './defineMutation';
+import type { MutateCallbacks } from '../types';
 
 export type MutationHandle<TData, TInput> = {
   mutate(input: TInput, callbacks?: MutateCallbacks<TData>): void;

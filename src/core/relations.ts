@@ -2,25 +2,10 @@ import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
 import type { JournalOp } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
-
-/** Structural reference to a defined model; relation thunks resolve it after both models exist. */
-export type ModelRef<TStored> = {
-  modelId: string;
-  find(id: string | null | undefined): TStored | undefined;
-  all(): TStored[];
-  where(where: Record<string, unknown>): TStored[];
-};
+import type { MembershipDelta, ModelRef, RelationDecl } from '../types';
 
 type StoredRow = Record<string, unknown>;
 type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
-
-export type RelationDecl =
-  | { kind: 'belongsTo'; model: ModelRef<StoredRow>; foreignKey: string; touch?: TouchFn; counterCache?: { field: string; filter?: (child: StoredRow) => boolean } }
-  | { kind: 'hasMany'; model: ModelRef<StoredRow>; foreignKey: string; dependent?: 'destroy' }
-  | { kind: 'hasOne'; model: ModelRef<StoredRow>; foreignKey: string; comparator?: (left: StoredRow, right: StoredRow) => number }
-  | { kind: 'references'; model: ModelRef<StoredRow>; ids: (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined };
-
-export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: string[] };
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
@@ -278,8 +263,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
         const overlayRows = overlay.get(relation.model.modelId);
         const liveChildren = relation.model.where({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
         const overlayChildren = [...(overlayRows?.values() ?? [])].filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
-        const ids = uniq([...liveChildren, ...overlayChildren].map(child => String(child.id)))
-          .filter(childId => !destroyed.has(compositeKey(relation.model.modelId, childId)));
+        const ids = uniq([...liveChildren, ...overlayChildren].map(child => String(child.id))).filter(childId => !destroyed.has(compositeKey(relation.model.modelId, childId)));
         if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
       }
     }
@@ -325,10 +309,13 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     for (const row of op.append) if (row.order !== undefined) ids.add(row.id);
     placementIds.set(compositeKey(op.model, op.scopeKey), ids);
   }
-  return [...out, ...[...membership.values()].flatMap(entry => {
-    if (entry.append.size === 0 && entry.detach.size === 0) return [];
-    const placement = placementIds.get(compositeKey(entry.model, entry.scopeKey));
-    const append = [...entry.append].filter(id => !placement?.has(id)).map(id => ({ id }));
-    return append.length > 0 || entry.detach.size > 0 ? [{ kind: 'scope-delta' as const, model: entry.model, scopeKey: entry.scopeKey, append, detach: [...entry.detach] }] : [];
-  })].filter(op => !(op.kind === 'counter' && authoritative.has(compositeKey(op.model, op.id))));
+  return [
+    ...out,
+    ...[...membership.values()].flatMap(entry => {
+      if (entry.append.size === 0 && entry.detach.size === 0) return [];
+      const placement = placementIds.get(compositeKey(entry.model, entry.scopeKey));
+      const append = [...entry.append].filter(id => !placement?.has(id)).map(id => ({ id }));
+      return append.length > 0 || entry.detach.size > 0 ? [{ kind: 'scope-delta' as const, model: entry.model, scopeKey: entry.scopeKey, append, detach: [...entry.detach] }] : [];
+    })
+  ].filter(op => !(op.kind === 'counter' && authoritative.has(compositeKey(op.model, op.id))));
 };

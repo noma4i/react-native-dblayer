@@ -52,7 +52,7 @@ const allowlist: AllowedViolation[] = [
     file: 'src/dsl/defineView.ts',
     pattern: 'as unknown as',
     reason: 'Public generic view configuration and relation handles cross the row-shape-erased runtime boundary'
-  },
+  }
 ];
 
 const relative = (file: string) => path.relative(root, file).split(path.sep).join('/');
@@ -73,6 +73,22 @@ const collectViolations = (): Violation[] =>
 
 const key = (violation: { file: string; pattern: string }) => `${violation.file}|${violation.pattern}`;
 
+const declarationSites = (): Map<string, string[]> => {
+  const sites = new Map<string, string[]>();
+  walker(srcRoot)
+    .filter(file => !relative(file).startsWith('src/__tests__/'))
+    .forEach(file => {
+      const name = relative(file);
+      fs.readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach(line => {
+          const match = /^export (?:type|interface) ([A-Za-z0-9_]+)/.exec(line);
+          if (match) sites.set(match[1], [...(sites.get(match[1]) ?? []), name]);
+        });
+    });
+  return sites;
+};
+
 describe('type discipline', () => {
   it('contains no un-allowlisted typing exceptions in production source', () => {
     const violations = collectViolations();
@@ -82,5 +98,14 @@ describe('type discipline', () => {
 
     expect(unexpected).toEqual([]);
     expect(stale).toEqual([]);
+  });
+
+  it('declares every exported type name in exactly one module', () => {
+    const duplicated = [...declarationSites().entries()]
+      .filter(([, files]) => files.length > 1)
+      .map(([name, files]) => `${name}: ${files.join(' + ')}`)
+      .sort();
+
+    expect(duplicated).toEqual([]);
   });
 });

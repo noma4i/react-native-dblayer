@@ -1,4 +1,17 @@
-import type { DbWhere, InferBuildInput, InferStoredFields, ModelFieldSpecs, ModelConfig, ModelCore, QueryScopeReads, QueryScopeSpec, RequiredReadUse, ScopeHandle, ScopeValueOf } from '../types';
+import type {
+  DbWhere,
+  InferBuildInput,
+  InferStoredFields,
+  ModelFieldSpecs,
+  ModelConfig,
+  ModelCore,
+  QueryScopeReads,
+  QueryScopeSpec,
+  RequiredReadUse,
+  ScopeHandle,
+  ScopeSpec,
+  ScopeValueOf
+} from '../types';
 import { registerRelationHost } from '../core/relations';
 import { registerReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
@@ -14,7 +27,6 @@ import { createModelScopeHandle } from './modelScopeHandle';
 import { createModelDefinitions } from './modelDefinitions';
 import { createModelDirectAccess } from './modelDirectAccess';
 import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
-import type { ScopeSpec } from './scope';
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
@@ -32,7 +44,8 @@ export const defineModel = <
 >(
   config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>
 ): Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
-  use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
+  use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
+    QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
   scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>> };
 } & TExt => {
   type Stored = InferStoredFields<TFields> & Record<string, unknown>;
@@ -76,10 +89,14 @@ export const defineModel = <
   });
 
   const captureMembership = (id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> =>
-    planes().scopeIndex.keysOf(id).flatMap(scopeKey => {
-      const entry = planes().scopeIndex.read(scopeKey).entries.find(candidate => candidate.id === id);
-      return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
-    });
+    planes()
+      .scopeIndex.keysOf(id)
+      .flatMap(scopeKey => {
+        const entry = planes()
+          .scopeIndex.read(scopeKey)
+          .entries.find(candidate => candidate.id === id);
+        return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
+      });
   const { writeRows, patchRow, planRows, planReplace, planRestore } = createModelWrites<Stored>({
     modelId: config.id,
     modelName: config.name,
@@ -196,7 +213,8 @@ export const defineModel = <
     }
   }
   return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
-    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> & QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
+    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
+      QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
     scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>> };
   } & TExt;
 };

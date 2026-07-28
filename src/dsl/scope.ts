@@ -1,3 +1,5 @@
+import type { ScopeSpec } from '../types';
+
 /**
  * How an incoming batch of rows reconciles against a scope's existing membership:
  * - `'complete'`: incoming rows become the exact membership in server order; previous members absent
@@ -7,36 +9,6 @@
  *   head order, with previous members kept, in their relative order, after them.
  * - `'delta'`: same merge semantics as `'page'`, used for single-row/subscription-driven updates.
  */
-
-export interface ScopeSpec<TStored> {
-  /**
-   * Automatic membership mapping from scope-value fields to stored row fields (e.g. `{ groupId: 'groupId' }`).
-   * When set, a row's membership in this scope is derived from its field values on every write: the row
-   * joins the scope instance matching its current field values and leaves any scope instance it no longer
-   * matches, in the same apply transaction as the write. Omit for scopes populated only by `defineQuery`
-   * (via a `ScopeHandle` destination) or explicit `ScopeHandle.seed` calls.
-   */
-  by?: Record<string, keyof TStored & string>;
-  /** Additional membership predicate for `by`-derived scopes. A row joins the scope instance matching its field values only while `member(row)` is true; when a write makes it false the row leaves the scope in the same apply transaction. Requires `by`. Ignored for query-destination scopes (no `by`). */
-  member?: (row: TStored) => boolean;
-  /**
-   * Member ordering within the scope:
-   * - `{ field, dir }`: sort by a stored field, ascending or descending.
-   * - `{ comparator, orderFields? }`: sort with a custom row comparator.
-   * - `'server-order'` (default when omitted): preserve the order rows were reconciled into the scope in
-   *   (i.e. the order the server/API returned them in) - no client-side resort.
-   */
-  sort?:
-    | { field: keyof TStored & string; dir: 'asc' | 'desc' }
-    | {
-        comparator: (a: TStored, b: TStored) => number;
-        /** Row fields the comparator reads. When declared, commits that do not touch any of these fields skip the full scope resort. Omit to keep the conservative always-resort behavior. */
-        orderFields?: ReadonlyArray<keyof TStored & string>;
-      }
-    | 'server-order';
-  /** Membership cap enforced on first-page refetch (resetOrder) and complete coverage; trimmed ids fall to GC. */
-  retention?: { maxRows: number };
-}
 
 type StructuralScopeSpec = {
   by?: Record<string, string>;
