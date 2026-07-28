@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { configureDb, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { createAppModels } from './appModels';

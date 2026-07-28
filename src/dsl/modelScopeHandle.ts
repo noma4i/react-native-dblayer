@@ -108,7 +108,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       rowsByScope.delete(requestedScopeKey);
       return [upsert, planScope(requestedScopeKey, requestedRows, coverage, planOptions), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
     };
-    const readScopeRows = (scopeValue: unknown, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
+    const useScopeRows = (scopeValue: unknown, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
       const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);
       options.useScopeAccess(scopeKey);
       return useScopeReadRows(
@@ -121,9 +121,9 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
     };
     const scopeHandle = {
       modelId: options.modelId,
-      use: readScopeRows,
+      use: useScopeRows,
       useFirst: (scopeValue: unknown, readOptions: { renderKeys?: readonly string[] } & KeepPreviousOption = {}) =>
-        readScopeRows(scopeValue, readOptions as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
+        useScopeRows(scopeValue, readOptions as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
       useWindow: (scopeValue: unknown, readOptions: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const pageSize = readOptions?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
         const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);

@@ -1,5 +1,5 @@
-import React, { memo } from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import React, { act, memo } from 'react';
+import TestRenderer from 'react-test-renderer';
 import { defineModel, f, hasOne, scope } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 

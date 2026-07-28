@@ -24,7 +24,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
 }): ModelCore<TStored, TInput>['use'] => {
   const { planes, resolvedRelations } = options.context;
   return {
-    pending: id => {
+    pending: function usePending(id) {
       const key = id == null ? null : String(id);
       const readPending = useCallback(() => key != null && getOperationState().pendingForRow(options.modelId, key).length > 0, [key]);
       const subscribePending = useCallback(
@@ -37,7 +37,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
       );
       return useSyncExternalStore(subscribePending, readPending, readPending);
     },
-    failed: id => {
+    failed: function useFailed(id) {
       const key = id == null ? null : String(id);
       const readFailed = useCallback(() => key != null && getOperationState().failedFor(options.modelId, key) !== undefined, [key]);
       const subscribeFailed = useCallback(
@@ -50,7 +50,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
       );
       return useSyncExternalStore(subscribeFailed, readFailed, readFailed);
     },
-    unsyncedChanges: id => {
+    unsyncedChanges: function useUnsyncedChanges(id) {
       const key = id == null ? null : String(id);
       const cacheRef = useRef<Partial<TStored> | undefined>(undefined);
       const readChanges = useCallback(() => {
@@ -90,7 +90,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
         `${options.modelId}.use.find`
       );
     }) as ModelCore<TStored, TInput>['use']['find'],
-    field: (id, field) => {
+    field: function useField(id, field) {
       const key = id == null ? undefined : String(id);
       return useLiveRead(() => (key == null ? undefined : planes().entityState.read(key)?.[field]), key == null ? [] : [options.rowDep(key, [String(field)])]);
     },
@@ -147,8 +147,8 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
         Object.is
       );
     }) as ModelCore<TStored, TInput>['use']['byIds'],
-    count: where =>
-      useIncrementalRead({
+    count: function useCount(where) {
+      return useIncrementalRead({
         signature: incrementalSignature('count', options.modelId, where),
         deps: [options.modelDep],
         create: () =>
@@ -161,7 +161,8 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
             select: (_rows, count) => count,
             countOnly: true
           })
-      }),
+      });
+    },
     related: ((id: string | null | undefined, relationName: string, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}): unknown => {
       const relation = resolvedRelations()[relationName];
       if (!relation) throw new Error(`${options.modelName} has no relation ${relationName}`);
@@ -175,7 +176,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
       }
       let compute: () => unknown;
       let deps: Dependency[];
-      let isEqual: (a: unknown, b: unknown) => boolean = Object.is;
+      const isEqual: (a: unknown, b: unknown) => boolean = Object.is;
       if (relation.kind === 'belongsTo') {
         const parentIdOf = (): string | null => {
           const child = id == null ? undefined : planes().entityState.read(id);

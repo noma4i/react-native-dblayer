@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { defineModel, f, resetRuntime } from '../../../index';
 import { getOperationState } from '../../../dsl/configure';
 import type { OperationRecord } from '../../../core/planes/operationState';

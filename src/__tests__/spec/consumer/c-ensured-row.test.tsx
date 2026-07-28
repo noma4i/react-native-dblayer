@@ -1,5 +1,5 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';

@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { collectGarbage } from '../../../core/gc';

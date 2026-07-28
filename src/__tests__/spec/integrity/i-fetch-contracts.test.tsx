@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { configureDb, defineFetch, defineModel, f, scope } from '../../../index';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestFocused, setTestNetworkOnline, settle } from '../helpers/harness';
 

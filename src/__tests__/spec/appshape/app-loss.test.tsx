@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { configureDb } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { flushPersistence } from '../../../dsl/configure';

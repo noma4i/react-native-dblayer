@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
 import { flushPersistence, getOperationState, replayJournal } from '../../../dsl/configure';

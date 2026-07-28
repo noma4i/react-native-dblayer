@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { act } from 'react';
 import { AppState } from 'react-native';
-import TestRenderer, { act } from 'react-test-renderer';
+import TestRenderer from 'react-test-renderer';
 import * as dbl from '../../../index';
 import { registerBootValidation } from '../../../dsl/bootValidations';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';

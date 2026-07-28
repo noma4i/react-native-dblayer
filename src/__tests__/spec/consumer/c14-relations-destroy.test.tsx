@@ -1,6 +1,6 @@
 import { configureDb, defineModel, f, hasMany, resetRuntime, scope } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 
 type ParentRow = { id: string; owner: string; name: string };
 type ChildRow = { id: string; parentId: string; label: string };

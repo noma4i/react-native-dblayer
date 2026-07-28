@@ -1,5 +1,5 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
 import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 

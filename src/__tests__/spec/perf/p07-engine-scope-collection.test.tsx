@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import React, { act, useState } from 'react';
+import TestRenderer from 'react-test-renderer';
 import { defineModel, f, resetRuntime, scope } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 

@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { defineModel, f, scope } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 

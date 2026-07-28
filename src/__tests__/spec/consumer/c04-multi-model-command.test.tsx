@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { configureDb, defineCommand, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 

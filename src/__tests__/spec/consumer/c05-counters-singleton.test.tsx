@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { createSingletonStatics, defineModel, f, pickPresent, resetRuntime } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 

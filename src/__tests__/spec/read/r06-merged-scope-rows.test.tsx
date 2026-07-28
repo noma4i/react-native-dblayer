@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as TestRenderer from 'react-test-renderer';
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { useMergedScopeRows } from '../../../index';
 
 type TestRow = { id: string; name: string; score: number };

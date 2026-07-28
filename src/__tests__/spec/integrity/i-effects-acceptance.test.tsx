@@ -1,4 +1,4 @@
-import { act } from 'react-test-renderer';
+import { act } from 'react';
 import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
 import { getApplyTarget } from '../../../core/apply/transaction';
 import { flushPersistence, getOperationState } from '../../../dsl/configure';

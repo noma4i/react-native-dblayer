@@ -1,5 +1,5 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
 import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../../core/fetch/fetchLedgerRegistry';
 

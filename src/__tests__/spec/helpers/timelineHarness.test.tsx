@@ -1,5 +1,4 @@
-import React from 'react';
-import { act } from 'react-test-renderer';
+import React, { act } from 'react';
 import { recordTimeline, setupSpecRuntime } from './harness';
 
 describe('recordTimeline', () => {

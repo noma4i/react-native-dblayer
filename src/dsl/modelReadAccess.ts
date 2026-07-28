@@ -42,13 +42,13 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
   const whereRead = (where: DbWhere<TStored> | null): ModelReadBuilder<TStored> => {
     const defaultOrders: ReadonlyArray<ReadOrder<TStored>> = options.defaultOrder ? [options.defaultOrder] : [];
     return createReadBuilder(where, {
-      rows: <TOutput extends Record<string, unknown>>(
+      rows: function useRows<TOutput extends Record<string, unknown>>(
         criteria: DbWhere<TStored> | null,
         orders: readonly ReadOrder<TStored>[],
         limit: number | undefined,
         required: readonly string[],
         projection: ProjectionOptions<TStored, TOutput>
-      ): TOutput[] => {
+      ): TOutput[] {
         const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
         validateProjectionOptions(projection, `${options.modelId}.use.where`);
         const projectionRef = useRef(projection);
@@ -71,7 +71,7 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
             })
         });
       },
-      pluck: (criteria, orders, limit, required, projection, field) => {
+      pluck: function usePluck(criteria, orders, limit, required, projection, field) {
         const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
         const projectionRef = useRef(projection);
         projectionRef.current = projection;
@@ -96,7 +96,7 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
             })
         });
       },
-      exists: (criteria, required) => {
+      exists: function useExists(criteria, required) {
         const signature = incrementalSignature('where-exists', options.modelId, buildScopeKey({ criteria, required }));
         return useIncrementalRead({
           signature,
