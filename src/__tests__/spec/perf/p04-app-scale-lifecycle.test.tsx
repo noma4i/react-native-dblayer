@@ -469,7 +469,7 @@ describe('app-scale lifecycle', () => {
         act(() => {
           // Alternates the patched row between the front and back of the sort order so every commit
           // forces a genuine reorder of thread-0 (a monotonically increasing sequenceNumber would only
-          // ever append at the tail, which the mirror can skip without a resort).
+          // ever append at the tail, which the scope index can fast-add without a resort).
           models.messages.update('thread-0-msg-12', { sequenceNumber: index % 2 === 0 ? -1 : MESSAGES_PER_THREAD + 1 });
         });
         perCommitWork.push(workNow() - before);
