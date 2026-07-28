@@ -3,6 +3,8 @@ import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
 import { runPendingTempRowMaintenance } from '../dsl/maintenanceRegistry';
+import type { GcReport } from '../types/core.gc.types';
+export type { GcReport } from '../types/core.gc.types';
 
 type GcHost = {
   modelId: string;
@@ -35,8 +37,6 @@ export const registerGcHost = (modelId: string, host: GcHost): (() => void) => {
     hostGenerations.delete(modelId);
   };
 };
-
-export type GcReport = { evicted: Record<string, number>; scopesRemoved: Record<string, number> };
 
 /**
  * Reachability GC over all registered models. Roots: scope members, exempt models, pending
