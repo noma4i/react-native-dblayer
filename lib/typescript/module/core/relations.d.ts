@@ -1,9 +1,9 @@
-import type { AcceptedRow, DestroyedRow, JournalOp, ModelRef, RelationDecl, RelationHost } from '../types';
+import type { AcceptedRow, DestroyedRow, ModelRef, RelationDecl, RelationHost, RelationPlanReader, WriteOp } from '../types';
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
- * plan) and `counterCache` increments/decrements, emitting them as extra `patch`/`counter` ops in the SAME
- * plan as the triggering event.
+ * plan) and `counterCache` increments/decrements before WAL, emitting them as extra `patch`/`counter` intents
+ * in the same compiled plan as the triggering event.
  *
  * @param model The parent model reference.
  * @param options.foreignKey Child field storing the parent id.
@@ -25,8 +25,8 @@ export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, opti
 }) => RelationDecl;
 /**
  * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
- * `deriveEffects` reads children through `model.where` after accepted entity rows commit so a cascade sees
- * children written earlier in the same plan.
+ * `deriveEffects` reads children through the immutable plan snapshot so a cascade sees children written
+ * earlier in the same plan without applying any row first.
  *
  * @param model The child model reference.
  * @param options.foreignKey Child field storing the parent id.
@@ -69,8 +69,8 @@ export declare const registerRelationHost: (modelId: string, host: RelationHost)
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
 export declare const hasDependentCascade: (modelId: string) => boolean;
 /**
- * Derive relation effects from rows accepted by entity application. Raw journal operations never
- * contain these effects, so replay re-runs the same derivation against effective rows.
+ * Derive relation effects from rows accepted by pure write previews. The returned intents are compiled
+ * into callback-free journal operations before WAL; replay never invokes relation callbacks.
  */
-export declare const deriveEffects: (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: JournalOp[]) => JournalOp[];
+export declare const deriveEffects: (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: WriteOp[], reader: RelationPlanReader) => WriteOp[];
 //# sourceMappingURL=relations.d.ts.map

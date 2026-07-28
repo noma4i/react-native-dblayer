@@ -84,7 +84,11 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime();
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
-    expect(JSON.parse(storage.get('dbl:manifest')!)).toEqual({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    expect((JSON.parse(storage.get('dbl:manifest')!) as { payload: unknown }).payload).toEqual({
+      formatVersion: DB_FORMAT_VERSION,
+      schemaFingerprint: computeSchemaFingerprint(),
+      dataVersion: null
+    });
   });
 
   it('preserves existing data when the manifest matches', async () => {
@@ -108,7 +112,11 @@ describe('persistence schema manifest', () => {
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(storage.get('dbl:sentinel')).toBeUndefined();
-    expect(JSON.parse(storage.get('dbl:manifest')!)).toEqual({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: 'build-2' });
+    expect((JSON.parse(storage.get('dbl:manifest')!) as { payload: unknown }).payload).toEqual({
+      formatVersion: DB_FORMAT_VERSION,
+      schemaFingerprint: computeSchemaFingerprint(),
+      dataVersion: 'build-2'
+    });
     expect(diagnostics.snapshot().manifestResets).toBe(1);
     expect(diagnostics.snapshot().dataLossEvents).toContainEqual({ mechanism: 'data-version-migration-reset', model: '__runtime__', count: 1 });
   });

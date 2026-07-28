@@ -73,4 +73,9 @@ export type CounterRef = {
     id: string;
     field: string;
 };
+/** Snapshot reader used by relation planning to include earlier operations in the same envelope. */
+export type RelationPlanReader = {
+    read(model: string, id: string): StoredRow | undefined;
+    rows(model: string): StoredRow[];
+};
 //# sourceMappingURL=core.relations.types.d.ts.map

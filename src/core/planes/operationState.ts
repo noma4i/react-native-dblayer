@@ -3,9 +3,27 @@ import type { OperationRecord, OperationState , StoragePlane , PersistedOnceKeyR
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
+import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { isRecord } from '../../utils/normalizeHelpers';
 
-const ONCE_KEY_RECORD_FORMAT_VERSION = 1;
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
+
+const isOperationRecord = (value: unknown): value is OperationRecord =>
+  isRecord(value) &&
+  typeof value.operationId === 'string' &&
+  typeof value.model === 'string' &&
+  Array.isArray(value.tempIds) &&
+  value.tempIds.every(id => typeof id === 'string') &&
+  (value.rowIds === undefined || (Array.isArray(value.rowIds) && value.rowIds.every(id => typeof id === 'string'))) &&
+  (value.intent === 'insert' || value.intent === 'patch' || value.intent === 'destroy') &&
+  (value.status === 'pending' || value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed') &&
+  typeof value.createdAt === 'number';
+
+const isOperationRecordMap = (value: unknown): value is Record<string, OperationRecord> =>
+  isRecord(value) && Object.entries(value).every(([operationId, record]) => isOperationRecord(record) && record.operationId === operationId);
+
+const isOnceKeyRecord = (value: unknown): value is PersistedOnceKeyRecord =>
+  isRecord(value) && Array.isArray(value.keys) && value.keys.every(key => typeof key === 'string');
 
 /** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`
  * (which clears diagnostics) right after this read, so it reports the loss itself once reset is done. */
@@ -14,22 +32,21 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
   let corruptSources = 0;
   const rawOnceKeys = storage.get(onceKeysKey(prefix));
   if (rawOnceKeys) {
-    try {
-      const record = JSON.parse(rawOnceKeys) as PersistedOnceKeyRecord;
-      if (record.formatVersion === ONCE_KEY_RECORD_FORMAT_VERSION && Array.isArray(record.keys) && record.keys.every(key => typeof key === 'string')) {
-        for (const key of record.keys) keys.add(key);
-      }
-    } catch {
+    const record = decodeSupportedPersistence(rawOnceKeys, PERSISTENCE_SCHEMA_VERSION, isOnceKeyRecord);
+    if (record) {
+      for (const key of record.keys) keys.add(key);
+    } else {
       corruptSources += 1;
     }
   }
   const rawOperations = storage.get(`${prefix}ops`);
   if (rawOperations) {
-    try {
-      for (const record of Object.values(JSON.parse(rawOperations) as Record<string, OperationRecord>)) {
+    const records = decodeSupportedPersistence(rawOperations, PERSISTENCE_SCHEMA_VERSION, isOperationRecordMap);
+    if (records) {
+      for (const record of Object.values(records)) {
         if (record.status === 'committed' && record.once === true && typeof record.idempotencyKey === 'string') keys.add(record.idempotencyKey);
       }
-    } catch {
+    } else {
       corruptSources += 1;
     }
   }
@@ -38,7 +55,7 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
 
 export const writeCommittedOnceKeys = (storage: StoragePlane, prefix: string, keys: readonly string[]): void => {
   if (keys.length === 0) return;
-  storage.set([{ key: onceKeysKey(prefix), value: JSON.stringify({ formatVersion: ONCE_KEY_RECORD_FORMAT_VERSION, keys }) }]);
+  storage.set([{ key: onceKeysKey(prefix), value: encodePersistence({ keys }) }]);
 };
 
 /** JSON-round-trip an operation input before it enters the persistent ledger. */
@@ -122,8 +139,8 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const persistEntries = (): Array<{ key: string; value: string | null }> => {
     const keys = [...committedKeys].sort();
     return [
-      { key: opsKey(), value: operations.size > 0 ? JSON.stringify(Object.fromEntries(operations)) : null },
-      { key: onceKeysKey(prefix()), value: keys.length > 0 ? JSON.stringify({ formatVersion: ONCE_KEY_RECORD_FORMAT_VERSION, keys }) : null }
+      { key: opsKey(), value: operations.size > 0 ? encodePersistence(Object.fromEntries(operations)) : null },
+      { key: onceKeysKey(prefix()), value: keys.length > 0 ? encodePersistence({ keys }) : null }
     ];
   };
   const EMPTY_OWNED: ReadonlySet<string> = new Set();
@@ -267,14 +284,15 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       hydratedPendingIds.clear();
       const rawOps = storage.get(opsKey());
       if (rawOps) {
-        try {
-          for (const [operationId, record] of Object.entries(JSON.parse(rawOps) as Record<string, OperationRecord>)) {
+        const records = decodeSupportedPersistence(rawOps, PERSISTENCE_SCHEMA_VERSION, isOperationRecordMap);
+        if (records) {
+          for (const [operationId, record] of Object.entries(records)) {
             const retainKey = record.status === 'pending' || (record.status === 'committed' && record.once === true);
             const hydratedRecord = retainKey ? record : { ...record, idempotencyKey: undefined };
             operations.set(operationId, hydratedRecord);
             if (hydratedRecord.status === 'pending') hydratedPendingIds.add(operationId);
           }
-        } catch {
+        } else {
           storage.set([{ key: opsKey(), value: null }]);
           noteCorruptionLedgerReset();
           noteDataLoss('operation-ledger-corruption-reset', '__operations__', 1);

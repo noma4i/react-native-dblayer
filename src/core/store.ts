@@ -2,6 +2,8 @@ import { BasicIndex, createCollection, createLiveQueryCollection, eq, type Chang
 import { stableSerialize } from './serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
 import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreMembershipRow, StoreScopeChange, StoreScopeCollection, StoreScopeSyncChange, StoreScopeSyncSource, StoreSyncMethods, Tombstone, WriteCtx } from '../types';
+import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
+import { isRecord } from '../utils/normalizeHelpers';
 
 class SyncFeed<T extends object> {
   private methods: StoreSyncMethods<T> | null = null;
@@ -91,6 +93,10 @@ const diffTopLevelFields = (previous: RowRecord, next: RowRecord): string[] => {
 };
 
 const DELETED = Symbol('store-row-deleted');
+
+const isStoredRow = (value: unknown): value is RowRecord => isRecord(value) && typeof value.id === 'string';
+const isTombstoneRecord = (value: unknown): value is Record<string, Tombstone> =>
+  isRecord(value) && Object.values(value).every(tombstone => isRecord(tombstone) && typeof tombstone.at === 'number');
 
 /** Store factories are a definition registry (registered at defineModel time, replaced per generation); active stores die on reset. */
 const storeFactories = new Map<string, () => ModelStore<RowRecord>>();
@@ -340,6 +346,56 @@ export const createModelStore = <T extends RowRecord>(options: {
     writeMemberships([...deletes, ...upserts]);
   };
 
+  const previewUpsert = (
+    incoming: RowRecord,
+    upsertOptions: { previous: RowRecord | undefined; mergeBase?: RowRecord; ctx?: WriteCtx }
+  ): { row: RowRecord; changedFields: string[] | null } => {
+    let row = incoming;
+    const id = String(row.id);
+    if (row.id !== id) row = { ...row, id };
+    const previous = upsertOptions.previous;
+    const mergePrevious = previous ?? upsertOptions.mergeBase;
+    if (previous === row) return { row, changedFields: [] };
+    const ctx = upsertOptions.ctx ?? { origin: 'snapshot' as const };
+    if (mergePrevious && ctx.origin !== 'replace' && ctx.operationId === undefined && ownedFields) {
+      const owned = ownedFields(row.id, ctx.operationId);
+      if (owned.size > 0) {
+        let overlaid: RowRecord | undefined;
+        for (const field of owned) {
+          if (!(field in mergePrevious)) continue;
+          overlaid ??= { ...row };
+          overlaid[field] = mergePrevious[field];
+        }
+        row = overlaid ?? row;
+      }
+    }
+    if (mergePrevious) row = applyWriteGate(mergePrevious, row, ctx);
+    const changedFields = previous ? diffTopLevelFields(previous, row) : null;
+    if (previous && changedFields !== null && changedFields.length > 0 && changedFields.every(field => stableSerialize(previous[field]) === stableSerialize(row[field]))) {
+      noteEntityUpsertGuardHit();
+      return { row: previous, changedFields: [] };
+    }
+    return { row, changedFields };
+  };
+
+  const put = (incoming: RowRecord): { changedFields: string[] | null } => {
+    let row = incoming;
+    const id = String(row.id);
+    if (row.id !== id) row = { ...row, id };
+    const previous = read(id);
+    if (previous === row) return { changedFields: [] };
+    const changedFields = previous ? diffTopLevelFields(previous, row) : null;
+    if (changedFields !== null && changedFields.length === 0) return { changedFields };
+    if (previous && changedFields !== null && changedFields.every(field => stableSerialize(previous[field]) === stableSerialize(row[field]))) {
+      noteEntityUpsertGuardHit();
+      return { changedFields: [] };
+    }
+    bufferWrite(id, row);
+    dirty.set(id, 'set');
+    if (tombstones.delete(id)) tombstonesDirty = true;
+    return { changedFields };
+  };
+
   const store: ModelStore<T> = {
     read: id => read(id) as T | undefined,
     values: () => {
@@ -357,39 +413,21 @@ export const createModelStore = <T extends RowRecord>(options: {
       }
       return rows as T[];
     },
+    previewUpsert: (incoming, upsertOptions) =>
+      previewUpsert(incoming, upsertOptions as { previous: RowRecord | undefined; mergeBase?: RowRecord; ctx?: WriteCtx }) as {
+        row: T;
+        changedFields: string[] | null;
+      },
+    put: incoming => put(incoming),
     upsert: (incoming, upsertOptions = {}) => {
-      let row: RowRecord = incoming;
-      const id = String(row.id);
-      if (row.id !== id) row = { ...row, id };
-      const previous = read(row.id);
-      const mergePrevious = previous ?? upsertOptions.mergeBase;
-      if (previous === row) return { changedFields: [] };
-      const ctx = upsertOptions.ctx ?? { origin: 'snapshot' as const };
-      if (mergePrevious && ctx.origin !== 'replace' && ctx.operationId === undefined && ownedFields) {
-        const owned = ownedFields(row.id, ctx.operationId);
-        if (owned.size > 0) {
-          let overlaid: RowRecord | undefined;
-          for (const field of owned) {
-            if (!(field in mergePrevious)) continue;
-            overlaid ??= { ...row };
-            overlaid[field] = (mergePrevious as RowRecord)[field];
-          }
-          row = overlaid ?? row;
-        }
-      }
-      if (mergePrevious) row = applyWriteGate(mergePrevious, row, ctx);
-      const changedFields = previous ? diffTopLevelFields(previous, row) : null;
-      if (changedFields !== null && changedFields.length === 0) return { changedFields };
-      if (previous && changedFields !== null && changedFields.every(field => stableSerialize(previous[field]) === stableSerialize(row[field]))) {
-        noteEntityUpsertGuardHit();
-        return { changedFields: [] };
-      }
-      bufferWrite(row.id, row);
-      dirty.set(row.id, 'set');
-      if (tombstones.delete(row.id)) {
-        tombstonesDirty = true;
-      }
-      return { changedFields };
+      const previous = read(String(incoming.id));
+      const prepared = previewUpsert(incoming, {
+        previous,
+        mergeBase: upsertOptions.mergeBase,
+        ctx: upsertOptions.ctx
+      });
+      if (prepared.changedFields !== null && prepared.changedFields.length === 0) return { changedFields: prepared.changedFields };
+      return put(prepared.row);
     },
     destroy: (id, destroyOptions = {}) => {
       id = String(id);
@@ -411,10 +449,11 @@ export const createModelStore = <T extends RowRecord>(options: {
       prune();
       const entries: Array<{ key: string; value: string | null }> = [];
       for (const [id, op] of dirty) {
-        entries.push({ key: rowKey(id), value: op === 'set' ? JSON.stringify(read(id)) : null });
+        const row = read(id);
+        entries.push({ key: rowKey(id), value: op === 'set' && row ? encodePersistence(row) : null });
       }
       if (tombstonesDirty) {
-        entries.push({ key: tombstonesKey(), value: tombstones.size > 0 ? JSON.stringify(Object.fromEntries(tombstones)) : null });
+        entries.push({ key: tombstonesKey(), value: tombstones.size > 0 ? encodePersistence(Object.fromEntries(tombstones)) : null });
       }
       return entries;
     },
@@ -432,11 +471,10 @@ export const createModelStore = <T extends RowRecord>(options: {
       for (const fullKey of storage.keys(rowsPrefix())) {
         const raw = storage.get(fullKey);
         if (!raw) continue;
-        try {
-          const row = JSON.parse(raw) as RowRecord;
-          if (typeof row.id !== 'string') row.id = String(row.id);
+        const row = decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isStoredRow);
+        if (row) {
           loaded.push(row);
-        } catch {
+        } else {
           storage.set([{ key: fullKey, value: null }]);
           noteDataLoss('corrupt-row', modelId, 1);
         }
@@ -451,9 +489,10 @@ export const createModelStore = <T extends RowRecord>(options: {
       }
       const rawTombstones = storage.get(tombstonesKey());
       if (rawTombstones) {
-        try {
-          for (const [id, tombstone] of Object.entries(JSON.parse(rawTombstones) as Record<string, Tombstone>)) tombstones.set(id, tombstone);
-        } catch {
+        const persisted = decodeSupportedPersistence(rawTombstones, PERSISTENCE_SCHEMA_VERSION, isTombstoneRecord);
+        if (persisted) {
+          for (const [id, tombstone] of Object.entries(persisted)) tombstones.set(id, tombstone);
+        } else {
           storage.set([{ key: tombstonesKey(), value: null }]);
           noteDataLoss('corrupt-tombstones', modelId, 1);
         }

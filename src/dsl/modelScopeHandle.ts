@@ -1,5 +1,5 @@
 import { sortBy } from 'es-toolkit';
-import type { ApplyTarget, Dependency, JournalOp, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape , ProjectionOptions } from '../types';
+import type { ApplyTarget, Dependency, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape, ProjectionOptions, WriteOp } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';
@@ -26,9 +26,9 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   scopeDep(scopeKey: string): Dependency;
   useScopeAccess(scopeKey: string | null): void;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: JournalOp[] };
-  applySnapshot(ops: JournalOp[]): void;
-  applyEvent(ops: JournalOp[]): void;
+  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: WriteOp[] };
+  applySnapshot(ops: WriteOp[]): void;
+  applyEvent(ops: WriteOp[]): void;
 }) => {
   const { planes } = options.context;
   return (scopeName: string): ScopeHandle<TStored, Record<string, unknown>, TInput> => {
@@ -38,7 +38,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       liveRows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
-    ): JournalOp => {
+    ): WriteOp => {
       const reconciliation = planes().scopeIndex.reconcileNext(
         scopeKey,
         coverage,
@@ -85,11 +85,11 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       rows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
-    ): JournalOp[] => {
+    ): WriteOp[] => {
       const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
       const split = options.splitCorrelatedRows(liveRows.map(({ row }) => row));
-      const rowOps: JournalOp[] = [{ kind: 'upsert', model: options.modelId, rows: split.plain }, ...split.replaceOps];
+      const rowOps: WriteOp[] = [{ kind: 'upsert', model: options.modelId, rows: split.plain }, ...split.replaceOps];
       if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
 
       const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();

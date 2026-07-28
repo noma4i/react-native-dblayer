@@ -60,5 +60,5 @@ export type OperationState = {
   reset(): void;
 };
 
-/** Persisted once-key envelope with its storage format version. */
-export type PersistedOnceKeyRecord = { formatVersion: number; keys: string[] };
+/** Persisted once-key payload protected by the shared persistence envelope. */
+export type PersistedOnceKeyRecord = { keys: string[] };

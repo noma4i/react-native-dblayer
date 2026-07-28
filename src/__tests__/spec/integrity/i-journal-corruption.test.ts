@@ -1,5 +1,7 @@
 import { configureDb } from '../../../index';
 import { createJournal, readJournalRecord } from '../../../core/apply/journal';
+import { encodePersistence, versionPersistenceValue } from '../../../core/persistenceCodec';
+import type { JournalRecord } from '../../../types';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -18,12 +20,56 @@ const setup = () => {
 };
 
 const pendingRecord = (epoch: number, model = 'SpecJournalModel') => ({
+  txId: `test:${epoch}`,
+  runtimeEpoch: 1,
   epoch,
   status: 'pending' as const,
   ops: [{ kind: 'upsert' as const, model, rows: [{ id: `row-${epoch}` }] }]
 });
 
+const encodeRecord = (record: JournalRecord): string =>
+  encodePersistence({
+    ...record,
+    ops: record.ops.map(op => versionPersistenceValue(op))
+  });
+
 describe('journal corruption policy', () => {
+  it('writes a versioned checksummed envelope around every journal record', () => {
+    const { journal } = setup();
+    const record = pendingRecord(1);
+
+    const encoded = journal.pendingEntry(record)[0]!.value;
+    const persisted = JSON.parse(encoded!) as { schemaVersion?: unknown; checksum?: unknown; payload?: unknown };
+
+    expect(persisted.schemaVersion).toBe(1);
+    expect(persisted.checksum).toEqual(expect.stringMatching(/^[0-9a-f]{8}$/));
+    expect(persisted.payload).toEqual({
+      ...record,
+      ops: record.ops.map(op => ({ schemaVersion: 1, payload: op }))
+    });
+  });
+
+  it('refuses an unsupported journal schema version instead of deleting it as corruption', () => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:1`;
+    storage.set([{ key, value: JSON.stringify({ schemaVersion: 999, checksum: '00000000', payload: pendingRecord(1) }) }]);
+
+    expect(() => readJournalRecord(storage, PREFIX, key)).toThrow('Unsupported persistence schema version 999');
+    expect(storage.get(key)).toBeDefined();
+  });
+
+  it('routes a checksum mismatch through the corruption policy', () => {
+    const { storage, journal } = setup();
+    const key = `${PREFIX}journal:1`;
+    const persisted = JSON.parse(journal.pendingEntry(pendingRecord(1))[0]!.value!) as { checksum: string };
+    persisted.checksum = persisted.checksum === '00000000' ? 'ffffffff' : '00000000';
+    storage.set([{ key, value: JSON.stringify(persisted) }]);
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(storage.get(key)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-loss', model: '__runtime__', count: 1 });
+  });
+
   it('counts un-checkpointed corruption as unrecoverable loss and deletes the record', () => {
     const { storage } = setup();
     storage.set([{ key: `${PREFIX}journal:7`, value: '{corrupt' }]);
@@ -37,7 +83,7 @@ describe('journal corruption policy', () => {
   it('drops checkpointed corruption quietly under the checkpointed-drop mechanism', () => {
     const { storage } = setup();
     storage.set([
-      { key: `${PREFIX}meta`, value: JSON.stringify({ lastCheckpointEpoch: 9 }) },
+      { key: `${PREFIX}meta`, value: encodePersistence({ lastCheckpointEpoch: 9 }) },
       { key: `${PREFIX}journal:7`, value: '{corrupt' }
     ]);
 
@@ -68,14 +114,15 @@ describe('journal corruption policy', () => {
 
   it('routes parseable JSON of the wrong record shape through the same corruption policy', () => {
     const { storage } = setup();
+    const base = { txId: 'malformed', runtimeEpoch: 1, epoch: 7, status: 'pending' };
     const malformed = [
-      JSON.stringify({ epoch: '7', status: 'pending', ops: [] }),
-      JSON.stringify({ epoch: 7, status: 'weird', ops: [] }),
-      JSON.stringify({ epoch: 7, status: 'pending', ops: {} }),
-      JSON.stringify({ epoch: 7, status: 'pending', ops: [{ model: 'M' }] }),
-      JSON.stringify({ epoch: 7, status: 'pending', ops: [{ kind: 'sideways', model: 'M' }] }),
-      JSON.stringify({ epoch: 7, status: 'pending', ops: [{ kind: 'upsert' }] }),
-      JSON.stringify(42)
+      encodePersistence({ ...base, epoch: '7', ops: [] }),
+      encodePersistence({ ...base, status: 'weird', ops: [] }),
+      encodePersistence({ ...base, ops: {} }),
+      encodePersistence({ ...base, ops: [versionPersistenceValue({ model: 'M' })] }),
+      encodePersistence({ ...base, ops: [versionPersistenceValue({ kind: 'sideways', model: 'M' })] }),
+      encodePersistence({ ...base, ops: [versionPersistenceValue({ kind: 'upsert' })] }),
+      encodePersistence(42)
     ];
     for (const [index, value] of malformed.entries()) {
       const journalKey = `${PREFIX}journal:${index + 1}`;
@@ -92,8 +139,8 @@ describe('journal corruption policy', () => {
     const pending = pendingRecord(3);
     const committed = { ...pendingRecord(4), status: 'committed' as const };
     storage.set([
-      { key: `${PREFIX}journal:3`, value: JSON.stringify(pending) },
-      { key: `${PREFIX}journal:4`, value: JSON.stringify(committed) }
+      { key: `${PREFIX}journal:3`, value: encodeRecord(pending) },
+      { key: `${PREFIX}journal:4`, value: encodeRecord(committed) }
     ]);
 
     expect(readJournalRecord(storage, PREFIX, `${PREFIX}journal:3`)).toEqual(pending);
@@ -106,9 +153,9 @@ describe('journal epoch scan and prune', () => {
   it('orders allRecords by epoch, filters pending, and reports the max epoch', () => {
     const { storage, journal } = setup();
     storage.set([
-      { key: `${PREFIX}journal:5`, value: JSON.stringify(pendingRecord(5)) },
-      { key: `${PREFIX}journal:2`, value: JSON.stringify({ ...pendingRecord(2), status: 'committed' }) },
-      { key: `${PREFIX}journal:9`, value: JSON.stringify(pendingRecord(9)) }
+      { key: `${PREFIX}journal:5`, value: encodeRecord(pendingRecord(5)) },
+      { key: `${PREFIX}journal:2`, value: encodeRecord({ ...pendingRecord(2), status: 'committed' }) },
+      { key: `${PREFIX}journal:9`, value: encodeRecord(pendingRecord(9)) }
     ]);
 
     expect(journal.allRecords().map(record => record.epoch)).toEqual([2, 5, 9]);
@@ -128,7 +175,7 @@ describe('journal epoch scan and prune', () => {
     storage.set(
       Array.from({ length: total }, (_, index) => ({
         key: `${PREFIX}journal:${index + 1}`,
-        value: JSON.stringify({ ...pendingRecord(index + 1), status: 'committed' })
+        value: encodeRecord({ ...pendingRecord(index + 1), status: 'committed' })
       }))
     );
 
@@ -143,7 +190,7 @@ describe('journal epoch scan and prune', () => {
     storage.set(
       Array.from({ length: 55 }, (_, index) => ({
         key: `${PREFIX}journal:${index + 1}`,
-        value: JSON.stringify({ ...pendingRecord(index + 1), status: 'committed' })
+        value: encodeRecord({ ...pendingRecord(index + 1), status: 'committed' })
       }))
     );
 
@@ -155,13 +202,13 @@ describe('journal epoch scan and prune', () => {
     storage.set(
       Array.from({ length: 51 }, (_, index) => ({
         key: `${PREFIX}journal:${index + 1}`,
-        value: JSON.stringify({ ...pendingRecord(index + 1), status: 'committed' })
+        value: encodeRecord({ ...pendingRecord(index + 1), status: 'committed' })
       }))
     );
 
     const entries = journal.committedEntry(pendingRecord(60));
 
-    expect(entries[0]).toEqual({ key: `${PREFIX}journal:60`, value: JSON.stringify({ ...pendingRecord(60), status: 'committed' }) });
+    expect(entries[0]).toEqual({ key: `${PREFIX}journal:60`, value: encodeRecord({ ...pendingRecord(60), status: 'committed' }) });
     expect(entries.slice(1).map(entry => entry.key)).toEqual([`${PREFIX}journal:1`, `${PREFIX}journal:2`]);
   });
 
@@ -176,7 +223,7 @@ describe('journal epoch scan and prune', () => {
       }
     };
     const journal = createJournal(counting, () => PREFIX);
-    storage.set([{ key: `${PREFIX}journal:1`, value: JSON.stringify({ ...pendingRecord(1), status: 'committed' }) }]);
+    storage.set([{ key: `${PREFIX}journal:1`, value: encodeRecord({ ...pendingRecord(1), status: 'committed' }) }]);
     journal.committedEntry(pendingRecord(2));
     const scansAfterWarmup = scans;
 

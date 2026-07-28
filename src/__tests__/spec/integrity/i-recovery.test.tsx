@@ -1,6 +1,7 @@
 import { configureDb, defineModel, f, scope } from '../../../index';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { bootDb } from '../../../dsl/lifecycle';
+import { encodePersistence } from '../../../core/persistenceCodec';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; bucket: string; label: string };
@@ -27,9 +28,9 @@ describe('persistence recovery protocol', () => {
   it('C1 drops one corrupt row while hydrating the remaining rows', async () => {
     const storage = configureRecoveryRuntime([
       { key: 'dbl:row:RecoveryA:bad', value: '{broken' },
-      { key: 'dbl:row:RecoveryA:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:row:RecoveryA:kept', value: JSON.stringify({ id: 'kept', bucket: 'a', label: 'K' }) },
-      { key: 'dbl:row:RecoveryB:kept', value: JSON.stringify({ id: 'kept', bucket: 'b', label: 'B' }) }
+      { key: 'dbl:row:RecoveryA:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:row:RecoveryA:kept', value: encodePersistence({ id: 'kept', bucket: 'a', label: 'K' }) },
+      { key: 'dbl:row:RecoveryB:kept', value: encodePersistence({ id: 'kept', bucket: 'b', label: 'B' }) }
     ]);
     const modelA = defineRecoveryModel('RecoveryA');
     const modelB = defineRecoveryModel('RecoveryB');
@@ -41,7 +42,7 @@ describe('persistence recovery protocol', () => {
 
     expect(modelA.find('live')).toMatchObject({ label: 'A' });
     expect(modelA.find('kept')).toMatchObject({ label: 'K' });
-    expect(storage.get('dbl:row:RecoveryB:kept')).toBe(JSON.stringify({ id: 'kept', bucket: 'b', label: 'B' }));
+    expect(storage.get('dbl:row:RecoveryB:kept')).toBe(encodePersistence({ id: 'kept', bucket: 'b', label: 'B' }));
     expect(modelB.find('kept')).toMatchObject({ label: 'B' });
     expect(storage.keys('dbl:row:RecoveryA:').sort()).toEqual(['dbl:row:RecoveryA:kept', 'dbl:row:RecoveryA:live']);
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-row', model: modelA.modelId, count: 1 });
@@ -49,7 +50,7 @@ describe('persistence recovery protocol', () => {
 
   it('C3 drops corrupt tombstones without discarding rows', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryTombstones:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:row:RecoveryTombstones:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
       { key: 'dbl:tombstones:RecoveryTombstones', value: '{broken' }
     ]);
     const model = defineRecoveryModel('RecoveryTombstones');
@@ -65,9 +66,9 @@ describe('persistence recovery protocol', () => {
 
   it('C2 drops a corrupt scope key while retaining row and valid scope state', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryScope:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScope:feed\0{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) },
-      { key: 'dbl:scope:RecoveryScope:renamed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [] }) }
+      { key: 'dbl:row:RecoveryScope:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScope:feed\0{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) },
+      { key: 'dbl:scope:RecoveryScope:renamed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] }) }
     ]);
     const model = defineRecoveryModel('RecoveryScope');
     writeMatchingManifest();
@@ -83,8 +84,8 @@ describe('persistence recovery protocol', () => {
 
   it('migrates a legacy scope key without dropping the model cache', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryScopeMigration:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
+      { key: 'dbl:row:RecoveryScopeMigration:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScopeMigration:feed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
     ]);
     const model = defineRecoveryModel('RecoveryScopeMigration');
     writeMatchingManifest();
@@ -101,8 +102,8 @@ describe('persistence recovery protocol', () => {
 
   it('does not repeat a completed scope-key migration', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryScopeMigrationOnce:live', value: JSON.stringify({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScopeMigrationOnce:feed:{"bucket":"a"}', value: JSON.stringify({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
+      { key: 'dbl:row:RecoveryScopeMigrationOnce:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: 'dbl:scope:RecoveryScopeMigrationOnce:feed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', order: 0, seq: 1 }] }) }
     ]);
     defineRecoveryModel('RecoveryScopeMigrationOnce');
     writeMatchingManifest();
@@ -122,7 +123,7 @@ describe('persistence recovery protocol', () => {
   it('safe-drops corrupt checkpointed WAL records', async () => {
     diagnostics().reset();
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:meta', value: JSON.stringify({ lastCheckpointEpoch: 3 }) },
+      { key: 'dbl:meta', value: encodePersistence({ lastCheckpointEpoch: 3 }) },
       { key: 'dbl:journal:3', value: '{broken' }
     ]);
     writeMatchingManifest();
@@ -136,7 +137,7 @@ describe('persistence recovery protocol', () => {
   it('reports loss for corrupt WAL records newer than the checkpoint', async () => {
     diagnostics().reset();
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:meta', value: JSON.stringify({ lastCheckpointEpoch: 2 }) },
+      { key: 'dbl:meta', value: encodePersistence({ lastCheckpointEpoch: 2 }) },
       { key: 'dbl:journal:3', value: '{broken' }
     ]);
     writeMatchingManifest();

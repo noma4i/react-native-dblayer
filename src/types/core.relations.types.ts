@@ -37,3 +37,9 @@ export type TouchEntry = { model: string; id: string; view: StoredRow; patch: St
 
 /** Address of one counter-cache field on a parent row. */
 export type CounterRef = { model: string; id: string; field: string };
+
+/** Snapshot reader used by relation planning to include earlier operations in the same envelope. */
+export type RelationPlanReader = {
+  read(model: string, id: string): StoredRow | undefined;
+  rows(model: string): StoredRow[];
+};

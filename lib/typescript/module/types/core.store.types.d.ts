@@ -3,12 +3,24 @@ import type { WriteCtx } from './core.writePolicies.types';
 type UpsertResult = {
     changedFields: string[] | null;
 };
+export type PreparedUpsert<T> = {
+    row: T;
+    changedFields: string[] | null;
+};
 /** Row read/write contract of the per-model primary store (implemented by `createModelStore`). */
 export type EntityState<T extends {
     id: string;
 }> = {
     read(id: string): T | undefined;
     values(): T[];
+    /** Resolve one write without mutating the collection, tombstones, or dirty state. */
+    previewUpsert(row: T, options: {
+        previous: T | undefined;
+        mergeBase?: T;
+        ctx?: WriteCtx;
+    }): PreparedUpsert<T>;
+    /** Apply an already-resolved row verbatim without invoking write policies. */
+    put(row: T): UpsertResult;
     /** Returns changed top-level fields vs the previous row, or null when the row is new. */
     upsert(row: T, options?: {
         mergeBase?: T;

@@ -1,4 +1,5 @@
 import type { StoragePlane , CheckpointScheduler , CheckpointTarget } from '../../types';
+import { encodePersistence } from '../persistenceCodec';
 
 /**
  * Checkpoint side of the WAL pair: plans persist only their journal record on the hot path
@@ -39,12 +40,12 @@ export const createCheckpointScheduler = (options: {
       const epoch = dirty.get(model);
       // Called for every known model, dirty or quiescent, so tombstones decay by TTL alone.
       entries.push(...options.getTarget(model).persistEntries());
-      if (epoch !== undefined) markers.push({ key: `${options.prefix()}applied:${model}`, value: String(epoch) });
+      if (epoch !== undefined) markers.push({ key: `${options.prefix()}applied:${model}`, value: encodePersistence(epoch) });
     }
     if (entries.length === 0 && markers.length === 0) return;
     entries.push(...markers);
     entries.push(...(options.extraEntries?.() ?? []));
-    entries.push({ key: `${options.prefix()}meta`, value: JSON.stringify({ lastCheckpointEpoch: checkpointEpoch }) });
+    entries.push({ key: `${options.prefix()}meta`, value: encodePersistence({ lastCheckpointEpoch: checkpointEpoch }) });
     options.storage.set(entries);
     // Ack strictly after the successful write: a thrown set keeps every dirty marker for the next flush.
     for (const model of knownModels) options.getTarget(model).ackPersist();

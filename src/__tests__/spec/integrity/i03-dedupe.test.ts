@@ -136,7 +136,10 @@ describe('mutation dedupe semantics', () => {
 
     await regular.run({ value: 'regular' });
     await once.run({ value: 'once' });
-    const records = Object.values(JSON.parse(storage.get('dbl:ops') ?? '{}') as Record<string, { once?: boolean; idempotencyKey?: string }>);
+    const persisted = JSON.parse(storage.get('dbl:ops') ?? '{}') as {
+      payload?: Record<string, { once?: boolean; idempotencyKey?: string }>;
+    };
+    const records = Object.values(persisted.payload ?? {});
     const regularRecord = records.find(record => record.once !== true);
     const onceRecord = records.find(record => record.once === true);
 

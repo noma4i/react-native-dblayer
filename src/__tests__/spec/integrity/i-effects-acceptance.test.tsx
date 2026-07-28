@@ -60,10 +60,10 @@ describe('effects derive from accepted rows', () => {
     });
     const target = getApplyTarget(chats.modelId);
     let failApply = false;
-    const originalUpsert = target.upsert;
-    target.upsert = (...args) => {
-      if (failApply) throw new Error('injected apply failure');
-      return originalUpsert(...args);
+    const originalPrepareUpsert = target.prepareUpsert;
+    target.prepareUpsert = (row, ...args) => {
+      if (failApply && (row as { pinned?: unknown }).pinned === false) throw new Error('injected apply failure');
+      return originalPrepareUpsert(row, ...args);
     };
     let pending!: Promise<unknown>;
     act(() => {
@@ -76,12 +76,15 @@ describe('effects derive from accepted rows', () => {
     expect(getOperationState().pendingForRow(chats.modelId, 'chat-1')).toEqual([]);
     expect(getOperationState().failedForRow(chats.modelId, 'chat-1').map(operation => operation.status)).not.toContain('committed');
     expect(chats.find('chat-1')?.pinned).toBe(false);
-    target.upsert = originalUpsert;
+    target.prepareUpsert = originalPrepareUpsert;
   });
 
-  it('stores only raw relation intent and re-derives effects during journal replay', async () => {
+  it('stores the complete relation plan and replays it without invoking relation callbacks', async () => {
     const storage = createMemoryPlane();
-    const defineRows = () => {
+    const replayTouch = jest.fn((_message: Message, _chat: Chat) => {
+      throw new Error('relation callback ran during replay');
+    });
+    const defineRows = (replaying = false) => {
       const chats = defineModel({ id: 'EffectsAcceptanceReplayChat', name: 'EffectsAcceptanceReplayChat', gc: 'exempt', fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() } });
       const messages = defineModel({
         id: 'EffectsAcceptanceReplayMessage',
@@ -91,7 +94,9 @@ describe('effects derive from accepted rows', () => {
         relations: () => ({
           chat: belongsTo<Message, Chat>(chats, {
             foreignKey: 'chatId',
-            touch: (message, chat) => ({ lastMessageId: message.id, lastActivityAt: Math.max(chat.lastActivityAt, message.createdAt) }),
+            touch: replaying
+              ? replayTouch
+              : (message, chat) => ({ lastMessageId: message.id, lastActivityAt: Math.max(chat.lastActivityAt, message.createdAt) }),
             counterCache: { field: 'unreadCount' }
           })
         })
@@ -104,16 +109,56 @@ describe('effects derive from accepted rows', () => {
     first.chats.insert({ id: 'chat-1', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 });
     first.messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
 
-    const records = storage.keys('dbl:journal:').map(key => JSON.parse(storage.get(key)!) as { ops: Array<{ model: string; kind: string }> });
-    expect(records.find(record => record.ops.some(op => op.model === first.messages.modelId))?.ops.map(op => ({ kind: op.kind, model: op.model }))).toEqual([{ kind: 'upsert', model: first.messages.modelId }]);
+    const records = storage.keys('dbl:journal:').map(key => {
+      const record = (JSON.parse(storage.get(key)!) as { payload: { ops: Array<{ payload: { model: string; kind: string } }> } }).payload;
+      return { ...record, ops: record.ops.map(op => op.payload) };
+    });
+    expect(records.find(record => record.ops.some(op => op.model === first.messages.modelId))?.ops.map(op => ({ kind: op.kind, model: op.model }))).toEqual([
+      { kind: 'upsert', model: first.messages.modelId },
+      { kind: 'upsert', model: first.chats.modelId },
+      { kind: 'upsert', model: first.chats.modelId }
+    ]);
     expect(first.chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1' });
 
     configureDb({ storage, transport: createMockTransport() });
-    const replayed = defineRows();
+    const replayed = defineRows(true);
     await expect(bootDb()).resolves.toMatchObject({ reset: false, replayed: 2 });
 
+    expect(replayTouch).not.toHaveBeenCalled();
     expect(replayed.messages.find('message-1')).toMatchObject({ chatId: 'chat-1', body: 'stored' });
     expect(replayed.chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1' });
     flushPersistence();
+  });
+
+  it('runs relation callbacks before writing the pending WAL record', () => {
+    const storage = createMemoryPlane();
+    let journalRecordsDuringTouch = -1;
+    configureDb({ storage, transport: createMockTransport() });
+    const chats = defineModel({
+      id: 'EffectsAcceptancePreflightChat',
+      name: 'EffectsAcceptancePreflightChat',
+      fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() }
+    });
+    const messages = defineModel({
+      id: 'EffectsAcceptancePreflightMessage',
+      name: 'EffectsAcceptancePreflightMessage',
+      fields: { chatId: f.str(), body: f.str(), createdAt: f.num() },
+      relations: () => ({
+        chat: belongsTo<Message, Chat>(chats, {
+          foreignKey: 'chatId',
+          touch: message => {
+            journalRecordsDuringTouch = storage.keys('dbl:journal:').length;
+            return { lastMessageId: message.id, lastActivityAt: message.createdAt };
+          },
+          counterCache: { field: 'unreadCount' }
+        })
+      })
+    });
+    chats.insert({ id: 'chat-1', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 });
+
+    messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
+
+    expect(journalRecordsDuringTouch).toBe(1);
+    expect(storage.keys('dbl:journal:')).toHaveLength(2);
   });
 });

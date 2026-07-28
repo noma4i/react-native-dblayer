@@ -1,12 +1,14 @@
 import { configureDb, defineModel, f } from '../../../index';
 import { getApplyRuntime } from '../../../dsl/configure';
 import { createCommitEnvelope } from '../../../core/apply/transaction';
+import { createJournal } from '../../../core/apply/journal';
+import { encodePersistence } from '../../../core/persistenceCodec';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 describe('apply honesty (D5): mid-plan throw', () => {
-  it('rethrows, leaves the epoch journal record pending, reports onSyncError, and counts applyFailure', () => {
+  it('rejects an incomplete plan before WAL and leaves every model unchanged', () => {
     const storage = createMemoryPlane();
     const onSyncError = jest.fn();
     configureDb({ storage, transport: createMockTransport(), defaults: { onSyncError } });
@@ -18,8 +20,8 @@ describe('apply honesty (D5): mid-plan throw', () => {
       fields: { label: f.str() }
     });
     rows.insert({ id: 'row-1', label: 'baseline' });
-    const journalBefore = JSON.parse(storage.get('dbl:journal:1')!) as { status: string };
-    expect(journalBefore.status).toBe('committed');
+    const journalBefore = JSON.parse(storage.get('dbl:journal:1')!) as { payload: { status: string } };
+    expect(journalBefore.payload.status).toBe('committed');
 
     expect(() =>
       getApplyRuntime().commit(createCommitEnvelope([
@@ -28,12 +30,10 @@ describe('apply honesty (D5): mid-plan throw', () => {
       ]))
     ).toThrow('No apply target registered for MissingApplyHonestyTarget');
 
-    const journalAfter = storage.get('dbl:journal:2');
-    expect(journalAfter).toBeDefined();
-    expect(JSON.parse(journalAfter!)).toMatchObject({ status: 'pending' });
-    expect(diagnostics().snapshot().applyFailure).toBe(1);
-    expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), { source: 'apply' });
-    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: 'No apply target registered for MissingApplyHonestyTarget' });
+    expect(storage.get('dbl:journal:2')).toBeUndefined();
+    expect(rows.find('row-2')).toBeUndefined();
+    expect(diagnostics().snapshot().applyFailure).toBe(0);
+    expect(onSyncError).not.toHaveBeenCalled();
   });
 });
 
@@ -76,6 +76,16 @@ describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
     configureDb({ storage, transport: createMockTransport() });
     return storage;
   };
+  const encodedRecord = (epoch: number, model: string): string => {
+    const storage = createMemoryPlane();
+    return createJournal(storage, () => 'dbl:').pendingEntry({
+      txId: `test:${epoch}`,
+      runtimeEpoch: 1,
+      epoch,
+      status: 'pending',
+      ops: [{ kind: 'upsert', model, rows: [{ id: `row-${epoch}`, label: 'good' }] }]
+    })[0]!.value!;
+  };
   const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
   it('routes an ops-not-array record through the corruption drop path instead of throwing on boot', async () => {
@@ -95,7 +105,7 @@ describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
     diagnostics().reset();
     const storage = configureBootRuntime([
       { key: 'dbl:journal:1', value: JSON.stringify({ epoch: 1, status: 'pending', ops: [{ rows: [{ id: 'row-1' }] }] }) },
-      { key: 'dbl:journal:2', value: JSON.stringify({ epoch: 2, status: 'pending', ops: [{ kind: 'upsert', model: 'ReplayHonestyD15', rows: [{ id: 'row-2', label: 'good' }] }] }) }
+      { key: 'dbl:journal:2', value: encodedRecord(2, 'ReplayHonestyD15') }
     ]);
     const rows = defineModel({ id: 'ReplayHonestyD15', name: 'ReplayHonestyD15', gc: 'exempt', fields: { label: f.str() } });
     writeMatchingManifest();
@@ -110,7 +120,7 @@ describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
   it('safe-drops a checkpointed malformed-shape record the same way as checkpointed parse-corrupt JSON', async () => {
     diagnostics().reset();
     const storage = configureBootRuntime([
-      { key: 'dbl:meta', value: JSON.stringify({ lastCheckpointEpoch: 3 }) },
+      { key: 'dbl:meta', value: encodePersistence({ lastCheckpointEpoch: 3 }) },
       { key: 'dbl:journal:3', value: JSON.stringify({ epoch: 3, status: 'committed', ops: 'not-an-array' }) }
     ]);
     writeMatchingManifest();

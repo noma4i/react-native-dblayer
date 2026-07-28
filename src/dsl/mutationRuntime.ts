@@ -1,4 +1,4 @@
-import type { DefinedMutation, JournalOp, MutationConfig, MutationRuntimeContext, OptimisticCtx } from '../types';
+import type { DefinedMutation, MutationConfig, MutationRuntimeContext, OptimisticCtx, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -43,7 +43,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     let insertedTempId: string | null = null;
     let previous: unknown = null;
     let previousMemberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }> = [];
-    let respondInverse: JournalOp[] = [];
+    let respondInverse: WriteOp[] = [];
     let operationContext!: OptimisticCtx;
     let data!: TData;
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
@@ -177,7 +177,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
       if (payload == null) throw new Error(`${config.result} returned no data`);
 
-      const ops: JournalOp[] = [];
+      const ops: WriteOp[] = [];
       if (optimistic && isRespondOptimistic(optimistic)) {
         ops.push(...planFromRespond(data, operationContext, optimistic, input));
       } else if (optimistic && !isMethodOptimistic(optimistic) && tempId) {
@@ -190,8 +190,12 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
         : ops;
       if (tracked) {
         if (commitOps.length > 0) {
-          operations.close(operationId, 'committed', { persist: false });
-          getApplyRuntime().commit(createCommitEnvelope(commitOps, () => operations.persistEntries()));
+          getApplyRuntime().commit(
+            createCommitEnvelope(commitOps, () => {
+              operations.close(operationId, 'committed', { persist: false });
+              return operations.persistEntries();
+            })
+          );
         } else {
           operations.close(operationId, 'committed');
         }
@@ -200,7 +204,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       }
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
-      const rollbackOps: JournalOp[] = [];
+      const rollbackOps: WriteOp[] = [];
       if (optimistic && isRespondOptimistic(optimistic) && insertedTempId) {
         if (respondInverse.length > 0) rollbackOps.push(...respondInverse);
       } else if (optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic)) {
@@ -235,8 +239,12 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       if (tracked) {
         const status = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback';
         if (rollbackOps.length > 0) {
-          operations.close(operationId, status, { persist: false });
-          getApplyRuntime().commit(createCommitEnvelope(rollbackOps, () => operations.persistEntries()));
+          getApplyRuntime().commit(
+            createCommitEnvelope(rollbackOps, () => {
+              operations.close(operationId, status, { persist: false });
+              return operations.persistEntries();
+            })
+          );
         } else {
           operations.close(operationId, status);
         }

@@ -1,6 +1,7 @@
 import { configureDb, defineModel, f } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION } from '../../../core/schemaManifest';
+import { encodePersistence } from '../../../core/persistenceCodec';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -13,7 +14,7 @@ describe('once-keys corruption diagnostics', () => {
     const storage = createMemoryPlane();
     storage.set([
       { key: 'dbl:ops-once', value: '{corrupt-json' },
-      { key: 'dbl:manifest', value: JSON.stringify({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'stale-fingerprint', dataVersion: null }) }
+      { key: 'dbl:manifest', value: encodePersistence({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'stale-fingerprint', dataVersion: null }) }
     ]);
     configureDb({ storage, transport: createMockTransport() });
     diagnostics().reset();

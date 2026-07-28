@@ -1,4 +1,4 @@
-import type { JournalOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.journal.types';
 import type { RelationDecl } from './core.relations.types';
 import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { RowRecord } from './db.types';
@@ -9,8 +9,8 @@ export type InternalModelHandle = {
     applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
     planRows(rows: unknown[], options?: {
         origin?: 'event';
-    }): JournalOp[];
-    planReplace(oldId: string, next: unknown): JournalOp[];
+    }): WriteOp[];
+    planReplace(oldId: string, next: unknown): WriteOp[];
     captureMembership(id: string): Array<{
         id: string;
         scopeKey: string;
@@ -22,7 +22,7 @@ export type InternalModelHandle = {
         scopeKey: string;
         order: number;
         edge?: Record<string, unknown>;
-    }>): JournalOp[];
+    }>): WriteOp[];
     relations(): Record<string, RelationDecl>;
     revision(): number;
     dropTempRowsAfterMs(): number | undefined;
@@ -37,10 +37,10 @@ export type InternalScopeHandle = {
         edge?: Record<string, unknown>;
     }>, coverage: ScopeCoverage, options?: {
         resetOrder?: boolean;
-    }): JournalOp[];
+    }): WriteOp[];
     key(scopeValue: unknown): string;
     isServerOrder(): boolean;
-    planPlacement(scopeValue: unknown, id: string, position: 'prepend' | 'append'): JournalOp[];
+    planPlacement(scopeValue: unknown, id: string, position: 'prepend' | 'append'): WriteOp[];
     readRows(scopeValue: unknown): RowRecord[];
     isResolved(scopeValue: unknown): boolean;
     noteAccess(scopeValue: unknown): void;

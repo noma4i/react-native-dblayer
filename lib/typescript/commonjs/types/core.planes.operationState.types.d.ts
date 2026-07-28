@@ -70,9 +70,8 @@ export type OperationState = {
     hydrate(): void;
     reset(): void;
 };
-/** Persisted once-key envelope with its storage format version. */
+/** Persisted once-key payload protected by the shared persistence envelope. */
 export type PersistedOnceKeyRecord = {
-    formatVersion: number;
     keys: string[];
 };
 //# sourceMappingURL=core.planes.operationState.types.d.ts.map

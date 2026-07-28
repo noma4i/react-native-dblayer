@@ -2,6 +2,7 @@ import { act } from 'react';
 import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { encodePersistence } from '../../../core/persistenceCodec';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -175,7 +176,7 @@ describe('model pending flag', () => {
     storage.set([
       {
         key: 'dbl:ops',
-        value: JSON.stringify({
+        value: encodePersistence({
           'operation-1': {
             operationId: 'operation-1',
             model: 'SpecPendingReplay',
@@ -204,7 +205,7 @@ describe('model pending flag', () => {
     storage.set([
       {
         key: 'dbl:ops',
-        value: JSON.stringify({
+        value: encodePersistence({
           'operation-1': {
             operationId: 'operation-1',
             model: 'SpecPendingPatchReplay',

@@ -1,4 +1,4 @@
-import type { ApplyTarget, Dependency, JournalOp, ModelContext, ScopeHandle, ScopeSpec } from '../types';
+import type { ApplyTarget, Dependency, ModelContext, ScopeHandle, ScopeSpec, WriteOp } from '../types';
 export declare const createModelScopeHandle: <TStored extends {
     id: string;
 } & Record<string, unknown>, TInput>(options: {
@@ -16,9 +16,9 @@ export declare const createModelScopeHandle: <TStored extends {
     scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
     splitCorrelatedRows(accepted: unknown[]): {
         plain: unknown[];
-        replaceOps: JournalOp[];
+        replaceOps: WriteOp[];
     };
-    applySnapshot(ops: JournalOp[]): void;
-    applyEvent(ops: JournalOp[]): void;
+    applySnapshot(ops: WriteOp[]): void;
+    applyEvent(ops: WriteOp[]): void;
 }) => (scopeName: string) => ScopeHandle<TStored, Record<string, unknown>, TInput>;
 //# sourceMappingURL=modelScopeHandle.d.ts.map

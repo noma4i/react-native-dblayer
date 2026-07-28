@@ -1,4 +1,4 @@
-export declare const DB_FORMAT_VERSION = 2;
+export declare const DB_FORMAT_VERSION = 3;
 import type { PersistenceManifest, SchemaDeclaration } from '../types';
 /** Register one model declaration for the persistence compatibility fingerprint. Nested array and object shape recursion is intentionally not fingerprinted. */
 export declare const registerSchemaDeclaration: (declaration: SchemaDeclaration) => void;

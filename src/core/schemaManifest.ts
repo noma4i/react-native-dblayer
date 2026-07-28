@@ -4,8 +4,10 @@ import { readCommittedOnceKeys, writeCommittedOnceKeys } from './planes/operatio
 import { resetRuntime } from './reset';
 import { noteDataLoss, noteManifestReset } from './diagnostics';
 import { stableSerialize } from './serialize';
+import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
+import { isRecord } from '../utils/normalizeHelpers';
 
-export const DB_FORMAT_VERSION = 2;
+export const DB_FORMAT_VERSION = 3;
 
 import type { PersistenceManifest, SchemaDeclaration } from '../types';
 const declarations = new Map<string, SchemaDeclaration>();
@@ -19,28 +21,20 @@ export const computeSchemaFingerprint = (): string => stableSerialize(sortBy([..
 
 const manifestKey = (prefix: string): string => `${prefix}manifest`;
 
+const isPersistenceManifest = (value: unknown): value is PersistenceManifest =>
+  isRecord(value) &&
+  typeof value.formatVersion === 'number' &&
+  typeof value.schemaFingerprint === 'string' &&
+  (value.dataVersion === null || typeof value.dataVersion === 'string');
+
 export const readPersistenceManifest = (prefix: string): PersistenceManifest | undefined => {
   const raw = getDbRuntimeConfig().storage.get(manifestKey(prefix));
   if (!raw) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      typeof (parsed as PersistenceManifest).formatVersion !== 'number' ||
-      typeof (parsed as PersistenceManifest).schemaFingerprint !== 'string' ||
-      ((parsed as PersistenceManifest).dataVersion !== null && typeof (parsed as PersistenceManifest).dataVersion !== 'string')
-    ) {
-      return undefined;
-    }
-    return parsed as PersistenceManifest;
-  } catch {
-    return undefined;
-  }
+  return decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isPersistenceManifest) ?? undefined;
 };
 
 export const writePersistenceManifest = (prefix: string, manifest: PersistenceManifest): void => {
-  getDbRuntimeConfig().storage.set([{ key: manifestKey(prefix), value: stableSerialize(manifest) }]);
+  getDbRuntimeConfig().storage.set([{ key: manifestKey(prefix), value: encodePersistence(manifest) }]);
 };
 
 /** Reset incompatible persisted state before journal replay, then persist the current manifest. */

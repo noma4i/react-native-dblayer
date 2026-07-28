@@ -2,6 +2,8 @@ import { configureDb, defineModel, f } from '../../../index';
 import { flushPersistence } from '../../../dsl/configure';
 import { createApplyRuntime, createCommitEnvelope } from '../../../core/apply/transaction';
 import { createCommitBus } from '../../../core/apply/commitBus';
+import { createJournal } from '../../../core/apply/journal';
+import { encodePersistence } from '../../../core/persistenceCodec';
 import { createFaultStorage } from '../helpers/faultStorage';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
@@ -82,9 +84,14 @@ describe('persistence fault invariants', () => {
 
     const journalKey = storage.plane.keys('dbl:journal:')[0];
     expect(journalKey).toBe('dbl:journal:1');
-    const journal = JSON.parse(storage.plane.get(journalKey!)!) as { status: string; ops: Array<{ kind: string; model: string; rows?: FaultRow[] }> };
-    expect(journal).toMatchObject({ status: 'committed', ops: [{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'local' }] }] });
-    expect(JSON.parse(storage.setCalls()[0]![0]!.value!) as { status: string }).toMatchObject({ status: 'pending' });
+    const journal = JSON.parse(storage.plane.get(journalKey!)!) as {
+      payload: { status: string; ops: Array<{ payload: { kind: string; model: string; rows?: FaultRow[] } }> };
+    };
+    expect(journal.payload).toMatchObject({
+      status: 'committed',
+      ops: [{ payload: { kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'local' }] } }]
+    });
+    expect(JSON.parse(storage.setCalls()[0]![0]!.value!) as { payload: { status: string } }).toMatchObject({ payload: { status: 'pending' } });
   });
 
   it('retries a failed checkpoint with the original rows and applied marker intact', () => {
@@ -99,8 +106,8 @@ describe('persistence fault invariants', () => {
 
     flushPersistence();
 
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(JSON.stringify({ id: 'row-1', label: 'local' }));
-    expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe('1');
+    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(encodePersistence({ id: 'row-1', label: 'local' }));
+    expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
   });
 
   it('retries a partially written checkpoint with every row and its applied marker', () => {
@@ -114,14 +121,14 @@ describe('persistence fault invariants', () => {
 
     storage.truncateNextSet(1);
     expect(() => flushPersistence()).toThrow('fault: set truncated');
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(JSON.stringify({ id: 'row-1', label: 'first' }));
+    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
     expect(storage.plane.get(`dbl:row:${rows.modelId}:row-2`)).toBeUndefined();
 
     flushPersistence();
 
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(JSON.stringify({ id: 'row-1', label: 'first' }));
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-2`)).toBe(JSON.stringify({ id: 'row-2', label: 'second' }));
-    expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe('1');
+    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
+    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-2`)).toBe(encodePersistence({ id: 'row-2', label: 'second' }));
+    expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
   });
 
   it('keeps committed WAL records through a failed flush and prunes the oldest record after a successful checkpoint', () => {
@@ -164,18 +171,25 @@ describe('persistence fault invariants', () => {
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]));
 
     expect(storage.setCalls()[3]).toEqual(
-      expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-2`, value: JSON.stringify({ id: 'row-2', label: 'second' }) }])
+      expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-2`, value: encodePersistence({ id: 'row-2', label: 'second' }) }])
     );
-    expect(storage.setCalls()[3]).not.toEqual(expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-1`, value: JSON.stringify({ id: 'row-1', label: 'first' }) }]));
+    expect(storage.setCalls()[3]).not.toEqual(expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-1`, value: encodePersistence({ id: 'row-1', label: 'first' }) }]));
   });
 
   it('does not replay a journal record already covered by its applied marker', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('ReplayCoverage');
+    const record = {
+      txId: 'test:1',
+      runtimeEpoch: 1,
+      epoch: 1,
+      status: 'committed' as const,
+      ops: [{ kind: 'upsert' as const, model: rows.modelId, rows: [{ id: 'row-1', label: 'persisted' }] }]
+    };
     storage.plane.set([
-      { key: `dbl:applied:${rows.modelId}`, value: '1' },
-      { key: 'dbl:journal:1', value: JSON.stringify({ epoch: 1, status: 'committed', ops: [{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'persisted' }] }] }) }
+      { key: `dbl:applied:${rows.modelId}`, value: encodePersistence(1) },
+      { key: 'dbl:journal:1', value: createJournal(storage.plane, () => 'dbl:').committedEntry(record)[0]!.value }
     ]);
     const bus = createCommitBus();
     const batches: unknown[] = [];

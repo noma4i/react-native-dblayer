@@ -1,13 +1,13 @@
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
 import { isRecord } from '../utils/normalizeHelpers';
-import type { JournalOp, MutationConfig, MutationModel, MutationResponder, OptimisticCtx, RespondOptimistic } from '../types';
+import type { MutationConfig, MutationModel, MutationResponder, OptimisticCtx, RespondOptimistic, WriteOp } from '../types';
 
 export const createMutationResponder = <TData, TInput, TStored, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): MutationResponder<TData, TInput, TNode> => {
-  const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[] => {
+  const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): WriteOp[] => {
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
     if (payload == null) throw new Error(`${config.result} returned no data`);
     const node = optimistic.selectServerNode(data);
-    const ops: JournalOp[] = [];
+    const ops: WriteOp[] = [];
     if (node != null) {
       const raw = node as Record<string, unknown>;
       const id = raw.id === '' || raw.id == null ? context.tempId : String(raw.id);
@@ -26,7 +26,7 @@ export const createMutationResponder = <TData, TInput, TStored, TNode>(config: M
     return ops;
   };
 
-  const inverseFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[] => {
+  const inverseFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): WriteOp[] => {
     const targets: Array<{ model: MutationModel; id: string }> = [];
     const node = optimistic.selectServerNode(data) as Record<string, unknown> | null | undefined;
     if (node) targets.push({ model: optimistic.model, id: node.id === '' || node.id == null ? context.tempId! : String(node.id) });

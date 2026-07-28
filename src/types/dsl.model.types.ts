@@ -16,7 +16,7 @@ import type { ModelStatusPoller } from './utils.modelStatusPoller.types';
 import type { WritePolicy , WriteCtx, WriteOrigin } from './core.writePolicies.types';
 import type { ModelIngestEntry } from './dsl.ingest.types';
 import type { ModelContext } from './dsl.modelContext.types';
-import type { JournalOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.journal.types';
 import type { Dependency } from './core.apply.commitBus.types';
 import type { ApplyTarget } from './core.apply.transaction.types';
 
@@ -25,8 +25,8 @@ export type StoredRowShape = { id: string } & Record<string, unknown>;
 
 export type ModelApplyTargetResult = {
   applyTarget: ApplyTarget;
-  applySnapshot(ops: JournalOp[]): void;
-  applyEvent(ops: JournalOp[]): void;
+  applySnapshot(ops: WriteOp[]): void;
+  applyEvent(ops: WriteOp[]): void;
 };
 
 export type ModelNormalization<TStored extends Record<string, unknown>> = {
@@ -49,12 +49,19 @@ export type ModelWriteResult = { id: string; changedFields: string[] | null };
 export type ModelMembership = { id: string; scopeKey: string; order: number; edge?: Record<string, unknown> };
 
 export type ModelWrites<TStored extends { id: string } & Record<string, unknown>> = {
-  writeRows(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): ModelWriteResult[];
-  patchRow(id: string, patch: Record<string, unknown>, operationId?: string): ModelWriteResult | null;
-  planRows(rows: unknown[], planOptions?: { origin?: 'event' }): JournalOp[];
-  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: JournalOp[] };
-  planReplace(oldId: string, next: unknown): JournalOp[];
-  planRestore(next: unknown, memberships: ModelMembership[]): JournalOp[];
+  prepareRow(
+    row: unknown,
+    previous: TStored | undefined,
+    origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
+    mergeBase?: TStored,
+    operationId?: string
+  ): import('./core.apply.transaction.types').PreparedRowWrite | null;
+  preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string): import('./core.apply.transaction.types').PreparedRowWrite | null;
+  putRows(rows: TStored[]): ModelWriteResult[];
+  planRows(rows: unknown[], planOptions?: { origin?: 'event' }): WriteOp[];
+  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: WriteOp[] };
+  planReplace(oldId: string, next: unknown): WriteOp[];
+  planRestore(next: unknown, memberships: ModelMembership[]): WriteOp[];
 };
 
 /** Declarative sort for a scope: by field, or by a consumer comparator with the fields it reads. */
@@ -129,11 +136,11 @@ export type ModelRuntimeRegistrationOptions<TStored extends { id: string; update
       protect?: () => (row: TStored) => boolean;
     }>;
   };
-  applySnapshot(ops: JournalOp[]): void;
-  planRows(rows: unknown[]): JournalOp[];
-  planReplace(oldId: string, next: unknown): JournalOp[];
+  applySnapshot(ops: WriteOp[]): void;
+  planRows(rows: unknown[]): WriteOp[];
+  planReplace(oldId: string, next: unknown): WriteOp[];
   captureMembership(id: string): Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>;
-  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): JournalOp[];
+  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; order: number; edge?: Record<string, unknown> }>): WriteOp[];
 };
 
 export type ModelDirectAccess<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<
@@ -146,9 +153,9 @@ export type ModelDirectAccessOptions<TStored extends { id: string; updatedAt?: s
   context: ModelContext<TStored>;
   defaultOrder?: DbReadOptions<TStored>['orderBy'];
   matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
-  applyEvent(ops: JournalOp[]): void;
-  planRows(rows: unknown[]): JournalOp[];
-  planReplace(oldId: string, next: unknown): JournalOp[];
+  applyEvent(ops: WriteOp[]): void;
+  planRows(rows: unknown[]): WriteOp[];
+  planReplace(oldId: string, next: unknown): WriteOp[];
   normalize(input: unknown, build?: boolean): TStored;
 };
 

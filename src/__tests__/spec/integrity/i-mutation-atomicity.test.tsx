@@ -27,7 +27,7 @@ const defineRows = (id: string) =>
     maintenance: { dropTempRowsAfterMs: 60_000 }
   });
 
-type JournalOpLike = { kind: string; model: string; rows?: Array<{ id: string }>; ids?: string[] };
+type JournalOpLike = { kind: string; model: string; rows?: Array<{ id: string; label?: string }>; ids?: string[] };
 
 /**
  * Row-level persistence is checkpoint-deferred (no `dbl:row:*` key exists until an explicit/scheduled
@@ -39,16 +39,16 @@ const journalHasOp = (storage: ReturnType<typeof createFaultStorage>, predicate:
   storage.plane.keys('dbl:journal:').some(key => {
     const raw = storage.plane.get(key);
     if (!raw) return false;
-    const record = JSON.parse(raw) as { ops: JournalOpLike[] };
-    return record.ops.some(predicate);
+    const record = JSON.parse(raw) as { payload: { ops: Array<{ payload: JournalOpLike }> } };
+    return record.payload.ops.map(op => op.payload).some(predicate);
   });
 
 /** Same scan as `journalHasOp`, over a captured `snapshotAfterBatches` reading instead of live storage. */
 const snapshotJournalHasOp = (captured: Record<string, string | null>, predicate: (op: JournalOpLike) => boolean): boolean =>
   Object.entries(captured).some(([key, raw]) => {
     if (!key.startsWith('dbl:journal:') || !raw) return false;
-    const record = JSON.parse(raw) as { ops: JournalOpLike[] };
-    return record.ops.some(predicate);
+    const record = JSON.parse(raw) as { payload: { ops: Array<{ payload: JournalOpLike }> } };
+    return record.payload.ops.map(op => op.payload).some(predicate);
   });
 
 describe('mutation ledger/row persist atomicity', () => {
@@ -154,9 +154,18 @@ describe('mutation ledger/row persist atomicity', () => {
     const captured = snapshot();
 
     const ledgerRaw = captured['dbl:ops'];
-    const ledgerOps = ledgerRaw ? (Object.values(JSON.parse(ledgerRaw) as Record<string, { status: string; intent: string; rowIds?: string[] }>) as Array<{ status: string; intent: string; rowIds?: string[] }>) : [];
+    const ledgerOps = ledgerRaw
+      ? (Object.values((JSON.parse(ledgerRaw) as { payload: Record<string, { status: string; intent: string; rowIds?: string[] }> }).payload) as Array<{
+          status: string;
+          intent: string;
+          rowIds?: string[];
+        }>)
+      : [];
     const beginBegun = ledgerOps.some(op => op.status === 'pending' && op.intent === 'patch' && op.rowIds?.includes('row-1'));
-    const patched = snapshotJournalHasOp(captured, op => op.kind === 'patch' && op.model === 'MutationPatchBeginAtomic');
+    const patched = snapshotJournalHasOp(
+      captured,
+      op => op.kind === 'upsert' && op.model === 'MutationPatchBeginAtomic' && (op.rows ?? []).some(row => row.id === 'row-1' && row.label === 'after')
+    );
     // Never: the ledger durably shows this patch begun (pending) while the row it describes was
     // never actually rewritten to match at the same instant.
     expect(beginBegun && !patched).toBe(false);
@@ -184,7 +193,13 @@ describe('mutation ledger/row persist atomicity', () => {
 
     const destroyed = snapshotJournalHasOp(captured, op => op.kind === 'destroy' && op.model === 'MutationDestroyBeginAtomic' && (op.ids ?? []).includes('row-1'));
     const ledgerRaw = captured['dbl:ops'];
-    const ledgerOps = ledgerRaw ? (Object.values(JSON.parse(ledgerRaw) as Record<string, { status: string; intent: string; rowIds?: string[] }>) as Array<{ status: string; intent: string; rowIds?: string[] }>) : [];
+    const ledgerOps = ledgerRaw
+      ? (Object.values((JSON.parse(ledgerRaw) as { payload: Record<string, { status: string; intent: string; rowIds?: string[] }> }).payload) as Array<{
+          status: string;
+          intent: string;
+          rowIds?: string[];
+        }>)
+      : [];
     const trackedAtAll = ledgerOps.some(op => op.intent === 'destroy' && op.rowIds?.includes('row-1'));
     // Never: the row is already durably gone but there is no operation ledger record at all for it.
     expect(destroyed && !trackedAtAll).toBe(false);

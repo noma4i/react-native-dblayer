@@ -1,7 +1,7 @@
-import type { CommitBatch, IncrementalCommitBatch } from './core.apply.commitBus.types';
+import type { CommitBatch } from './core.apply.commitBus.types';
 import type { JournalOp } from './core.apply.journal.types';
 import type { WriteOrigin } from './core.writePolicies.types';
-import type { AcceptedRow, DestroyedRow } from './core.relations.types';
+import type { StoredRow } from './core.relations.types';
 declare const commitEnvelopeBrand: unique symbol;
 /** Complete write plan accepted by the sole runtime write entry point. */
 export type CommitEnvelope = {
@@ -10,17 +10,19 @@ export type CommitEnvelope = {
     epoch: number;
     entityOps: JournalOp[];
     scopeOps: JournalOp[];
-    identityOps: JournalOp[];
-    relationOps: JournalOp[];
-    operationOps: JournalOp[];
-    extraEntries?: () => Array<{
+    extraEntries: Array<{
         key: string;
         value: string | null;
     }>;
     readonly [commitEnvelopeBrand]: true;
 };
+/** Pure preview of one row write after normalization, ownership overlay, and write-policy evaluation. */
+export type PreparedRowWrite = {
+    row: StoredRow;
+    changedFields: string[] | null;
+};
 /**
- * Model-owned application target. `upsert`/`destroy` report per-row change granularity so the
+ * Model-owned application target. Planning methods are pure; `put`/`destroy` report per-row change granularity so the
  * commit bus can notify per-(model, id, field) subscribers; `persistEntries` contributes the
  * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
  */
@@ -41,17 +43,13 @@ export type ApplyTarget = {
         kind: 'comparator';
     };
     readAllScopeKeys(): string[];
-    upsert(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: Record<string, unknown>, operationId?: string): Array<{
+    prepareUpsert(row: unknown, previous: StoredRow | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: StoredRow, operationId?: string): PreparedRowWrite | null;
+    preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string): PreparedRowWrite | null;
+    put(rows: StoredRow[]): Array<{
         id: string;
         changedFields: string[] | null;
     }>;
-    patch(id: string, patch: Record<string, unknown>, operationId?: string): {
-        id: string;
-        changedFields: string[] | null;
-    } | null;
     destroy(ids: string[], tombstone?: boolean): string[];
-    counter(id: string, field: string, delta: number, next?: number): boolean;
-    counterValue(id: string, field: string): number | null;
     scope(scopeKey: string, next: unknown): void;
     scopeDelta(scopeKey: string, delta: {
         append: Array<{
@@ -71,16 +69,8 @@ export type ApplyTarget = {
 };
 export type ApplyRuntime = {
     /**
-     * Apply one plan: journal stores raw intent; effects derive inside the transaction from accepted
-     * effective rows, so replay re-derives them.
-     *
-     * @note Honesty contract, not full STM: a partial in-memory commit is possible ONLY when a
-     * consumer callback throws mid-plan (for example, a relation callback).
-     * The WAL record for that epoch stays `pending` (never marked `committed`) - replay deterministically
-     * re-applies it from scratch on the next boot, so persisted state never diverges from the journal.
-     * On throw: `noteApplyFailure()` + `getDbLogger().error('apply failed', ...)` +
-     * `defaults.onSyncError({source:'apply'})` fire, then the exception rethrows to the caller (mutation's
-     * rollback path, ingest's `reportModelIngestError`, or replay's own boot-failure surface).
+     * Apply one callback-free plan. All normalization, write policies, relation callbacks, cascade
+     * discovery, and storage-entry producers have already completed before the pending WAL write.
      */
     commit(envelope: CommitEnvelope): CommitBatch;
     /**
@@ -90,12 +80,6 @@ export type ApplyRuntime = {
      */
     replay(): number;
     currentEpoch(): number;
-};
-/** One apply pass output: the incremental batch plus accepted/destroyed rows for relation effects. */
-export type ApplyPhase = {
-    batch: IncrementalCommitBatch;
-    accepted: AcceptedRow[];
-    destroyed: DestroyedRow[];
 };
 export {};
 //# sourceMappingURL=core.apply.transaction.types.d.ts.map

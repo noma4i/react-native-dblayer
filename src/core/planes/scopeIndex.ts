@@ -2,6 +2,22 @@ import type { StoragePlane , IncomingScopeRow, ReconcileResult, ScopeCoverage, S
 import { noteDataLoss, noteScopeKeyMigration } from '../diagnostics';
 import { compositeKey } from '../serialize';
 import { sortBy } from 'es-toolkit';
+import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { isRecord } from '../../utils/normalizeHelpers';
+
+const isScopeIndexValue = (value: unknown): value is ScopeIndexValue =>
+  isRecord(value) &&
+  typeof value.generation === 'number' &&
+  (value.coverage === 'delta' || value.coverage === 'page' || value.coverage === 'complete') &&
+  Array.isArray(value.entries) &&
+  value.entries.every(
+    entry =>
+      isRecord(entry) &&
+      typeof entry.id === 'string' &&
+      typeof entry.order === 'number' &&
+      typeof entry.seq === 'number' &&
+      (entry.edge === undefined || isRecord(entry.edge))
+  );
 
 export const createScopeIndex = (options: { modelId: string; scopeNames?: string[]; storage: StoragePlane; prefix: () => string }): ScopeIndex => {
   const { modelId, scopeNames, storage, prefix } = options;
@@ -217,7 +233,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       return [...touched];
     },
     persistEntries: () => {
-      const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: JSON.stringify(scopes.get(key) ?? empty()) }));
+      const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: encodePersistence(scopes.get(key) ?? empty()) }));
       for (const key of removed) entries.push({ key: storageKey(key), value: null });
       return entries;
     },
@@ -251,12 +267,13 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         }
         const raw = storage.get(fullKey);
         if (!raw) continue;
-        try {
-          const entry = { raw, value: JSON.parse(raw) as ScopeIndexValue, canonical: canonicalScopeName !== undefined };
+        const value = decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isScopeIndexValue);
+        if (value) {
+          const entry = { raw, value, canonical: canonicalScopeName !== undefined };
           const existing = loaded.get(key);
           if (!existing || entry.canonical) loaded.set(key, entry);
           if (colonDelimitedScopeName) migrated.set(fullKey, key);
-        } catch {
+        } else {
           storage.set([{ key: fullKey, value: null }]);
           noteDataLoss('corrupt-scope', modelId, 1);
         }

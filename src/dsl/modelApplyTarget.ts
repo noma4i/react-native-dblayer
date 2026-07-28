@@ -1,5 +1,5 @@
 import { createCommitEnvelope, registerApplyTarget } from '../core/apply/transaction';
-import type { JournalOp, ModelApplyTargetResult, ScopeIndexValue, ScopeSpec, WriteOrigin , ModelContext } from '../types';
+import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin , ModelContext } from '../types';
 import { getApplyRuntime } from './configure';
 
 export const createModelApplyTarget = <TStored extends { id: string } & Record<string, unknown>>(options: {
@@ -7,8 +7,15 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   scopes: Record<string, ScopeSpec<TStored>> | undefined;
   context: ModelContext<TStored>;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-  writeRows(rows: unknown[], origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): Array<{ id: string; changedFields: string[] | null }>;
-  patchRow(id: string, patch: Record<string, unknown>, operationId?: string): { id: string; changedFields: string[] | null } | null;
+  prepareRow(
+    row: unknown,
+    previous: TStored | undefined,
+    origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
+    mergeBase?: TStored,
+    operationId?: string
+  ): PreparedRowWrite | null;
+  preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string): PreparedRowWrite | null;
+  putRows(rows: TStored[]): Array<{ id: string; changedFields: string[] | null }>;
 }): ModelApplyTargetResult => {
   const { planes } = options.context;
   const applyTarget: ModelApplyTargetResult['applyTarget'] = {
@@ -49,8 +56,10 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       return { kind: 'field' as const, field: String(sort.field), dir: sort.dir };
     },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
-    upsert: options.writeRows,
-    patch: options.patchRow,
+    prepareUpsert: (row, previous, origin, mergeBase, operationId) =>
+      options.prepareRow(row, previous as TStored | undefined, origin, mergeBase as TStored | undefined, operationId),
+    preparePatch: (id, patch, previous, operationId) => options.preparePatch(id, patch, previous as TStored | undefined, operationId),
+    put: (rows: StoredRow[]) => options.putRows(rows as TStored[]),
     destroy: (ids: string[], tombstone?: boolean): string[] => {
       const removed: string[] = [];
       for (const id of ids) {
@@ -61,15 +70,6 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       }
       if (removed.length > 0) options.context.bumpRevision();
       return removed;
-    },
-    counter: (id: string, field: string, delta: number, next?: number): boolean => {
-      const key = String(id);
-      const current = planes().entityState.read(key)?.[field];
-      return options.patchRow(key, { [field]: next ?? ((current as number | undefined) ?? 0) + delta }) !== null;
-    },
-    counterValue: (id: string, field: string): number | null => {
-      const value = planes().entityState.read(id)?.[field];
-      return typeof value === 'number' ? value : value == null ? null : Number(value);
     },
     scope: (scopeKey: string, next: unknown): void => {
       planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
@@ -86,10 +86,10 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     }
   };
   registerApplyTarget(options.modelId, applyTarget);
-  const applySnapshot = (ops: JournalOp[]): void => {
+  const applySnapshot = (ops: WriteOp[]): void => {
     getApplyRuntime().commit(createCommitEnvelope(ops));
   };
-  const applyEvent = (ops: JournalOp[]): void => {
+  const applyEvent = (ops: WriteOp[]): void => {
     getApplyRuntime().commit(createCommitEnvelope(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))));
   };
   return { applyTarget, applySnapshot, applyEvent };

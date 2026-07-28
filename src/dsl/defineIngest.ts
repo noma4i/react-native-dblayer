@@ -1,4 +1,4 @@
-import type { DbSubscriptionEntry, IngestDecl, IngestHandle, IngestModel, JournalOp, ModelIngestEntry, ModelIngestTools } from '../types';
+import type { DbSubscriptionEntry, IngestDecl, IngestHandle, IngestModel, ModelIngestEntry, ModelIngestTools, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
 import { getDbLogger } from '../core/logger';
@@ -122,7 +122,7 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
       if (declaration.operationId && getOperationState().hasCommitted(declaration.operationId)) return declaration;
       const rows = declaration.upsert == null ? [] : Array.isArray(declaration.upsert) ? declaration.upsert : [declaration.upsert];
       const ids = declaration.destroy == null ? [] : Array.isArray(declaration.destroy) ? declaration.destroy : [declaration.destroy];
-      const ops: JournalOp[] = [];
+      const ops: WriteOp[] = [];
       if (rows.length > 0) {
         ops.push(
           ...getInternalModelHandle(model)

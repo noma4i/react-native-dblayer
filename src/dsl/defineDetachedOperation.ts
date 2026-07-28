@@ -1,4 +1,4 @@
-import type { DetachedDeclaration, DetachedModel, DetachedOperationConfig, DetachedOperationHandle, JournalOp, OperationRecord } from '../types';
+import type { DetachedDeclaration, DetachedModel, DetachedOperationConfig, DetachedOperationHandle, OperationRecord, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle } from '../core/internalHandles';
@@ -32,14 +32,22 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     if (record.status !== 'pending') return;
     const input = record.failedInput as TInput | undefined;
     if (config.failure === 'rollback') {
-      getOperationState().close(record.operationId, 'rolledback', { persist: false });
-      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: model.modelId, ids: record.tempIds, tombstone: false }], () => getOperationState().persistEntries()));
+      getApplyRuntime().commit(
+        createCommitEnvelope([{ kind: 'destroy', model: model.modelId, ids: record.tempIds, tombstone: false }], () => {
+          getOperationState().close(record.operationId, 'rolledback', { persist: false });
+          return getOperationState().persistEntries();
+        })
+      );
       noteDataLoss('detached-operation-rollback', model.modelId, record.tempIds.length);
     } else {
       const patch = input === undefined ? undefined : config.onFailurePatch?.(input);
       if (patch && record.tempIds[0]) {
-        getOperationState().close(record.operationId, 'failed', { persist: false });
-        getApplyRuntime().commit(createCommitEnvelope([{ kind: 'patch', model: model.modelId, id: record.tempIds[0], patch }], () => getOperationState().persistEntries()));
+        getApplyRuntime().commit(
+          createCommitEnvelope([{ kind: 'patch', model: model.modelId, id: record.tempIds[0], patch }], () => {
+            getOperationState().close(record.operationId, 'failed', { persist: false });
+            return getOperationState().persistEntries();
+          })
+        );
       } else {
         getOperationState().close(record.operationId, 'failed');
       }
@@ -71,7 +79,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
       const tempId = generateTempId('row');
       const serialized = serializeOperationInput(input);
       const row = { ...(config.build(input, { tempId }) as Record<string, unknown>), id: tempId };
-      const ops: JournalOp[] = getInternalModelHandle(model).planRows([row]);
+      const ops: WriteOp[] = getInternalModelHandle(model).planRows([row]);
       const operations = getOperationState();
       operations.begin({
         operationId,
@@ -91,8 +99,12 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
       const operation = getOperationState().get(operationId);
       if (!operation || operation.kind !== kind || operation.status !== 'pending' || !operation.tempIds[0]) return;
       const ops = getInternalModelHandle(model).planReplace(operation.tempIds[0], serverNode);
-      getOperationState().close(operationId, 'committed', { persist: false });
-      getApplyRuntime().commit(createCommitEnvelope(ops, () => getOperationState().persistEntries()));
+      getApplyRuntime().commit(
+        createCommitEnvelope(ops, () => {
+          getOperationState().close(operationId, 'committed', { persist: false });
+          return getOperationState().persistEntries();
+        })
+      );
     },
     fail: (operationId, error) => {
       const operation = getOperationState().get(operationId);
@@ -110,8 +122,12 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
       const operation = getOperationState().get(operationId);
       if (!operation || operation.kind !== kind) return;
       if (operation.tempIds.length > 0) {
-        getOperationState().remove(operationId, { persist: false });
-        getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: model.modelId, ids: operation.tempIds, tombstone: false }], () => getOperationState().persistEntries()));
+        getApplyRuntime().commit(
+          createCommitEnvelope([{ kind: 'destroy', model: model.modelId, ids: operation.tempIds, tombstone: false }], () => {
+            getOperationState().remove(operationId, { persist: false });
+            return getOperationState().persistEntries();
+          })
+        );
       } else {
         getOperationState().remove(operationId);
       }

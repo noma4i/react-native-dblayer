@@ -1,5 +1,20 @@
 import { createJournal } from './journal';
-import type { AcceptedRow, ApplyRuntime, ApplyTarget, CheckpointScheduler, CommitBus, CommitEnvelope, DestroyedRow, IncrementalCommitBatch, IncrementalScopeChange, JournalOp, JournalRecord, StoragePlane , ApplyPhase } from '../../types';
+import type {
+  AcceptedRow,
+  ApplyRuntime,
+  ApplyTarget,
+  CheckpointScheduler,
+  CommitBus,
+  CommitEnvelope,
+  DestroyedRow,
+  IncrementalCommitBatch,
+  IncrementalScopeChange,
+  JournalOp,
+  JournalRecord,
+  StoragePlane,
+  StoredRow,
+  WriteOp
+} from '../../types';
 import { deriveEffects } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
@@ -7,25 +22,13 @@ import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
 import { runInApplyBatch, syncStoreScopes } from '../store';
+import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 
 const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
 
-/**
- * Build one opaque-to-consumers commit plan from the model-owned operation planners.
- * Entity work is always applied before scope membership, so a reader can never observe a scope
- * entry that points at a missing row.
- */
-export const createCommitEnvelope = (ops: JournalOp[], extraEntries?: () => Array<{ key: string; value: string | null }>): CommitEnvelope => ({
-  schemaVersion: 1,
-  txId: `runtime:${getRuntimeGeneration()}`,
-  epoch: getRuntimeGeneration(),
-  entityOps: ops.filter(op => !isScopeOperation(op)),
-  scopeOps: ops.filter(isScopeOperation),
-  ...(extraEntries ? { extraEntries } : {})
-}) as unknown as CommitEnvelope;
-
 const targets = new Map<string, ApplyTarget>();
 const targetGenerations = new Map<string, number>();
+let transactionSequence = 0;
 
 /**
  * Register one model-owned application target for model application plans.
@@ -52,10 +55,140 @@ export const getApplyTarget = (model: string): ApplyTarget => {
 
 export const getApplyTargets = (): Array<[string, ApplyTarget]> => [...targets];
 
-const applyOperations = (ops: JournalOp[]): ApplyPhase => {
-  const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+const readPlannedRow = (overlay: Map<string, Map<string, StoredRow | null>>, model: string, id: string): StoredRow | undefined => {
+  const modelOverlay = overlay.get(model);
+  if (modelOverlay?.has(id)) return modelOverlay.get(id) ?? undefined;
+  return getApplyTarget(model).readRow(id);
+};
+
+const writePlannedRow = (overlay: Map<string, Map<string, StoredRow | null>>, model: string, id: string, row: StoredRow | null): void => {
+  const modelOverlay = overlay.get(model) ?? new Map<string, StoredRow | null>();
+  modelOverlay.set(id, row);
+  overlay.set(model, modelOverlay);
+};
+
+const readPlannedRows = (overlay: Map<string, Map<string, StoredRow | null>>, model: string): StoredRow[] => {
+  const rows = new Map(
+    getApplyTarget(model)
+      .readAllRows()
+      .flatMap(row => (typeof row.id === 'string' ? [[row.id, row] as const] : []))
+  );
+  for (const [id, row] of overlay.get(model) ?? []) {
+    if (row === null) rows.delete(id);
+    else rows.set(id, row);
+  }
+  return [...rows.values()];
+};
+
+const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, StoredRow | null>>) => {
+  const preparedOps: JournalOp[] = [];
   const accepted: AcceptedRow[] = [];
   const destroyed: DestroyedRow[] = [];
+  for (const op of ops) {
+    const target = getApplyTarget(op.model);
+    if (op.kind === 'upsert') {
+      const rows: StoredRow[] = [];
+      for (const input of op.rows) {
+        const inputId = typeof input === 'object' && input !== null && 'id' in input ? String((input as { id: unknown }).id) : '';
+        const previous = inputId ? readPlannedRow(overlay, op.model, inputId) : undefined;
+        const mergeBase = op.origin === 'replace' && typeof op.mergeBase === 'object' && op.mergeBase !== null ? (op.mergeBase as StoredRow) : undefined;
+        const prepared = target.prepareUpsert(input, previous, op.origin, mergeBase, op.operationId);
+        if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
+        const id = prepared.row.id;
+        if (typeof id !== 'string' || id.length === 0) throw new Error(`Prepared row for ${op.model} has no string id`);
+        writePlannedRow(overlay, op.model, id, prepared.row);
+        rows.push(prepared.row);
+        accepted.push({
+          model: op.model,
+          id,
+          before: op.origin === 'replace' ? mergeBase : previous,
+          after: prepared.row,
+          origin: op.origin
+        });
+      }
+      if (rows.length > 0) preparedOps.push({ kind: 'upsert', model: op.model, rows, ...(op.origin === 'replace' ? { origin: op.origin } : {}) });
+      continue;
+    }
+    if (op.kind === 'patch') {
+      const previous = readPlannedRow(overlay, op.model, op.id);
+      const prepared = target.preparePatch(op.id, op.patch, previous, op.operationId);
+      if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
+      const id = String(prepared.row.id);
+      writePlannedRow(overlay, op.model, id, prepared.row);
+      preparedOps.push({ kind: 'upsert', model: op.model, rows: [prepared.row] });
+      accepted.push({ model: op.model, id, before: previous, after: prepared.row });
+      continue;
+    }
+    if (op.kind === 'counter') {
+      const previous = readPlannedRow(overlay, op.model, op.id);
+      if (!previous) continue;
+      const value = previous[op.field];
+      const numeric = typeof value === 'number' ? value : value == null ? 0 : Number(value);
+      const prepared = target.preparePatch(op.id, { [op.field]: (Number.isFinite(numeric) ? numeric : 0) + op.delta }, previous);
+      if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
+      const id = String(prepared.row.id);
+      writePlannedRow(overlay, op.model, id, prepared.row);
+      preparedOps.push({ kind: 'upsert', model: op.model, rows: [prepared.row] });
+      accepted.push({ model: op.model, id, before: previous, after: prepared.row });
+      continue;
+    }
+    if (op.kind === 'destroy') {
+      for (const id of op.ids) {
+        const previous = readPlannedRow(overlay, op.model, id);
+        if (previous) destroyed.push({ model: op.model, id, before: previous, origin: op.origin });
+        writePlannedRow(overlay, op.model, id, null);
+      }
+      preparedOps.push(op);
+      continue;
+    }
+    preparedOps.push(op);
+  }
+  return { ops: preparedOps, accepted, destroyed };
+};
+
+const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
+  for (const op of initialOps) getApplyTarget(op.model);
+  const overlay = new Map<string, Map<string, StoredRow | null>>();
+  const sourceOps = [...initialOps];
+  const planned: JournalOp[] = [];
+  let phase = prepareOperations(initialOps, overlay);
+  planned.push(...phase.ops);
+  while (phase.accepted.length > 0 || phase.destroyed.length > 0) {
+    const effects = deriveEffects(phase.accepted, phase.destroyed, sourceOps, {
+      read: (model, id) => readPlannedRow(overlay, model, id),
+      rows: model => readPlannedRows(overlay, model)
+    });
+    if (effects.length === 0) break;
+    sourceOps.push(...effects);
+    phase = prepareOperations(effects, overlay);
+    planned.push(...phase.ops);
+  }
+  return planned;
+};
+
+/**
+ * Compile raw model intents into one complete callback-free plan before WAL. Entity work stays
+ * ahead of scope membership so a reader cannot observe a membership pointing at a missing row.
+ */
+export const createCommitEnvelope = (
+  ops: WriteOp[],
+  extraEntries?: () => Array<{ key: string; value: string | null }>
+): CommitEnvelope => {
+  const runtimeEpoch = getRuntimeGeneration();
+  const planned = compileWritePlan(ops);
+  transactionSequence += 1;
+  return {
+    schemaVersion: 1,
+    txId: `${runtimeEpoch}:${transactionSequence}`,
+    epoch: runtimeEpoch,
+    entityOps: planned.filter(op => !isScopeOperation(op)),
+    scopeOps: planned.filter(isScopeOperation),
+    extraEntries: extraEntries?.() ?? []
+  } as unknown as CommitEnvelope;
+};
+
+const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
+  const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
   const scopeChanges = new Map<string, IncrementalScopeChange>();
   const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
     const key = compositeKey(model, scopeKey);
@@ -83,26 +216,9 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
   for (const op of ops) {
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
-      const beforeById = new Map(
-        op.rows.flatMap(row =>
-          typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string'
-            ? [[(row as { id: string }).id, target.readRow((row as { id: string }).id)] as const]
-            : []
-        )
-      );
-      const changes = target.upsert(op.rows, op.origin, op.origin === 'replace' ? (op.mergeBase as Record<string, unknown> | undefined) : undefined, op.operationId);
+      const changes = target.put(op.rows);
       for (const change of changes) {
         batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields, kind: 'upsert' });
-        const after = target.readRow(change.id);
-        if (after && change.changedFields !== null && change.changedFields.length > 0)
-          accepted.push({
-            model: op.model,
-            id: change.id,
-            before: op.origin === 'replace' ? (op.mergeBase as Record<string, unknown> | undefined) : beforeById.get(change.id),
-            after,
-            origin: op.origin
-          });
-        if (after && change.changedFields === null) accepted.push({ model: op.model, id: change.id, before: beforeById.get(change.id), after, origin: op.origin });
       }
       noteRows(
         op.model,
@@ -111,31 +227,12 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
       );
       if (op.origin === 'replace') batch.mode = 'replace';
     }
-    if (op.kind === 'patch') {
-      const before = target.readRow(op.id);
-      const change = target.patch(op.id, op.patch, op.operationId);
-      if (change) {
-        batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields, kind: 'upsert' });
-        const after = target.readRow(change.id);
-        if (after && change.changedFields !== null && change.changedFields.length > 0) accepted.push({ model: op.model, id: change.id, before, after });
-      }
-      if (change) noteRows(op.model, target, [change.id]);
-    }
     if (op.kind === 'destroy') {
-      const before = new Map(op.ids.map(id => [id, target.readRow(id)]));
       const ids = target.destroy(op.ids, op.tombstone);
       for (const id of ids) {
         batch.rows.push({ model: op.model, id, fields: null, kind: 'destroy' });
-        const row = before.get(id);
-        if (row) destroyed.push({ model: op.model, id, before: row, origin: op.origin });
       }
       noteRows(op.model, target, ids);
-    }
-    if (op.kind === 'counter') {
-      if (target.counter(op.id, op.field, op.delta, op.next)) {
-        batch.rows.push({ model: op.model, id: op.id, fields: [op.field], kind: 'upsert' });
-        noteRows(op.model, target, [op.id]);
-      }
     }
     if (op.kind === 'scope') {
       target.scope(op.scopeKey, op.next);
@@ -153,47 +250,10 @@ const applyOperations = (ops: JournalOp[]): ApplyPhase => {
     }
   }
   batch.scopeChanges = [...scopeChanges.values()];
-  return { batch, accepted, destroyed };
-};
-
-const mergeBatch = (target: IncrementalCommitBatch, source: IncrementalCommitBatch): void => {
-  target.rows.push(...source.rows);
-  target.scopes.push(...source.scopes);
-  target.scopeChanges?.push(...(source.scopeChanges ?? []));
-  if (source.mode === 'replace') target.mode = 'replace';
-};
-
-const applyPlan = (ops: JournalOp[]): IncrementalCommitBatch => {
-  const initial = applyOperations(ops);
-  const batch = initial.batch;
-  let accepted = initial.accepted;
-  let destroyed = initial.destroyed;
-  while (accepted.length > 0 || destroyed.length > 0) {
-    const effects = deriveEffects(accepted, destroyed, ops);
-    if (effects.length === 0) break;
-    const phase = applyOperations(effects);
-    mergeBatch(batch, phase.batch);
-    accepted = phase.accepted;
-    destroyed = phase.destroyed;
-  }
   return batch;
 };
 
 const touchedModelsOf = (ops: JournalOp[]): string[] => uniq(ops.map(op => op.model));
-
-const recordCounterValues = (ops: JournalOp[]): JournalOp[] => {
-  const values = new Map<string, number | null>();
-  return ops.map(op => {
-    if (op.kind !== 'counter' || op.next !== undefined) return op;
-    const key = compositeKey(op.model, op.id, op.field);
-    let current = values.get(key);
-    if (current === undefined) current = getApplyTarget(op.model).counterValue(op.id, op.field);
-    if (current === null) return op;
-    const next = current + op.delta;
-    values.set(key, next);
-    return { ...op, next };
-  });
-};
 
 export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () => string; bus: CommitBus; checkpoint?: CheckpointScheduler }): ApplyRuntime => {
   const { storage, prefix, bus, checkpoint } = options;
@@ -209,7 +269,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
     const models = touchedModelsOf(ops);
     for (const model of models) {
       entries.push(...getApplyTarget(model).persistEntries());
-      entries.push({ key: `${prefix()}applied:${model}`, value: String(record.epoch) });
+      entries.push({ key: `${prefix()}applied:${model}`, value: encodePersistence(record.epoch) });
     }
     entries.push(...journal.committedEntry(record));
     storage.set(entries);
@@ -218,20 +278,27 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
 
   const persistedAppliedEpoch = (model: string): number => {
     const raw = storage.get(`${prefix()}applied:${model}`);
-    const value = raw == null ? 0 : Number(raw);
-    return Number.isFinite(value) ? value : 0;
+    if (raw == null) return 0;
+    return decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, (value): value is number => typeof value === 'number' && Number.isFinite(value)) ?? 0;
   };
 
   return {
     commit: envelope => {
+      if (envelope.schemaVersion !== 1) throw new Error(`Unsupported commit envelope schema version ${String(envelope.schemaVersion)}`);
+      if (envelope.epoch !== getRuntimeGeneration()) throw new Error(`Stale commit envelope ${envelope.txId}`);
       const ops = [...envelope.entityOps, ...envelope.scopeOps];
-      const recordedOps = recordCounterValues(ops);
       epoch += 1;
-      const record: JournalRecord = { epoch, status: 'pending', ops: recordedOps };
-      storage.set([...journal.pendingEntry(record), ...(envelope.extraEntries?.() ?? [])]);
+      const record: JournalRecord = {
+        txId: envelope.txId,
+        runtimeEpoch: envelope.epoch,
+        epoch,
+        status: 'pending',
+        ops
+      };
+      storage.set([...journal.pendingEntry(record), ...envelope.extraEntries]);
       let batch: IncrementalCommitBatch;
       try {
-        batch = runInApplyBatch(() => applyPlan(recordedOps));
+        batch = runInApplyBatch(() => applyOperations(ops));
         syncStoreScopes(batch, getApplyTarget, true);
       } catch (error) {
         noteApplyFailure();
@@ -245,9 +312,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       }
       if (checkpoint) {
         storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
-        checkpoint.notePlan(touchedModelsOf(recordedOps), epoch);
+        checkpoint.notePlan(touchedModelsOf(ops), epoch);
       } else {
-        persistImmediate(recordedOps, record);
+        persistImmediate(ops, record);
       }
       noteCommit();
       bus.publish(batch);
@@ -256,6 +323,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
     replay: () => {
       let replayed = 0;
       const appliedCache = new Map<string, number>();
+      const replayedTransactions = new Set<string>();
       const appliedFor = (model: string): number => {
         const cached = appliedCache.get(model);
         if (cached !== undefined) return cached;
@@ -264,13 +332,18 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         return value;
       };
       for (const record of journal.allRecords()) {
+        if (replayedTransactions.has(record.txId)) {
+          if (record.status === 'pending') storage.set(journal.committedEntry(record, checkpoint?.flushedEpoch()));
+          continue;
+        }
+        replayedTransactions.add(record.txId);
         const ops = record.ops.filter(op => appliedFor(op.model) < record.epoch);
         epoch = Math.max(epoch, record.epoch);
         if (ops.length === 0) {
           if (record.status === 'pending') storage.set(journal.committedEntry(record, checkpoint?.flushedEpoch()));
           continue;
         }
-        const batch = runInApplyBatch(() => applyPlan(ops));
+        const batch = runInApplyBatch(() => applyOperations(ops));
         syncStoreScopes(batch, getApplyTarget);
         if (checkpoint) {
           storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));

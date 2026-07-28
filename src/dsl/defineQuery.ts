@@ -9,7 +9,6 @@ import type {
   EnsuredRowQueryHandle,
   EnsuredRowResult,
   ExtractSink,
-  JournalOp,
   ModelDestination,
   PageMeta,
   QueryConfig,
@@ -17,7 +16,8 @@ import type {
   QueryResult,
   RequestState,
   ScopeDestination,
-  ScopeHandle
+  ScopeHandle,
+  WriteOp
 } from '../types';
 import { computeLoadingState, computePhase } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/transaction';
@@ -116,7 +116,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
     const pairs = nodePairsOf(config.map ? config.map(selected) : selected);
     const nodes = pairs.map(pair => pair.node);
-    const ops: JournalOp[] = [];
+    const ops: WriteOp[] = [];
     const rows = isScopeDestination(config.into) ? pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) })) : [];
     if (isScopeDestination(config.into)) ops.push(...getInternalScopeHandle(config.into).planApply(scope, rows, coverage, { resetOrder }));
     else ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], resurrectDestroyed ? { origin: 'event' as const } : undefined));

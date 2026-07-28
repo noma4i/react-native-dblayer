@@ -1,5 +1,5 @@
 import type { DbGraphQLDocument } from './db.types';
-import type { JournalOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.journal.types';
 import type { ExtractSink } from './dsl.query.types';
 export type DefinedMutation<TData, TInput> = {
     run(input: TInput): Promise<TData | null>;
@@ -138,8 +138,8 @@ export type MutationHandle<TData, TInput> = {
     error: Error | null;
 };
 export type MutationResponder<TData, TInput, TNode> = {
-    planFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): JournalOp[];
-    inverseFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): JournalOp[];
+    planFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): WriteOp[];
+    inverseFromRespond(data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): WriteOp[];
 };
 /** `defineCommand` configuration: a mutation without optimistic writes and with opt-out dedupe. */
 export type CommandConfig<TData, TInput, TStored extends {
@@ -151,8 +151,8 @@ export type CommandConfig<TData, TInput, TStored extends {
 export type MutationRuntimeContext<TData, TInput, TStored, TNode> = {
     config: MutationConfig<TData, TInput, TStored, TNode>;
     optimisticConfig: MutationConfig<TData, TInput, TStored, TNode>['optimistic'];
-    planFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput) => JournalOp[];
-    inverseFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>) => JournalOp[];
+    planFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput) => WriteOp[];
+    inverseFromRespond: (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>) => WriteOp[];
 };
 export {};
 //# sourceMappingURL=dsl.mutation.types.d.ts.map

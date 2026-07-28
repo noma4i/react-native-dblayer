@@ -1,5 +1,6 @@
 import { configureDb } from '../../../index';
 import { createOperationState, readCommittedOnceKeys, serializeOperationInput } from '../../../core/planes/operationState';
+import { encodePersistence } from '../../../core/persistenceCodec';
 import type { OperationRecord } from '../../../types';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
@@ -30,27 +31,26 @@ const setup = (nowValue = () => 1000) => {
 };
 
 describe('committed once-key persistence format', () => {
-  it('ignores a once-key record with a foreign format version or non-string keys', () => {
+  it('refuses an unknown version, rejects non-string keys, and reads the canonical payload', () => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops-once`, value: JSON.stringify({ formatVersion: 99, keys: ['k1'] }) }]);
+    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['k1'] }, 99) }]);
+    expect(() => readCommittedOnceKeys(storage, PREFIX)).toThrow('Unsupported persistence schema version 99');
+
+    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['k1', 7] }) }]);
     expect(readCommittedOnceKeys(storage, PREFIX).keys).toEqual([]);
 
-    storage.set([{ key: `${PREFIX}ops-once`, value: JSON.stringify({ formatVersion: 1, keys: ['k1', 7] }) }]);
-    expect(readCommittedOnceKeys(storage, PREFIX).keys).toEqual([]);
-
-    storage.set([{ key: `${PREFIX}ops-once`, value: JSON.stringify({ formatVersion: 1, keys: ['k2', 'k1'] }) }]);
+    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['k2', 'k1'] }) }]);
     expect(readCommittedOnceKeys(storage, PREFIX).keys).toEqual(['k1', 'k2']);
   });
 
   it('collects only committed once operations with string keys from the ops record', () => {
     const { storage } = setup();
     const ops = {
-      a: { status: 'committed', once: true, idempotencyKey: 'keep' },
-      b: { status: 'pending', once: true, idempotencyKey: 'skip-pending' },
-      c: { status: 'committed', once: false, idempotencyKey: 'skip-not-once' },
-      d: { status: 'committed', once: true, idempotencyKey: 7 }
+      a: { ...baseRecord('a'), status: 'committed', once: true, idempotencyKey: 'keep' },
+      b: { ...baseRecord('b'), status: 'pending', once: true, idempotencyKey: 'skip-pending' },
+      c: { ...baseRecord('c'), status: 'committed', once: false, idempotencyKey: 'skip-not-once' }
     };
-    storage.set([{ key: `${PREFIX}ops`, value: JSON.stringify(ops) }]);
+    storage.set([{ key: `${PREFIX}ops`, value: encodePersistence(ops) }]);
 
     expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: ['keep'], corruptSources: 0 });
   });

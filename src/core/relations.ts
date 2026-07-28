@@ -1,13 +1,13 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
-import type { AcceptedRow, CounterRef, DestroyedRow, JournalOp, MembershipDelta, ModelRef, RelationDecl, RelationHost, StoredRow, TouchEntry, TouchFn } from '../types';
+import type { AcceptedRow, CounterRef, DestroyedRow, MembershipDelta, ModelRef, RelationDecl, RelationHost, RelationPlanReader, StoredRow, TouchEntry, TouchFn, WriteOp } from '../types';
 import { getRuntimeGeneration } from '../dsl/configure';
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
- * plan) and `counterCache` increments/decrements, emitting them as extra `patch`/`counter` ops in the SAME
- * plan as the triggering event.
+ * plan) and `counterCache` increments/decrements before WAL, emitting them as extra `patch`/`counter` intents
+ * in the same compiled plan as the triggering event.
  *
  * @param model The parent model reference.
  * @param options.foreignKey Child field storing the parent id.
@@ -36,8 +36,8 @@ export const belongsTo = <TChild, TParent>(
 
 /**
  * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
- * `deriveEffects` reads children through `model.where` after accepted entity rows commit so a cascade sees
- * children written earlier in the same plan.
+ * `deriveEffects` reads children through the immutable plan snapshot so a cascade sees children written
+ * earlier in the same plan without applying any row first.
  *
  * @param model The child model reference.
  * @param options.foreignKey Child field storing the parent id.
@@ -120,13 +120,12 @@ export const hasDependentCascade = (modelId: string): boolean => {
 };
 
 /**
- * Derive relation effects from rows accepted by entity application. Raw journal operations never
- * contain these effects, so replay re-runs the same derivation against effective rows.
+ * Derive relation effects from rows accepted by pure write previews. The returned intents are compiled
+ * into callback-free journal operations before WAL; replay never invokes relation callbacks.
  */
-export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: JournalOp[]): JournalOp[] => {
-  const queue: JournalOp[] = [];
-  const overlay = new Map<string, Map<string, StoredRow | null>>();
-  const out: JournalOp[] = [];
+export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: WriteOp[], reader: RelationPlanReader): WriteOp[] => {
+  const queue: WriteOp[] = [];
+  const out: WriteOp[] = [];
   const authoritative = new Set(accepted.filter(row => row.origin !== undefined).map(row => compositeKey(row.model, row.id)));
   const counted = new Map<string, CounterRef>();
   const destroyed = new Set<string>();
@@ -134,11 +133,6 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   const touchViews = new Map<string, TouchEntry>();
   const membership = new Map<string, { model: string; scopeKey: string; append: Set<string>; detach: Set<string> }>();
   const explicitScopeModels = new Set(rawOps.filter(op => op.kind === 'scope').map(op => op.model));
-  const overlayWrite = (modelId: string, id: string, row: StoredRow | null): void => {
-    const rows = overlay.get(modelId) ?? new Map<string, StoredRow | null>();
-    rows.set(id, row);
-    overlay.set(modelId, rows);
-  };
   const accumulateMembership = (model: string, deltas: MembershipDelta[]): void => {
     for (const delta of deltas) {
       const key = compositeKey(model, delta.scopeKey);
@@ -177,7 +171,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     if (!relation.touch || authoritative.has(parentKey) || touched.has(parentKey)) return;
     let entry = touchViews.get(parentKey);
     if (!entry) {
-      const parent = relation.model.find(parentId);
+      const parent = reader.read(relation.model.modelId, parentId);
       if (!parent) return;
       entry = { model: relation.model.modelId, id: parentId, view: { ...parent }, patch: {} };
       touchViews.set(parentKey, entry);
@@ -242,10 +236,12 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
         }
       }
       if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
-        const overlayRows = overlay.get(relation.model.modelId);
-        const liveChildren = relation.model.where({ [relation.foreignKey]: id }).filter(child => !overlayRows?.has(String(child.id)));
-        const overlayChildren = [...(overlayRows?.values() ?? [])].filter((child): child is StoredRow => child !== null && child[relation.foreignKey] === id);
-        const ids = uniq([...liveChildren, ...overlayChildren].map(child => String(child.id))).filter(childId => !destroyed.has(compositeKey(relation.model.modelId, childId)));
+        const ids = uniq(
+          reader
+            .rows(relation.model.modelId)
+            .filter(child => child[relation.foreignKey] === id)
+            .map(child => String(child.id))
+        ).filter(childId => !destroyed.has(compositeKey(relation.model.modelId, childId)));
         if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
       }
     }
@@ -254,7 +250,6 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
   for (const acceptedRow of accepted) {
     const host = hosts.get(acceptedRow.model);
     if (!host) continue;
-    overlayWrite(acceptedRow.model, acceptedRow.id, acceptedRow.after);
     if (!explicitScopeModels.has(acceptedRow.model)) {
       accumulateMembership(acceptedRow.model, host.membershipForUpsert(acceptedRow.before, acceptedRow.after));
     }
@@ -266,12 +261,11 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     accumulateMembership(destroyedRow.model, hosts.get(destroyedRow.model)?.detachForDestroy(destroyedRow.id) ?? []);
     detachAccumulatedMembership(destroyedRow.model, destroyedRow.id);
     if (destroyedRow.origin !== 'replace') destroyEffects(destroyedRow.model, destroyedRow.id, destroyedRow.before);
-    overlayWrite(destroyedRow.model, destroyedRow.id, null);
   }
 
   while (queue.length > 0 || touchViews.size > 0) {
     while (queue.length > 0) {
-      const op = queue.shift() as JournalOp;
+      const op = queue.shift() as WriteOp;
       out.push(op);
     }
     const flush = [...touchViews.values()];

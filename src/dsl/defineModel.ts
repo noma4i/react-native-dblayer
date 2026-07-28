@@ -97,7 +97,7 @@ export const defineModel = <
           .entries.find(candidate => candidate.id === id);
         return entry ? [{ id, scopeKey, order: entry.order, edge: entry.edge }] : [];
       });
-  const { writeRows, patchRow, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<Stored>({
+  const { prepareRow, preparePatch, putRows, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<Stored>({
     modelId: config.id,
     modelName: config.name,
     entityState: () => planes().entityState,
@@ -120,8 +120,9 @@ export const defineModel = <
     scopes: config.scopes as Record<string, ScopeSpec<Stored>> | undefined,
     context,
     scopeSortedRows,
-    writeRows,
-    patchRow
+    prepareRow,
+    preparePatch,
+    putRows
   });
   registerModelSchemaAndGc<Stored>({
     modelId: config.id,
