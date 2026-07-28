@@ -14,13 +14,13 @@ export type InternalModelHandle = {
     captureMembership(id: string): Array<{
         id: string;
         scopeKey: string;
-        order: number;
+        orderKey: string;
         edge?: Record<string, unknown>;
     }>;
     planRestore(next: unknown, memberships: Array<{
         id: string;
         scopeKey: string;
-        order: number;
+        orderKey: string;
         edge?: Record<string, unknown>;
     }>): WriteOp[];
     relations(): Record<string, RelationDecl>;

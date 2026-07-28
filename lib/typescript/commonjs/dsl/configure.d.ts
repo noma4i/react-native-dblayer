@@ -18,7 +18,8 @@ export declare const getDbRuntimeConfig: () => RuntimeConfig;
  * Internal: the package-owned TanStack QueryClient behind every `defineQuery`/`defineFetch`
  * freshness decision. Never exposed to consumers - the library stays the only QueryClient owner.
  * Query retry policy maps our `DbRetryPolicy` formula onto react-query's retry/retryDelay pair;
- * `networkMode: 'online'` pauses in-flight fetches while the coordinator reports offline.
+ * `networkMode: 'always'` keeps react-query out of connectivity decisions - the coordinator's own
+ * network gate (`setFetchNetworkOnline`) pauses fetch paths and subscription retries while offline.
  */
 export declare const getDbQueryClient: () => QueryClient;
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */

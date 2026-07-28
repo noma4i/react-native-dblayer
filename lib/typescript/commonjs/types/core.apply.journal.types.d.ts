@@ -46,7 +46,7 @@ export type WriteOp = {
     append: Array<{
         id: string;
         edge?: Record<string, unknown>;
-        order?: number;
+        orderKey?: string;
     }>;
     detach: string[];
 } | {
@@ -79,8 +79,8 @@ export type JournalOp = {
     scopeKey: string;
     append: Array<{
         id: string;
+        orderKey: string;
         edge?: Record<string, unknown>;
-        order?: number;
     }>;
     detach: string[];
 };

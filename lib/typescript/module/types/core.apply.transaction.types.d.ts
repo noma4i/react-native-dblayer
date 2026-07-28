@@ -29,7 +29,19 @@ export type PreparedRowWrite = {
 export type ApplyTarget = {
     readRow(id: string): Record<string, unknown> | undefined;
     readAllRows(): Array<Record<string, unknown>>;
-    readScopeOrder(scopeKey: string): string[];
+    /** Mechanical read of the persisted membership entries (id + final order key); never computes order. */
+    readScopeEntries(scopeKey: string): Array<{
+        id: string;
+        orderKey: string;
+    }>;
+    /**
+     * PLANNING-ONLY: compute final order keys for these ids in this scope (sort-aware for
+     * field/comparator scopes, tail keys for server order). `readRow` sees plan-overlay rows.
+     */
+    planScopePlacement(scopeKey: string, ids: readonly string[], readRow: (model: string, id: string) => Record<string, unknown> | undefined): Array<{
+        id: string;
+        orderKey: string;
+    }>;
     readScopeOrderRevision(scopeKey: string): number;
     readScopeGeneration(scopeKey: string): number;
     scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
@@ -54,8 +66,8 @@ export type ApplyTarget = {
     scopeDelta(scopeKey: string, delta: {
         append: Array<{
             id: string;
+            orderKey: string;
             edge?: Record<string, unknown>;
-            order?: number;
         }>;
         detach: string[];
     }): void;

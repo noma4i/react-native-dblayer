@@ -1,15 +1,14 @@
 import type { InvalidateFn } from '../types';
 /**
- * Register a query-owned invalidation callback for its destination model. defineQuery registers
- * here at definition time; model.invalidate()/defineIngest `invalidate: true` fan out through it.
+ * Register a query-owned invalidation callback for its destination model, keyed by the query's
+ * definition identity. defineQuery registers here at definition time; model.invalidate()/
+ * defineIngest `invalidate: true` fan out through it.
  *
- * Registered once per `defineQuery` call (a static, define-time registration - the same lifecycle as
- * `registerGcHost`/`registerRelationHost`); the registry survives `resetRuntime` so queries keep
- * invalidating correctly after the kill-switch. The returned unregister closure exists for callers
- * that redefine a query at runtime (e.g. a Fast Refresh reload of the module); a one-time app-startup
- * `defineQuery` call is not expected to call it.
+ * A definition registry: it survives `resetRuntime` so queries keep invalidating correctly after
+ * the kill-switch, and re-registering the same (model, key) pair REPLACES the previous callback,
+ * so redefining a query (e.g. a Fast Refresh reload) never accumulates dead closures.
  */
-export declare const registerModelInvalidation: (modelId: string, invalidate: InvalidateFn) => (() => void);
+export declare const registerModelInvalidation: (modelId: string, key: string, invalidate: InvalidateFn) => void;
 /** Fan an invalidation out to every query registered on the model. */
 export declare const invalidateModel: (modelId: string, scope?: unknown) => void;
 //# sourceMappingURL=invalidationRegistry.d.ts.map

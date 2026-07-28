@@ -51,7 +51,7 @@ export type ModelWriteResult = {
 export type ModelMembership = {
     id: string;
     scopeKey: string;
-    order: number;
+    orderKey: string;
     edge?: Record<string, unknown>;
 };
 export type ModelWrites<TStored extends {
@@ -158,13 +158,13 @@ export type ModelRuntimeRegistrationOptions<TStored extends {
     captureMembership(id: string): Array<{
         id: string;
         scopeKey: string;
-        order: number;
+        orderKey: string;
         edge?: Record<string, unknown>;
     }>;
     planRestore(next: unknown, memberships: Array<{
         id: string;
         scopeKey: string;
-        order: number;
+        orderKey: string;
         edge?: Record<string, unknown>;
     }>): WriteOp[];
 };

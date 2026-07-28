@@ -21,14 +21,17 @@ type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 export type IncrementalScopeChange = {
     model: string;
     scopeKey: string;
-    ids?: string[];
-    appendIds?: string[];
-    appendEntries?: Array<{
+    /** Full ordered membership (a rebuild); the store diffs it against current rows. */
+    entries?: Array<{
         id: string;
-        order: number;
+        orderKey: string;
+    }>;
+    /** Point upserts carrying final order keys (insertions and repositions). */
+    upserts?: Array<{
+        id: string;
+        orderKey: string;
     }>;
     detachIds?: string[];
-    rebuild?: boolean;
 };
 export type IncrementalCommitBatch = CommitBatch & {
     mode?: IncrementalBatchMode;

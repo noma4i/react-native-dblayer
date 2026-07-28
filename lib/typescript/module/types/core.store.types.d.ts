@@ -58,21 +58,20 @@ export type StoreMembershipRow = {
     entityId: string;
     orderKey: string;
 };
-/** The apply-target subset the store needs to project scope membership and order. */
-export type StoreScopeSyncSource = {
-    readScopeOrder(scopeKey: string): string[];
-    scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
-};
+/** One scope projection instruction: ready-made keys only - the store never computes order. */
 export type StoreScopeSyncChange = {
     scopeKey: string;
-    ids?: string[];
-    appendIds?: string[];
-    appendEntries?: Array<{
+    /** Full ordered membership (a rebuild); diffed against current rows so unchanged pairs write nothing. */
+    entries?: Array<{
         id: string;
-        order: number;
+        orderKey: string;
+    }>;
+    /** Point upserts carrying final order keys. */
+    upserts?: Array<{
+        id: string;
+        orderKey: string;
     }>;
     detachIds?: string[];
-    rebuild?: boolean;
 };
 /**
  * Per-model primary store: the TanStack DB collection pair (entities + scope memberships) behind
@@ -82,11 +81,7 @@ export type ModelStore<T extends {
     id: string;
 }> = EntityState<T> & {
     scopeCollection(scopeKey: string): StoreScopeCollection;
-    replaceScope(scopeKey: string, entityIds: readonly string[]): void;
-    applyScopeChanges(changes: readonly StoreScopeSyncChange[], rowChanges: ReadonlyArray<{
-        id: string;
-        fields: string[] | null;
-    }>, source: StoreScopeSyncSource): void;
+    applyScopeChanges(changes: readonly StoreScopeSyncChange[]): void;
     markReady(): void;
     dispose(): void;
 };

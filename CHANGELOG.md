@@ -1,5 +1,41 @@
 # Changelog
 
+## 10.0.0-beta.1 - 2026-07-29
+
+### Breaking changes and migration
+
+- BREAKING: scope order is now ONE persisted lexical fractional key. `ScopeEntry` carries `orderKey: string` instead of a numeric `order` (the half-dead `seq` field is gone), order keys are born once at write-planning time, and every read surface - live scope queries, `Model.view`, imperative `scope.read()`, `scope.useCount` - is a mechanical projection of the persisted entry order with zero comparators on the read path. `DB_FORMAT_VERSION` bumps 3 -> 4: on first boot after the upgrade the on-device cache cold-resets (a fresh sync rebuilds it); no code changes are required in consumers that stayed on the public DSL.
+- BREAKING: `scope.useCount` now counts the same materialized require-gated row set that `use()`/`totalCount` serve, so a membership without a loaded row is no longer counted (previously it counted raw scope entries).
+- BREAKING: `DbDefaults.networkMode` is removed (it was accepted and ignored). React-query's own network mode stays pinned to `'always'`; connectivity is coordinated exclusively through the new `setFetchNetworkOnline` entry point.
+- BREAKING: dead read options are gone from point-read signatures - `query.use.find(id, opts)` and `useRowEnsured(scope, rowId, opts)` no longer accept `orderBy`/`limit` (they were accepted and ignored on a by-id read).
+- Legacy colon-format scope-key migration is removed together with the `scopeKeyMigrations` diagnostics counter: after the v4 cold reset there is nothing left to migrate. A persisted scope key that does not belong to a declared scope is dropped as corrupt at hydrate (with a `corrupt-scope` data-loss note).
+
+### Scope order
+
+- `keyBetween`/`keyBefore`/`keyAfter`/`keysForSequence` (internal `core/orderKey`) form the single home for order keys: base62, codepoint-compared, unlimited precision; bulk landings distribute keys evenly instead of degrading through chained midpoints, and over-tight bounds fall back to a chained walk instead of throwing.
+- Same-order page landings keep existing keys (zero membership writes - now measured by the `membershipWrites` work counter), shuffled payloads of unchanged rows keep the canonical order via plan-time canonicalization, and a row detached by its own plan is never re-added by a reposition pass.
+- GC publishes through the same store-projection seam as commits (`publishProjectedBatch`), so a scope removed by GC can no longer resurrect through orphaned store memberships; a structural gate fails any data-carrying commit batch published outside the seam.
+
+### Reset and definition registries
+
+- Definition registries now survive `resetRuntime` with keyed-replace semantics: subscription effects stay resolvable after a reset, boot validations declared before a reset run on the next boot (`registerBootValidation` is now keyed), and re-registering the same query/model definition replaces its invalidation callback and resetter instead of accumulating dead closures (`registerKeyedReset`).
+- `defineFetch` offline-pause state belongs to one runtime generation: after `resetRuntime` the next generation starts unpaused.
+
+### Freshness and network
+
+- `setFetchNetworkOnline(online)` is public on the barrel: wire the host's reachability source (e.g. NetInfo) once and the coordinator pauses query/fetch requests and holds subscription retries while offline, resuming and resubscribing on reconnect. Subscription reconnect backoff now shares the one `backoffDelayMs` formula with the query/mutation retry policy.
+- `QueryConfig.maxPages` is enforced: reaching the ceiling reports `hasNextPage: false` and `fetchNextPage` stops issuing requests.
+- `DbDefaults.refetchOnMount` now applies to `Model.query` mounts as well as `defineFetch` (per-query `refetchOnMount` still wins).
+- A query whose committed rows were evicted by GC drops its freshness lazily and refetches on the next mount, same as destroyed rows.
+
+### Durable operations
+
+- A failed-but-retryable optimistic insert now keeps its temp row protected from BOTH the temp-row TTL and GC for as long as the ledger operation stays open; discarding the operation releases the row. One protection root: `operationState.open()` (pending + failed) feeds TTL, GC marking, and replay orphan cleanup.
+
+### Internals
+
+- One home per behavior: reader-local pause state shared by `defineQuery`/`defineFetch` (`createKeyedLocalState`), `isFetchedResult`, `toTimestamp` replaces a local date parser, dependency signatures use the canonical NUL composite key, reader-key serialization uses `stableSerialize`, and module-private helpers (`useReadEngineHarness`, `readPersistenceManifest`, `snapshotDiagnostics`/`resetDiagnostics`) lost their unused `export`s.
+
 ## 9.0.0-beta.2 - 2026-07-28
 
 ### Internals

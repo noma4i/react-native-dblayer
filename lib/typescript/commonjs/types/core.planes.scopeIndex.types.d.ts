@@ -1,10 +1,9 @@
 /** Scope coverage mode used by scope membership reconciliation. */
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
-/** One persisted scope membership entry. */
+/** One persisted scope membership entry; `orderKey` is a lexical fractional key from `core/orderKey.ts`. */
 export type ScopeEntry = {
     id: string;
-    order: number;
-    seq: number;
+    orderKey: string;
     edge?: Record<string, unknown>;
 };
 /** Persisted scope index snapshot used by the membership ledger. */
@@ -13,11 +12,11 @@ export type ScopeIndexValue = {
     coverage: ScopeCoverage;
     entries: ScopeEntry[];
 };
-/** One incoming server row for scope membership reconciliation. */
+/** One incoming row for scope membership reconciliation; a present `orderKey` (placement/restore) is authoritative. */
 export type IncomingScopeRow = {
     id: string;
     edge?: Record<string, unknown>;
-    order?: number;
+    orderKey?: string;
 };
 /** Reconciliation outcome: the next persisted snapshot plus members detached by it. */
 export type ReconcileResult = {
@@ -28,27 +27,22 @@ export type ScopeIndex = {
     read(key: string): ScopeIndexValue;
     write(key: string, next: ScopeIndexValue): void;
     /**
-     * Reconcile a server response against the scope membership ledger.
-     * - 'complete': incoming rows become the exact membership in server order; previous members
-     *   absent from the response are DETACHED (returned in detachedIds; entity rows untouched).
-     * - 'page': incoming rows upsert into membership (existing keep their order, new append in
-     *   server order); nothing is detached.
-     *   With opts.resetOrder (a first-page refetch) incoming rows become the new head order and previous members keep relative order after them.
-     * - 'delta': same merge semantics as 'page' (single-row/subscription-driven updates).
+     * PLANNING-ONLY reconciliation of an incoming payload against the membership ledger; order keys
+     * are computed here (or accepted from `IncomingScopeRow.orderKey`), never during apply.
+     * - 'complete': incoming rows become the exact membership; an unchanged id sequence keeps every
+     *   existing key (zero downstream work); previous members absent from the payload are DETACHED.
+     * - 'page' with opts.resetOrder: incoming become the new head (fresh keys before the retained
+     *   tail); tail members keep their keys and relative order.
+     * - 'page'/'delta' merge: existing members keep their keys, rows carrying `orderKey` land on it,
+     *   new key-less rows get tail keys.
      */
-    reconcile(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: {
-        resetOrder?: boolean;
-    }): ReconcileResult;
     reconcileNext(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: {
         resetOrder?: boolean;
     }): ReconcileResult;
+    /** APPLY-side mechanical delta: upsert entries carrying final keys, then detach ids; no key computation. */
+    applyDelta(key: string, append: ScopeEntry[], detach: string[]): ScopeIndexValue;
     detach(key: string, ids: string[]): ScopeIndexValue;
-    trim(key: string, maxRows: number): string[];
     trimValue(value: ScopeIndexValue, maxRows: number): {
-        next: ScopeIndexValue;
-        trimmedIds: string[];
-    };
-    trimNext(key: string, maxRows: number): {
         next: ScopeIndexValue;
         trimmedIds: string[];
     };

@@ -1,8 +1,6 @@
-import type { Engine, EngineInput, ReadEngineHarnessInput, RowEngineOptions, RowRecord } from '../types';
+import type { Engine, EngineInput, RowEngineOptions, RowRecord } from '../types';
 /** Canonical semantic descriptors preserve object identity only where leaf values require it. */
 export declare const incrementalSignature: (kind: string, ...values: unknown[]) => string;
-/** Shared React subscription harness for model and scope read engines. */
-export declare const useReadEngineHarness: <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch }: ReadEngineHarnessInput<T, TResult>) => TResult;
 /** Internal model-read bridge over the shared engine harness. */
 export declare const useIncrementalRead: <T>({ signature, create, deps }: EngineInput<T>) => T;
 /** Sort model read results by declared keys with NULLS LAST and an implicit locale-independent id tie-breaker. */

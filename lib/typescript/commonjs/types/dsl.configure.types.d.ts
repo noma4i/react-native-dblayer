@@ -12,8 +12,6 @@ export interface DbDefaults {
         query?: DbRetryPolicy;
         mutation?: DbRetryPolicy;
     };
-    /** Compatibility input; coordinator-owned connectivity is shared by every fetch ledger. */
-    networkMode?: 'offlineFirst' | 'online';
     /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
     refetchOnMount?: boolean;
     /**

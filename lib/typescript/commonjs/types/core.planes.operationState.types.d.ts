@@ -34,6 +34,8 @@ export type OperationState = {
     /** True while an idempotency key has a pending operation - blocks double-taps. */
     hasPending(idempotencyKey: string): boolean;
     pending(): OperationRecord[];
+    /** Open (unresolved) operations: pending plus failed-but-retryable. The ONE protection root for TTL, GC, and replay orphan cleanup. */
+    open(): OperationRecord[];
     /** Open (pending or failed) insert-intent operations of one model - the correlation candidate pool. */
     openInsertsFor(model: string): OperationRecord[];
     /** Pending operations touching one model row (rowIds falling back to tempIds), in creation order. */

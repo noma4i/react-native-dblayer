@@ -1,3 +1,4 @@
+/** Date.getTime() comparison - handles timezone offsets (Rails +11:00 vs client Z). NaN for an unparseable string. */
 /**
  * Return true when an incoming `updatedAt` is newer than or equal to the existing one - the newer-wins
  * acceptance gate used to decide whether an incoming write should overwrite a stored row. Nullish AND

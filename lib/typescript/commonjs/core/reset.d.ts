@@ -7,6 +7,15 @@
  */
 export declare const registerReset: (reset: () => void | Promise<void>) => (() => void);
 /**
+ * Keyed variant of {@link registerReset} for state owned by a re-runnable DEFINITION (a
+ * `define*` call). Re-registering the same key REPLACES the previous resetter, so redefining a
+ * query/model (e.g. Fast Refresh) never accumulates resetters for dead closures.
+ *
+ * @param key Stable definition identity, e.g. `query:<keyName>` or `model:<modelId>`.
+ * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
+ */
+export declare const registerKeyedReset: (key: string, reset: () => void | Promise<void>) => void;
+/**
  * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
  * persisted key under the library namespace, clears all registered in-memory state and notifies
  * every live subscriber. There is no partial/per-model variant - the host app decides when to pull

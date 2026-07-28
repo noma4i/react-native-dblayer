@@ -9,4 +9,18 @@ export type ActiveFetchReader = {
 };
 /** Query-invalidation callback registered per model. */
 export type InvalidateFn = (scope?: unknown) => void;
+/**
+ * Per-key reader-local state react-query's vocabulary cannot express (offline pause, next-page
+ * distinction): flags, a monotonic change version, and listener fan-out - one home shared by
+ * `defineQuery` and `defineFetch`.
+ */
+export type KeyedLocalState<TState> = {
+    get(key: string): TState;
+    /** Merge a partial state; no-op (no version bump, no notify) when nothing changed. */
+    set(key: string, next: Partial<TState>): void;
+    subscribe(key: string, listener: () => void): () => void;
+    /** Monotonic per-key change counter for snapshot signatures. */
+    version(key: string): number;
+    clear(): void;
+};
 //# sourceMappingURL=core.fetch.types.d.ts.map
