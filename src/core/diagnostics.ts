@@ -1,30 +1,7 @@
 import { registerReset } from './reset';
+import type { DataLossMechanism, DataLossEvent } from '../types/core.diagnostics.types';
+export type { DataLossMechanism, DataLossEvent } from '../types/core.diagnostics.types';
 
-export type DataLossMechanism =
-  | 'deferred-patch-timeout'
-  | 'gc-row-eviction'
-  | 'gc-scope-removal'
-  | 'gc-scope-membership-detach'
-  | 'scope-retention-trim'
-  | 'scope-complete-detach'
-  | 'stale-temp-row-expiry'
-  | 'tombstone-expiry'
-  | 'corrupt-row'
-  | 'corrupt-tombstones'
-  | 'corrupt-scope'
-  | 'failed-input-unserializable'
-  | 'detached-operation-discard'
-  | 'detached-operation-rollback'
-  | 'detached-resume-error'
-  | 'data-version-migration-reset'
-  | 'model-corruption-recovery'
-  | 'journal-corruption-checkpointed-drop'
-  | 'journal-corruption-loss'
-  | 'operation-ledger-corruption-reset'
-  | 'replacement-rejected'
-  | 'unranked-ladder-value';
-
-export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
 
 type DiagnosticsState = {
   commits: number;
