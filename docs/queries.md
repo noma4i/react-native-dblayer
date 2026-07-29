@@ -57,9 +57,9 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 | `map`            | `(selected) => unknown`                                | Transform the selected/paged payload before it is split into nodes and written. Runs after `select`/`page`.                                                                           |
 | `enabled`        | `(scope) => boolean`                                   | Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled.                                                               |
 | `staleTime`      | `number` (ms)                                          | Freshness window before a scope with data is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.                                                            |
+| `resumeStaleTime` | `number \| null` (ms)                                 | Per-query foreground-resume freshness window. Omit for `DbDefaults.resumeStaleTime`; `null` disables resume invalidation for this query.                                              |
 | `emptyStaleTime` | `number` (ms)                                          | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows.                                                                                 |
-| `gcTime`         | `number` (ms)                                          | TanStack Query cache garbage-collection time for this query's cache entries.                                                                                                          |
-| `maxPages`       | `number`                                               | Bounded page window retained by the underlying infinite query; older pages are dropped past this count.                                                                               |
+| `maxPages`       | `number`                                               | Hard page-count ceiling. Once reached, the chain reports exhaustion and issues no additional page request.                                                                            |
 | `refetchOnMount` | `boolean`                                              | Whether TanStack Query refetches on hook remount.                                                                                                                                     |
 | `direction`      | `'forward' \| 'backward'`                              | Cursor pagination direction; `'backward'` reads `hasPreviousPage`/`startCursor` instead of the forward pair.                                                                          |
 | `cursorVar`      | `string`                                               | GraphQL variable carrying the page cursor; defaults to `'after'` (`'before'` when backward).                                                                                          |
@@ -238,19 +238,21 @@ skuPricing.remove(); // drop every cached input for this key
 ### `FetchConfig`
 
 `document` and `fetcher` are mutually exclusive - exactly one is required; `defineFetch` throws
-`defineFetch requires exactly one of document or fetcher` at boot-validation time otherwise (see
-[getting-started.md](./getting-started.md#bootdb)).
+`defineFetch requires exactly one of document or fetcher` synchronously when the definition is
+created.
 
-| Option      | Type                                         | Description                                                                                                        |
-| ----------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `document`  | GraphQL document                             | The query document, executed against the configured `DbTransport`. `TData` is inferred from a `TypedDocumentNode`. |
-| `fetcher`   | `(input: TInput) => Promise<TData>`          | Execute a store-free request without a GraphQL transport operation - any promise-returning fetch.                  |
-| `key`       | `string`                                     | Stable cache-key namespace for this fetch, combined with a hash of the input.                                      |
-| `select`    | `(data: TData) => TSelected`                 | Pick the payload to expose as `data`; the raw response is never returned.                                          |
-| `vars`      | `(input: TInput) => Record<string, unknown>` | Derive GraphQL variables from the hook/imperative call input (`document` form only). Omit for input-less queries.  |
-| `enabled`   | `(input: TInput) => boolean`                 | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`.  |
-| `staleTime` | `number` (ms)                                | Freshness window before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.  |
-| `gcTime`    | `number` (ms)                                | TanStack Query cache garbage-collection time. Defaults to `DbDefaults.gcTime`.                                     |
+| Option            | Type                                         | Description                                                                                                                   |
+| ----------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `document`        | GraphQL document                             | The query document, executed against the configured `DbTransport`. `TData` is inferred from a `TypedDocumentNode`.            |
+| `fetcher`         | `(input: TInput) => Promise<TData>`          | Execute a store-free request without a GraphQL transport operation - any promise-returning fetch.                             |
+| `key`             | `string`                                     | Stable cache-key namespace for this fetch, combined with a hash of the input.                                                 |
+| `select`          | `(data: TData) => TSelected`                 | Pick the payload to expose as `data`; the raw response is never returned.                                                     |
+| `vars`            | `(input: TInput) => Record<string, unknown>` | Derive GraphQL variables from the hook/imperative call input (`document` form only). Omit for input-less queries.             |
+| `enabled`         | `(input: TInput) => boolean`                 | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`.             |
+| `staleTime`       | `number` (ms)                                | Freshness window before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.             |
+| `resumeStaleTime` | `number \| null` (ms)                        | Per-fetch foreground-resume freshness window. Omit for the package default; `null` disables resume invalidation.             |
+| `emptyStaleTime`  | `number` (ms)                                | Freshness window used instead of `staleTime` when the selected result is empty.                                               |
+| `isEmpty`         | `(data: TSelected) => boolean`               | Override empty-result classification used to choose `emptyStaleTime`; defaults to nullish or empty-array detection.          |
 
 `defineFetch` returns `{ use, fetch, remove }`:
 

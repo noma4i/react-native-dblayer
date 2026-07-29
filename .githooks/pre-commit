@@ -10,5 +10,8 @@ yarn lint
 echo "pre-commit: jsdoc"
 node scripts/check-jsdoc.mjs
 
+echo "pre-commit: build artifacts"
+yarn check:build
+
 echo "pre-commit: tests"
 yarn test

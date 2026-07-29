@@ -21,11 +21,12 @@ import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
 import { noteApplyFailure, noteCommit, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from '../../dsl/configure';
+import { getOperationState, getRuntimeGeneration } from '../../dsl/configure';
 import { poisonStoreReads, publishProjectedBatch, restoreStoreReads, runInApplyBatch } from '../store';
 import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 import { isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 import { deduplicateScopeEntriesById } from '../planes/scopeIndex';
+import { reportSyncError } from '../syncError';
 
 const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
 
@@ -399,11 +400,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           poisonStoreReads();
           noteApplyFailure();
           getDbLogger().error('apply failed after recovery replay', { epoch, firstError, error });
-          try {
-            getDbRuntimeConfig().defaults?.onSyncError?.(error instanceof Error ? error : new Error(String(error)), { source: 'apply' });
-          } catch (observerError) {
-            getDbLogger().error('apply onSyncError failed', { error: observerError });
-          }
+          reportSyncError(error, { source: 'apply' }, 'apply');
           throw error;
         }
       }

@@ -1,10 +1,10 @@
 import type { DbSubscriptionEntry, IngestDecl, IngestHandle, IngestModel, ModelIngestEntry, ModelIngestTools, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
-import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
-import { getDbLogger } from '../core/logger';
+import { getApplyRuntime, getOperationState, getRuntimeGeneration } from './configure';
 import { noteIngestFailure } from '../core/diagnostics';
 import { getDbSubscriptionEffect } from '../core/subscriptionRuntime';
 import { getInternalModelHandle } from '../core/internalHandles';
+import { reportSyncError } from '../core/syncError';
 
 const modelsByName = new Map<string, IngestModel>();
 const modelGenerations = new Map<string, number>();
@@ -29,12 +29,7 @@ const idOf = (payload: unknown): string | null => {
 /** Shared catch-path for every ingest branch (handler, mechanical upsert/destroy, custom-apply): reports through `onSyncError` and counts the failure - never a silent drop. */
 const reportModelIngestError = (model: IngestModel, event: string, error: unknown): void => {
   noteIngestFailure();
-  const reported = error instanceof Error ? error : new Error(String(error));
-  try {
-    getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'ingest', model: model.modelId, event });
-  } catch (observerError) {
-    getDbLogger().error('defineIngest onSyncError failed', { error: observerError });
-  }
+  reportSyncError(error, { source: 'ingest', model: model.modelId, event }, 'defineIngest');
 };
 
 /**

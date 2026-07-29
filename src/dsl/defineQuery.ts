@@ -25,7 +25,6 @@ import { compositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
-import { getDbLogger } from '../core/logger';
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
@@ -33,6 +32,8 @@ import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/netwo
 import { isQueryFresh } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
+import { createGenerationFence } from '../utils/runtimeGeneration';
+import { reportSyncError } from '../core/syncError';
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
  *
@@ -133,12 +134,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       data = responseDataOrThrow(await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars }));
     } catch (error) {
       if (!context.isCurrent()) throw error;
-      const reported = error instanceof Error ? error : new Error(String(error));
-      try {
-        getDbRuntimeConfig().defaults.onSyncError?.(reported, { source: 'query', model: destinationModelId, key: keyName });
-      } catch (observerError) {
-        getDbLogger().error('defineQuery onSyncError failed', { error: observerError });
-      }
+      reportSyncError(error, { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery');
       throw error;
     }
     if (!context.isCurrent()) return null;
@@ -178,21 +174,21 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     // concurrent restart dedupes into the fetch this one is about to supersede.
     if (options.restart) void client.cancelQueries({ queryKey });
     setLocalState(key, { isPaused: false, isFetchingNextPage: options.nextPage === true });
-    const generation = getRuntimeGeneration();
+    const generationFence = createGenerationFence();
     try {
       await client.fetchQuery<ChainMeta | null>({
         queryKey,
         queryFn: async () => {
           const chainCursor = options.restart ? null : ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null);
           const cursor = options.nextPage ? chainCursor : null;
-          const meta = await execute(scope, key, options.resurrectDestroyed === true, { cursor, isCurrent: () => getRuntimeGeneration() === generation });
+          const meta = await execute(scope, key, options.resurrectDestroyed === true, { cursor, isCurrent: generationFence.isCurrent });
           if (meta === null) return (client.getQueryData(queryKey) as ChainMeta | undefined) ?? { lastCount: 0, cursor: null, pages: 0, hasNextPage: false, ids: [] };
           return meta;
         },
         staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
       });
     } catch (error) {
-      if (getRuntimeGeneration() !== generation) {
+      if (!generationFence.isCurrent()) {
         if (options.propagateFailure) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
         return;
       }
@@ -206,7 +202,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (options.propagateFailure) throw error instanceof Error ? error : new Error(String(error));
       return;
     }
-    if (getRuntimeGeneration() !== generation) return;
+    if (!generationFence.isCurrent()) return;
     setLocalState(key, { isPaused: false, isFetchingNextPage: false });
   };
   const fetch = async (scope: TScope | null): Promise<void> => {

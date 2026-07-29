@@ -38,6 +38,35 @@ describe('apply honesty (D5): mid-plan throw', () => {
 });
 
 describe('ingest honesty (D11): failed apply is reported, not silently acknowledged', () => {
+  it('isolates an onSyncError observer failure and reports it through the configured logger', () => {
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport(),
+      logger,
+      defaults: {
+        onSyncError: () => {
+          throw new Error('observer exploded');
+        }
+      }
+    });
+    const rows = defineModel({
+      id: 'IngestObserverIsolationD11',
+      name: 'IngestObserverIsolationD11',
+      fields: { label: f.str() }
+    });
+    const ingest = rows.ingest({
+      remoteUpdate: {
+        apply: () => {
+          throw new Error('ingest apply exploded');
+        }
+      }
+    });
+
+    expect(() => ingest.apply('remoteUpdate', {})).not.toThrow();
+    expect(logger.error).toHaveBeenCalledWith('defineIngest onSyncError failed', { error: expect.objectContaining({ message: 'observer exploded' }) });
+  });
+
   it('reports onSyncError, counts ingestFailed, and applies a clean redelivery of the same event', () => {
     const storage = createMemoryPlane();
     const onSyncError = jest.fn();

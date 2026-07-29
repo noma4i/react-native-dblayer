@@ -46,7 +46,7 @@ configureDb({ transport });
 import { DbProvider } from '@noma4i/react-native-dblayer';
 
 const Root = () => (
-  <DbProvider bootOptions={{ wipe: false }}>
+  <DbProvider>
     <App />
   </DbProvider>
 );
@@ -178,8 +178,7 @@ The lifecycle is: optimistic write (synchronous, before transport) -> transport 
 commit (temp-to-server replace + extract sinks in a single epoch) or rollback. Field continuity and merge behavior belong to model `write.groups`.
 A committed dedupe key is never re-sent; a pending key blocks double-taps; a `null` key disables
 dedupe. `existingTempId` is the retry path: it reuses the failed optimistic row and a failed retry
-keeps it. `Model.crud` composes conventional list/get/create/update/destroy handles from one call;
-`defineCommand` covers model-less RPC mutations with no local write of their own.
+keeps it. `defineCommand` covers model-less RPC mutations with no local write of their own.
 
 Full reference: [docs/mutations.md](./docs/mutations.md).
 
@@ -225,9 +224,10 @@ failure blocks release like a functional one.
 - Counted invariants: one plan = exactly two storage batches (WAL), one journal record, one
   publish; an idempotent re-upsert does zero notify work; a single-field patch re-renders only
   that field's readers; untouched rows keep their references.
-- Timed budgets (best-of-3): plan apply at 10k rows, publish fan-out at 1000 subscribers,
+- Work-counter scale gates cover plan apply at 10k rows, publish fan-out at 1000 subscribers,
   sorted scope reads at 1000 entries, cold hydrate at 10k rows, and a 25-chat/1000-message
-  chat-session scenario.
+  chat-session scenario. They assert bounded scans, applies, resorts, and notifications without
+  depending on machine wall time.
 
 ## Testing
 

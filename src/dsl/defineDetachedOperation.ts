@@ -4,16 +4,14 @@ import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle } from '../core/internalHandles';
 import { serializeOperationInput } from '../core/planes/operationState';
 import { generateTempId } from '../utils/generateTempId';
-import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from './configure';
+import { getApplyRuntime, getOperationState, getRuntimeGeneration } from './configure';
+import { createGenerationFence } from '../utils/runtimeGeneration';
+import { reportSyncError } from '../core/syncError';
 
 const declarations = new Map<string, DetachedDeclaration>();
 
 const reportFailure = (error: Error, model: string): void => {
-  try {
-    getDbRuntimeConfig().defaults?.onSyncError?.(error, { source: 'detached', model });
-  } catch {
-    // An error observer cannot change the terminal state of a detached operation.
-  }
+  reportSyncError(error, { source: 'detached', model }, 'defineDetachedOperation');
 };
 
 /** Define one durable operation whose executor is owned by the consumer and resumed by core at boot. */
@@ -56,6 +54,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
   };
 
   const resumeRecord = async (record: OperationRecord, generation = getRuntimeGeneration()): Promise<'continue' | 'orphaned'> => {
+    const generationFence = createGenerationFence({ generation });
     const tempId = record.tempIds[0];
     const input = record.failedInput as TInput | undefined;
     if (!tempId || input === undefined) {
@@ -64,11 +63,11 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     }
     try {
       const outcome = await config.resume({ operationId: record.operationId, tempId, input });
-      if (getRuntimeGeneration() !== generation) return 'continue';
+      if (!generationFence.isCurrent()) return 'continue';
       if (outcome === 'orphaned') failRecord(record, new Error(`Detached operation ${record.operationId} is orphaned`));
       return outcome;
     } catch (error) {
-      if (getRuntimeGeneration() !== generation) return 'continue';
+      if (!generationFence.isCurrent()) return 'continue';
       noteDataLoss('detached-resume-error', model.modelId, 1);
       failRecord(record, error instanceof Error ? error : new Error(String(error)));
       return 'orphaned';
@@ -139,14 +138,15 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
 
 /** Invoke every hydrated detached declaration once before startup GC and pending-TTL maintenance. */
 export const reconcileDetachedOperationsAtBoot = async (generation = getRuntimeGeneration()): Promise<void> => {
-  if (getRuntimeGeneration() !== generation) return;
+  const generationFence = createGenerationFence({ generation });
+  if (!generationFence.isCurrent()) return;
   const pending = getOperationState().hydratedPending().filter(record => record.kind !== undefined);
   for (const record of pending) {
     if (!declarations.has(record.kind!)) throw new Error(`No detached operation declaration registered for ${record.kind}`);
   }
   for (const record of getOperationState().takeHydratedPending(record => record.kind !== undefined)) {
-    if (getRuntimeGeneration() !== generation) return;
+    if (!generationFence.isCurrent()) return;
     await declarations.get(record.kind!)!.resume(record, generation);
-    if (getRuntimeGeneration() !== generation) return;
+    if (!generationFence.isCurrent()) return;
   }
 };

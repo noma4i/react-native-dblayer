@@ -6,7 +6,7 @@ import type { Resetter, SyncResetter } from '../types';
  * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
  * @returns Unregister function - call it to stop the resetter from running on future resets.
  */
-export declare const registerReset: <TReset extends Resetter>(reset: SyncResetter<TReset>) => () => void;
+export declare const registerReset: <TReset extends Resetter>(reset: SyncResetter<TReset>) => (() => void);
 /**
  * Keyed variant of {@link registerReset} for state owned by a re-runnable DEFINITION (a
  * `define*` call). Re-registering the same key REPLACES the previous resetter, so redefining a

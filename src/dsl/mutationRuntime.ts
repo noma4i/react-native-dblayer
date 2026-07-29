@@ -10,6 +10,7 @@ import { responseDataOrThrow } from '../core/transport';
 import { generateTempId } from '../utils/generateTempId';
 import { isRecord } from '../utils/normalizeHelpers';
 import { createGenerationFence } from '../utils/runtimeGeneration';
+import { reportSyncError } from '../core/syncError';
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './configure';
 import { isMethodOptimistic, isRespondOptimistic } from './mutationConfiguration';
 import { registerMutationCorrelator } from './mutationCorrelation';
@@ -251,12 +252,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
           operations.close(operationId, status);
         }
       }
-      const reported = error instanceof Error ? error : new Error(String(error));
-      try {
-        getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
-      } catch (observerError) {
-        getDbLogger().error('defineMutation onSyncError failed', { error: observerError });
-      }
+      reportSyncError(error, { source: 'mutation', model: optimistic?.model.modelId }, 'defineMutation');
       config.onError?.(error as Error, { ...operationContext, input });
       throw error;
     }
@@ -267,11 +263,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       } catch (loggerError) {
         void loggerError;
       }
-      try {
-        getDbRuntimeConfig().defaults?.onSyncError?.(reported, { source: 'mutation', model: optimistic?.model.modelId });
-      } catch (observerError) {
-        void observerError;
-      }
+      reportSyncError(reported, { source: 'mutation', model: optimistic?.model.modelId }, 'defineMutation');
     };
     const runCommittedCallback = (callback: string, run: () => void): void => {
       try {

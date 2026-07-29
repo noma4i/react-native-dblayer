@@ -37,9 +37,10 @@
   ],
   "scripts": {
     "build": "bob build",
+    "check:build": "node scripts/check-build-artifacts.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand --silent",
-    "test:coverage": "jest --runInBand --silent --coverage",
+    "test": "node scripts/run-jest-shards.mjs",
+    "test:coverage": "node scripts/run-jest-shards.mjs --coverage",
     "lint": "eslint .",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
     "clean": "rm -rf lib",

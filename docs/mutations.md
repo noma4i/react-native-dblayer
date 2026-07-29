@@ -16,7 +16,6 @@ model-less counterpart for mutations with no local write of their own.
 - [`operationId` echo wiring with `Model.ingest`](#operationid-echo-wiring-with-modelingest)
 - [`use()` result shape](#use-result-shape)
 - [`defineCommand(name, config)`](#definecommandname-config)
-- [`Model.crud(sections)`](#modelcrudsections)
 - [Error policy](#error-policy)
 
 ## `Model.mutation(name, config)`
@@ -122,6 +121,7 @@ generation's retry policy.
 | `optimistic` | insert / patch / destroy                                 | Optimistic local write applied before the network call, undone on error/rollback. Omit for mutations with no local write of their own (pure side-effect calls). See below.                                                                                                                                                                             |
 | `extract`    | `(ctx: { data }) => ExtractSink[]`                       | Cross-model sideloads from the response, applied in the SAME transaction as the commit.                                                                                                                                                                                                                                                                |
 | `dedupe`     | `{ key: (input) => string \| null } \| false`            | Idempotency: ON by default with a conventional key (`<modelId>:<name>:<inputHash>`) - a committed key is never re-sent, a pending key blocks double-taps. Pass `false` to opt out entirely, or a custom `{ key }` to override the key derivation. A `null` key from either the default or a custom `key` skips dedupe for that call. See Dedupe below. |
+| `once`       | `boolean`                                                | Retain committed dedupe keys until `resetRuntime`; the same key is not sent again after its operation record closes. Cannot be combined with `dedupe: false`.                                                                                                                                                                                          |
 | `onMutate`   | `(input, ctx) => void`                                   | Called synchronously right after the optimistic write (if any), before the transport call starts.                                                                                                                                                                                                                                                      |
 | `onCommit`   | `(data, ctx: OptimisticCtx & { input }) => void`         | Called after the response commits successfully, after extract sinks and preserve-on-commit have applied.                                                                                                                                                                                                                                               |
 | `onError`    | `(error, ctx: OptimisticCtx & { input }) => void`        | Called after a failed run has applied its configured failure policy and closed the operation.                                                                                                                                                                                                                                                           |
@@ -290,6 +290,10 @@ Pass a custom `dedupe: { key }` instead of `false` to keep dedupe on with a diff
 derivation - e.g. keying on a subset of the input, or returning `null` to skip dedupe only for
 specific inputs.
 
+Set `once: true` when a committed key must remain closed until `resetRuntime`, rather than only
+while its operation record is retained. `once` requires dedupe and throws at definition time when
+combined with `dedupe: false`.
+
 ### `operationId` echo wiring with `Model.ingest`
 
 Every mutation run gets a fresh `operationId` (`OptimisticCtx.operationId`), independent of
@@ -337,67 +341,6 @@ const { mutate, isPending } = resendVerificationEmail.use();
 Takes the same `MutationConfig` minus `optimistic`, returns the same `{ use, run }` surface, and
 gets the same dedupe defaults keyed by `<name>:<inputHash>` (`dedupe: false` to opt out, same as
 `Model.mutation`).
-
-## `Model.crud(sections)`
-
-Composes conventional resource handles from one call: `model.crud({ list?, get?, create?, update?,
-destroy? })`. Each PRESENT section builds one `Model.query`/`Model.mutation` handle under a fixed
-conventional name (`'list'`/`'get'`/`'create'`/`'update'`/`'destroy'`), so keys and dedupe follow
-the same conventions as calling `Model.query`/`Model.mutation` directly (see
-[queries.md](./queries.md#modelqueryname-config) and
-[`Model.mutation`](#modelmutationname-config) above). The returned object has exactly the present
-keys, typed as the real `Model.query`/`Model.mutation` handles - omitting a section from the call
-omits it from the return type too.
-
-```ts
-const todosCrud = TodoModel.crud({
-  list: { document: TodosDocument, select: data => data.todos, into: TodoModel.scopes.active },
-  create: {
-    document: TodoCreateDocument,
-    result: 'todoCreate',
-    respond: (input: { text: string }, ctx) => ({ todoCreate: { id: ctx.tempId, text: input.text, done: false } }),
-    selectServerNode: data => data.todoCreate,
-    prependTo: { scope: TodoModel.scopes.active, value: () => ({}) }
-  },
-  update: { document: TodoUpdateDocument, result: 'todoUpdate' },
-  destroy: { document: TodoDestroyDocument, result: 'todoDestroy' }
-});
-
-await todosCrud.create.run({ text: 'Buy milk' });
-await todosCrud.update.run({ id: 'row-1', text: 'Buy milk and eggs' });
-await todosCrud.destroy.run({ id: 'row-1' });
-```
-
-### Section conventions
-
-| Section   | Convention                                                  | Notes                                                                                                                                                                                                   |
-| --------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list`    | `model.query('list', section)` -> `<modelId>:list`          | `into` is **required** - `crud` throws `` `${modelId}: crud list requires an explicit into scope` `` at call time if omitted.                                                                           |
-| `get`     | `model.query('get', section)` -> `<modelId>:get`            | `into` defaults to the model itself when omitted.                                                                                                                                                       |
-| `create`  | `model.mutation('create', section)` -> `<modelId>:create`   | Requires `respond`, or `build` with `selectServerNode`, unless an explicit `optimistic` key is present - see below. `prependTo`/`appendTo` pass straight through to the conventional optimistic config. |
-| `update`  | `model.mutation('update', section)` -> `<modelId>:update`   | Default optimistic: `{ method: 'patch', selectId: input => input.id, selectPatch: input => omit(input, ['id']) }`.                                                                                      |
-| `destroy` | `model.mutation('destroy', section)` -> `<modelId>:destroy` | Default optimistic: `{ method: 'destroy', selectId: input => input.id }`.                                                                                                                               |
-
-Every mutation section keeps `Model.mutation`'s conventional dedupe on by default (see
-[Dedupe](#dedupe) above) - `dedupe: false` in a section config opts out the same way it would on a
-standalone `Model.mutation` call.
-
-**`create`'s requirement.** `model.crud({ create: {...} })` throws
-`` `${modelId}: crud create requires respond or build with selectServerNode` `` at call time unless
-the section supplies `respond` (see the Respond variant in
-[Optimistic write variants](#optimistic-write-variants) above), the `build`/`selectServerNode` pair
-(the Insert variant, same section), or an explicit `optimistic` key of its own - the check is
-presence-based, so an explicit `optimistic: undefined` still counts as present and skips it.
-
-**Overriding the convention.** An explicit `optimistic` in any section (`create`/`update`/`destroy`)
-replaces the conventional default ENTIRELY, not merged with it. `optimistic: false` disables the
-local write for that section outright - the mutation runs with no optimistic step, same as omitting
-`optimistic` on a standalone `Model.mutation` call.
-
-**Typed `id` requirement.** `update`/`destroy` handles are typed to require
-`input: { id: string } & Record<string, unknown>` regardless of the section's own config - passing
-an input without `id` is a compile-time error on the conventional path, since the default
-`selectId`/`selectPatch` closures read `input.id`.
 
 ## Error policy
 

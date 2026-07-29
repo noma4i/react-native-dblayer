@@ -8,6 +8,7 @@ import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
 import { runModelMaintenance } from './maintenanceRegistry';
 import { getApplyTargets } from '../core/apply/transaction';
 import { hydrateStoreScopes, markStoresReady } from '../core/store';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 
 /**
  * Recommended data-startup sequence after `configureDb`: deferred definition validation, persistence
@@ -31,8 +32,9 @@ export const bootDb = async (): Promise<{ replayed: number; gc: GcReport; mainte
   runBootValidations();
   const compatibility = ensurePersistenceCompatibility();
   const generation = getRuntimeGeneration();
+  const generationFence = createGenerationFence({ generation });
   const assertCurrentGeneration = (): void => {
-    if (getRuntimeGeneration() !== generation) throw new Error('runtime generation changed during boot');
+    if (!generationFence.isCurrent()) throw new Error('runtime generation changed during boot');
   };
   let rejectReset!: (error: Error) => void;
   const resetSignal = new Promise<never>((_resolve, reject) => {

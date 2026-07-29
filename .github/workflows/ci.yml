@@ -35,5 +35,8 @@ jobs:
       - name: Check JSDoc
         run: node scripts/check-jsdoc.mjs
 
+      - name: Check build artifacts
+        run: yarn check:build
+
       - name: Test
         run: yarn test:coverage

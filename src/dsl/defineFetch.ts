@@ -6,13 +6,12 @@ import { buildScopeKey } from '../core/compileDbWhere';
 import { registerKeyedReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
-import { getDbLogger } from '../core/logger';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { isQueryFresh } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
-
+import { reportSyncError } from '../core/syncError';
 
 let fetchHandleSequence = 0;
 
@@ -46,12 +45,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       data = config.fetcher ? await config.fetcher(input) : responseDataOrThrow(await getDbTransport().query({ query: config.document, variables: config.vars?.(input) ?? {} }));
     } catch (error) {
       if (!isCurrent()) throw error;
-      const reported = error instanceof Error ? error : new Error(String(error));
-      try {
-        getDbRuntimeConfig().defaults.onSyncError?.(reported, { source: 'query', key: config.key });
-      } catch (observerError) {
-        getDbLogger().error('defineFetch onSyncError failed', { error: observerError });
-      }
+      reportSyncError(error, { source: 'query', key: config.key }, 'defineFetch');
       throw error;
     }
     if (!isCurrent()) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
@@ -74,20 +68,20 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     // concurrent restart dedupes into the fetch this one is about to supersede.
     if (options.restart) void client.cancelQueries({ queryKey });
     setPaused(key, false);
-    const generation = getRuntimeGeneration();
+    const generationFence = createGenerationFence();
     try {
       const data = await client.fetchQuery<FetchData<TSelected>>({
         queryKey,
         queryFn: async () => {
-          const result = await execute(input, () => getRuntimeGeneration() === generation);
-          if (getRuntimeGeneration() !== generation) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined) ?? result;
+          const result = await execute(input, generationFence.isCurrent);
+          if (!generationFence.isCurrent()) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined) ?? result;
           return result;
         },
         staleTime: options.restart ? 0 : staleTimeOf(key)
       });
       return data.selected;
     } catch (error) {
-      if (getRuntimeGeneration() !== generation) {
+      if (!generationFence.isCurrent()) {
         if (options.propagateFailure) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
         return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
       }

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { getDbRuntimeConfig, getRuntimeGeneration } from './configure';
+import { getDbRuntimeConfig } from './configure';
 import { bootDb, suspendDb } from './lifecycle';
 import { noteResumeDrain } from '../core/diagnostics';
 import { resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import type { DbProviderProps } from '../types';
+import { createGenerationFence } from '../utils/runtimeGeneration';
 
 /**
  * Provide the boot gate and foreground-resume dispatcher for coordinator-owned reads.
@@ -25,18 +26,18 @@ export const DbProvider = ({ children }: DbProviderProps): React.ReactNode => {
     let mounted = true;
     const bootCurrentGeneration = async (): Promise<void> => {
       while (mounted) {
-        const generation = getRuntimeGeneration();
+        const generationFence = createGenerationFence();
         bootPromise.current ??= bootDb();
         try {
           await bootPromise.current;
-          if (generation !== getRuntimeGeneration()) {
+          if (!generationFence.isCurrent()) {
             bootPromise.current = null;
             continue;
           }
           setBooted(true);
           return;
         } catch (error) {
-          if (generation !== getRuntimeGeneration()) {
+          if (!generationFence.isCurrent()) {
             bootPromise.current = null;
             continue;
           }
@@ -57,10 +58,10 @@ export const DbProvider = ({ children }: DbProviderProps): React.ReactNode => {
       const previousState = previousAppState.current;
       if (state === 'active' && (previousState === 'background' || previousState === 'inactive')) {
         const drainGeneration = ++resumeDrainGeneration.current;
-        const runtimeGeneration = getRuntimeGeneration();
+        const generationFence = createGenerationFence();
         const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
         if (chunkSize <= 0) throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${chunkSize}`);
-        const isCurrent = (): boolean => resumeDrainGeneration.current === drainGeneration && getRuntimeGeneration() === runtimeGeneration;
+        const isCurrent = (): boolean => resumeDrainGeneration.current === drainGeneration && generationFence.isCurrent();
         void resumeFetchReaders(chunkSize, isCurrent).then(refetched => {
           if (isCurrent()) noteResumeDrain(refetched);
         });
