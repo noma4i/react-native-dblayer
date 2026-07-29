@@ -21,6 +21,21 @@ const entriesFor = (ids: readonly string[]): Array<{ id: string; orderKey: strin
 };
 
 describe('model store', () => {
+  it('serves scope joins without falling back to a full entity collection load', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const store = buildStore();
+      store.upsert({ id: 'row-1' });
+      store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+      store.markReady();
+
+      expect(store.scopeCollection('scope-1').toArray()).toMatchObject([{ id: 'row-1' }]);
+      expect(warn.mock.calls.filter(([message]) => String(message).includes('Join requires an index'))).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('lands an inserted row into a live scope as one delta change at 300 and 3000 rows', () => {
     const measure = (size: number): { changes: number; position: number } => {
       const store = buildStore();

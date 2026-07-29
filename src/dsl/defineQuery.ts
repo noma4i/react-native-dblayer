@@ -30,6 +30,7 @@ import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { isQueryFresh } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 /**
@@ -274,9 +275,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       const resumeWindow = (): number | null => (config.resumeStaleTime === undefined ? getDbRuntimeConfig().defaults.resumeStaleTime : config.resumeStaleTime);
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
-        const state = client.getQueryState(queryKey);
-        const fresh = state?.dataUpdatedAt !== undefined && state.dataUpdatedAt > 0 && Date.now() - state.dataUpdatedAt <= window! && !state.isInvalidated;
-        if (window === null || fresh) return false;
+        if (window === null || isQueryFresh(client, queryKey, window)) return false;
         void client.invalidateQueries({ queryKey, refetchType: 'none' });
         return true;
       };
@@ -287,9 +286,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       });
       const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
-      const queryState = client.getQueryState(queryKey);
-      const isFresh =
-        queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= staleTimeOf(key) && !queryState.isInvalidated;
+      const isFresh = isQueryFresh(client, queryKey, staleTimeOf(key));
       const canRefetch = !firstMount || !state.isFetched || (config.refetchOnMount ?? getDbRuntimeConfig().defaults.refetchOnMount) !== false;
       const shouldFetch = firstMount && canRefetch;
       if (shouldFetch && !isFresh && !state.isFetching) {
@@ -301,10 +298,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       }
       const unsubscribeOnline = subscribeFetchNetwork(() => {
         if (!isFetchNetworkOnline()) return;
-        const currentState = client.getQueryState(queryKey);
-        const fresh =
-          currentState?.dataUpdatedAt !== undefined && currentState.dataUpdatedAt > 0 && Date.now() - currentState.dataUpdatedAt <= staleTimeOf(key) && !currentState.isInvalidated;
-        if (!fresh) void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
+        if (!isQueryFresh(client, queryKey, staleTimeOf(key))) void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
       });
       return () => {
         unsubscribeOnline();

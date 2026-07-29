@@ -1,7 +1,7 @@
 /**
  * Start the in-session garbage-collection trigger: watches every applied commit batch on the
  * shared commit bus and runs `collectGarbage()` once enough eviction-shaped pressure has
- * accumulated, debounced so a burst of writes produces one sweep instead of one per batch.
+ * accumulated, then paced so a burst of writes produces one sweep instead of one per batch.
  *
  * Pressure accumulates per non-maintenance batch as (count of `batch.rows` entries whose `fields`
  * is `null` AND whose row has actually disappeared - see `hasDisappeared`; a `fields === null` row
@@ -10,10 +10,9 @@
  * itself carry `mode: 'maintenance'` and are skipped entirely, so a sweep can never re-trigger
  * itself through its own eviction/detach rows.
  *
- * Once accumulated pressure reaches `threshold` and no timer is already pending, a `debounceMs`
- * timer is armed; further pressure while the timer pends keeps accumulating but does not restart
- * or add a second timer. When the timer fires, `collectGarbage()` runs once and pressure resets to
- * zero, ready to accumulate toward the next sweep.
+ * Once accumulated pressure reaches `threshold`, one Pacer deadline is armed. Further pressure
+ * keeps accumulating but does not restart the pending deadline, so continuous writes cannot starve
+ * maintenance. When the deadline fires, `collectGarbage()` runs once and pressure resets to zero.
  *
  * @param options.threshold Accumulated pressure that arms a sweep. Defaults to 500.
  * @param options.debounceMs Delay after crossing `threshold` before the sweep runs. Defaults to 1000.

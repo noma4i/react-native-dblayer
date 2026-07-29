@@ -1,4 +1,5 @@
 import { configureDb, defineFetch } from '../../../index';
+import { backoffDelayMs } from '../../../core/fetch/retryPolicy';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -14,6 +15,10 @@ const configureRetry = (transport: ReturnType<typeof createMockTransport>, class
 };
 
 describe('query retry policy', () => {
+  it('doubles from the base delay and caps at the declared maximum', () => {
+    expect([0, 1, 2, 3].map(attempt => backoffDelayMs(attempt, 100, 250))).toEqual([100, 200, 250, 250]);
+  });
+
   it('retries a classified network failure within its budget', async () => {
     let calls = 0;
     const transport = createMockTransport({

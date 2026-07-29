@@ -117,7 +117,8 @@ resetter returns a `Promise` - an async resetter is a registration error, not a 
 
 Every write compiles into a plan that persists as write-ahead log (WAL) plus checkpoints: the plan
 writes exactly one pending journal record first, then - off the hot path, batched by the checkpoint
-scheduler - the affected model snapshots plus a record marking the journal entry committed. A torn
+scheduler through a non-restarting TanStack Pacer deadline - the affected model snapshots plus a
+record marking the journal entry committed. A torn
 write (the app killed mid-flush) always leaves a replayable pending record rather than a corrupted
 snapshot, since the two storage batches are never interleaved with a partial snapshot in between.
 Every durable payload must be lossless JSON data. Persistence rejects non-finite numbers, negative

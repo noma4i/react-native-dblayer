@@ -1,4 +1,5 @@
-import type { StoragePlane , CheckpointScheduler , CheckpointTarget } from '../../types';
+import { Debouncer } from '@tanstack/pacer';
+import type { StoragePlane, CheckpointScheduler, CheckpointTarget } from '../../types';
 import { encodePersistence } from '../persistenceCodec';
 
 /**
@@ -23,14 +24,10 @@ export const createCheckpointScheduler = (options: {
   let latestEpoch = 0;
   let flushed = 0;
   let plans = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let afterFlush: ((epoch: number) => void) | null = null;
 
-  const flushNow = (): void => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
+  function flushNow(): void {
+    checkpointDeadline.cancel();
     plans = 0;
     if (knownModels.size === 0) return;
     const checkpointEpoch = latestEpoch;
@@ -52,7 +49,8 @@ export const createCheckpointScheduler = (options: {
     dirty.clear();
     flushed = checkpointEpoch;
     afterFlush?.(checkpointEpoch);
-  };
+  }
+  const checkpointDeadline = new Debouncer(flushNow, { wait: options.delayMs });
 
   const schedule = (): void => {
     plans += 1;
@@ -60,7 +58,7 @@ export const createCheckpointScheduler = (options: {
       flushNow();
       return;
     }
-    if (!timer) timer = setTimeout(flushNow, options.delayMs);
+    if (!checkpointDeadline.store.state.isPending) checkpointDeadline.maybeExecute();
   };
 
   return {
@@ -86,8 +84,7 @@ export const createCheckpointScheduler = (options: {
     },
     pendingPlans: () => plans,
     cancel: () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
+      checkpointDeadline.cancel();
       dirty.clear();
       plans = 0;
     }

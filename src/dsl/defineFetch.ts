@@ -9,6 +9,7 @@ import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { getDbLogger } from '../core/logger';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { isQueryFresh } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 
@@ -57,8 +58,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   };
   const isFreshKey = (key: string): boolean => {
     const client = getDbQueryClient();
-    const state = client.getQueryState(queryKeyOf(key));
-    return state?.dataUpdatedAt !== undefined && state.dataUpdatedAt > 0 && Date.now() - state.dataUpdatedAt <= staleTimeOf(key) && !state.isInvalidated;
+    return isQueryFresh(client, queryKeyOf(key), staleTimeOf(key));
   };
   const run = async (input: TInput, options: { restart: boolean; propagateFailure?: boolean }): Promise<TSelected> => {
     const key = keyOf(input);
@@ -149,9 +149,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       const resumeWindow = (): number | null => config.resumeStaleTime === undefined ? getDbRuntimeConfig().defaults.resumeStaleTime : config.resumeStaleTime;
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
-        const queryState = client.getQueryState(queryKey);
-        const fresh = queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= window! && !queryState.isInvalidated;
-        if (window === null || fresh) return false;
+        if (window === null || isQueryFresh(client, queryKey, window)) return false;
         void client.invalidateQueries({ queryKey, refetchType: 'none' });
         return true;
       };

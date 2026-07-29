@@ -183,6 +183,7 @@ export const createModelStore = <T extends RowRecord>(options: {
     startSync: true,
     sync: { sync: membershipFeed.sync }
   });
+  entities.createIndex(row => row.id, { indexType: BasicIndex });
   const membershipsByScope = memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
 
   /** Enriched-to-clean row cache: collection reads return virtual-prop copies; our written row objects stay the canonical identities. */
