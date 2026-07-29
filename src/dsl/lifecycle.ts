@@ -1,8 +1,9 @@
 import type { GcReport , MaintenanceReport } from '../types';
 import { collectGarbage } from '../core/gc';
 import { ensurePersistenceCompatibility } from '../core/schemaManifest';
+import { registerReset } from '../core/reset';
 import { runBootValidations } from './bootValidations';
-import { flushPersistence, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
+import { flushPersistence, getRuntimeGeneration, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
 import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
 import { runModelMaintenance } from './maintenanceRegistry';
 import { getApplyTargets } from '../core/apply/transaction';
@@ -29,14 +30,34 @@ import { hydrateStoreScopes, markStoresReady } from '../core/store';
 export const bootDb = async (): Promise<{ replayed: number; gc: GcReport; maintenance: MaintenanceReport[]; reset: boolean }> => {
   runBootValidations();
   const compatibility = ensurePersistenceCompatibility();
-  const replayed = replayJournal();
-  hydrateStoreScopes(getApplyTargets());
-  markStoresReady();
-  await reconcileDetachedOperationsAtBoot();
-  const gc = collectGarbage();
-  purgeForeignStorageKeys();
-  const maintenance = runModelMaintenance();
-  return { replayed, gc, maintenance, reset: compatibility.reset };
+  const generation = getRuntimeGeneration();
+  const assertCurrentGeneration = (): void => {
+    if (getRuntimeGeneration() !== generation) throw new Error('runtime generation changed during boot');
+  };
+  let rejectReset!: (error: Error) => void;
+  const resetSignal = new Promise<never>((_resolve, reject) => {
+    rejectReset = reject;
+  });
+  const unregisterReset = registerReset(() => {
+    rejectReset(new Error('runtime generation changed during boot'));
+  });
+
+  try {
+    const replayed = replayJournal();
+    assertCurrentGeneration();
+    hydrateStoreScopes(getApplyTargets());
+    markStoresReady();
+    await Promise.race([reconcileDetachedOperationsAtBoot(generation), resetSignal]);
+    assertCurrentGeneration();
+    const gc = collectGarbage();
+    assertCurrentGeneration();
+    purgeForeignStorageKeys();
+    const maintenance = runModelMaintenance();
+    assertCurrentGeneration();
+    return { replayed, gc, maintenance, reset: compatibility.reset };
+  } finally {
+    unregisterReset();
+  }
 };
 
 /**

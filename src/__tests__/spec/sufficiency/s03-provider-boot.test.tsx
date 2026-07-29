@@ -2,6 +2,7 @@ import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
 import * as dbl from '../../../index';
+import * as lifecycle from '../../../dsl/lifecycle';
 import { registerBootValidation } from '../../../dsl/bootValidations';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
@@ -69,6 +70,59 @@ describe('provider-owned query runtime', () => {
     expect(renders).toBe(1);
     expect(value).toBe('Ready');
     act(() => root.unmount());
+  });
+
+  it('does not attach AppState maintenance before boot completes', async () => {
+    setupSpecRuntime();
+    let resolveBoot!: () => void;
+    const boot = jest.spyOn(lifecycle, 'bootDb').mockReturnValue(
+      new Promise(resolve => {
+        resolveBoot = () => resolve({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+      })
+    );
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
+    });
+
+    expect(AppState.addEventListener).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveBoot();
+      await Promise.resolve();
+    });
+    expect(AppState.addEventListener).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+    boot.mockRestore();
+  });
+
+  it('restarts a stale boot instead of surfacing its rejection after reset', async () => {
+    setupSpecRuntime();
+    let rejectFirstBoot!: (error: Error) => void;
+    const firstBoot = new Promise<never>((_resolve, reject) => {
+      rejectFirstBoot = reject;
+    });
+    const boot = jest
+      .spyOn(lifecycle, 'bootDb')
+      .mockReturnValueOnce(firstBoot)
+      .mockResolvedValueOnce({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
+    });
+    act(() => dbl.resetRuntime());
+    await act(async () => {
+      rejectFirstBoot(new Error('stale boot'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(boot).toHaveBeenCalledTimes(2);
+    expect(root.toJSON()).toMatchObject({ type: 'screen' });
+    act(() => root.unmount());
+    boot.mockRestore();
   });
 
   it('throws the boot rejection in render instead of gating children forever', async () => {

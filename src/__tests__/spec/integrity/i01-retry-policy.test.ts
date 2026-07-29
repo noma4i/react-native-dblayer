@@ -1,6 +1,6 @@
-import { configureDb, defineFetch } from '../../../index';
+import { configureDb, defineFetch, defineModel, f, resetRuntime, setFetchNetworkOnline } from '../../../index';
 import { backoffDelayMs } from '../../../core/fetch/retryPolicy';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 
@@ -75,5 +75,172 @@ describe('query retry policy', () => {
 
     await expect(request.fetch(undefined)).rejects.toThrow('unclassified');
     expect(calls).toBe(1);
+  });
+
+  it('does not retry an old QueryClient after runtime reset', async () => {
+    jest.useFakeTimers();
+    try {
+      let calls = 0;
+      const transport = createMockTransport({
+        query: async () => {
+          calls += 1;
+          throw new Error('offline');
+        }
+      });
+      configureDb({
+        storage: createMemoryPlane(),
+        transport,
+        defaults: {
+          retry: { query: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1000, maxMs: 1000 } } }
+        } as never
+      });
+      const request = defineFetch<number, void, number>({
+        key: 'retry-reset-fence',
+        document,
+        select: (data: number) => data
+      });
+
+      const pending = request.fetch(undefined).then(
+        () => null,
+        error => error as Error
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      resetRuntime();
+      await jest.runAllTimersAsync();
+
+      await expect(pending).resolves.toBeInstanceOf(Error);
+      expect(calls).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not report a stale defineFetch failure after runtime reset', async () => {
+    let rejectRequest!: (error: Error) => void;
+    const onSyncError = jest.fn();
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: () =>
+          new Promise((_resolve, reject) => {
+            rejectRequest = reject;
+          })
+      }),
+      defaults: { onSyncError }
+    });
+    const request = defineFetch<number, void, number>({
+      key: 'fetch-error-reset-fence',
+      document,
+      select: (data: number) => data
+    });
+    const pending = request.fetch(undefined).catch(error => error as Error);
+    await Promise.resolve();
+
+    resetRuntime();
+    rejectRequest(new Error('stale fetch failure'));
+    await pending;
+
+    expect(onSyncError).not.toHaveBeenCalled();
+  });
+
+  it('does not report a stale defineQuery failure after runtime reset', async () => {
+    let rejectRequest!: (error: Error) => void;
+    const onSyncError = jest.fn();
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: () =>
+          new Promise((_resolve, reject) => {
+            rejectRequest = reject;
+          })
+      }),
+      defaults: { onSyncError }
+    });
+    const rows = defineModel({ id: 'QueryErrorResetFence', name: 'QueryErrorResetFence', fields: { label: f.str() } });
+    const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('stale-error', {
+      key: 'query-error-reset-fence',
+      document,
+      select: data => data.rows
+    });
+    const pending = query.fetch(undefined).catch(error => error as Error);
+    await Promise.resolve();
+
+    resetRuntime();
+    rejectRequest(new Error('stale query failure'));
+    await pending;
+
+    expect(onSyncError).not.toHaveBeenCalled();
+  });
+
+  it('does not write stale defineFetch pause state into the fresh generation', async () => {
+    let rejectRequest!: (error: Error) => void;
+    try {
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          query: () =>
+            new Promise((_resolve, reject) => {
+              rejectRequest = reject;
+            })
+        })
+      });
+      const request = defineFetch<number, void, number>({
+        key: 'fetch-state-reset-fence',
+        document,
+        enabled: () => false,
+        select: (data: number) => data
+      });
+      const pending = request.fetch(undefined).catch(error => error as Error);
+      await Promise.resolve();
+
+      resetRuntime();
+      setFetchNetworkOnline(false);
+      rejectRequest(new Error('stale fetch failure'));
+      await pending;
+      const reader = renderCounted(() => request.use(undefined));
+
+      expect(reader.result().loadingState.isOffline).toBe(false);
+      reader.unmount();
+    } finally {
+      setFetchNetworkOnline(true);
+    }
+  });
+
+  it('does not write stale defineQuery pause state into the fresh generation', async () => {
+    let rejectRequest!: (error: Error) => void;
+    let enabled = true;
+    try {
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          query: () =>
+            new Promise((_resolve, reject) => {
+              rejectRequest = reject;
+            })
+        })
+      });
+      const rows = defineModel({ id: 'QueryStateResetFence', name: 'QueryStateResetFence', fields: { label: f.str() } });
+      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('stale-state', {
+        key: 'query-state-reset-fence',
+        document,
+        enabled: () => enabled,
+        select: data => data.rows
+      });
+      const pending = query.fetch(undefined).catch(error => error as Error);
+      await Promise.resolve();
+
+      enabled = false;
+      resetRuntime();
+      setFetchNetworkOnline(false);
+      rejectRequest(new Error('stale query failure'));
+      await pending;
+      const reader = renderCounted(() => query.use(undefined));
+
+      expect(reader.result().loadingState.isOffline).toBe(false);
+      reader.unmount();
+    } finally {
+      setFetchNetworkOnline(true);
+    }
   });
 });

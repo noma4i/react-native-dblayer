@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -59,5 +59,82 @@ describe('mutation retry policy', () => {
 
     await expect(send.run({ id: 'client-1' })).rejects.toThrow('server rejected');
     expect(calls).toBe(1);
+  });
+
+  it('does not issue another mutation attempt after runtime reset during backoff', async () => {
+    jest.useFakeTimers();
+    try {
+      let calls = 0;
+      const transport = createMockTransport({
+        mutation: async () => {
+          calls += 1;
+          throw new Error('offline');
+        }
+      });
+      configureDb({
+        storage: createMemoryPlane(),
+        transport,
+        defaults: {
+          retry: { mutation: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1000, maxMs: 1000 } } }
+        }
+      });
+      const model = defineModel({ id: 'MutationRetryReset', name: 'MutationRetryReset', fields: { id: f.str() } });
+      const send = model.mutation<{ send: { id: string } }, { id: string }, { id: string }, { id: string }>('send', {
+        document,
+        result: 'send',
+        dedupe: { key: input => input.id }
+      });
+
+      const pending = send.run({ id: 'client-1' });
+      await Promise.resolve();
+      await Promise.resolve();
+      resetRuntime();
+      await jest.runAllTimersAsync();
+
+      await expect(pending).resolves.toBeNull();
+      expect(calls).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not schedule retry backoff when an in-flight mutation fails after reset', async () => {
+    jest.useFakeTimers();
+    try {
+      let rejectMutation!: (error: Error) => void;
+      let calls = 0;
+      const transport = createMockTransport({
+        mutation: () => {
+          calls += 1;
+          return new Promise((_resolve, reject) => {
+            rejectMutation = reject;
+          });
+        }
+      });
+      configureDb({
+        storage: createMemoryPlane(),
+        transport,
+        defaults: {
+          retry: { mutation: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1000, maxMs: 1000 } } }
+        }
+      });
+      const model = defineModel({ id: 'MutationRetryInflightReset', name: 'MutationRetryInflightReset', fields: { id: f.str() } });
+      const send = model.mutation<{ send: { id: string } }, { id: string }, { id: string }, { id: string }>('send', {
+        document,
+        result: 'send',
+        dedupe: { key: input => input.id }
+      });
+      const pending = send.run({ id: 'client-1' });
+      await Promise.resolve();
+
+      resetRuntime();
+      rejectMutation(new Error('stale failure'));
+      await expect(pending).resolves.toBeNull();
+
+      expect(calls).toBe(1);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

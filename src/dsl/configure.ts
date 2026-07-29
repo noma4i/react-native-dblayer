@@ -92,6 +92,7 @@ export const getDbQueryClient = (): QueryClient => {
     });
     queryClientResetRegistered = true;
   }
+  const generation = getRuntimeGeneration();
   queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -101,8 +102,12 @@ export const getDbQueryClient = (): QueryClient => {
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
         refetchOnMount: false,
-        retry: (failureCount, error) => isFetchNetworkOnline() && retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount + 1) !== null,
-        retryDelay: (failureCount, error) => retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount) ?? 0
+        retry: (failureCount, error) =>
+          getRuntimeGeneration() === generation &&
+          isFetchNetworkOnline() &&
+          retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount + 1) !== null,
+        retryDelay: (failureCount, error) =>
+          getRuntimeGeneration() === generation ? (retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount) ?? 0) : 0
       }
     }
   });

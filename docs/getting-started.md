@@ -139,7 +139,8 @@ The library-owned React provider: owns the query runtime internally - no extra p
 needed - and renders `children` only once boot completes. On mount it calls the internal `bootDb()`
 exactly once (a re-render never re-triggers it) and gates `children` behind the resulting promise -
 render nothing (or a splash screen conditioned on the same signal your app already uses) above it
-while booting. It also wires `react-native`'s `AppState` for automatic focus-based refresh:
+while booting. `AppState` maintenance is attached only after boot completes. It wires
+`react-native`'s `AppState` for automatic focus-based refresh:
 foreground enables refetch-on-focus, and background flushes persistence and suspends the runtime
 automatically.
 
@@ -168,6 +169,11 @@ report for the post-replay sweep (see [runtime.md](./runtime.md#garbage-collecti
 `MaintenanceReport` (`{ model, task: 'maxRowsPerScope', affected }`) per declared maintenance task
 across every model, and whether the compatibility gate cleared incompatible persisted state.
 
+Boot captures one runtime generation. A reset during detached-operation resume rejects that boot
+immediately, blocks every stale terminal write, and lets the mounted provider boot the fresh
+generation. GC, foreign-key cleanup, maintenance, and AppState background work never run for a
+stale or incomplete boot.
+
 To boot from an empty store deliberately (consumer-side schema/cache-version bumps where stale
 persisted rows must not be rehydrated), call `resetRuntime()` (see
 [runtime.md](./runtime.md#resetruntime-kill-switch)) before mounting `DbProvider`, or bump
@@ -187,6 +193,9 @@ flushes pending checkpoint snapshots, then runs a `collectGarbage()` sweep (skip
 `configureDb` never ran). It never clears state - a full wipe still goes through `resetRuntime`'s
 kill-switch. `flushPersistence`/`collectGarbage` are internal - not exported - `DbProvider` is the
 only caller.
+
+Foreground resume captures both provider-drain and runtime generations. Reset or provider teardown
+stops later chunks and prevents the stale drain from writing fresh-generation diagnostics.
 
 ## Storage seam
 

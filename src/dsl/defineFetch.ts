@@ -40,11 +40,12 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     const defaults = getDbRuntimeConfig().defaults;
     return data?.empty === true && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
   };
-  const execute = async (input: TInput): Promise<FetchData<TSelected>> => {
+  const execute = async (input: TInput, isCurrent: () => boolean): Promise<FetchData<TSelected>> => {
     let data: TData;
     try {
       data = config.fetcher ? await config.fetcher(input) : responseDataOrThrow(await getDbTransport().query({ query: config.document, variables: config.vars?.(input) ?? {} }));
     } catch (error) {
+      if (!isCurrent()) throw error;
       const reported = error instanceof Error ? error : new Error(String(error));
       try {
         getDbRuntimeConfig().defaults.onSyncError?.(reported, { source: 'query', key: config.key });
@@ -53,6 +54,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       }
       throw error;
     }
+    if (!isCurrent()) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
     const selected = config.select(data);
     return { selected, empty: isEmpty(selected) };
   };
@@ -77,7 +79,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       const data = await client.fetchQuery<FetchData<TSelected>>({
         queryKey,
         queryFn: async () => {
-          const result = await execute(input);
+          const result = await execute(input, () => getRuntimeGeneration() === generation);
           if (getRuntimeGeneration() !== generation) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined) ?? result;
           return result;
         },
@@ -85,6 +87,10 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       });
       return data.selected;
     } catch (error) {
+      if (getRuntimeGeneration() !== generation) {
+        if (options.propagateFailure) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
+        return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
+      }
       // A newer restart cancelled this fetch; the superseding run now owns key state and outcome.
       if (error instanceof CancelledError) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
       if (!isFetchNetworkOnline()) {

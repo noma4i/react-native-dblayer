@@ -101,7 +101,8 @@ injects a payload into the same validate/debounce/handler pipeline transport eve
 tests, and equivalent to calling `Model.ingest(...).apply(key, payload)` directly); `inspect()`
 returns per-entry counters (`active`, `eventCount`, `lastEventAt`, `errorCount`); `stop()` is final
 teardown for subscriptions and pending timers. A failed entry retries with exponential backoff (1s
-up to 30s) while active.
+up to 30s) while active. Offline retry owns its connectivity-listener release together with its
+timer; deactivate, stop, reset, and a superseding attempt release both resources.
 
 ## `defineDbSubscriptionEntry(entry)`
 

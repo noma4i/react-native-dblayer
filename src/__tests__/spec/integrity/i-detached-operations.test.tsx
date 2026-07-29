@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
 import { flushPersistence, getOperationState, replayJournal } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
@@ -161,6 +161,61 @@ describe('detached operations', () => {
 
     expect(restartedRows.find(entry.tempId)).toMatchObject({ state: 'failed' });
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'detached-resume-error', model: 'DetachedResumeError', count: 1 });
+  });
+
+  it('keeps a detached definition usable when configureDb advances the runtime generation', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    const rows = defineRows('DetachedDefinitionSurvives');
+    const resume = jest.fn(async () => 'orphaned' as const);
+    const handle = declare(rows, 'definition-survives', resume);
+    const entry = handle.start({ bucket: 'a', label: 'old' });
+    writeManifest();
+    flushPersistence();
+
+    configureDb({ storage, transport: createMockTransport() });
+    writeManifest();
+    await bootDb();
+
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(rows.find(entry.tempId)).toMatchObject({ state: 'failed' });
+  });
+
+  it('rejects boot and blocks stale detached failure writes when reset crosses resume', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    const rows = defineRows('DetachedResetFence');
+    const handle = rows.detached<Input>('reset-fence', {
+      build: input => ({ bucket: input.bucket, label: input.label, state: 'pending', createdAt: new Date().toISOString() }),
+      resume: async () => 'continue',
+      failure: 'rollback'
+    });
+    const entry = handle.start({ bucket: 'a', label: 'old' });
+    writeManifest();
+    flushPersistence();
+
+    let resolveResume!: (outcome: 'continue' | 'orphaned') => void;
+    configureDb({ storage, transport: createMockTransport() });
+    const restartedRows = defineRows('DetachedResetFence');
+    restartedRows.detached<Input>('reset-fence', {
+      build: input => ({ bucket: input.bucket, label: input.label, state: 'pending', createdAt: new Date().toISOString() }),
+      resume: () =>
+        new Promise(resolve => {
+          resolveResume = resolve;
+        }),
+      failure: 'rollback'
+    });
+    writeManifest();
+    const boot = bootDb();
+    await Promise.resolve();
+
+    resetRuntime();
+    await expect(boot).rejects.toThrow('runtime generation changed during boot');
+    restartedRows.insert({ id: entry.tempId, bucket: 'fresh', label: 'fresh', state: 'complete', createdAt: new Date().toISOString() });
+    resolveResume('orphaned');
+
+    await Promise.resolve();
+    expect(restartedRows.find(entry.tempId)).toMatchObject({ label: 'fresh', state: 'complete' });
   });
 
   it('P7 protects an open temp row from pending TTL and garbage collection', () => {

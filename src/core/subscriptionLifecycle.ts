@@ -25,6 +25,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     debounceBuckets: new Map<string, Debouncer<(payload: unknown) => void>>(),
     debouncePayloads: new Map<string, unknown>(),
     retryTimer: null,
+    retryNetworkRelease: null,
     retryAttempts: 0,
     eventCount: 0,
     lastEventAt: null,
@@ -45,10 +46,15 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     state.debounceBuckets.clear();
     state.debouncePayloads.clear();
   };
-  const clearRetryTimer = (state: SubscriptionEntryState): void => {
-    if (!state.retryTimer) return;
-    clearTimeout(state.retryTimer);
-    state.retryTimer = null;
+  const clearRetryWait = (state: SubscriptionEntryState): void => {
+    if (state.retryTimer) {
+      clearTimeout(state.retryTimer);
+      state.retryTimer = null;
+    }
+    if (state.retryNetworkRelease) {
+      state.retryNetworkRelease();
+      state.retryNetworkRelease = null;
+    }
   };
   const unsubscribeEntry = (state: SubscriptionEntryState): void => {
     const unsubscribe = state.unsubscribe;
@@ -104,7 +110,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   };
   const subscribeEntry = (state: SubscriptionEntryState): void => {
     if (!context.active || !isCurrentGeneration() || state.unsubscribe) return;
-    clearRetryTimer(state);
+    clearRetryWait(state);
     const subscribe = getDbTransport().subscribe;
     if (!subscribe) throw new Error('react-native-dblayer: transport.subscribe is required before activating subscription runtime');
     const epoch = context.activationEpoch;
@@ -135,14 +141,16 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   };
   const scheduleRetry = (state: SubscriptionEntryState, epoch: number, token: number): void => {
     if (!isCurrentAttempt(state, epoch, token)) return;
-    clearRetryTimer(state);
+    clearRetryWait(state);
     /** Offline gate: never burn retry attempts without a network - resubscribe once connectivity returns. */
     if (!isFetchNetworkOnline()) {
       const release = subscribeFetchNetwork(() => {
+        if (state.retryNetworkRelease === release) state.retryNetworkRelease = null;
         release();
         if (!isFetchNetworkOnline() || !isCurrentAttempt(state, epoch, token) || state.unsubscribe) return;
         subscribeEntry(state);
       });
+      state.retryNetworkRelease = release;
       return;
     }
     const delay = backoffDelayMs(state.retryAttempts);
@@ -162,7 +170,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   }
   const deactivateAll = (): void => {
     for (const state of context.states) {
-      clearRetryTimer(state);
+      clearRetryWait(state);
       clearDebounceBuckets(state);
       unsubscribeEntry(state);
     }

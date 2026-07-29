@@ -105,9 +105,14 @@ At `bootDb`, after hydration and journal replay but before GC and TTL maintenanc
 `resume` once for every open detached operation. Return `'continue'` when its executor remains
 alive; return `'orphaned'` when it cannot continue, and core applies the declaration's failure
 policy. A thrown `resume` is treated as `'orphaned'` and recorded as data loss. Consumers never
-scan or mark orphaned detached rows themselves.
+scan or mark orphaned detached rows themselves. A runtime reset while `resume` is pending cancels
+the owning boot and suppresses both the returned outcome and thrown-error failure policy.
 
 ### `MutationConfig`
+
+Mutation retry captures one runtime generation. Reset during transport or backoff stops the loop
+before another transport attempt and returns `null`; stale failures do not read the next
+generation's retry policy.
 
 | Option       | Type                                                     | Description                                                                                                                                                                                                                                                                                                                                            |
 | ------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime, scope } from '../../../index';
-import { collectGarbage } from '../../../core/gc';
+import { collectGarbage, registerGcHost } from '../../../core/gc';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for GC roots/exemption, reset registration, and subscription utilities.
@@ -69,6 +69,36 @@ describe('collectGarbage', () => {
     expect(report.evicted.SpecConsumerGcRowsReader).toBeUndefined();
     reader.unmount();
   });
+
+  it('visits each reachable row once in a large relation chain', () => {
+    setupSpecRuntime();
+    const size = 1000;
+    let referenceReads = 0;
+    const unregister = registerGcHost('SpecGcLinearTraversal', {
+      modelId: 'SpecGcLinearTraversal',
+      exempt: true,
+      rowIds: () => Array.from({ length: size }, (_value, index) => `row-${index}`),
+      hasRow: id => Number(id.slice(4)) < size,
+      scopeKeys: () => [],
+      scopeEntryIds: () => [],
+      detachScopeEntries: () => {},
+      scopeEntryCount: () => 0,
+      removeScope: () => {},
+      evict: () => false,
+      referencesOf: id => {
+        referenceReads += 1;
+        const next = Number(id.slice(4)) + 1;
+        return next < size ? [{ model: 'SpecGcLinearTraversal', id: `row-${next}` }] : [];
+      }
+    });
+
+    try {
+      collectGarbage();
+      expect(referenceReads).toBe(size);
+    } finally {
+      unregister();
+    }
+  });
 });
 
 describe('registerReset', () => {
@@ -88,7 +118,17 @@ describe('registerReset', () => {
 
   it('throws when a resetter returns a promise', () => {
     setupSpecRuntime();
-    const unregister = registerReset(async () => {});
+    const unregister = registerReset((async () => {}) as unknown as () => void);
+    try {
+      expect(() => resetRuntime()).toThrow(AggregateError);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('rejects a non-Promise thenable returned by a JavaScript resetter', () => {
+    setupSpecRuntime();
+    const unregister = registerReset((() => ({ then: () => undefined })) as unknown as () => void);
     try {
       expect(() => resetRuntime()).toThrow(AggregateError);
     } finally {

@@ -55,7 +55,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     reportFailure(error, model.modelId);
   };
 
-  const resumeRecord = async (record: OperationRecord): Promise<'continue' | 'orphaned'> => {
+  const resumeRecord = async (record: OperationRecord, generation = getRuntimeGeneration()): Promise<'continue' | 'orphaned'> => {
     const tempId = record.tempIds[0];
     const input = record.failedInput as TInput | undefined;
     if (!tempId || input === undefined) {
@@ -64,9 +64,11 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     }
     try {
       const outcome = await config.resume({ operationId: record.operationId, tempId, input });
+      if (getRuntimeGeneration() !== generation) return 'continue';
       if (outcome === 'orphaned') failRecord(record, new Error(`Detached operation ${record.operationId} is orphaned`));
       return outcome;
     } catch (error) {
+      if (getRuntimeGeneration() !== generation) return 'continue';
       noteDataLoss('detached-resume-error', model.modelId, 1);
       failRecord(record, error instanceof Error ? error : new Error(String(error)));
       return 'orphaned';
@@ -131,17 +133,20 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     }
   };
 
-  declarations.set(kind, { generation, resume: async record => void (await resumeRecord(record)) });
+  declarations.set(kind, { generation, resume: async (record, resumeGeneration) => void (await resumeRecord(record, resumeGeneration)) });
   return handle;
 };
 
 /** Invoke every hydrated detached declaration once before startup GC and pending-TTL maintenance. */
-export const reconcileDetachedOperationsAtBoot = async (): Promise<void> => {
+export const reconcileDetachedOperationsAtBoot = async (generation = getRuntimeGeneration()): Promise<void> => {
+  if (getRuntimeGeneration() !== generation) return;
   const pending = getOperationState().hydratedPending().filter(record => record.kind !== undefined);
   for (const record of pending) {
     if (!declarations.has(record.kind!)) throw new Error(`No detached operation declaration registered for ${record.kind}`);
   }
   for (const record of getOperationState().takeHydratedPending(record => record.kind !== undefined)) {
-    await declarations.get(record.kind!)!.resume(record);
+    if (getRuntimeGeneration() !== generation) return;
+    await declarations.get(record.kind!)!.resume(record, generation);
+    if (getRuntimeGeneration() !== generation) return;
   }
 };

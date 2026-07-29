@@ -1,6 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import { registerReset } from '../../../index';
+
+const assertResetCallbackTypes = (): void => {
+  registerReset(() => {});
+  // @ts-expect-error reset callbacks are synchronous
+  registerReset(async () => {});
+};
+void assertResetCallbackTypes;
 
 const rootAbs = path.resolve(__dirname, '../../../..');
 const rootReal = fs.realpathSync(rootAbs);
@@ -138,7 +146,7 @@ readShape: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/s
 readShapeOrThrow: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/src/types/schema.shape.types").DbShape<TInput, TFields>, input: unknown, label: string) => { [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }
 reconcileOptimisticRows: <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(model: import("<root>/src/types/utils.optimisticReconcile.types").SnapshotModel<TStored>, nodes: TNode[], options: import("<root>/src/types/utils.optimisticReconcile.types").ReconcileOptimisticRowsOptions<TStored, TNode>) => TNode[]
 references: <TChild, TRef>(model: import("<root>/src/types/core.relations.types").ModelRef<TRef>, options: { ids: (child: TChild) => string | readonly (string | null | undefined)[] | null | undefined; }) => import("<root>/src/types/core.relations.types").RelationDecl
-registerReset: (reset: () => void | Promise<void>) => () => void
+registerReset: <TReset extends Resetter>(reset: import("<root>/src/types/core.reset.types").SyncResetter<TReset>) => () => void
 resetRuntime: () => void
 scope: { <const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec; <TStored>(spec: import("<root>/src/types/dsl.scope.types").ScopeSpec<TStored>): import("<root>/src/types/dsl.scope.types").ScopeSpec<TStored>; }
 setFetchNetworkOnline: (nextOnline: boolean) => void

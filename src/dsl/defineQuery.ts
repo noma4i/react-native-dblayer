@@ -132,6 +132,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     try {
       data = responseDataOrThrow(await getDbRuntimeConfig().transport.query({ query: config.document, variables: variables as TVars }));
     } catch (error) {
+      if (!context.isCurrent()) throw error;
       const reported = error instanceof Error ? error : new Error(String(error));
       try {
         getDbRuntimeConfig().defaults.onSyncError?.(reported, { source: 'query', model: destinationModelId, key: keyName });
@@ -191,6 +192,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
       });
     } catch (error) {
+      if (getRuntimeGeneration() !== generation) {
+        if (options.propagateFailure) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
+        return;
+      }
       // A newer restart cancelled this fetch; the superseding run now owns key state and outcome.
       if (error instanceof CancelledError) return;
       if (!isFetchNetworkOnline()) {
@@ -201,6 +206,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (options.propagateFailure) throw error instanceof Error ? error : new Error(String(error));
       return;
     }
+    if (getRuntimeGeneration() !== generation) return;
     setLocalState(key, { isPaused: false, isFetchingNextPage: false });
   };
   const fetch = async (scope: TScope | null): Promise<void> => {

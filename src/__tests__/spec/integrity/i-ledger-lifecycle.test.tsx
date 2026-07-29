@@ -60,6 +60,37 @@ describe('resetRuntime failure isolation', () => {
       unregisterThird();
     }
   });
+
+  it('runs every resetter and finishes in-memory teardown when storage deletion throws', () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    storage.set([{ key: 'dbl:sentinel', value: 'present' }]);
+    const set = storage.set;
+    let failDeletion = true;
+    storage.set = entries => {
+      if (failDeletion && entries.some(entry => entry.value === null)) {
+        failDeletion = false;
+        throw new Error('storage deletion failed');
+      }
+      set(entries);
+    };
+    const calls: string[] = [];
+    const unregisterFirst = registerReset(() => {
+      calls.push('first');
+    });
+    const unregisterSecond = registerReset(() => {
+      calls.push('second');
+    });
+
+    try {
+      expect(() => resetRuntime()).toThrow(AggregateError);
+      expect(calls).toEqual(['first', 'second']);
+      expect(storage.snapshotKeys()).toEqual([]);
+    } finally {
+      unregisterFirst();
+      unregisterSecond();
+    }
+  });
 });
 
 const beginOperation = (operationId: string, idempotencyKey: string, once = false) => ({

@@ -3,7 +3,8 @@ import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime, scope } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
-import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
+import { registerActiveFetchReaders } from '../../../core/fetch/fetchReaderRegistry';
+import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
 type Response = { rows: Row[] };
@@ -32,6 +33,44 @@ describe('freshness follows committed-row survival and foreground resume', () =>
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
+  });
+
+  it('stops a foreground resume drain at reset without polluting fresh diagnostics', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport(),
+      defaults: { resumeRefetch: { chunkSize: 1 }, inSessionGc: false }
+    });
+    let resolveFirst!: () => void;
+    const firstRefetch = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          resolveFirst = resolve;
+        })
+    );
+    const secondRefetch = jest.fn(async () => {});
+    const releaseFirst = registerActiveFetchReaders({ queryKey: ['resume', 'first'], markResumeStale: () => true, refetch: firstRefetch });
+    const releaseSecond = registerActiveFetchReaders({ queryKey: ['resume', 'second'], markResumeStale: () => true, refetch: secondRefetch });
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
+    });
+    await settle(2);
+
+    act(() => appStateHandler?.('background'));
+    act(() => appStateHandler?.('active'));
+    await Promise.resolve();
+    expect(firstRefetch).toHaveBeenCalledTimes(1);
+
+    act(() => resetRuntime());
+    resolveFirst();
+    await settle(2);
+
+    expect(secondRefetch).not.toHaveBeenCalled();
+    expect(diagnostics().snapshot()).toMatchObject({ resumeDrains: 0, resumeRefetches: 0 });
+    releaseFirst();
+    releaseSecond();
+    act(() => root.unmount());
   });
 
   it('refetches an Infinity-fresh query on remount after GC evicted its committed rows', async () => {

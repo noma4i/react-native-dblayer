@@ -71,6 +71,9 @@ then persistence flushes. Safe to call during in-session UI rendering - a sweep 
 any mounted reader is currently reading. Returns `{ evicted, scopesRemoved }`, both keyed by model
 id.
 
+Reachability traversal is linear in visited rows and relation edges. The queue is append-only and
+uses a cursor; removing its head with `Array.shift()` is forbidden.
+
 `collectGarbage` runs automatically as part of `bootDb`'s startup sequence and the automatic
 background suspension's teardown sequence (see [getting-started.md](./getting-started.md#bootdb));
 app code has no way to call it directly.
@@ -108,10 +111,12 @@ subscriber. There is no partial/per-model variant - the host app decides when to
 synchronous by design: state is clean the moment the call returns, with no deferred teardown to
 await, so seeding and subsequent reads can rely on it immediately.
 
-`registerReset(reset: () => void | Promise<void>) => () => void` registers extra in-memory state
+`registerReset(reset: () => void) => () => void` registers extra in-memory state
 that the kill-switch must clear; `defineModel` calls it automatically for its own planes, so use it
-directly only for runtime state defined outside a model. `resetRuntime` throws if a registered
-resetter returns a `Promise` - an async resetter is a registration error, not a supported case.
+directly only for runtime state defined outside a model. Async resetters are rejected by the public
+type and at runtime for JavaScript callers. Storage deletion, every registered resetter, operation
+state cleanup, subscriber notification, and a final storage sweep all run even when an earlier
+step throws; failures are reported together as `AggregateError` after the full teardown pass.
 
 ## Persistence model
 

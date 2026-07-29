@@ -115,8 +115,9 @@ export const collectGarbage = (): GcReport => {
     }
   }
 
-  while (queue.length > 0) {
-    const { model, id } = queue.shift() as { model: string; id: string };
+  let queueIndex = 0;
+  while (queueIndex < queue.length) {
+    const { model, id } = queue[queueIndex++]!;
     const host = hosts.get(model);
     if (!host) continue;
     for (const reference of host.referencesOf(id)) mark(reference.model, reference.id);

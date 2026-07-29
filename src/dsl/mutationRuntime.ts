@@ -169,10 +169,12 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
 
       let attempt = 1;
       while (true) {
+        if (!generationFence.isCurrent()) return null;
         try {
           data = responseDataOrThrow(await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, operationContext) ?? input } }));
           break;
         } catch (error) {
+          if (!generationFence.isCurrent()) return null;
           const delayMs = retryDelayMs(getDbRuntimeConfig().defaults.retry?.mutation ?? {}, error, attempt);
           if (delayMs === null) throw error;
           await new Promise<void>(resolve => setTimeout(resolve, delayMs));

@@ -23,5 +23,5 @@ export type DetachedModel<TStored extends { id: string }> = {
 /** One registered detached declaration awaiting boot-time resume, tagged with its runtime generation. */
 export type DetachedDeclaration = {
   generation: number;
-  resume(record: OperationRecord): Promise<void>;
+  resume(record: OperationRecord, generation: number): Promise<void>;
 };

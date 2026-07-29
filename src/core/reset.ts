@@ -1,7 +1,8 @@
 import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, isDbConfigured, resetPersistenceRuntime } from '../dsl/configure';
+import type { Resetter, SyncResetter } from '../types';
 
-const resetters = new Set<() => void | Promise<void>>();
-const keyedResetters = new Map<string, () => void | Promise<void>>();
+const resetters = new Set<Resetter>();
+const keyedResetters = new Map<string, Resetter>();
 
 /**
  * Register in-memory runtime state that `resetRuntime`'s kill-switch must clear. `defineModel` calls this
@@ -10,7 +11,7 @@ const keyedResetters = new Map<string, () => void | Promise<void>>();
  * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
  * @returns Unregister function - call it to stop the resetter from running on future resets.
  */
-export const registerReset = (reset: () => void | Promise<void>): (() => void) => {
+export const registerReset = <TReset extends Resetter>(reset: SyncResetter<TReset>): (() => void) => {
   resetters.add(reset);
   return () => resetters.delete(reset);
 };
@@ -23,7 +24,7 @@ export const registerReset = (reset: () => void | Promise<void>): (() => void) =
  * @param key Stable definition identity, e.g. `query:<keyName>` or `model:<modelId>`.
  * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
  */
-export const registerKeyedReset = (key: string, reset: () => void | Promise<void>): void => {
+export const registerKeyedReset = <TReset extends Resetter>(key: string, reset: SyncResetter<TReset>): void => {
   keyedResetters.set(key, reset);
 };
 
@@ -40,19 +41,34 @@ export const registerKeyedReset = (key: string, reset: () => void | Promise<void
 export const resetRuntime = (): void => {
   if (!isDbConfigured()) return;
   advanceRuntimeGeneration();
-  resetPersistenceRuntime();
-  const { storage } = getDbRuntimeConfig();
-  storage.set(storage.keys(getStoragePrefix()).map(key => ({ key, value: null })));
   const resetErrors: unknown[] = [];
-  for (const reset of [...resetters, ...keyedResetters.values()]) {
+  const attempt = (reset: () => void): void => {
     try {
-      const result = reset();
-      if (result instanceof Promise) throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');
+      reset();
     } catch (error) {
       resetErrors.push(error);
     }
+  };
+  attempt(resetPersistenceRuntime);
+  const { storage } = getDbRuntimeConfig();
+  const clearStorage = (): void => {
+    const keys = storage.keys(getStoragePrefix());
+    if (keys.length > 0) storage.set(keys.map(key => ({ key, value: null })));
+  };
+  attempt(clearStorage);
+  for (const reset of [...resetters, ...keyedResetters.values()]) {
+    attempt(() => {
+      const result = reset() as unknown;
+      if (
+        (typeof result === 'object' && result !== null && 'then' in result && typeof result.then === 'function') ||
+        (typeof result === 'function' && 'then' in result && typeof result.then === 'function')
+      ) {
+        throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');
+      }
+    });
   }
-  getOperationState().reset();
-  getCommitBus().publishAll();
+  attempt(() => getOperationState().reset());
+  attempt(() => getCommitBus().publishAll());
+  attempt(clearStorage);
   if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'resetRuntime failed to run one or more resetters');
 };

@@ -1,5 +1,6 @@
-import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime } from '../../../index';
+import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime, resetRuntime } from '../../../index';
 import { setFetchNetworkOnline } from '../../../core/fetch/networkState';
+import * as networkState from '../../../core/fetch/networkState';
 import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -70,6 +71,34 @@ describe('subscription runtime correctness', () => {
     } finally {
       setFetchNetworkOnline(true);
       jest.useRealTimers();
+    }
+  });
+
+  it('releases an offline retry listener during runtime reset', () => {
+    const release = jest.fn();
+    const subscribeNetwork = jest.spyOn(networkState, 'subscribeFetchNetwork').mockReturnValue(release);
+    try {
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      const transport = createMockTransport({
+        subscribe: (_options, nextHandlers) => {
+          handlers = nextHandlers;
+          return jest.fn();
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      setFetchNetworkOnline(false);
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      runtime.setActive(true);
+      handlers.error(new Error('connection dropped'));
+
+      resetRuntime();
+
+      expect(subscribeNetwork).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      runtime.stop();
+    } finally {
+      subscribeNetwork.mockRestore();
+      setFetchNetworkOnline(true);
     }
   });
 

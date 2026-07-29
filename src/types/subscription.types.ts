@@ -80,6 +80,7 @@ export type SubscriptionEntryState = {
   debounceBuckets: Map<string, Debouncer<(payload: unknown) => void>>;
   debouncePayloads: Map<string, unknown>;
   retryTimer: ReturnType<typeof setTimeout> | null;
+  retryNetworkRelease: (() => void) | null;
   retryAttempts: number;
   eventCount: number;
   lastEventAt: number | null;
