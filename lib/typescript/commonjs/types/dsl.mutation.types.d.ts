@@ -1,11 +1,13 @@
 import type { DbGraphQLDocument } from './db.types';
 import type { WriteOp } from './core.apply.journal.types';
 import type { ExtractSink } from './dsl.query.types';
+/** Non-null payload selected by a mutation's declared top-level `result` field. */
+export type MutationPayload<TData> = NonNullable<TData[keyof TData]>;
 export type DefinedMutation<TData, TInput> = {
-    run(input: TInput): Promise<TData | null>;
-    retry(tempId: string): Promise<TData | null>;
+    run(input: TInput): Promise<MutationPayload<TData> | null>;
+    retry(tempId: string): Promise<MutationPayload<TData> | null>;
     discard(tempId: string): void;
-    use(): MutationHandle<TData, TInput>;
+    use(): MutationHandle<MutationPayload<TData>, TInput>;
 };
 export type MutationModel = {
     modelId: string;
@@ -95,7 +97,7 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
     /** The GraphQL mutation document. */
     document: DbGraphQLDocument<TData, any>;
     /** Response field owning the mutation payload; a null payload is treated as failure and rolls back. */
-    result: string;
+    result: Extract<keyof TData, string>;
     /** Build transport variables from the mutation input and its optimistic operation context. */
     mapInput?: (input: TInput, ctx: OptimisticCtx) => Record<string, unknown>;
     /** Optimistic local write applied before the network call, undone on error/rollback. */

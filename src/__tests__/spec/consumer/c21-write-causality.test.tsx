@@ -101,7 +101,7 @@ describe('optimistic write causality', () => {
     await settle(6, { macro: true });
     queries.shift()?.resolve({ chats: [initialRow] });
     await settle(6, { macro: true });
-    let pin!: Promise<PinResponse | null>;
+    let pin!: Promise<PinResponse['pinChat'] | null>;
     act(() => {
       pin = pinChat.run({ id: 'chat-1' });
     });
@@ -130,7 +130,7 @@ describe('optimistic write causality', () => {
     const { chats, pinChat, mutations } = createFixture('OwnExtract');
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let pin!: Promise<PinResponse | null>;
+    let pin!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
       pin = pinChat.run({ id: 'chat-1' });
@@ -150,8 +150,8 @@ describe('optimistic write causality', () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W17');
     chats.insert(initialRow);
     const frames = recordTimeline(() => chats.use.find('chat-1'));
-    let pin!: Promise<PinResponse | null>;
-    let mute!: Promise<MuteResponse | null>;
+    let pin!: Promise<PinResponse['pinChat'] | null>;
+    let mute!: Promise<MuteResponse['muteChat'] | null>;
 
     act(() => {
       pin = pinChat.run({ id: 'chat-1' });
@@ -183,8 +183,8 @@ describe('optimistic write causality', () => {
     });
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse | null>;
-    let second!: Promise<PinResponse | null>;
+    let first!: Promise<PinResponse['pinChat'] | null>;
+    let second!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
       first = setRevision.run({ id: 'chat-1', rev: 11 });
@@ -209,8 +209,8 @@ describe('optimistic write causality', () => {
     const { chats, pinChat, mutations } = createFixture('SameValueRollback');
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse | null>;
-    let second!: Promise<PinResponse | null>;
+    let first!: Promise<PinResponse['pinChat'] | null>;
+    let second!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
       first = pinChat.run({ id: 'chat-1' });
@@ -241,8 +241,8 @@ describe('optimistic write causality', () => {
     });
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse | null>;
-    let second!: Promise<PinResponse | null>;
+    let first!: Promise<PinResponse['pinChat'] | null>;
+    let second!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
       first = setRevision.run({ id: 'chat-1', rev: 11 });
@@ -271,8 +271,8 @@ describe('optimistic write causality', () => {
     });
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse | null>;
-    let second!: Promise<PinResponse | null>;
+    let first!: Promise<PinResponse['pinChat'] | null>;
+    let second!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
       first = setRevision.run({ id: 'chat-1', rev: 11 });
@@ -301,9 +301,9 @@ describe('optimistic write causality', () => {
     });
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse | null>;
-    let second!: Promise<PinResponse | null>;
-    let third!: Promise<PinResponse | null>;
+    let first!: Promise<PinResponse['pinChat'] | null>;
+    let second!: Promise<PinResponse['pinChat'] | null>;
+    let third!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
       first = setRevision.run({ id: 'chat-1', rev: 1 });
@@ -328,8 +328,8 @@ describe('optimistic write causality', () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W18Guarded', true);
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let pin!: Promise<PinResponse | null>;
-    let mute!: Promise<MuteResponse | null>;
+    let pin!: Promise<PinResponse['pinChat'] | null>;
+    let mute!: Promise<MuteResponse['muteChat'] | null>;
 
     act(() => {
       pin = pinChat.run({ id: 'chat-1' });
@@ -352,8 +352,8 @@ describe('optimistic write causality', () => {
     const { chats, pinChat, muteChat, mutations } = createFixture('W18Control');
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let pin!: Promise<PinResponse | null>;
-    let mute!: Promise<MuteResponse | null>;
+    let pin!: Promise<PinResponse['pinChat'] | null>;
+    let mute!: Promise<MuteResponse['muteChat'] | null>;
 
     act(() => {
       pin = pinChat.run({ id: 'chat-1' });

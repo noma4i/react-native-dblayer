@@ -46,7 +46,6 @@ export type * from './utils.singletonStatics.types';
 export type * from './utils.singleFlight.types';
 export type * from './utils.modelPatchers.types';
 export type * from './utils.modelStatusPoller.types';
-export type * from './utils.optimisticReconcile.types';
 export type * from './core.internalHandles.types';
 export type * from './core.fetch.types';
 export type * from './core.storage.types';

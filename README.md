@@ -205,8 +205,7 @@ Full reference: [docs/ingest-live.md](./docs/ingest-live.md).
 ## Maintenance and helpers
 
 Per-scope row trimming and stale temp-row resolution run automatically as maintenance (used by
-declared `maintenance.maxRowsPerScope` tasks and boot replay); `reconcileOptimisticRows` consumes
-any model via its maintenance channel. `updateWhenRowExists` and `waitForRow` defer work until a
+declared `maintenance.maxRowsPerScope` tasks and boot replay). `updateWhenRowExists` and `waitForRow` defer work until a
 row appears (commit-bus backed, TTL/abort aware). `createSingletonStatics` builds a reactive
 single-row facade.
 `collectGarbage` runs a reachability sweep (roots: scope members, `gc: 'exempt'` rows, pending

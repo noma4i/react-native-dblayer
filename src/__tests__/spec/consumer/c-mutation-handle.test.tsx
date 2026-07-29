@@ -5,6 +5,7 @@ import { createMemoryPlane, createMockTransport, renderCounted } from '../helper
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };
 type SendInput = { text: string };
 type SendResult = { send: { message: MessageRow } };
+type SendPayload = SendResult['send'];
 
 const document = { kind: 'Document', definitions: [] } as never;
 
@@ -54,7 +55,7 @@ describe('mutation handle contracts', () => {
     const reader = renderCounted(() => harness.send.use());
     expect(reader.result().isPending).toBe(false);
 
-    let promise!: Promise<SendResult | null>;
+    let promise!: Promise<SendPayload | null>;
     act(() => {
       promise = reader.result().mutateAsync({ text: 'hello' });
     });
@@ -65,7 +66,7 @@ describe('mutation handle contracts', () => {
       await promise;
     });
     expect(reader.result().isPending).toBe(false);
-    await expect(promise).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
+    await expect(promise).resolves.toMatchObject({ message: { id: 'server-1' } });
     reader.unmount();
   });
 
@@ -73,7 +74,7 @@ describe('mutation handle contracts', () => {
     const harness = createHandleHarness('Error');
     const reader = renderCounted(() => harness.send.use());
 
-    let promise!: Promise<SendResult | null>;
+    let promise!: Promise<SendPayload | null>;
     act(() => {
       promise = reader.result().mutateAsync({ text: 'hello' });
     });
@@ -91,7 +92,7 @@ describe('mutation handle contracts', () => {
     const harness = createHandleHarness('SuccessOrder');
     const reader = renderCounted(() => harness.send.use());
     const order: string[] = [];
-    let received: SendResult | null = null;
+    let received: SendPayload | null = null;
 
     act(() => {
       reader.result().mutate(
@@ -112,7 +113,7 @@ describe('mutation handle contracts', () => {
     });
 
     expect(order).toEqual(['success', 'settled']);
-    expect(received).toMatchObject({ send: { message: { id: 'server-1' } } });
+    expect(received).toMatchObject({ message: { id: 'server-1' } });
     reader.unmount();
   });
 
@@ -149,7 +150,7 @@ describe('mutation handle contracts', () => {
     const harness = createHandleHarness('ClearError');
     const reader = renderCounted(() => harness.send.use());
 
-    let first!: Promise<SendResult | null>;
+    let first!: Promise<SendPayload | null>;
     act(() => {
       first = reader.result().mutateAsync({ text: 'first' });
     });
@@ -159,7 +160,7 @@ describe('mutation handle contracts', () => {
     });
     expect(reader.result().error).toMatchObject({ message: 'offline' });
 
-    let second!: Promise<SendResult | null>;
+    let second!: Promise<SendPayload | null>;
     act(() => {
       second = reader.result().mutateAsync({ text: 'second' });
     });
@@ -177,7 +178,7 @@ describe('mutation handle contracts', () => {
     const harness = createHandleHarness('Unmount');
     const reader = renderCounted(() => harness.send.use());
 
-    let promise!: Promise<SendResult | null>;
+    let promise!: Promise<SendPayload | null>;
     act(() => {
       promise = reader.result().mutateAsync({ text: 'hello' });
     });
@@ -186,6 +187,6 @@ describe('mutation handle contracts', () => {
     await act(async () => {
       harness.pendingTransport[0]!.resolve();
     });
-    await expect(promise).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
+    await expect(promise).resolves.toMatchObject({ message: { id: 'server-1' } });
   });
 });

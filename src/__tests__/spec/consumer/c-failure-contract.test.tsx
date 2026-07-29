@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, reconcileOptimisticRows, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { flushPersistence } from '../../../dsl/configure';
@@ -27,7 +27,8 @@ const createMessages = (id: string, transport: ReturnType<typeof createMockTrans
       },
       selectServerNode: data => data.send.message,
       onFailurePatch: () => ({ status: 'Failed' }),
-      onRetryPatch: () => ({ status: 'Sending' })
+      onRetryPatch: () => ({ status: 'Sending' }),
+      correlate: { fields: ['text'], createdAtWindowMs: 60_000 }
     },
     onError: onError ? error => onError(error) : undefined
   });
@@ -51,7 +52,7 @@ describe('optimistic failure contract', () => {
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', text: 'server', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } as TData, errors: [] }) });
     const { messages, send } = createMessages('FailureGraphqlEmpty', transport);
 
-    await expect(send.run({ text: 'hello' })).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
+    await expect(send.run({ text: 'hello' })).resolves.toMatchObject({ message: { id: 'server-1' } });
 
     expect(messages.find('server-1')).toMatchObject({ status: 'Sent' });
   });
@@ -95,7 +96,7 @@ describe('optimistic failure contract', () => {
       resolve({ data: { send: { message: { id: 'server-1', text: 'hello', status: 'Sent', createdAt: '2026-07-20T00:00:01Z' } } } });
       await Promise.resolve();
     });
-    await expect(retry).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
+    await expect(retry).resolves.toMatchObject({ message: { id: 'server-1' } });
 
     expect(messages.find(id)).toBeUndefined();
     expect(messages.find('server-1')).toMatchObject({ status: 'Sent' });
@@ -164,17 +165,18 @@ describe('optimistic failure contract', () => {
     failed.unmount();
   });
 
-  it('echo reconcile over a failed row clears its failure', async () => {
+  it('a declared echo correlation over a failed row clears its failure', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     const { messages, send, tempId } = createMessages('FailureReconcile', transport);
+    const ingest = messages.ingest({
+      messageCreated: { handler: payload => ({ upsert: payload }) }
+    });
 
     await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
     const id = tempId()!;
     const server = { id: 'server-1', text: 'hello', status: 'Sent' as const, createdAt: '2026-07-20T00:00:01Z' };
-    reconcileOptimisticRows(messages, [server], {
-      resolveCandidates: () => [messages.find(id)!],
-      match: () => true,
-      commit: (tempId, node) => messages.replace(tempId, node)
+    act(() => {
+      ingest.apply('messageCreated', server);
     });
 
     expect(messages.find(id)).toBeUndefined();
@@ -207,7 +209,7 @@ describe('optimistic failure contract', () => {
     expect(restarted.messages.find(id)).toMatchObject({ text: 'hello', status: 'Failed' });
     const failed = renderCounted(() => restarted.messages.use.failed(id));
     expect(failed.result()).toBe(true);
-    await expect(restarted.send.retry(id)).resolves.toMatchObject({ send: { message: { id: 'server-1' } } });
+    await expect(restarted.send.retry(id)).resolves.toMatchObject({ message: { id: 'server-1' } });
     failed.unmount();
   });
 

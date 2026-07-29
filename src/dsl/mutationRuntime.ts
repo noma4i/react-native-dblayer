@@ -1,4 +1,4 @@
-import type { DefinedMutation, MutationConfig, MutationRuntimeContext, OperationRecord, OptimisticCtx, WriteOp } from '../types';
+import type { DefinedMutation, MutationConfig, MutationPayload, MutationRuntimeContext, OperationRecord, OptimisticCtx, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -32,7 +32,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     registerMutationCorrelator(config.optimistic.model.modelId, definitionId, config.optimistic.correlate);
   }
 
-  const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<TData | null> => {
+  const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<MutationPayload<TData> | null> => {
     const { config, inverseFromRespond, planFromRespond } = runtime;
     const operations = getOperationState();
     const dedupeKey = config.dedupe === false ? undefined : config.dedupe?.key(input);
@@ -50,6 +50,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     let respondInverse: WriteOp[] = [];
     let operationContext!: OptimisticCtx;
     let data!: TData;
+    let result!: MutationPayload<TData>;
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
     const persistedFailedInput = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) ? serializeOperationInput(input) : null;
     const generationFence = createGenerationFence();
@@ -185,6 +186,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       if (!generationFence.isCurrent()) return null;
       const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
       if (payload == null) throw new Error(`${config.result} returned no data`);
+      result = payload as MutationPayload<TData>;
 
       const ops: WriteOp[] = [];
       if (optimistic && isRespondOptimistic(optimistic)) {
@@ -275,12 +277,12 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     runCommittedCallback('onCommit', () => config.onCommit?.(data, { ...operationContext, input }));
     runCommittedCallback('invalidate', () => config.invalidate?.({ input, data }));
     runCommittedCallback('track', () => config.track?.({ input, data }));
-    return data;
+    return result;
   };
 
   const optimisticConfig = runtime.optimisticConfig;
-  const run = (input: TInput): Promise<TData | null> => runWithTempId(input);
-  const retry = async (tempId: string): Promise<TData | null> => {
+  const run = (input: TInput): Promise<MutationPayload<TData> | null> => runWithTempId(input);
+  const retry = async (tempId: string): Promise<MutationPayload<TData> | null> => {
     const input = getOperationState().failedFor(optimisticConfig?.model.modelId ?? '', tempId)?.failedInput as TInput | undefined;
     if (input === undefined || !optimisticConfig || isMethodOptimistic(optimisticConfig) || isRespondOptimistic(optimisticConfig)) return null;
     clearFailedOptimisticMutation(optimisticConfig.model.modelId, tempId);

@@ -136,7 +136,7 @@ describe('app-shaped loss contracts', () => {
 
     await expect(send.run({})).rejects.toThrow('offline');
     expect(models.messages.find(tempId)).toMatchObject({ status: 'Failed' });
-    await expect(send.retry(tempId)).resolves.toMatchObject({ send: { message: { id: 'message-server' } } });
+    await expect(send.retry(tempId)).resolves.toMatchObject({ message: { id: 'message-server' } });
     await act(async () => {
       await Promise.resolve();
     });

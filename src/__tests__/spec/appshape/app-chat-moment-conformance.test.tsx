@@ -131,7 +131,7 @@ describe('app chat and moment conformance', () => {
     await settle(1, { macro: true });
 
     expect(models.moments.all().filter((item: any) => item.id === 'moment-1')).toHaveLength(1);
-    expect(singleReader.result().row).toBe(feedRow);
+    expect(singleReader.result().data).toBe(feedRow);
     expect(models.moments.find('moment-1')).toBe(feedRow);
     expect(models.moments.scopes.feed.read({}).map((item: any) => item.id)).toEqual(['moment-1']);
 

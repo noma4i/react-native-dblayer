@@ -309,16 +309,16 @@ of a duplicate write.
 | Field         | Type                                           | Description                                                                                                |
 | ------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `mutate`      | `(input, callbacks?: MutateCallbacks) => void` | Fire-and-forget: runs the mutation, invoking `callbacks.onSuccess`/`onError`/`onSettled`.                  |
-| `mutateAsync` | `(input) => Promise<TData \| null>`            | Runs the mutation and returns/rejects like `run`, while also reflecting `isPending`/`error` in hook state. |
+| `mutateAsync` | `(input) => Promise<TResult \| null>`          | Runs the mutation and resolves to the declared `result` payload, while also reflecting `isPending`/`error` in hook state. |
 | `isPending`   | `boolean`                                      | `true` while a `mutate`/`mutateAsync` call from this hook instance is in flight.                           |
 | `error`       | `Error \| null`                                | The last error thrown by this hook instance's calls.                                                       |
 
-`MutateCallbacks<TData>`: `onSuccess?: (data: TData \| null) => void` (receives `null` when the call
+`MutateCallbacks<TResult>`: `onSuccess?: (data: TResult \| null) => void` (receives `null` when the call
 was skipped by dedupe), `onError?: (error: Error) => void` (called after rollback has already run),
 `onSettled?: () => void` (called after `onSuccess`/`onError`, regardless of outcome).
 
-`run(input)` (the non-hook path) executes one mutation outside React, resolving to the response
-data, or `null` when dedupe skipped it.
+`run(input)` (the non-hook path) executes one mutation outside React, resolving to the non-null
+payload at the declared `result` field, or `null` when dedupe skipped it.
 
 ## `defineCommand(name, config)`
 

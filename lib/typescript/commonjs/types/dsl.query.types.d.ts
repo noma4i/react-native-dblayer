@@ -99,7 +99,7 @@ export type QueryResult<T> = {
     refetch: () => Promise<void>;
 };
 export type EnsuredRowResult<TStored> = {
-    row: TStored | undefined;
+    data: TStored | undefined;
     loadingState: LoadingState;
     error: Error | null;
     refetch: () => Promise<void>;

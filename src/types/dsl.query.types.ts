@@ -55,7 +55,7 @@ export type QueryResult<T> = {
 };
 
 export type EnsuredRowResult<TStored> = {
-  row: TStored | undefined; loadingState: LoadingState; error: Error | null; refetch: () => Promise<void>;
+  data: TStored | undefined; loadingState: LoadingState; error: Error | null; refetch: () => Promise<void>;
 };
 
 export type QueryHandle<TStored, TScope> = {

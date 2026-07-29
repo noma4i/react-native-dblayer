@@ -41,7 +41,7 @@ describe('model-owned write declarations', () => {
       extract: ({ data }) => [{ into: chats, rows: [data.pin] }]
     });
     const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
-    let pending!: Promise<{ pin: { id: string; pinned: boolean } } | null>;
+    let pending!: Promise<{ id: string; pinned: boolean } | null>;
 
     act(() => {
       pending = pin.run({});
@@ -69,7 +69,7 @@ describe('model-owned write declarations', () => {
       optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) }
     });
     const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
-    let pending!: Promise<{ pin: { id: string; pinned: boolean } } | null>;
+    let pending!: Promise<{ id: string; pinned: boolean } | null>;
 
     act(() => {
       pending = pin.run({});

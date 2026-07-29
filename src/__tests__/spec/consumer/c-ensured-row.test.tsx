@@ -69,8 +69,8 @@ describe('useRowEnsured', () => {
     await settle();
     await settle(1, { macro: true });
 
-    const initial = reader.result().row;
-    expect(reader.result().row).toBe(initial);
+    const initial = reader.result().data;
+    expect(reader.result().data).toBe(initial);
     expect(transport.calls).toHaveLength(0);
     expect(reader.result().loadingState.hasData).toBe(true);
     reader.unmount();
@@ -99,7 +99,7 @@ describe('useRowEnsured', () => {
     await settle();
     await settle(1, { macro: true });
 
-    expect(reader.result().row).toMatchObject({ id: 'row-1', name: 'Server' });
+    expect(reader.result().data).toMatchObject({ id: 'row-1', name: 'Server' });
     expect(reader.result().loadingState.phase).toBe('ready');
     expect(transport.calls).toHaveLength(1);
     reader.unmount();
@@ -117,7 +117,7 @@ describe('useRowEnsured', () => {
     await settle();
     await settle(1, { macro: true });
 
-    expect(reader.result().row).toBeUndefined();
+    expect(reader.result().data).toBeUndefined();
     expect(transport.calls).toHaveLength(2);
     expect(reader.result().loadingState.phase).toBe('ready');
     expect(reader.result().loadingState.showEmptyState).toBe(true);
@@ -142,7 +142,7 @@ describe('useRowEnsured', () => {
     await settle(1, { macro: true });
 
     expect(calls).toBe(2);
-    expect(second.result().row).toMatchObject({ id: 'row-2' });
+    expect(second.result().data).toMatchObject({ id: 'row-2' });
     second.unmount();
   });
 
@@ -157,7 +157,7 @@ describe('useRowEnsured', () => {
     await settle(1, { macro: true });
 
     expect(transport.calls).toHaveLength(0);
-    expect(reader.result().row).toBeUndefined();
+    expect(reader.result().data).toBeUndefined();
     expect(reader.result().loadingState.phase).toBe('idle');
     expect(reader.result().loadingState.showEmptyState).toBe(false);
     reader.unmount();
@@ -180,7 +180,7 @@ describe('useRowEnsured', () => {
     await settle(1, { macro: true });
 
     expect(transport.calls).toHaveLength(1);
-    expect(reader.result().row).toMatchObject({ id: 'row-1', name: 'Recovered' });
+    expect(reader.result().data).toMatchObject({ id: 'row-1', name: 'Recovered' });
     reader.unmount();
   });
 
@@ -200,7 +200,7 @@ describe('useRowEnsured', () => {
 
     await settle();
     await settle(1, { macro: true });
-    expect(first.result().row).toMatchObject({ id: 'row-1', name: 'Initial' });
+    expect(first.result().data).toMatchObject({ id: 'row-1', name: 'Initial' });
     expect(first.result().loadingState.showEmptyState).toBe(false);
     expect(transport.calls).toHaveLength(1);
     first.unmount();
@@ -210,7 +210,7 @@ describe('useRowEnsured', () => {
     await settle(1, { macro: true });
 
     expect(transport.calls).toHaveLength(2);
-    expect(second.result().row).toMatchObject({ id: 'row-2', name: 'Recovered' });
+    expect(second.result().data).toMatchObject({ id: 'row-2', name: 'Recovered' });
     expect(second.result().loadingState.showEmptyState).toBe(false);
     second.unmount();
   });

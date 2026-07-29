@@ -365,7 +365,7 @@ describe('rerender matrix batch amplification', () => {
 
     const reader = renderCounted(() => rows.use.find('1'));
     const before = reader.renders();
-    let committed!: Promise<{ rename: BulkRow } | null>;
+    let committed!: Promise<BulkRow | null>;
 
     act(() => {
       committed = mutation.run({ id: '1', name: 'from-commit' });

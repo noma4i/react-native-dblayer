@@ -67,7 +67,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(85);
+    expect(first.split('\n')).toHaveLength(84);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -144,7 +144,6 @@ pickPresent: <TSource extends object, TKey extends keyof TSource>(source: TSourc
 projectShape: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/src/types/schema.shape.types").DbShape<TInput, TFields>, source: object, overrides?: Partial<{ [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }> | undefined) => { [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }
 readShape: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/src/types/schema.shape.types").DbShape<TInput, TFields>, input: unknown) => { [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; } | undefined
 readShapeOrThrow: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/src/types/schema.shape.types").DbShape<TInput, TFields>, input: unknown, label: string) => { [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }
-reconcileOptimisticRows: <TStored extends CreatedAtRow, TNode extends CreatedAtRow>(model: import("<root>/src/types/utils.optimisticReconcile.types").SnapshotModel<TStored>, nodes: TNode[], options: import("<root>/src/types/utils.optimisticReconcile.types").ReconcileOptimisticRowsOptions<TStored, TNode>) => TNode[]
 references: <TChild, TRef>(model: import("<root>/src/types/core.relations.types").ModelRef<TRef>, options: { ids: (child: TChild) => string | readonly (string | null | undefined)[] | null | undefined; }) => import("<root>/src/types/core.relations.types").RelationDecl
 registerReset: <TReset extends Resetter>(reset: import("<root>/src/types/core.reset.types").SyncResetter<TReset>) => () => void
 resetRuntime: () => void

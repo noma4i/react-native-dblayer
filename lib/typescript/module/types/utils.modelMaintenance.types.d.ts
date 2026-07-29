@@ -1,5 +1,9 @@
 import type { RowId } from './utils.singletonStatics.types';
-import type { CreatedAtRow } from './utils.optimisticReconcile.types';
+import type { TimestampInput } from './utils.normalizeHelpers.types';
+/** Row shape carrying the optional creation timestamp used by temp-row maintenance. */
+export type CreatedAtRow = RowId & {
+    createdAt?: TimestampInput;
+};
 /** Minimal model surface for bulk destroy maintenance. */
 export type DestroyManyModel<TStored extends RowId> = {
     all(): TStored[];

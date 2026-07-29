@@ -373,7 +373,7 @@ describe('rerender matrix point reads', () => {
     const readers = mountReaders(rows);
     const before = capture(readers);
 
-    let run!: Promise<{ save: TestRow } | null>;
+    let run!: Promise<TestRow | null>;
     act(() => {
       run = mutation.run({ id: '5', name: 'name-5-committed' });
     });

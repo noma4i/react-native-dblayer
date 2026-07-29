@@ -165,7 +165,6 @@ see [reading.md](./reading.md).
 | `registerReset`               | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
 | `setFetchNetworkOnline`       | value | [runtime.md](./runtime.md#setfetchnetworkonlineonline)                          |
 | `GcReport`                    | type  | [runtime.md](./runtime.md#garbage-collection)                                   |
-| `reconcileOptimisticRows`     | value | [runtime.md](./runtime.md#reconcileoptimisticrowsmodel-nodes-options)           |
 | `updateWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md#createthrottledsingleflightfn-options) |

@@ -351,10 +351,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const destination = config.into as ModelDestination<TStored>;
   const useRowEnsured = (scope: TScope, rowId: string | null | undefined, readOpts?: { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored> => {
     registerScope(scope);
-    const row = destination.use.find(rowId, readOpts);
-    const enabled = row === undefined && rowId != null && (config.enabled?.(scope) ?? true);
+    const data = destination.use.find(rowId, readOpts);
+    const enabled = data === undefined && rowId != null && (config.enabled?.(scope) ?? true);
     const state = useReader(scope, enabled, true, enabled);
-    const hasData = row !== undefined;
+    const hasData = data !== undefined;
     const phaseInput = {
       isInactive: !enabled && !hasData,
       isFetching: state.isFetching,
@@ -368,7 +368,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       hasFetchedData: state.isFetched
     };
     return {
-      row,
+      data,
       loadingState: computeLoadingState(computePhase(phaseInput), phaseInput),
       error: state.error,
       refetch: async () => await run(scope, { restart: true, resurrectDestroyed: true })

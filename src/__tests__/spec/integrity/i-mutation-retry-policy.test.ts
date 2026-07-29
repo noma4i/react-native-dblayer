@@ -30,7 +30,7 @@ describe('mutation retry policy', () => {
       mapInput: (input, context) => ({ input, operationId: context.operationId })
     });
 
-    await expect(send.run({ id: 'client-1' })).resolves.toEqual({ send: { id: 'server-1' } });
+    await expect(send.run({ id: 'client-1' })).resolves.toEqual({ id: 'server-1' });
     expect(calls).toBe(2);
     expect(new Set(operationIds)).toEqual(new Set([operationIds[0]]));
   });

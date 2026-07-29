@@ -37,6 +37,5 @@ export { createThrottledSingleFlight, createSingleFlight } from './utils/singleF
 export { createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher } from './utils/modelPatchers';
 export { createSingletonStatics } from './utils/singletonStatics';
 export type { NumericField, PatchModel, RowId, SingletonModel, SingletonStatics } from './types';
-export { reconcileOptimisticRows } from './utils/optimisticReconcile';
 export { updateWhenRowExists, waitForRow } from './core/rowWaiters';
 export { useMergedScopeRows } from './read/useMergedScopeRows';

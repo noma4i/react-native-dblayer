@@ -11,7 +11,6 @@ small cleanup/row-waiter/patcher/scalar helpers used across the schema and mutat
 - [`resetRuntime()` kill-switch](#resetruntime-kill-switch)
 - [Persistence model](#persistence-model)
 - [`Model.poller(name, config)`](#modelpollername-config)
-- [`reconcileOptimisticRows(model, nodes, options)`](#reconcileoptimisticrowsmodel-nodes-options)
 - [Row waiters](#row-waiters)
 - [`createThrottledSingleFlight(fn, options)`](#createthrottledsingleflightfn-options)
 - [`createSingleFlight(fn, options?)`](#createsingleflightfn-options)
@@ -215,27 +214,6 @@ payload and `null` to keep polling. The phase machine is:
 Subscribers are notified only when their id's phase, reason, or attempts change. Last detach
 retains an idle snapshot with reason `stopped`; runtime reset clears every snapshot to idle with
 zero attempts and cancels every timer. The returned controller avoids overlapping fetches per id.
-
-## `reconcileOptimisticRows(model, nodes, options)`
-
-Matches incoming server nodes against optimistic local rows and commits the best match.
-
-```ts
-import { reconcileOptimisticRows } from '@noma4i/react-native-dblayer';
-```
-
-| Option              | Type                                              | Description                                                             |
-| ------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
-| `resolveCandidates` | `(node) => rows` or `{ fields }` / `{ fieldMap }` | Candidate source. The shorthand uses `model.where(...)`.                |
-| `isCandidate`       | `(candidate, node) => boolean`                    | Extra predicate. Temp ids from `isTempId(candidate.id)` always qualify. |
-| `match`             | `(candidate, node) => boolean`                    | Domain content match.                                                   |
-| `createdAtWindowMs` | `number`                                          | Optional maximum absolute `createdAt` delta.                            |
-| `commit`            | `(tempId, node) => void`                          | Called for matched nodes.                                               |
-
-For each node, if `model.find(node.id)` already exists, the node is skipped. Otherwise the helper
-finds matching candidates, chooses the one with the smallest absolute `createdAt` delta, calls
-`commit(candidate.id, node)`, and omits it from the return value. The return value is the unmatched
-server nodes.
 
 ## Row waiters
 

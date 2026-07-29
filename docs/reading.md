@@ -78,7 +78,7 @@ const chatDetail = ChatModel.query('detail', {
 });
 
 function ChatDetailsScreen({ chatId }: { chatId: string | null }) {
-  const { row: chat, loadingState, error, refetch } = chatDetail.useRowEnsured(
+  const { data: chat, loadingState, error, refetch } = chatDetail.useRowEnsured(
     { chatId },
     chatId,
     { renderKeys: ['title', 'avatarUrl', 'memberCount'] }
@@ -92,7 +92,7 @@ function ChatDetailsScreen({ chatId }: { chatId: string | null }) {
 }
 ```
 
-The query runs only when its own `enabled(scope)` predicate permits it, `rowId` is non-nullish, and the destination row is currently absent. A present row keeps the request idle while its `loadingState` remains data-ready. A nullish `rowId` reads nothing, starts no request, and returns an inactive state. `row: undefined` alone means only that the row is not currently available: treat a terminal not-found result exclusively as `loadingState.showEmptyState`.
+The query runs only when its own `enabled(scope)` predicate permits it, `rowId` is non-nullish, and the destination row is currently absent. A present row keeps the request idle while its `loadingState` remains data-ready. A nullish `rowId` reads nothing, starts no request, and returns an inactive state. `data: undefined` alone means only that the row is not currently available: treat a terminal not-found result exclusively as `loadingState.showEmptyState`.
 
 `readOpts` follows `Model.use.find` options. In particular, `renderKeys` limits re-renders to the listed stored fields while preserving the full row return value. This method exists only on queries whose `into` destination is a model; scope-destination queries have no point-read materialization surface.
 

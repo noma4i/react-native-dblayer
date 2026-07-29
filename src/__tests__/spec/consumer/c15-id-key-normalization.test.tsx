@@ -185,7 +185,7 @@ describe('id-key normalization contracts (LC20)', () => {
     });
     moments.insert({ id: '54', userId: '54', status: 'active' });
     const reader = renderCounted(() => moments.use.pending('54'));
-    let request!: Promise<PatchResponse | null>;
+    let request!: Promise<PatchResponse['updateMoment'] | null>;
 
     act(() => {
       request = update.run({ id: 54 as unknown as string });
@@ -222,7 +222,7 @@ describe('id-key normalization contracts (LC20)', () => {
       },
       extract: ({ data }) => [{ into: moments, rows: [data.sink] }]
     });
-    let request!: Promise<RespondResponse | null>;
+    let request!: ReturnType<typeof send.run>;
 
     act(() => {
       request = send.run(undefined);

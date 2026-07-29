@@ -30,7 +30,6 @@ const runtimeExportAllowlist = [
   'projectShape',
   'readShape',
   'readShapeOrThrow',
-  'reconcileOptimisticRows',
   'references',
   'registerReset',
   'resetRuntime',

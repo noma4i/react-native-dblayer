@@ -62,7 +62,7 @@ describe('account switch integrity', () => {
     expect(pending.result()).toBe(false);
     pending.unmount();
 
-    await expect(send.run({ label: 'second' })).resolves.toMatchObject({ send: { row: { id: 'server-1' } } });
+    await expect(send.run({ label: 'second' })).resolves.toMatchObject({ row: { id: 'server-1' } });
     expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1);
   });
 

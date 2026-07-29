@@ -99,7 +99,7 @@ describe('model pending flag', () => {
     const { messages, patch } = createMessages(pending.transport);
     messages.insert({ id: 'message-1', text: 'before' });
     const reader = renderCounted(() => messages.use.pending('message-1'));
-    let promise!: Promise<Payload | null>;
+    let promise!: Promise<Payload['saveMessage'] | null>;
     act(() => {
       promise = patch.run({ id: 'message-1', text: 'during' });
     });
@@ -126,7 +126,7 @@ describe('model pending flag', () => {
     const unrelated = renderCounted(() => messages.use.pending('message-2'));
     const targetBefore = target.renders();
     const unrelatedBefore = unrelated.renders();
-    let promise!: Promise<Payload | null>;
+    let promise!: Promise<Payload['saveMessage'] | null>;
     act(() => {
       promise = patch.run({ id: 'message-1', text: 'during' });
     });
