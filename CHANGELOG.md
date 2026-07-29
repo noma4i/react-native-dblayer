@@ -1,5 +1,38 @@
 # Changelog
 
+## 9.0.0-beta.6 - 2026-07-29
+
+### Breaking changes and migration
+
+- BREAKING: `query.useRowEnsured(...)` now returns its materialized row as `data` instead of `row`, aligning ensured point reads with every other query result. Replace `.row` destructuring and access with `.data`.
+- BREAKING: `Model.mutation(...).run`, `.retry`, and hook `mutateAsync` now resolve to the non-null payload at the declared `result` field instead of the outer GraphQL response envelope. Remove app-side `?.<result> ?? null` adapters.
+- BREAKING: remove `reconcileOptimisticRows` and its option types from the public API. Declare insert identity once with `optimistic.correlate`; query, scope, extract, ingest, seed, and mutation landings use the same ledger-backed correlation path.
+- BREAKING: field-based ordering accepts only orderable scalar domains. Non-orderable field specs fail at definition or type-check time; use an explicit comparator for structured domains.
+- BREAKING: `registerReset` accepts synchronous resetters only. Runtime reset never schedules unobserved asynchronous cleanup.
+
+### Identity and atomicity
+
+- Encode composite identity and scope keys injectively, so embedded delimiters cannot alias unrelated rows, scopes, operations, or reader keys.
+- Commit row operations, operation-ledger transitions, WAL state, relation effects, and scope repositioning as one envelope and one publish epoch. Failed post-WAL apply restores every touched model before rethrowing.
+- Reposition all affected sorted-scope members after batched changes without dropping or misordering peers.
+
+### Persistence and lifecycle
+
+- Validate persisted rows, scopes, journals, operations, and manifests structurally before hydration; quarantine corrupt records without trusting partial objects.
+- Preserve exact large numeric values, array holes, explicit `undefined`, non-finite numbers, and negative zero through stable serialization and persistence codecs.
+- Fence queries, mutations, subscriptions, pollers, detached operations, maintenance, and scheduled checkpoints to one runtime generation so pre-reset work cannot mutate the next session.
+- Keep checkpoint scheduling, maintenance, reset callbacks, subscription delivery, and sync-error reporting on one canonical owner path.
+
+### Runtime ownership and performance
+
+- Delegate row storage and collection pacing to TanStack-backed owners, centralize freshness checks, and remove duplicate local registries, equality helpers, retry and backoff formulas, generation fences, and sync-error paths.
+- Split apply execution, target registration, commit-envelope planning, ordering, freshness, generation registries, and sync-error reporting into single-purpose modules guarded by structural zoo tests.
+- Shard Jest deterministically, verify generated `lib/` artifacts in CI and pre-commit, and keep every shard below the 30-second budget.
+
+### Testing
+
+- Add red-first and mutation-proven contracts for mixed found and missing identity maps, account switching, injective keys, atomic WAL recovery, scope repositioning, durable-state validation, generation fencing, channel-agnostic correlation, payload return shapes, and exact public surface ownership.
+
 ## 9.0.0-beta.5 - 2026-07-29
 
 ### Added
