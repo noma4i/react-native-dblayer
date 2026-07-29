@@ -123,6 +123,7 @@ export type QueryHandle<TStored, TScope> = {
 export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope> & {
     useRowEnsured(scope: TScope, rowId: string | null | undefined, readOpts?: {
         renderKeys?: readonly (keyof TStored & string)[];
+        require?: readonly (keyof TStored & string)[];
     }): EnsuredRowResult<TStored>;
 };
 //# sourceMappingURL=dsl.query.types.d.ts.map

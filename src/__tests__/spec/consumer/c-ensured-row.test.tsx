@@ -4,7 +4,7 @@ import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
-type Row = { id: string; name: string; status: string; updatedAt: string };
+type Row = { id: string; name: string; status: string; updatedAt: string; shareUrl?: string };
 type Response = { detail: Row | null };
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -13,7 +13,7 @@ const createRowsModel = (id: string) => {
   const model = defineModel({
     id,
     name: id,
-    fields: { name: f.str(), status: f.str(), updatedAt: f.str() },
+    fields: { name: f.str(), status: f.str(), updatedAt: f.str(), shareUrl: f.str().optional() },
     scopes: { byStatus: scope<Row>({ by: { status: 'status' } }) }
   });
   writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
@@ -73,6 +73,34 @@ describe('useRowEnsured', () => {
     expect(reader.result().data).toBe(initial);
     expect(transport.calls).toHaveLength(0);
     expect(reader.result().loadingState.hasData).toBe(true);
+    reader.unmount();
+  });
+
+  it('fetches a present partial row when the ensured read requires a missing field', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          detail: {
+            id: 'row-1',
+            name: 'Server',
+            status: 'ready',
+            updatedAt: '2026-07-20T00:00:01Z',
+            shareUrl: 'https://hello.yupi.social/profile/row-1'
+          }
+        } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRowsModel('EnsuredRequiredField');
+    const query = createDetailQuery(rows, 'ensured-required-field');
+    rows.seed([{ id: 'row-1', name: 'Local', status: 'ready', updatedAt: '2026-07-20T00:00:00Z' }]);
+    const reader = renderEnsured(() => query.useRowEnsured({ id: 'row-1' }, 'row-1', { require: ['shareUrl'] }));
+
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(reader.result().data).toMatchObject({ id: 'row-1', shareUrl: 'https://hello.yupi.social/profile/row-1' });
     reader.unmount();
   });
 

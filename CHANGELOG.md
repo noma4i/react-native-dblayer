@@ -1,5 +1,15 @@
 # Changelog
 
+## 9.0.0-beta.10 - 2026-07-29
+
+### Fixed
+
+- Let `query.useRowEnsured(..., { require })` treat an existing partial row as absent until its required fields land, while retaining the single forced retry only for a truly absent stored row.
+
+### Testing
+
+- Add red-first and mutation-proven coverage for fetching a partial ensured row exactly once when a required detail field is missing.
+
 ## 9.0.0-beta.9 - 2026-07-29
 
 ### Fixed

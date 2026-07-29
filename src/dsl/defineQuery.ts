@@ -380,11 +380,16 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const handle: QueryHandle<TStored, TScope> = { use, fetch, invalidate };
   if (isScopeDestination(config.into)) return handle;
   const destination = config.into as ModelDestination<TStored>;
-  const useRowEnsured = (scope: TScope, rowId: string | null | undefined, readOpts?: { renderKeys?: readonly (keyof TStored & string)[] }): EnsuredRowResult<TStored> => {
+  const useRowEnsured = (
+    scope: TScope,
+    rowId: string | null | undefined,
+    readOpts?: { renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
+  ): EnsuredRowResult<TStored> => {
     registerScope(scope);
+    const storedData = destination.get?.(rowId);
     const data = destination.use.find(rowId, readOpts);
     const enabled = data === undefined && rowId != null && (config.enabled?.(scope) ?? true);
-    const state = useReader(scope, enabled, true, enabled);
+    const state = useReader(scope, enabled, true, storedData === undefined);
     const hasData = data !== undefined;
     const phaseInput = {
       isInactive: !enabled && !hasData,
