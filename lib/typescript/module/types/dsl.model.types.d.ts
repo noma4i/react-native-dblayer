@@ -19,6 +19,7 @@ import type { ModelContext } from './dsl.modelContext.types';
 import type { WriteOp } from './core.apply.journal.types';
 import type { Dependency } from './core.apply.commitBus.types';
 import type { ApplyTarget } from './core.apply.transaction.types';
+import type { ClientSort, ReadOrder } from './dsl.ordering.types';
 /** Row shape every model read path narrows to before projection. */
 export type StoredRowShape = {
     id: string;
@@ -71,13 +72,7 @@ export type ModelWrites<TStored extends {
     planRestore(next: unknown, memberships: ModelMembership[]): WriteOp[];
 };
 /** Declarative sort for a scope: by field, or by a consumer comparator with the fields it reads. */
-export type ScopeSortSpec<TRow> = {
-    field: keyof TRow & string;
-    dir: 'asc' | 'desc';
-} | {
-    comparator: (a: TRow, b: TRow) => number;
-    orderFields?: ReadonlyArray<keyof TRow & string>;
-};
+export type ScopeSortSpec<TRow> = ClientSort<TRow>;
 export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
 /** Result of ScopeHandle.useWindow: locally-windowed scope rows plus paging/resolution flags. */
 export type ScopeWindowResult<T> = {
@@ -502,10 +497,7 @@ export type QueryScopeSpec<TStored extends {
     /** Reusable local predicate fragment for this named read. */
     where: DbWhere<TStored>;
     /** Optional explicit order; without it the read falls back to the model defaultOrder like any builder. */
-    orderBy?: {
-        field: keyof TStored & string;
-        direction: 'asc' | 'desc';
-    };
+    orderBy?: ReadOrder<TStored>;
     /** Optional leading-rows limit. */
     limit?: number;
 };
@@ -535,10 +527,7 @@ export type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<
      * An explicit order fully replaces it. Without `defaultOrder`, unordered reads keep natural
      * storage order. Ties break by the implicit locale-independent id key as usual.
      */
-    defaultOrder?: {
-        field: keyof InferStoredFields<TFields> & string;
-        direction: 'asc' | 'desc';
-    };
+    defaultOrder?: ReadOrder<InferStoredFields<TFields>>;
     /**
      * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
      * returning anything else makes `normalize` throw `${name} requires id` for that input, which

@@ -3,6 +3,7 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type UserRow = { id: string; name: string; role?: string };
 type MessageRow = { id: string; chatId: string; sentAt: number; text: string };
+type ChatRow = { id: string; inboxId: string; authorId: string; pinnedMessageId: string };
 
 /**
  * Contracts for `Model.view` include resolution: define-time validation (unknown scope, foreign
@@ -25,7 +26,7 @@ const createViewModels = (suffix: string) => {
     id: `SpecViewChats${suffix}`,
     name: `SpecViewChats${suffix}`,
     fields: { inboxId: f.str(), authorId: f.str(), pinnedMessageId: f.str() },
-    scopes: { list: scope<{ id: string; inboxId: string }>({ by: { inboxId: 'inboxId' } }) },
+    scopes: { list: scope<ChatRow>({ by: { inboxId: 'inboxId' } }) },
     relations: () => ({
       author: belongsTo(users, { foreignKey: 'authorId' }),
       latest: hasOne(messages, { foreignKey: 'chatId' }),

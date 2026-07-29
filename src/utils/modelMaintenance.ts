@@ -1,6 +1,7 @@
 import { isTempId } from './generateTempId';
 import { toTimestamp } from './normalizeHelpers';
 import type { CreatedAtRow, DestroyManyModel, ResolveStaleTempRowsOptions, RowId, RowProtect } from '../types';
+import { withIdTieBreak } from '../core/ordering';
 
 const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
 
@@ -58,7 +59,7 @@ export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extr
   const idsToDestroy: string[] = [];
   for (const rows of groups.values()) {
     if (rows.length <= limit) continue;
-    rows.sort(compare);
+    rows.sort(withIdTieBreak(compare));
     idsToDestroy.push(...rows.slice(limit).map(row => row.id));
   }
 
@@ -75,10 +76,7 @@ export const trimRowsPerScope = <TStored extends RowId, TScopeField extends Extr
  * @param options Age threshold, optional protected ids, and stale-row callback.
  * @returns Number of stale temp rows resolved.
  */
-export const resolveStaleTempRows = <TStored extends CreatedAtRow>(
-  model: Pick<DestroyManyModel<TStored>, 'all'>,
-  options: ResolveStaleTempRowsOptions<TStored>
-): number => {
+export const resolveStaleTempRows = <TStored extends CreatedAtRow>(model: Pick<DestroyManyModel<TStored>, 'all'>, options: ResolveStaleTempRowsOptions<TStored>): number => {
   const protectedIds = options.protectedIds ? normalizeIdSet(options.protectedIds) : new Set<string>();
   const now = Date.now();
   let resolved = 0;

@@ -1,10 +1,11 @@
-import type { DbReadOptions, DbWhere, Dependency, ModelContext, ModelCore, ProjectionOptions, StoredRowShape , ModelReadBuilder } from '../types';
+import type { DbReadOptions, DbWhere, Dependency, ModelContext, ModelCore, ProjectionOptions, StoredRowShape, ModelReadBuilder } from '../types';
 import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getCommitBus, getOperationState } from './configure';
+import { withIdTieBreak } from '../core/ordering';
 
 const EMPTY_ROWS: never[] = [];
 
@@ -187,11 +188,13 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
         deps = id == null ? [] : [options.rowDep(id, [relation.foreignKey]), ...(parentId ? [{ kind: 'row' as const, model: relation.model.modelId, id: parentId }] : [])];
       } else if (relation.kind === 'hasOne') {
         const comparator = relation.comparator;
+        type RelatedRow = StoredRowShape;
+        const compare = comparator ? withIdTieBreak(comparator as (left: RelatedRow, right: RelatedRow) => number) : undefined;
         compute = () => {
           if (id == null) return undefined;
-          const rows = relation.model.where({ [relation.foreignKey]: id });
+          const rows = relation.model.where({ [relation.foreignKey]: id }) as RelatedRow[];
           if (rows.length === 0) return undefined;
-          return comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0];
+          return compare ? rows.reduce((best, row) => (compare(row, best) < 0 ? row : best)) : rows[0];
         };
         deps = id == null ? [] : [options.rowDep(id), { kind: 'model', model: relation.model.modelId }];
       } else {

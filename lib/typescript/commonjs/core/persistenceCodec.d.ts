@@ -1,7 +1,9 @@
-import type { PersistenceDecodeResult, VersionedValue } from '../types';
+import type { JsonRoundTripResult, PersistenceDecodeResult, VersionedValue } from '../types';
 export declare const PERSISTENCE_SCHEMA_VERSION = 1;
 /** Wrap a nested value with the schema version covered by its enclosing checksum. */
 export declare const versionPersistenceValue: <T>(payload: T, schemaVersion?: number) => VersionedValue<T>;
+/** Validate and clone one value without any JSON coercion, omission, or prototype conversion. */
+export declare const jsonRoundTrip: <T>(input: T) => JsonRoundTripResult<T>;
 /** Encode one JSON-safe payload with a canonical checksum. */
 export declare const encodePersistence: <T>(payload: T, schemaVersion?: number) => string;
 /** Decode and verify one persisted payload without weakening unknown-version handling into corruption. */

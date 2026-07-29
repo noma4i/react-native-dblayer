@@ -128,6 +128,11 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     merged.sort(compareEntries);
     return merged;
   };
+  const scopeEntry = (id: string, orderKey: string, edge?: Record<string, unknown>): ScopeEntry => ({
+    id,
+    orderKey,
+    ...(edge ? { edge } : {})
+  });
 
   const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
     const previous = current(key) ?? empty();
@@ -148,11 +153,11 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
           deduplicated.map(row => row.id)
         )
       ) {
-        const entries = previous.entries.map((entry, index) => ({ ...entry, edge: deduplicated[index]!.edge ?? entry.edge }));
+        const entries = previous.entries.map((entry, index) => scopeEntry(entry.id, entry.orderKey, deduplicated[index]!.edge ?? entry.edge));
         return { next: { generation, coverage, entries }, detachedIds };
       }
       const keys = keysForSequence(deduplicated.length);
-      const entries = deduplicated.map((row, index) => ({ id: row.id, orderKey: row.orderKey ?? keys[index]!, edge: row.edge }));
+      const entries = deduplicated.map((row, index) => scopeEntry(row.id, row.orderKey ?? keys[index]!, row.edge));
       return { next: { generation, coverage, entries: [...entries].sort(compareEntries) }, detachedIds };
     }
 
@@ -162,11 +167,11 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const head = [...incomingById.values()];
       const tail = previous.entries.filter(entry => !incomingById.has(entry.id));
       if (sameIdSequence(previous.entries, [...head.map(row => row.id), ...tail.map(entry => entry.id)])) {
-        const entries = previous.entries.map(entry => ({ ...entry, edge: incomingById.get(entry.id)?.edge ?? entry.edge }));
+        const entries = previous.entries.map(entry => scopeEntry(entry.id, entry.orderKey, incomingById.get(entry.id)?.edge ?? entry.edge));
         return { next: { generation, coverage: retainedCoverage, entries }, detachedIds: [] };
       }
       const headKeys = keysForSequence(head.length, undefined, tail[0]?.orderKey);
-      const headEntries = head.map((row, index) => ({ id: row.id, orderKey: headKeys[index]!, edge: row.edge ?? previousById.get(row.id)?.edge }));
+      const headEntries = head.map((row, index) => scopeEntry(row.id, headKeys[index]!, row.edge ?? previousById.get(row.id)?.edge));
       return { next: { generation, coverage: retainedCoverage, entries: [...headEntries, ...tail] }, detachedIds: [] };
     }
 
@@ -174,13 +179,13 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     const keyless: IncomingScopeRow[] = [];
     for (const row of incoming) {
       const existing = previousById.get(row.id);
-      if (row.orderKey !== undefined) keyed.push({ id: row.id, orderKey: row.orderKey, edge: row.edge ?? existing?.edge });
-      else if (existing) keyed.push({ ...existing, edge: row.edge ?? existing.edge });
+      if (row.orderKey !== undefined) keyed.push(scopeEntry(row.id, row.orderKey, row.edge ?? existing?.edge));
+      else if (existing) keyed.push(scopeEntry(existing.id, existing.orderKey, row.edge ?? existing.edge));
       else keyless.push(row);
     }
     const afterKeyed = mergeByKey(previous.entries, keyed);
     const tailKeys = keysForSequence(keyless.length, afterKeyed.at(-1)?.orderKey);
-    const entries = [...afterKeyed, ...keyless.map((row, index) => ({ id: row.id, orderKey: tailKeys[index]!, edge: row.edge }))];
+    const entries = [...afterKeyed, ...keyless.map((row, index) => scopeEntry(row.id, tailKeys[index]!, row.edge))];
     return { next: { generation, coverage: retainedCoverage, entries }, detachedIds: [] };
   };
 

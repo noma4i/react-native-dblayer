@@ -203,7 +203,7 @@ export const defineModel = <
     (model.use as Record<string, unknown>)[scopeName] = (extra?: DbWhere<Stored>) => {
       const criteria = extra ? ({ and: [spec.where, extra] } as DbWhere<Stored>) : spec.where;
       let builder = whereRead(criteria);
-      if (spec.orderBy) builder = builder.orderBy(spec.orderBy.field, spec.orderBy.direction);
+      if (spec.orderBy) builder = builder.orderBy(spec.orderBy.field as never, spec.orderBy.direction);
       if (spec.limit !== undefined) builder = builder.limit(spec.limit);
       return builder;
     };

@@ -20,6 +20,6 @@ import type { ScopeSpec, StructuralScopeSpec } from '../types';
  */
 export function scope<const TSpec extends StructuralScopeSpec>(spec: TSpec): TSpec;
 export function scope<TStored>(spec: ScopeSpec<TStored>): ScopeSpec<TStored>;
-export function scope(spec: StructuralScopeSpec | ScopeSpec<never>): StructuralScopeSpec | ScopeSpec<never> {
+export function scope(spec: object): object {
   return spec;
 }

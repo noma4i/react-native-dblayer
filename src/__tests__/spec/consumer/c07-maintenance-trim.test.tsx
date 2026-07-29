@@ -88,6 +88,20 @@ describe('maintenance trim contracts', () => {
     reader.unmount();
   });
 
+  it('resolves maintenance comparator ties by codepoint id order', async () => {
+    setupSpecRuntime();
+    const messages = createMessageModel(1);
+    persistCurrentManifest();
+    messages.insertMany([
+      { id: 'z-row', chatId: 'chat-a', sequence: 1, payload: 'z' },
+      { id: 'a-row', chatId: 'chat-a', sequence: 1, payload: 'a' }
+    ]);
+
+    await bootDb();
+
+    expect(messages.scopes.byChat.read({ chatId: 'chat-a' }).map(row => row.id)).toEqual(['a-row']);
+  });
+
   it('rerenders a mounted scope reader exactly once for a trim batch', async () => {
     setupSpecRuntime();
     const messages = createMessageModel(2);
@@ -173,10 +187,19 @@ describe('unresolved temp row retention', () => {
 
   it('keeps an old temp row while its mutation is pending', async () => {
     let resolve!: (value: { data: { save: TempRow } }) => void;
-    const transport = createMockTransport({ mutation: () => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
+    const transport = createMockTransport({
+      mutation: () =>
+        new Promise(resolvePromise => {
+          resolve = resolvePromise as never;
+        })
+    });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createTempRows('PendingTtlPending', 1000);
-    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save } });
+    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', {
+      document,
+      result: 'save',
+      optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save }
+    });
     const pending = save.run();
     act(() => {
       collectGarbage();
@@ -190,7 +213,11 @@ describe('unresolved temp row retention', () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage: createMemoryPlane(), transport });
     const rows = createTempRows('PendingTtlFailed', 1000);
-    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'failed' }), selectServerNode: data => data.save } });
+    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', {
+      document,
+      result: 'save',
+      optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'failed' }), selectServerNode: data => data.save }
+    });
     await expect(save.run()).rejects.toThrow('offline');
 
     collectGarbage();
@@ -245,7 +272,10 @@ describe('unresolved temp row retention', () => {
   it('notifies a mounted reader once for one cleanup batch', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlRender', 1000);
-    rows.insertMany([{ id: 'temp-a', createdAt: old(), label: 'a' }, { id: 'temp-b', createdAt: old(), label: 'b' }]);
+    rows.insertMany([
+      { id: 'temp-a', createdAt: old(), label: 'a' },
+      { id: 'temp-b', createdAt: old(), label: 'b' }
+    ]);
     const reader = renderCounted(() => rows.use.find('temp-a'));
     const before = reader.renders();
     act(() => {
@@ -258,7 +288,10 @@ describe('unresolved temp row retention', () => {
   it('records the cleanup count in diagnostics', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlDiagnostics', 1000);
-    rows.insertMany([{ id: 'temp-a', createdAt: old(), label: 'a' }, { id: 'temp-b', createdAt: old(), label: 'b' }]);
+    rows.insertMany([
+      { id: 'temp-a', createdAt: old(), label: 'a' },
+      { id: 'temp-b', createdAt: old(), label: 'b' }
+    ]);
     collectGarbage();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'stale-temp-row-expiry', model: rows.modelId, count: 2 });
   });
@@ -285,12 +318,21 @@ describe('unresolved temp row retention', () => {
 
   it('unions model and pending-operation protection', async () => {
     let resolve!: (value: { data: { save: TempRow } }) => void;
-    const transport = createMockTransport({ mutation: () => new Promise(resolvePromise => { resolve = resolvePromise as never; }) });
+    const transport = createMockTransport({
+      mutation: () =>
+        new Promise(resolvePromise => {
+          resolve = resolvePromise as never;
+        })
+    });
     configureDb({ storage: createMemoryPlane(), transport });
     const protectedIds = new Set(['temp-model']);
     const rows = createTempRows('PendingTtlProtectionUnion', 1000, () => protectedIds);
     rows.insert({ id: 'temp-model', createdAt: old(), label: 'model' });
-    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', { document, result: 'save', optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save } });
+    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', {
+      document,
+      result: 'save',
+      optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save }
+    });
     const pending = save.run();
     collectGarbage();
     expect(rows.all()).toHaveLength(2);

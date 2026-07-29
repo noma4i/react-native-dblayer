@@ -1,8 +1,4 @@
-import type { DbWhere, ModelContext, ModelReadAccess, ReadOrder, ScopeSortSpec, ScopeSpec } from '../types';
-/** Canonical scope-sort comparator: declared comparator or field order (NULLS LAST), always with the codepoint id tie-break shared by every read surface. */
-export declare const compareRowsBySpec: <TRow extends {
-    id: string;
-}>(sort: ScopeSortSpec<TRow>) => ((left: TRow, right: TRow) => number);
+import type { DbWhere, ModelContext, ModelReadAccess, ReadOrder, ScopeSpec } from '../types';
 export declare const createModelReadAccess: <TStored extends {
     id: string;
 } & Record<string, unknown>>(options: {

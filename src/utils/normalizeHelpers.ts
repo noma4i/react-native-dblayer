@@ -34,7 +34,10 @@ export const readNullableString = (value: unknown): string | null | undefined =>
 };
 
 /** Read a number or return undefined for missing or malformed values. */
-export const readNumber = (value: unknown): number | undefined => (typeof value === 'number' ? value : undefined);
+export const readNumber = (value: unknown): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return Object.is(value, -0) ? 0 : value;
+};
 
 /** Read a finite number or non-empty numeric string; malformed, blank, and non-finite values return undefined. */
 export const readNumericLike = (value: unknown): number | undefined => {

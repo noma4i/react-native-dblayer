@@ -62,4 +62,27 @@ describe('sort tie-break determinism (A2)', () => {
     expect(remountedOrder).toEqual(liveOrder);
     expect(remountedOrder).toEqual(['a-row', 'b-row']);
   });
+
+  it('orders NaN after finite values and resolves NaN ties by id on every field-sort surface', () => {
+    setupSpecRuntime();
+    const items = createItems('NaN');
+    const scopeReader = renderCounted(() => items.scopes.list.use({ status: 'ready' }));
+
+    act(() => {
+      items.insertMany([
+        { id: 'nan-z', status: 'ready', score: Number.NaN },
+        { id: 'finite', status: 'ready', score: 5 },
+        { id: 'nan-a', status: 'ready', score: Number.NaN }
+      ]);
+    });
+
+    const builderReader = renderCounted(() => items.use.where({ status: 'ready' }).orderBy('score', 'desc').rows());
+    const expected = ['finite', 'nan-a', 'nan-z'];
+
+    expect(scopeReader.result().map(row => row.id)).toEqual(expected);
+    expect(builderReader.result().map(row => row.id)).toEqual(expected);
+
+    scopeReader.unmount();
+    builderReader.unmount();
+  });
 });

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Dependency, Engine, EngineInput, ReadEngineHarnessInput, RowEngineOptions, RowRecord } from '../types';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
-import { compareCodepoints, compositeKey, semanticValue } from '../core/serialize';
+import { compositeKey, semanticValue } from '../core/serialize';
+import { createFieldOrderComparator } from '../core/ordering';
 import { arraysShallowEqual } from './useLiveRead';
 import { noteReadEngineApply, noteReadEngineScan } from '../core/diagnostics';
 
@@ -64,21 +65,7 @@ export const useIncrementalRead = <T>({ signature, create, deps }: EngineInput<T
 
 /** Sort model read results by declared keys with NULLS LAST and an implicit locale-independent id tie-breaker. */
 export const sortModelReadRows = <T extends RowRecord>(rows: T[], orderBy: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit?: number): T[] => {
-  const sorted = [...rows].sort((left, right) => {
-    for (const order of orderBy) {
-      const a = left[order.field];
-      const b = right[order.field];
-      const aMissing = a == null;
-      const bMissing = b == null;
-      if (aMissing && bMissing) continue;
-      if (aMissing) return 1;
-      if (bMissing) return -1;
-      if (Object.is(a, b)) continue;
-      const result = a < b ? -1 : 1;
-      return order.direction === 'asc' ? result : -result;
-    }
-    return compareCodepoints(left.id, right.id);
-  });
+  const sorted = [...rows].sort(createFieldOrderComparator(orderBy));
   return limitRows(sorted, limit);
 };
 

@@ -1,4 +1,4 @@
-import type { PersistenceDecodeResult, PersistenceEnvelope, VersionedValue } from '../types';
+import type { JsonRoundTripResult, PersistenceDecodeResult, PersistenceEnvelope, VersionedValue } from '../types';
 import { stableSerialize } from './serialize';
 
 export const PERSISTENCE_SCHEMA_VERSION = 1;
@@ -16,12 +16,46 @@ const checksumOf = (value: unknown): string => {
 /** Wrap a nested value with the schema version covered by its enclosing checksum. */
 export const versionPersistenceValue = <T>(payload: T, schemaVersion = PERSISTENCE_SCHEMA_VERSION): VersionedValue<T> => ({ schemaVersion, payload });
 
+/** Validate and clone one value without any JSON coercion, omission, or prototype conversion. */
+export const jsonRoundTrip = <T>(input: T): JsonRoundTripResult<T> => {
+  const ancestors = new Set<object>();
+  const isJsonValue = (value: unknown): boolean => {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value) && !Object.is(value, -0);
+    if (typeof value !== 'object' || ancestors.has(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (!Array.isArray(value) && prototype !== Object.prototype) return false;
+    ancestors.add(value);
+    let valid = true;
+    if (Array.isArray(value)) {
+      const ownKeys = Reflect.ownKeys(value).filter(key => key !== 'length');
+      valid =
+        ownKeys.length === value.length &&
+        ownKeys.every((key, index) => key === String(index)) &&
+        value.every((entry, index) => Object.hasOwn(value, index) && isJsonValue(entry));
+    } else {
+      valid = Reflect.ownKeys(value).every(key => {
+        if (typeof key !== 'string') return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return descriptor?.enumerable === true && 'value' in descriptor && isJsonValue(descriptor.value);
+      });
+    }
+    ancestors.delete(value);
+    return valid;
+  };
+  if (!isJsonValue(input)) return { serializable: false, value: undefined };
+  try {
+    return { serializable: true, value: JSON.parse(JSON.stringify(input)) as T };
+  } catch {
+    return { serializable: false, value: undefined };
+  }
+};
+
 /** Encode one JSON-safe payload with a canonical checksum. */
 export const encodePersistence = <T>(payload: T, schemaVersion = PERSISTENCE_SCHEMA_VERSION): string => {
-  const serializedPayload = JSON.stringify(payload);
-  if (serializedPayload === undefined) throw new Error('Persistence payload is not JSON serializable');
-  const jsonPayload = JSON.parse(serializedPayload) as T;
-  const content = { schemaVersion, payload: jsonPayload };
+  const roundTrip = jsonRoundTrip(payload);
+  if (!roundTrip.serializable) throw new Error('Persistence payload is not JSON serializable');
+  const content = { schemaVersion, payload: roundTrip.value };
   const envelope: PersistenceEnvelope<T> = { ...content, checksum: checksumOf(content) };
   return JSON.stringify(envelope);
 };

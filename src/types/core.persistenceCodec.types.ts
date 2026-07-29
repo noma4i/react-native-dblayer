@@ -15,3 +15,6 @@ export type PersistenceDecodeResult<T> =
   | { kind: 'ok'; value: T }
   | { kind: 'corrupt' }
   | { kind: 'unsupported'; schemaVersion: number };
+
+/** Lossless JSON validation and detached round-trip result. */
+export type JsonRoundTripResult<T> = { serializable: true; value: T } | { serializable: false; value: undefined };

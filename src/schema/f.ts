@@ -81,7 +81,7 @@ export const f = {
    */
   str: (): FieldSpec<unknown, string> => valueField('str', readString, readNullableString),
   /**
-   * Read number values and skip every other input type.
+   * Read finite number values, canonicalize negative zero to zero, and skip every other input.
    *
    * `null` is skipped until `.nullable()` or `.nullDefault()` is applied.
    *
@@ -123,7 +123,8 @@ export const f = {
   /**
    * Pass through any non-nullish raw value as the supplied TypeScript type.
    *
-   * Use for JSON blobs or arrays that should not be normalized by field readers.
+   * Use for JSON blobs or arrays that should not be normalized by field readers. Durable writes
+   * reject values that cannot survive an exact JSON round-trip.
    *
    * @returns A field spec that stores the supplied raw type.
    */

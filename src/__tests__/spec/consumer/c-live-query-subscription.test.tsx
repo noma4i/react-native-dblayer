@@ -29,7 +29,7 @@ const createLiveHarness = (suffix: string) => {
     id: `SpecLiveMessages${suffix}`,
     name: `SpecLiveMessages${suffix}`,
     fields: { chatId: f.str(), text: f.str() },
-    scopes: { thread: scope<{ id: string; chatId: string }>({ by: { chatId: 'chatId' } }) }
+    scopes: { thread: scope<MessageRow>({ by: { chatId: 'chatId' } }) }
   });
   const threadQuery = messages.query<{ rows: MessageRow[] }, { chatId: string }, { chatId: string }, MessageRow>('thread', {
     document: QUERY_DOCUMENT,

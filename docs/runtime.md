@@ -120,6 +120,9 @@ writes exactly one pending journal record first, then - off the hot path, batche
 scheduler - the affected model snapshots plus a record marking the journal entry committed. A torn
 write (the app killed mid-flush) always leaves a replayable pending record rather than a corrupted
 snapshot, since the two storage batches are never interleaved with a partial snapshot in between.
+Every durable payload must be lossless JSON data. Persistence rejects non-finite numbers, negative
+zero, `Date`, `bigint`, functions, symbols, accessors, sparse arrays, cycles, and undefined object
+properties instead of allowing `JSON.stringify` to coerce or omit them.
 
 At boot, deferred definition validation runs first (see
 [getting-started.md](./getting-started.md#bootdb)), then journal replay

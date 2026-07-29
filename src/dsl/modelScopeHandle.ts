@@ -7,7 +7,7 @@ import { useScopeReadCount, useScopeReadRows, useScopeReadWindowRows } from '../
 
 import { useRef, useState } from 'react';
 import { getDbRuntimeConfig } from './configure';
-import { compareRowsBySpec } from './modelReadAccess';
+import { compareRowsBySpec } from '../core/ordering';
 import { keyAfter, keyBefore, keysForSequence } from '../core/orderKey';
 
 const matchesMemberPredicate = <TRow>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;

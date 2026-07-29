@@ -3,6 +3,8 @@ import TestRenderer from 'react-test-renderer';
 import { defineModel, f, hasOne, scope } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
+type ChatRow = { id: string; inboxId: string; title: string; lastActivityAt: number; muted: boolean };
+
 const createChatModels = (suffix: string) => {
   const messages = defineModel({
     id: `SpecMessages${suffix}`,
@@ -14,7 +16,7 @@ const createChatModels = (suffix: string) => {
     name: `SpecChats${suffix}`,
     fields: { inboxId: f.str(), title: f.str(), lastActivityAt: f.num(), muted: f.bool() },
     scopes: {
-      list: scope<{ id: string; inboxId: string; lastActivityAt: number }>({
+      list: scope<ChatRow>({
         by: { inboxId: 'inboxId' },
         sort: { field: 'lastActivityAt', dir: 'desc' }
       })

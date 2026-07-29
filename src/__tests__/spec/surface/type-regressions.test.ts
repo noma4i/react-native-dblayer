@@ -44,6 +44,64 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('rejects non-orderable fields on typed field-sort surfaces', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, f, scope } from '${entry}';
+      type Row = { id: string; rank: number; meta: { rank: number }; tags: string[]; when: Date; count: bigint };
+      const rows = defineModel({
+        id: 'orderable-fields',
+        name: 'OrderableFields',
+        fields: {
+          id: f.id(),
+          rank: f.num(),
+          meta: f.raw<{ rank: number }>(),
+          tags: f.raw<string[]>()
+        }
+      });
+      // @ts-expect-error object fields require a comparator
+      rows.use.where({}).orderBy('meta');
+      // @ts-expect-error array fields require a comparator
+      rows.where({}, { orderBy: { field: 'tags', direction: 'asc' } });
+      // @ts-expect-error object fields require a comparator
+      scope<Row>({ sort: { field: 'meta', dir: 'asc' } });
+      // @ts-expect-error Date fields are not stable across JSON persistence
+      scope<Row>({ sort: { field: 'when', dir: 'asc' } });
+      // @ts-expect-error bigint fields are not JSON serializable
+      scope<Row>({ sort: { field: 'count', dir: 'asc' } });
+      defineModel({
+        id: 'invalid-default-order',
+        name: 'InvalidDefaultOrder',
+        fields: { id: f.id(), meta: f.raw<{ rank: number }>() },
+        // @ts-expect-error object fields require a comparator
+        defaultOrder: { field: 'meta', direction: 'asc' }
+      });
+      defineModel({
+        id: 'invalid-query-scope-order',
+        name: 'InvalidQueryScopeOrder',
+        fields: { id: f.id(), tags: f.raw<string[]>() },
+        queryScopes: {
+          invalid: {
+            where: {},
+            // @ts-expect-error array fields require a comparator
+            orderBy: { field: 'tags', direction: 'asc' }
+          }
+        }
+      });
+      defineModel({
+        id: 'invalid-inline-scope-order',
+        name: 'InvalidInlineScopeOrder',
+        fields: { id: f.id(), meta: f.raw<{ rank: number }>() },
+        scopes: {
+          invalid: {
+            // @ts-expect-error object fields require a comparator
+            sort: { field: 'meta', dir: 'asc' }
+          }
+        }
+      });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('accepts concrete codegen variables across typed document entry surfaces', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';

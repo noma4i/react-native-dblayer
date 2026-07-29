@@ -70,7 +70,12 @@ describe('use.related', () => {
     act(() => {
       posts.insert({ id: 'p-2', authorId: 'u-1', title: 'Second', seq: 2 });
     });
-    expect(reader.result().map(row => row.id).sort()).toEqual(['p-1', 'p-2']);
+    expect(
+      reader
+        .result()
+        .map(row => row.id)
+        .sort()
+    ).toEqual(['p-1', 'p-2']);
     reader.unmount();
   });
 
@@ -84,6 +89,21 @@ describe('use.related', () => {
     ]);
     const reader = renderCounted(() => authors.use.related('u-1', 'latestPost') as PostRow | undefined);
     expect(reader.result()?.id).toBe('p-2');
+    reader.unmount();
+  });
+
+  it('hasOne resolves comparator ties by codepoint id order', () => {
+    setupSpecRuntime();
+    const { authors, posts } = createHasPair('HasOneTie');
+    authors.insert({ id: 'u-1', name: 'Ann' });
+    posts.insertMany([
+      { id: 'z-post', authorId: 'u-1', title: 'Z', seq: 5 },
+      { id: 'a-post', authorId: 'u-1', title: 'A', seq: 5 }
+    ]);
+
+    const reader = renderCounted(() => authors.use.related('u-1', 'latestPost') as PostRow | undefined);
+
+    expect(reader.result()?.id).toBe('a-post');
     reader.unmount();
   });
 

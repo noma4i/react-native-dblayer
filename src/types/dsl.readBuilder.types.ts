@@ -1,13 +1,12 @@
 import type { DbWhere } from './db.types';
 import type { ProjectionOptions } from './read.projectionGate.types';
-
-export type ReadOrder<TStored> = { field: keyof TStored & string; direction: 'asc' | 'desc' };
+import type { OrderableField, ReadOrder } from './dsl.ordering.types';
 
 export type RequiredFields<TStored, TFields extends keyof TStored> = TStored & { [K in TFields]-?: Exclude<TStored[K], undefined> };
 
 export type ModelReadBuilder<TStored extends { id: string }, TOutput extends Record<string, unknown> = TStored> = {
   /** Add one ordering key; later calls become deterministic tie-break keys before the implicit id key. */
-  orderBy(field: keyof TStored & string, direction?: 'asc' | 'desc'): ModelReadBuilder<TStored, TOutput>;
+  orderBy(field: OrderableField<TStored>, direction?: 'asc' | 'desc'): ModelReadBuilder<TStored, TOutput>;
   /** Keep only the leading `count` rows after filtering and ordering. */
   limit(count: number): ModelReadBuilder<TStored, TOutput>;
   /**

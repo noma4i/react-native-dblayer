@@ -3,7 +3,7 @@ import { keysForSequence } from '../core/orderKey';
 import { firstCompositeKeyPart } from '../core/serialize';
 import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin, ModelContext } from '../types';
 import { getApplyRuntime } from './configure';
-import { compareRowsBySpec } from './modelReadAccess';
+import { compareRowsBySpec } from '../core/ordering';
 
 export const createModelApplyTarget = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;

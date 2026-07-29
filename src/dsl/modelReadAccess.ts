@@ -1,35 +1,11 @@
 import { buildScopeKey } from '../core/compileDbWhere';
-import { compareCodepoints } from '../core/serialize';
 import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../read/useLiveRead';
-import type { DbWhere, Dependency, ModelContext, ModelReadAccess, ModelReadBuilder, ProjectionOptions, ReadOrder, ScopeSortSpec, ScopeSpec } from '../types';
+import type { DbWhere, Dependency, ModelContext, ModelReadAccess, ModelReadBuilder, ProjectionOptions, ReadOrder, ScopeSpec } from '../types';
 import { useEffect, useRef } from 'react';
 import { createReadBuilder } from './readBuilder';
-
-/** Canonical scope-sort comparator: declared comparator or field order (NULLS LAST), always with the codepoint id tie-break shared by every read surface. */
-export const compareRowsBySpec = <TRow extends { id: string }>(sort: ScopeSortSpec<TRow>): ((left: TRow, right: TRow) => number) => {
-  if ('comparator' in sort) return (left, right) => sort.comparator(left, right) || compareCodepoints(left.id, right.id);
-  const field = String(sort.field);
-  const direction = sort.dir;
-  return (left, right) => {
-    const a = (left as Record<string, unknown>)[field];
-    const b = (right as Record<string, unknown>)[field];
-    const aMissing = a == null;
-    const bMissing = b == null;
-    if (!aMissing || !bMissing) {
-      if (aMissing) return 1;
-      if (bMissing) return -1;
-      if (!Object.is(a, b)) {
-        const result = (a as never) < (b as never) ? -1 : 1;
-        return direction === 'asc' ? result : -result;
-      }
-    }
-    return compareCodepoints(left.id, right.id);
-  };
-};
-
 
 export const createModelReadAccess = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;

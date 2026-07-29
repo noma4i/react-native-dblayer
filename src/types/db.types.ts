@@ -1,6 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { DocumentNode } from 'graphql';
 import type { FieldSpec } from './schema.fieldSpec.types';
+import type { ReadOrder } from './dsl.ordering.types';
 
 /** Generic stored row: an id plus arbitrary model fields - the shared shape behind every untyped row seam. */
 export type RowRecord = { id: string } & Record<string, unknown>;
@@ -113,7 +114,7 @@ type DbWhereLeaf<T> = { [K in keyof T]?: T[K] | DbWhereOp<NonNullable<T[K]>> };
 export type DbWhere<T> = DbWhereLeaf<T> | { and: Array<DbWhere<T>> } | { or: Array<DbWhere<T>> } | { not: DbWhere<T> };
 
 export interface DbReadOptions<T> {
-  orderBy?: { field: keyof T & string; direction: 'asc' | 'desc' };
+  orderBy?: ReadOrder<T>;
   limit?: number;
 }
 

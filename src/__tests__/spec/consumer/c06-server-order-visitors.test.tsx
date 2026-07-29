@@ -28,7 +28,7 @@ const createVisitorModel = () =>
       fullName: f.str()
     },
     scopes: {
-      visitors: scope<ScopeValue>({ by: { momentId: 'momentId' }, sort: 'server-order' })
+      visitors: scope<VisitorRow>({ by: { momentId: 'momentId' }, sort: 'server-order' })
     }
   });
 

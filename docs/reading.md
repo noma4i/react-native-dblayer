@@ -113,10 +113,12 @@ const recent = MessageModel.use.where({ chatId }).orderBy('createdAt', 'desc').l
 | `pluck`   | `(field) => Array<TStored[K]>`                     | Reactively reads one field in declared order; identity is gated by plucked values and row set only, and it plucks projected rows after `select`.           |
 | `exists`  | `() => boolean`                                    | Reactively reads whether any row matches and passes `require`; re-renders only when the answer flips and ignores `orderBy`/`limit`/`select`.               |
 
-Sorting is **NULLS LAST**: a row missing a sort field (`null` or `undefined` - both count as
-missing) always sorts after rows that have a value for it, on every declared key, regardless of
-`asc`/`desc`. Rows tied on every declared key (or when no `orderBy` is called) fall back to an
-**implicit `id` tie-break** for a fully deterministic order. Calling `.rows()` with no
+Field sorting accepts JSON scalar stored fields (`string`, `number`, `boolean`, and their nullish
+variants). Objects, arrays, `Date`, `bigint`, and arbitrary JSON require a custom comparator. Sorting
+is **missing-values last**: `null`, `undefined`, `NaN`, and invalid `Date` values always sort after
+ordered values on every declared key, regardless of `asc`/`desc`. Rows tied on every declared key
+(or when no `orderBy` is called) fall back to an **implicit codepoint `id` tie-break** for a fully
+deterministic order. Calling `.rows()` with no
 `orderBy` at all returns rows in natural storage order, or the model's `defaultOrder` when declared;
 `limit` applies after that ordering.
 `use.where(null)` reads as empty without subscribing, consistent with every other nullable-scope
@@ -247,7 +249,8 @@ order. Identity contract: when every extra is a dedup and no comparator is given
 returned by reference; repeated renders with referentially identical `baseRows`/`extraRows`/
 `options.comparator` return the previously built array. Use this to combine two `ScopeHandle.use`
 reads (e.g. a windowed scope plus a small "floating" scope such as pinned or premium rows) without
-hand-rolling `Set`-based dedup at each call site.
+hand-rolling `Set`-based dedup at each call site. Equal or `NaN` comparator results use the
+library's codepoint `id` tie-break.
 
 ## `Model.use.pending(id)`
 

@@ -11,11 +11,7 @@ type MergedReader = {
   unmount: () => void;
 };
 
-const renderMerged = (
-  baseRows: ReadonlyArray<TestRow>,
-  extraRows: ReadonlyArray<TestRow>,
-  comparator?: (left: TestRow, right: TestRow) => number
-): MergedReader => {
+const renderMerged = (baseRows: ReadonlyArray<TestRow>, extraRows: ReadonlyArray<TestRow>, comparator?: (left: TestRow, right: TestRow) => number): MergedReader => {
   let current!: ReadonlyArray<TestRow>;
   let root!: TestRenderer.ReactTestRenderer;
 
@@ -118,6 +114,13 @@ describe('useMergedScopeRows', () => {
     expect(baseOnlyReader.result()).not.toBe(baseRows);
     expect(baseRows).toEqual(baseOnlyOriginal);
     baseOnlyReader.unmount();
+  });
+
+  it('resolves comparator ties by codepoint id order', () => {
+    const reader = renderMerged([{ id: 'z-row', name: 'z', score: 1 }], [{ id: 'a-row', name: 'a', score: 1 }], () => 0);
+
+    expect(reader.result().map(row => row.id)).toEqual(['a-row', 'z-row']);
+    reader.unmount();
   });
 
   it('keeps the previous result reference when base is replaced by a new array with the same elements in the same order', () => {

@@ -70,12 +70,20 @@ describe('operation input serialization', () => {
   it('rejects non-JSON inputs: cycles, non-finite numbers, exotic prototypes, functions, undefined items', () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
+    const nullPrototype = Object.assign(Object.create(null) as Record<string, unknown>, { value: 1 });
+    const sparse = new Array(2);
+    sparse[1] = 'value';
     expect(serializeOperationInput(cyclic).serializable).toBe(false);
     expect(serializeOperationInput(NaN).serializable).toBe(false);
     expect(serializeOperationInput(Infinity).serializable).toBe(false);
+    expect(serializeOperationInput(-0).serializable).toBe(false);
     expect(serializeOperationInput(new Date(5)).serializable).toBe(false);
+    expect(serializeOperationInput(nullPrototype).serializable).toBe(false);
     expect(serializeOperationInput(() => 1).serializable).toBe(false);
+    expect(serializeOperationInput({ value: undefined }).serializable).toBe(false);
     expect(serializeOperationInput([undefined]).serializable).toBe(false);
+    expect(serializeOperationInput(sparse).serializable).toBe(false);
+    expect(serializeOperationInput({ [Symbol('hidden')]: true }).serializable).toBe(false);
   });
 
   it('deep-clones a valid input so the ledger never aliases caller state', () => {
@@ -91,6 +99,41 @@ describe('operation input serialization', () => {
   it('accepts a repeated non-cyclic reference to the same object', () => {
     const shared = { flag: true };
     expect(serializeOperationInput({ left: shared, right: shared }).serializable).toBe(true);
+  });
+});
+
+describe('persistence JSON safety', () => {
+  it('rejects every value that JSON would drop or coerce', () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const sparse = new Array(2);
+    sparse[1] = 'value';
+    const nullPrototype = Object.assign(Object.create(null) as Record<string, unknown>, { value: 1 });
+    const withSymbol = { value: 1, [Symbol('hidden')]: 2 };
+    const lossyValues = [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      -0,
+      new Date(5),
+      nullPrototype,
+      { value: undefined },
+      { value: () => 1 },
+      sparse,
+      withSymbol,
+      cyclic
+    ];
+
+    for (const value of lossyValues) {
+      expect(() => encodePersistence(value)).toThrow('Persistence payload is not JSON serializable');
+    }
+  });
+
+  it('accepts repeated non-cyclic references and returns an independent JSON payload', () => {
+    const shared = { flag: true };
+    const encoded = encodePersistence({ left: shared, right: shared });
+
+    expect(encoded).toContain('"left":{"flag":true}');
+    expect(encoded).toContain('"right":{"flag":true}');
   });
 });
 

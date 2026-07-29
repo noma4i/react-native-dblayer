@@ -1,9 +1,9 @@
-import { union } from 'es-toolkit';
+import { isUndefined, omitBy, union } from 'es-toolkit';
 import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOnceKeyRecord } from '../../types';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 import { isRecord } from '../../utils/normalizeHelpers';
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
@@ -60,30 +60,7 @@ export const writeCommittedOnceKeys = (storage: StoragePlane, prefix: string, ke
 
 /** JSON-round-trip an operation input before it enters the persistent ledger. */
 export const serializeOperationInput = (input: unknown): { serializable: boolean; value: unknown } => {
-  const seen = new Set<object>();
-  const isJsonValue = (value: unknown): boolean => {
-    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-    if (typeof value === 'number') return Number.isFinite(value);
-    if (typeof value !== 'object') return false;
-    if (seen.has(value)) return false;
-    if (Array.isArray(value)) {
-      seen.add(value);
-      const valid = value.every(isJsonValue);
-      seen.delete(value);
-      return valid;
-    }
-    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
-    seen.add(value);
-    const valid = Object.values(value).every(isJsonValue);
-    seen.delete(value);
-    return valid;
-  };
-  if (!isJsonValue(input)) return { serializable: false, value: undefined };
-  try {
-    return { serializable: true, value: JSON.parse(JSON.stringify(input)) };
-  } catch {
-    return { serializable: false, value: undefined };
-  }
+  return jsonRoundTrip(input);
 };
 
 const CLOSED_TTL_MS = 60 * 60 * 1000;
@@ -138,8 +115,9 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const opsKey = () => `${prefix()}ops`;
   const entriesFor = (records: ReadonlyMap<string, OperationRecord>, onceKeys: ReadonlySet<string>): Array<{ key: string; value: string | null }> => {
     const keys = [...onceKeys].sort();
+    const persistedRecords = Object.fromEntries([...records].map(([operationId, record]) => [operationId, omitBy(record, isUndefined)]));
     return [
-      { key: opsKey(), value: records.size > 0 ? encodePersistence(Object.fromEntries(records)) : null },
+      { key: opsKey(), value: records.size > 0 ? encodePersistence(persistedRecords) : null },
       { key: onceKeysKey(prefix()), value: keys.length > 0 ? encodePersistence({ keys }) : null }
     ];
   };

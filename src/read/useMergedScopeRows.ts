@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import type { MergeOptions } from '../types';
+import { withIdTieBreak } from '../core/ordering';
 import { arraysShallowEqual } from './useLiveRead';
 
 /**
@@ -32,10 +33,10 @@ export const useMergedScopeRows = <TRow extends { id: string }>(
     const appended = extraRows.filter(row => !seen.has(row.id));
     let result: ReadonlyArray<TRow>;
     if (appended.length === 0) {
-      result = comparator ? [...baseRows].sort(comparator) : baseRows;
+      result = comparator ? [...baseRows].sort(withIdTieBreak(comparator)) : baseRows;
     } else {
       const merged = [...baseRows, ...appended];
-      if (comparator) merged.sort(comparator);
+      if (comparator) merged.sort(withIdTieBreak(comparator));
       result = merged;
     }
     if (previous && arraysShallowEqual(previous.result, result)) result = previous.result;

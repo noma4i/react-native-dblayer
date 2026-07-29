@@ -8,14 +8,8 @@
  */
 export interface ScopeSpec<TStored> {
   by?: Record<string, keyof TStored & string>;
-  member?: (row: TStored) => boolean;
-  sort?:
-    | { field: keyof TStored & string; dir: 'asc' | 'desc' }
-    | {
-        comparator: (a: TStored, b: TStored) => number;
-        orderFields?: ReadonlyArray<keyof TStored & string>;
-      }
-    | 'server-order';
+  member?: { call(row: TStored): boolean }['call'];
+  sort?: ClientSort<TStored> | 'server-order';
   retention?: { maxRows: number };
 }
 
@@ -27,3 +21,4 @@ export type StructuralScopeSpec = {
   sort?: { field: string; dir: 'asc' | 'desc' } | 'server-order';
   retention?: { maxRows: number };
 };
+import type { ClientSort } from './dsl.ordering.types';
