@@ -173,6 +173,18 @@ describe('v9 model-owned write policies', () => {
     expect(rows.find('row-1')?.blob).toEqual({ stage: 'a' });
   });
 
+  it('lets a ladder abstain when the stage is explicitly null, matching the null-as-absent convention', () => {
+    const rows = defineModel({
+      id: 'V9LadderNullAbstain',
+      name: 'V9LadderNullAbstain',
+      fields: { blob: f.raw<Record<string, unknown>>() },
+      write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } } } }] }
+    });
+    rows.insert({ id: 'row-1', blob: { stage: null, url: 'file:///local.jpg' } });
+    rows.insert({ id: 'row-1', blob: { stage: null, url: 'https://cdn/server.jpg' } });
+    expect(rows.find('row-1')?.blob).toEqual({ stage: null, url: 'https://cdn/server.jpg' });
+  });
+
   it('rejects a lower ladder tier and accepts movement within its current tier', () => {
     const rows = defineModel({
       id: 'V9LadderTiers',

@@ -50,7 +50,7 @@ const acceptsMonotonic = (spec: MonotonicSpec, fields: readonly string[], incomi
   if ('ladder' in spec) {
     const incomingValue = readPath(incoming, spec.ladder.path);
     const previousValue = readPath(previous, spec.ladder.path);
-    if (incomingValue === undefined || previousValue === undefined) return true;
+    if (incomingValue == null || previousValue == null) return true;
     const incomingRank = ladderRank(incomingValue, spec.ladder.tiers);
     if (incomingRank < 0) {
       noteDataLoss('unranked-ladder-value', modelId, 1);

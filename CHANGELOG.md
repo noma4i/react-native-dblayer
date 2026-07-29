@@ -1,5 +1,11 @@
 # Changelog
 
+## 9.0.0-beta.4 - 2026-07-29
+
+### Fixed
+
+- Fix a `ladder` monotonic write-policy guard treating an explicit `null` stage value as an unranked tier instead of an absent one, rejecting the entire guarded field group. Any nested field sourced through `f.enum(...).nullDefault()` always materializes as `null` rather than staying absent, so every write to a field whose ladder path legitimately has no tracked stage (for example a photo message's `media.transcodeStatus`, which only videos populate) was rejected outright - permanently discarding the rest of the payload in the same group, including `media.fileUrl`. `null` now abstains from the ladder check the same way an absent key already did, matching the null-as-absent convention used everywhere else in the write-policy engine.
+
 ## 9.0.0-beta.3 - 2026-07-29
 
 ### Breaking changes and migration
