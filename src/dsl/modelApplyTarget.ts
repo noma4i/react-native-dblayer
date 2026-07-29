@@ -4,7 +4,7 @@ import { keysForSequence } from '../core/orderKey';
 import { firstCompositeKeyPart } from '../core/serialize';
 import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin, ModelContext } from '../types';
 import { getApplyRuntime } from './configure';
-import { compareRowsBySpec } from '../core/ordering';
+import { compareRowsBySpec, isMultiFieldSort } from '../core/ordering';
 
 export const createModelApplyTarget = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;
@@ -41,10 +41,11 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
         if (row) anchors.push({ orderKey: entry.orderKey, row });
       }
       const placements: Array<{ id: string; orderKey: string }> = [];
+      const unresolved: string[] = [];
       for (const id of ids) {
         const row = readRow(options.modelId, id) as TStored | undefined;
         if (!row) {
-          placements.push({ id, orderKey: keysForSequence(1, anchors.at(-1)?.orderKey)[0]! });
+          unresolved.push(id);
           continue;
         }
         let lower = 0;
@@ -58,6 +59,8 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
         anchors.splice(lower, 0, { orderKey, row });
         placements.push({ id, orderKey });
       }
+      const unresolvedKeys = keysForSequence(unresolved.length, anchors.at(-1)?.orderKey);
+      unresolved.forEach((id, index) => placements.push({ id, orderKey: unresolvedKeys[index]! }));
       return placements;
     },
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
@@ -68,10 +71,13 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       const spec = options.scopes?.[scopeName];
       if (!spec) return false;
       const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
-      if (spec.sort && spec.sort !== 'server-order' && 'field' in spec.sort) relevant.add(String(spec.sort.field));
-      if (spec.sort && spec.sort !== 'server-order' && 'comparator' in spec.sort) {
-        if (spec.sort.orderFields === undefined) return true;
-        for (const field of spec.sort.orderFields) relevant.add(field);
+      if (spec.sort && spec.sort !== 'server-order') {
+        if (isMultiFieldSort(spec.sort)) for (const order of spec.sort) relevant.add(String(order.field));
+        else if ('field' in spec.sort) relevant.add(String(spec.sort.field));
+        else {
+          if (spec.sort.orderFields === undefined) return true;
+          for (const field of spec.sort.orderFields) relevant.add(field);
+        }
       }
       return fields.some(field => relevant.has(field));
     },
@@ -79,6 +85,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       const scopeName = firstCompositeKeyPart(scopeKey);
       const sort = options.scopes?.[scopeName]?.sort;
       if (!sort || sort === 'server-order') return { kind: 'server-order' as const };
+      if (isMultiFieldSort(sort)) return { kind: 'fields' as const, fields: sort.map(order => ({ field: String(order.field), dir: order.dir })) };
       if ('comparator' in sort) return { kind: 'comparator' as const };
       return { kind: 'field' as const, field: String(sort.field), dir: sort.dir };
     },

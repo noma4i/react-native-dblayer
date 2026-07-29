@@ -246,6 +246,42 @@ describe('subscription runtime correctness', () => {
     runtime.stop();
   });
 
+  it('contains a throwing debounced onData delivery and reports it through onSyncError', () => {
+    jest.useFakeTimers();
+    try {
+      const errors: string[] = [];
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({ subscribe: () => jest.fn() }),
+        defaults: {
+          onSyncError: error => {
+            errors.push(error.message);
+          }
+        }
+      });
+      const runtime = createDbSubscriptionRuntime([
+        {
+          key: 'event',
+          query: document,
+          debounce: { ms: 50 },
+          onData: () => {
+            throw new Error('debounced exploded');
+          }
+        }
+      ]);
+      runtime.setActive(true);
+      runtime.dispatch('event', { id: 'row-1' });
+
+      expect(() => jest.advanceTimersByTime(50)).not.toThrow();
+      expect(errors).toEqual(['debounced exploded']);
+      expect(runtime.inspect().find(entry => entry.key === 'event')?.errorCount).toBe(1);
+      expect(runtime.inspect().find(entry => entry.key === 'event')?.eventCount).toBe(0);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('recaptures its generation and keeps delivering after a runtime re-configuration', () => {
     const transport = createMockTransport({ subscribe: () => jest.fn() });
     configureDb({ storage: createMemoryPlane(), transport });

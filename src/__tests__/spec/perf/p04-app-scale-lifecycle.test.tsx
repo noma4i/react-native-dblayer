@@ -393,24 +393,10 @@ describe('app-scale lifecycle', () => {
     }
   });
 
-  it('throws synchronously on resume when resumeRefetch.chunkSize is not positive', async () => {
-    const resuming = { current: false };
-    const releaseQueue: Array<() => void> = [];
-    setupEnsembleTransport(resuming, releaseQueue, 0);
-    const models = createModels();
-    const { root } = mountEnsemble(models);
-    try {
-      await settle();
-      jest.advanceTimersByTime(1001);
-      expect(() =>
-        act(() => {
-          appStateHandler?.('background');
-          appStateHandler?.('active');
-        })
-      ).toThrow('chunkSize must be a positive integer');
-    } finally {
-      act(() => root.unmount());
-    }
+  it('rejects a non-positive resumeRefetch.chunkSize at configureDb time', () => {
+    expect(() => configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeRefetch: { chunkSize: 0 } } })).toThrow(
+      'chunkSize must be a positive integer'
+    );
   });
 
   it('keeps commit fanout narrow and skips a full read-engine rebuild for a single-row update', async () => {

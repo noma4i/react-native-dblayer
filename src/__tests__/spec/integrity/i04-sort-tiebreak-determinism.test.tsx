@@ -85,4 +85,35 @@ describe('sort tie-break determinism (A2)', () => {
     scopeReader.unmount();
     builderReader.unmount();
   });
+
+  it('orders a scope by a declared key list: primary desc, secondary desc, nulls last, id tie-break', () => {
+    setupSpecRuntime();
+    type MessageRow = { id: string; chatId: string; seq: number | null; createdAt: string };
+    const messages = defineModel({
+      id: 'SpecIntegrityMultiKeySort',
+      name: 'SpecIntegrityMultiKeySort',
+      fields: { id: f.str(), chatId: f.str(), seq: f.num().nullable(), createdAt: f.str() },
+      scopes: {
+        thread: scope<MessageRow>({
+          by: { chatId: 'chatId' },
+          sort: [
+            { field: 'seq', dir: 'desc' },
+            { field: 'createdAt', dir: 'desc' }
+          ]
+        })
+      }
+    });
+
+    const reader = renderCounted(() => messages.scopes.thread.use({ chatId: 'chat-1' }));
+    act(() => {
+      messages.insert({ id: 'm-old', chatId: 'chat-1', seq: 1, createdAt: '2026-01-01T00:00:00Z' });
+      messages.insert({ id: 'm-new', chatId: 'chat-1', seq: 3, createdAt: '2026-01-03T00:00:00Z' });
+      messages.insert({ id: 'b-pending', chatId: 'chat-1', seq: null, createdAt: '2026-01-05T00:00:00Z' });
+      messages.insert({ id: 'a-pending', chatId: 'chat-1', seq: null, createdAt: '2026-01-05T00:00:00Z' });
+      messages.insert({ id: 'm-mid', chatId: 'chat-1', seq: 2, createdAt: '2026-01-02T00:00:00Z' });
+    });
+
+    expect(reader.result().map(row => row.id)).toEqual(['m-new', 'm-mid', 'm-old', 'a-pending', 'b-pending']);
+    reader.unmount();
+  });
 });

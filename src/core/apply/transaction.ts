@@ -87,7 +87,6 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
     replay: () => {
       let replayed = 0;
       const appliedCache = new Map<string, number>();
-      const replayedTransactions = new Set<string>();
       const appliedFor = (model: string): number => {
         const cached = appliedCache.get(model);
         if (cached !== undefined) return cached;
@@ -96,11 +95,6 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         return value;
       };
       for (const record of journal.allRecords()) {
-        if (replayedTransactions.has(record.txId)) {
-          if (record.status === 'pending') storage.set(journal.committedEntry(record, checkpoint?.flushedEpoch()));
-          continue;
-        }
-        replayedTransactions.add(record.txId);
         const ops = record.ops.filter(op => appliedFor(op.model) < record.epoch);
         epoch = Math.max(epoch, record.epoch);
         if (ops.length === 0) {

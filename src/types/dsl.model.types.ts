@@ -5,7 +5,7 @@ import type { defineMutation } from '../dsl/defineMutation';
 import type { MutationConfig } from './dsl.mutation.types';
 import type { DetachedOperationConfig, DetachedOperationHandle } from './dsl.detachedOperation.types';
 import type { defineQuery } from '../dsl/defineQuery';
-import type { EnsuredRowQueryHandle, QueryHandle } from './dsl.query.types';
+import type { ConnectionLike, EnsuredRowQueryHandle, ScopeQueryHandle } from './dsl.query.types';
 import type { defineFetch } from '../dsl/defineFetch';
 import type { ViewConfig, ViewHandle } from './dsl.view.types';
 import type { DbSubscriptionEntry } from './subscription.types';
@@ -236,23 +236,38 @@ export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored
 
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }, TInput = TStored> = {
   modelId: string;
-  /** Define a model-owned scope query with colocated live subscription entries; point materialization is unavailable for scope destinations. */
+  /** Define a model-owned scope query with colocated live subscription entries; `data` is the scope's row array, point materialization is unavailable for scope destinations. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { into: ScopeHandle<TRow, TScope>; live: Record<string, ModelIngestEntry> }
-  ): QueryHandle<TRow, TScope> & { live: LiveQueryHandle };
-  /** Define a model-owned scope query; point materialization is unavailable for scope destinations. */
+  ): ScopeQueryHandle<TRow, TScope> & { live: LiveQueryHandle };
+  /** Define a model-owned scope query; `data` is the scope's row array, point materialization is unavailable for scope destinations. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { into: ScopeHandle<TRow, TScope> }
-  ): QueryHandle<TRow, TScope>;
-  /** Define a model-owned query with colocated live subscription entries; the returned handle adds `live.apply`. */
+  ): ScopeQueryHandle<TRow, TScope>;
+  /** Define a paginated model-destination query with colocated live subscription entries; `data` is the landed row array. */
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> &
+      ({ page: (data: TResponse) => ConnectionLike } | { connection: (data: TResponse) => ConnectionLike | null | undefined }) & { live: Record<string, ModelIngestEntry> }
+  ): EnsuredRowQueryHandle<TRow, TScope, TRow[]> & { live: LiveQueryHandle };
+  /** Define a paginated model-destination query; `data` is the landed row array. */
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> &
+      ({ page: (data: TResponse) => ConnectionLike } | { connection: (data: TResponse) => ConnectionLike | null | undefined })
+  ): EnsuredRowQueryHandle<TRow, TScope, TRow[]>;
+  /** Define a model-owned query with colocated live subscription entries; without `page`, `data` is the single landed row (an array-landing `select` needs `page` for list reads). */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { live: Record<string, ModelIngestEntry> }
-  ): EnsuredRowQueryHandle<TRow, TScope> & { live: LiveQueryHandle };
-  /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination. */
-  query<TResponse, TVars, TScope, TRow extends { id: string }>(name: string, config: ModelQueryConfig<TResponse, TVars, TScope, TRow>): EnsuredRowQueryHandle<TRow, TScope>;
+  ): EnsuredRowQueryHandle<TRow, TScope, TRow | undefined> & { live: LiveQueryHandle };
+  /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination; without `page`, `data` is the single landed row (an array-landing `select` needs `page` for list reads). */
+  query<TResponse, TVars, TScope, TRow extends { id: string }>(
+    name: string,
+    config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
+  ): EnsuredRowQueryHandle<TRow, TScope, TRow | undefined>;
   /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
   mutation<TData, TInput, TRow extends { id: string }, TNode>(
     name: string,

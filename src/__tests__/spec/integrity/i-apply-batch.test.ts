@@ -158,12 +158,55 @@ describe('apply pipeline batching', () => {
       model: MODEL,
       scopeKey: 'scope-1',
       entries: [],
-      upserts: [
-        { id: 'row-c', orderKey: '7' },
-        { id: 'row-d', orderKey: 'P0' }
-      ],
-      detachIds: ['row-e']
+      upserts: undefined,
+      detachIds: undefined
     });
+  });
+
+  it('drops delta state accumulated before an authoritative full entry set of the same commit', () => {
+    const { storage, bus, published } = setup();
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
+    const ops: WriteOp[] = [
+      { kind: 'scope-delta', model: MODEL, scopeKey: 'scope-1', append: [], detach: ['row-x'] },
+      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [{ id: 'row-x', orderKey: 'a' }] } }
+    ];
+
+    runtime.commit(createCommitEnvelope(ops));
+
+    expect(published[0]!.scopeChanges).toEqual([
+      { model: MODEL, scopeKey: 'scope-1', entries: [{ id: 'row-x', orderKey: 'a' }], upserts: undefined, detachIds: undefined }
+    ]);
+  });
+
+  it('keeps delta state layered on top of an earlier full entry set of the same commit', () => {
+    const { storage, bus, published } = setup();
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
+    const ops: WriteOp[] = [
+      { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [{ id: 'row-x', orderKey: 'a' }] } },
+      { kind: 'scope-delta', model: MODEL, scopeKey: 'scope-1', append: [{ id: 'row-y', orderKey: 'b' }], detach: ['row-x'] }
+    ];
+
+    runtime.commit(createCommitEnvelope(ops));
+
+    expect(published[0]!.scopeChanges).toEqual([
+      { model: MODEL, scopeKey: 'scope-1', entries: [{ id: 'row-x', orderKey: 'a' }], upserts: [{ id: 'row-y', orderKey: 'b' }], detachIds: ['row-x'] }
+    ]);
+  });
+
+  it('normalizes non-string ids across every plan branch so one overlay identity survives the batch', () => {
+    const { mock } = setup();
+    void mock;
+    const ops: WriteOp[] = [
+      { kind: 'upsert', model: MODEL, rows: [{ id: 42 }] },
+      { kind: 'destroy', model: MODEL, ids: [42 as never] },
+      { kind: 'patch', model: MODEL, id: '42', patch: { label: 'x' } }
+    ];
+
+    const envelope = createCommitEnvelope(ops);
+
+    expect(envelope.entityOps.map(op => op.kind)).toEqual(['upsert', 'destroy']);
+    const destroyOp = envelope.entityOps.find(op => op.kind === 'destroy');
+    expect(destroyOp && destroyOp.kind === 'destroy' ? destroyOp.ids : []).toEqual(['42']);
   });
 
   it('escalates the published batch mode to replace when any upsert is a replace', () => {

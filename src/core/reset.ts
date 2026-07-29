@@ -28,6 +28,34 @@ export const registerKeyedReset = <TReset extends Resetter>(key: string, reset: 
   keyedResetters.set(key, reset);
 };
 
+const runRegisteredResetters = (attempt: (reset: () => void) => void): void => {
+  for (const reset of [...resetters, ...keyedResetters.values()]) {
+    attempt(() => {
+      const result = reset() as unknown;
+      if (
+        (typeof result === 'object' && result !== null && 'then' in result && typeof result.then === 'function') ||
+        (typeof result === 'function' && 'then' in result && typeof result.then === 'function')
+      ) {
+        throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');
+      }
+    });
+  }
+};
+
+/** Internal: rebind all registered in-memory state to the current runtime config WITHOUT touching storage. `configureDb` re-entry runs this so no definition keeps planes hydrated from a previously configured storage. */
+export const resetInMemoryRuntime = (): void => {
+  const resetErrors: unknown[] = [];
+  const attempt = (reset: () => void): void => {
+    try {
+      reset();
+    } catch (error) {
+      resetErrors.push(error);
+    }
+  };
+  runRegisteredResetters(attempt);
+  if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'configureDb failed to run one or more resetters');
+};
+
 /**
  * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
  * persisted key under the library namespace, clears all registered in-memory state and notifies
@@ -56,17 +84,7 @@ export const resetRuntime = (): void => {
     if (keys.length > 0) storage.set(keys.map(key => ({ key, value: null })));
   };
   attempt(clearStorage);
-  for (const reset of [...resetters, ...keyedResetters.values()]) {
-    attempt(() => {
-      const result = reset() as unknown;
-      if (
-        (typeof result === 'object' && result !== null && 'then' in result && typeof result.then === 'function') ||
-        (typeof result === 'function' && 'then' in result && typeof result.then === 'function')
-      ) {
-        throw new Error('resetRuntime cannot run async resetters - register synchronous reset functions');
-      }
-    });
-  }
+  runRegisteredResetters(attempt);
   attempt(() => getOperationState().reset());
   attempt(() => getCommitBus().publishAll());
   attempt(clearStorage);

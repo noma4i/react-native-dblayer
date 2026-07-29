@@ -193,7 +193,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       notify?.(record);
     },
     get: operationId => operations.get(operationId),
-    hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey) || operations.get(idempotencyKey)?.status === 'committed',
+    hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
     open: () => [...operations.values()].filter(operation => operation.status === 'pending' || operation.status === 'failed'),

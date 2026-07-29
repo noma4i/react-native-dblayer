@@ -65,8 +65,9 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       continue;
     }
     if (op.kind === 'patch') {
-      const previous = readPlannedRow(overlay, op.model, op.id);
-      const prepared = target.preparePatch(op.id, op.patch, previous, op.operationId);
+      const patchId = String(op.id);
+      const previous = readPlannedRow(overlay, op.model, patchId);
+      const prepared = target.preparePatch(patchId, op.patch, previous, op.operationId);
       if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
       const id = String(prepared.row.id);
       writePlannedRow(overlay, op.model, id, prepared.row);
@@ -75,11 +76,12 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       continue;
     }
     if (op.kind === 'counter') {
-      const previous = readPlannedRow(overlay, op.model, op.id);
+      const counterId = String(op.id);
+      const previous = readPlannedRow(overlay, op.model, counterId);
       if (!previous) continue;
       const value = previous[op.field];
       const numeric = typeof value === 'number' ? value : value == null ? 0 : Number(value);
-      const prepared = target.preparePatch(op.id, { [op.field]: (Number.isFinite(numeric) ? numeric : 0) + op.delta }, previous);
+      const prepared = target.preparePatch(counterId, { [op.field]: (Number.isFinite(numeric) ? numeric : 0) + op.delta }, previous);
       if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
       const id = String(prepared.row.id);
       writePlannedRow(overlay, op.model, id, prepared.row);
@@ -89,7 +91,8 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
     }
     if (op.kind === 'destroy') {
       operationTransitions.push(...(op.operationTransitions ?? []));
-      for (const id of op.ids) {
+      const destroyIds = op.ids.map(String);
+      for (const id of destroyIds) {
         const previous = readPlannedRow(overlay, op.model, id);
         if (previous) destroyed.push({ model: op.model, id, before: previous, origin: op.origin });
         writePlannedRow(overlay, op.model, id, null);
@@ -97,7 +100,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       preparedOps.push({
         kind: 'destroy',
         model: op.model,
-        ids: op.ids,
+        ids: destroyIds,
         ...(op.tombstone !== undefined ? { tombstone: op.tombstone } : {}),
         ...(op.origin ? { origin: op.origin } : {})
       });

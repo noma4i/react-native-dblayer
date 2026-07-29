@@ -1,6 +1,7 @@
 import type { DbGraphQLDocument, LoadingState } from './db.types';
 type FetchConfigBase<TData, TInput, TSelected> = {
-    key: string;
+    /** Stable cache-key namespace for this handle; omitted keys fall back to a per-define sequence (stable for the process lifetime). */
+    key?: string;
     select: (data: TData) => TSelected;
     vars?: (input: TInput) => Record<string, unknown>;
     enabled?: (input: TInput) => boolean;
@@ -20,7 +21,7 @@ export type FetchConfig<TData, TInput, TSelected> = FetchConfigBase<TData, TInpu
 export type FetchResult<TSelected> = {
     data: TSelected | undefined;
     loadingState: LoadingState;
-    error: unknown;
+    error: Error | null;
     refetch(): void;
 };
 /** Imperative and reactive handles created by `defineFetch`. */

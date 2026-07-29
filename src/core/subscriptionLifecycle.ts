@@ -1,4 +1,5 @@
 import { backoffDelayMs } from './fetch/retryPolicy';
+import { reportSyncError } from './syncError';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from './fetch/networkState';
 import { getDbLogger } from './logger';
 import { getDbTransport } from './transport';
@@ -90,7 +91,13 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
         latestPayload => {
           state.debounceBuckets.delete(bucketKey);
           state.debouncePayloads.delete(bucketKey);
-          runHandler(state, latestPayload);
+          // Timer context: a throw here has no caller to reach - contain and report instead.
+          try {
+            runHandler(state, latestPayload);
+          } catch (error) {
+            state.errorCount += 1;
+            reportSyncError(error, { source: 'subscription', key: state.entry.key }, LOG_PREFIX);
+          }
         },
         { wait: debounce.ms }
       );

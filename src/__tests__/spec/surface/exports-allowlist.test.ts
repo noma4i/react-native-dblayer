@@ -28,6 +28,7 @@ const runtimeExportAllowlist = [
   'pickDefined',
   'pickPresent',
   'projectShape',
+  'readId',
   'readShape',
   'readShapeOrThrow',
   'references',

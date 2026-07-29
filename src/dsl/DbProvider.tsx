@@ -60,7 +60,6 @@ export const DbProvider = ({ children }: DbProviderProps): React.ReactNode => {
         const drainGeneration = ++resumeDrainGeneration.current;
         const generationFence = createGenerationFence();
         const chunkSize = getDbRuntimeConfig().defaults.resumeRefetch?.chunkSize ?? 4;
-        if (chunkSize <= 0) throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${chunkSize}`);
         const isCurrent = (): boolean => resumeDrainGeneration.current === drainGeneration && generationFence.isCurrent();
         void resumeFetchReaders(chunkSize, isCurrent).then(refetched => {
           if (isCurrent()) noteResumeDrain(refetched);

@@ -1,6 +1,6 @@
 import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
-import { compositeKey, compositeStorageKey, parseCompositeKey, stableSerialize } from './serialize';
-import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
+import { compareCodepoints, compositeKey, compositeStorageKey, parseCompositeKey, stableSerialize } from './serialize';
+import { noteDataLoss, noteEntityUpsertGuardHit, noteMembershipWrites } from './diagnostics';
 import type {
   IncrementalCommitBatch,
   ModelStore,
@@ -363,6 +363,7 @@ export const createModelStore = <T extends RowRecord>(options: {
 
   const writeMemberships = (messages: ReadonlyArray<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>>): void => {
     if (messages.length === 0) return;
+    noteMembershipWrites(messages.length);
     membershipFeed.start();
     for (const message of messages) membershipFeed.pushMessage(message);
     membershipFeed.finish();
@@ -580,7 +581,15 @@ export const createModelStore = <T extends RowRecord>(options: {
     scopeCollection: scopeKey => ({
       toArray: () => {
         assertStoreReadable();
-        return ready ? [...getScopeCollection(scopeKey).collection.toArray] : [];
+        if (!ready) return [];
+        const existing = scopeCollections.get(scopeKey);
+        if (existing) return [...existing.collection.toArray];
+        return scopeMembers(scopeKey)
+          .sort((left, right) => compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.entityId, right.entityId))
+          .flatMap(membership => {
+            const entity = readCommitted(membership.entityId);
+            return entity ? [{ ...entity, orderKey: membership.orderKey }] : [];
+          });
       },
       subscribe: listener => {
         const entry = getScopeCollection(scopeKey);

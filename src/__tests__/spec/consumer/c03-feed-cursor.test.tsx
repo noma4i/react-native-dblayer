@@ -282,4 +282,187 @@ describe('feed cursor pagination consumer contracts', () => {
     expect(queryReader.result().loadingState.showFooterSpinner).toBe(false);
     queryReader.unmount();
   });
+
+  it('lands a relay connection through the connection shorthand with dense nodes and cursor paging', async () => {
+    type SparseResponse = { feed: { nodes: Array<FeedRow | null>; pageInfo: { hasNextPage: boolean; endCursor: string | null } } };
+    const responses: SparseResponse[] = [
+      {
+        feed: {
+          nodes: [{ id: 'm2', vibeId: 'v1', sequenceNumber: 102 }, null, { id: 'm1', vibeId: 'v1', sequenceNumber: 101 }],
+          pageInfo: { hasNextPage: true, endCursor: 'c1' }
+        }
+      },
+      {
+        feed: {
+          nodes: [{ id: 'm0', vibeId: 'v1', sequenceNumber: 100 }],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      }
+    ];
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        const next = responses.shift();
+        if (!next) throw new Error('Unexpected query response');
+        return { data: next as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createMoments('ConnectionShorthand');
+    const feedQuery = moments.query<SparseResponse, ScopeValue & { after?: string }, ScopeValue, FeedRow>('feed-connection-shorthand', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      connection: data => data.feed,
+      into: moments.scopes.feed,
+      coverage: 'page'
+    });
+
+    const queryReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(queryReader.result().data.map(row => row.id)).toEqual(['m2', 'm1']);
+    expect(queryReader.result().hasNextPage).toBe(true);
+
+    act(() => {
+      queryReader.result().fetchNextPage();
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(queryReader.result().data.map(row => row.id)).toEqual(['m2', 'm1', 'm0']);
+    expect(queryReader.result().hasNextPage).toBe(false);
+    queryReader.unmount();
+  });
+
+  it('holds a query inactive while a declared required scope key is nullish', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          feed: {
+            nodes: [{ id: 'm1', vibeId: 'v1', sequenceNumber: 101 }],
+            pageInfo: { hasNextPage: false, endCursor: null },
+            lastSequenceNumber: 101
+          }
+        } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createMoments('RequiredScope');
+    const feedQuery = moments.query<FeedResponse, ScopeValue, { vibeId: string | null }, FeedRow>('feed-required-scope', {
+      document,
+      vars: value => ({ vibeId: value.vibeId! }),
+      page: data => data.feed,
+      into: moments.scopes.feed as never,
+      requiredScope: ['vibeId']
+    });
+
+    const gatedReader = renderCountedInProvider(() => feedQuery.use({ vibeId: null }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(transport.calls).toHaveLength(0);
+    gatedReader.unmount();
+
+    const activeReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(transport.calls).toHaveLength(1);
+    expect(activeReader.result().data.map(row => row.id)).toEqual(['m1']);
+    activeReader.unmount();
+  });
+
+  it('serves a bridged window from a scope query: local window first, then the next server page', async () => {
+    const pageAt = (start: number, hasNextPage: boolean): FeedResponse => ({
+      feed: {
+        nodes: Array.from({ length: 3 }, (_, index) => ({ id: `m${start - index}`, vibeId: 'v1', sequenceNumber: start - index })),
+        pageInfo: { hasNextPage, endCursor: hasNextPage ? `cursor-${start - 2}` : null },
+        lastSequenceNumber: start - 2
+      }
+    });
+    const responses = [pageAt(106, true), pageAt(103, false)];
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: responses.shift() as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createMoments('BridgedWindow');
+    const feedQuery = moments.query<FeedResponse, ScopeValue & { afterSequence?: number }, ScopeValue, FeedRow>('feed-bridged-window', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments.scopes.feed,
+      coverage: 'page',
+      getCursor: page => String((page as FeedResponse['feed']).lastSequenceNumber),
+      cursorVar: 'afterSequence',
+      mapCursor: cursor => Number(cursor)
+    });
+
+    const reader = renderCountedInProvider(() => feedQuery.useWindow({ vibeId: 'v1' }, { pageSize: 2 }));
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(reader.result().rows.map(row => row.id)).toEqual(['m106', 'm105']);
+    expect(reader.result().hasNextPage).toBe(true);
+    expect(transport.calls).toHaveLength(1);
+
+    act(() => {
+      reader.result().fetchNextPage();
+    });
+    await settle();
+    expect(reader.result().rows.map(row => row.id)).toEqual(['m106', 'm105', 'm104']);
+    expect(transport.calls).toHaveLength(1);
+
+    act(() => {
+      reader.result().fetchNextPage();
+    });
+    await settle();
+    await settle(1, { macro: true });
+    expect(transport.calls).toHaveLength(2);
+    expect(reader.result().rows.map(row => row.id)).toEqual(['m106', 'm105', 'm104', 'm103']);
+    reader.unmount();
+  });
+
+  it('debounces bridged loadMore bursts into one guarded advance', async () => {
+    const pageAt = (start: number, hasNextPage: boolean): FeedResponse => ({
+      feed: {
+        nodes: [{ id: `m${start}`, vibeId: 'v1', sequenceNumber: start }],
+        pageInfo: { hasNextPage, endCursor: hasNextPage ? `cursor-${start}` : null },
+        lastSequenceNumber: start
+      }
+    });
+    const responses = [pageAt(106, true), pageAt(105, false)];
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: responses.shift() as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createMoments('DebouncedLoadMore');
+    const feedQuery = moments.query<FeedResponse, ScopeValue & { afterSequence?: number }, ScopeValue, FeedRow>('feed-debounced-load-more', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments.scopes.feed,
+      coverage: 'page',
+      getCursor: page => String((page as FeedResponse['feed']).lastSequenceNumber),
+      cursorVar: 'afterSequence',
+      mapCursor: cursor => Number(cursor)
+    });
+
+    const reader = renderCountedInProvider(() => feedQuery.useWindow({ vibeId: 'v1' }, { pageSize: 1 }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(transport.calls).toHaveLength(1);
+
+    act(() => {
+      reader.result().loadMore();
+      reader.result().loadMore();
+      reader.result().loadMore();
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 220));
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    expect(transport.calls).toHaveLength(2);
+    expect(reader.result().rows.map(row => row.id)).toEqual(['m106']);
+    expect(reader.result().totalCount).toBe(2);
+    reader.unmount();
+  });
 });

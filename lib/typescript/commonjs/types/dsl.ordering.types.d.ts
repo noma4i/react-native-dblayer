@@ -30,7 +30,9 @@ export type ComparatorSort<TStored> = {
     }['call'];
     orderFields?: ReadonlyArray<keyof TStored & string>;
 };
+/** Declared multi-key field order: keys compare left to right, each with its own direction, missing values last per key, implicit id tie-break. */
+export type MultiFieldSort<TStored> = ReadonlyArray<FieldSort<TStored>>;
 /** Client-side scope ordering, excluding server-owned order. */
-export type ClientSort<TStored> = FieldSort<TStored> | ComparatorSort<TStored>;
+export type ClientSort<TStored> = FieldSort<TStored> | MultiFieldSort<TStored> | ComparatorSort<TStored>;
 export {};
 //# sourceMappingURL=dsl.ordering.types.d.ts.map

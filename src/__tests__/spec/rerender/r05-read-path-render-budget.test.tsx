@@ -1,6 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { belongsTo, defineModel, f, hasMany, hasOne, scope } from '../../../index';
+import { getCommitBus } from '../../../dsl/configure';
 import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 type ScopeRow = { id: string; groupId: string; title: string };
@@ -570,5 +571,31 @@ describe('read path render budget', () => {
 
     expect(result.map(item => item.comments.map(comment => comment.id))).toEqual([[], ['comment-1']]);
     act(() => root.unmount());
+  });
+
+  it('keeps one commit-bus subscription across re-renders of an unchanged model read', () => {
+    setupSpecRuntime();
+    const rows = createScopeRows();
+    rows.insert({ id: 'row-1', groupId: 'group-1', title: 'One' });
+    const bus = getCommitBus();
+    const spy = jest.spyOn(bus, 'subscribeIncremental');
+    const Reader = ({ tick }: { tick: number }) => {
+      void tick;
+      rows.use.first({ groupId: 'group-1' });
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader, { tick: 0 }));
+    });
+    const subscriptionsAfterMount = spy.mock.calls.length;
+    for (let tick = 1; tick <= 3; tick += 1) {
+      act(() => root.update(React.createElement(Reader, { tick })));
+    }
+
+    expect(spy.mock.calls.length).toBe(subscriptionsAfterMount);
+    act(() => root.unmount());
+    spy.mockRestore();
   });
 });

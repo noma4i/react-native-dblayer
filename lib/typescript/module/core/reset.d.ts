@@ -16,6 +16,8 @@ export declare const registerReset: <TReset extends Resetter>(reset: SyncResette
  * @param reset Synchronous cleanup callback; `resetRuntime` throws if it returns a `Promise`.
  */
 export declare const registerKeyedReset: <TReset extends Resetter>(key: string, reset: SyncResetter<TReset>) => void;
+/** Internal: rebind all registered in-memory state to the current runtime config WITHOUT touching storage. `configureDb` re-entry runs this so no definition keeps planes hydrated from a previously configured storage. */
+export declare const resetInMemoryRuntime: () => void;
 /**
  * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
  * persisted key under the library namespace, clears all registered in-memory state and notifies

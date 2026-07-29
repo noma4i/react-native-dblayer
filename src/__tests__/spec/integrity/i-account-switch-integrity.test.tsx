@@ -1,5 +1,5 @@
 import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
-import { flushPersistence } from '../../../dsl/configure';
+import { flushPersistence, replayJournal } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; accountId: string; label: string };
@@ -30,6 +30,40 @@ describe('account switch integrity', () => {
     configureDb({ storage: storageB, transport });
 
     expect(rows.find('row-1')).toMatchObject({ accountId: 'B', label: 'persisted account' });
+  });
+
+  it('rebinds model planes to the newly configured storage on configureDb re-entry without resetRuntime', () => {
+    const storageA = createMemoryPlane();
+    const preparedStorage = createMemoryPlane();
+    const storageB = createMemoryPlane();
+    const transport = createMockTransport();
+    configureDb({ storage: preparedStorage, transport });
+    const rows = defineModel({ id: 'ConfigureReentryPlanes', name: 'ConfigureReentryPlanes', fields: { accountId: f.str(), label: f.str() } });
+
+    rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
+    flushPersistence();
+    storageB.set(preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })));
+
+    configureDb({ storage: storageA, transport });
+    expect(rows.find('row-1')).toBeUndefined();
+
+    configureDb({ storage: storageB, transport });
+    expect(rows.find('row-1')).toMatchObject({ accountId: 'B', label: 'persisted account' });
+  });
+
+  it('recovers unflushed committed rows from the WAL after configureDb re-entry', () => {
+    const storage = createMemoryPlane();
+    const transport = createMockTransport();
+    configureDb({ storage, transport });
+    const rows = defineModel({ id: 'ReentryWalRecovery', name: 'ReentryWalRecovery', fields: { label: f.str() } });
+    rows.insert({ id: 'row-1', label: 'unflushed' });
+
+    configureDb({ storage, transport });
+
+    expect(storage.keys('dbl:journal:').length).toBeGreaterThan(0);
+    expect(rows.find('row-1')).toBeUndefined();
+    replayJournal();
+    expect(rows.find('row-1')).toMatchObject({ label: 'unflushed' });
   });
 
   it('D8 rolls back optimistic state and pending dedupe when onMutate throws', async () => {

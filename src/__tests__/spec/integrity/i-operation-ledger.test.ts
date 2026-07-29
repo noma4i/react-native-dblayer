@@ -156,6 +156,14 @@ describe('operation lifecycle and idempotency keys', () => {
     expect(state.hasCommitted('key-1')).toBe(false);
   });
 
+  it('keeps the idempotency keyspace closed to operation ids of committed operations', () => {
+    const { state } = setup();
+    state.begin(baseRecord('colliding-token', { idempotencyKey: 'real-key' }));
+    state.close('colliding-token', 'committed');
+
+    expect(state.hasCommitted('colliding-token')).toBe(false);
+  });
+
   it('keeps the first terminal status - repeated close calls are no-ops', () => {
     const { state } = setup();
     state.begin(baseRecord('op-1'));

@@ -1,6 +1,7 @@
 import type { DbGraphQLDocument, LoadingState } from './db.types';
 import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { ScopeHandle } from './dsl.model.types';
+import type { WindowPaginationBridge } from './dsl.pagination.types';
 
 /** GraphQL pageInfo subset the query DSL understands, in both pagination directions. */
 export type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
@@ -25,13 +26,16 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
   key?: string;
   vars?: (scope: TScope) => TVars;
   page?: (data: TResponse) => ConnectionLike;
+  /** Relay-connection shorthand: point at the connection object and the query pages it with DENSE nodes (`fromNodes` null-filtering applied). Mutually exclusive with `page`/`select`. */
+  connection?: (data: TResponse) => ConnectionLike | null | undefined;
   select?: (data: TResponse) => unknown;
   into: QueryDestination<TStored, TScope>;
   coverage?: ScopeCoverage;
   edge?: (edgeSource: unknown) => Record<string, unknown> | undefined;
   extract?: (ctx: { data: TResponse; nodes: unknown[] }) => ExtractSink[];
-  map?: (selected: unknown) => unknown;
   enabled?: (scope: TScope) => boolean;
+  /** Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. */
+  requiredScope?: ReadonlyArray<keyof TScope & string>;
   staleTime?: number;
   resumeStaleTime?: number | null;
   emptyStaleTime?: number;
@@ -62,8 +66,8 @@ export type PlanRowsSink = { modelId: string };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
 
-export type QueryResult<T> = {
-  data: T[] | T | undefined; loadingState: LoadingState; error: Error | null; hasNextPage: boolean;
+export type QueryResult<T, TData = T[] | T | undefined> = {
+  data: TData; loadingState: LoadingState; error: Error | null; hasNextPage: boolean;
   isFetchingNextPage: boolean; fetchNextPage: () => void; refetch: () => Promise<void>;
 };
 
@@ -71,11 +75,28 @@ export type EnsuredRowResult<TStored> = {
   data: TStored | undefined; loadingState: LoadingState; error: Error | null; refetch: () => Promise<void>;
 };
 
-export type QueryHandle<TStored, TScope> = {
-  use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored>; fetch(scope: TScope | null): Promise<void>; invalidate(scope?: TScope): void;
+export type QueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined> = {
+  use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored, TData>; fetch(scope: TScope | null): Promise<void>; invalidate(scope?: TScope): void;
 };
 
-export type EnsuredRowQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope> & {
+/** Options for a scope query's bridged window read. */
+export type ScopeQueryWindowOptions<TStored> = {
+  pageSize?: number;
+  renderKeys?: readonly (keyof TStored & string)[];
+  require?: readonly (keyof TStored & string)[];
+  keepPrevious?: boolean;
+  enabled?: boolean;
+  /** Trailing debounce for `loadMore` bursts (default 160ms). */
+  loadMoreDebounceMs?: number;
+};
+
+/** Scope-destination query handle: array reads plus the bridged local-window/network-pagination surface. */
+export type ScopeQueryHandle<TStored, TScope> = QueryHandle<TStored, TScope, TStored[]> & {
+  /** One list-ready surface: the scope's local window bridged with this query's network pagination (`bridgeWindowPagination` semantics - reveal synced rows first, then fetch the next server page). `loadMore` is the debounced list-footer advance: bursts collapse into one trailing call, guarded at fire time by `hasNextPage`/`isFetchingNextPage`. */
+  useWindow(scope: TScope | null, options?: ScopeQueryWindowOptions<TStored>): WindowPaginationBridge<TStored> & { loadMore: () => void };
+};
+
+export type EnsuredRowQueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined> = QueryHandle<TStored, TScope, TData> & {
   useRowEnsured(
     scope: TScope,
     rowId: string | null | undefined,

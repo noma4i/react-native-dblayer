@@ -1,5 +1,52 @@
 # Changelog
 
+## 9.0.0-beta.11 - 2026-07-30
+
+### Breaking changes and migration
+
+- BREAKING: remove `QueryConfig.map`. Migration: a `map`-only config becomes `select` with identical semantics (`map: fn` -> `select: fn`); a `select`+`map` pair composes into one `select`.
+- BREAKING: `QueryResult.data` is now typed by destination - a scope-destination query and a paginated (`page`/`connection`) model-destination query read `T[]`; a non-paginated model-destination query reads `T | undefined`. Migration: delete app-side re-declarations and `as unknown as` casts of query results.
+- BREAKING: `FetchResult.error` narrows from `unknown` to `Error | null` (the runtime already produced only that).
+- BREAKING: `createDbSubscriptionEffects(...).reset()` no longer unregisters the channel's effect names; it only restores noop implementations. An ingest `effect` stays resolvable after logout/reset.
+
+### Durability and identity (core fixes)
+
+- `hasCommitted(idempotencyKey)` no longer probes the operation ledger with operation ids, so an idempotency key can never falsely collide with an unrelated committed operation id.
+- WAL replay applies every pending journal record even when `txId` values collide across process restarts (two crashes in a row could previously mark a pending record committed without applying it).
+- Sorted-scope placement assigns unique order keys to rows that are not yet resolvable in the plan overlay (previously all such rows in one placement shared one key).
+- Write policies restore a field the previous row never had by omission - `continuity`, monotonic rejection, and nested key policies no longer inject explicit `undefined` into persisted rows (which made the checkpoint flush throw away its whole batch).
+- The commit-envelope plan normalizes non-string ids across `patch`/`counter`/`destroy` branches, so one overlay identity survives the batch and a destroyed row can no longer resurrect through a same-batch patch.
+- A full scope entry set supersedes delta state accumulated earlier in the same commit - a stale detach can no longer erase a membership the authoritative snapshot just declared.
+- `configureDb` re-entry rebinds every model plane to the newly configured storage (previously cached planes kept serving rows hydrated from the previously configured storage until `resetRuntime`).
+- A snapshot scope read (`toArray`) no longer creates and leaks a live scope collection; live collections are born only on subscribe.
+
+### Reactivity and lifecycle
+
+- Model reads keep ONE commit-bus subscription across re-renders (previously every render of `use.find`/`use.first`/`use.where` unsubscribed and resubscribed).
+- A throwing debounced subscription `onData` delivery is contained and reported through `onSyncError` (+`errorCount`) instead of escaping the timer unhandled; the synchronous `dispatch` path still rethrows to its caller.
+- `createThrottledSingleFlight` gains `resetOnRuntimeReset` (mirrors `createSingleFlight`), so a stale throttle window never suppresses post-reset callers.
+- `configureDb` validates `defaults.resumeRefetch.chunkSize` at configure time instead of throwing from the first foreground resume.
+
+### Queries and pagination DSL
+
+- `ViewWindowResult` gains `resolved` (mirroring `ScopeWindowResult.resolved`), so a view window bridges into `bridgeWindowPagination` unchanged. This corrects the `7.0.0-beta.7` note that claimed the field already existed.
+- Scope-destination queries gain `queryHandle.useWindow(scope, { pageSize?, renderKeys?, require?, keepPrevious?, enabled?, loadMoreDebounceMs? })` - the bridged local-window/network surface (`WindowPaginationBridge`) built in, plus `loadMore()`, a trailing-debounced (160ms) guarded list-footer advance.
+- `QueryConfig.connection` - relay-connection shorthand: point at the connection object and the query pages it with dense nodes (`fromNodes` applied) and `pageInfo` passthrough; mutually exclusive with `page`/`select`.
+- `QueryConfig.requiredScope` - declare the scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive, replacing hand-written `enabled: s => s.x != null` guards.
+- `FetchConfig.key` is now optional (matching the runtime and `Model.fetch`).
+
+### Scopes and ordering
+
+- `scope({ sort })` accepts a declared key LIST - `[{ field: 'sequenceNumber', dir: 'desc' }, { field: 'createdAt', dir: 'desc' }]` - with per-key direction, missing-values-last per key, and the implicit id tie-break. Multi-level orderings no longer need a hand-written comparator plus `orderFields`.
+
+### Utilities
+
+- `readId` is exported: the exact id coercion `f.id()` applies during `build`/`normalize`, for ingest/subscription handler paths that compare payload ids with stored rows.
+
+### Documentation
+
+- Document `optimistic.correlate` (the mandated cross-channel temp-row correlation) in mutations.md; correct the stale `@returns` on `defineMutation`/`defineCommand` (`{ run, retry, discard, use }`); fix the unscoped package name in one runtime.md import; document multi-key scope sort and the bridged query window.
+
 ## 9.0.0-beta.10 - 2026-07-29
 
 ### Fixed

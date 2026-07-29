@@ -49,13 +49,14 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 | `key`            | `string`                                               | Stable cache-key namespace. Defaults to `<modelId>:<name>`.                                                                                                                           |
 | `vars`           | `(scope) => TVars`                                     | Derive GraphQL variables from the scope value passed to `use`/`fetch`.                                                                                                                |
 | `page`           | `(data) => { nodes \| edges, pageInfo }`               | Infinite-connection selector for cursor pagination. Mutually exclusive with `select` - setting `page` makes `use` an infinite-query hook (`hasNextPage`/`fetchNextPage` become live). |
+| `connection`     | `(data) => connection \| null`                         | Relay-connection shorthand: point at the connection object and the query pages it with DENSE nodes (null entries removed, `fromNodes` applied) and `pageInfo` passthrough. Mutually exclusive with `page`/`select` (define-time error). Replaces the hand-written `page: data => ({ nodes: fromNodes(data.x), pageInfo: data.x.pageInfo })` pattern. |
 | `select`         | `(data) => unknown`                                    | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`.                                                                                              |
 | `into`           | `ScopeHandle \| Model`                                 | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. Defaults to the owning model.                                                      |
 | `coverage`       | `ScopeCoverage`                                        | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See [ScopeCoverage semantics](#scopecoverage-semantics) below.     |
 | `edge`           | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists).                                                                |
 | `extract`        | `(ctx: { data, nodes }) => ExtractSink[]`              | Cross-model sideloads applied in the SAME transaction as the main rows.                                                                                                               |
-| `map`            | `(selected) => unknown`                                | Transform the selected/paged payload before it is split into nodes and written. Runs after `select`/`page`.                                                                           |
 | `enabled`        | `(scope) => boolean`                                   | Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled.                                                               |
+| `requiredScope`  | `ReadonlyArray<keyof TScope>`                          | Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. |
 | `staleTime`      | `number` (ms)                                          | Freshness window before a scope with data is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.                                                            |
 | `resumeStaleTime` | `number \| null` (ms)                                 | Per-query foreground-resume freshness window. Omit for `DbDefaults.resumeStaleTime`; `null` disables resume invalidation for this query.                                              |
 | `emptyStaleTime` | `number` (ms)                                          | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows.                                                                                 |
@@ -71,7 +72,7 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 
 `fromNodes(connection)` unwraps a GraphQL connection into a dense node array: it returns
 `connection.nodes` in order while dropping `null` and `undefined`, and returns `[]` for a nullish
-connection or node list. Use it in `select`, `map`, or extract code when a nested connection must
+connection or node list. Use it in `select` or extract code when a nested connection must
 be converted into rows before it is written or sideloaded.
 
 `intoIf(into, row)` builds an extract-sink list from one optional row: it returns `[]` for a
@@ -112,11 +113,18 @@ and must not be used for account or detail switches where previous identity data
 | `fetchNextPage`      | `() => void`            | Fetch and apply the next page over the network. A no-op for single queries. This is **server-side** pagination - a different concept from a scope's `ScopeHandle.useWindow(...).fetchNextPage` (local window growth over already-synced rows; see [reading.md](./reading.md#scope-reads)), even though both surfaces share the `fetchNextPage` name. A paginated list typically wires both. |
 | `refetch`            | `() => Promise<void>`   | Re-run the query from the first page, replacing `data`.                                                                                                                                                                                                                                                                                                                                     |
 
-For a list that needs both pagination layers, `bridgeWindowPagination(window, query)` is the
-canonical combiner. It reveals the scope window's already-synced rows first and calls the backing
-query's network `fetchNextPage()` only when the local window has no more rows. Its returned
-container and `fetchNextPage` closure are fresh on every render - destructure its fields and do
-not memoize on container identity.
+For a list that needs both pagination layers, a SCOPE-destination query ships the combiner built
+in: `queryHandle.useWindow(scope, { pageSize?, renderKeys?, require?, keepPrevious?, enabled?,
+loadMoreDebounceMs? })` returns the bridged surface (`WindowPaginationBridge`) directly - the
+scope window's already-synced rows first, the backing query's network `fetchNextPage()` only when
+the local window has no more rows - plus `loadMore()`, a trailing-debounced (default 160ms)
+list-footer advance guarded at fire time by `hasNextPage`/`isFetchingNextPage`. Wire `loadMore`
+straight into `onEndReached`.
+
+`bridgeWindowPagination(window, query)` remains the standalone combiner for windows the handle
+cannot own (e.g. a `Model.view(...).useWindow` over a different projection of the same data). Its
+returned container and `fetchNextPage` closure are fresh on every render - destructure its fields
+and do not memoize on container identity.
 
 ### Live subscription colocation
 

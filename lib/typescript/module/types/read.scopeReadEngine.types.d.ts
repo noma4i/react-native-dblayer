@@ -8,6 +8,12 @@ export type ScopeSortMeta = {
     field: string;
     dir: 'asc' | 'desc';
 } | {
+    kind: 'fields';
+    fields: ReadonlyArray<{
+        field: string;
+        dir: 'asc' | 'desc';
+    }>;
+} | {
     kind: 'comparator';
 };
 /** Scope read projection options plus scope-only flags: retention and required stored fields. */

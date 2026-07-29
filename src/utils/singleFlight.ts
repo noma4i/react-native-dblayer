@@ -20,6 +20,12 @@ export const createThrottledSingleFlight = <TArgs extends unknown[], TResult>(
 ): ((...args: TArgs) => Promise<TResult | undefined>) => {
   let inFlight: Promise<TResult | undefined> | null = null;
   let lastSuccessAt = 0;
+  if (options.resetOnRuntimeReset) {
+    registerReset(() => {
+      inFlight = null;
+      lastSuccessAt = 0;
+    });
+  }
 
   return (...args: TArgs): Promise<TResult | undefined> => {
     if (inFlight) return inFlight;

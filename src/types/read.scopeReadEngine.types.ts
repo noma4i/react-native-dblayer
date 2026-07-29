@@ -2,7 +2,11 @@ import type { RowRecord } from './db.types';
 import type { ProjectionOptions } from './read.projectionGate.types';
 
 /** How a scope orders its rows: authoritative server order, one stored field, or a comparator. */
-export type ScopeSortMeta = { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
+export type ScopeSortMeta =
+  | { kind: 'server-order' }
+  | { kind: 'field'; field: string; dir: 'asc' | 'desc' }
+  | { kind: 'fields'; fields: ReadonlyArray<{ field: string; dir: 'asc' | 'desc' }> }
+  | { kind: 'comparator' };
 
 /** Scope read projection options plus scope-only flags: retention and required stored fields. */
 export type ScopeProjectionOptions<TOutput extends Record<string, unknown>> = ProjectionOptions<RowRecord, TOutput> & { keepPrevious?: boolean; require?: ReadonlyArray<string> };

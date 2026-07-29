@@ -244,10 +244,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       append = deduplicateScopeEntriesById(append);
       const removal = new Set(detach);
       const base = removal.size > 0 ? previous.entries.filter(entry => !removal.has(entry.id)) : previous.entries;
-      const members = stagedScopes ? new Set(previous.entries.map(entry => entry.id)) : memberSets.get(key);
+      const members = stagedScopes ? new Set(previous.entries.map(entry => entry.id)) : (memberSets.get(key) ?? new Set(previous.entries.map(entry => entry.id)));
       const pureAppend =
         removal.size === 0 &&
-        append.every(entry => !members?.has(entry.id)) &&
+        append.every(entry => !members.has(entry.id)) &&
         (base.length === 0 || append.every(entry => compareCodepoints(entry.orderKey, base.at(-1)!.orderKey) > 0));
       const entries = pureAppend ? [...base, ...[...append].sort(compareEntries)] : mergeByKey(base, append);
       const next = { generation: previous.generation + 1, coverage: previous.coverage, entries };

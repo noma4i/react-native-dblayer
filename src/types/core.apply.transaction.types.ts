@@ -3,6 +3,7 @@ import type { JournalOp } from './core.apply.journal.types';
 import type { WriteOrigin } from './core.writePolicies.types';
 import type { StoredRow } from './core.relations.types';
 import type { OperationTransition } from './core.planes.operationState.types';
+import type { ScopeSortMeta } from './read.scopeReadEngine.types';
 
 declare const commitEnvelopeBrand: unique symbol;
 
@@ -39,7 +40,7 @@ export type ApplyTarget = {
   readScopeOrderRevision(scopeKey: string): number;
   readScopeGeneration(scopeKey: string): number;
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
-  scopeSortMeta(scopeKey: string): { kind: 'server-order' } | { kind: 'field'; field: string; dir: 'asc' | 'desc' } | { kind: 'comparator' };
+  scopeSortMeta(scopeKey: string): ScopeSortMeta;
   readAllScopeKeys(): string[];
   prepareUpsert(
     row: unknown,

@@ -91,4 +91,6 @@ export type ViewWindowResult<TItem> = {
   fetchNextPage: () => void;
   /** True only while rows belong to the previous scope key and the current key is unresolved. */
   isPreviousData: boolean;
+  /** True once the view's SOURCE scope has been reconciled at least once. Mirrors `ScopeWindowResult.resolved`, so a view window bridges into `bridgeWindowPagination` unchanged. */
+  resolved: boolean;
 };

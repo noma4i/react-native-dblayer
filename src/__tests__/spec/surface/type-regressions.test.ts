@@ -172,6 +172,40 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('types query data by destination: scope reads land as arrays, point model reads as one row', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, f, scope } from '${entry}';
+      type Row = { id: string; groupId: string; title: string };
+      const rows = defineModel({
+        id: 'query-data-typing',
+        name: 'QueryDataTyping',
+        fields: { id: f.id(), groupId: f.str(), title: f.str() },
+        scopes: { byGroup: scope<Row>({ by: { groupId: 'groupId' } }) }
+      });
+      const listQuery = rows.query<{ items: Row[] }, Record<string, never>, { groupId: string }, Row>('list', {
+        document: {} as never,
+        into: rows.scopes.byGroup,
+        page: data => ({ nodes: data.items })
+      });
+      const listData: Row[] = listQuery.use({ groupId: 'group-1' }).data;
+      void listData;
+      const pagedQuery = rows.query<{ items: Row[] }, { cursor?: string }, { groupId: string }, Row>('paged', {
+        document: {} as never,
+        page: data => ({ nodes: data.items })
+      });
+      const pagedData: Row[] = pagedQuery.use({ groupId: 'group-1' }).data;
+      void pagedData;
+      const pointQuery = rows.query<{ row: Row }, { id: string }, { id: string }, Row>('detail', {
+        document: {} as never,
+        vars: value => value,
+        select: data => data.row
+      });
+      const pointData: Row | undefined = pointQuery.use({ id: 'row-1' }).data;
+      void pointData;
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects the historical invalidate: true boolean on an ingest declaration', () => {
     const diagnostics = compileFixture(`
       import type { IngestDecl } from '${entry}';

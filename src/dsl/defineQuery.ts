@@ -17,8 +17,11 @@ import type {
   RequestState,
   ScopeDestination,
   ScopeHandle,
+  ScopeWindowResult,
   WriteOp
 } from '../types';
+import { bridgeWindowPagination } from './pagination';
+import { Debouncer } from '@tanstack/pacer';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { buildScopeKey } from '../core/compileDbWhere';
@@ -34,6 +37,7 @@ import { isQueryFresh } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { createGenerationFence } from '../utils/runtimeGeneration';
+import { fromNodes } from '../queries/base/connection';
 import { reportSyncError } from '../core/syncError';
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
@@ -65,10 +69,25 @@ const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown
   return [{ node: value, edgeSource: value }];
 };
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
+/** Fail fast at define time, then rewrite the `connection` shorthand into the one `page` seam - dense nodes, pageInfo passthrough. */
+const normalizeQueryConfig = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>): QueryConfig<TResponse, TVars, TScope, TStored> => {
+  const readConnection = config.connection;
+  if (!readConnection) return config;
+  if (config.page || config.select) throw new Error('defineQuery: connection is mutually exclusive with page/select');
+  return {
+    ...config,
+    connection: undefined,
+    page: data => {
+      const value = readConnection(data);
+      return { nodes: fromNodes(value as { nodes?: ReadonlyArray<unknown | null> } | null | undefined), pageInfo: value?.pageInfo };
+    }
+  };
+};
 /** Define a coordinator-owned GraphQL query: react-query drives freshness/single-flight/retry, results land through the store's write seams. */
 export const defineQuery = <TResponse, TVars, TScope, TStored>(
-  config: QueryConfig<TResponse, TVars, TScope, TStored>
+  rawConfig: QueryConfig<TResponse, TVars, TScope, TStored>
 ): QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope> => {
+  const config = normalizeQueryConfig(rawConfig);
   const keyName = operationKey(config.document, config.key);
   const registeredScopes = new Map<string, TScope>();
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
@@ -112,8 +131,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     resurrectDestroyed: boolean
   ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
-    const mapped = config.map ? config.map(selected) : selected;
-    const pairs = nodePairsOf(mapped);
+    const pairs = nodePairsOf(selected);
     const nodes = pairs.map(pair => pair.node);
     const ops: WriteOp[] = [];
     const rows = isScopeDestination(config.into) ? pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) })) : [];
@@ -124,7 +142,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const committedRows = isScopeDestination(config.into) ? rows.map(entry => entry.row) : nodes;
     const ids = committedRows.flatMap(row => (isRecord(row) && row.id != null ? [compositeKey(destinationModelId, String(row.id))] : []));
     const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false, count: nodes.length };
-    return { meta, ids, resultKind: config.page || Array.isArray(mapped) ? 'many' : 'one' };
+    return { meta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
@@ -226,7 +244,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (!generationFence.isCurrent()) return;
     setLocalState(key, { isPaused: false, isFetchingNextPage: false });
   };
-  const fetch = async (scope: TScope | null): Promise<void> => {
+  /** `requiredScope` gate: a nullish declared key means "this scope is not addressable yet" - identical to `scope: null`. */
+  const scopeGate = (scope: TScope | null): TScope | null =>
+    scope !== null && config.requiredScope?.some(key => (scope as Record<string, unknown>)[key] == null) ? null : scope;
+  const fetch = async (rawScope: TScope | null): Promise<void> => {
+    const scope = scopeGate(rawScope);
     if (!registerScope(scope)) return;
     await run(scope, { restart: true, propagateFailure: true });
   };
@@ -371,14 +393,47 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         const rows = destination.use.byIds(rowIds).rows;
         return state.resultKind === 'many' ? rows : rows[0];
       };
-  const use = (scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
+  const use = (rawScope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
+    const scope = scopeGate(rawScope);
     registerScope(scope);
     const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const state = useReader(scope, enabled, false, false);
     return buildResult(useDestinationRows(scope, state), enabled, state, scope);
   };
   const handle: QueryHandle<TStored, TScope> = { use, fetch, invalidate };
-  if (isScopeDestination(config.into)) return handle;
+  if (isScopeDestination(config.into)) {
+    const scopeHandle = config.into as ScopeDestination<TStored & { id: string }, TScope> as {
+      useWindow: (scope: TScope | null, opts: { pageSize?: number; renderKeys?: readonly string[]; require?: readonly string[]; keepPrevious?: boolean }) => ScopeWindowResult<TStored>;
+    };
+    const useWindow = (
+      rawScope: TScope | null,
+      options?: { pageSize?: number; renderKeys?: readonly string[]; require?: readonly string[]; keepPrevious?: boolean; enabled?: boolean; loadMoreDebounceMs?: number }
+    ) => {
+      const scope = scopeGate(rawScope);
+      registerScope(scope);
+      const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
+      const state = useReader(scope, enabled, false, false);
+      const window = scopeHandle.useWindow(scope, {
+        pageSize: options?.pageSize,
+        renderKeys: options?.renderKeys,
+        require: options?.require,
+        keepPrevious: options?.keepPrevious
+      });
+      const result = buildResult(window.rows as TStored[], enabled, state, scope);
+      const bridge = bridgeWindowPagination(window, result);
+      // Debounced list-footer advance: bursts collapse to one trailing call, guarded at fire time.
+      const advanceRef = useRef<() => void>(() => {});
+      advanceRef.current = () => {
+        if (bridge.hasNextPage && !bridge.isFetchingNextPage) bridge.fetchNextPage();
+      };
+      const debouncerRef = useRef<Debouncer<() => void> | null>(null);
+      debouncerRef.current ??= new Debouncer(() => advanceRef.current(), { wait: options?.loadMoreDebounceMs ?? 160 });
+      useEffect(() => () => debouncerRef.current?.cancel(), []);
+      const loadMore = useCallback(() => debouncerRef.current?.maybeExecute(), []);
+      return { ...bridge, loadMore };
+    };
+    return { ...handle, useWindow } as QueryHandle<TStored, TScope> & { useWindow: typeof useWindow };
+  }
   const destination = config.into as ModelDestination<TStored>;
   const useRowEnsured = (
     scope: TScope,

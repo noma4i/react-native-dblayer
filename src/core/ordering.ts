@@ -1,5 +1,8 @@
-import type { ClientSort, RowId } from '../types';
+import type { ClientSort, MultiFieldSort, RowId } from '../types';
 import { compareCodepoints, stableSerialize } from './serialize';
+
+/** Narrow a client sort spec to its declared key-list form (`Array.isArray` alone does not narrow `ReadonlyArray` unions). */
+export const isMultiFieldSort = <TStored>(sort: ClientSort<TStored>): sort is MultiFieldSort<TStored> => Array.isArray(sort);
 
 const isMissingOrderValue = (value: unknown): boolean =>
   value == null || (typeof value === 'number' && Number.isNaN(value)) || (value instanceof Date && Number.isNaN(value.getTime()));
@@ -59,8 +62,9 @@ export const createFieldOrderComparator = <TRow extends RowId & Record<string, u
     return 0;
   });
 
-/** Build the canonical comparator for a client-sorted scope. */
+/** Build the canonical comparator for a client-sorted scope: comparator, one field, or a declared key list. */
 export const compareRowsBySpec = <TRow extends RowId & Record<string, unknown>>(sort: ClientSort<TRow>): ((left: TRow, right: TRow) => number) => {
+  if (isMultiFieldSort(sort)) return createFieldOrderComparator(sort.map(order => ({ field: String(order.field), direction: order.dir })));
   if ('comparator' in sort) return withIdTieBreak(sort.comparator);
   return createFieldOrderComparator([{ field: String(sort.field), direction: sort.dir }]);
 };

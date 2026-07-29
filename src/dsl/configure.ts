@@ -13,7 +13,7 @@ import { createApplyRuntime } from '../core/apply/transaction';
 import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
-import { registerReset } from '../core/reset';
+import { registerReset, resetInMemoryRuntime } from '../core/reset';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
@@ -48,7 +48,11 @@ const STORAGE_PREFIX = 'dbl:';
  */
 export const configureDb = (options: ConfigureDbOptions): void => {
   advanceRuntimeGeneration();
-  resetStores();
+  resetInMemoryRuntime();
+  const declaredChunkSize = options.defaults?.resumeRefetch?.chunkSize;
+  if (declaredChunkSize !== undefined && (!Number.isInteger(declaredChunkSize) || declaredChunkSize <= 0)) {
+    throw new Error(`react-native-dblayer: defaults.resumeRefetch.chunkSize must be a positive integer, received ${declaredChunkSize}`);
+  }
   const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
   runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), dataVersion: options.dataVersion ?? null };
   applyRuntime = null;

@@ -9,9 +9,11 @@ export declare const defineModelMutation: <TData, TInput, TStored extends {
  * the same `run` path for both the hook and the direct call.
  *
  * @param config Document, result field, optional optimistic write, in-flight dedupe key, `once` retention, extract sinks, and lifecycle callbacks.
- * @returns `{ run, use }`. `run(input)` executes one mutation outside React, resolving to the non-null payload
- * at the declared `result` field, or `null` when dedupe skipped it. `use()` is a hook returning `{ mutate, mutateAsync, isPending, error }`,
- * where `mutate` fires-and-forgets with optional `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
+ * @returns `{ run, retry, discard, use }`. `run(input)` executes one mutation outside React, resolving to the non-null payload
+ * at the declared `result` field, or `null` when dedupe skipped it. `retry(operationId)` re-runs a FAILED optimistic
+ * operation from its persisted input; `discard(operationId)` drops a failed operation and its optimistic row. `use()` is a
+ * hook returning `{ mutate, mutateAsync, isPending, error }`, where `mutate` fires-and-forgets with optional
+ * `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
  */
 export declare const defineMutation: <TData, TInput, TStored extends {
     id: string;

@@ -8,5 +8,5 @@ import type { EnsuredRowQueryHandle, ExtractSink, QueryConfig, QueryHandle } fro
  */
 export declare const intoIf: (into: ExtractSink["into"], row: unknown) => ExtractSink[];
 /** Define a coordinator-owned GraphQL query: react-query drives freshness/single-flight/retry, results land through the store's write seams. */
-export declare const defineQuery: <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>) => QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope>;
+export declare const defineQuery: <TResponse, TVars, TScope, TStored>(rawConfig: QueryConfig<TResponse, TVars, TScope, TStored>) => QueryHandle<TStored, TScope> | EnsuredRowQueryHandle<TStored, TScope>;
 //# sourceMappingURL=defineQuery.d.ts.map

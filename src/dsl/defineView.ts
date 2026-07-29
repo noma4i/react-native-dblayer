@@ -267,6 +267,7 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
         totalCount: retained.snapshot.totalCount,
         hasMore: retained.snapshot.totalCount > size,
         isPreviousData: retained.isPreviousData,
+        resolved: snapshot.resolved,
         fetchNextPage: () => setState(current => (current.scopeKey === scopeKey ? { ...current, size: current.size + pageSize } : { scopeKey, size: pageSize + pageSize }))
       };
     }

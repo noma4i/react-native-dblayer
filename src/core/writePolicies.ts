@@ -81,9 +81,16 @@ const applyNestedKeys = (previousValue: unknown, incomingValue: unknown, policy:
   const result: Record<string, unknown> = { ...previousValue, ...incomingValue };
   for (const key of Object.keys(incomingValue)) {
     const keyPolicy = policy.keys[key] ?? policy.rest ?? 'server';
-    result[key] = applyNestedKeyPolicy(previousValue[key], incomingValue[key], keyPolicy);
+    const resolved = applyNestedKeyPolicy(previousValue[key], incomingValue[key], keyPolicy);
+    if (resolved === undefined) delete result[key];
+    else result[key] = resolved;
   }
   return result;
+};
+
+const restoreField = (effective: Record<string, unknown>, previous: Record<string, unknown>, field: string): void => {
+  if (field in previous) effective[field] = previous[field];
+  else delete effective[field];
 };
 
 const applyPolicy = (
@@ -96,7 +103,7 @@ const applyPolicy = (
 ): void => {
   if (policy === 'server') return;
   if (policy === 'continuity') {
-    for (const field of fields) if (field in effective && effective[field] == null) effective[field] = previous[field];
+    for (const field of fields) if (field in effective && effective[field] == null) restoreField(effective, previous, field);
     return;
   }
   if ('snapshot' in policy) {
@@ -111,7 +118,7 @@ const applyPolicy = (
   }
   if (!appliesMonotonic(policy, ctx.origin)) return;
   if (!acceptsMonotonic(policy.monotonic, fields, effective, previous, modelId)) {
-    for (const field of fields) effective[field] = previous[field];
+    for (const field of fields) restoreField(effective, previous, field);
   }
 };
 

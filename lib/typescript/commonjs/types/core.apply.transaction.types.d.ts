@@ -3,6 +3,7 @@ import type { JournalOp } from './core.apply.journal.types';
 import type { WriteOrigin } from './core.writePolicies.types';
 import type { StoredRow } from './core.relations.types';
 import type { OperationTransition } from './core.planes.operationState.types';
+import type { ScopeSortMeta } from './read.scopeReadEngine.types';
 declare const commitEnvelopeBrand: unique symbol;
 /** Complete write plan accepted by the sole runtime write entry point. */
 export type CommitEnvelope = {
@@ -47,15 +48,7 @@ export type ApplyTarget = {
     readScopeOrderRevision(scopeKey: string): number;
     readScopeGeneration(scopeKey: string): number;
     scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
-    scopeSortMeta(scopeKey: string): {
-        kind: 'server-order';
-    } | {
-        kind: 'field';
-        field: string;
-        dir: 'asc' | 'desc';
-    } | {
-        kind: 'comparator';
-    };
+    scopeSortMeta(scopeKey: string): ScopeSortMeta;
     readAllScopeKeys(): string[];
     prepareUpsert(row: unknown, previous: StoredRow | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: StoredRow, operationId?: string): PreparedRowWrite | null;
     preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string): PreparedRowWrite | null;

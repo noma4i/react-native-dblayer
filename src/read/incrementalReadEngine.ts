@@ -16,12 +16,17 @@ const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, sele
   const subscriptionRef = useRef<{ setDeps(next: ReadonlyArray<Dependency>): void; unsubscribe(): void } | null>(null);
   const applyRef = useRef(apply);
   const selectRef = useRef(select);
+  const depsRef = useRef(deps);
   applyRef.current = apply;
   selectRef.current = select;
+  depsRef.current = deps;
   const generation = getRuntimeGeneration();
   if (engineRef.current === null || engineRef.current.signature !== signature || engineRef.current.generation !== generation) {
     engineRef.current = create();
   }
+  // Subscription identity follows the engine identity (signature+generation), never the caller's
+  // deps array literal - dep CONTENT changes flow through the live subscription via setDeps below.
+  const engine = engineRef.current;
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       let changed = false;
@@ -29,10 +34,9 @@ const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, sele
         () => {
           if (notifyEveryBatch || changed) onStoreChange();
         },
-        deps,
+        depsRef.current,
         batch => {
-          const engine = engineRef.current;
-          changed = engine ? applyRef.current(engine, batch) : false;
+          changed = applyRef.current(engine, batch);
         }
       );
       subscriptionRef.current = subscription;
@@ -41,7 +45,7 @@ const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, sele
         subscription.unsubscribe();
       };
     },
-    [bus, deps, notifyEveryBatch]
+    [bus, engine, notifyEveryBatch]
   );
 
   useEffect(() => {

@@ -181,6 +181,7 @@ see [reading.md](./reading.md).
 | `generateTempId`              | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `isTempId`                    | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `stringifyNullish`            | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
+| `readId`                      | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `pickDefined`                 | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 | `pickPresent`                 | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
 

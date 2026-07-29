@@ -10,13 +10,19 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
     const key = compositeKey(model, scopeKey);
     const current = scopeChanges.get(key) ?? { model, scopeKey };
+    if (change.entries) {
+      // A full entry set is the authoritative snapshot at this point of the op sequence: delta
+      // state accumulated BEFORE it is already contained in (or superseded by) the snapshot.
+      scopeChanges.set(key, { model, scopeKey, entries: change.entries, upserts: undefined, detachIds: undefined });
+      return;
+    }
     const mergeUpserts = (left?: Array<{ id: string; orderKey: string }>, right?: Array<{ id: string; orderKey: string }>) => {
       if (!left && !right) return undefined;
       return uniqBy([...(right ?? []), ...(left ?? [])], entry => entry.id);
     };
     scopeChanges.set(key, {
       ...current,
-      entries: change.entries ?? current.entries,
+      entries: current.entries,
       upserts: mergeUpserts(current.upserts, change.upserts),
       detachIds: current.detachIds || change.detachIds ? uniq([...(current.detachIds ?? []), ...(change.detachIds ?? [])]) : undefined
     });

@@ -1,4 +1,6 @@
-import { belongsTo, defineModel, f, hasOne, references, scope } from '../../../index';
+import { belongsTo, bridgeWindowPagination, defineModel, f, hasOne, references, scope } from '../../../index';
+import type { LoadingState } from '../../../index';
+import { act } from 'react';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type UserRow = { id: string; name: string; role?: string };
@@ -151,6 +153,30 @@ describe('view include contracts', () => {
     const reader = renderCounted(() => view.use({ inboxId: 'main' } as never));
 
     expect(reader.result()).toEqual([{ id: 'chat-1', latest: expect.objectContaining({ id: 'msg-1' }) }]);
+    reader.unmount();
+  });
+
+  it('mirrors source-scope resolution on the view window and bridges into window pagination', () => {
+    const { chats } = createViewModels('WindowResolved');
+    const view = chats.view<{ id: string }>('windowResolved', { source: 'list', include: {}, select: row => ({ id: row.id }) });
+
+    const reader = renderCounted(() => view.useWindow({ inboxId: 'main' } as never));
+    expect(reader.result().resolved).toBe(false);
+
+    act(() => {
+      chats.scopes.list.seed({ inboxId: 'main' }, [{ id: 'chat-1', inboxId: 'main', authorId: 'user-1', pinnedMessageId: '' }]);
+    });
+    expect(reader.result().resolved).toBe(true);
+
+    const bridge = bridgeWindowPagination(reader.result(), {
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: () => {},
+      loadingState: { hasData: true } as LoadingState,
+      error: null
+    });
+    expect(bridge.resolved).toBe(true);
+    expect(bridge.rows).toEqual([{ id: 'chat-1' }]);
     reader.unmount();
   });
 });

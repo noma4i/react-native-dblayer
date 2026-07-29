@@ -1,6 +1,7 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f, scope } from '../../../index';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getInternalModelHandle } from '../../../core/internalHandles';
+import { compositeKey } from '../../../core/serialize';
 import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -115,5 +116,30 @@ describe('commit-envelope planning purity', () => {
         detach: []
       }
     ]);
+  });
+
+  it('assigns unique order keys to sorted-scope appends whose rows are not yet resolvable', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineModel({
+      id: 'CommitEnvelopePlanningPlacement',
+      name: 'CommitEnvelopePlanningPlacement',
+      fields: { rank: f.num() },
+      scopes: { list: scope({ sort: { field: 'rank', dir: 'asc' } }) }
+    });
+
+    const envelope = createCommitEnvelope([
+      {
+        kind: 'scope-delta',
+        model: rows.modelId,
+        scopeKey: compositeKey('list', '{}'),
+        append: [{ id: 'ghost-a' }, { id: 'ghost-b' }, { id: 'ghost-c' }],
+        detach: []
+      }
+    ]);
+
+    const delta = envelope.scopeOps.find(op => op.kind === 'scope-delta');
+    const orderKeys = delta && delta.kind === 'scope-delta' ? delta.append.map(entry => entry.orderKey) : [];
+    expect(orderKeys).toHaveLength(3);
+    expect(new Set(orderKeys).size).toBe(3);
   });
 });

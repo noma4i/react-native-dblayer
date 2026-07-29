@@ -10,7 +10,7 @@ import type { CommandConfig } from '../types';
  *
  * @param name Stable command namespace used by the default dedupe key.
  * @param config Mutation document, response result field, optional dedupe/once policy, mapping/extract, and lifecycle callbacks.
- * @returns The same `{ run, use }` surface as `defineMutation`.
+ * @returns The same `{ run, retry, discard, use }` surface as `defineMutation`.
  */
 export const defineCommand = <TData, TInput, TStored extends { id: string } = { id: string }, TNode = TStored>(
   name: string,

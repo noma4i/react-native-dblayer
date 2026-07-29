@@ -47,6 +47,51 @@ describe('v9 model-owned write policies', () => {
     expect(rows.find('row-1')).toMatchObject({ updatedAt: '2026-08-01T00:00:00Z', body: 'newer' });
   });
 
+  it('restores a field the previous row never had by omission on monotonic rejection', () => {
+    const rows = defineModel({
+      id: 'V9RejectMissingField',
+      name: 'V9RejectMissingField',
+      fields: { updatedAt: f.str(), body: f.str().optional(), label: f.str() },
+      write: { groups: [{ fields: ['updatedAt', 'body'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
+    });
+    rows.insert({ id: 'row-1', updatedAt: '2026-07-01T00:00:00Z', label: 'first' });
+    rows.insert({ id: 'row-1', updatedAt: '2026-06-01T00:00:00Z', body: 'older', label: 'second' });
+
+    const row = rows.find('row-1')!;
+    expect(row.label).toBe('second');
+    expect('body' in row).toBe(false);
+  });
+
+  it('restores a field the previous row never had by omission under continuity', () => {
+    const rows = defineModel({
+      id: 'V9ContinuityMissingField',
+      name: 'V9ContinuityMissingField',
+      fields: { body: f.str().nullable().optional(), label: f.str() },
+      write: { groups: [{ fields: ['body'] as const, policy: 'continuity' }] }
+    });
+    rows.insert({ id: 'row-1', label: 'first' });
+    rows.insert({ id: 'row-1', body: null, label: 'second' });
+
+    const row = rows.find('row-1')!;
+    expect(row.label).toBe('second');
+    expect('body' in row).toBe(false);
+  });
+
+  it('restores a nested key the previous object never had by omission under a nested continuity policy', () => {
+    const rows = defineModel({
+      id: 'V9NestedMissingKey',
+      name: 'V9NestedMissingKey',
+      fields: { meta: f.raw<Record<string, unknown>>() },
+      write: { groups: [{ fields: ['meta'] as const, policy: { keys: { count: 'continuity' } } }] }
+    });
+    rows.insert({ id: 'row-1', meta: { other: 1 } });
+    rows.insert({ id: 'row-1', meta: { other: 2, count: null } });
+
+    const meta = rows.find('row-1')!.meta as Record<string, unknown>;
+    expect(meta.other).toBe(2);
+    expect('count' in meta).toBe(false);
+  });
+
   it('accepts both-missing newerBy values but rejects an unparseable incoming value against a valid one', () => {
     const rows = defineModel({
       id: 'V9NewerByMissing',

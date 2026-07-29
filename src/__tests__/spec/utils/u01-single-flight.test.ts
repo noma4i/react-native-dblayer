@@ -1,4 +1,4 @@
-import { createSingleFlight, configureDb, resetRuntime } from '../../../index';
+import { createSingleFlight, createThrottledSingleFlight, configureDb, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 const deferred = <TResult>() => {
@@ -103,5 +103,24 @@ describe('createSingleFlight', () => {
 
     flight.resolve(7);
     await expect(first).resolves.toBe(7);
+  });
+});
+
+describe('createThrottledSingleFlight', () => {
+  it('resetOnRuntimeReset: a runtime reset clears the throttle window and the in-flight slot', async () => {
+    const storage = createMemoryPlane();
+    const transport = createMockTransport();
+    configureDb({ storage, transport });
+
+    const fn = jest.fn(() => Promise.resolve('value'));
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 60_000, resetOnRuntimeReset: true });
+
+    await expect(throttled()).resolves.toBe('value');
+    await expect(throttled()).resolves.toBeUndefined();
+
+    resetRuntime();
+
+    await expect(throttled()).resolves.toBe('value');
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

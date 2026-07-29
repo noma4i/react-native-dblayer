@@ -154,6 +154,24 @@ describe('createDbSubscriptionEffects', () => {
     table.onPing('b');
     expect(seen).toEqual(['a']);
   });
+
+  it('keeps ingest effect names resolvable after the channel resets to noop', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const channel = createDbSubscriptionEffects({ onEchoResolvable: (_payload: unknown) => {} });
+    const rows = defineModel({ id: 'EffectsResetResolvable', name: 'EffectsResetResolvable', fields: { label: f.str() } });
+    const ingest = rows.ingest({ evt: { payload: data => data, effect: { name: 'onEchoResolvable', when: 'before' } } });
+    const seen: unknown[] = [];
+
+    channel.reset();
+    channel.configure({
+      onEchoResolvable: payload => {
+        seen.push(payload);
+      }
+    });
+    ingest.apply('evt', { id: 'x' });
+
+    expect(seen).toEqual([{ id: 'x' }]);
+  });
 });
 
 describe('defineDbSubscriptionEntry', () => {

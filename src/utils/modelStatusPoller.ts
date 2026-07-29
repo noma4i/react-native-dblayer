@@ -2,7 +2,6 @@ import { union } from 'es-toolkit';
 import { useCallback, useSyncExternalStore } from 'react';
 import { getDbLogger } from '../core/logger';
 import { registerReset } from '../core/reset';
-import { createGenerationFence } from './runtimeGeneration';
 import { createSingleFlight } from './singleFlight';
 
 import type { ModelStatusPoller, ModelStatusPollerConfig, ModelStatusPollerPhase, ModelStatusPollerStopReason, PollerSession } from '../types';
@@ -23,12 +22,6 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   const sessions = new Map<string, PollerSession>();
   const snapshots = new Map<string, ModelStatusPollerPhase>();
   const subscribers = new Map<string, Set<() => void>>();
-  const generationFence = createGenerationFence({ lazy: true });
-  const isCurrentGeneration = (): boolean => generationFence.isCurrent();
-  const beginGeneration = (): boolean => {
-    generationFence.captureNow();
-    return true;
-  };
 
   const emit = (id: string): void => {
     for (const subscriber of subscribers.get(id) ?? []) {
@@ -109,15 +102,17 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     setSnapshot(id, { phase: 'polling', attempts: session.attempts });
     try {
       const result = await config.fetch(id);
-      if (!isCurrentGeneration() || sessions.get(id) !== session) return;
+      // Session identity is the staleness gate: reset/detach clears `sessions`, so a fetch that
+      // resolves after either can never touch a session it no longer owns.
+      if (sessions.get(id) !== session) return;
       config.apply(id, result);
-      if (!isCurrentGeneration() || sessions.get(id) !== session) return;
+      if (sessions.get(id) !== session) return;
       const classification = config.classify?.(result) ?? null;
       if (classification) stopTerminal(id, session, classification);
     } catch (error) {
       getDbLogger().error('ModelStatusPoller', 'fetch failed', { id, attempts: session.attempts, error });
     } finally {
-      if (!isCurrentGeneration() || sessions.get(id) !== session) return;
+      if (sessions.get(id) !== session) return;
       if (session.phase === 'polling' && session.attempts >= config.maxAttempts) {
         stopTerminal(id, session, 'stalled');
       } else if (session.phase === 'polling' && session.refs === 0) {
@@ -126,10 +121,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     }
   };
 
-  const tickSession = (session: PollerSession): Promise<void> => {
-    if (!isCurrentGeneration()) return Promise.resolve();
-    return session.runTick();
-  };
+  const tickSession = (session: PollerSession): Promise<void> => session.runTick();
 
   const ensurePolling = (session: PollerSession): void => {
     if (session.refs <= 0 || session.phase !== 'polling' || session.intervalId) return;
@@ -161,7 +153,6 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
 
   return {
     attach(id) {
-      if (!beginGeneration()) return () => {};
       const session = getOrCreateSession(id);
       if (session.phase === 'idle') setPolling(id, session);
       session.refs += 1;
@@ -177,7 +168,6 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
     },
     subscribe,
     async refresh(id, options) {
-      if (!beginGeneration()) return;
       const session = getOrCreateSession(id);
       if (options?.resetBudget) {
         session.attempts = 0;

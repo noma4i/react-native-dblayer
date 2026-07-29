@@ -134,7 +134,7 @@ generation's retry policy.
 
 | Variant | Shape                                                                                                          | Behavior                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, existingTempId?, failure?, onFailurePatch?, onRetryPatch?, prependTo?, appendTo? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit. Its default failure policy retains the row for retry; `failure: 'rollback'` removes it. Field continuity and merge semantics are model-owned through `write.groups`. |
+| Insert  | `{ model, build, selectServerNode, tempIdPrefix?, existingTempId?, failure?, onFailurePatch?, onRetryPatch?, prependTo?, appendTo?, correlate? }` | Writes a temp row immediately (id from `generateTempId(tempIdPrefix)`), then replaces it with the server node on commit. Its default failure policy retains the row for retry; `failure: 'rollback'` removes it. Field continuity and merge semantics are model-owned through `write.groups`. |
 | Respond | `{ model, selectServerNode, respond, prependTo?, appendTo? }`                                                  | Fabricates a full transport-shaped response and runs it through the exact same plan builder as the real one - see Respond variant below.                                                                                                                                                                                                                                                              |
 | Patch   | `{ method: 'patch', model, selectId, selectPatch }`                                                            | Applies a partial update immediately, restoring the previous field values on error.                                                                                                                                                                                                                                                                                                                   |
 | Destroy | `{ method: 'destroy', model, selectId }`                                                                       | Removes the row immediately, restoring it (and its scope memberships) on error. **Throws at run time** if the model declares a `hasMany` `dependent: 'destroy'` cascade (see [models.md](./models.md#relations)) - a cascaded destroy cannot be rolled back.                                                                                                                                          |
@@ -142,6 +142,17 @@ generation's retry policy.
 **Temp-id -> server replace.** On a successful insert commit, `selectServerNode(data)` picks the
 server-created node; the temp row is replaced by it in the same transaction as any `extract` sinks.
 Field continuity and merge semantics are model-owned through `write.groups`; commit performs only the temp-id replacement and extract sinks.
+
+**Cross-channel correlation: `optimistic.correlate`.** Manual reconciliation of optimistic and
+server rows is forbidden - an insert mutation whose row can ALSO arrive through another write
+channel (a query landing, another mutation's `extract` sink, ingest, seed) declares
+`correlate: { fields, match?, createdAtWindowMs? }` instead. When any channel plans a server row
+that is not in the store yet, the core matches it against this mutation's still-open temp rows
+(candidates come from the durable operation ledger) and plans a temp-id REPLACE instead of a
+duplicate insert. `fields` compare candidate/incoming values with `Object.is`; `match` narrows
+candidates further; `createdAtWindowMs` rejects candidates whose `createdAt` distance exceeds the
+window. Declarative and opt-in: without a declaration no channel correlates, because a false merge
+silently poisons row identity.
 
 ### Failure handling
 

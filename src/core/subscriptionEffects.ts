@@ -29,21 +29,18 @@ export const createSubscriptionEffects = <TEffects extends Record<keyof TEffects
     };
     effects[key] = effect as TEffects[keyof TEffects];
   }
-  const unregisterEffects = Object.entries(effects).map(([name, effect]) =>
-    effectsRegistry.register(name, effect as (...args: never[]) => void, `subscription effect already registered: ${name}`)
-  );
-  const unregisterNames = (): void => {
-    for (const unregister of unregisterEffects) unregister();
-  };
+  for (const [name, effect] of Object.entries(effects)) {
+    effectsRegistry.register(name, effect as (...args: never[]) => void, `subscription effect already registered: ${name}`);
+  }
 
   return {
     effects,
     configure: overrides => {
       activeEffects = { ...noopEffects, ...overrides } as TEffects;
     },
+    /** Restores noop implementations; registry names stay registered - the channel identity outlives resets. */
     reset: () => {
       activeEffects = noopEffects;
-      unregisterNames();
     }
   };
 };

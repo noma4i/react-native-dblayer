@@ -36,6 +36,23 @@ describe('model store', () => {
     }
   });
 
+  it('keeps a snapshot read from retaining a live scope collection', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-1' });
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+    store.markReady();
+    const collections = (globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ as { count(): number };
+    const before = collections.count();
+
+    expect(store.scopeCollection('scope-1').toArray()).toMatchObject([{ id: 'row-1' }]);
+    expect(collections.count()).toBe(before);
+
+    const release = store.scopeCollection('scope-1').subscribe(() => undefined);
+    expect(collections.count()).toBe(before + 1);
+    release();
+    expect(collections.count()).toBe(before);
+  });
+
   it('lands an inserted row into a live scope as one delta change at 300 and 3000 rows', () => {
     const measure = (size: number): { changes: number; position: number } => {
       const store = buildStore();

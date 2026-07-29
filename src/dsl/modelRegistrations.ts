@@ -1,4 +1,5 @@
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
+import { isMultiFieldSort } from '../core/ordering';
 import { registerGcHost } from '../core/gc';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerKeyedReset } from '../core/reset';
@@ -20,7 +21,15 @@ export const registerModelSchemaAndGc = <TStored extends { id: string } & Record
     scopes: Object.fromEntries(
       Object.entries(options.scopes ?? {}).map(([name, spec]) => {
         const by = spec.by ? Object.fromEntries(Object.entries(spec.by).map(([scopeField, rowField]) => [scopeField, String(rowField)])) : null;
-        const sort = spec.member ? 'member' : !spec.sort || spec.sort === 'server-order' ? 'server-order' : 'field' in spec.sort ? `field:${String(spec.sort.field)}:${spec.sort.dir}` : 'comparator';
+        const sort = spec.member
+          ? 'member'
+          : !spec.sort || spec.sort === 'server-order'
+            ? 'server-order'
+            : isMultiFieldSort(spec.sort)
+              ? spec.sort.map(order => `field:${String(order.field)}:${order.dir}`).join('+')
+              : 'field' in spec.sort
+                ? `field:${String(spec.sort.field)}:${spec.sort.dir}`
+                : 'comparator';
         return [name, { by, sort }];
       })
     )

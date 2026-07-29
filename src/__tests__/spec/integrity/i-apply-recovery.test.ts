@@ -176,4 +176,29 @@ describe('post-WAL apply recovery', () => {
       unsubscribe();
     }
   });
+
+  it('replays every pending record even when txIds collide across process lifetimes', () => {
+    const { second } = createModels();
+    const journal = createJournal(storage, () => 'dbl:');
+    storage.set([
+      ...journal.pendingEntry({
+        txId: '1:1',
+        runtimeEpoch: 1,
+        epoch: 1,
+        status: 'pending',
+        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-a', label: 'a' }] }]
+      }),
+      ...journal.pendingEntry({
+        txId: '1:1',
+        runtimeEpoch: 1,
+        epoch: 2,
+        status: 'pending',
+        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-b', label: 'b' }] }]
+      })
+    ]);
+
+    expect(getApplyRuntime().replay()).toBe(2);
+    expect(second.find('boot-a')).toMatchObject({ label: 'a' });
+    expect(second.find('boot-b')).toMatchObject({ label: 'b' });
+  });
 });
