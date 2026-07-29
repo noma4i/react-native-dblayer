@@ -88,4 +88,32 @@ describe('commit-envelope planning purity', () => {
 
     expect(plan.some(op => op.kind === 'destroy' && op.ids.includes(tempId))).toBe(false);
   });
+
+  it('deduplicates scope-delta members before the commit envelope reaches WAL', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineRows('ScopeDeltaDedup');
+
+    const envelope = createCommitEnvelope([
+      {
+        kind: 'scope-delta',
+        model: rows.modelId,
+        scopeKey: 'scope-1',
+        append: [
+          { id: 'row-1', orderKey: 'V', edge: { label: 'first' } },
+          { id: 'row-1', orderKey: 'W', edge: { label: 'last' } }
+        ],
+        detach: []
+      }
+    ]);
+
+    expect(envelope.scopeOps).toEqual([
+      {
+        kind: 'scope-delta',
+        model: rows.modelId,
+        scopeKey: 'scope-1',
+        append: [{ id: 'row-1', orderKey: 'W', edge: { label: 'last' } }],
+        detach: []
+      }
+    ]);
+  });
 });

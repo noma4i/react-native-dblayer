@@ -5,6 +5,12 @@ export declare const toTimestamp: (value: TimestampInput) => number;
 export declare const isRecord: (value: unknown) => value is Record<string, unknown>;
 /** Narrow a value to a non-null, non-array record. */
 export declare const isNonArrayRecord: (value: unknown) => value is Record<string, unknown>;
+/** Narrow a value to a non-empty string. */
+export declare const isNonEmptyString: (value: unknown) => value is string;
+/** Narrow a value to a non-negative safe integer. */
+export declare const isNonNegativeSafeInteger: (value: unknown) => value is number;
+/** Narrow a value to a positive safe integer. */
+export declare const isPositiveSafeInteger: (value: unknown) => value is number;
 /**
  * Convert a value to string via `String(v)` while preserving explicit `null`/`undefined` as-is (they are
  * not stringified to `"null"`/`"undefined"`). Note this does not filter empty strings - `stringifyNullish('')` is `''`.

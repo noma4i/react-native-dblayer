@@ -33,6 +33,17 @@ const encodeRecord = (record: JournalRecord): string =>
     ops: record.ops.map(op => versionPersistenceValue(op))
   });
 
+const encodePersistedRecord = (overrides: Record<string, unknown> = {}): string => {
+  const record = pendingRecord(1);
+  return encodePersistence({
+    ...record,
+    ops: record.ops.map(op => versionPersistenceValue(op)),
+    ...overrides
+  });
+};
+
+const encodePersistedOp = (payload: unknown): string => encodePersistedRecord({ ops: [versionPersistenceValue(payload)] });
+
 describe('journal corruption policy', () => {
   it('writes a versioned checksummed envelope around every journal record', () => {
     const { journal } = setup();
@@ -108,8 +119,43 @@ describe('journal corruption policy', () => {
     ]);
     expect(readJournalRecord(storage, PREFIX, `${PREFIX}journal:2`)).toBeNull();
 
-    const losses = diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'journal-corruption-loss');
+    const losses = diagnostics()
+      .snapshot()
+      .dataLossEvents.filter(event => event.mechanism === 'journal-corruption-loss');
     expect(losses).toHaveLength(2);
+    expect(
+      diagnostics()
+        .snapshot()
+        .dataLossEvents.filter(event => event.mechanism === 'corrupt-checkpoint-meta')
+    ).toHaveLength(2);
+    expect(storage.get(`${PREFIX}meta`)).toBeUndefined();
+  });
+
+  it.each([-1, 1.5])('rejects an invalid checkpoint epoch and classifies newer WAL corruption as loss: %s', invalidEpoch => {
+    const { storage } = setup();
+    storage.set([
+      { key: `${PREFIX}meta`, value: encodePersistence({ lastCheckpointEpoch: invalidEpoch }) },
+      { key: `${PREFIX}journal:1`, value: '{corrupt' }
+    ]);
+
+    expect(readJournalRecord(storage, PREFIX, `${PREFIX}journal:1`)).toBeNull();
+    expect(storage.get(`${PREFIX}meta`)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-checkpoint-meta', model: '__runtime__', count: 1 });
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-loss', model: '__runtime__', count: 1 });
+  });
+
+  it('preserves an unsupported checkpoint metadata version and the WAL record it prevents classifying', () => {
+    const { storage } = setup();
+    const metaKey = `${PREFIX}meta`;
+    const journalKey = `${PREFIX}journal:1`;
+    storage.set([
+      { key: metaKey, value: encodePersistence({ lastCheckpointEpoch: 1 }, 2) },
+      { key: journalKey, value: '{corrupt' }
+    ]);
+
+    expect(() => readJournalRecord(storage, PREFIX, journalKey)).toThrow('Unsupported persistence schema version 2');
+    expect(storage.get(metaKey)).toBeDefined();
+    expect(storage.get(journalKey)).toBeDefined();
   });
 
   it('routes parseable JSON of the wrong record shape through the same corruption policy', () => {
@@ -130,8 +176,148 @@ describe('journal corruption policy', () => {
       expect(readJournalRecord(storage, PREFIX, journalKey)).toBeNull();
       expect(storage.get(journalKey)).toBeUndefined();
     }
-    const losses = diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'journal-corruption-loss');
+    const losses = diagnostics()
+      .snapshot()
+      .dataLossEvents.filter(event => event.mechanism === 'journal-corruption-loss');
     expect(losses).toHaveLength(malformed.length);
+  });
+
+  it.each([
+    ['empty transaction id', { txId: '' }],
+    ['zero runtime epoch', { runtimeEpoch: 0 }],
+    ['fractional runtime epoch', { runtimeEpoch: 1.5 }],
+    ['zero journal epoch', { epoch: 0 }],
+    ['fractional journal epoch', { epoch: 1.5 }]
+  ])('rejects a semantically invalid record envelope: %s', (_label, override) => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:1`;
+    storage.set([{ key, value: encodePersistedRecord(override) }]);
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(storage.get(key)).toBeUndefined();
+  });
+
+  it.each([
+    ['empty model', { kind: 'upsert', model: '', rows: [{ id: 'row-1' }] }],
+    ['empty row id', { kind: 'upsert', model: 'M', rows: [{ id: '' }] }],
+    ['invalid replace origin', { kind: 'upsert', model: 'M', rows: [{ id: 'row-1' }], origin: 'sideways' }],
+    ['empty destroy id', { kind: 'destroy', model: 'M', ids: [''] }],
+    ['invalid tombstone flag', { kind: 'destroy', model: 'M', ids: ['row-1'], tombstone: 'yes' }],
+    ['invalid destroy origin', { kind: 'destroy', model: 'M', ids: ['row-1'], origin: 'sideways' }],
+    ['empty scope key', { kind: 'scope', model: 'M', scopeKey: '', next: { generation: 1, coverage: 'complete', entries: [] } }],
+    ['missing scope generation', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { coverage: 'complete', entries: [] } }],
+    ['fractional scope generation', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1.5, coverage: 'complete', entries: [] } }],
+    ['invalid scope coverage', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'all', entries: [] } }],
+    ['missing scope order key', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1' }] } }],
+    ['invalid scope edge', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V', edge: [] }] } }],
+    ['invalid scope order alphabet', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V!' }] } }],
+    ['non-fractional scope order tail', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V0' }] } }],
+    [
+      'duplicate scope member id',
+      {
+        kind: 'scope',
+        model: 'M',
+        scopeKey: 'feed',
+        next: {
+          generation: 1,
+          coverage: 'complete',
+          entries: [
+            { id: 'row-1', orderKey: 'V' },
+            { id: 'row-1', orderKey: 'W' }
+          ]
+        }
+      }
+    ],
+    [
+      'duplicate scope order key',
+      {
+        kind: 'scope',
+        model: 'M',
+        scopeKey: 'feed',
+        next: {
+          generation: 1,
+          coverage: 'complete',
+          entries: [
+            { id: 'row-1', orderKey: 'V' },
+            { id: 'row-2', orderKey: 'V' }
+          ]
+        }
+      }
+    ],
+    [
+      'non-canonical scope entry order',
+      {
+        kind: 'scope',
+        model: 'M',
+        scopeKey: 'feed',
+        next: {
+          generation: 1,
+          coverage: 'complete',
+          entries: [
+            { id: 'row-2', orderKey: 'W' },
+            { id: 'row-1', orderKey: 'V' }
+          ]
+        }
+      }
+    ],
+    ['unresolved scope with members', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 0, coverage: 'delta', entries: [{ id: 'row-1', orderKey: 'V' }] } }],
+    ['unresolved complete scope', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 0, coverage: 'complete', entries: [] } }],
+    ['empty scope-delta key', { kind: 'scope-delta', model: 'M', scopeKey: '', append: [], detach: [] }],
+    ['missing appended order key', { kind: 'scope-delta', model: 'M', scopeKey: 'feed', append: [{ id: 'row-1' }], detach: [] }],
+    ['invalid appended order key', { kind: 'scope-delta', model: 'M', scopeKey: 'feed', append: [{ id: 'row-1', orderKey: '!' }], detach: [] }],
+    [
+      'duplicate appended id',
+      {
+        kind: 'scope-delta',
+        model: 'M',
+        scopeKey: 'feed',
+        append: [
+          { id: 'row-1', orderKey: 'V' },
+          { id: 'row-1', orderKey: 'W' }
+        ],
+        detach: []
+      }
+    ],
+    [
+      'duplicate appended order key',
+      {
+        kind: 'scope-delta',
+        model: 'M',
+        scopeKey: 'feed',
+        append: [
+          { id: 'row-1', orderKey: 'V' },
+          { id: 'row-2', orderKey: 'V' }
+        ],
+        detach: []
+      }
+    ],
+    ['invalid appended edge', { kind: 'scope-delta', model: 'M', scopeKey: 'feed', append: [{ id: 'row-1', orderKey: 'V', edge: [] }], detach: [] }],
+    ['empty detached id', { kind: 'scope-delta', model: 'M', scopeKey: 'feed', append: [], detach: [''] }]
+  ])('rejects a semantically invalid journal operation: %s', (_label, operation) => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:1`;
+    storage.set([{ key, value: encodePersistedOp(operation) }]);
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(storage.get(key)).toBeUndefined();
+  });
+
+  it.each(['not-an-epoch', '0', '1.5', '2'])('rejects a WAL storage key that does not identify the payload epoch: %s', keyEpoch => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:${keyEpoch}`;
+    storage.set([{ key, value: encodePersistedRecord() }]);
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(storage.get(key)).toBeUndefined();
+  });
+
+  it('refuses an unsupported nested operation schema version without deleting the record', () => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:1`;
+    storage.set([{ key, value: encodePersistedRecord({ ops: [versionPersistenceValue({ kind: 'upsert', model: 'M', rows: [{ id: 'row-1' }] }, 2)] }) }]);
+
+    expect(() => readJournalRecord(storage, PREFIX, key)).toThrow('Unsupported persistence schema version 2');
+    expect(storage.get(key)).toBeDefined();
   });
 
   it('reads valid pending and committed records untouched', () => {

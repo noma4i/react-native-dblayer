@@ -1,5 +1,5 @@
 import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
-import { compositeKey, compositeStorageKey, stableSerialize } from './serialize';
+import { compositeKey, compositeStorageKey, parseCompositeKey, stableSerialize } from './serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
 import type {
   IncrementalCommitBatch,
@@ -15,7 +15,7 @@ import type {
   WriteCtx
 } from '../types';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
-import { isRecord } from '../utils/normalizeHelpers';
+import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../utils/normalizeHelpers';
 
 class SyncFeed<T extends object> {
   private methods: StoreSyncMethods<T> | null = null;
@@ -88,9 +88,9 @@ const diffTopLevelFields = (previous: RowRecord, next: RowRecord): string[] => {
 
 const DELETED = Symbol('store-row-deleted');
 
-const isStoredRow = (value: unknown): value is RowRecord => isRecord(value) && typeof value.id === 'string';
+const isStoredRow = (value: unknown): value is RowRecord => isNonArrayRecord(value) && isNonEmptyString(value.id);
 const isTombstoneRecord = (value: unknown): value is Record<string, Tombstone> =>
-  isRecord(value) && Object.values(value).every(tombstone => isRecord(tombstone) && typeof tombstone.at === 'number');
+  isNonArrayRecord(value) && Object.entries(value).every(([id, tombstone]) => isNonEmptyString(id) && isNonArrayRecord(tombstone) && isNonNegativeSafeInteger(tombstone.at));
 
 /** Store factories are a definition registry (registered at defineModel time, replaced per generation); active stores die on reset. */
 const storeFactories = new Map<string, () => ModelStore<RowRecord>>();
@@ -534,7 +534,9 @@ export const createModelStore = <T extends RowRecord>(options: {
         const raw = storage.get(fullKey);
         if (!raw) continue;
         const row = decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isStoredRow);
-        if (row) {
+        const keyParts = parseCompositeKey(fullKey.slice(rowsPrefix().length));
+        const keyId = keyParts?.length === 1 ? keyParts[0] : undefined;
+        if (row && keyId === row.id) {
           loaded.push(row);
         } else {
           storage.set([{ key: fullKey, value: null }]);

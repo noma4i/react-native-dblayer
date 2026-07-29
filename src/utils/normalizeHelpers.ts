@@ -15,6 +15,15 @@ export const isRecord = (value: unknown): value is Record<string, unknown> => ty
 /** Narrow a value to a non-null, non-array record. */
 export const isNonArrayRecord = (value: unknown): value is Record<string, unknown> => isPlainObject(value);
 
+/** Narrow a value to a non-empty string. */
+export const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+
+/** Narrow a value to a non-negative safe integer. */
+export const isNonNegativeSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+/** Narrow a value to a positive safe integer. */
+export const isPositiveSafeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
 /**
  * Convert a value to string via `String(v)` while preserving explicit `null`/`undefined` as-is (they are
  * not stringified to `"null"`/`"undefined"`). Note this does not filter empty strings - `stringifyNullish('')` is `''`.

@@ -10,6 +10,8 @@ export type DataLossMechanism =
   | 'corrupt-row'
   | 'corrupt-tombstones'
   | 'corrupt-scope'
+  | 'corrupt-applied-epoch'
+  | 'corrupt-checkpoint-meta'
   | 'failed-input-unserializable'
   | 'detached-operation-discard'
   | 'detached-operation-rollback'

@@ -51,6 +51,40 @@ describe('persistence recovery protocol', () => {
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-row', model: modelA.modelId, count: 1 });
   });
 
+  it('drops a row whose payload identity does not match its storage key', async () => {
+    const poisonedKey = compositeStorageKey('dbl:', 'row', 'RecoveryIdentity', 'expected');
+    const storage = configureRecoveryRuntime([
+      { key: poisonedKey, value: encodePersistence({ id: 'foreign', bucket: 'a', label: 'Poisoned' }) },
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryIdentity', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'Live' }) }
+    ]);
+    const model = defineRecoveryModel('RecoveryIdentity');
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(model.find('expected')).toBeUndefined();
+    expect(model.find('foreign')).toBeUndefined();
+    expect(model.find('live')).toMatchObject({ label: 'Live' });
+    expect(storage.get(poisonedKey)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-row', model: model.modelId, count: 1 });
+  });
+
+  it('drops a row stored under a malformed composite identity key', async () => {
+    const modelId = 'RecoveryMalformedRowKey';
+    const malformedKey = `${compositeStorageKey('dbl:', 'row', modelId)}not-a-composite-key`;
+    const storage = configureRecoveryRuntime([{ key: malformedKey, value: encodePersistence({ id: 'foreign', bucket: 'a', label: 'Poisoned' }) }]);
+    const model = defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(model.find('foreign')).toBeUndefined();
+    expect(storage.get(malformedKey)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-row', model: model.modelId, count: 1 });
+  });
+
   it('C3 drops corrupt tombstones without discarding rows', async () => {
     const storage = configureRecoveryRuntime([
       { key: compositeStorageKey('dbl:', 'row', 'RecoveryTombstones', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
@@ -67,6 +101,25 @@ describe('persistence recovery protocol', () => {
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-tombstones', model: model.modelId, count: 1 });
   });
 
+  it.each([
+    ['empty tombstone id', { '': { at: 1 } }],
+    ['negative tombstone time', { removed: { at: -1 } }],
+    ['fractional tombstone time', { removed: { at: 1.5 } }],
+    ['non-object tombstone', { removed: 1 }]
+  ])('drops a semantically invalid tombstone ledger: %s', async (_label, tombstones) => {
+    const modelId = `RecoveryTombstoneShape${String(_label).replaceAll(' ', '')}`;
+    const tombstoneKey = compositeStorageKey('dbl:', 'tombstones', modelId);
+    const storage = configureRecoveryRuntime([{ key: tombstoneKey, value: encodePersistence(tombstones) }]);
+    defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(storage.get(tombstoneKey)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-tombstones', model: modelId, count: 1 });
+  });
+
   it('C2 drops a corrupt scope key while retaining row and valid scope state', async () => {
     const storage = configureRecoveryRuntime([
       { key: compositeStorageKey('dbl:', 'row', 'RecoveryScope', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
@@ -74,7 +127,10 @@ describe('persistence recovery protocol', () => {
         key: compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('feed', '{"bucket":"a"}')),
         value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', orderKey: 'V' }] })
       },
-      { key: compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('renamed', '{"bucket":"a"}')), value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] }) }
+      {
+        key: compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('renamed', '{"bucket":"a"}')),
+        value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] })
+      }
     ]);
     const model = defineRecoveryModel('RecoveryScope');
     writeMatchingManifest();
@@ -86,6 +142,78 @@ describe('persistence recovery protocol', () => {
     expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
     expect(storage.get(compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('renamed', '{"bucket":"a"}')))).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: model.modelId, count: 1 });
+  });
+
+  it('drops a scope stored under a malformed canonical scope key', async () => {
+    const modelId = 'RecoveryMalformedScopeKey';
+    const malformedScopeKey = `${compositeKey('feed')}garbage`;
+    const storageKey = compositeStorageKey('dbl:', 'scope', modelId, malformedScopeKey);
+    const storage = configureRecoveryRuntime([{ key: storageKey, value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] }) }]);
+    defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(storage.get(storageKey)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: modelId, count: 1 });
+  });
+
+  it.each([
+    ['negative generation', { generation: -1, coverage: 'complete', entries: [] }],
+    ['fractional generation', { generation: 1.5, coverage: 'complete', entries: [] }],
+    ['empty member id', { generation: 1, coverage: 'complete', entries: [{ id: '', orderKey: 'V' }] }],
+    ['empty order key', { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: '' }] }],
+    ['invalid order alphabet', { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V!' }] }],
+    ['non-fractional order tail', { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V0' }] }],
+    [
+      'duplicate member id',
+      {
+        generation: 1,
+        coverage: 'complete',
+        entries: [
+          { id: 'row-1', orderKey: 'V' },
+          { id: 'row-1', orderKey: 'W' }
+        ]
+      }
+    ],
+    [
+      'duplicate order key',
+      {
+        generation: 1,
+        coverage: 'complete',
+        entries: [
+          { id: 'row-1', orderKey: 'V' },
+          { id: 'row-2', orderKey: 'V' }
+        ]
+      }
+    ],
+    [
+      'non-canonical entry order',
+      {
+        generation: 1,
+        coverage: 'complete',
+        entries: [
+          { id: 'row-2', orderKey: 'W' },
+          { id: 'row-1', orderKey: 'V' }
+        ]
+      }
+    ],
+    ['unresolved scope with members', { generation: 0, coverage: 'delta', entries: [{ id: 'row-1', orderKey: 'V' }] }],
+    ['unresolved complete scope', { generation: 0, coverage: 'complete', entries: [] }],
+    ['array edge', { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V', edge: [] }] }]
+  ])('drops a semantically invalid scope snapshot: %s', async (_label, snapshot) => {
+    const modelId = `RecoveryScopeShape${String(_label).replaceAll(' ', '')}`;
+    const storageKey = compositeStorageKey('dbl:', 'scope', modelId, compositeKey('feed', '{"bucket":"a"}'));
+    const storage = configureRecoveryRuntime([{ key: storageKey, value: encodePersistence(snapshot) }]);
+    defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    expect(storage.get(storageKey)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: modelId, count: 1 });
   });
 
   it('counts only materialized members after a corrupt member row is dropped on boot', async () => {

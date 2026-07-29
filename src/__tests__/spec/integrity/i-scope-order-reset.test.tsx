@@ -201,4 +201,32 @@ describe('scope order cache reset contract', () => {
 
     expect(index.orderRevision(scopeKey)).toBe(revision);
   });
+
+  it.each(['delta', 'page'] as const)('deduplicates repeated incoming ids during %s reconciliation with the last payload value', coverage => {
+    const index = createScopeIndex({ modelId: `SpecIntegrityScopeDedup${coverage}`, storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeKey = compositeKey('byBucket', `{"bucket":"${coverage}"}`);
+    index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }]).next);
+
+    const next = index.reconcileNext(scopeKey, coverage, [{ id: 'row-2', edge: { label: 'first' } }, { id: 'row-2', edge: { label: 'last' } }, { id: 'row-3' }]).next;
+    index.write(scopeKey, next);
+
+    expect(index.read(scopeKey).entries.map(entry => entry.id)).toEqual(['row-1', 'row-2', 'row-3']);
+    expect(index.read(scopeKey).entries.find(entry => entry.id === 'row-2')?.edge).toEqual({ label: 'last' });
+  });
+
+  it('deduplicates repeated ids before applying a scope delta', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeApplyDedup', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeKey = compositeKey('byBucket', '{"bucket":"apply"}');
+
+    index.applyDelta(
+      scopeKey,
+      [
+        { id: 'row-1', orderKey: 'V', edge: { label: 'first' } },
+        { id: 'row-1', orderKey: 'W', edge: { label: 'last' } }
+      ],
+      []
+    );
+
+    expect(index.read(scopeKey).entries).toEqual([{ id: 'row-1', orderKey: 'W', edge: { label: 'last' } }]);
+  });
 });

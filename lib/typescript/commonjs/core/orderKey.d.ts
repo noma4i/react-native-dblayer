@@ -1,3 +1,5 @@
+/** Validate the base62 fractional-key language, including the no-minimal-tail density invariant. */
+export declare const isOrderKey: (value: unknown) => value is string;
 /**
  * Generate a key strictly between `lower` and `upper` under codepoint comparison.
  * @param lower Exclusive lower bound; `undefined` means "before every key".

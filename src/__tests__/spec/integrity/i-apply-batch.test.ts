@@ -5,7 +5,7 @@ import { createJournal } from '../../../core/apply/journal';
 import { encodePersistence } from '../../../core/persistenceCodec';
 import { createModelStore, registerModelStoreFactory } from '../../../core/store';
 import type { ApplyTarget, CheckpointScheduler, IncrementalCommitBatch, JournalRecord, StoredRow, WriteOp } from '../../../types';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
  * Apply-pipeline batch contracts over a mock target: entity-before-scope ordering, scope-change
@@ -142,10 +142,7 @@ describe('apply pipeline batching', () => {
         kind: 'scope-delta',
         model: MODEL,
         scopeKey: 'scope-1',
-        append: [
-          { id: 'row-c', orderKey: '7' },
-          { id: 'row-d' }
-        ],
+        append: [{ id: 'row-c', orderKey: '7' }, { id: 'row-d' }],
         detach: ['row-e']
       },
       { kind: 'scope', model: MODEL, scopeKey: 'scope-1', next: { generation: 2, coverage: 'complete', entries: [] } }
@@ -201,17 +198,52 @@ describe('apply pipeline batching', () => {
 
   it('treats a garbage applied-epoch marker as zero and replays the record', () => {
     const { storage, mock, bus } = setup();
+    diagnostics().reset();
     const firstRuntime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
     firstRuntime.commit(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]));
     mock.rows.clear();
     mock.calls.length = 0;
+    storage.set([{ key: `${PREFIX}applied:${MODEL}`, value: 'garbage' }]);
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
+
+    expect(runtime.replay()).toBe(1);
+    expect(mock.calls.some(call => call.op === 'put')).toBe(true);
+    expect(storage.get(`${PREFIX}applied:${MODEL}`)).toBe(encodePersistence(1));
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-applied-epoch', model: MODEL, count: 1 });
+  });
+
+  it.each([-1, 1.5])('rejects an invalid applied epoch marker and replays conservatively: %s', invalidEpoch => {
+    const { storage, mock, bus } = setup();
+    diagnostics().reset();
     storage.set([
-      { key: `${PREFIX}applied:${MODEL}`, value: 'garbage' }
+      {
+        key: `${PREFIX}journal:1`,
+        value: encodeJournalRecord(journalRecord(1, 'pending', [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
+      },
+      { key: `${PREFIX}applied:${MODEL}`, value: encodePersistence(invalidEpoch) }
     ]);
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
 
     expect(runtime.replay()).toBe(1);
     expect(mock.calls.some(call => call.op === 'put')).toBe(true);
+    expect(storage.get(`${PREFIX}applied:${MODEL}`)).toBe(encodePersistence(1));
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-applied-epoch', model: MODEL, count: 1 });
+  });
+
+  it('preserves an unsupported applied-epoch version and stops replay for migration', () => {
+    const { storage, bus } = setup();
+    const markerKey = `${PREFIX}applied:${MODEL}`;
+    storage.set([
+      {
+        key: `${PREFIX}journal:1`,
+        value: encodeJournalRecord(journalRecord(1, 'pending', [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
+      },
+      { key: markerKey, value: encodePersistence(0, 2) }
+    ]);
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
+
+    expect(() => runtime.replay()).toThrow('Unsupported persistence schema version 2');
+    expect(storage.get(markerKey)).toBeDefined();
   });
 
   it('marks an already-applied pending record committed without re-applying it', () => {

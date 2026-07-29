@@ -2,64 +2,64 @@ import { sortBy } from 'es-toolkit';
 import type { StoragePlane, Journal, JournalOp, JournalRecord, PersistedJournalRecord } from '../../types';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { decodePersistence, decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
+import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
+import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger, isPositiveSafeInteger } from '../../utils/normalizeHelpers';
+import { isScopeEntrySet, isScopeIndexValue } from '../planes/scopeIndex';
 
 const COMMITTED_CAP = 50;
 const JOURNAL_SCHEMA_VERSION = 1;
 const JOURNAL_OP_SCHEMA_VERSION = 1;
 
 const checkpointEpoch = (storage: StoragePlane, prefix: string): number => {
-  const raw = storage.get(`${prefix}meta`);
+  const metaKey = `${prefix}meta`;
+  const raw = storage.get(metaKey);
   if (!raw) return 0;
-  const parsed = decodeSupportedPersistence(
+  const decoded = decodePersistence(
     raw,
     PERSISTENCE_SCHEMA_VERSION,
-    (value): value is { lastCheckpointEpoch: number } =>
-      typeof value === 'object' && value !== null && typeof (value as { lastCheckpointEpoch?: unknown }).lastCheckpointEpoch === 'number'
+    (value): value is { lastCheckpointEpoch: number } => isNonArrayRecord(value) && isNonNegativeSafeInteger(value.lastCheckpointEpoch)
   );
-  return parsed?.lastCheckpointEpoch ?? 0;
+  if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
+  if (decoded.kind === 'ok') return decoded.value.lastCheckpointEpoch;
+  storage.set([{ key: metaKey, value: null }]);
+  noteDataLoss('corrupt-checkpoint-meta', '__runtime__', 1);
+  return 0;
 };
 
-const epochFromKey = (prefix: string, journalKey: string): number => Number(journalKey.slice(`${prefix}journal:`.length));
+const epochFromKey = (prefix: string, journalKey: string): number | undefined => {
+  const rawEpoch = journalKey.slice(`${prefix}journal:`.length);
+  if (!/^[1-9]\d*$/.test(rawEpoch)) return undefined;
+  const epoch = Number(rawEpoch);
+  return isPositiveSafeInteger(epoch) ? epoch : undefined;
+};
 
 const isValidJournalOp = (value: unknown): value is JournalOp => {
-  if (typeof value !== 'object' || value === null) return false;
-  const op = value as { kind?: unknown; model?: unknown; rows?: unknown; ids?: unknown; scopeKey?: unknown; next?: unknown; append?: unknown; detach?: unknown };
-  if (typeof op.model !== 'string') return false;
+  if (!isNonArrayRecord(value) || !isNonEmptyString(value.model)) return false;
+  const op = value;
   if (op.kind === 'upsert')
+    return Array.isArray(op.rows) && op.rows.every(row => isNonArrayRecord(row) && isNonEmptyString(row.id)) && (op.origin === undefined || op.origin === 'replace');
+  if (op.kind === 'destroy')
     return (
-      Array.isArray(op.rows) &&
-      op.rows.every(row => typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string')
+      Array.isArray(op.ids) &&
+      op.ids.every(isNonEmptyString) &&
+      (op.tombstone === undefined || typeof op.tombstone === 'boolean') &&
+      (op.origin === undefined || op.origin === 'replace')
     );
-  if (op.kind === 'destroy') return Array.isArray(op.ids) && op.ids.every(id => typeof id === 'string');
-  if (op.kind === 'scope') return typeof op.scopeKey === 'string' && typeof op.next === 'object' && op.next !== null;
-  if (op.kind === 'scope-delta')
-    return (
-      typeof op.scopeKey === 'string' &&
-      Array.isArray(op.append) &&
-      op.append.every(row => typeof row === 'object' && row !== null && typeof (row as { id?: unknown }).id === 'string') &&
-      Array.isArray(op.detach) &&
-      op.detach.every(id => typeof id === 'string')
-    );
+  if (op.kind === 'scope') return isNonEmptyString(op.scopeKey) && isScopeIndexValue(op.next);
+  if (op.kind === 'scope-delta') return isNonEmptyString(op.scopeKey) && isScopeEntrySet(op.append) && Array.isArray(op.detach) && op.detach.every(isNonEmptyString);
   return false;
 };
 
 const isPersistedJournalRecord = (value: unknown): value is PersistedJournalRecord => {
-  if (typeof value !== 'object' || value === null) return false;
-  const record = value as { txId?: unknown; runtimeEpoch?: unknown; epoch?: unknown; status?: unknown; ops?: unknown };
+  if (!isNonArrayRecord(value)) return false;
+  const record = value;
   return (
-    typeof record.txId === 'string' &&
-    typeof record.runtimeEpoch === 'number' &&
-    typeof record.epoch === 'number' &&
+    isNonEmptyString(record.txId) &&
+    isPositiveSafeInteger(record.runtimeEpoch) &&
+    isPositiveSafeInteger(record.epoch) &&
     (record.status === 'pending' || record.status === 'committed') &&
     Array.isArray(record.ops) &&
-    record.ops.every(
-      op =>
-        typeof op === 'object' &&
-        op !== null &&
-        typeof (op as { schemaVersion?: unknown }).schemaVersion === 'number' &&
-        'payload' in op
-    )
+    record.ops.every(op => isNonArrayRecord(op) && isPositiveSafeInteger(op.schemaVersion) && 'payload' in op)
   );
 };
 
@@ -80,7 +80,7 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
     const epoch = epochFromKey(prefix, journalKey);
     const lastCheckpointEpoch = checkpointEpoch(storage, prefix);
     storage.set([{ key: journalKey, value: null }]);
-    if (epoch <= lastCheckpointEpoch) {
+    if (epoch !== undefined && epoch <= lastCheckpointEpoch) {
       noteCorruptionJournalDrop();
       noteDataLoss('journal-corruption-checkpointed-drop', '__runtime__', 1);
       return null;
@@ -99,6 +99,7 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
     if (!isValidJournalOp(versioned.payload)) return dropAsCorrupt();
     ops.push(versioned.payload);
   }
+  if (epochFromKey(prefix, journalKey) !== decoded.value.epoch) return dropAsCorrupt();
   return { ...decoded.value, ops };
 };
 

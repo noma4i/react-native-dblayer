@@ -4,26 +4,31 @@ import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
-import { isRecord } from '../../utils/normalizeHelpers';
+import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
 
 const isOperationRecord = (value: unknown): value is OperationRecord =>
-  isRecord(value) &&
-  typeof value.operationId === 'string' &&
-  typeof value.model === 'string' &&
+  isNonArrayRecord(value) &&
+  isNonEmptyString(value.operationId) &&
+  isNonEmptyString(value.model) &&
   Array.isArray(value.tempIds) &&
-  value.tempIds.every(id => typeof id === 'string') &&
-  (value.rowIds === undefined || (Array.isArray(value.rowIds) && value.rowIds.every(id => typeof id === 'string'))) &&
+  value.tempIds.every(isNonEmptyString) &&
+  (value.rowIds === undefined || (Array.isArray(value.rowIds) && value.rowIds.every(isNonEmptyString))) &&
   (value.intent === 'insert' || value.intent === 'patch' || value.intent === 'destroy') &&
   (value.status === 'pending' || value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed') &&
-  typeof value.createdAt === 'number';
+  isNonNegativeSafeInteger(value.createdAt) &&
+  (value.kind === undefined || isNonEmptyString(value.kind)) &&
+  (value.idempotencyKey === undefined || isNonEmptyString(value.idempotencyKey)) &&
+  (value.once === undefined || typeof value.once === 'boolean') &&
+  (value.patchedFields === undefined || (Array.isArray(value.patchedFields) && value.patchedFields.every(isNonEmptyString))) &&
+  (value.patchedValues === undefined || isNonArrayRecord(value.patchedValues));
 
 const isOperationRecordMap = (value: unknown): value is Record<string, OperationRecord> =>
-  isRecord(value) && Object.entries(value).every(([operationId, record]) => isOperationRecord(record) && record.operationId === operationId);
+  isNonArrayRecord(value) &&
+  Object.entries(value).every(([operationId, record]) => isNonEmptyString(operationId) && isOperationRecord(record) && record.operationId === operationId);
 
-const isOnceKeyRecord = (value: unknown): value is PersistedOnceKeyRecord =>
-  isRecord(value) && Array.isArray(value.keys) && value.keys.every(key => typeof key === 'string');
+const isOnceKeyRecord = (value: unknown): value is PersistedOnceKeyRecord => isNonArrayRecord(value) && Array.isArray(value.keys) && value.keys.every(isNonEmptyString);
 
 /** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`
  * (which clears diagnostics) right after this read, so it reports the loss itself once reset is done. */

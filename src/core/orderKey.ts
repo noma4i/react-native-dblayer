@@ -9,6 +9,9 @@ const BASE = ALPHABET.length;
 /** Sequence sizing never needs keys longer than this; 62^8 slots stay inside safe integers. */
 const MAX_SEQUENCE_KEY_LENGTH = 8;
 
+/** Validate the base62 fractional-key language, including the no-minimal-tail density invariant. */
+export const isOrderKey = (value: unknown): value is string => typeof value === 'string' && /^[0-9A-Za-z]*[1-9A-Za-z]$/.test(value);
+
 /**
  * Generate a key strictly between `lower` and `upper` under codepoint comparison.
  * @param lower Exclusive lower bound; `undefined` means "before every key".

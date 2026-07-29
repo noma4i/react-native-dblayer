@@ -19,11 +19,13 @@ import type {
 import { deriveEffects } from '../relations';
 import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
-import { noteApplyFailure, noteCommit } from '../diagnostics';
+import { noteApplyFailure, noteCommit, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from '../../dsl/configure';
 import { poisonStoreReads, publishProjectedBatch, restoreStoreReads, runInApplyBatch } from '../store';
-import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
+import { deduplicateScopeEntriesById } from '../planes/scopeIndex';
 
 const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
 
@@ -152,14 +154,18 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       continue;
     }
     if (op.kind === 'scope-delta') {
+      const append = deduplicateScopeEntriesById(op.append);
       /** Planning-time key finalization: key-less appends (relation effects) get sort-aware keys here, never in apply. */
-      const keyless = op.append.filter(entry => entry.orderKey === undefined).map(entry => entry.id);
-      const placed = keyless.length > 0 ? new Map(target.planScopePlacement(op.scopeKey, keyless, (model, id) => readPlannedRow(overlay, model, id)).map(entry => [entry.id, entry.orderKey] as const)) : new Map<string, string>();
+      const keyless = append.filter(entry => entry.orderKey === undefined).map(entry => entry.id);
+      const placed =
+        keyless.length > 0
+          ? new Map(target.planScopePlacement(op.scopeKey, keyless, (model, id) => readPlannedRow(overlay, model, id)).map(entry => [entry.id, entry.orderKey] as const))
+          : new Map<string, string>();
       preparedOps.push({
         kind: 'scope-delta',
         model: op.model,
         scopeKey: op.scopeKey,
-        append: op.append.map(entry => ({ id: entry.id, orderKey: entry.orderKey ?? placed.get(entry.id)!, ...(entry.edge ? { edge: entry.edge } : {}) })),
+        append: append.map(entry => ({ id: entry.id, orderKey: entry.orderKey ?? placed.get(entry.id)!, ...(entry.edge ? { edge: entry.edge } : {}) })),
         detach: op.detach
       });
       continue;
@@ -238,10 +244,7 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
  * Compile raw model intents into one complete callback-free plan before WAL. Entity work stays
  * ahead of scope membership so a reader cannot observe a membership pointing at a missing row.
  */
-export const createCommitEnvelope = (
-  ops: WriteOp[],
-  explicitOperationTransitions: readonly OperationTransition[] = []
-): CommitEnvelope => {
+export const createCommitEnvelope = (ops: WriteOp[], explicitOperationTransitions: readonly OperationTransition[] = []): CommitEnvelope => {
   const runtimeEpoch = getRuntimeGeneration();
   const planned = compileWritePlan(ops);
   const operationTransitions = [...planned.operationTransitions, ...explicitOperationTransitions];
@@ -359,9 +362,15 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
   };
 
   const persistedAppliedEpoch = (model: string): number => {
-    const raw = storage.get(`${prefix()}applied:${model}`);
+    const markerKey = `${prefix()}applied:${model}`;
+    const raw = storage.get(markerKey);
     if (raw == null) return 0;
-    return decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, (value): value is number => typeof value === 'number' && Number.isFinite(value)) ?? 0;
+    const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isNonNegativeSafeInteger);
+    if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
+    if (decoded.kind === 'ok') return decoded.value;
+    storage.set([{ key: markerKey, value: null }]);
+    noteDataLoss('corrupt-applied-epoch', model, 1);
+    return 0;
   };
 
   return {

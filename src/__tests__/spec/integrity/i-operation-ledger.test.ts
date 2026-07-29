@@ -64,6 +64,13 @@ describe('committed once-key persistence format', () => {
 
     expect(readCommittedOnceKeys(storage, PREFIX).corruptSources).toBe(2);
   });
+
+  it('rejects empty once keys instead of retaining an ambiguous identity', () => {
+    const { storage } = setup();
+    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: [''] }) }]);
+
+    expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 1 });
+  });
 });
 
 describe('operation input serialization', () => {
@@ -110,18 +117,7 @@ describe('persistence JSON safety', () => {
     sparse[1] = 'value';
     const nullPrototype = Object.assign(Object.create(null) as Record<string, unknown>, { value: 1 });
     const withSymbol = { value: 1, [Symbol('hidden')]: 2 };
-    const lossyValues = [
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-      -0,
-      new Date(5),
-      nullPrototype,
-      { value: undefined },
-      { value: () => 1 },
-      sparse,
-      withSymbol,
-      cyclic
-    ];
+    const lossyValues = [Number.NaN, Number.POSITIVE_INFINITY, -0, new Date(5), nullPrototype, { value: undefined }, { value: () => 1 }, sparse, withSymbol, cyclic];
 
     for (const value of lossyValues) {
       expect(() => encodePersistence(value)).toThrow('Persistence payload is not JSON serializable');
@@ -299,6 +295,30 @@ describe('hydrate key retention', () => {
     fresh.hydrate();
 
     expect(storage.get(`${PREFIX}ops`)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
+  });
+
+  it.each([
+    ['empty operation id', { ...baseRecord(''), status: 'pending' }],
+    ['empty model id', { ...baseRecord('op-1'), model: '', status: 'pending' }],
+    ['empty temporary id', { ...baseRecord('op-1'), tempIds: [''], status: 'pending' }],
+    ['empty row id', { ...baseRecord('op-1'), rowIds: [''], status: 'pending' }],
+    ['invalid kind', { ...baseRecord('op-1'), kind: 7, status: 'pending' }],
+    ['invalid idempotency key', { ...baseRecord('op-1'), idempotencyKey: 7, status: 'pending' }],
+    ['invalid once flag', { ...baseRecord('op-1'), once: 'yes', status: 'pending' }],
+    ['invalid patched fields', { ...baseRecord('op-1'), patchedFields: ['label', 7], status: 'pending' }],
+    ['invalid patched values', { ...baseRecord('op-1'), patchedValues: [], status: 'pending' }],
+    ['negative creation time', { ...baseRecord('op-1'), createdAt: -1, status: 'pending' }],
+    ['fractional creation time', { ...baseRecord('op-1'), createdAt: 1.5, status: 'pending' }]
+  ])('cold-resets a semantically invalid operation record: %s', (_label, record) => {
+    const { storage } = setup();
+    storage.set([{ key: `${PREFIX}ops`, value: encodePersistence({ [String(record.operationId)]: record }) }]);
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+
+    fresh.hydrate();
+
+    expect(storage.get(`${PREFIX}ops`)).toBeUndefined();
+    expect(fresh.pending()).toEqual([]);
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
   });
 

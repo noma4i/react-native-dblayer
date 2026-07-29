@@ -32,10 +32,10 @@ maintenance: {
 
 Declared on `ModelConfig.maintenance` (see [models.md](./models.md#definemodelconfig)):
 
-| Field                    | Type                                                | Description                                                                                                                                                                                                                                        |
-| -------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `maxRowsPerScope`         | `Array<{ scopeField, limit, compare, protect? }>`      | Groups rows by `scopeField`, keeps the first `limit` per group ordered by `compare` (newest/most-important first), and deletes the rest. `protect?: () => (row) => boolean` is evaluated at run time (may read other models) to exempt rows from the count. |
-| `dropIdleScopesAfterMs`   | `number` (ms)                                          | Opt-in idle scope collection: a scope with no read in this window is removed on the next `collectGarbage()` sweep, and its rows then follow normal reachability (evicted too, unless another scope/reference/reader still roots them). Omit to keep every scope alive until it empties on its own. |
+| Field                   | Type                                              | Description                                                                                                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxRowsPerScope`       | `Array<{ scopeField, limit, compare, protect? }>` | Groups rows by `scopeField`, keeps the first `limit` per group ordered by `compare` (newest/most-important first), and deletes the rest. `protect?: () => (row) => boolean` is evaluated at run time (may read other models) to exempt rows from the count.                                        |
+| `dropIdleScopesAfterMs` | `number` (ms)                                     | Opt-in idle scope collection: a scope with no read in this window is removed on the next `collectGarbage()` sweep, and its rows then follow normal reachability (evicted too, unless another scope/reference/reader still roots them). Omit to keep every scope alive until it empties on its own. |
 
 `maxRowsPerScope` tasks run once, at boot, as part of `bootDb` (see
 [getting-started.md](./getting-started.md#bootdb)) - not on every write. Temp-row
@@ -125,6 +125,16 @@ Every durable payload must be lossless JSON data. Persistence rejects non-finite
 zero, `Date`, `bigint`, functions, symbols, accessors, sparse arrays, cycles, and undefined object
 properties instead of allowing `JSON.stringify` to coerce or omit them.
 
+Disk reads validate the complete semantic shape, not only the outer checksum. WAL records validate
+their envelope and every operation; rows, tombstones, scope snapshots, operation records, applied
+epochs, and checkpoint metadata use their domain validators. Row storage identity must equal
+`row.id`, scope keys must decode to the declared scope format, and the WAL key epoch must equal the
+record epoch. Scope snapshots require unique member ids, unique fractional order keys, and canonical
+ordering; repeated live members are collapsed before WAL with the last payload value retained. A
+localized malformed key is deleted and reported through data-loss diagnostics without discarding
+neighboring state. An unknown persistence version is preserved and throws an explicit migration
+error instead of being classified as corruption.
+
 At boot, deferred definition validation runs first (see
 [getting-started.md](./getting-started.md#bootdb)), then journal replay
 re-applies every pending record left over from the last session (the recovery half of WAL), then a
@@ -162,40 +172,40 @@ const detach = messagePoller.attach(messageId); // starts polling; call on unmou
 const phase = messagePoller.usePhase(messageId);
 ```
 
-| Config          | Signature essentials                        | Behavior                                                                                           |
-| ----------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `document`       | GraphQL document                                | Query document fetched per id over the configured transport, in place of a bare `fetch` function. |
-| `vars`           | `(id) => Record<string, unknown>`                | Derive query variables from the polled id. Defaults to `{ id }`.                                  |
-| `apply`          | `(id, result) => void`                           | Writes fetched data back into the model.                                                          |
-| `classify`       | `(result) => 'ready' \| 'failed' \| null`        | Classifies terminal success/failure; `null` keeps polling.                                        |
-| `onSessionStop`  | `(id, reason) => void`                           | Optional lifecycle callback for terminal payloads, exhausted budgets, and active-session detach.  |
-| `intervalMs`     | `number`                                          | Interval between scheduled status refreshes.                                                      |
-| `maxAttempts`    | `number`                                          | Maximum fetch attempts before a non-terminal session stops.                                       |
+| Config          | Signature essentials                      | Behavior                                                                                          |
+| --------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `document`      | GraphQL document                          | Query document fetched per id over the configured transport, in place of a bare `fetch` function. |
+| `vars`          | `(id) => Record<string, unknown>`         | Derive query variables from the polled id. Defaults to `{ id }`.                                  |
+| `apply`         | `(id, result) => void`                    | Writes fetched data back into the model.                                                          |
+| `classify`      | `(result) => 'ready' \| 'failed' \| null` | Classifies terminal success/failure; `null` keeps polling.                                        |
+| `onSessionStop` | `(id, reason) => void`                    | Optional lifecycle callback for terminal payloads, exhausted budgets, and active-session detach.  |
+| `intervalMs`    | `number`                                  | Interval between scheduled status refreshes.                                                      |
+| `maxAttempts`   | `number`                                  | Maximum fetch attempts before a non-terminal session stops.                                       |
 
 Fetch failures log as `<modelId>:<name>` and consume an attempt like any other failed poll.
 `onSessionStop` receives `'terminal-payload'` for ready/failed classification, `'budget-exhausted'`
 at `maxAttempts`, and `'stopped'` when the last ref detaches an active session. Callback errors are
 logged and do not break polling.
 
-| Method        | Signature essentials                        | Behavior                                                                                             |
-| --------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `attach`       | `(id) => detach`                                | Starts or refs a session; the returned detach decrements refs and removes the last detached session. |
-| `subscribe`    | `(id, listener) => unsubscribe`                 | Observes phase/attempt snapshots for one id without adding refs or starting polling.                  |
-| `refresh`      | `(id, { resetBudget? }) => Promise<void>`        | Runs an immediate fetch; `resetBudget` clears attempts and restarts terminal or stalled state.        |
-| `isPolling`    | `(id) => boolean`                                | True while an attached polling session has an active interval.                                        |
-| `getPhase`     | `(id) => ModelStatusPollerPhase`                 | Returns the stable idle/polling/ready/failed/stalled snapshot.                                        |
-| `usePhase`     | `(id) => ModelStatusPollerPhase`                 | Reactively reads only that id's phase and attempts.                                                   |
+| Method      | Signature essentials                      | Behavior                                                                                             |
+| ----------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `attach`    | `(id) => detach`                          | Starts or refs a session; the returned detach decrements refs and removes the last detached session. |
+| `subscribe` | `(id, listener) => unsubscribe`           | Observes phase/attempt snapshots for one id without adding refs or starting polling.                 |
+| `refresh`   | `(id, { resetBudget? }) => Promise<void>` | Runs an immediate fetch; `resetBudget` clears attempts and restarts terminal or stalled state.       |
+| `isPolling` | `(id) => boolean`                         | True while an attached polling session has an active interval.                                       |
+| `getPhase`  | `(id) => ModelStatusPollerPhase`          | Returns the stable idle/polling/ready/failed/stalled snapshot.                                       |
+| `usePhase`  | `(id) => ModelStatusPollerPhase`          | Reactively reads only that id's phase and attempts.                                                  |
 
 `classify` is the only terminal classifier. It returns `'ready'` or `'failed'` for a terminal
 payload and `null` to keep polling. The phase machine is:
 
-| Phase      | Reason                | Meaning                                             |
-| ------------ | ------------------------ | ---------------------------------------------------- |
-| `idle`      | omitted or `stopped`     | Never attached, reset, or already detached.         |
-| `polling`   | omitted                  | Active, with attempt budget remaining.              |
-| `ready`     | `terminal-payload`       | `classify` reported successful completion.          |
-| `failed`    | `terminal-payload`       | `classify` reported terminal failure.               |
-| `stalled`   | `budget-exhausted`       | `maxAttempts` completed without a terminal payload. |
+| Phase     | Reason               | Meaning                                             |
+| --------- | -------------------- | --------------------------------------------------- |
+| `idle`    | omitted or `stopped` | Never attached, reset, or already detached.         |
+| `polling` | omitted              | Active, with attempt budget remaining.              |
+| `ready`   | `terminal-payload`   | `classify` reported successful completion.          |
+| `failed`  | `terminal-payload`   | `classify` reported terminal failure.               |
+| `stalled` | `budget-exhausted`   | `maxAttempts` completed without a terminal payload. |
 
 Subscribers are notified only when their id's phase, reason, or attempts change. Last detach
 retains an idle snapshot with reason `stopped`; runtime reset clears every snapshot to idle with
@@ -209,13 +219,13 @@ Matches incoming server nodes against optimistic local rows and commits the best
 import { reconcileOptimisticRows } from '@noma4i/react-native-dblayer';
 ```
 
-| Option               | Type                                               | Description                                                             |
-| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `resolveCandidates`   | `(node) => rows` or `{ fields }` / `{ fieldMap }`       | Candidate source. The shorthand uses `model.where(...)`.               |
-| `isCandidate`         | `(candidate, node) => boolean`                          | Extra predicate. Temp ids from `isTempId(candidate.id)` always qualify.   |
-| `match`               | `(candidate, node) => boolean`                          | Domain content match.                                                     |
-| `createdAtWindowMs`   | `number`                                                | Optional maximum absolute `createdAt` delta.                              |
-| `commit`              | `(tempId, node) => void`                                | Called for matched nodes.                                                 |
+| Option              | Type                                              | Description                                                             |
+| ------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `resolveCandidates` | `(node) => rows` or `{ fields }` / `{ fieldMap }` | Candidate source. The shorthand uses `model.where(...)`.                |
+| `isCandidate`       | `(candidate, node) => boolean`                    | Extra predicate. Temp ids from `isTempId(candidate.id)` always qualify. |
+| `match`             | `(candidate, node) => boolean`                    | Domain content match.                                                   |
+| `createdAtWindowMs` | `number`                                          | Optional maximum absolute `createdAt` delta.                            |
+| `commit`            | `(tempId, node) => void`                          | Called for matched nodes.                                               |
 
 For each node, if `model.find(node.id)` already exists, the node is skipped. Otherwise the helper
 finds matching candidates, chooses the one with the smallest absolute `createdAt` delta, calls
@@ -243,12 +253,12 @@ with the row when it appears, or `undefined` on timeout/abort. Every exit path r
 
 Returns a function that coalesces concurrent calls and suppresses calls inside the post-success interval.
 
-| Case                                                                | Result                                                        |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------ |
-| A call is already in flight                                          | Returns the same in-flight promise.                          |
-| Previous successful call completed less than `minIntervalMs` ago     | Returns `Promise.resolve(undefined)`.                         |
-| `isForced(...args)` is true, or first arg has `{ force: true }`      | Bypasses interval suppression.                                 |
-| `fn` rejects or throws                                               | Resolves `undefined`; the success timestamp is not advanced.  |
+| Case                                                             | Result                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------ |
+| A call is already in flight                                      | Returns the same in-flight promise.                          |
+| Previous successful call completed less than `minIntervalMs` ago | Returns `Promise.resolve(undefined)`.                        |
+| `isForced(...args)` is true, or first arg has `{ force: true }`  | Bypasses interval suppression.                               |
+| `fn` rejects or throws                                           | Resolves `undefined`; the success timestamp is not advanced. |
 
 ## `createSingleFlight(fn, options?)`
 
@@ -260,36 +270,36 @@ use it when the caller must observe failures (bootstrap fetches, config loads). 
 stale fetch never satisfies post-reset callers; without it, `resetRuntime()` does not affect an
 in-flight call.
 
-| Case                                             | Result                                                          |
-| ------------------------------------------------- | ---------------------------------------------------------------- |
-| A call is already in flight                      | Returns the same in-flight promise.                              |
-| `fn` rejects                                     | Every caller sharing the flight rejects with the same error.     |
-| Flight settles (resolve or reject)               | The next call starts a new flight.                                |
+| Case                                                   | Result                                                                                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A call is already in flight                            | Returns the same in-flight promise.                                                                                                           |
+| `fn` rejects                                           | Every caller sharing the flight rejects with the same error.                                                                                  |
+| Flight settles (resolve or reject)                     | The next call starts a new flight.                                                                                                            |
 | `resetOnRuntimeReset: true` and reset fires mid-flight | The next call starts a new flight immediately, ignoring the old one; the old flight settling afterward does not clear the new in-flight slot. |
 
 ## Array and nested-object patchers
 
 `createKeyedArrayPatcher(shape, { key })` returns immutable helpers for array-of-shape sub-rows:
 
-| Method     | Parameters            | Behavior                                                                                                                                             |
-| ----------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upsert`   | `(rows, input)`         | Normalizes `input` with `shape`, removes an existing row with the same `key`, then appends the normalized row. Nullish `rows` are treated as `[]`. |
-| `remove`   | `(rows, keyValue)`      | Removes rows whose `key` equals `keyValue`. Nullish `rows` are treated as `[]`.                                                                     |
+| Method   | Parameters         | Behavior                                                                                                                                           |
+| -------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upsert` | `(rows, input)`    | Normalizes `input` with `shape`, removes an existing row with the same `key`, then appends the normalized row. Nullish `rows` are treated as `[]`. |
+| `remove` | `(rows, keyValue)` | Removes rows whose `key` equals `keyValue`. Nullish `rows` are treated as `[]`.                                                                    |
 
 `createIdArrayPatcher()` returns immutable helpers for id arrays:
 
-| Method     | Parameters                            | Behavior                                                                                |
-| ----------- | ---------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `upsert`   | `(ids, id, 'prepend' \| 'append')`       | Dedupes `id` and inserts it at the requested edge. Nullish `ids` are treated as `[]`.    |
-| `remove`   | `(ids, id)`                              | Removes `id`. Nullish `ids` are treated as `[]`.                                          |
+| Method   | Parameters                         | Behavior                                                                              |
+| -------- | ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `upsert` | `(ids, id, 'prepend' \| 'append')` | Dedupes `id` and inserts it at the requested edge. Nullish `ids` are treated as `[]`. |
+| `remove` | `(ids, id)`                        | Removes `id`. Nullish `ids` are treated as `[]`.                                      |
 
 `createNestedObjectPatcher(model, field, transform)` creates `(id, ...args) => boolean`:
 
-| Parameter    | Description                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| `model`      | Model used to read and patch the containing row.                                                          |
-| `field`      | Nested object field to patch.                                                                              |
-| `transform`  | Function that receives the current nested object and caller args, then returns a shallow partial update. |
+| Parameter   | Description                                                                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------- |
+| `model`     | Model used to read and patch the containing row.                                                         |
+| `field`     | Nested object field to patch.                                                                            |
+| `transform` | Function that receives the current nested object and caller args, then returns a shallow partial update. |
 
 The patcher reads the row, returns `false` when `row[field]` is `null` or missing, and otherwise patches
 `{ [field]: { ...current, ...transform(current, ...args) } }`.
@@ -298,26 +308,26 @@ The patcher reads the row, returns `false` when `row[field]` is `null` or missin
 
 Builds statics for one-row models:
 
-| Static                                 | Behavior                                                                                                          |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `recordId`                               | The singleton id.                                                                                                   |
-| `defaults`                               | The default row returned by `useCurrent()` before insertion.                                                        |
-| `current()`                              | Snapshot read by `recordId`.                                                                                        |
-| `useCurrent()`                           | Reactive read by `recordId`, falling back to `defaults`.                                                            |
-| `upsertCurrent(input)`                   | Patches existing row or inserts `{ ...defaults, ...input, id: recordId }`; ignores `input.id`.                      |
-| `updateClamped(field, delta, min = 0)`    | Adds `delta` to a numeric field and clamps at `min`. Returns `false` when the row is missing or `delta` is zero.   |
+| Static                                 | Behavior                                                                                                         |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `recordId`                             | The singleton id.                                                                                                |
+| `defaults`                             | The default row returned by `useCurrent()` before insertion.                                                     |
+| `current()`                            | Snapshot read by `recordId`.                                                                                     |
+| `useCurrent()`                         | Reactive read by `recordId`, falling back to `defaults`.                                                         |
+| `upsertCurrent(input)`                 | Patches existing row or inserts `{ ...defaults, ...input, id: recordId }`; ignores `input.id`.                   |
+| `updateClamped(field, delta, min = 0)` | Adds `delta` to a numeric field and clamps at `min`. Returns `false` when the row is missing or `delta` is zero. |
 
 ## Scalar and id utility helpers
 
 Small scalar/id helpers, standalone or used internally by the schema and mutation DSLs.
 
-| Export              | Signature                                            | Behavior                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generateTempId`    | `(prefix?: string) => string`                             | Generates a stable-format optimistic temporary id: `temp[-prefix]-<timestamp>-<counter>`. Ids generated within the same millisecond share the timestamp but get a strictly increasing counter, so ids stay unique and sortable under rapid-fire calls. Used internally by `Model.mutation`'s optimistic insert (see [mutations.md](./mutations.md#optimistic-write-variants)); also useful for building your own temp ids outside a mutation. |
-| `isTempId`          | `(id: string \| null \| undefined) => boolean`             | Returns `true` for an id generated by `generateTempId` (starts with `temp-`).                                                                                                                                                                                                                                                                                                                                    |
-| `stringifyNullish`  | `(v: unknown) => string \| null \| undefined`               | `String(v)`, preserving explicit `null`/`undefined` as-is instead of stringifying them. Does not filter empty strings.                                                                                                                                                                                                                                                                                            |
-| `pickDefined`       | `(source, keys) => Partial<Pick<TSource, TKey>>`            | Picks the listed keys whose values are not `undefined`; explicit `null` values are kept.                                                                                                                                                                                                                                                                                                                          |
-| `pickPresent`       | `(source, keys) => Partial<...>`                            | Picks the listed keys whose values are neither `null` nor `undefined`.                                                                                                                                                                                                                                                                                                                                            |
+| Export             | Signature                                        | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generateTempId`   | `(prefix?: string) => string`                    | Generates a stable-format optimistic temporary id: `temp[-prefix]-<timestamp>-<counter>`. Ids generated within the same millisecond share the timestamp but get a strictly increasing counter, so ids stay unique and sortable under rapid-fire calls. Used internally by `Model.mutation`'s optimistic insert (see [mutations.md](./mutations.md#optimistic-write-variants)); also useful for building your own temp ids outside a mutation. |
+| `isTempId`         | `(id: string \| null \| undefined) => boolean`   | Returns `true` for an id generated by `generateTempId` (starts with `temp-`).                                                                                                                                                                                                                                                                                                                                                                 |
+| `stringifyNullish` | `(v: unknown) => string \| null \| undefined`    | `String(v)`, preserving explicit `null`/`undefined` as-is instead of stringifying them. Does not filter empty strings.                                                                                                                                                                                                                                                                                                                        |
+| `pickDefined`      | `(source, keys) => Partial<Pick<TSource, TKey>>` | Picks the listed keys whose values are not `undefined`; explicit `null` values are kept.                                                                                                                                                                                                                                                                                                                                                      |
+| `pickPresent`      | `(source, keys) => Partial<...>`                 | Picks the listed keys whose values are neither `null` nor `undefined`.                                                                                                                                                                                                                                                                                                                                                                        |
 
 ## setFetchNetworkOnline(online)
 
