@@ -96,9 +96,3 @@ export type SubscriptionLifecycleContext = {
   activationEpoch: number;
   generationFence: { isCurrent(): boolean; captureNow(): void };
 };
-
-/** Injected-effects registry: named effect handlers with their runtime generations. */
-export type SubscriptionEffectsRegistry = {
-  effects: Map<string, (...args: never[]) => void>;
-  generations: Map<string, number>;
-};

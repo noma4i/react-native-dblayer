@@ -1,4 +1,12 @@
-import { getRuntimeGeneration } from '../dsl/configure';
+let runtimeGeneration = 0;
+
+/** Monotonic identity for the configured runtime; async continuations must not cross it. */
+export const getRuntimeGeneration = (): number => runtimeGeneration;
+
+/** Establish a new generation before configuration or reset tears down the old runtime. */
+export const advanceRuntimeGeneration = (): void => {
+  runtimeGeneration += 1;
+};
 
 /**
  * Capture the current runtime generation and expose a reset fence for async work.

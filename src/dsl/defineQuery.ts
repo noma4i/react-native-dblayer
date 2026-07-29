@@ -19,7 +19,7 @@ import type {
   WriteOp
 } from '../types';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
-import { createCommitEnvelope } from '../core/apply/transaction';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';

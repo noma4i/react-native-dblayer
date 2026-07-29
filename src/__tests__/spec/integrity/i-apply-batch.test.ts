@@ -1,5 +1,7 @@
 import { configureDb, resetRuntime } from '../../../index';
-import { createApplyRuntime, createCommitEnvelope, registerApplyTarget } from '../../../core/apply/transaction';
+import { registerApplyTarget } from '../../../core/apply/applyTargetRegistry';
+import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
+import { createApplyRuntime } from '../../../core/apply/transaction';
 import { createCommitBus } from '../../../core/apply/commitBus';
 import { createJournal } from '../../../core/apply/journal';
 import { encodePersistence } from '../../../core/persistenceCodec';

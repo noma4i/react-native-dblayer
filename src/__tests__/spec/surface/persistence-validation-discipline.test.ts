@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const sourceRoot = path.resolve(__dirname, '../../..');
 const journalSource = fs.readFileSync(path.join(sourceRoot, 'core/apply/journal.ts'), 'utf8');
-const transactionSource = fs.readFileSync(path.join(sourceRoot, 'core/apply/transaction.ts'), 'utf8');
+const commitEnvelopeSource = fs.readFileSync(path.join(sourceRoot, 'core/apply/commitEnvelope.ts'), 'utf8');
 
 const sourceFiles = (directory: string): string[] =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -33,7 +33,7 @@ describe('persistence validation discipline', () => {
   });
 
   it('canonicalizes live scope deltas before the commit envelope reaches WAL', () => {
-    expect(transactionSource).toContain("import { deduplicateScopeEntriesById } from '../planes/scopeIndex'");
-    expect(transactionSource).toContain('const append = deduplicateScopeEntriesById(op.append)');
+    expect(commitEnvelopeSource).toContain("import { deduplicateScopeEntriesById } from '../planes/scopeIndex'");
+    expect(commitEnvelopeSource).toContain('const append = deduplicateScopeEntriesById(op.append)');
   });
 });

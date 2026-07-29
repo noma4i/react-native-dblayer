@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { CommitSubscription, Dependency, LiveReadState } from '../types';
 import { getCommitBus } from '../dsl/configure';
 import { compositeKey, semanticValue } from '../core/serialize';
+import { arraysShallowEqual } from '../utils/arrayEquality';
 
 const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
   compositeKey(
@@ -16,10 +17,6 @@ const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
             : compositeKey('r', dep.model, dep.id, semanticValue(dep.fields ?? []))
     )
   );
-
-/** Shallow element-identity equality; rows keep stable refs in EntityState until replaced. */
-export const arraysShallowEqual = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>
-  a === b || (a.length === b.length && a.every((item, index) => Object.is(item, b[index])));
 
 /** Shallow row equality across both key sets; array values compare element identity one level deep. */
 export const rowsShallowEqual = (left: object, right: object): boolean => {

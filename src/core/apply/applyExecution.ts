@@ -1,0 +1,85 @@
+import { uniq, uniqBy } from 'es-toolkit';
+import type { ApplyTarget, IncrementalCommitBatch, IncrementalScopeChange, JournalOp } from '../../types';
+import { runInApplyBatch } from '../store';
+import { compositeKey } from '../serialize';
+import { getApplyTarget } from './applyTargetRegistry';
+
+const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
+  const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+  const scopeChanges = new Map<string, IncrementalScopeChange>();
+  const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
+    const key = compositeKey(model, scopeKey);
+    const current = scopeChanges.get(key) ?? { model, scopeKey };
+    const mergeUpserts = (left?: Array<{ id: string; orderKey: string }>, right?: Array<{ id: string; orderKey: string }>) => {
+      if (!left && !right) return undefined;
+      return uniqBy([...(right ?? []), ...(left ?? [])], entry => entry.id);
+    };
+    scopeChanges.set(key, {
+      ...current,
+      entries: change.entries ?? current.entries,
+      upserts: mergeUpserts(current.upserts, change.upserts),
+      detachIds: current.detachIds || change.detachIds ? uniq([...(current.detachIds ?? []), ...(change.detachIds ?? [])]) : undefined
+    });
+  };
+  const noteRows = (model: string, target: ApplyTarget, ids: string[]): void => {
+    for (const scopeKey of target.reactiveScopes?.(ids) ?? []) {
+      batch.scopes.push({ model, scopeKey });
+    }
+  };
+  for (const op of ops) {
+    const target = getApplyTarget(op.model);
+    if (op.kind === 'upsert') {
+      const changes = target.put(op.rows);
+      for (const change of changes) {
+        batch.rows.push({ model: op.model, id: change.id, fields: change.changedFields, kind: 'upsert' });
+      }
+      noteRows(
+        op.model,
+        target,
+        changes.map(change => change.id)
+      );
+      if (op.origin === 'replace') batch.mode = 'replace';
+    }
+    if (op.kind === 'destroy') {
+      const ids = target.destroy(op.ids, op.tombstone);
+      for (const id of ids) {
+        batch.rows.push({ model: op.model, id, fields: null, kind: 'destroy' });
+      }
+      noteRows(op.model, target, ids);
+    }
+    if (op.kind === 'scope') {
+      target.scope(op.scopeKey, op.next);
+      batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
+      noteScope(op.model, op.scopeKey, { entries: op.next.entries.map(entry => ({ id: entry.id, orderKey: entry.orderKey })) });
+    }
+    if (op.kind === 'scope-delta') {
+      target.scopeDelta(op.scopeKey, { append: op.append, detach: op.detach });
+      batch.scopes.push({ model: op.model, scopeKey: op.scopeKey });
+      noteScope(op.model, op.scopeKey, {
+        upserts: op.append.map(row => ({ id: row.id, orderKey: row.orderKey })),
+        detachIds: op.detach
+      });
+    }
+  }
+  batch.scopeChanges = [...scopeChanges.values()];
+  return batch;
+};
+
+export const touchedModelsOf = (ops: JournalOp[]): string[] => uniq(ops.map(op => op.model));
+
+export const applyAtomically = (ops: JournalOp[]): IncrementalCommitBatch => {
+  const targets = touchedModelsOf(ops).map(model => getApplyTarget(model));
+  const active: ApplyTarget[] = [];
+  try {
+    for (const target of targets) {
+      target.beginApply();
+      active.push(target);
+    }
+    const batch = runInApplyBatch(() => applyOperations(ops));
+    for (const target of active) target.commitApply();
+    return batch;
+  } catch (error) {
+    for (const target of active.reverse()) target.abortApply();
+    throw error;
+  }
+};

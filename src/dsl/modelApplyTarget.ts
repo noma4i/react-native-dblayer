@@ -1,4 +1,5 @@
-import { createCommitEnvelope, registerApplyTarget } from '../core/apply/transaction';
+import { registerApplyTarget } from '../core/apply/applyTargetRegistry';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { keysForSequence } from '../core/orderKey';
 import { firstCompositeKeyPart } from '../core/serialize';
 import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin, ModelContext } from '../types';

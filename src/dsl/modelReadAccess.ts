@@ -2,7 +2,7 @@ import { buildScopeKey } from '../core/compileDbWhere';
 import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
-import { arraysShallowEqual } from '../read/useLiveRead';
+import { arraysShallowEqual } from '../utils/arrayEquality';
 import type { DbWhere, Dependency, ModelContext, ModelReadAccess, ModelReadBuilder, ProjectionOptions, ReadOrder, ScopeSpec } from '../types';
 import { useEffect, useRef } from 'react';
 import { createReadBuilder } from './readBuilder';

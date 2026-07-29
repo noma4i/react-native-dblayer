@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { defineModel, f, resetRuntime } from '../../../index';
-import { createCommitEnvelope } from '../../../core/apply/transaction';
+import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
 import type { OperationRecord, OperationTransition } from '../../../types';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';

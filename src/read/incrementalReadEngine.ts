@@ -3,7 +3,7 @@ import type { Dependency, Engine, EngineInput, ReadEngineHarnessInput, RowEngine
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
 import { compositeKey, semanticValue } from '../core/serialize';
 import { createFieldOrderComparator } from '../core/ordering';
-import { arraysShallowEqual } from './useLiveRead';
+import { arraysShallowEqual } from '../utils/arrayEquality';
 import { noteReadEngineApply, noteReadEngineScan } from '../core/diagnostics';
 
 /** Canonical semantic descriptors preserve object identity only where leaf values require it. */

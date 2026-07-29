@@ -1,25 +1,17 @@
 import { union } from 'es-toolkit';
 import { publishProjectedBatch } from './store';
-import { flushPersistence, getCommitBus, getOperationState, getRuntimeGeneration, noteMaintenancePersistence } from '../dsl/configure';
+import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
 import { runPendingTempRowMaintenance } from '../dsl/maintenanceRegistry';
 import type { GcHost, GcReport } from '../types';
+import { createGenerationRegistry } from './generationRegistry';
 
-const hosts = new Map<string, GcHost>();
-const hostGenerations = new Map<string, number>();
+const hosts = createGenerationRegistry<GcHost>();
 
 /** Registered once per defineModel; survives resetRuntime like apply targets. */
 export const registerGcHost = (modelId: string, host: GcHost): (() => void) => {
-  const generation = getRuntimeGeneration();
-  if (hosts.has(modelId) && hostGenerations.get(modelId) === generation) throw new Error(`GC host already registered for model ${modelId}`);
-  hosts.set(modelId, host);
-  hostGenerations.set(modelId, generation);
-  return () => {
-    if (hosts.get(modelId) !== host) return;
-    hosts.delete(modelId);
-    hostGenerations.delete(modelId);
-  };
+  return hosts.register(modelId, host, `GC host already registered for model ${modelId}`);
 };
 
 /**

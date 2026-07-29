@@ -89,9 +89,4 @@ export type SubscriptionLifecycleContext = {
         captureNow(): void;
     };
 };
-/** Injected-effects registry: named effect handlers with their runtime generations. */
-export type SubscriptionEffectsRegistry = {
-    effects: Map<string, (...args: never[]) => void>;
-    generations: Map<string, number>;
-};
 //# sourceMappingURL=subscription.types.d.ts.map

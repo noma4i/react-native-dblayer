@@ -1,20 +1,17 @@
 import type { DbSubscriptionEntry, IngestDecl, IngestHandle, IngestModel, ModelIngestEntry, ModelIngestTools, WriteOp } from '../types';
-import { createCommitEnvelope } from '../core/apply/transaction';
-import { getApplyRuntime, getOperationState, getRuntimeGeneration } from './configure';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
+import { getApplyRuntime, getOperationState } from './configure';
 import { noteIngestFailure } from '../core/diagnostics';
 import { getDbSubscriptionEffect } from '../core/subscriptionRuntime';
 import { getInternalModelHandle } from '../core/internalHandles';
 import { reportSyncError } from '../core/syncError';
+import { createGenerationRegistry } from '../core/generationRegistry';
 
-const modelsByName = new Map<string, IngestModel>();
-const modelGenerations = new Map<string, number>();
+const modelsByName = createGenerationRegistry<IngestModel>();
 
 /** Register a model for the named-model lookup exposed to fused custom ingest handlers. */
 export const registerIngestModel = (name: string, model: IngestModel): void => {
-  const generation = getRuntimeGeneration();
-  if (modelsByName.has(name) && modelGenerations.get(name) === generation) throw new Error(`Ingest model already registered for name ${name}`);
-  modelsByName.set(name, model);
-  modelGenerations.set(name, generation);
+  modelsByName.register(name, model, `Ingest model already registered for name ${name}`);
 };
 
 const idOf = (payload: unknown): string | null => {
@@ -66,7 +63,7 @@ export const defineModelIngest = (
           invalidate: () => model.invalidate(),
           operations: getOperationState(),
           get models() {
-            return Object.fromEntries(modelsByName);
+            return Object.fromEntries(modelsByName.entries());
           }
         };
         entry.apply(payload, tools);

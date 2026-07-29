@@ -1,3 +1,7 @@
+/** Monotonic identity for the configured runtime; async continuations must not cross it. */
+export declare const getRuntimeGeneration: () => number;
+/** Establish a new generation before configuration or reset tears down the old runtime. */
+export declare const advanceRuntimeGeneration: () => void;
 /**
  * Capture the current runtime generation and expose a reset fence for async work.
  *

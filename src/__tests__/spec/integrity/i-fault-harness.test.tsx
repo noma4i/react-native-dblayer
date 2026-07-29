@@ -1,6 +1,7 @@
 import { configureDb, defineModel, f } from '../../../index';
 import { flushPersistence } from '../../../dsl/configure';
-import { createApplyRuntime, createCommitEnvelope } from '../../../core/apply/transaction';
+import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
+import { createApplyRuntime } from '../../../core/apply/transaction';
 import { createCommitBus } from '../../../core/apply/commitBus';
 import { createJournal } from '../../../core/apply/journal';
 import { encodePersistence } from '../../../core/persistenceCodec';

@@ -1,5 +1,5 @@
 import type { DefinedMutation, MutationConfig, MutationRuntimeContext, OperationRecord, OptimisticCtx, WriteOp } from '../types';
-import { createCommitEnvelope } from '../core/apply/transaction';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';

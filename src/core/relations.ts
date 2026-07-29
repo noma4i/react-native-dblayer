@@ -1,7 +1,7 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
 import type { AcceptedRow, CounterRef, DestroyedRow, MembershipDelta, ModelRef, RelationDecl, RelationHost, RelationPlanReader, StoredRow, TouchEntry, TouchFn, WriteOp } from '../types';
-import { getRuntimeGeneration } from '../dsl/configure';
+import { createGenerationRegistry } from './generationRegistry';
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
@@ -97,19 +97,10 @@ export const references = <TChild, TRef>(
  * Membership hooks derive declarative scope membership from ScopeSpec.by so event rows join and
  * leave their scopes in the SAME plan (same-tick visibility for optimistic/ingest rows).
  */
-const hosts = new Map<string, RelationHost>();
-const hostGenerations = new Map<string, number>();
+const hosts = createGenerationRegistry<RelationHost>();
 
 export const registerRelationHost = (modelId: string, host: RelationHost): (() => void) => {
-  const generation = getRuntimeGeneration();
-  if (hosts.has(modelId) && hostGenerations.get(modelId) === generation) throw new Error(`Relation host already registered for model ${modelId}`);
-  hosts.set(modelId, host);
-  hostGenerations.set(modelId, generation);
-  return () => {
-    if (hosts.get(modelId) !== host) return;
-    hosts.delete(modelId);
-    hostGenerations.delete(modelId);
-  };
+  return hosts.register(modelId, host, `Relation host already registered for model ${modelId}`);
 };
 
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */

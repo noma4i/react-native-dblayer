@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import type { MergeOptions } from '../types';
 import { withIdTieBreak } from '../core/ordering';
-import { arraysShallowEqual } from './useLiveRead';
+import { arraysShallowEqual } from '../utils/arrayEquality';
 
 /**
  * Merges a base scope read with extra rows from a second scope read of the same model.

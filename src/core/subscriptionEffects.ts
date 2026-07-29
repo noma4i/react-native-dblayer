@@ -1,17 +1,15 @@
-import { getRuntimeGeneration } from '../dsl/configure';
-import type { DbSubscriptionEffectsChannel, SubscriptionEffectsRegistry } from '../types';
-
-const createSubscriptionEffectsRegistry = (): SubscriptionEffectsRegistry => ({ effects: new Map(), generations: new Map() });
+import type { DbSubscriptionEffectsChannel } from '../types';
+import { createGenerationRegistry } from './generationRegistry';
 
 /**
  * Definition registry: effect channels are created once at app-module load and outlive
  * `resetRuntime`, so the registry survives the kill-switch. Same-generation duplicate names still
  * throw; a later-generation registration replaces the previous one.
  */
-const effectsRegistry = createSubscriptionEffectsRegistry();
+const effectsRegistry = createGenerationRegistry<(...args: never[]) => void>();
 
 /** Resolve an injected subscription effect by its stable application name. */
-export const getSubscriptionEffect = (name: string): ((...args: never[]) => void) | undefined => effectsRegistry.effects.get(name);
+export const getSubscriptionEffect = (name: string): ((...args: never[]) => void) | undefined => effectsRegistry.get(name);
 
 /** Create an injectable effects channel for subscription entries. */
 export const createSubscriptionEffects = <TEffects extends Record<keyof TEffects, (...args: never[]) => void>>(
@@ -19,9 +17,8 @@ export const createSubscriptionEffects = <TEffects extends Record<keyof TEffects
 ): DbSubscriptionEffectsChannel<TEffects> => {
   let activeEffects: TEffects = noopEffects;
   const names = Object.keys(noopEffects);
-  const generation = getRuntimeGeneration();
   for (const name of names) {
-    if (effectsRegistry.effects.has(name) && effectsRegistry.generations.get(name) === generation) throw new Error(`subscription effect already registered: ${name}`);
+    effectsRegistry.assertCanRegister(name, `subscription effect already registered: ${name}`);
   }
 
   const effects = {} as TEffects;
@@ -32,17 +29,11 @@ export const createSubscriptionEffects = <TEffects extends Record<keyof TEffects
     };
     effects[key] = effect as TEffects[keyof TEffects];
   }
-  for (const [name, effect] of Object.entries(effects)) {
-    effectsRegistry.effects.set(name, effect as (...args: never[]) => void);
-    effectsRegistry.generations.set(name, generation);
-  }
+  const unregisterEffects = Object.entries(effects).map(([name, effect]) =>
+    effectsRegistry.register(name, effect as (...args: never[]) => void, `subscription effect already registered: ${name}`)
+  );
   const unregisterNames = (): void => {
-    for (const name of names) {
-      const effect = effects[name as keyof TEffects] as (...args: never[]) => void;
-      if (effectsRegistry.effects.get(name) !== effect) continue;
-      effectsRegistry.effects.delete(name);
-      effectsRegistry.generations.delete(name);
-    }
+    for (const unregister of unregisterEffects) unregister();
   };
 
   return {

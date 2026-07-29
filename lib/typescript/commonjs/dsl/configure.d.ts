@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { ApplyRuntime, CommitBus, ConfigureDbOptions, OperationState, RuntimeConfig } from '../types';
+import { advanceRuntimeGeneration, getRuntimeGeneration } from '../utils/runtimeGeneration';
 /**
  * Configure the injected runtime seams (transport, storage, logger) and package-wide
  * defaults. Must be called once before any model, query, or mutation runs; calling it again advances the
@@ -27,10 +28,7 @@ export declare const isDbConfigured: () => boolean;
 export declare const getStoragePrefix: () => string;
 /** Internal: consumer-owned cache version used by the persistence manifest compatibility gate. */
 export declare const getPersistenceDataVersion: () => string | null;
-/** Monotonic identity for the configured runtime; async continuations must not cross it. */
-export declare const getRuntimeGeneration: () => number;
-/** Internal: establish a new generation before the reset fence tears down the old runtime. */
-export declare const advanceRuntimeGeneration: () => void;
+export { advanceRuntimeGeneration, getRuntimeGeneration };
 export declare const getCommitBus: () => CommitBus;
 /**
  * One apply runtime per configured database: every model shares the same journal, epoch counter

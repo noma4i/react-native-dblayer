@@ -7,7 +7,9 @@ import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
 import { createCheckpointScheduler } from '../core/apply/checkpoint';
-import { createApplyRuntime, createCommitEnvelope, getApplyTarget } from '../core/apply/transaction';
+import { getApplyTarget } from '../core/apply/applyTargetRegistry';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
+import { createApplyRuntime } from '../core/apply/transaction';
 import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
@@ -16,13 +18,13 @@ import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
 import { compositeKey, compositeStorageKey, parseCompositeKey } from '../core/serialize';
+import { advanceRuntimeGeneration, getRuntimeGeneration } from '../utils/runtimeGeneration';
 
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
 let queryClient: QueryClient | null = null;
-let runtimeGeneration = 0;
 const commitBus = createCommitBus();
 let stopMaintenanceScheduler: (() => void) | null = null;
 let maintenanceSchedulerResetRegistered = false;
@@ -45,7 +47,7 @@ const STORAGE_PREFIX = 'dbl:';
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
  */
 export const configureDb = (options: ConfigureDbOptions): void => {
-  runtimeGeneration += 1;
+  advanceRuntimeGeneration();
   resetStores();
   const defaults = { ...options.defaults, resumeStaleTime: options.defaults?.resumeStaleTime === undefined ? 60_000 : options.defaults.resumeStaleTime };
   runtimeConfig = { ...options, defaults, storage: options.storage ?? mmkvStoragePlane(), dataVersion: options.dataVersion ?? null };
@@ -122,13 +124,7 @@ export const getStoragePrefix = (): string => STORAGE_PREFIX;
 /** Internal: consumer-owned cache version used by the persistence manifest compatibility gate. */
 export const getPersistenceDataVersion = (): string | null => getDbRuntimeConfig().dataVersion;
 
-/** Monotonic identity for the configured runtime; async continuations must not cross it. */
-export const getRuntimeGeneration = (): number => runtimeGeneration;
-
-/** Internal: establish a new generation before the reset fence tears down the old runtime. */
-export const advanceRuntimeGeneration = (): void => {
-  runtimeGeneration += 1;
-};
+export { advanceRuntimeGeneration, getRuntimeGeneration };
 
 export const getCommitBus = (): CommitBus => commitBus;
 

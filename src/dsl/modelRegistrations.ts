@@ -1,4 +1,4 @@
-import { createCommitEnvelope } from '../core/apply/transaction';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { registerGcHost } from '../core/gc';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerKeyedReset } from '../core/reset';

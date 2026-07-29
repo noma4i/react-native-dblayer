@@ -20,7 +20,8 @@ import type {
 import { noteFkIndex } from '../core/diagnostics';
 import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
-import { arraysShallowEqual, rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
+import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
+import { arraysShallowEqual } from '../utils/arrayEquality';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { useScopeRetention } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';

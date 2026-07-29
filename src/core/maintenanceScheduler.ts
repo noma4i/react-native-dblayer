@@ -1,7 +1,7 @@
 import { Debouncer } from '@tanstack/pacer';
 import { getCommitBus } from '../dsl/configure';
 import { collectGarbage } from './gc';
-import { getApplyTarget } from './apply/transaction';
+import { getApplyTarget } from './apply/applyTargetRegistry';
 import { getDbLogger } from './logger';
 import type { IncrementalCommitBatch, RowChange } from '../types';
 

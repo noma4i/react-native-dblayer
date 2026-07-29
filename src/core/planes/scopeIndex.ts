@@ -3,6 +3,7 @@ import { noteDataLoss } from '../diagnostics';
 import { compareCodepoints, compositeStorageKey, parseCompositeKey } from '../serialize';
 import { isOrderKey, keysForSequence } from '../orderKey';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { arraysShallowEqual } from '../../utils/arrayEquality';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 
 export const isScopeEntry = (value: unknown): value is ScopeEntry =>
@@ -37,14 +38,6 @@ export const isScopeIndexValue = (value: unknown): value is ScopeIndexValue => {
     return false;
   if (value.generation === 0 && (value.coverage !== 'delta' || entries.length > 0)) return false;
   return entries.every((entry, index) => index === 0 || compareEntries(entries[index - 1]!, entry) < 0);
-};
-
-const sameIdSequence = (previous: ScopeEntry[], nextIds: readonly string[]): boolean => {
-  if (previous.length !== nextIds.length) return false;
-  for (let index = 0; index < previous.length; index += 1) {
-    if (previous[index]!.id !== nextIds[index]) return false;
-  }
-  return true;
 };
 
 export const createScopeIndex = (options: { modelId: string; scopeNames?: string[]; storage: StoragePlane; prefix: () => string }): ScopeIndex => {
@@ -105,9 +98,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
 
   const sameEntryOrder = (previous: ScopeEntry[] | undefined, next: ScopeEntry[]): boolean => {
     if (!previous) return next.length === 0;
-    return sameIdSequence(
+    return arraysShallowEqual(
       previous,
-      next.map(entry => entry.id)
+      next.map(entry => entry.id),
+      (entry, id) => entry.id === id
     );
   };
 
@@ -174,9 +168,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const incomingIds = new Set(deduplicated.map(row => row.id));
       const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id)).map(entry => entry.id);
       if (
-        sameIdSequence(
+        arraysShallowEqual(
           previous.entries,
-          deduplicated.map(row => row.id)
+          deduplicated.map(row => row.id),
+          (entry, id) => entry.id === id
         )
       ) {
         const entries = previous.entries.map((entry, index) => scopeEntry(entry.id, entry.orderKey, deduplicated[index]!.edge ?? entry.edge));
@@ -191,7 +186,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const incomingById = new Map(deduplicated.map(row => [row.id, row] as const));
       const head = deduplicated;
       const tail = previous.entries.filter(entry => !incomingById.has(entry.id));
-      if (sameIdSequence(previous.entries, [...head.map(row => row.id), ...tail.map(entry => entry.id)])) {
+      if (arraysShallowEqual(previous.entries, [...head.map(row => row.id), ...tail.map(entry => entry.id)], (entry, id) => entry.id === id)) {
         const entries = previous.entries.map(entry => scopeEntry(entry.id, entry.orderKey, incomingById.get(entry.id)?.edge ?? entry.edge));
         return result({ generation, coverage: retainedCoverage, entries }, []);
       }

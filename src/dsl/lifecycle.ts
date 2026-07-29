@@ -6,7 +6,7 @@ import { runBootValidations } from './bootValidations';
 import { flushPersistence, getRuntimeGeneration, isDbConfigured, purgeForeignStorageKeys, replayJournal } from './configure';
 import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
 import { runModelMaintenance } from './maintenanceRegistry';
-import { getApplyTargets } from '../core/apply/transaction';
+import { getApplyTargets } from '../core/apply/applyTargetRegistry';
 import { hydrateStoreScopes, markStoresReady } from '../core/store';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 

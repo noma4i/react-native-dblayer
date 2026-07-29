@@ -1,8 +1,7 @@
 import type { MaintenanceReport, MaintenanceRunner } from '../types';
-import { getRuntimeGeneration } from './configure';
+import { createGenerationRegistry } from '../core/generationRegistry';
 
-const runners = new Map<string, MaintenanceRunner>();
-const runnerGenerations = new Map<string, number>();
+const runners = createGenerationRegistry<MaintenanceRunner>();
 
 /**
  * Register or replace one model's maintenance definition. This definition registry is intentionally not
@@ -13,10 +12,7 @@ const runnerGenerations = new Map<string, number>();
  * @returns Nothing.
  */
 export const registerModelMaintenance = (modelId: string, runner: MaintenanceRunner): void => {
-  const generation = getRuntimeGeneration();
-  if (runners.has(modelId) && runnerGenerations.get(modelId) === generation) throw new Error(`Maintenance runner already registered for model ${modelId}`);
-  runners.set(modelId, runner);
-  runnerGenerations.set(modelId, generation);
+  runners.register(modelId, runner, `Maintenance runner already registered for model ${modelId}`);
 };
 
 /**

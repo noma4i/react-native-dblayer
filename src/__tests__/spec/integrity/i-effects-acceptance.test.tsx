@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
-import { getApplyTarget } from '../../../core/apply/transaction';
+import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { flushPersistence, getOperationState } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';

@@ -1,5 +1,5 @@
 import { configureDb, defineModel, f } from '../../../index';
-import { createCommitEnvelope } from '../../../core/apply/transaction';
+import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getInternalModelHandle } from '../../../core/internalHandles';
 import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';

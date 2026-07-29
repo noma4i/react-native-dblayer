@@ -1,5 +1,5 @@
 import type { DetachedDeclaration, DetachedModel, DetachedOperationConfig, DetachedOperationHandle, OperationRecord, WriteOp } from '../types';
-import { createCommitEnvelope } from '../core/apply/transaction';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { noteDataLoss } from '../core/diagnostics';
 import { getInternalModelHandle } from '../core/internalHandles';
 import { serializeOperationInput } from '../core/planes/operationState';

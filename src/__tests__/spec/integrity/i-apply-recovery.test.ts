@@ -1,5 +1,6 @@
 import { configureDb, defineModel, f, scope } from '../../../index';
-import { createCommitEnvelope, getApplyTarget } from '../../../core/apply/transaction';
+import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
+import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createJournal } from '../../../core/apply/journal';
 import { getApplyRuntime, getCommitBus } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
