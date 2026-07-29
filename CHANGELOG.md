@@ -1,5 +1,15 @@
 # Changelog
 
+## 9.0.0-beta.7 - 2026-07-29
+
+### Fixed
+
+- Preserve the full `defineModel` row, scope-parameter, and statics types when an inferred scope `member` or `comparator` callback accepts a `Pick` of the fields it reads.
+
+### Testing
+
+- Add a red-first compile contract covering different row subsets in named `member` and `comparator` callbacks on one parameterized scope.
+
 ## 9.0.0-beta.6 - 2026-07-29
 
 ### Breaking changes and migration
