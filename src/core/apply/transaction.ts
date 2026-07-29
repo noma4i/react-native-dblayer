@@ -197,6 +197,7 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
    * row content, so they derive no further effects.
    */
   const repositioned = new Map<string, JournalOp>();
+  const repositionGroups = new Map<string, { model: string; scopeKey: string; ids: Set<string> }>();
   /** A row already placed or detached by this plan's own scope-deltas must not be re-added by a reposition. */
   const planTouched = new Set<string>();
   for (const op of planned) {
@@ -210,8 +211,23 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
       if (planTouched.has(compositeKey(row.model, scopeKey, row.id))) continue;
       if (target.scopeSortMeta(scopeKey).kind === 'server-order') continue;
       if (!target.scopeOrderAffected(scopeKey, row.id, row.changedFields ?? null)) continue;
-      const [placement] = target.planScopePlacement(scopeKey, [row.id], (model, id) => readPlannedRow(overlay, model, id));
-      if (placement) repositioned.set(compositeKey(row.model, scopeKey, row.id), { kind: 'scope-delta', model: row.model, scopeKey, append: [{ id: placement.id, orderKey: placement.orderKey }], detach: [] });
+      const groupKey = compositeKey(row.model, scopeKey);
+      const group = repositionGroups.get(groupKey) ?? { model: row.model, scopeKey, ids: new Set<string>() };
+      group.ids.add(row.id);
+      repositionGroups.set(groupKey, group);
+    }
+  }
+  for (const group of repositionGroups.values()) {
+    const target = getApplyTarget(group.model);
+    const placements = target.planScopePlacement(group.scopeKey, [...group.ids], (model, id) => readPlannedRow(overlay, model, id));
+    for (const placement of placements) {
+      repositioned.set(compositeKey(group.model, group.scopeKey, placement.id), {
+        kind: 'scope-delta',
+        model: group.model,
+        scopeKey: group.scopeKey,
+        append: [{ id: placement.id, orderKey: placement.orderKey }],
+        detach: []
+      });
     }
   }
   planned.push(...repositioned.values());
