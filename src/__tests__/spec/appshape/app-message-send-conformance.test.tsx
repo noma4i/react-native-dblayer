@@ -42,4 +42,36 @@ describe('app message send conformance', () => {
     expect(models.messages.scopes.thread.read({ chatId: 'chat-1' }).map((row: any) => row.id)).toEqual(['server-other']);
     expect(models.chats.find('chat-1')).toMatchObject({ lastMessageId: 'server-other', unreadCount: 1 });
   });
+
+  it('C3 media and thread scopes share sequence-first order with a createdAt fallback for optimistic rows', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const models = createAppModels('MessageConformanceMediaOrder');
+    insertChat(models);
+    models.messages.insert(
+      message('confirmed', {
+        kind: 'photo',
+        status: 'Sent',
+        sequenceNumber: 10,
+        createdAt: '2026-07-27T00:00:00Z',
+        media: { id: 'media-confirmed', kind: 'photo', fileUrl: 'https://cdn/confirmed.jpg' }
+      })
+    );
+    models.messages.insert(
+      message('optimistic', {
+        kind: 'photo',
+        sequenceNumber: null,
+        createdAt: '2026-07-27T00:01:00Z',
+        media: { id: 'media-optimistic', kind: 'photo', fileUrl: 'file:///optimistic.jpg' }
+      })
+    );
+
+    const expected = ['optimistic', 'confirmed'];
+    expect(models.messages.scopes.thread.read({ chatId: 'chat-1' }).map((row: any) => row.id)).toEqual(expected);
+    expect(models.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' }).map((row: any) => row.id)).toEqual(expected);
+
+    models.messages.update('optimistic', { sequenceNumber: 11 });
+
+    expect(models.messages.scopes.thread.read({ chatId: 'chat-1' }).map((row: any) => row.id)).toEqual(expected);
+    expect(models.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' }).map((row: any) => row.id)).toEqual(expected);
+  });
 });

@@ -23,6 +23,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     entry,
     unsubscribe: null,
     debounceBuckets: new Map<string, Debouncer<(payload: unknown) => void>>(),
+    debouncePayloads: new Map<string, unknown>(),
     retryTimer: null,
     retryAttempts: 0,
     eventCount: 0,
@@ -42,6 +43,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   const clearDebounceBuckets = (state: SubscriptionEntryState): void => {
     state.debounceBuckets.forEach(bucket => bucket.cancel());
     state.debounceBuckets.clear();
+    state.debouncePayloads.clear();
   };
   const clearRetryTimer = (state: SubscriptionEntryState): void => {
     if (!state.retryTimer) return;
@@ -73,15 +75,22 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
       return;
     }
     const bucketKey = debounce.keyOf?.(payload) ?? GLOBAL_DEBOUNCE_KEY;
+    const previousPayload = state.debouncePayloads.get(bucketKey);
+    const nextPayload = previousPayload === undefined || debounce.merge === undefined ? payload : debounce.merge(previousPayload, payload);
+    state.debouncePayloads.set(bucketKey, nextPayload);
     let bucket = state.debounceBuckets.get(bucketKey);
     if (!bucket) {
-      bucket = new Debouncer(latestPayload => {
-        state.debounceBuckets.delete(bucketKey);
-        runHandler(state, latestPayload);
-      }, { wait: debounce.ms });
+      bucket = new Debouncer(
+        latestPayload => {
+          state.debounceBuckets.delete(bucketKey);
+          state.debouncePayloads.delete(bucketKey);
+          runHandler(state, latestPayload);
+        },
+        { wait: debounce.ms }
+      );
       state.debounceBuckets.set(bucketKey, bucket);
     }
-    bucket.maybeExecute(payload);
+    bucket.maybeExecute(nextPayload);
   };
   const isCurrentAttempt = (state: SubscriptionEntryState, epoch: number, token: number): boolean =>
     context.active && isCurrentGeneration() && epoch === context.activationEpoch && state.attemptToken === token;
@@ -118,6 +127,11 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
       return;
     }
     state.unsubscribe = unsubscribe;
+    try {
+      state.entry.onSubscribe?.();
+    } catch (error) {
+      handleEntryError(state, error, epoch, token);
+    }
   };
   const scheduleRetry = (state: SubscriptionEntryState, epoch: number, token: number): void => {
     if (!isCurrentAttempt(state, epoch, token)) return;
@@ -166,13 +180,14 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     if (isCurrentGeneration()) return;
     reset();
   });
-  const inspect = (): DbSubscriptionRuntimeInspectRow[] => context.states.map(state => ({
-    key: state.entry.key,
-    active: Boolean(state.unsubscribe),
-    eventCount: state.eventCount,
-    lastEventAt: state.lastEventAt,
-    errorCount: state.errorCount
-  }));
+  const inspect = (): DbSubscriptionRuntimeInspectRow[] =>
+    context.states.map(state => ({
+      key: state.entry.key,
+      active: Boolean(state.unsubscribe),
+      eventCount: state.eventCount,
+      lastEventAt: state.lastEventAt,
+      errorCount: state.errorCount
+    }));
 
   return {
     setActive(nextActive) {

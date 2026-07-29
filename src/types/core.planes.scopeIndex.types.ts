@@ -25,8 +25,8 @@ export type ScopeIndex = {
    * are computed here (or accepted from `IncomingScopeRow.orderKey`), never during apply.
    * - 'complete': incoming rows become the exact membership; an unchanged id sequence keeps every
    *   existing key (zero downstream work); previous members absent from the payload are DETACHED.
-   * - 'page' with opts.resetOrder: incoming become the new head (fresh keys before the retained
-   *   tail); tail members keep their keys and relative order.
+   * - 'page' with opts.resetOrder: the caller supplies final reset order. Server-order callers pass
+   *   the incoming head; declaratively sorted callers pass the globally sorted retained union.
    * - 'page'/'delta' merge: existing members keep their keys, rows carrying `orderKey` land on it,
    *   new key-less rows get tail keys.
    */

@@ -10,7 +10,7 @@ import { getDbRuntimeConfig } from './configure';
 import { compareRowsBySpec } from './modelReadAccess';
 import { keyAfter, keyBefore, keysForSequence } from '../core/orderKey';
 
-const matchesMemberPredicate = <TRow,>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;
+const matchesMemberPredicate = <TRow>(spec: { member?: (row: TRow) => boolean } | undefined, row: TRow): boolean => spec?.member?.(row) ?? true;
 
 export const createModelScopeHandle = <TStored extends { id: string } & Record<string, unknown>, TInput>(options: {
   modelId: string;
@@ -49,6 +49,15 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
             rowsById.set(String(stored.id), stored);
           } catch {
             /* keyless rows fall to the reconcile tail */
+          }
+        }
+        if (coverage === 'page' && planOptions?.resetOrder === true) {
+          const incomingIds = new Set(incoming.map(item => item.id));
+          for (const entry of planes().scopeIndex.read(scopeKey).entries) {
+            if (incomingIds.has(entry.id)) continue;
+            incoming.push({ id: entry.id, edge: entry.edge });
+            const stored = planes().entityState.read(entry.id) as TStored | undefined;
+            if (stored) rowsById.set(entry.id, stored);
           }
         }
         if (coverage === 'complete' || planOptions?.resetOrder === true) {
@@ -117,7 +126,11 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       }
       const requestedRows = rowsByScope.get(requestedScopeKey) ?? [];
       rowsByScope.delete(requestedScopeKey);
-      return [...rowOps, planScope(requestedScopeKey, requestedRows, coverage, planOptions), ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))];
+      return [
+        ...rowOps,
+        planScope(requestedScopeKey, requestedRows, coverage, planOptions),
+        ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))
+      ];
     };
     const useScopeRows = (scopeValue: unknown, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
       const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);

@@ -4,8 +4,9 @@ import type { ScopeSpec, StructuralScopeSpec } from '../types';
  * - `'complete'`: incoming rows become the exact membership in server order; previous members absent
  *   from the response are detached (entity rows themselves are untouched, only scope membership drops).
  * - `'page'`: incoming rows upsert into membership - existing members keep their order, new ones append
- *   in server order; nothing is detached. A first-page refetch (`resetOrder`) makes incoming rows the new
- *   head order, with previous members kept, in their relative order, after them.
+ *   in server order; nothing is detached. A first-page refetch (`resetOrder`) makes incoming rows the
+ *   new head for server-order scopes. Declaratively sorted scopes rebuild one global order from the
+ *   incoming page plus every retained member.
  * - `'delta'`: same merge semantics as `'page'`, used for single-row/subscription-driven updates.
  */
 /**

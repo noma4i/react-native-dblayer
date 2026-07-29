@@ -74,6 +74,7 @@ describe('chat list sync consumer contracts', () => {
     // 3 rapid events for chat-a collapse into exactly one apply wave (one debounce bucket, latest wins).
     expect(reader.renders() - rendersBeforeChatA).toBe(1);
     expect(chats.find('chat-a')?.title).toBe('A v3');
+    expect(reader.result().map(chat => chat.id)).toEqual(['chat-a', 'chat-b']);
 
     const rendersBeforeChatB = reader.renders();
     act(() => {
@@ -84,6 +85,7 @@ describe('chat list sync consumer contracts', () => {
     // chat-b is a separate debounce bucket - its own apply wave, not swallowed by chat-a's already-fired bucket.
     expect(reader.renders() - rendersBeforeChatB).toBe(1);
     expect(chats.find('chat-b')?.title).toBe('B v1');
+    expect(reader.result().map(chat => chat.id)).toEqual(['chat-b', 'chat-a']);
     reader.unmount();
     runtime.stop();
   });

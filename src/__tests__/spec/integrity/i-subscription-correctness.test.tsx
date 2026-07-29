@@ -103,6 +103,68 @@ describe('subscription runtime correctness', () => {
     }
   });
 
+  it('merges partial payloads inside one debounce bucket without losing fields', () => {
+    jest.useFakeTimers();
+    try {
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      const received: Array<Record<string, number>> = [];
+      const runtime = createDbSubscriptionRuntime([
+        {
+          key: 'userCounters',
+          query: document,
+          debounce: {
+            ms: 50,
+            merge: (previous: Record<string, number>, incoming: Record<string, number>) => ({ ...previous, ...incoming })
+          },
+          onData: payload => received.push(payload as Record<string, number>)
+        }
+      ]);
+
+      runtime.dispatch('userCounters', { unreadChatsCount: 2 });
+      runtime.dispatch('userCounters', { secondaryChatsCount: 4 });
+      runtime.dispatch('userCounters', { unreadChatsCount: 0 });
+      jest.advanceTimersByTime(50);
+
+      expect(received).toEqual([{ unreadChatsCount: 0, secondaryChatsCount: 4 }]);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('runs entry reconciliation after every successful subscribe attempt', () => {
+    jest.useFakeTimers();
+    try {
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      const transport = createMockTransport({
+        subscribe: (_options, nextHandlers) => {
+          handlers = nextHandlers;
+          return jest.fn();
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      const reconcile = jest.fn();
+      const runtime = createDbSubscriptionRuntime([
+        {
+          key: 'userCounters',
+          query: document,
+          onSubscribe: reconcile,
+          onData: () => {}
+        }
+      ]);
+
+      runtime.setActive(true);
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      handlers.error(new Error('connection dropped'));
+      jest.advanceTimersByTime(1000);
+
+      expect(reconcile).toHaveBeenCalledTimes(2);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('rolls back earlier subscriptions when a later entry throws during activation', () => {
     let attempts = 0;
     let shouldThrow = true;
@@ -231,9 +293,7 @@ describe('subscription attempt races', () => {
     try {
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
       const received: string[] = [];
-      const runtime = createDbSubscriptionRuntime([
-        { key: 'event', query: document, debounce: { ms: 50 }, onData: payload => received.push((payload as { id: string }).id) }
-      ]);
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, debounce: { ms: 50 }, onData: payload => received.push((payload as { id: string }).id) }]);
       runtime.setActive(true);
       runtime.dispatch('event', { id: 'buffered' });
 

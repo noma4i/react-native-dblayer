@@ -16,7 +16,11 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
     ms: number;
     /** Optional bucket key resolver; latest payload wins within each bucket. */
     keyOf?: (payload: TPayload) => string;
+    /** Optional reducer for lossless coalescing inside one bucket. Omit to keep latest-payload semantics. */
+    merge?: (previous: TPayload, incoming: TPayload) => TPayload;
   };
+  /** Reconcile authoritative state after each successful transport subscription, including retries. */
+  onSubscribe?: () => void;
   /** Handler invoked with a validated payload after debounce, if configured. */
   onData: (payload: TPayload) => void;
 };
@@ -74,6 +78,7 @@ export type SubscriptionEntryState = {
   entry: DbSubscriptionEntry;
   unsubscribe: (() => void) | null;
   debounceBuckets: Map<string, Debouncer<(payload: unknown) => void>>;
+  debouncePayloads: Map<string, unknown>;
   retryTimer: ReturnType<typeof setTimeout> | null;
   retryAttempts: number;
   eventCount: number;

@@ -3,7 +3,7 @@ import { createSingletonStatics, defineModel, f, pickPresent, resetRuntime } fro
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/UserCountersModel.ts: a single-record singleton built on
-// createSingletonStatics, with a pickPresent-style merge and a clamped decrement.
+// createSingletonStatics with a pickPresent-style authoritative merge.
 
 type CountersRow = { id: string; unreadChatsCount: number; unreadSecondaryChatsCount: number };
 
@@ -27,10 +27,6 @@ const createCounters = (suffix: string) =>
         upsertCurrent: singleton.upsertCurrent,
         mergeCurrent: (updates: Partial<CountersRow>) => {
           singleton.upsertCurrent(pickPresent(updates, mergeFields));
-        },
-        decrementUnreadSecondaryChats: (count: number): void => {
-          if (count <= 0) return;
-          singleton.updateClamped('unreadSecondaryChatsCount', -count);
         }
       };
     }
@@ -60,16 +56,6 @@ describe('counters singleton consumer contracts', () => {
 
     expect(reader.renders() - beforeIdempotent).toBe(0);
     reader.unmount();
-  });
-
-  it('clamps decrementUnreadSecondaryChats at zero when the delta overshoots', () => {
-    setupSpecRuntime();
-    const counters = createCounters('Clamp');
-    counters.upsertCurrent({ unreadSecondaryChatsCount: 3 });
-
-    counters.decrementUnreadSecondaryChats(10);
-
-    expect(counters.current()?.unreadSecondaryChatsCount).toBe(0);
   });
 
   it('rerenders useCurrentField only for the selected field and falls back to defaults', () => {

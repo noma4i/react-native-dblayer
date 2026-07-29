@@ -1,5 +1,22 @@
 # Changelog
 
+## 9.0.0-beta.5 - 2026-07-29
+
+### Added
+
+- Add optional per-bucket `debounce.merge` to subscription entries so partial payloads can coalesce without dropping fields.
+- Add `onSubscribe`, invoked after every successful initial or retry subscription attempt, so consumers can reconcile authoritative snapshots after a disconnected interval.
+
+### Fixed
+
+- Rebuild a declaratively sorted first-page reset from the incoming page plus every retained member, then assign one global order. A refetch can no longer pin refreshed rows ahead of newer retained rows.
+- Continue a pagination cursor only for explicit `fetchNextPage`. Mount, invalidation, resume, and manual refetch always restart at the first page.
+
+### Testing
+
+- Add red-first regression contracts for retained-union ordering, first-page cursor reset, lossless partial subscription debounce, and reconnect reconciliation.
+- Extend the chat-list subscription contract to assert that realtime `lastActivityAt` changes reposition rows in both directions.
+
 ## 9.0.0-beta.4 - 2026-07-29
 
 ### Fixed

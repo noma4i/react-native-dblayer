@@ -216,7 +216,7 @@ export const createAppModels = (tag: string) => {
     },
     scopes: {
       thread: scope<any>({ by: { chatId: 'chatId' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } }),
-      media: scope<any>({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } })
+      media: scope<any>({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } })
     },
     relations: () => ({
       user: belongsTo<any, any>(users, { foreignKey: 'userId' }),

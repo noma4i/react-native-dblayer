@@ -18,7 +18,7 @@ type CallEntry = { kind: 'query'; operation: { variables: MediaScopeValue & { af
 
 const document = { kind: 'Document', definitions: [] } as never;
 
-const createMediaModel = () =>
+const createMediaModel = (onCompare?: () => void) =>
   defineModel({
     id: 'SpecConsumerMediaBuckets',
     name: 'SpecConsumerMediaBuckets',
@@ -32,7 +32,16 @@ const createMediaModel = () =>
     scopes: {
       media: scope<MediaRow>({
         by: { chatId: 'chatId', mediaBucket: 'mediaBucket' },
-        sort: { field: 'sequenceNumber', dir: 'desc' }
+        sort:
+          onCompare === undefined
+            ? { field: 'sequenceNumber', dir: 'desc' }
+            : {
+                comparator: (left, right) => {
+                  onCompare();
+                  return right.sequenceNumber - left.sequenceNumber;
+                },
+                orderFields: ['sequenceNumber']
+              }
       })
     }
   });
@@ -234,6 +243,106 @@ describe('media scope bucket behavior', () => {
     bucketAReader.unmount();
   });
 
+  it('globally resorts retained pages with a refreshed first page', async () => {
+    const responses: MediaResponse[] = [
+      {
+        mediaItems: {
+          nodes: [
+            { id: 'old-30', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 30, label: 'old-head' },
+            { id: 'old-20', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 20, label: 'old-second' }
+          ],
+          pageInfo: { hasNextPage: true, endCursor: 'cursor-20' }
+        }
+      },
+      {
+        mediaItems: {
+          nodes: [
+            { id: 'old-5', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 5, label: 'old-tail' },
+            { id: 'old-12', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 12, label: 'old-third' }
+          ],
+          pageInfo: { hasNextPage: false, endCursor: null }
+        }
+      },
+      {
+        mediaItems: {
+          nodes: [
+            { id: 'new-25', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 25, label: 'new-second' },
+            { id: 'new-40', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 40, label: 'new-head' }
+          ],
+          pageInfo: { hasNextPage: true, endCursor: 'cursor-25' }
+        }
+      }
+    ];
+    let comparisons = 0;
+    const transport = createQueueTransport(responses);
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createMediaModel(() => {
+      comparisons += 1;
+    });
+    const query = media.query<MediaResponse, MediaScopeValue & { after?: string | null }, MediaScopeValue, MediaRow>('media-refresh-order', {
+      document,
+      vars: value => ({ chatId: value.chatId, mediaBucket: value.mediaBucket }),
+      page: data => data.mediaItems,
+      into: media.scopes.media,
+      coverage: 'page',
+      direction: 'forward'
+    });
+    const scopeValue = { chatId: 'chat-1', mediaBucket: 'A' };
+    const queryReader = renderCountedInProvider(() => query.use(scopeValue));
+
+    await settle();
+    act(() => {
+      queryReader.result().fetchNextPage();
+    });
+    await settle();
+    comparisons = 0;
+    await act(async () => {
+      await queryReader.result().refetch();
+    });
+
+    expect(media.scopes.media.read(scopeValue).map(row => row.id)).toEqual(['new-40', 'old-30', 'new-25', 'old-20', 'old-12', 'old-5']);
+    expect(comparisons).toBeLessThanOrEqual(30);
+    queryReader.unmount();
+  });
+
+  it('refreshes an invalidated active page without continuing its cursor', async () => {
+    const responses: MediaResponse[] = [
+      {
+        mediaItems: {
+          nodes: [{ id: 'old-30', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 30, label: 'old' }],
+          pageInfo: { hasNextPage: true, endCursor: 'cursor-30' }
+        }
+      },
+      {
+        mediaItems: {
+          nodes: [{ id: 'new-40', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 40, label: 'new' }],
+          pageInfo: { hasNextPage: true, endCursor: 'cursor-40' }
+        }
+      }
+    ];
+    const transport = createQueueTransport(responses);
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = createMediaModel();
+    const query = media.query<MediaResponse, MediaScopeValue & { after?: string | null }, MediaScopeValue, MediaRow>('media-invalidate-reset', {
+      document,
+      vars: value => ({ chatId: value.chatId, mediaBucket: value.mediaBucket }),
+      page: data => data.mediaItems,
+      into: media.scopes.media,
+      coverage: 'page',
+      direction: 'forward'
+    });
+    const scopeValue = { chatId: 'chat-1', mediaBucket: 'A' };
+    const queryReader = renderCountedInProvider(() => query.use(scopeValue));
+
+    await settle();
+    query.invalidate(scopeValue);
+    await settle();
+
+    expect(transport.calls).toHaveLength(2);
+    expect(transport.calls[1]?.operation.variables).not.toHaveProperty('after');
+    queryReader.unmount();
+  });
+
   it('writes query rows to matching composite buckets in destination scope', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => ({
@@ -276,13 +385,12 @@ describe('media scope bucket behavior', () => {
   it('derives composite membership for query extract sinks', async () => {
     type ExtractResponse = { carrier: { id: string; label: string }; media: MediaRow[] };
     const transport = createMockTransport({
-      query: async <TData,>() =>
-        ({
-          data: {
-            carrier: { id: 'carrier-1', label: 'carrier' },
-            media: [{ id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 10, label: 'bucket-b' }]
-          } as TData
-        })
+      query: async <TData,>() => ({
+        data: {
+          carrier: { id: 'carrier-1', label: 'carrier' },
+          media: [{ id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 10, label: 'bucket-b' }]
+        } as TData
+      })
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const media = createMediaModel();
@@ -303,13 +411,12 @@ describe('media scope bucket behavior', () => {
   it('keeps composite membership derivation for mutation extract sinks', async () => {
     type MutationResponse = { save: { id: string; label: string }; media: MediaRow[] };
     const transport = createMockTransport({
-      mutation: async <TData,>() =>
-        ({
-          data: {
-            save: { id: 'carrier-1', label: 'carrier' },
-            media: [{ id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 10, label: 'bucket-a' }]
-          } as TData
-        })
+      mutation: async <TData,>() => ({
+        data: {
+          save: { id: 'carrier-1', label: 'carrier' },
+          media: [{ id: 'a-1', chatId: 'chat-1', mediaBucket: 'A', sequenceNumber: 10, label: 'bucket-a' }]
+        } as TData
+      })
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const media = createMediaModel();

@@ -42,12 +42,16 @@ import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 export const intoIf = (into: ExtractSink['into'], row: unknown): ExtractSink[] => (row == null ? [] : [{ into, rows: [row] }]);
 const issuedResetSeqByBucket = new Map<string, number>();
 const appliedResetSeqByBucket = new Map<string, number>();
-registerReset(() => { issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); });
+registerReset(() => {
+  issuedResetSeqByBucket.clear();
+  appliedResetSeqByBucket.clear();
+});
 const operationKey = (document: DbGraphQLDocument<any, any>, override?: string): string => {
   if (override) return override;
   const operation = (document as DocumentNode).definitions?.find((definition): definition is OperationDefinitionNode => definition.kind === 'OperationDefinition');
   const name = operation?.name?.value;
-  if (!name) throw new Error('defineQuery requires a named operation or an explicit key'); return name;
+  if (!name) throw new Error('defineQuery requires a named operation or an explicit key');
+  return name;
 };
 const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown }> => {
   if (Array.isArray(value)) return value.map(node => ({ node, edgeSource: node }));
@@ -69,7 +73,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
   const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false });
   const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => localState.set(key, next);
-  registerKeyedReset(`query:${keyName}`, () => { registeredScopes.clear(); issuedResetSeqByBucket.clear(); appliedResetSeqByBucket.clear(); localState.clear(); });
+  registerKeyedReset(`query:${keyName}`, () => {
+    registeredScopes.clear();
+    issuedResetSeqByBucket.clear();
+    appliedResetSeqByBucket.clear();
+    localState.clear();
+  });
   const bucketKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
   const queryKeyOf = (key: string): [string, string] => [keyName, key];
   const registerScope = (scope: TScope | null): scope is TScope => {
@@ -109,7 +118,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
-    const variables = { ...((config.vars?.(scope) ?? {}) as Record<string, unknown>), ...(context.cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(context.cursor) : context.cursor } : {}) };
+    const variables = {
+      ...((config.vars?.(scope) ?? {}) as Record<string, unknown>),
+      ...(context.cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(context.cursor) : context.cursor } : {})
+    };
     const scopeKey = buildScopeKey(scope);
     const guardKey = isScopeDestination(config.into) ? compositeKey(destinationModelId, getInternalScopeHandle(config.into).key(scope)) : compositeKey(keyName, scopeKey);
     const reset = context.cursor === null;
@@ -147,7 +159,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const staleTimeOf = (key: string): number => {
     const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return meta?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
+    return meta?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null
+      ? (config.emptyStaleTime ?? defaults.emptyStaleTime)!
+      : (config.staleTime ?? defaults.staleTime ?? 0);
   };
   const run = async (scope: TScope, options: { restart: boolean; resurrectDestroyed?: boolean; nextPage?: boolean; propagateFailure?: boolean }): Promise<void> => {
     if (config.enabled && !config.enabled(scope)) return;
@@ -168,7 +182,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         queryKey,
         queryFn: async () => {
           const chainCursor = options.restart ? null : ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null);
-          const cursor = options.nextPage || !options.restart ? chainCursor : null;
+          const cursor = options.nextPage ? chainCursor : null;
           const meta = await execute(scope, key, options.resurrectDestroyed === true, { cursor, isCurrent: () => getRuntimeGeneration() === generation });
           if (meta === null) return (client.getQueryData(queryKey) as ChainMeta | undefined) ?? { lastCount: 0, cursor: null, pages: 0, hasNextPage: false, ids: [] };
           return meta;
@@ -228,7 +242,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       },
       [key, observer]
     );
-    const getSnapshot = useCallback(() => `${observer.getCurrentResult().fetchStatus}:${observer.getCurrentResult().status}:${observer.getCurrentResult().failureCount}:${observer.getCurrentResult().dataUpdatedAt}:${localState.version(key)}`, [key, observer]);
+    const getSnapshot = useCallback(
+      () =>
+        `${observer.getCurrentResult().fetchStatus}:${observer.getCurrentResult().status}:${observer.getCurrentResult().failureCount}:${observer.getCurrentResult().dataUpdatedAt}:${localState.version(key)}`,
+      [key, observer]
+    );
     useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
     const result = observer.getCurrentResult();
     const local = localState.get(key);
@@ -253,7 +271,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (scope === null || !enabled) return;
       const client = getDbQueryClient();
       const queryKey = queryKeyOf(key);
-      const resumeWindow = (): number | null => config.resumeStaleTime === undefined ? getDbRuntimeConfig().defaults.resumeStaleTime : config.resumeStaleTime;
+      const resumeWindow = (): number | null => (config.resumeStaleTime === undefined ? getDbRuntimeConfig().defaults.resumeStaleTime : config.resumeStaleTime);
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
         const state = client.getQueryState(queryKey);
@@ -270,7 +288,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
       const queryState = client.getQueryState(queryKey);
-      const isFresh = queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= staleTimeOf(key) && !queryState.isInvalidated;
+      const isFresh =
+        queryState?.dataUpdatedAt !== undefined && queryState.dataUpdatedAt > 0 && Date.now() - queryState.dataUpdatedAt <= staleTimeOf(key) && !queryState.isInvalidated;
       const canRefetch = !firstMount || !state.isFetched || (config.refetchOnMount ?? getDbRuntimeConfig().defaults.refetchOnMount) !== false;
       const shouldFetch = firstMount && canRefetch;
       if (shouldFetch && !isFresh && !state.isFetching) {
@@ -283,7 +302,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       const unsubscribeOnline = subscribeFetchNetwork(() => {
         if (!isFetchNetworkOnline()) return;
         const currentState = client.getQueryState(queryKey);
-        const fresh = currentState?.dataUpdatedAt !== undefined && currentState.dataUpdatedAt > 0 && Date.now() - currentState.dataUpdatedAt <= staleTimeOf(key) && !currentState.isInvalidated;
+        const fresh =
+          currentState?.dataUpdatedAt !== undefined && currentState.dataUpdatedAt > 0 && Date.now() - currentState.dataUpdatedAt <= staleTimeOf(key) && !currentState.isInvalidated;
         if (!fresh) void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
       });
       return () => {
@@ -351,7 +371,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       isError: state.error !== null,
       hasFetchedData: state.isFetched
     };
-    return { row, loadingState: computeLoadingState(computePhase(phaseInput), phaseInput), error: state.error, refetch: async () => await run(scope, { restart: true, resurrectDestroyed: true }) };
+    return {
+      row,
+      loadingState: computeLoadingState(computePhase(phaseInput), phaseInput),
+      error: state.error,
+      refetch: async () => await run(scope, { restart: true, resurrectDestroyed: true })
+    };
   };
   return { ...handle, useRowEnsured };
 };
