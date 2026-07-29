@@ -2,6 +2,7 @@ import { configureDb, defineCommand, defineModel, f, resetRuntime } from '../../
 import { bootDb } from '../../../dsl/lifecycle';
 import { flushPersistence } from '../../../dsl/configure';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { compositeKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Result = { action: { ok: true } };
@@ -144,6 +145,6 @@ describe('mutation dedupe semantics', () => {
     const onceRecord = records.find(record => record.once === true);
 
     expect(regularRecord?.idempotencyKey).toBeUndefined();
-    expect(onceRecord?.idempotencyKey).toBe('specDedupeStoredOnce\0{"value":"once"}');
+    expect(onceRecord?.idempotencyKey).toBe(compositeKey('specDedupeStoredOnce', '{"value":"once"}'));
   });
 });

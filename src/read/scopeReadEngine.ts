@@ -11,9 +11,7 @@ import { useScopeRetention } from './scopeRetention';
 import { incrementalSignature } from './incrementalReadEngine';
 import { arraysShallowEqual, rowsShallowEqual } from './useLiveRead';
 
-
 const EMPTY_ROWS: RowRecord[] = [];
-
 
 const scopeReadWork: ScopeReadWorkSnapshot = { fullRows: 0, incrementalRows: 0 };
 
@@ -49,8 +47,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
   const rowCache = new Map<string, RowRecord>();
   const sourceCache = new WeakMap<RowRecord, RowRecord>();
   const source = scopeKey == null ? null : storeScopeCollection(modelId, scopeKey);
-  let entries: StoreScopeRow[] = [];
-  let rows = EMPTY_ROWS;
+  let resolvedEntries: Array<{ source: StoreScopeRow & { id: string }; row: RowRecord }> = [];
   let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
   const resolveRow = (sourceRow: RowRecord, kind: keyof ScopeReadWorkSnapshot): RowRecord => {
     const cached = sourceCache.get(sourceRow);
@@ -67,10 +64,10 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id ?? '', right.id ?? '');
   const insertionIndex = (entry: StoreScopeRow): number => {
     let lower = 0;
-    let upper = entries.length;
+    let upper = resolvedEntries.length;
     while (lower < upper) {
       const middle = Math.floor((lower + upper) / 2);
-      if (compareEntries(entries[middle]!, entry) < 0) lower = middle + 1;
+      if (compareEntries(resolvedEntries[middle]!.source, entry) < 0) lower = middle + 1;
       else upper = middle;
     }
     return lower;
@@ -78,35 +75,32 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
   const isScopeRow = (entry: StoreScopeRow): entry is StoreScopeRow & { id: string } => typeof entry.id === 'string' && typeof entry.orderKey === 'string';
   const updateValue = (entry: StoreScopeRow, kind: keyof ScopeReadWorkSnapshot): boolean => {
     if (!isScopeRow(entry)) return false;
-    const currentIndex = entries.findIndex(current => current.id === entry.id);
-    const previousEntry = currentIndex < 0 ? undefined : entries[currentIndex]!;
-    const previousRow = currentIndex < 0 ? undefined : rows[currentIndex]!;
-    if (currentIndex >= 0) {
-      entries.splice(currentIndex, 1);
-      rows = [...rows.slice(0, currentIndex), ...rows.slice(currentIndex + 1)];
-    }
+    const currentIndex = resolvedEntries.findIndex(current => current.source.id === entry.id);
+    const previous = currentIndex < 0 ? undefined : resolvedEntries[currentIndex]!;
+    if (currentIndex >= 0) resolvedEntries.splice(currentIndex, 1);
     const nextRow = resolveRow(entry as RowRecord, kind);
     const nextIndex = insertionIndex(entry);
-    entries.splice(nextIndex, 0, entry);
-    rows = [...rows.slice(0, nextIndex), nextRow, ...rows.slice(nextIndex)];
-    return previousEntry?.orderKey !== entry.orderKey || previousRow !== nextRow || currentIndex !== nextIndex;
+    resolvedEntries.splice(nextIndex, 0, { source: entry, row: nextRow });
+    return previous?.source.orderKey !== entry.orderKey || previous.row !== nextRow || currentIndex !== nextIndex;
   };
   const removeValue = (key: string | number): boolean => {
-    const index = entries.findIndex(entry => entry.id === String(key));
+    const index = resolvedEntries.findIndex(entry => entry.source.id === String(key));
     if (index < 0) return false;
-    const [entry] = entries.splice(index, 1);
-    rows = [...rows.slice(0, index), ...rows.slice(index + 1)];
-    rowCache.delete(entry!.id!);
+    const [entry] = resolvedEntries.splice(index, 1);
+    rowCache.delete(entry!.source.id);
     return true;
   };
   const publishRows = (): void => {
-    engine.value = rows;
+    engine.value = resolvedEntries.map(entry => entry.row);
     engine.version += 1;
   };
   if (source) {
-    entries = source.toArray().filter(isScopeRow);
-    rows = entries.map(entry => resolveRow(entry as RowRecord, 'fullRows'));
+    resolvedEntries = source
+      .toArray()
+      .filter(isScopeRow)
+      .map(entry => ({ source: entry, row: resolveRow(entry as RowRecord, 'fullRows') }));
   }
+  const initialRows = resolvedEntries.length === 0 ? EMPTY_ROWS : resolvedEntries.map(entry => entry.row);
   const applyChanges = (changes: StoreScopeChange[]): boolean => {
     let changed = false;
     for (const change of changes) {
@@ -117,28 +111,28 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     return changed;
   };
   const reset = (): boolean => {
-    if (rows.length === 0) return false;
+    if (resolvedEntries.length === 0) return false;
     rowCache.clear();
-    entries = [];
-    rows = EMPTY_ROWS;
+    resolvedEntries = [];
     publishRows();
     return true;
   };
   const engine = {
     signature: incrementalSignature('scope-read', modelId, scopeKey, sortMeta),
     generation: getRuntimeGeneration(),
-    value: rows,
+    value: initialRows,
     version: 0,
     subscribe: (listener: () => void): (() => void) => {
       let notifiedSinceCommit = false;
       let forceCommitNotification = false;
-      const releaseSource = source?.subscribe(changes => {
-        const changed = applyChanges(changes);
-        if (changed) {
-          listener();
-          notifiedSinceCommit = true;
-        }
-      }) ?? (() => {});
+      const releaseSource =
+        source?.subscribe(changes => {
+          const changed = applyChanges(changes);
+          if (changed) {
+            listener();
+            notifiedSinceCommit = true;
+          }
+        }) ?? (() => {});
       if (scopeKey == null) return releaseSource;
       const subscription = getCommitBus().subscribeIncremental(
         () => {
@@ -166,7 +160,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
   return engine;
 };
 
-const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: RowRecord[]) => TSnapshot): TSnapshot => {
+const useScopeReadSnapshot = <TSnapshot>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, snapshot: (rows: RowRecord[]) => TSnapshot): TSnapshot => {
   const signature = incrementalSignature('scope-read', modelId, scopeKey, sortMeta);
   const engineRef = useRef<ReturnType<typeof createScopeReadEngine> | null>(null);
   if (!engineRef.current || engineRef.current.signature !== signature || engineRef.current.generation !== getRuntimeGeneration()) {
@@ -180,7 +174,13 @@ const useScopeReadSnapshot = <TSnapshot,>(modelId: string, scopeKey: string | nu
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 };
 
-export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRecord>(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean, options: ScopeProjectionOptions<TOutput> = {}): TOutput[] {
+export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRecord>(
+  modelId: string,
+  scopeKey: string | null,
+  sortMeta: ScopeSortMeta,
+  isResolved: () => boolean,
+  options: ScopeProjectionOptions<TOutput> = {}
+): TOutput[] {
   validateProjectionOptions(options, `${modelId}.scope.use`);
   const optionsRef = useRef(options);
   const gateRef = useRef(createProjectionGate<RowRecord, TOutput>());
@@ -202,12 +202,24 @@ export function useScopeReadCount(modelId: string, scopeKey: string | null, sort
   return useScopeReadSnapshot(modelId, scopeKey, sortMeta, rows => rows.length);
 }
 
-export function useScopeReadWindowRows(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, windowSize: number, isResolved: () => boolean, options: ScopeProjectionOptions<Record<string, unknown>> = {}): ScopeWindowSnapshot {
+export function useScopeReadWindowRows(
+  modelId: string,
+  scopeKey: string | null,
+  sortMeta: ScopeSortMeta,
+  windowSize: number,
+  isResolved: () => boolean,
+  options: ScopeProjectionOptions<Record<string, unknown>> = {}
+): ScopeWindowSnapshot {
   validateProjectionOptions(options, `${modelId}.scope.useWindow`);
   const optionsRef = useRef(options);
   const gateRef = useRef(createProjectionGate<RowRecord, Record<string, unknown>>());
   const requireGateRef = useRef<RequireGate>({ source: null, require: undefined, result: EMPTY_ROWS });
-  const windowRef = useRef<{ source: RowRecord[]; size: number; resolved: boolean; snapshot: ScopeWindowSnapshot }>({ source: EMPTY_ROWS, size: 0, resolved: false, snapshot: { rows: EMPTY_ROWS, totalCount: 0, isPreviousData: false, resolved: false } });
+  const windowRef = useRef<{ source: RowRecord[]; size: number; resolved: boolean; snapshot: ScopeWindowSnapshot }>({
+    source: EMPTY_ROWS,
+    size: 0,
+    resolved: false,
+    snapshot: { rows: EMPTY_ROWS, totalCount: 0, isPreviousData: false, resolved: false }
+  });
   optionsRef.current = options;
   const snapshot = useScopeReadSnapshot(modelId, scopeKey, sortMeta, stored => {
     const source = gateRef.current.projectRows(readRequireGate(requireGateRef, stored, optionsRef.current.require), optionsRef.current) as RowRecord[];
@@ -215,10 +227,15 @@ export function useScopeReadWindowRows(modelId: string, scopeKey: string | null,
     if (windowRef.current.source === source && windowRef.current.size === windowSize && windowRef.current.resolved === resolved) return windowRef.current.snapshot;
     const rows = source.slice(0, windowSize);
     const previous = windowRef.current.snapshot;
-    const next = previous.resolved === resolved && previous.totalCount === source.length && arraysShallowEqual(previous.rows, rows) ? previous : { rows, totalCount: source.length, isPreviousData: false, resolved };
+    const next =
+      previous.resolved === resolved && previous.totalCount === source.length && arraysShallowEqual(previous.rows, rows)
+        ? previous
+        : { rows, totalCount: source.length, isPreviousData: false, resolved };
     windowRef.current = { source, size: windowSize, resolved, snapshot: next };
     return next;
   });
   const retained = useScopeRetention(scopeKey, snapshot, snapshot.resolved, options.keepPrevious === true);
-  return retained.snapshot === snapshot ? { rows: snapshot.rows, totalCount: snapshot.totalCount, isPreviousData: false, resolved: snapshot.resolved } : { ...retained.snapshot, isPreviousData: retained.isPreviousData, resolved: snapshot.resolved };
+  return retained.snapshot === snapshot
+    ? { rows: snapshot.rows, totalCount: snapshot.totalCount, isPreviousData: false, resolved: snapshot.resolved }
+    : { ...retained.snapshot, isPreviousData: retained.isPreviousData, resolved: snapshot.resolved };
 }

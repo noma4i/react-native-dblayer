@@ -1,4 +1,4 @@
-import { compareCodepoints, compositeKey, semanticValue, stableSerialize } from '../../../core/serialize';
+import { compareCodepoints, compositeKey, firstCompositeKeyPart, semanticValue, stableSerialize } from '../../../core/serialize';
 
 /**
  * Identity backbone contracts: every scope key, dedupe key, and composite key in the runtime is
@@ -22,15 +22,7 @@ describe('stableSerialize injectivity across value branches', () => {
   });
 
   it('distinguishes numbers, NaN, bigints, booleans, and their string spellings', () => {
-    const outputs = [
-      stableSerialize(1),
-      stableSerialize('1'),
-      stableSerialize(1n),
-      stableSerialize(NaN),
-      stableSerialize('NaN'),
-      stableSerialize(true),
-      stableSerialize('true')
-    ];
+    const outputs = [stableSerialize(1), stableSerialize('1'), stableSerialize(1n), stableSerialize(NaN), stableSerialize('NaN'), stableSerialize(true), stableSerialize('true')];
     expect(new Set(outputs).size).toBe(7);
   });
 
@@ -39,7 +31,14 @@ describe('stableSerialize injectivity across value branches', () => {
     Object.setPrototypeOf(spelledLikeOne, class {}.prototype);
     const spelledLikeUndefined = { toString: () => 'undefined' };
     Object.setPrototypeOf(spelledLikeUndefined, class {}.prototype);
-    const outputs = [stableSerialize(1), stableSerialize('1'), stableSerialize(1n), stableSerialize(spelledLikeOne), stableSerialize(undefined), stableSerialize(spelledLikeUndefined)];
+    const outputs = [
+      stableSerialize(1),
+      stableSerialize('1'),
+      stableSerialize(1n),
+      stableSerialize(spelledLikeOne),
+      stableSerialize(undefined),
+      stableSerialize(spelledLikeUndefined)
+    ];
     expect(new Set(outputs).size).toBe(6);
   });
 
@@ -123,5 +122,11 @@ describe('compositeKey segment boundaries', () => {
   it('keeps different segmentations of the same text distinct', () => {
     expect(compositeKey('a', 'bc')).not.toBe(compositeKey('ab', 'c'));
     expect(compositeKey('a', 'b', 'c')).not.toBe(compositeKey('a', 'bc'));
+  });
+
+  it('keeps segment boundaries injective when values contain NUL', () => {
+    const key = compositeKey('a\0b', 'c');
+    expect(key).not.toBe(compositeKey('a', 'b\0c'));
+    expect(firstCompositeKeyPart(key)).toBe('a\0b');
   });
 });

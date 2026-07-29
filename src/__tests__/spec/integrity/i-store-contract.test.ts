@@ -60,6 +60,48 @@ describe('model store', () => {
     expect(store.scopeCollection('scope-1').toArray()).toMatchObject([{ id: 'row-1', label: 'first' }]);
   });
 
+  it('keeps membership identities distinct when scope and row segments contain colons', () => {
+    const store = buildStore();
+    store.upsert({ id: 'c' });
+    store.upsert({ id: 'b:c' });
+    store.applyScopeChanges([{ scopeKey: 'a:b', entries: entriesFor(['c']) }]);
+    store.applyScopeChanges([{ scopeKey: 'a', entries: entriesFor(['b:c']) }]);
+    store.markReady();
+
+    expect(
+      store
+        .scopeCollection('a:b')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(['c']);
+    expect(
+      store
+        .scopeCollection('a')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(['b:c']);
+  });
+
+  it('keeps persisted row identities distinct across model and row segments', () => {
+    const storage = createMemoryPlane();
+    const create = (modelId: string) =>
+      createModelStore<Row>({
+        modelId,
+        now: () => Date.now(),
+        storage,
+        prefix: () => 'spec-store:',
+        applyWriteGate: (_previous, incoming) => incoming
+      });
+    const first = create('a:b');
+    const second = create('a');
+    first.upsert({ id: 'c', owner: 'first' });
+    second.upsert({ id: 'b:c', owner: 'second' });
+
+    storage.set([...first.persistEntries(), ...second.persistEntries()]);
+
+    expect(storage.keys('spec-store:row:')).toHaveLength(2);
+  });
+
   it('serves buffered same-batch reads while the live scope holds the pre-batch value', () => {
     const store = buildStore();
     store.upsert({ id: 'seed', label: 'before' });

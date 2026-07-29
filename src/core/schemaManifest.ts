@@ -7,7 +7,7 @@ import { stableSerialize } from './serialize';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { isRecord } from '../utils/normalizeHelpers';
 
-export const DB_FORMAT_VERSION = 4;
+export const DB_FORMAT_VERSION = 5;
 
 import type { PersistenceManifest, SchemaDeclaration } from '../types';
 const declarations = new Map<string, SchemaDeclaration>();

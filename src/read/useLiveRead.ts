@@ -2,20 +2,20 @@ import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { CommitSubscription, Dependency, LiveReadState } from '../types';
 import { getCommitBus } from '../dsl/configure';
-import { compositeKey } from '../core/serialize';
+import { compositeKey, semanticValue } from '../core/serialize';
 
 const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
-  deps
-    .map(dep =>
+  compositeKey(
+    ...deps.map(dep =>
       dep.kind === 'model'
         ? compositeKey('m', dep.model)
         : dep.kind === 'scope'
           ? compositeKey('s', dep.model, dep.scopeKey)
           : dep.kind === 'pending'
             ? compositeKey('p', dep.model, dep.id)
-            : compositeKey('r', dep.model, dep.id, dep.fields?.join(',') ?? '')
+            : compositeKey('r', dep.model, dep.id, semanticValue(dep.fields ?? []))
     )
-    .join('|');
+  );
 
 /** Shallow element-identity equality; rows keep stable refs in EntityState until replaced. */
 export const arraysShallowEqual = <T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean =>

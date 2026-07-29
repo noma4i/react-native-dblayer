@@ -53,5 +53,33 @@ export const semanticValue = (value: unknown): string => {
   return String(value);
 };
 
-/** Canonical composite-key builder: joins parts with NUL so segment boundaries survive any content. */
-export const compositeKey = (...parts: ReadonlyArray<string>): string => parts.join('\0');
+/** Canonical injective composite-key builder: every UTF-16 segment carries its own length prefix. */
+export const compositeKey = (...parts: ReadonlyArray<string>): string => parts.map(part => `${part.length}:${part}`).join('');
+
+/** Parse a canonical composite key, returning undefined for malformed or truncated input. */
+export const parseCompositeKey = (key: string): string[] | undefined => {
+  const parts: string[] = [];
+  let offset = 0;
+  while (offset < key.length) {
+    const separator = key.indexOf(':', offset);
+    const rawLength = separator < 0 ? '' : key.slice(offset, separator);
+    if (!/^\d+$/.test(rawLength)) return undefined;
+    const length = Number(rawLength);
+    const start = separator + 1;
+    const end = start + length;
+    if (!Number.isSafeInteger(length) || end > key.length) return undefined;
+    parts.push(key.slice(start, end));
+    offset = end;
+  }
+  return parts;
+};
+
+/** Decode the first segment of a canonical composite key. */
+export const firstCompositeKeyPart = (key: string): string => {
+  const first = parseCompositeKey(key)?.[0];
+  if (first === undefined) throw new Error('Invalid composite key');
+  return first;
+};
+
+/** Build one storage namespace key from a static prefix, a namespace, and injective variable segments. */
+export const compositeStorageKey = (prefix: string, namespace: string, ...parts: ReadonlyArray<string>): string => `${prefix}${namespace}:${compositeKey(...parts)}`;

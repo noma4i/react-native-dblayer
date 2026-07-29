@@ -15,6 +15,7 @@ import { registerReset } from '../core/reset';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
+import { compositeKey, compositeStorageKey, parseCompositeKey } from '../core/serialize';
 
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
@@ -181,7 +182,7 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
 export const replayJournal = (): number => {
   const runtime = getApplyRuntime();
   const storage = getDbRuntimeConfig().storage;
-  const rowPrefix = `${getStoragePrefix()}row:`;
+  const rowPrefix = compositeStorageKey(getStoragePrefix(), 'row');
   const replayed = runtime.replay();
   const operations = getOperationState();
   const hasApplyTarget = (model: string): boolean => {
@@ -212,8 +213,8 @@ export const replayJournal = (): number => {
     candidates.set(model, ids);
   };
   for (const key of storage.keys(rowPrefix)) {
-    const [model, id] = key.slice(rowPrefix.length).split(':', 2);
-    if (model && id) noteCandidate(model, id);
+    const parts = parseCompositeKey(key.slice(rowPrefix.length));
+    if (parts?.length === 2) noteCandidate(parts[0]!, parts[1]);
   }
   for (const key of storage.keys(`${getStoragePrefix()}journal:`)) {
     const record = readJournalRecord(storage, getStoragePrefix(), key);
@@ -222,9 +223,9 @@ export const replayJournal = (): number => {
       for (const row of operation.rows) noteCandidate(operation.model, typeof row === 'object' && row !== null ? (row as { id?: unknown }).id : undefined);
     }
   }
-  const openTempIds = new Set(operations.open().flatMap(operation => operation.tempIds));
+  const openTempIds = new Set(operations.open().flatMap(operation => operation.tempIds.map(id => compositeKey(operation.model, id))));
   for (const [model, ids] of candidates) {
-    const orphanIds = [...ids].filter(id => !openTempIds.has(id) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
+    const orphanIds = [...ids].filter(id => !openTempIds.has(compositeKey(model, id)) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
     if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.commit(createCommitEnvelope([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
   flushPersistence();

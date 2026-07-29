@@ -81,6 +81,28 @@ describe('detached operations', () => {
     expect(getOperationState().get(entry.operationId)).toMatchObject({ status: 'pending', kind: 'restart' });
   });
 
+  it('protects an open temp id only inside its owning model during orphan recovery', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    const owner = defineRows('DetachedSharedTempOwner', { gc: 'exempt' });
+    const other = defineRows('DetachedSharedTempOther', { gc: 'exempt' });
+    const handle = declare(owner, 'shared-temp', async () => 'continue');
+    const entry = handle.start({ bucket: 'a', label: 'owned' });
+    other.insert({ id: entry.tempId, bucket: 'b', label: 'orphan', state: 'pending', createdAt: new Date().toISOString() });
+    writeManifest();
+    flushPersistence();
+
+    configureDb({ storage, transport: createMockTransport() });
+    const restartedOwner = defineRows('DetachedSharedTempOwner', { gc: 'exempt' });
+    const restartedOther = defineRows('DetachedSharedTempOther', { gc: 'exempt' });
+    declare(restartedOwner, 'shared-temp', async () => 'continue');
+    writeManifest();
+    await bootDb();
+
+    expect(restartedOwner.find(entry.tempId)).toMatchObject({ label: 'owned' });
+    expect(restartedOther.find(entry.tempId)).toBeUndefined();
+  });
+
   it('P4 resumes every hydrated detached operation once', async () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport() });

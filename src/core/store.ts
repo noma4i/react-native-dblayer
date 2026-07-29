@@ -1,7 +1,19 @@
 import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
-import { stableSerialize } from './serialize';
+import { compositeKey, compositeStorageKey, stableSerialize } from './serialize';
 import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
-import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreMembershipRow, StoreScopeChange, StoreScopeCollection, StoreScopeSyncChange, StoreSyncMethods, Tombstone, WriteCtx } from '../types';
+import type {
+  IncrementalCommitBatch,
+  ModelStore,
+  RowRecord,
+  StoragePlane,
+  StoreMembershipRow,
+  StoreScopeChange,
+  StoreScopeCollection,
+  StoreScopeSyncChange,
+  StoreSyncMethods,
+  Tombstone,
+  WriteCtx
+} from '../types';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { isRecord } from '../utils/normalizeHelpers';
 
@@ -41,7 +53,7 @@ class SyncFeed<T extends object> {
   }
 }
 
-const membershipKey = (scopeKey: string, entityId: string): string => `${scopeKey}:${entityId}`;
+const membershipKey = (scopeKey: string, entityId: string): string => compositeKey(scopeKey, entityId);
 
 /**
  * Tombstone retention tuning. Three tiers, from gentlest to most aggressive:
@@ -156,7 +168,7 @@ export const createModelStore = <T extends RowRecord>(options: {
 }): ModelStore<T> => {
   const { modelId, now, storage, prefix, ownedFields } = options;
   const applyWriteGate = options.applyWriteGate as (previous: RowRecord, incoming: RowRecord, ctx: WriteCtx) => RowRecord;
-  const storeId = storeSequence += 1;
+  const storeId = (storeSequence += 1);
   const entityFeed = new SyncFeed<RowRecord>();
   const membershipFeed = new SyncFeed<StoreMembershipRow>();
   const entities = createCollection<RowRecord>({
@@ -186,9 +198,9 @@ export const createModelStore = <T extends RowRecord>(options: {
   const dirty = new Map<string, 'set' | 'delete'>();
   let tombstonesDirty = false;
   let ready = false;
-  const rowKey = (id: string) => `${prefix()}row:${modelId}:${id}`;
-  const rowsPrefix = () => `${prefix()}row:${modelId}:`;
-  const tombstonesKey = () => `${prefix()}tombstones:${modelId}`;
+  const rowKey = (id: string) => compositeStorageKey(prefix(), 'row', modelId, id);
+  const rowsPrefix = () => compositeStorageKey(prefix(), 'row', modelId);
+  const tombstonesKey = () => compositeStorageKey(prefix(), 'tombstones', modelId);
 
   const cleanOf = (enriched: object): RowRecord => {
     const cached = cleanRows.get(enriched);
@@ -314,12 +326,13 @@ export const createModelStore = <T extends RowRecord>(options: {
     createLiveQueryCollection({
       id: `dblayer-${modelId}-scope-${storeId}-${scopeKey}`,
       startSync: true,
-      query: q => q
-        .from({ membership: memberships })
-        .where(({ membership }) => eq(membership.scopeKey, scopeKey))
-        .join({ entity: entities }, ({ membership, entity }) => eq(membership.entityId, entity.id))
-        .orderBy(({ membership }) => membership.orderKey, { direction: 'asc', stringSort: 'lexical' })
-        .select(({ membership, entity }) => ({ ...entity, orderKey: membership.orderKey })),
+      query: q =>
+        q
+          .from({ membership: memberships })
+          .where(({ membership }) => eq(membership.scopeKey, scopeKey))
+          .join({ entity: entities }, ({ membership, entity }) => eq(membership.entityId, entity.id))
+          .orderBy(({ membership }) => membership.orderKey, { direction: 'asc', stringSort: 'lexical' })
+          .select(({ membership, entity }) => ({ ...entity, orderKey: membership.orderKey })),
       getKey: row => row.$key
     });
 
@@ -613,7 +626,9 @@ export const publishProjectedBatch = (bus: { publish(batch: IncrementalCommitBat
 };
 
 /** Boot-time projection: rebuild every persisted scope's membership rows straight from persisted entries. */
-export const hydrateStoreScopes = (sources: ReadonlyArray<readonly [string, { readScopeEntries(scopeKey: string): Array<{ id: string; orderKey: string }>; readAllScopeKeys(): string[] }]>): void => {
+export const hydrateStoreScopes = (
+  sources: ReadonlyArray<readonly [string, { readScopeEntries(scopeKey: string): Array<{ id: string; orderKey: string }>; readAllScopeKeys(): string[] }]>
+): void => {
   for (const [model, source] of sources) {
     const store = ensureModelStore(model);
     store.applyScopeChanges(source.readAllScopeKeys().map(scopeKey => ({ scopeKey, entries: source.readScopeEntries(scopeKey) })));

@@ -86,7 +86,7 @@ export const noteCorruptionLedgerReset = (): void => {
   diagnostics.corruptionLedgerResets += 1;
 };
 
-/** Count persisted scope keys rewritten from the colon-delimited format. */
+/** Count cold resets caused by an incompatible persistence manifest. */
 export const noteManifestReset = (): void => {
   diagnostics.manifestResets += 1;
 };

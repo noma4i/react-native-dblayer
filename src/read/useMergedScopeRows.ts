@@ -3,7 +3,7 @@ import type { MergeOptions } from '../types';
 import { arraysShallowEqual } from './useLiveRead';
 
 /**
- * Merges a base scope read with extra rows from a second scope read.
+ * Merges a base scope read with extra rows from a second scope read of the same model.
  * Extras whose id already exists in the base array are dropped; surviving
  * extras are appended after the base rows. When a comparator is provided the
  * merged array is sorted with it; a base-only result is resorted into a new
@@ -14,7 +14,7 @@ import { arraysShallowEqual } from './useLiveRead';
  * referentially identical inputs return the previously built array.
  *
  * @param baseRows Base rows from the primary scope read.
- * @param extraRows Additional rows that should be merged into the base.
+ * @param extraRows Additional rows from the same model that should be merged into the base.
  * @param options Optional merge options including comparator.
  * @returns Merged rows with deduplication and optional sorting.
  */

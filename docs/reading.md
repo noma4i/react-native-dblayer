@@ -239,7 +239,7 @@ its fields directly rather than memoizing by container identity.
 
 ## `useMergedScopeRows(baseRows, extraRows, options?)`
 
-Merges a base scope read with extra rows from a second scope read: extras whose `id` already
+Merges a base scope read with extra rows from a second scope read of the same model: extras whose `id` already
 exists in `baseRows` are dropped, surviving extras are appended after `baseRows`. Pass
 `options.comparator` to sort the merged array (and to resort `baseRows`-only results into a new
 array, without mutating `baseRows`) - a merge with no comparator preserves the base scope's own

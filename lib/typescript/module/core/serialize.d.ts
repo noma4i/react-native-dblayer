@@ -7,6 +7,12 @@ export declare const compareCodepoints: (left: string, right: string) => number;
 export declare const stableSerialize: (value: unknown) => string;
 /** Identity-preserving sibling of stableSerialize: plain data serializes structurally, functions and exotic objects get stable per-identity tokens. */
 export declare const semanticValue: (value: unknown) => string;
-/** Canonical composite-key builder: joins parts with NUL so segment boundaries survive any content. */
+/** Canonical injective composite-key builder: every UTF-16 segment carries its own length prefix. */
 export declare const compositeKey: (...parts: ReadonlyArray<string>) => string;
+/** Parse a canonical composite key, returning undefined for malformed or truncated input. */
+export declare const parseCompositeKey: (key: string) => string[] | undefined;
+/** Decode the first segment of a canonical composite key. */
+export declare const firstCompositeKeyPart: (key: string) => string;
+/** Build one storage namespace key from a static prefix, a namespace, and injective variable segments. */
+export declare const compositeStorageKey: (prefix: string, namespace: string, ...parts: ReadonlyArray<string>) => string;
 //# sourceMappingURL=serialize.d.ts.map

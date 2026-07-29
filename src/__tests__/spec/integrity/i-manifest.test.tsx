@@ -105,7 +105,10 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
     await bootDb();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
-    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
+      reset: () => void;
+      snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
+    };
     diagnostics.reset();
 
     configureManifestRuntime(storage, 'build-2');
@@ -141,7 +144,10 @@ describe('persistence schema manifest', () => {
   it('does not classify a consumer data version migration as corruption recovery', async () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
     await bootDb();
-    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
+      reset: () => void;
+      snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
+    };
     diagnostics.reset();
 
     configureManifestRuntime(storage, 'build-2');
@@ -156,7 +162,10 @@ describe('persistence schema manifest', () => {
     const id = 'manifest-version-and-schema';
     registerSchemaDeclaration(declaration(id));
     await bootDb();
-    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
+      reset: () => void;
+      snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
+    };
     diagnostics.reset();
 
     registerSchemaDeclaration(declaration(id, { title: { kind: 'num', mode: 'required', hasDefault: false } }));
@@ -210,11 +219,23 @@ describe('persistence schema manifest', () => {
     expect(storage.snapshotKeys()).toEqual(['dbl:manifest']);
   });
 
+  it('cold-resets format 4 keys before reading the injective composite-key format', async () => {
+    const storage = configureManifestRuntime();
+    writePersistenceManifest('dbl:', { formatVersion: 4, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: true });
+    expect(storage.get('dbl:sentinel')).toBeUndefined();
+  });
+
   it('records manifest-driven resets in diagnostics', async () => {
     const storage = configureManifestRuntime();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'outdated', dataVersion: null });
-    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { reset: () => void; snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> } };
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
+      reset: () => void;
+      snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
+    };
     diagnostics.reset();
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });

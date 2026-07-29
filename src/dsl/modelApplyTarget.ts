@@ -1,6 +1,7 @@
 import { createCommitEnvelope, registerApplyTarget } from '../core/apply/transaction';
 import { keysForSequence } from '../core/orderKey';
-import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin , ModelContext } from '../types';
+import { firstCompositeKeyPart } from '../core/serialize';
+import type { ModelApplyTargetResult, PreparedRowWrite, ScopeIndexValue, ScopeSpec, StoredRow, WriteOp, WriteOrigin, ModelContext } from '../types';
 import { getApplyRuntime } from './configure';
 import { compareRowsBySpec } from './modelReadAccess';
 
@@ -9,13 +10,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   scopes: Record<string, ScopeSpec<TStored>> | undefined;
   context: ModelContext<TStored>;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-  prepareRow(
-    row: unknown,
-    previous: TStored | undefined,
-    origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
-    mergeBase?: TStored,
-    operationId?: string
-  ): PreparedRowWrite | null;
+  prepareRow(row: unknown, previous: TStored | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): PreparedRowWrite | null;
   preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string): PreparedRowWrite | null;
   putRows(rows: TStored[]): Array<{ id: string; changedFields: string[] | null }>;
 }): ModelApplyTargetResult => {
@@ -29,7 +24,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
         .entries.map(entry => ({ id: entry.id, orderKey: entry.orderKey })),
     planScopePlacement: (scopeKey, ids, readRow) => {
       const entries = planes().scopeIndex.read(scopeKey).entries;
-      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
+      const scopeName = firstCompositeKeyPart(scopeKey);
       const sort = options.scopes?.[scopeName]?.sort;
       const pending = new Set(ids);
       if (!sort || sort === 'server-order') {
@@ -68,7 +63,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     readScopeGeneration: (scopeKey: string): number => planes().scopeIndex.read(scopeKey).generation,
     scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {
       if (fields === null || !planes().scopeIndex.has(scopeKey, id)) return true;
-      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
+      const scopeName = firstCompositeKeyPart(scopeKey);
       const spec = options.scopes?.[scopeName];
       if (!spec) return false;
       const relevant = new Set<string>(spec.by ? Object.values(spec.by) : []);
@@ -80,7 +75,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       return fields.some(field => relevant.has(field));
     },
     scopeSortMeta: (scopeKey: string) => {
-      const scopeName = scopeKey.slice(0, scopeKey.indexOf(`\0`));
+      const scopeName = firstCompositeKeyPart(scopeKey);
       const sort = options.scopes?.[scopeName]?.sort;
       if (!sort || sort === 'server-order') return { kind: 'server-order' as const };
       if ('comparator' in sort) return { kind: 'comparator' as const };
@@ -129,7 +124,11 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     getApplyRuntime().commit(createCommitEnvelope(ops));
   };
   const applyEvent = (ops: WriteOp[]): void => {
-    getApplyRuntime().commit(createCommitEnvelope(ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))));
+    getApplyRuntime().commit(
+      createCommitEnvelope(
+        ops.map(op => (op.kind === 'upsert' && op.origin === undefined ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))
+      )
+    );
   };
   return { applyTarget, applySnapshot, applyEvent };
 };

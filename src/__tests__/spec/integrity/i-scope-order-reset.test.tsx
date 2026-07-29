@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
 import { createScopeIndex } from '../../../core/planes/scopeIndex';
+import { compositeKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ScopeRow = { id: string; bucket: string; rank: number; label: string };
@@ -38,13 +39,10 @@ describe('scope order cache reset contract', () => {
     const rows = createScopeModel();
 
     act(() => {
-      rows.scopes.byBucket.seed(
-        { bucket: 'shared' },
-        [
-          { id: 'a-2', bucket: 'shared', rank: 2, label: 'two' },
-          { id: 'a-1', bucket: 'shared', rank: 1, label: 'one' }
-        ]
-      );
+      rows.scopes.byBucket.seed({ bucket: 'shared' }, [
+        { id: 'a-2', bucket: 'shared', rank: 2, label: 'two' },
+        { id: 'a-1', bucket: 'shared', rank: 1, label: 'one' }
+      ]);
     });
     const initialReader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }));
     expect(initialReader.result().map(row => row.id)).toEqual(['a-1', 'a-2']);
@@ -52,13 +50,10 @@ describe('scope order cache reset contract', () => {
 
     act(() => {
       resetRuntime();
-      rows.scopes.byBucket.seed(
-        { bucket: 'shared' },
-        [
-          { id: 'b-3', bucket: 'shared', rank: 3, label: 'three' },
-          { id: 'b-1', bucket: 'shared', rank: 1, label: 'one' }
-        ]
-      );
+      rows.scopes.byBucket.seed({ bucket: 'shared' }, [
+        { id: 'b-3', bucket: 'shared', rank: 3, label: 'three' },
+        { id: 'b-1', bucket: 'shared', rank: 1, label: 'one' }
+      ]);
     });
     const freshReader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }));
 
@@ -70,13 +65,10 @@ describe('scope order cache reset contract', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const rows = createScopeModel(['rank']);
     act(() => {
-      rows.scopes.byBucket.seed(
-        { bucket: 'shared' },
-        [
-          { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
-          { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
-        ]
-      );
+      rows.scopes.byBucket.seed({ bucket: 'shared' }, [
+        { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
+        { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
+      ]);
     });
     const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }, { renderKeys: ['rank'] }));
     const before = reader.result();
@@ -99,13 +91,10 @@ describe('scope order cache reset contract', () => {
       comparisons += 1;
     });
     act(() => {
-      rows.scopes.byBucket.seed(
-        { bucket: 'shared' },
-        [
-          { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
-          { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
-        ]
-      );
+      rows.scopes.byBucket.seed({ bucket: 'shared' }, [
+        { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
+        { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
+      ]);
     });
     const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }));
     expect(reader.result().map(row => row.id)).toEqual(['row-1', 'row-2']);
@@ -127,13 +116,10 @@ describe('scope order cache reset contract', () => {
       comparisons += 1;
     });
     act(() => {
-      rows.scopes.byBucket.seed(
-        { bucket: 'shared' },
-        [
-          { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
-          { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
-        ]
-      );
+      rows.scopes.byBucket.seed({ bucket: 'shared' }, [
+        { id: 'row-2', bucket: 'shared', rank: 2, label: 'two' },
+        { id: 'row-1', bucket: 'shared', rank: 1, label: 'one' }
+      ]);
     });
     const reader = renderCounted(() => rows.scopes.byBucket.use({ bucket: 'shared' }, { renderKeys: ['rank'] }));
     const before = comparisons;
@@ -169,9 +155,17 @@ describe('scope order cache reset contract', () => {
 
   it('K1/K2 reconciles, trims, and evicts scope keys without retaining departed reverse memberships', () => {
     const index = createScopeIndex({ modelId: 'SpecIntegrityScopeReverseIndex', storage: createMemoryPlane(), prefix: () => 'dbl:' });
-    const scopeA = 'byBucket\0{"bucket":"a"}';
-    const scopeB = 'byBucket\0{"bucket":"b"}';
-    const land = (key: string, ids: string[]) => index.write(key, index.reconcileNext(key, 'complete', ids.map(id => ({ id }))).next);
+    const scopeA = compositeKey('byBucket', '{"bucket":"a"}');
+    const scopeB = compositeKey('byBucket', '{"bucket":"b"}');
+    const land = (key: string, ids: string[]) =>
+      index.write(
+        key,
+        index.reconcileNext(
+          key,
+          'complete',
+          ids.map(id => ({ id }))
+        ).next
+      );
 
     land(scopeA, ['row-1', 'row-2']);
     land(scopeB, ['row-1']);
@@ -185,12 +179,11 @@ describe('scope order cache reset contract', () => {
     land(scopeA, ['row-1']);
     index.remove(scopeA);
     expect(index.keysOf('row-1')).toEqual([scopeB]);
-
   });
 
   it('K3 removes the final reverse membership through the destroy detach path', () => {
     const index = createScopeIndex({ modelId: 'SpecIntegrityScopeReverseIndexDestroy', storage: createMemoryPlane(), prefix: () => 'dbl:' });
-    const scopeKey = 'byBucket\0{"bucket":"destroy"}';
+    const scopeKey = compositeKey('byBucket', '{"bucket":"destroy"}');
 
     index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }]).next);
     index.detach(scopeKey, ['row-1']);
@@ -200,7 +193,7 @@ describe('scope order cache reset contract', () => {
 
   it('keeps the order revision stable for an unchanged complete order', () => {
     const index = createScopeIndex({ modelId: 'SpecIntegrityScopeOrderRevision', storage: createMemoryPlane(), prefix: () => 'dbl:' });
-    const scopeKey = 'byBucket\0{"bucket":"stable"}';
+    const scopeKey = compositeKey('byBucket', '{"bucket":"stable"}');
 
     index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]).next);
     const revision = index.orderRevision(scopeKey);

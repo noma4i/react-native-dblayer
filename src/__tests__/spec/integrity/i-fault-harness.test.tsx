@@ -6,7 +6,7 @@ import { createJournal } from '../../../core/apply/journal';
 import { encodePersistence } from '../../../core/persistenceCodec';
 import { createFaultStorage } from '../helpers/faultStorage';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
+import { compositeStorageKey, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
 type FaultRow = { id: string; label: string };
 type FaultResponse = { detail: FaultRow };
@@ -106,7 +106,7 @@ describe('persistence fault invariants', () => {
 
     flushPersistence();
 
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(encodePersistence({ id: 'row-1', label: 'local' }));
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'local' }));
     expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
   });
 
@@ -121,13 +121,13 @@ describe('persistence fault invariants', () => {
 
     storage.truncateNextSet(1);
     expect(() => flushPersistence()).toThrow('fault: set truncated');
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-2`)).toBeUndefined();
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBeUndefined();
 
     flushPersistence();
 
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-1`)).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
-    expect(storage.plane.get(`dbl:row:${rows.modelId}:row-2`)).toBe(encodePersistence({ id: 'row-2', label: 'second' }));
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBe(encodePersistence({ id: 'row-2', label: 'second' }));
     expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
   });
 
@@ -171,9 +171,11 @@ describe('persistence fault invariants', () => {
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]));
 
     expect(storage.setCalls()[3]).toEqual(
-      expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-2`, value: encodePersistence({ id: 'row-2', label: 'second' }) }])
+      expect.arrayContaining([{ key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'), value: encodePersistence({ id: 'row-2', label: 'second' }) }])
     );
-    expect(storage.setCalls()[3]).not.toEqual(expect.arrayContaining([{ key: `dbl:row:${rows.modelId}:row-1`, value: encodePersistence({ id: 'row-1', label: 'first' }) }]));
+    expect(storage.setCalls()[3]).not.toEqual(
+      expect.arrayContaining([{ key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'), value: encodePersistence({ id: 'row-1', label: 'first' }) }])
+    );
   });
 
   it('does not replay a journal record already covered by its applied marker', () => {
@@ -224,7 +226,7 @@ describe('persistence fault invariants', () => {
     rows.insert({ id: 'row-1', label: 'event' });
     expect(rows.find('row-1')).toEqual({ id: 'row-1', label: 'event' });
     flushPersistence();
-    expect(storage.plane.get(`dbl:tombstones:${rows.modelId}`)).toBeUndefined();
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'tombstones', rows.modelId))).toBeUndefined();
     reader.unmount();
   });
 });

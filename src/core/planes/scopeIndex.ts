@@ -1,6 +1,6 @@
-import type { StoragePlane , IncomingScopeRow, ReconcileResult, ScopeCoverage, ScopeEntry, ScopeIndex, ScopeIndexValue } from '../../types';
+import type { StoragePlane, IncomingScopeRow, ReconcileResult, ScopeCoverage, ScopeEntry, ScopeIndex, ScopeIndexValue } from '../../types';
 import { noteDataLoss } from '../diagnostics';
-import { compareCodepoints, compositeKey } from '../serialize';
+import { compareCodepoints, compositeKey, compositeStorageKey, parseCompositeKey } from '../serialize';
 import { keysForSequence } from '../orderKey';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 import { isRecord } from '../../utils/normalizeHelpers';
@@ -33,7 +33,8 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const accessTimes = new Map<string, number>();
   let stagedScopes: Map<string, ScopeIndexValue | null> | null = null;
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
-  const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
+  const storagePrefix = () => compositeStorageKey(prefix(), 'scope', modelId);
+  const storageKey = (key: string) => compositeStorageKey(prefix(), 'scope', modelId, key);
   const current = (key: string): ScopeIndexValue | undefined => {
     if (stagedScopes?.has(key)) return stagedScopes.get(key) ?? undefined;
     return scopes.get(key);
@@ -79,7 +80,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
 
   const sameEntryOrder = (previous: ScopeEntry[] | undefined, next: ScopeEntry[]): boolean => {
     if (!previous) return next.length === 0;
-    return sameIdSequence(previous, next.map(entry => entry.id));
+    return sameIdSequence(
+      previous,
+      next.map(entry => entry.id)
+    );
   };
 
   const commit = (key: string, next: ScopeIndexValue, fastAdd?: string[]): ScopeIndexValue => {
@@ -138,7 +142,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       const deduplicated = [...incomingById.values()];
       const incomingIds = new Set(deduplicated.map(row => row.id));
       const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id)).map(entry => entry.id);
-      if (sameIdSequence(previous.entries, deduplicated.map(row => row.id))) {
+      if (
+        sameIdSequence(
+          previous.entries,
+          deduplicated.map(row => row.id)
+        )
+      ) {
         const entries = previous.entries.map((entry, index) => ({ ...entry, edge: deduplicated[index]!.edge ?? entry.edge }));
         return { next: { generation, coverage, entries }, detachedIds };
       }
@@ -275,14 +284,15 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       memberSets.clear();
       keysByRow.clear();
       accessTimes.clear();
-      for (const fullKey of storage.keys(storageKey(''))) {
-        const key = fullKey.slice(storageKey('').length);
+      for (const fullKey of storage.keys(storagePrefix())) {
+        const encoded = parseCompositeKey(fullKey.slice(storagePrefix().length));
+        const key = encoded?.length === 1 ? encoded[0] : undefined;
         const raw = storage.get(fullKey);
         if (!raw) continue;
         /** A key that does not belong to a declared scope (renamed/removed scope, foreign format) is stale state: drop it as corrupt. */
-        const declared = scopeNames === undefined || scopeNames.some(scopeName => key.startsWith(compositeKey(scopeName, '')));
+        const declared = key !== undefined && (scopeNames === undefined || scopeNames.some(scopeName => key.startsWith(compositeKey(scopeName))));
         const value = declared ? decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isScopeIndexValue) : undefined;
-        if (value) {
+        if (key !== undefined && value) {
           scopes.set(key, value);
           accessTimes.set(key, Date.now());
         } else {

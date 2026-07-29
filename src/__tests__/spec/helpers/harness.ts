@@ -2,6 +2,7 @@ import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../../index';
 import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../../core/fetch/networkState';
+export { compositeStorageKey } from '../../../core/serialize';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
   const values = new Map<string, string>();

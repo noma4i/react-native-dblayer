@@ -13,7 +13,7 @@ export declare const noteMembershipWrites: (count: number) => void;
 export declare const noteCorruptionJournalDrop: () => void;
 export declare const noteCorruptionJournalLoss: () => void;
 export declare const noteCorruptionLedgerReset: () => void;
-/** Count persisted scope keys rewritten from the colon-delimited format. */
+/** Count cold resets caused by an incompatible persistence manifest. */
 export declare const noteManifestReset: () => void;
 export declare const noteReplaceRejected: () => void;
 /** A plan failed both its initial atomic apply and clean retry; its WAL stays pending and reads remain poisoned. */

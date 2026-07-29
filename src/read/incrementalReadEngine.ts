@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Dependency, Engine, EngineInput, ReadEngineHarnessInput, RowEngineOptions, RowRecord } from '../types';
 import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
-import { compareCodepoints, semanticValue } from '../core/serialize';
+import { compareCodepoints, compositeKey, semanticValue } from '../core/serialize';
 import { arraysShallowEqual } from './useLiveRead';
 import { noteReadEngineApply, noteReadEngineScan } from '../core/diagnostics';
 
 /** Canonical semantic descriptors preserve object identity only where leaf values require it. */
-export const incrementalSignature = (kind: string, ...values: unknown[]): string => `${kind}:${values.map(semanticValue).join(':')}`;
+export const incrementalSignature = (kind: string, ...values: unknown[]): string => compositeKey(kind, ...values.map(semanticValue));
 
 /** Shared React subscription harness for model and scope read engines. */
 const useReadEngineHarness = <T, TResult>({ signature, create, deps, apply, select, notifyEveryBatch = false }: ReadEngineHarnessInput<T, TResult>): TResult => {
@@ -125,11 +125,7 @@ export const createModelReadEngine = <T extends RowRecord, TValue>(options: RowE
   engine.apply = batch => {
     const relevant = batch?.rows.filter(change => change.model === options.model) ?? [];
     const requiresRebuild =
-      batch === null ||
-      batch.mode === 'bulk' ||
-      batch.mode === 'replace' ||
-      batch.mode === 'maintenance' ||
-      batch?.maintenanceModels?.includes(options.model) === true;
+      batch === null || batch.mode === 'bulk' || batch.mode === 'replace' || batch.mode === 'maintenance' || batch?.maintenanceModels?.includes(options.model) === true;
     if (requiresRebuild) {
       const previous = engine.value;
       rebuild();

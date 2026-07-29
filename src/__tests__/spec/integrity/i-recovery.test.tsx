@@ -2,7 +2,8 @@ import { configureDb, defineModel, f, scope } from '../../../index';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { bootDb } from '../../../dsl/lifecycle';
 import { encodePersistence } from '../../../core/persistenceCodec';
-import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
+import { compositeKey } from '../../../core/serialize';
+import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; bucket: string; label: string };
 
@@ -27,31 +28,33 @@ const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVer
 describe('persistence recovery protocol', () => {
   it('C1 drops one corrupt row while hydrating the remaining rows', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryA:bad', value: '{broken' },
-      { key: 'dbl:row:RecoveryA:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:row:RecoveryA:kept', value: encodePersistence({ id: 'kept', bucket: 'a', label: 'K' }) },
-      { key: 'dbl:row:RecoveryB:kept', value: encodePersistence({ id: 'kept', bucket: 'b', label: 'B' }) }
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryA', 'bad'), value: '{broken' },
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryA', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryA', 'kept'), value: encodePersistence({ id: 'kept', bucket: 'a', label: 'K' }) },
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryB', 'kept'), value: encodePersistence({ id: 'kept', bucket: 'b', label: 'B' }) }
     ]);
     const modelA = defineRecoveryModel('RecoveryA');
     const modelB = defineRecoveryModel('RecoveryB');
     writeMatchingManifest();
     diagnostics().reset();
-    expect(storage.snapshotKeys()).toContain('dbl:row:RecoveryB:kept');
+    expect(storage.snapshotKeys()).toContain(compositeStorageKey('dbl:', 'row', 'RecoveryB', 'kept'));
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
 
     expect(modelA.find('live')).toMatchObject({ label: 'A' });
     expect(modelA.find('kept')).toMatchObject({ label: 'K' });
-    expect(storage.get('dbl:row:RecoveryB:kept')).toBe(encodePersistence({ id: 'kept', bucket: 'b', label: 'B' }));
+    expect(storage.get(compositeStorageKey('dbl:', 'row', 'RecoveryB', 'kept'))).toBe(encodePersistence({ id: 'kept', bucket: 'b', label: 'B' }));
     expect(modelB.find('kept')).toMatchObject({ label: 'B' });
-    expect(storage.keys('dbl:row:RecoveryA:').sort()).toEqual(['dbl:row:RecoveryA:kept', 'dbl:row:RecoveryA:live']);
+    expect(storage.keys(compositeStorageKey('dbl:', 'row', 'RecoveryA')).sort()).toEqual(
+      [compositeStorageKey('dbl:', 'row', 'RecoveryA', 'kept'), compositeStorageKey('dbl:', 'row', 'RecoveryA', 'live')].sort()
+    );
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-row', model: modelA.modelId, count: 1 });
   });
 
   it('C3 drops corrupt tombstones without discarding rows', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryTombstones:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:tombstones:RecoveryTombstones', value: '{broken' }
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryTombstones', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: compositeStorageKey('dbl:', 'tombstones', 'RecoveryTombstones'), value: '{broken' }
     ]);
     const model = defineRecoveryModel('RecoveryTombstones');
     writeMatchingManifest();
@@ -60,15 +63,18 @@ describe('persistence recovery protocol', () => {
     await bootDb();
 
     expect(model.find('live')).toMatchObject({ label: 'A' });
-    expect(storage.get('dbl:tombstones:RecoveryTombstones')).toBeUndefined();
+    expect(storage.get(compositeStorageKey('dbl:', 'tombstones', 'RecoveryTombstones'))).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-tombstones', model: model.modelId, count: 1 });
   });
 
   it('C2 drops a corrupt scope key while retaining row and valid scope state', async () => {
     const storage = configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryScope:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:scope:RecoveryScope:feed\0{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', orderKey: 'V' }] }) },
-      { key: 'dbl:scope:RecoveryScope:renamed:{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] }) }
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryScope', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      {
+        key: compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('feed', '{"bucket":"a"}')),
+        value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', orderKey: 'V' }] })
+      },
+      { key: compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('renamed', '{"bucket":"a"}')), value: encodePersistence({ generation: 1, coverage: 'complete', entries: [] }) }
     ]);
     const model = defineRecoveryModel('RecoveryScope');
     writeMatchingManifest();
@@ -78,15 +84,25 @@ describe('persistence recovery protocol', () => {
 
     expect(model.find('live')).toMatchObject({ label: 'A' });
     expect(model.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['live']);
-    expect(storage.get('dbl:scope:RecoveryScope:renamed:{"bucket":"a"}')).toBeUndefined();
+    expect(storage.get(compositeStorageKey('dbl:', 'scope', 'RecoveryScope', compositeKey('renamed', '{"bucket":"a"}')))).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: model.modelId, count: 1 });
   });
 
   it('counts only materialized members after a corrupt member row is dropped on boot', async () => {
     configureRecoveryRuntime([
-      { key: 'dbl:row:RecoveryCount:live', value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
-      { key: 'dbl:row:RecoveryCount:bad', value: '{broken' },
-      { key: 'dbl:scope:RecoveryCount:feed\0{"bucket":"a"}', value: encodePersistence({ generation: 1, coverage: 'complete', entries: [{ id: 'live', orderKey: 'V' }, { id: 'bad', orderKey: 'W' }] }) }
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryCount', 'live'), value: encodePersistence({ id: 'live', bucket: 'a', label: 'A' }) },
+      { key: compositeStorageKey('dbl:', 'row', 'RecoveryCount', 'bad'), value: '{broken' },
+      {
+        key: compositeStorageKey('dbl:', 'scope', 'RecoveryCount', compositeKey('feed', '{"bucket":"a"}')),
+        value: encodePersistence({
+          generation: 1,
+          coverage: 'complete',
+          entries: [
+            { id: 'live', orderKey: 'V' },
+            { id: 'bad', orderKey: 'W' }
+          ]
+        })
+      }
     ]);
     const model = defineRecoveryModel('RecoveryCount');
     writeMatchingManifest();

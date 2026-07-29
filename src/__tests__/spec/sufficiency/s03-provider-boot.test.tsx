@@ -4,7 +4,7 @@ import TestRenderer from 'react-test-renderer';
 import * as dbl from '../../../index';
 import { registerBootValidation } from '../../../dsl/bootValidations';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
+import { compositeStorageKey, createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
   dbl as unknown as {
@@ -116,10 +116,10 @@ describe('provider-owned query runtime', () => {
     });
     await settle(2);
     act(() => users.insert({ id: 'user', name: 'Pending' }));
-    expect(storage.snapshotKeys().some(key => key.startsWith('dbl:row:SpecProviderBackground:'))).toBe(false);
+    expect(storage.snapshotKeys().some(key => key.startsWith(compositeStorageKey('dbl:', 'row', 'SpecProviderBackground')))).toBe(false);
 
     act(() => appStateHandler?.('background'));
-    expect(storage.snapshotKeys().some(key => key.startsWith('dbl:row:SpecProviderBackground:'))).toBe(true);
+    expect(storage.snapshotKeys().some(key => key.startsWith(compositeStorageKey('dbl:', 'row', 'SpecProviderBackground')))).toBe(true);
     act(() => appStateHandler?.('active'));
     expect(root.toJSON()).toMatchObject({ type: 'screen' });
     act(() => root.unmount());
