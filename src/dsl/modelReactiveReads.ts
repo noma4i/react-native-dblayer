@@ -188,11 +188,10 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
         deps = id == null ? [] : [options.rowDep(id, [relation.foreignKey]), ...(parentId ? [{ kind: 'row' as const, model: relation.model.modelId, id: parentId }] : [])];
       } else if (relation.kind === 'hasOne') {
         const comparator = relation.comparator;
-        type RelatedRow = StoredRowShape;
-        const compare = comparator ? withIdTieBreak(comparator as (left: RelatedRow, right: RelatedRow) => number) : undefined;
+        const compare = comparator ? withIdTieBreak(comparator as (left: StoredRowShape, right: StoredRowShape) => number) : undefined;
         compute = () => {
           if (id == null) return undefined;
-          const rows = relation.model.where({ [relation.foreignKey]: id }) as RelatedRow[];
+          const rows = relation.model.where({ [relation.foreignKey]: id }) as StoredRowShape[];
           if (rows.length === 0) return undefined;
           return compare ? rows.reduce((best, row) => (compare(row, best) < 0 ? row : best)) : rows[0];
         };

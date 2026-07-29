@@ -125,7 +125,7 @@ describe('type discipline', () => {
           .readFileSync(file, 'utf8')
           .split('\n')
           .map((line, index) => ({ line, index }))
-          .filter(({ line }) => /^(?:export )?(?:type|interface) [A-Za-z]/.test(line) && !/^export type \{/.test(line))
+          .filter(({ line }) => /^\s*(?:export\s+)?(?:type|interface)\s+[A-Za-z]/.test(line) && !/^\s*export\s+type\s+\{/.test(line))
           .map(({ line, index }) => `${relative(file)}:${index + 1}: ${line.trim().slice(0, 60)}`)
       )
       .sort();

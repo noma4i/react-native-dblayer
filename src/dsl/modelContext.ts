@@ -9,9 +9,8 @@ export const createModelContext = <TStored extends { id: string }>(options: {
   relations: () => Record<string, RelationDecl>;
   applyWriteGate: (previous: TStored, incoming: TStored, ctx: WriteCtx) => TStored;
 }): ModelContext<TStored> => {
-  type StoredRecord = TStored & Record<string, unknown>;
   let planesRef: { entityState: EntityState<TStored>; scopeIndex: ScopeIndex } | null = null;
-  let storeRef: ModelStore<StoredRecord> | null = null;
+  let storeRef: ModelStore<TStored & Record<string, unknown>> | null = null;
   let relationCache: Record<string, RelationDecl> | null = null;
   let modelRef: unknown;
   let revision = 0;
@@ -19,12 +18,16 @@ export const createModelContext = <TStored extends { id: string }>(options: {
   const planes = () => {
     if (planesRef) return planesRef;
     const runtime = getDbRuntimeConfig();
-    const store = createModelStore<StoredRecord>({
+    const store = createModelStore<TStored & Record<string, unknown>>({
       modelId: options.modelId,
       now: () => Date.now(),
       storage: runtime.storage,
       prefix: getStoragePrefix,
-      applyWriteGate: options.applyWriteGate as (previous: StoredRecord, incoming: StoredRecord, ctx: WriteCtx) => StoredRecord,
+      applyWriteGate: options.applyWriteGate as (
+        previous: TStored & Record<string, unknown>,
+        incoming: TStored & Record<string, unknown>,
+        ctx: WriteCtx
+      ) => TStored & Record<string, unknown>,
       ownedFields: (rowId, operationId) => getOperationState().ownedFields(options.modelId, rowId, operationId)
     });
     const scopeIndex = createScopeIndex({ modelId: options.modelId, scopeNames: [...options.scopeNames], storage: runtime.storage, prefix: getStoragePrefix });

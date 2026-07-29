@@ -1,10 +1,8 @@
-import type { SparseModelField , InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization, ScopeSpec } from '../types';
+import type { SparseModelField, InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization, ScopeSpec } from '../types';
 import { getDbLogger } from '../core/logger';
 import { compileWritePolicies } from '../core/writePolicies';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
 import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
-
-
 export const readModelField = (field: ModelFieldSpecs[string], input: unknown, key: string, complete: boolean): unknown => {
   const value = complete ? field.read(input, key) : (field as SparseModelField)[fieldSpecSparseRead](input, key);
   if (value !== undefined) return value;
@@ -20,7 +18,6 @@ export const createModelNormalization = <
 >(
   config: ModelConfig<TFields, TScopes, TExt, any>
 ): ModelNormalization<InferStoredFields<TFields> & Record<string, unknown>> => {
-  type Stored = InferStoredFields<TFields> & Record<string, unknown>;
   const applyWriteGate = (() => {
     const groups = config.write?.groups;
     if (config.write && (!groups || groups.length === 0)) throw new Error(`${config.name} write groups must not be empty`);
@@ -34,10 +31,10 @@ export const createModelNormalization = <
         groupedFields.add(field);
       }
     }
-    return compileWritePolicies<Stored>(groups ?? [], config.id);
+    return compileWritePolicies<InferStoredFields<TFields> & Record<string, unknown>>(groups ?? [], config.id);
   })();
 
-  const normalize = (input: unknown, complete = false): Stored => {
+  const normalize = (input: unknown, complete = false): InferStoredFields<TFields> & Record<string, unknown> => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
     const id = stringifyNullish(config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined));
     if (typeof id !== 'string' || id.length === 0) throw new Error(`${config.name} requires id`);
@@ -46,7 +43,7 @@ export const createModelNormalization = <
       const value = readModelField(field as ModelFieldSpecs[string], input, key, complete);
       if (value !== undefined) output[key] = value;
     }
-    return output as Stored;
+    return output as InferStoredFields<TFields> & Record<string, unknown>;
   };
 
   const isPlanRow = (value: unknown): boolean => {
