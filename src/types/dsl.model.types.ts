@@ -68,7 +68,7 @@ export type ModelWrites<TStored extends { id: string } & Record<string, unknown>
 /** Declarative sort for a scope: by field, or by a consumer comparator with the fields it reads. */
 export type ScopeSortSpec<TRow> = ClientSort<TRow>;
 
-export type ScopeValueOf<TScope> = TScope extends ScopeSpec<infer _TStored> ? Record<string, unknown> : never;
+export type ScopeValueOf<TScope> = TScope extends object ? Record<string, unknown> : never;
 
 /** Result of ScopeHandle.useWindow: locally-windowed scope rows plus paging/resolution flags. */
 export type ScopeWindowResult<T> = {

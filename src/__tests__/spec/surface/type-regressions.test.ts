@@ -44,6 +44,35 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('keeps the full model type when an inferred scope comparator reads a row subset', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, f, scope } from '${entry}';
+      type Row = { id: string; userId: string; createdAt: string; rank: number };
+      const compareRows = (
+        left: Pick<Row, 'createdAt' | 'rank'>,
+        right: Pick<Row, 'createdAt' | 'rank'>
+      ): number => right.rank - left.rank || right.createdAt.localeCompare(left.createdAt);
+      const isUserRow = (row: Pick<Row, 'userId'>): boolean => row.userId.length > 0;
+      const rows = defineModel({
+        id: 'inferred-comparator',
+        name: 'InferredComparator',
+        fields: {
+          id: f.id(),
+          userId: f.str(),
+          createdAt: f.str(),
+          rank: f.num()
+        },
+        scopes: {
+          byUser: scope({ by: { userId: 'userId' }, member: isUserRow, sort: { comparator: compareRows } })
+        },
+        statics: model => ({ readUser: (id: string) => model.find(id)?.userId })
+      });
+      rows.scopes.byUser.read({ userId: 'u1' });
+      rows.readUser('row-1');
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects non-orderable fields on typed field-sort surfaces', () => {
     const diagnostics = compileFixture(`
       import { defineModel, f, scope } from '${entry}';
