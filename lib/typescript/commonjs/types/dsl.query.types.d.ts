@@ -28,6 +28,12 @@ export type ModelDestination<TStored> = {
         find(id: string | null | undefined, opts?: {
             renderKeys?: readonly (keyof TStored & string)[];
         }): TStored | undefined;
+        byIds(ids: readonly string[] | null | undefined, opts?: {
+            renderKeys?: readonly (keyof TStored & string)[];
+        }): {
+            rows: TStored[];
+            byId: ReadonlyMap<string, TStored>;
+        };
     };
 };
 /** Either landing destination accepted by `Model.query`'s `into`. */
@@ -73,6 +79,8 @@ export type RequestState = {
     retryAttempt: number;
     error: Error | null;
     hasNextPage: boolean;
+    ids: string[];
+    resultKind: 'one' | 'many';
 };
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
 export type ChainMeta = {
@@ -81,6 +89,7 @@ export type ChainMeta = {
     pages: number;
     hasNextPage: boolean;
     ids: string[];
+    resultKind: 'one' | 'many';
 };
 export type PlanRowsSink = {
     modelId: string;

@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineFetch, defineModel, f, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type Item = { id: string; bucket: string };
 type QueryResponse = { items: { nodes: Item[]; pageInfo: { hasNextPage: false; endCursor: null } } };
@@ -56,8 +56,38 @@ const createQueryCase = (suffix: string, rows: Item[], options: { emptyStaleTime
   return { Reader, calls: () => calls };
 };
 
+const createDirectModelQueryCase = (suffix: string, rows: Item[]) => {
+  let calls = 0;
+  const transport = createMockTransport({
+    query: async () => {
+      calls += 1;
+      return { data: { rows } as never };
+    }
+  });
+  configureDb({ storage: createMemoryPlane(), transport });
+  const items = defineModel({
+    id: `SpecEmptyDirectModelQuery${suffix}`,
+    name: `SpecEmptyDirectModelQuery${suffix}`,
+    fields: { bucket: f.str() },
+    scopes: { byBucket: scope<Item>({ by: { bucket: 'bucket' } }) }
+  });
+  const query = items.query<{ rows: Item[] }, Record<string, never>, Record<string, never>, Item>('list', {
+    document,
+    vars: value => value,
+    select: data => data.rows,
+    into: items,
+    staleTime: 60 * 60 * 1000,
+    emptyStaleTime: 0
+  });
+  const Reader = () => {
+    query.use({});
+    return null;
+  };
+  return { Reader, calls: () => calls, keepAlive: () => renderCounted(() => items.scopes.byBucket.use({ bucket: 'A' })) };
+};
+
 describe('empty result freshness policy', () => {
-  it('refetches an empty model query immediately on the next mount', async () => {
+  it('refetches an empty scope-destination query immediately on the next mount', async () => {
     const testCase = createQueryCase('Empty', [], { emptyStaleTime: 0 });
 
     await mountTwice(testCase.Reader);
@@ -65,12 +95,30 @@ describe('empty result freshness policy', () => {
     expect(testCase.calls()).toBe(2);
   });
 
-  it('keeps a non-empty model query fresh for its normal stale time', async () => {
+  it('keeps a non-empty scope-destination query fresh for its normal stale time', async () => {
     const testCase = createQueryCase('NonEmpty', [{ id: 'item-1', bucket: 'A' }], { emptyStaleTime: 0 });
 
     await mountTwice(testCase.Reader);
 
     expect(testCase.calls()).toBe(1);
+  });
+
+  it('refetches an empty direct-model query immediately on the next mount', async () => {
+    const testCase = createDirectModelQueryCase('Empty', []);
+
+    await mountTwice(testCase.Reader);
+
+    expect(testCase.calls()).toBe(2);
+  });
+
+  it('keeps a non-empty direct-model query fresh for its normal stale time', async () => {
+    const testCase = createDirectModelQueryCase('NonEmpty', [{ id: 'item-1', bucket: 'A' }]);
+    const keeper = testCase.keepAlive();
+
+    await mountTwice(testCase.Reader);
+
+    expect(testCase.calls()).toBe(1);
+    keeper.unmount();
   });
 
   it('refetches an empty standalone fetch immediately on the next mount', async () => {

@@ -12,7 +12,10 @@ export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: stri
 export type ModelDestination<TStored> = {
   modelId: string;
   get?: (id: string | null | undefined) => TStored | undefined;
-  use: { find(id: string | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined };
+  use: {
+    find(id: string | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined;
+    byIds(ids: readonly string[] | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] }): { rows: TStored[]; byId: ReadonlyMap<string, TStored> };
+  };
 };
 /** Either landing destination accepted by `Model.query`'s `into`. */
 export type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope> | ModelDestination<TStored>;
@@ -42,9 +45,19 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
 /** One landed page summary: cursor for the next page, availability, and landed row count. */
 export type PageMeta = { endCursor: string | null; hasNextPage: boolean; count: number };
 /** Derived per-key request state exposed to loading-state computation. */
-export type RequestState = { isFetching: boolean; isFetchingNextPage: boolean; isFetched: boolean; isPaused: boolean; retryAttempt: number; error: Error | null; hasNextPage: boolean };
+export type RequestState = {
+  isFetching: boolean;
+  isFetchingNextPage: boolean;
+  isFetched: boolean;
+  isPaused: boolean;
+  retryAttempt: number;
+  error: Error | null;
+  hasNextPage: boolean;
+  ids: string[];
+  resultKind: 'one' | 'many';
+};
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
-export type ChainMeta = { lastCount: number; cursor: string | null; pages: number; hasNextPage: boolean; ids: string[] };
+export type ChainMeta = { lastCount: number; cursor: string | null; pages: number; hasNextPage: boolean; ids: string[]; resultKind: 'one' | 'many' };
 export type PlanRowsSink = { modelId: string };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };

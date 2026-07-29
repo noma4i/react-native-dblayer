@@ -1,5 +1,6 @@
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
 import { CancelledError, QueryObserver } from '@tanstack/react-query';
+import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type {
   ChainMeta,
@@ -21,7 +22,7 @@ import type {
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { buildScopeKey } from '../core/compileDbWhere';
-import { compositeKey } from '../core/serialize';
+import { compositeKey, parseCompositeKey } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
@@ -104,9 +105,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       count: connection.nodes?.length ?? connection.edges?.length ?? 0
     };
   };
-  const applyResponse = (scope: TScope, data: TResponse, resetOrder: boolean, resurrectDestroyed: boolean): { meta: PageMeta; ids: string[] } => {
+  const applyResponse = (
+    scope: TScope,
+    data: TResponse,
+    resetOrder: boolean,
+    resurrectDestroyed: boolean
+  ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
-    const pairs = nodePairsOf(config.map ? config.map(selected) : selected);
+    const mapped = config.map ? config.map(selected) : selected;
+    const pairs = nodePairsOf(mapped);
     const nodes = pairs.map(pair => pair.node);
     const ops: WriteOp[] = [];
     const rows = isScopeDestination(config.into) ? pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) })) : [];
@@ -116,7 +123,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
     const committedRows = isScopeDestination(config.into) ? rows.map(entry => entry.row) : nodes;
     const ids = committedRows.flatMap(row => (isRecord(row) && row.id != null ? [compositeKey(destinationModelId, String(row.id))] : []));
-    return { meta: pageMetaOf(config.page ? config.page(data) : null), ids };
+    const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false, count: nodes.length };
+    return { meta, ids, resultKind: config.page || Array.isArray(mapped) ? 'many' : 'one' };
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
@@ -142,7 +150,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if ((reset && issued < applied) || (!reset && issued < (issuedResetSeqByBucket.get(guardKey) ?? 0))) return null;
     if (reset) appliedResetSeqByBucket.set(guardKey, issued);
     const result = applyResponse(scope, data, reset, resurrectDestroyed);
-    const previousPages = (getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined)?.pages ?? 0;
+    const previous = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
+    const previousPages = previous?.pages ?? 0;
     const pages = config.page ? (reset ? 1 : previousPages + 1) : 1;
     /** maxPages is a hard ceiling: once reached, the chain reports exhaustion and fetchNextPage stops issuing requests. */
     const hasNextPage = result.meta.hasNextPage && (config.maxPages === undefined || pages < config.maxPages);
@@ -151,7 +160,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       cursor: config.page && hasNextPage ? result.meta.endCursor : null,
       pages,
       hasNextPage,
-      ids: result.ids
+      ids: reset ? result.ids : union(previous?.ids ?? [], result.ids),
+      resultKind: result.resultKind
     };
   };
   const staleTimeOf = (key: string): number => {
@@ -182,7 +192,18 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
           const chainCursor = options.restart ? null : ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null);
           const cursor = options.nextPage ? chainCursor : null;
           const meta = await execute(scope, key, options.resurrectDestroyed === true, { cursor, isCurrent: generationFence.isCurrent });
-          if (meta === null) return (client.getQueryData(queryKey) as ChainMeta | undefined) ?? { lastCount: 0, cursor: null, pages: 0, hasNextPage: false, ids: [] };
+          if (meta === null) {
+            return (
+              (client.getQueryData(queryKey) as ChainMeta | undefined) ?? {
+                lastCount: 0,
+                cursor: null,
+                pages: 0,
+                hasNextPage: false,
+                ids: [],
+                resultKind: config.page ? 'many' : 'one'
+              }
+            );
+          }
           return meta;
         },
         staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
@@ -261,7 +282,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       isPaused: local.isPaused,
       retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
       error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null,
-      hasNextPage: meta?.hasNextPage ?? false
+      hasNextPage: meta?.hasNextPage ?? false,
+      ids: meta?.ids ?? [],
+      resultKind: meta?.resultKind ?? (config.page ? 'many' : 'one')
     };
   };
   const useReader = (scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean, forceAbsentRefetch: boolean): RequestState => {
@@ -309,7 +332,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     }, [enabled, forceAbsentRefetch, key, resurrectDestroyed, scope, state.isFetched, state.isFetching]);
     return state;
   };
-  const buildResult = (rows: TStored[] | undefined, enabled: boolean, state: RequestState, scope: TScope | null): QueryResult<TStored> => {
+  const buildResult = (rows: TStored[] | TStored | undefined, enabled: boolean, state: RequestState, scope: TScope | null): QueryResult<TStored> => {
     const hasData = Array.isArray(rows) ? rows.length > 0 : rows !== undefined;
     const phaseInput = {
       isInactive: !enabled && !hasData,
@@ -337,14 +360,22 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       }
     };
   };
-  const useDestinationRows: (scope: TScope | null) => TStored[] | undefined = isScopeDestination(config.into)
+  const useDestinationRows: (scope: TScope | null, state: RequestState) => TStored[] | TStored | undefined = isScopeDestination(config.into)
     ? scope => (config.into as ScopeDestination<TStored, TScope>).use(scope) as TStored[]
-    : () => undefined;
+    : (_scope, state) => {
+        const destination = config.into as ModelDestination<TStored>;
+        const rowIds = state.ids.flatMap(id => {
+          const parts = parseCompositeKey(id);
+          return parts?.length === 2 && parts[0] === destination.modelId ? [parts[1]!] : [];
+        });
+        const rows = destination.use.byIds(rowIds).rows;
+        return state.resultKind === 'many' ? rows : rows[0];
+      };
   const use = (scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
     registerScope(scope);
     const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const state = useReader(scope, enabled, false, false);
-    return buildResult(useDestinationRows(scope), enabled, state, scope);
+    return buildResult(useDestinationRows(scope, state), enabled, state, scope);
   };
   const handle: QueryHandle<TStored, TScope> = { use, fetch, invalidate };
   if (isScopeDestination(config.into)) return handle;

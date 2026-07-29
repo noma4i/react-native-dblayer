@@ -307,7 +307,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
-  it('invalidates db queries older than resumeStaleTime on foreground resume', async () => {
+  it('invalidates old model queries on foreground resume and keeps the successful result fresh', async () => {
     jest.useFakeTimers();
     let calls = 0;
     configureDb({
@@ -335,6 +335,13 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     await settle();
     expect(calls).toBe(2);
     act(() => {
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+    expect(calls).toBe(2);
+    act(() => {
+      jest.advanceTimersByTime(1001);
       appStateHandler?.('background');
       appStateHandler?.('active');
     });

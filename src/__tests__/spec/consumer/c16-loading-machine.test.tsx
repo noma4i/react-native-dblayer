@@ -5,6 +5,7 @@ import { createMemoryPlane, createMockTransport, isTestNetworkOnline, recordTime
 type Row = { id: string; groupId: string; status: string };
 type ScopeValue = { groupId: string };
 type Response = { row: Row };
+type RowsResponse = { rows: Row[] };
 
 type Deferred = {
   resolve: (data: Response) => void;
@@ -42,6 +43,140 @@ const createDeferredQuery = () => {
 };
 
 describe('loading machine timeline contracts', () => {
+  it('does not publish terminal empty before a model destination scope observes the committed row', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        ({
+          data: {
+            row: { id: 'row-1', groupId: 'g', status: 'active' }
+          } as TData
+        }) as { data: TData }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows();
+    const query = rows.query<Response, ScopeValue, ScopeValue, Row>('loading-model-scope-handoff', {
+      document,
+      vars: value => value,
+      select: data => data.row,
+      into: rows
+    });
+    const timeline = recordTimelineInProvider(() => {
+      const result = query.use({ groupId: 'g' });
+      const row = rows.scopes.byGroup.useFirst({ groupId: 'g' });
+      return { data: result.data, row, loadingState: result.loadingState };
+    });
+
+    await settle();
+
+    const frames = timeline.frames();
+    timeline.unmount();
+    expect(frames.some(frame => frame.loadingState.showEmptyState)).toBe(false);
+    expect(frames.at(-1)?.row).toEqual({ id: 'row-1', groupId: 'g', status: 'active' });
+    expect(frames.at(-1)?.data).toEqual(frames.at(-1)?.row);
+  });
+
+  it('returns every committed row from an array-shaped model destination query', async () => {
+    const responseRows: Row[] = [
+      { id: 'row-1', groupId: 'g', status: 'active' },
+      { id: 'row-2', groupId: 'g', status: 'paused' }
+    ];
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { rows: responseRows } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows();
+    const query = rows.query<RowsResponse, ScopeValue, ScopeValue, Row>('loading-model-array', {
+      document,
+      vars: value => value,
+      select: data => data.rows,
+      into: rows
+    });
+    let latest!: ReturnType<typeof query.use>;
+    const timeline = recordTimelineInProvider(() => {
+      latest = query.use({ groupId: 'g' });
+      return latest.loadingState;
+    });
+
+    await settle();
+
+    const settledData = latest.data;
+    const settledFrameCount = timeline.frames().length;
+    act(() => {
+      rows.insert({ id: 'unrelated', groupId: 'other', status: 'active' });
+    });
+    await settle();
+
+    timeline.unmount();
+    expect(latest.data).toEqual(responseRows);
+    expect(latest.data).toBe(settledData);
+    expect(timeline.frames()).toHaveLength(settledFrameCount);
+    expect(latest.loadingState).toMatchObject({ hasData: true, showData: true, showEmptyState: false });
+  });
+
+  it('publishes terminal empty for an empty array-shaped model destination query', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { rows: [] } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows();
+    const query = rows.query<RowsResponse, ScopeValue, ScopeValue, Row>('loading-model-empty-array', {
+      document,
+      vars: value => value,
+      select: data => data.rows,
+      into: rows
+    });
+    let latest!: ReturnType<typeof query.use>;
+    const timeline = recordTimelineInProvider(() => {
+      latest = query.use({ groupId: 'g' });
+      return latest.loadingState;
+    });
+
+    await settle();
+
+    timeline.unmount();
+    expect(latest.data).toEqual([]);
+    expect(latest.loadingState).toMatchObject({ hasData: false, showData: false, showEmptyState: true });
+  });
+
+  it('replaces model destination query identity on a restart without mixing prior rows', async () => {
+    const responses: Response[] = [
+      { row: { id: 'row-1', groupId: 'g', status: 'active' } },
+      { row: { id: 'row-2', groupId: 'g', status: 'active' } }
+    ];
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        const next = responses.shift();
+        if (!next) throw new Error('Unexpected query response');
+        return { data: next as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows();
+    const query = rows.query<Response, ScopeValue, ScopeValue, Row>('loading-model-restart-identity', {
+      document,
+      vars: value => value,
+      select: data => data.row,
+      into: rows
+    });
+    let latest!: ReturnType<typeof query.use>;
+    const timeline = recordTimelineInProvider(() => {
+      latest = query.use({ groupId: 'g' });
+      return latest.data;
+    });
+
+    await settle();
+    expect((latest.data as Row).id).toBe('row-1');
+
+    await act(async () => {
+      await latest.refetch();
+    });
+    await settle();
+
+    timeline.unmount();
+    expect((latest.data as Row).id).toBe('row-2');
+    expect(timeline.frames().some(Array.isArray)).toBe(false);
+  });
+
   it('W-ERR-RETRY keeps the error banner stable across a retry while rows are retained', async () => {
     const { pending, transport } = createDeferredQuery();
     configureDb({ storage: createMemoryPlane(), transport });

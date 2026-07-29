@@ -23,6 +23,60 @@ const createMoments = (suffix: string) =>
   });
 
 describe('feed cursor pagination consumer contracts', () => {
+  it('retains prior page identities in model destination query data', async () => {
+    const responses: FeedResponse[] = [
+      {
+        feed: {
+          nodes: [
+            { id: 'm2', vibeId: 'v1', sequenceNumber: 102 },
+            { id: 'm1', vibeId: 'v1', sequenceNumber: 101 }
+          ],
+          pageInfo: { hasNextPage: true, endCursor: 'c1' },
+          lastSequenceNumber: 101
+        }
+      },
+      {
+        feed: {
+          nodes: [{ id: 'm0', vibeId: 'v1', sequenceNumber: 100 }],
+          pageInfo: { hasNextPage: false, endCursor: null },
+          lastSequenceNumber: 100
+        }
+      }
+    ];
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        const next = responses.shift();
+        if (!next) throw new Error('Unexpected query response');
+        return { data: next as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = createMoments('ModelDestinationPages');
+    const feedQuery = moments.query<FeedResponse, ScopeValue & { afterSequence?: number }, ScopeValue, FeedRow>('feed-model-destination', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments,
+      getCursor: page => String((page as FeedResponse['feed']).lastSequenceNumber),
+      cursorVar: 'afterSequence',
+      mapCursor: cursor => Number(cursor)
+    });
+    const queryReader = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+
+    await settle();
+    await settle(1, { macro: true });
+    expect((queryReader.result().data as FeedRow[]).map(row => row.id)).toEqual(['m2', 'm1']);
+
+    act(() => {
+      queryReader.result().fetchNextPage();
+    });
+    await settle();
+    await settle(1, { macro: true });
+
+    expect((queryReader.result().data as FeedRow[]).map(row => row.id)).toEqual(['m2', 'm1', 'm0']);
+    queryReader.unmount();
+  });
+
   it('caps pagination at maxPages: hasNextPage turns false and no further request leaves', async () => {
     const pageAt = (sequence: number): FeedResponse => ({
       feed: {
