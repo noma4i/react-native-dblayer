@@ -8,16 +8,16 @@ import { getOperationState } from './configure';
  * that declares `correlate`). Definition registries deliberately survive `resetRuntime`, matching
  * the model/maintenance registries: declarations describe the schema of behavior, not runtime rows.
  */
-const correlators = new Map<string, MutationCorrelate[]>();
+const correlators = new Map<string, Map<string, MutationCorrelate>>();
 
-export const registerMutationCorrelator = (modelId: string, correlate: MutationCorrelate): void => {
-  const entries = correlators.get(modelId) ?? [];
-  entries.push(correlate);
+export const registerMutationCorrelator = (modelId: string, mutationId: string, correlate: MutationCorrelate): void => {
+  const entries = correlators.get(modelId) ?? new Map<string, MutationCorrelate>();
+  entries.set(mutationId, correlate);
   correlators.set(modelId, entries);
 };
 
 /** Fast hot-path gate: models without a declared correlator skip normalization and candidate scans entirely. */
-export const modelHasCorrelators = (modelId: string): boolean => (correlators.get(modelId)?.length ?? 0) > 0;
+export const modelHasCorrelators = (modelId: string): boolean => (correlators.get(modelId)?.size ?? 0) > 0;
 
 const rowTimestamp = (row: Record<string, unknown>): number => {
   const value = row.createdAt;
@@ -48,24 +48,20 @@ export const correlateIncomingRow = (
   options: { readRow: (id: string) => Record<string, unknown> | undefined; claimedTempIds: ReadonlySet<string> }
 ): { tempId: string; operation: OperationRecord } | null => {
   const declared = correlators.get(modelId);
-  if (!declared || declared.length === 0) return null;
+  if (!declared || declared.size === 0) return null;
   if (isTempId(incoming.id)) return null;
   if (options.readRow(incoming.id) !== undefined) return null;
+  const declarations = [...declared.values()];
   let best: { tempId: string; operation: OperationRecord } | null = null;
   for (const operation of getOperationState().openInsertsFor(modelId)) {
     const tempId = operation.tempIds[0];
     if (tempId === undefined || options.claimedTempIds.has(tempId)) continue;
     const candidate = options.readRow(tempId);
     if (!candidate) continue;
-    if (!declared.some(correlate => candidateMatches(correlate, candidate, incoming))) continue;
+    if (!declarations.some(correlate => candidateMatches(correlate, candidate, incoming))) continue;
     if (!best || operation.createdAt < best.operation.createdAt || (operation.createdAt === best.operation.createdAt && operation.operationId < best.operation.operationId)) {
       best = { tempId, operation };
     }
   }
   return best;
-};
-
-/** Close a correlated pending operation as committed: its row was confirmed through another channel. */
-export const closeCorrelatedOperation = (operation: OperationRecord): void => {
-  if (operation.status === 'pending') getOperationState().close(operation.operationId, 'committed');
 };

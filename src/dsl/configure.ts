@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, OperationState, RuntimeConfig, WriteOp } from '../types';
+import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, OperationState, OperationTransition, RuntimeConfig, WriteOp } from '../types';
 import { retryDelayMs } from '../core/fetch/retryPolicy';
 import { isFetchNetworkOnline } from '../core/fetch/networkState';
 import { mmkvStoragePlane } from '../core/planes/storagePlane';
@@ -195,13 +195,14 @@ export const replayJournal = (): number => {
   const orphaned = operations.takeHydratedPending(operation => operation.kind === undefined);
   if (orphaned.length > 0) {
     const orphanDestroyOps: WriteOp[] = [];
+    const orphanTransitions: OperationTransition[] = [];
     for (const operation of orphaned) {
       if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
         orphanDestroyOps.push({ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false });
       }
-      operations.close(operation.operationId, 'rolledback', { persist: false });
+      orphanTransitions.push({ kind: 'close' as const, operationId: operation.operationId, status: 'rolledback' as const });
     }
-    runtime.commit(createCommitEnvelope(orphanDestroyOps, () => operations.persistEntries()));
+    runtime.commit(createCommitEnvelope(orphanDestroyOps, orphanTransitions));
   }
   const candidates = new Map<string, Set<string>>();
   const noteCandidate = (model: string, id: unknown): void => {

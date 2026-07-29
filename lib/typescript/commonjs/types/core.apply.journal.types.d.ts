@@ -1,5 +1,6 @@
 import type { ScopeIndexValue } from './core.planes.scopeIndex.types';
 import type { StoredRow } from './core.relations.types';
+import type { OperationTransition } from './core.planes.operationState.types';
 import type { VersionedValue } from './core.persistenceCodec.types';
 /** Raw model-owned intent accepted by the write-plan compiler. */
 export type WriteOp = {
@@ -34,6 +35,7 @@ export type WriteOp = {
     ids: string[];
     tombstone?: boolean;
     origin?: 'replace';
+    operationTransitions?: OperationTransition[];
 } | {
     kind: 'scope';
     model: string;

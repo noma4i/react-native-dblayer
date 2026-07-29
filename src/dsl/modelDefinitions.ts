@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 import { defineDetachedOperation } from './defineDetachedOperation';
 import { defineFetch } from './defineFetch';
 import { defineModelIngest } from './defineIngest';
-import { defineMutation } from './defineMutation';
+import { defineModelMutation } from './defineMutation';
 import { defineQuery } from './defineQuery';
 import { defineView } from './defineView';
 
@@ -61,7 +61,7 @@ export const createModelDefinitions = <TStored extends { id: string; updatedAt?:
   mutation: (name, mutationConfig) => {
     /** Mutation dedupe keys are idempotency identities, not scope bucket keys; scope validation belongs to scope handles and queries. */
     const dedupe = mutationConfig.dedupe === false ? false : (mutationConfig.dedupe ?? { key: input => compositeKey(options.modelId, name, buildScopeKey(input)) });
-    return defineMutation({ ...mutationConfig, dedupe });
+    return defineModelMutation(compositeKey(options.modelId, name), { ...mutationConfig, dedupe });
   },
   detached: (kind, detachedConfig) => defineDetachedOperation(options.context.model<ModelCore<TStored, TInput>>(), kind, detachedConfig),
   fetch: <TData, TFetchInput, TSelected>(name: string, fetchConfig: ModelFetchConfig<TData, TFetchInput, TSelected>) =>

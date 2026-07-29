@@ -1,4 +1,4 @@
-import type { DefinedMutation, MutationConfig, MutationRuntimeContext, OptimisticCtx, WriteOp } from '../types';
+import type { DefinedMutation, MutationConfig, MutationRuntimeContext, OperationRecord, OptimisticCtx, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/transaction';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -22,10 +22,13 @@ export const clearFailedOptimisticMutation = (model: string, tempId: string): vo
   if (operation) operations.clearFailed(operation.operationId);
 };
 
-export const createMutationRuntime = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): Pick<DefinedMutation<TData, TInput>, 'run' | 'retry' | 'discard'> => {
+export const createMutationRuntime = <TData, TInput, TStored extends { id: string }, TNode>(
+  config: MutationConfig<TData, TInput, TStored, TNode>,
+  definitionId: string
+): Pick<DefinedMutation<TData, TInput>, 'run' | 'retry' | 'discard'> => {
   const runtime: MutationRuntimeContext<TData, TInput, TStored, TNode> = { config, optimisticConfig: config.optimistic, ...createMutationResponder(config) };
   if (config.optimistic && !isMethodOptimistic(config.optimistic) && !isRespondOptimistic(config.optimistic) && config.optimistic.correlate) {
-    registerMutationCorrelator(config.optimistic.model.modelId, config.optimistic.correlate);
+    registerMutationCorrelator(config.optimistic.model.modelId, definitionId, config.optimistic.correlate);
   }
 
   const runWithTempId = async (input: TInput, forcedTempId?: string): Promise<TData | null> => {
@@ -68,8 +71,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
           createdAt: Date.now()
         };
         if (optimisticOps.length > 0) {
-          operations.begin(beginFields, { persist: false });
-          getApplyRuntime().commit(createCommitEnvelope(optimisticOps, () => operations.persistEntries()));
+          getApplyRuntime().commit(createCommitEnvelope(optimisticOps, [{ kind: 'begin', operation: beginFields }]));
         } else {
           operations.begin(beginFields);
         }
@@ -98,7 +100,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
           const position = optimistic.prependTo ? 'prepend' : 'append';
           const ops = getInternalModelHandle(optimistic.model).planRows([{ ...(row as Record<string, unknown>), id: newTempId }]);
           if (placement) ops.push(...getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), newTempId, position));
-          operations.begin({
+          const beginFields: Omit<OperationRecord, 'status'> = {
             operationId,
             model: optimistic.model.modelId,
             tempIds: [newTempId],
@@ -108,14 +110,14 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
             once: config.once === true,
             ...(persistedFailedInput?.serializable ? { failedInput: persistedFailedInput.value } : {}),
             createdAt: Date.now()
-          }, { persist: false });
-          getApplyRuntime().commit(createCommitEnvelope(ops, () => operations.persistEntries()));
+          };
+          getApplyRuntime().commit(createCommitEnvelope(ops, [{ kind: 'begin', operation: beginFields }]));
         }
       } else if (optimistic && optimistic.method === 'patch') {
         const id = optimistic.selectId(input);
         previous = optimistic.model.find(id);
         const patch = optimistic.selectPatch(input) as Record<string, unknown>;
-        operations.begin({
+        const beginFields: Omit<OperationRecord, 'status'> = {
           operationId,
           model: optimistic.model.modelId,
           tempIds: [],
@@ -126,8 +128,10 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
           patchedFields: Object.keys(patch),
           patchedValues: patch,
           createdAt: Date.now()
-        }, { persist: false });
-        getApplyRuntime().commit(createCommitEnvelope([{ kind: 'patch', model: optimistic.model.modelId, id: String(id), patch, operationId }], () => operations.persistEntries()));
+        };
+        getApplyRuntime().commit(
+          createCommitEnvelope([{ kind: 'patch', model: optimistic.model.modelId, id: String(id), patch, operationId }], [{ kind: 'begin', operation: beginFields }])
+        );
       } else if (optimistic && optimistic.method === 'destroy') {
         if (hasDependentCascade(optimistic.model.modelId)) {
           throw new Error(`${optimistic.model.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
@@ -135,7 +139,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
         const id = optimistic.selectId(input);
         previous = optimistic.model.find(id);
         previousMemberships = getInternalModelHandle(optimistic.model).captureMembership(id);
-        operations.begin({
+        const beginFields: Omit<OperationRecord, 'status'> = {
           operationId,
           model: optimistic.model.modelId,
           tempIds: [],
@@ -144,8 +148,10 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
           idempotencyKey: dedupeKey ?? operationId,
           once: config.once === true,
           createdAt: Date.now()
-        }, { persist: false });
-        getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: optimistic.model.modelId, ids: [String(id)] }], () => operations.persistEntries()));
+        };
+        getApplyRuntime().commit(
+          createCommitEnvelope([{ kind: 'destroy', model: optimistic.model.modelId, ids: [String(id)] }], [{ kind: 'begin', operation: beginFields }])
+        );
       } else if (tracked) {
         operations.begin({
           operationId,
@@ -191,10 +197,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       if (tracked) {
         if (commitOps.length > 0) {
           getApplyRuntime().commit(
-            createCommitEnvelope(commitOps, () => {
-              operations.close(operationId, 'committed', { persist: false });
-              return operations.persistEntries();
-            })
+            createCommitEnvelope(commitOps, [{ kind: 'close', operationId, status: 'committed' }])
           );
         } else {
           operations.close(operationId, 'committed');
@@ -240,10 +243,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
         const status = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) && optimistic.failure !== 'rollback' ? 'failed' : 'rolledback';
         if (rollbackOps.length > 0) {
           getApplyRuntime().commit(
-            createCommitEnvelope(rollbackOps, () => {
-              operations.close(operationId, status, { persist: false });
-              return operations.persistEntries();
-            })
+            createCommitEnvelope(rollbackOps, [{ kind: 'close', operationId, status }])
           );
         } else {
           operations.close(operationId, status);

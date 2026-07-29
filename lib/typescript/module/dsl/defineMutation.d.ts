@@ -1,4 +1,7 @@
 import type { DefinedMutation, MutationConfig } from '../types';
+export declare const defineModelMutation: <TData, TInput, TStored extends {
+    id: string;
+}, TNode>(definitionId: string, config: MutationConfig<TData, TInput, TStored, TNode>) => DefinedMutation<TData, TInput>;
 /**
  * Define hook and imperative mutation paths with one lifecycle: optimistic write -> transport call ->
  * single-transaction commit (or rollback of the optimistic write on error/dedupe-skip). Dedupe, extract

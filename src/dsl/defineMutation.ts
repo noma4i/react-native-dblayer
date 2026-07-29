@@ -1,8 +1,22 @@
 import { createMutationRuntime } from './mutationRuntime';
 import { validateMutationConfig } from './mutationConfiguration';
 import { useMutationHandle } from './mutationHook';
+import { compositeKey } from '../core/serialize';
 import type { DefinedMutation, MutationConfig } from '../types';
 
+const createDefinedMutation = <TData, TInput, TStored extends { id: string }, TNode>(
+  config: MutationConfig<TData, TInput, TStored, TNode>,
+  definitionId: string
+): DefinedMutation<TData, TInput> => {
+  validateMutationConfig(config);
+  const runtime = createMutationRuntime(config, definitionId);
+  return { run: runtime.run, retry: runtime.retry, discard: runtime.discard, use: () => useMutationHandle(runtime.run) };
+};
+
+export const defineModelMutation = <TData, TInput, TStored extends { id: string }, TNode>(
+  definitionId: string,
+  config: MutationConfig<TData, TInput, TStored, TNode>
+): DefinedMutation<TData, TInput> => createDefinedMutation(config, definitionId);
 
 /**
  * Define hook and imperative mutation paths with one lifecycle: optimistic write -> transport call ->
@@ -16,7 +30,6 @@ import type { DefinedMutation, MutationConfig } from '../types';
  * where `mutate` fires-and-forgets with optional `MutateCallbacks` and `mutateAsync` awaits/rejects like `run`.
  */
 export const defineMutation = <TData, TInput, TStored extends { id: string }, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): DefinedMutation<TData, TInput> => {
-  validateMutationConfig(config);
-  const runtime = createMutationRuntime(config);
-  return { run: runtime.run, retry: runtime.retry, discard: runtime.discard, use: () => useMutationHandle(runtime.run) };
+  const modelId = config.optimistic?.model.modelId ?? '';
+  return createDefinedMutation(config, compositeKey(modelId, config.result));
 };

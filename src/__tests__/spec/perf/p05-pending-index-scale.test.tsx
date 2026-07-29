@@ -1,42 +1,51 @@
 import { act } from 'react';
 import { defineModel, f, resetRuntime } from '../../../index';
-import { getOperationState } from '../../../dsl/configure';
-import type { OperationRecord } from '../../../types';
+import { createCommitEnvelope } from '../../../core/apply/transaction';
+import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
+import type { OperationRecord, OperationTransition } from '../../../types';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const TARGET_MODEL = 'SpecPendingIndexTarget';
 const TARGET_ROW = 'target-row';
 
 const seedForeignOps = (count: number): void => {
-  const operations = getOperationState();
+  const transitions: OperationTransition[] = [];
   for (let index = 0; index < count; index += 1) {
-    operations.begin({
-      operationId: `foreign-${index}`,
-      model: 'SpecPendingIndexForeign',
-      tempIds: [],
-      rowIds: [`foreign-row-${index}`],
-      intent: 'patch',
-      patchedFields: ['score'],
-      patchedValues: { score: index },
-      createdAt: index
-    }, { persist: false });
+    transitions.push({
+      kind: 'begin',
+      operation: {
+        operationId: `foreign-${index}`,
+        model: 'SpecPendingIndexForeign',
+        tempIds: [],
+        rowIds: [`foreign-row-${index}`],
+        intent: 'patch',
+        patchedFields: ['score'],
+        patchedValues: { score: index },
+        createdAt: index
+      }
+    });
   }
+  getApplyRuntime().commit(createCommitEnvelope([], transitions));
 };
 
 const seedTargetOps = (count: number, offset: number): void => {
-  const operations = getOperationState();
+  const transitions: OperationTransition[] = [];
   for (let index = 0; index < count; index += 1) {
-    operations.begin({
-      operationId: `target-${offset + index}`,
-      model: TARGET_MODEL,
-      tempIds: [],
-      rowIds: [TARGET_ROW],
-      intent: 'patch',
-      patchedFields: ['score'],
-      patchedValues: { score: offset + index },
-      createdAt: 10_000 + offset + index
-    }, { persist: false });
+    transitions.push({
+      kind: 'begin',
+      operation: {
+        operationId: `target-${offset + index}`,
+        model: TARGET_MODEL,
+        tempIds: [],
+        rowIds: [TARGET_ROW],
+        intent: 'patch',
+        patchedFields: ['score'],
+        patchedValues: { score: offset + index },
+        createdAt: 10_000 + offset + index
+      }
+    });
   }
+  getApplyRuntime().commit(createCommitEnvelope([], transitions));
 };
 
 describe('pending operation index scale', () => {

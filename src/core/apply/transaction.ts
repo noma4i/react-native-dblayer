@@ -11,6 +11,7 @@ import type {
   IncrementalScopeChange,
   JournalOp,
   JournalRecord,
+  OperationTransition,
   StoragePlane,
   StoredRow,
   WriteOp
@@ -20,7 +21,7 @@ import { uniq, uniqBy } from 'es-toolkit';
 import { compositeKey } from '../serialize';
 import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { getDbRuntimeConfig, getRuntimeGeneration } from '../../dsl/configure';
+import { getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from '../../dsl/configure';
 import { publishProjectedBatch, runInApplyBatch } from '../store';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 
@@ -84,6 +85,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
   const preparedOps: JournalOp[] = [];
   const accepted: AcceptedRow[] = [];
   const destroyed: DestroyedRow[] = [];
+  const operationTransitions: OperationTransition[] = [];
   for (const op of ops) {
     const target = getApplyTarget(op.model);
     if (op.kind === 'upsert') {
@@ -134,12 +136,19 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       continue;
     }
     if (op.kind === 'destroy') {
+      operationTransitions.push(...(op.operationTransitions ?? []));
       for (const id of op.ids) {
         const previous = readPlannedRow(overlay, op.model, id);
         if (previous) destroyed.push({ model: op.model, id, before: previous, origin: op.origin });
         writePlannedRow(overlay, op.model, id, null);
       }
-      preparedOps.push(op);
+      preparedOps.push({
+        kind: 'destroy',
+        model: op.model,
+        ids: op.ids,
+        ...(op.tombstone !== undefined ? { tombstone: op.tombstone } : {}),
+        ...(op.origin ? { origin: op.origin } : {})
+      });
       continue;
     }
     if (op.kind === 'scope-delta') {
@@ -157,16 +166,18 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
     }
     preparedOps.push(op);
   }
-  return { ops: preparedOps, accepted, destroyed };
+  return { ops: preparedOps, accepted, destroyed, operationTransitions };
 };
 
-const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
+const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationTransitions: OperationTransition[] } => {
   for (const op of initialOps) getApplyTarget(op.model);
   const overlay = new Map<string, Map<string, StoredRow | null>>();
   const sourceOps = [...initialOps];
   const planned: JournalOp[] = [];
+  const operationTransitions: OperationTransition[] = [];
   let phase = prepareOperations(initialOps, overlay);
   planned.push(...phase.ops);
+  operationTransitions.push(...phase.operationTransitions);
   const allAccepted = [...phase.accepted];
   while (phase.accepted.length > 0 || phase.destroyed.length > 0) {
     const effects = deriveEffects(phase.accepted, phase.destroyed, sourceOps, {
@@ -177,6 +188,7 @@ const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
     sourceOps.push(...effects);
     phase = prepareOperations(effects, overlay);
     planned.push(...phase.ops);
+    operationTransitions.push(...phase.operationTransitions);
     allAccepted.push(...phase.accepted);
   }
   /**
@@ -203,7 +215,7 @@ const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
     }
   }
   planned.push(...repositioned.values());
-  return planned;
+  return { ops: planned, operationTransitions };
 };
 
 /**
@@ -212,18 +224,20 @@ const compileWritePlan = (initialOps: WriteOp[]): JournalOp[] => {
  */
 export const createCommitEnvelope = (
   ops: WriteOp[],
-  extraEntries?: () => Array<{ key: string; value: string | null }>
+  explicitOperationTransitions: readonly OperationTransition[] = []
 ): CommitEnvelope => {
   const runtimeEpoch = getRuntimeGeneration();
   const planned = compileWritePlan(ops);
+  const operationTransitions = [...planned.operationTransitions, ...explicitOperationTransitions];
   transactionSequence += 1;
   return {
     schemaVersion: 1,
     txId: `${runtimeEpoch}:${transactionSequence}`,
     epoch: runtimeEpoch,
-    entityOps: planned.filter(op => !isScopeOperation(op)),
-    scopeOps: planned.filter(isScopeOperation),
-    extraEntries: extraEntries?.() ?? []
+    entityOps: planned.ops.filter(op => !isScopeOperation(op)),
+    scopeOps: planned.ops.filter(isScopeOperation),
+    operationEntries: operationTransitions.length > 0 ? getOperationState().prepareTransitions(operationTransitions) : [],
+    operationTransitions
   } as unknown as CommitEnvelope;
 };
 
@@ -330,7 +344,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         status: 'pending',
         ops
       };
-      storage.set([...journal.pendingEntry(record), ...envelope.extraEntries]);
+      storage.set([...journal.pendingEntry(record), ...envelope.operationEntries]);
       let batch: IncrementalCommitBatch;
       try {
         batch = runInApplyBatch(() => applyOperations(ops));
@@ -344,6 +358,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         }
         throw error;
       }
+      if (envelope.operationTransitions.length > 0) getOperationState().applyTransitions(envelope.operationTransitions);
       if (checkpoint) {
         storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
         checkpoint.notePlan(touchedModelsOf(ops), epoch);

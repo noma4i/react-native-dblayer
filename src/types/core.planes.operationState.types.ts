@@ -21,10 +21,16 @@ export type OperationRecord = {
   createdAt: number;
 };
 
+/** Immutable operation-ledger change carried by a commit envelope. */
+export type OperationTransition =
+  | { kind: 'begin'; operation: Omit<OperationRecord, 'status'> }
+  | { kind: 'close'; operationId: string; status: Exclude<OperationStatus, 'pending'> }
+  | { kind: 'remove'; operationId: string; expectedStatus?: OperationStatus };
+
 export type OperationState = {
-  begin(operation: Omit<OperationRecord, 'status'>, options?: { persist?: boolean }): void;
-  /** Terminal status is immutable; repeated close calls are idempotent no-ops. Pass `{ persist: false }` to defer the ledger write onto a caller-owned `apply(..., { extraEntries })` batch. */
-  close(operationId: string, status: Exclude<OperationStatus, 'pending'>, options?: { persist?: boolean }): void;
+  begin(operation: Omit<OperationRecord, 'status'>): void;
+  /** Terminal status is immutable; repeated close calls are idempotent no-ops. */
+  close(operationId: string, status: Exclude<OperationStatus, 'pending'>): void;
   get(operationId: string): OperationRecord | undefined;
   /** True when a retained `once` key or exact operation id already committed. */
   hasCommitted(idempotencyKey: string): boolean;
@@ -45,8 +51,8 @@ export type OperationState = {
   clearFailed(operationId: string): void;
   /** Re-open a retained failed operation for durable retry. */
   reopen(operationId: string): OperationRecord | undefined;
-  /** Remove any operation after an explicit discard or failed atomic start. Pass `{ persist: false }` to defer the ledger write onto a caller-owned `apply(..., { extraEntries })` batch. */
-  remove(operationId: string, options?: { persist?: boolean }): void;
+  /** Remove any operation after an explicit discard or failed atomic start. */
+  remove(operationId: string): void;
   /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
   hydratedPending(): OperationRecord[];
   /** Consume hydrated pending records matching one boot reconciler exactly once. */
@@ -57,6 +63,10 @@ export type OperationState = {
   /** The value the latest still-pending patch op (excluding `excludeOpId`) wrote for one field of one model row, or `{ found: false }` when no other pending patch owns it. */
   latestPendingValue(model: string, rowId: string, field: string, excludeOpId?: string): { found: boolean; value: unknown };
   persistEntries(): Array<{ key: string; value: string | null }>;
+  /** Materialize durable entries for transitions without changing live ledger state. */
+  prepareTransitions(transitions: readonly OperationTransition[]): Array<{ key: string; value: string | null }>;
+  /** Apply already-durable transitions to live state without writing storage again. */
+  applyTransitions(transitions: readonly OperationTransition[]): void;
   /** Hydrates the single ledger blob; malformed data is cold-reset because orphan temp-row reconciliation is the contract fallback. */
   hydrate(): void;
   reset(): void;

@@ -1,8 +1,8 @@
-import type { EntityState, ModelMembership, ModelWriteResult, ModelWrites, WriteOp, WriteOrigin } from '../types';
+import type { EntityState, ModelMembership, ModelWriteResult, ModelWrites, OperationRecord, OperationTransition, WriteOp, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
-import { closeCorrelatedOperation, correlateIncomingRow, modelHasCorrelators } from './mutationCorrelation';
-import { clearFailedOptimisticMutation } from './mutationRuntime';
+import { correlateIncomingRow, modelHasCorrelators } from './mutationCorrelation';
+import { getOperationState } from './configure';
 
 export const createModelWrites = <TStored extends { id: string } & Record<string, unknown>>(options: {
   modelId: string;
@@ -53,7 +53,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
       return null;
     }
   };
-  const planReplace = (oldId: string, next: unknown): WriteOp[] => {
+  const planReplace = (oldId: string, next: unknown, correlatedOperation?: OperationRecord): WriteOp[] => {
     let normalized: TStored;
     try {
       normalized = options.normalize(next);
@@ -63,10 +63,26 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
       noteDataLoss('replacement-rejected', options.modelId, 1);
       throw new Error(`replace rejected for ${options.modelId}:${oldId}`);
     }
-    clearFailedOptimisticMutation(options.modelId, oldId);
+    const failedOperation = getOperationState().failedFor(options.modelId, oldId);
+    const operationTransitions: OperationTransition[] =
+      correlatedOperation?.status === 'pending'
+        ? [{ kind: 'close', operationId: correlatedOperation.operationId, status: 'committed' }]
+        : failedOperation
+          ? [{ kind: 'remove', operationId: failedOperation.operationId, expectedStatus: 'failed' }]
+          : [];
     const mergeBase = options.entityState().read(oldId);
     const memberships = options.captureMembership(oldId);
-    return [{ kind: 'destroy', model: options.modelId, ids: [oldId], origin: 'replace' }, { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase }, ...restoreMembership(normalized.id, memberships)];
+    return [
+      {
+        kind: 'destroy',
+        model: options.modelId,
+        ids: [oldId],
+        origin: 'replace',
+        ...(operationTransitions.length > 0 ? { operationTransitions } : {})
+      },
+      { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase },
+      ...restoreMembership(normalized.id, memberships)
+    ];
   };
   /**
    * Channel-agnostic temp correlation seam: split already-accepted rows into plain upserts and
@@ -87,8 +103,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
         continue;
       }
       claimedTempIds.add(correlation.tempId);
-      replaceOps.push(...planReplace(correlation.tempId, normalized));
-      closeCorrelatedOperation(correlation.operation);
+      replaceOps.push(...planReplace(correlation.tempId, normalized, correlation.operation));
     }
     return { plain, replaceOps };
   };

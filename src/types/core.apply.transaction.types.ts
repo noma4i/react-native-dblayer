@@ -2,6 +2,7 @@ import type { CommitBatch } from './core.apply.commitBus.types';
 import type { JournalOp } from './core.apply.journal.types';
 import type { WriteOrigin } from './core.writePolicies.types';
 import type { StoredRow } from './core.relations.types';
+import type { OperationTransition } from './core.planes.operationState.types';
 
 declare const commitEnvelopeBrand: unique symbol;
 
@@ -12,7 +13,8 @@ export type CommitEnvelope = {
   epoch: number;
   entityOps: JournalOp[];
   scopeOps: JournalOp[];
-  extraEntries: Array<{ key: string; value: string | null }>;
+  operationEntries: Array<{ key: string; value: string | null }>;
+  operationTransitions: OperationTransition[];
   readonly [commitEnvelopeBrand]: true;
 };
 

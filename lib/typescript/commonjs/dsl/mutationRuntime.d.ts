@@ -3,5 +3,5 @@ import type { DefinedMutation, MutationConfig } from '../types';
 export declare const clearFailedOptimisticMutation: (model: string, tempId: string) => void;
 export declare const createMutationRuntime: <TData, TInput, TStored extends {
     id: string;
-}, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>) => Pick<DefinedMutation<TData, TInput>, "run" | "retry" | "discard">;
+}, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>, definitionId: string) => Pick<DefinedMutation<TData, TInput>, "run" | "retry" | "discard">;
 //# sourceMappingURL=mutationRuntime.d.ts.map

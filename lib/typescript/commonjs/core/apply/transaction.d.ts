@@ -1,4 +1,4 @@
-import type { ApplyRuntime, ApplyTarget, CheckpointScheduler, CommitBus, CommitEnvelope, StoragePlane, WriteOp } from '../../types';
+import type { ApplyRuntime, ApplyTarget, CheckpointScheduler, CommitBus, CommitEnvelope, OperationTransition, StoragePlane, WriteOp } from '../../types';
 /**
  * Register one model-owned application target for model application plans.
  *
@@ -11,10 +11,7 @@ export declare const getApplyTargets: () => Array<[string, ApplyTarget]>;
  * Compile raw model intents into one complete callback-free plan before WAL. Entity work stays
  * ahead of scope membership so a reader cannot observe a membership pointing at a missing row.
  */
-export declare const createCommitEnvelope: (ops: WriteOp[], extraEntries?: () => Array<{
-    key: string;
-    value: string | null;
-}>) => CommitEnvelope;
+export declare const createCommitEnvelope: (ops: WriteOp[], explicitOperationTransitions?: readonly OperationTransition[]) => CommitEnvelope;
 export declare const createApplyRuntime: (options: {
     storage: StoragePlane;
     prefix: () => string;

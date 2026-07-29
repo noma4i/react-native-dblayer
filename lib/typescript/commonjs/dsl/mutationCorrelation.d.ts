@@ -1,5 +1,5 @@
 import type { MutationCorrelate, OperationRecord } from '../types';
-export declare const registerMutationCorrelator: (modelId: string, correlate: MutationCorrelate) => void;
+export declare const registerMutationCorrelator: (modelId: string, mutationId: string, correlate: MutationCorrelate) => void;
 /** Fast hot-path gate: models without a declared correlator skip normalization and candidate scans entirely. */
 export declare const modelHasCorrelators: (modelId: string) => boolean;
 /**
@@ -17,6 +17,4 @@ export declare const correlateIncomingRow: (modelId: string, incoming: Record<st
     tempId: string;
     operation: OperationRecord;
 } | null;
-/** Close a correlated pending operation as committed: its row was confirmed through another channel. */
-export declare const closeCorrelatedOperation: (operation: OperationRecord) => void;
 //# sourceMappingURL=mutationCorrelation.d.ts.map

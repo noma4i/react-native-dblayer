@@ -1,5 +1,6 @@
 import type { ScopeIndexValue } from './core.planes.scopeIndex.types';
 import type { StoredRow } from './core.relations.types';
+import type { OperationTransition } from './core.planes.operationState.types';
 import type { VersionedValue } from './core.persistenceCodec.types';
 
 /** Raw model-owned intent accepted by the write-plan compiler. */
@@ -10,7 +11,7 @@ export type WriteOp =
   /** `operationId` lets a pending optimistic method-patch plan its own rollback while foreign patches keep its owned fields. */
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; operationId?: string }
   /** `replace` marks the destroy half of an identity swap during relation planning. */
-  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace' }
+  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; operationTransitions?: OperationTransition[] }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; orderKey?: string }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };

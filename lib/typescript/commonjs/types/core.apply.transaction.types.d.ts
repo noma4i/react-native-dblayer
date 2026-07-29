@@ -2,6 +2,7 @@ import type { CommitBatch } from './core.apply.commitBus.types';
 import type { JournalOp } from './core.apply.journal.types';
 import type { WriteOrigin } from './core.writePolicies.types';
 import type { StoredRow } from './core.relations.types';
+import type { OperationTransition } from './core.planes.operationState.types';
 declare const commitEnvelopeBrand: unique symbol;
 /** Complete write plan accepted by the sole runtime write entry point. */
 export type CommitEnvelope = {
@@ -10,10 +11,11 @@ export type CommitEnvelope = {
     epoch: number;
     entityOps: JournalOp[];
     scopeOps: JournalOp[];
-    extraEntries: Array<{
+    operationEntries: Array<{
         key: string;
         value: string | null;
     }>;
+    operationTransitions: OperationTransition[];
     readonly [commitEnvelopeBrand]: true;
 };
 /** Pure preview of one row write after normalization, ownership overlay, and write-policy evaluation. */

@@ -1,5 +1,5 @@
 import { union } from 'es-toolkit';
-import type { OperationRecord, OperationState , StoragePlane , PersistedOnceKeyRecord } from '../../types';
+import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOnceKeyRecord } from '../../types';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
@@ -136,26 +136,64 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     }
   };
   const opsKey = () => `${prefix()}ops`;
-  const persistEntries = (): Array<{ key: string; value: string | null }> => {
-    const keys = [...committedKeys].sort();
+  const entriesFor = (records: ReadonlyMap<string, OperationRecord>, onceKeys: ReadonlySet<string>): Array<{ key: string; value: string | null }> => {
+    const keys = [...onceKeys].sort();
     return [
-      { key: opsKey(), value: operations.size > 0 ? encodePersistence(Object.fromEntries(operations)) : null },
+      { key: opsKey(), value: records.size > 0 ? encodePersistence(Object.fromEntries(records)) : null },
       { key: onceKeysKey(prefix()), value: keys.length > 0 ? encodePersistence({ keys }) : null }
     ];
   };
+  const persistEntries = (): Array<{ key: string; value: string | null }> => entriesFor(operations, committedKeys);
+  const applyTransition = (
+    records: Map<string, OperationRecord>,
+    onceKeys: Set<string>,
+    transition: OperationTransition
+  ): { previous?: OperationRecord; next?: OperationRecord } => {
+    if (transition.kind === 'begin') {
+      const next: OperationRecord = {
+        ...transition.operation,
+        tempIds: [...transition.operation.tempIds],
+        ...(transition.operation.rowIds ? { rowIds: [...transition.operation.rowIds] } : {}),
+        ...(transition.operation.patchedFields ? { patchedFields: [...transition.operation.patchedFields] } : {}),
+        status: 'pending'
+      };
+      const previous = records.get(next.operationId);
+      records.set(next.operationId, next);
+      return { previous, next };
+    }
+    const previous = records.get(transition.operationId);
+    if (!previous) return {};
+    if (transition.kind === 'close') {
+      if (previous.status !== 'pending') return {};
+      const retainKey = transition.status === 'committed' && previous.once === true;
+      const next: OperationRecord = {
+        ...previous,
+        status: transition.status,
+        idempotencyKey: retainKey ? previous.idempotencyKey : undefined
+      };
+      records.set(transition.operationId, next);
+      if (retainKey && next.idempotencyKey) onceKeys.add(next.idempotencyKey);
+      return { previous, next };
+    }
+    if (transition.expectedStatus !== undefined && previous.status !== transition.expectedStatus) return {};
+    records.delete(transition.operationId);
+    return { previous };
+  };
+  const isPendingPatchOwner = (operation: OperationRecord | undefined): boolean =>
+    operation?.status === 'pending' && operation.intent === 'patch' && !!operation.patchedFields && operation.patchedFields.length > 0;
   const EMPTY_OWNED: ReadonlySet<string> = new Set();
 
   return {
-    begin: (operation, options) => {
+    begin: operation => {
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
       indexOperation(record);
       indexRecordRows(record);
       if (record.status === 'pending' && record.intent === 'patch' && record.patchedFields && record.patchedFields.length > 0) pendingPatchCount += 1;
-      if (options?.persist !== false) storage.set(persistEntries());
+      storage.set(persistEntries());
       notify?.(record);
     },
-    close: (operationId, status, options) => {
+    close: (operationId, status) => {
       const operation = operations.get(operationId);
       if (!operation || operation.status !== 'pending') return;
       const wasPatchOwner = operation.status === 'pending' && operation.intent === 'patch' && !!operation.patchedFields && operation.patchedFields.length > 0;
@@ -168,7 +206,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       indexRecordRows(record);
       if (wasPatchOwner) pendingPatchCount -= 1;
       indexOperation(record);
-      if (options?.persist !== false) storage.set(persistEntries());
+      storage.set(persistEntries());
       notify?.(record);
     },
     get: operationId => operations.get(operationId),
@@ -216,13 +254,13 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       notify?.(record);
       return record;
     },
-    remove: (operationId, options) => {
+    remove: operationId => {
       const operation = operations.get(operationId);
       if (!operation) return;
       hydratedPendingIds.delete(operationId);
       operations.delete(operationId);
       rebuildIndexes();
-      if (options?.persist !== false) storage.set(persistEntries());
+      storage.set(persistEntries());
       notify?.(operation);
     },
     hydratedPending: () =>
@@ -280,6 +318,38 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       return result;
     },
     persistEntries,
+    prepareTransitions: transitions => {
+      const projectedOperations = new Map(operations);
+      const projectedCommittedKeys = new Set(committedKeys);
+      for (const transition of transitions) applyTransition(projectedOperations, projectedCommittedKeys, transition);
+      return entriesFor(projectedOperations, projectedCommittedKeys);
+    },
+    applyTransitions: transitions => {
+      const notifications: OperationRecord[] = [];
+      for (const transition of transitions) {
+        const operationId = transition.kind === 'begin' ? transition.operation.operationId : transition.operationId;
+        const before = operations.get(operationId);
+        if (before) {
+          unindexRecordRows(before);
+          if (before.idempotencyKey && before.status === 'pending') pendingKeys.delete(before.idempotencyKey);
+          if (isPendingPatchOwner(before)) pendingPatchCount -= 1;
+        }
+        const result = applyTransition(operations, committedKeys, transition);
+        if (transition.kind !== 'begin') hydratedPendingIds.delete(transition.operationId);
+        if (result.next) {
+          indexOperation(result.next);
+          indexRecordRows(result.next);
+          if (isPendingPatchOwner(result.next)) pendingPatchCount += 1;
+        } else if (before && result.previous === undefined) {
+          indexOperation(before);
+          indexRecordRows(before);
+          if (isPendingPatchOwner(before)) pendingPatchCount += 1;
+        }
+        const notification = result.next ?? result.previous;
+        if (notification) notifications.push(notification);
+      }
+      for (const operation of notifications) notify?.(operation);
+    },
     hydrate: () => {
       operations.clear();
       hydratedPendingIds.clear();
