@@ -1,5 +1,15 @@
 # Changelog
 
+## 9.0.0-beta.8 - 2026-07-29
+
+### Fixed
+
+- Enforce the single `src/types` declaration store for indented and nested `type` or `interface` declarations in production modules.
+
+### Testing
+
+- Calibrate the type-discipline gate red-first against existing nested declarations and an isolated indented mutation.
+
 ## 9.0.0-beta.7 - 2026-07-29
 
 ### Fixed
