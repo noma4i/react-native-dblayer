@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.0.0-beta.9 - 2026-07-29
+
+### Fixed
+
+- Return the rows committed by `Model.query(... into: Model).use(scope)` and derive `loadingState` from the same result, preventing successful single-row reads from publishing a terminal empty state.
+- Retain every loaded page identity in direct-model paginated query results instead of replacing prior pages with the latest page.
+- Classify non-paginated direct-model query freshness from its committed row count instead of treating every result as empty.
+
+### Testing
+
+- Add red-first and mutation-proven contracts for single, array, empty, restart-identity, pagination, and freshness behavior across model and scope destinations.
+
 ## 9.0.0-beta.8 - 2026-07-29
 
 ### Fixed
