@@ -59,6 +59,10 @@ export type ApplyTarget = {
     readAllScopeKeys(): string[];
     prepareUpsert(row: unknown, previous: StoredRow | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: StoredRow, operationId?: string): PreparedRowWrite | null;
     preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string): PreparedRowWrite | null;
+    /** Begin, publish, or discard the target's apply-owned scope overlay. */
+    beginApply(): void;
+    commitApply(): void;
+    abortApply(): void;
     put(rows: StoredRow[]): Array<{
         id: string;
         changedFields: string[] | null;

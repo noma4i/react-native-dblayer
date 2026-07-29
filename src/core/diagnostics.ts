@@ -95,7 +95,7 @@ export const noteReplaceRejected = (): void => {
   diagnostics.replaceRejected += 1;
 };
 
-/** A plan threw mid-`apply()`: the in-memory partial mutation is not persisted (its journal record stays pending), and replay recovers it deterministically. */
+/** A plan failed both its initial atomic apply and clean retry; its WAL stays pending and reads remain poisoned. */
 export const noteApplyFailure = (): void => {
   diagnostics.applyFailure += 1;
 };

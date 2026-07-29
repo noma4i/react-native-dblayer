@@ -22,7 +22,7 @@ import { compositeKey } from '../serialize';
 import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { getDbRuntimeConfig, getOperationState, getRuntimeGeneration } from '../../dsl/configure';
-import { publishProjectedBatch, runInApplyBatch } from '../store';
+import { poisonStoreReads, publishProjectedBatch, restoreStoreReads, runInApplyBatch } from '../store';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 
 const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
@@ -320,6 +320,23 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
 
 const touchedModelsOf = (ops: JournalOp[]): string[] => uniq(ops.map(op => op.model));
 
+const applyAtomically = (ops: JournalOp[]): IncrementalCommitBatch => {
+  const targets = touchedModelsOf(ops).map(model => getApplyTarget(model));
+  const active: ApplyTarget[] = [];
+  try {
+    for (const target of targets) {
+      target.beginApply();
+      active.push(target);
+    }
+    const batch = runInApplyBatch(() => applyOperations(ops));
+    for (const target of active) target.commitApply();
+    return batch;
+  } catch (error) {
+    for (const target of active.reverse()) target.abortApply();
+    throw error;
+  }
+};
+
 export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () => string; bus: CommitBus; checkpoint?: CheckpointScheduler }): ApplyRuntime => {
   const { storage, prefix, bus, checkpoint } = options;
   const journal = createJournal(storage, prefix);
@@ -363,16 +380,23 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       storage.set([...journal.pendingEntry(record), ...envelope.operationEntries]);
       let batch: IncrementalCommitBatch;
       try {
-        batch = runInApplyBatch(() => applyOperations(ops));
-      } catch (error) {
-        noteApplyFailure();
-        getDbLogger().error('apply failed', { epoch, error });
+        batch = applyAtomically(ops);
+      } catch (firstError) {
+        poisonStoreReads();
         try {
-          getDbRuntimeConfig().defaults?.onSyncError?.(error instanceof Error ? error : new Error(String(error)), { source: 'apply' });
-        } catch (observerError) {
-          getDbLogger().error('apply onSyncError failed', { error: observerError });
+          restoreStoreReads();
+          batch = applyAtomically(ops);
+        } catch (error) {
+          poisonStoreReads();
+          noteApplyFailure();
+          getDbLogger().error('apply failed after recovery replay', { epoch, firstError, error });
+          try {
+            getDbRuntimeConfig().defaults?.onSyncError?.(error instanceof Error ? error : new Error(String(error)), { source: 'apply' });
+          } catch (observerError) {
+            getDbLogger().error('apply onSyncError failed', { error: observerError });
+          }
+          throw error;
         }
-        throw error;
       }
       if (envelope.operationTransitions.length > 0) getOperationState().applyTransitions(envelope.operationTransitions);
       if (checkpoint) {
@@ -408,7 +432,14 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           if (record.status === 'pending') storage.set(journal.committedEntry(record, checkpoint?.flushedEpoch()));
           continue;
         }
-        const batch = runInApplyBatch(() => applyOperations(ops));
+        let batch: IncrementalCommitBatch;
+        try {
+          restoreStoreReads();
+          batch = applyAtomically(ops);
+        } catch (error) {
+          poisonStoreReads();
+          throw error;
+        }
         if (checkpoint) {
           storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
           checkpoint.notePlan(touchedModelsOf(ops), record.epoch);

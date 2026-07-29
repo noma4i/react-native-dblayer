@@ -86,7 +86,9 @@ const activeStores = new Map<string, ModelStore<RowRecord>>();
 let storeSequence = 0;
 let storeScopeCollectionCount = 0;
 let applyBatchDepth = 0;
-const pendingBatchFlushes = new Set<() => void>();
+let applyBatchFailed = false;
+let storeReadsPoisoned = false;
+const pendingBatchFlushes = new Set<{ flush(): void; abort(): void }>();
 
 (globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ = {
   count: (): number => storeScopeCollectionCount
@@ -108,21 +110,40 @@ const ensureModelStore = (modelId: string): ModelStore<RowRecord> => {
  * Run one apply pass with batched collection flushes: every store write inside `run` lands in a
  * per-store transactional buffer (readable through the store immediately) and is committed to the
  * collections as one sync-feed transaction per store when the pass ends, so live queries observe
- * one consistent tick instead of per-row churn. Flushing in `finally` deliberately preserves the
- * partial-application semantics of a mid-batch failure.
+ * one consistent tick instead of per-row churn. A failure aborts every participating store buffer.
  */
 export const runInApplyBatch = <T>(run: () => T): T => {
   applyBatchDepth += 1;
   try {
     return run();
+  } catch (error) {
+    applyBatchFailed = true;
+    throw error;
   } finally {
     applyBatchDepth -= 1;
     if (applyBatchDepth === 0) {
       const flushes = [...pendingBatchFlushes];
       pendingBatchFlushes.clear();
-      for (const flush of flushes) flush();
+      const failed = applyBatchFailed;
+      applyBatchFailed = false;
+      for (const entry of flushes) {
+        if (failed) entry.abort();
+        else entry.flush();
+      }
     }
   }
+};
+
+export const poisonStoreReads = (): void => {
+  storeReadsPoisoned = true;
+};
+
+export const restoreStoreReads = (): void => {
+  storeReadsPoisoned = false;
+};
+
+const assertStoreReadable = (): void => {
+  if (storeReadsPoisoned) throw new Error('Database apply state is poisoned');
 };
 
 export const createModelStore = <T extends RowRecord>(options: {
@@ -156,6 +177,11 @@ export const createModelStore = <T extends RowRecord>(options: {
   const cleanRows = new WeakMap<object, RowRecord>();
   const buffer = new Map<string, RowRecord | typeof DELETED>();
   let bufferQueued = false;
+  let batchUndo: {
+    dirty: Map<string, 'set' | 'delete' | undefined>;
+    tombstones: Map<string, Tombstone | undefined>;
+    tombstonesDirty: boolean;
+  } | null = null;
   const tombstones = new Map<string, Tombstone>();
   const dirty = new Map<string, 'set' | 'delete'>();
   let tombstonesDirty = false;
@@ -179,6 +205,7 @@ export const createModelStore = <T extends RowRecord>(options: {
 
   const flushBuffer = (): void => {
     bufferQueued = false;
+    batchUndo = null;
     if (buffer.size === 0) return;
     const written: Array<[string, RowRecord]> = [];
     entityFeed.start();
@@ -198,12 +225,45 @@ export const createModelStore = <T extends RowRecord>(options: {
     }
   };
 
+  const abortBuffer = (): void => {
+    bufferQueued = false;
+    buffer.clear();
+    if (!batchUndo) return;
+    for (const [id, value] of batchUndo.dirty) {
+      if (value === undefined) dirty.delete(id);
+      else dirty.set(id, value);
+    }
+    for (const [id, value] of batchUndo.tombstones) {
+      if (value === undefined) tombstones.delete(id);
+      else tombstones.set(id, value);
+    }
+    tombstonesDirty = batchUndo.tombstonesDirty;
+    batchUndo = null;
+  };
+
+  const batchParticipant = { flush: flushBuffer, abort: abortBuffer };
+  const ensureBatchUndo = (): NonNullable<typeof batchUndo> => {
+    batchUndo ??= { dirty: new Map(), tombstones: new Map(), tombstonesDirty };
+    return batchUndo;
+  };
+  const noteDirtyBeforeChange = (id: string): void => {
+    if (applyBatchDepth === 0) return;
+    const undo = ensureBatchUndo();
+    if (!undo.dirty.has(id)) undo.dirty.set(id, dirty.get(id));
+  };
+  const noteTombstoneBeforeChange = (id: string): void => {
+    if (applyBatchDepth === 0) return;
+    const undo = ensureBatchUndo();
+    if (!undo.tombstones.has(id)) undo.tombstones.set(id, tombstones.get(id));
+  };
+
   const bufferWrite = (id: string, entry: RowRecord | typeof DELETED): void => {
     buffer.set(id, entry);
     if (applyBatchDepth > 0) {
+      ensureBatchUndo();
       if (!bufferQueued) {
         bufferQueued = true;
-        pendingBatchFlushes.add(flushBuffer);
+        pendingBatchFlushes.add(batchParticipant);
       }
       return;
     }
@@ -242,6 +302,7 @@ export const createModelStore = <T extends RowRecord>(options: {
   };
 
   const read = (id: string): RowRecord | undefined => {
+    assertStoreReadable();
     const key = String(id);
     const buffered = buffer.get(key);
     if (buffered !== undefined) return buffered === DELETED ? undefined : buffered;
@@ -365,14 +426,20 @@ export const createModelStore = <T extends RowRecord>(options: {
       return { changedFields: [] };
     }
     bufferWrite(id, row);
+    noteDirtyBeforeChange(id);
     dirty.set(id, 'set');
-    if (tombstones.delete(id)) tombstonesDirty = true;
+    if (tombstones.has(id)) {
+      noteTombstoneBeforeChange(id);
+      tombstones.delete(id);
+      tombstonesDirty = true;
+    }
     return { changedFields };
   };
 
   const store: ModelStore<T> = {
     read: id => read(id) as T | undefined,
     values: () => {
+      assertStoreReadable();
       const rows: RowRecord[] = [];
       for (const enriched of entities.toArray) {
         const clean = cleanOf(enriched);
@@ -406,7 +473,11 @@ export const createModelStore = <T extends RowRecord>(options: {
     destroy: (id, destroyOptions = {}) => {
       id = String(id);
       bufferWrite(id, DELETED);
-      if (destroyOptions.tombstone !== false) tombstones.set(id, { at: now() }); // Preserve delete-before-create protection through the tombstone and defineModel's isTombstoned gate within the TTL.
+      noteDirtyBeforeChange(id);
+      if (destroyOptions.tombstone !== false) {
+        noteTombstoneBeforeChange(id);
+        tombstones.set(id, { at: now() }); // Preserve delete-before-create protection through the tombstone and defineModel's isTombstoned gate within the TTL.
+      }
       dirty.set(id, 'delete');
       if (destroyOptions.tombstone !== false) tombstonesDirty = true;
     },
@@ -414,6 +485,7 @@ export const createModelStore = <T extends RowRecord>(options: {
       id = String(id);
       if (read(id) === undefined) return false;
       bufferWrite(id, DELETED);
+      noteDirtyBeforeChange(id);
       dirty.set(id, 'delete');
       return true;
     },
@@ -436,8 +508,10 @@ export const createModelStore = <T extends RowRecord>(options: {
       tombstonesDirty = false;
     },
     hydrate: () => {
+      pendingBatchFlushes.delete(batchParticipant);
       buffer.clear();
       bufferQueued = false;
+      batchUndo = null;
       tombstones.clear();
       dirty.clear();
       tombstonesDirty = false;
@@ -473,8 +547,10 @@ export const createModelStore = <T extends RowRecord>(options: {
       }
     },
     reset: () => {
+      pendingBatchFlushes.delete(batchParticipant);
       buffer.clear();
       bufferQueued = false;
+      batchUndo = null;
       tombstones.clear();
       dirty.clear();
       tombstonesDirty = false;
@@ -486,7 +562,10 @@ export const createModelStore = <T extends RowRecord>(options: {
       membershipFeed.finish();
     },
     scopeCollection: scopeKey => ({
-      toArray: () => (ready ? [...getScopeCollection(scopeKey).collection.toArray] : []),
+      toArray: () => {
+        assertStoreReadable();
+        return ready ? [...getScopeCollection(scopeKey).collection.toArray] : [];
+      },
       subscribe: listener => {
         const entry = getScopeCollection(scopeKey);
         entry.consumers += 1;
@@ -506,6 +585,8 @@ export const createModelStore = <T extends RowRecord>(options: {
       ready = true;
     },
     dispose: () => {
+      pendingBatchFlushes.delete(batchParticipant);
+      batchUndo = null;
       for (const entry of scopeCollections.values()) void entry.collection.cleanup();
       storeScopeCollectionCount -= scopeCollections.size;
       scopeCollections.clear();
@@ -544,6 +625,7 @@ export const markStoresReady = (): void => {
 };
 
 export const resetStores = (): void => {
+  restoreStoreReads();
   for (const store of [...activeStores.values()]) store.dispose();
   activeStores.clear();
 };

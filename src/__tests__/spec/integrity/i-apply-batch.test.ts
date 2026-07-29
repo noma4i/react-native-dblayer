@@ -40,6 +40,9 @@ const createTargetMock = () => {
       const row: StoredRow = { ...previous, ...patch, id };
       return { row, changedFields: Object.keys(row).filter(field => !Object.is(previous[field], row[field])) };
     },
+    beginApply: () => {},
+    commitApply: () => {},
+    abortApply: () => {},
     put: incoming => {
       calls.push({ op: 'put', args: [incoming] });
       return incoming.map(value => {

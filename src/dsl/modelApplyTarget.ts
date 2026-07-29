@@ -90,6 +90,15 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     prepareUpsert: (row, previous, origin, mergeBase, operationId) =>
       options.prepareRow(row, previous as TStored | undefined, origin, mergeBase as TStored | undefined, operationId),
     preparePatch: (id, patch, previous, operationId) => options.preparePatch(id, patch, previous as TStored | undefined, operationId),
+    beginApply: () => {
+      planes().scopeIndex.beginApply();
+    },
+    commitApply: () => {
+      planes().scopeIndex.commitApply();
+    },
+    abortApply: () => {
+      planes().scopeIndex.abortApply();
+    },
     put: (rows: StoredRow[]) => options.putRows(rows as TStored[]),
     destroy: (ids: string[], tombstone?: boolean): string[] => {
       const removed: string[] = [];

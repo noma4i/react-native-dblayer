@@ -16,7 +16,7 @@ export declare const noteCorruptionLedgerReset: () => void;
 /** Count persisted scope keys rewritten from the colon-delimited format. */
 export declare const noteManifestReset: () => void;
 export declare const noteReplaceRejected: () => void;
-/** A plan threw mid-`apply()`: the in-memory partial mutation is not persisted (its journal record stays pending), and replay recovers it deterministically. */
+/** A plan failed both its initial atomic apply and clean retry; its WAL stays pending and reads remain poisoned. */
 export declare const noteApplyFailure: () => void;
 /** An ingest declaration threw before or during apply: the event is reported through `onSyncError`, not silently dropped. */
 export declare const noteIngestFailure: () => void;

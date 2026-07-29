@@ -24,6 +24,12 @@ export type ReconcileResult = {
     detachedIds: string[];
 };
 export type ScopeIndex = {
+    /** Begin one apply-owned overlay. Nested apply transactions are forbidden. */
+    beginApply(): void;
+    /** Publish the current apply overlay into the live membership indexes. */
+    commitApply(): void;
+    /** Discard the current apply overlay without changing live membership state. */
+    abortApply(): void;
     read(key: string): ScopeIndexValue;
     write(key: string, next: ScopeIndexValue): void;
     /**

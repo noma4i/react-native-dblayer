@@ -31,8 +31,29 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   const keysByRow = new Map<string, Set<string>>();
   const orderRevisions = new Map<string, number>();
   const accessTimes = new Map<string, number>();
+  let stagedScopes: Map<string, ScopeIndexValue | null> | null = null;
   const empty = (): ScopeIndexValue => ({ generation: 0, coverage: 'delta', entries: [] });
   const storageKey = (key: string) => `${prefix()}scope:${modelId}:${key}`;
+  const current = (key: string): ScopeIndexValue | undefined => {
+    if (stagedScopes?.has(key)) return stagedScopes.get(key) ?? undefined;
+    return scopes.get(key);
+  };
+  const removeCommitted = (key: string): void => {
+    const members = memberSets.get(key);
+    if (members) {
+      for (const id of members) {
+        const keys = keysByRow.get(id);
+        if (!keys) continue;
+        keys.delete(key);
+        if (keys.size === 0) keysByRow.delete(id);
+      }
+      memberSets.delete(key);
+    }
+    scopes.delete(key);
+    dirty.delete(key);
+    removed.add(key);
+    accessTimes.delete(key);
+  };
 
   const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
     const nextIds = new Set(next.entries.map(entry => entry.id));
@@ -62,6 +83,10 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   };
 
   const commit = (key: string, next: ScopeIndexValue, fastAdd?: string[]): ScopeIndexValue => {
+    if (stagedScopes) {
+      stagedScopes.set(key, next);
+      return next;
+    }
     if (fastAdd) {
       orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
       let members = memberSets.get(key);
@@ -101,7 +126,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   };
 
   const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
-    const previous = scopes.get(key) ?? empty();
+    const previous = current(key) ?? empty();
     const generation = previous.generation + 1;
     const previousById = new Map(previous.entries.map(entry => [entry.id, entry] as const));
     const retainedCoverage = previous.coverage === 'complete' ? 'complete' : coverage;
@@ -159,16 +184,32 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   };
 
   return {
-    read: key => scopes.get(key) ?? empty(),
+    beginApply: () => {
+      if (stagedScopes) throw new Error(`Scope apply already active for ${modelId}`);
+      stagedScopes = new Map();
+    },
+    commitApply: () => {
+      if (!stagedScopes) throw new Error(`Scope apply is not active for ${modelId}`);
+      const staged = stagedScopes;
+      stagedScopes = null;
+      for (const [key, value] of staged) {
+        if (value === null) removeCommitted(key);
+        else commit(key, value);
+      }
+    },
+    abortApply: () => {
+      stagedScopes = null;
+    },
+    read: key => current(key) ?? empty(),
     write: (key, next) => {
       commit(key, next);
     },
     reconcileNext,
     applyDelta: (key, append, detach) => {
-      const previous = scopes.get(key) ?? empty();
+      const previous = current(key) ?? empty();
       const removal = new Set(detach);
       const base = removal.size > 0 ? previous.entries.filter(entry => !removal.has(entry.id)) : previous.entries;
-      const members = memberSets.get(key);
+      const members = stagedScopes ? new Set(previous.entries.map(entry => entry.id)) : memberSets.get(key);
       const pureAppend =
         removal.size === 0 &&
         append.every(entry => !members?.has(entry.id)) &&
@@ -178,7 +219,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       return commit(key, next, pureAppend ? append.map(entry => entry.id) : undefined);
     },
     detach: (key, ids) => {
-      const previous = scopes.get(key) ?? empty();
+      const previous = current(key) ?? empty();
       const removal = new Set(ids);
       return commit(key, {
         generation: previous.generation + 1,
@@ -188,22 +229,21 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     },
     trimValue,
     remove: key => {
-      const members = memberSets.get(key);
-      if (members) {
-        for (const id of members) {
-          const keys = keysByRow.get(id);
-          if (!keys) continue;
-          keys.delete(key);
-          if (keys.size === 0) keysByRow.delete(id);
-        }
-        memberSets.delete(key);
+      if (stagedScopes) {
+        stagedScopes.set(key, null);
+        return;
       }
-      scopes.delete(key);
-      dirty.delete(key);
-      removed.add(key);
-      accessTimes.delete(key);
+      removeCommitted(key);
     },
-    keys: () => [...scopes.keys()],
+    keys: () => {
+      if (!stagedScopes) return [...scopes.keys()];
+      const keys = new Set(scopes.keys());
+      for (const [key, value] of stagedScopes) {
+        if (value === null) keys.delete(key);
+        else keys.add(key);
+      }
+      return [...keys];
+    },
     noteAccess: key => {
       accessTimes.set(key, Date.now());
     },
@@ -228,6 +268,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
     },
     hydrate: () => {
+      stagedScopes = null;
       scopes.clear();
       dirty.clear();
       removed.clear();
@@ -252,6 +293,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       for (const [key, value] of scopes) indexCommit(key, undefined, value);
     },
     reset: () => {
+      stagedScopes = null;
       scopes.clear();
       dirty.clear();
       removed.clear();

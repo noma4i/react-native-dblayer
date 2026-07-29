@@ -73,12 +73,48 @@ describe('model store', () => {
       store.upsert({ id: 'row-1', label: 'buffered' });
       expect(store.read('seed')).toMatchObject({ label: 'after' });
       expect(store.read('row-1')).toMatchObject({ id: 'row-1', label: 'buffered' });
-      expect(store.values().map(row => row.id).sort()).toEqual(['row-1', 'seed']);
+      expect(
+        store
+          .values()
+          .map(row => row.id)
+          .sort()
+      ).toEqual(['row-1', 'seed']);
       expect(scope.toArray()).toMatchObject([{ id: 'seed', label: 'before' }]);
     });
 
     expect(store.read('seed')).toMatchObject({ label: 'after' });
     expect(scope.toArray()).toMatchObject([{ id: 'seed', label: 'after' }]);
+  });
+
+  it('aborts buffered rows and persistence markers when the batch throws', () => {
+    const store = buildStore();
+    store.upsert({ id: 'seed', label: 'before' });
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['seed']) }]);
+    store.markReady();
+    store.ackPersist();
+    const scope = store.scopeCollection('scope-1');
+    const seen: unknown[] = [];
+    const unsubscribe = scope.subscribe(changes => seen.push(...changes));
+
+    try {
+      expect(() =>
+        runInApplyBatch(() => {
+          store.upsert({ id: 'seed', label: 'after' });
+          store.upsert({ id: 'new-row', label: 'new' });
+          store.destroy('new-row');
+          throw new Error('apply failed');
+        })
+      ).toThrow('apply failed');
+
+      expect(store.read('seed')).toMatchObject({ label: 'before' });
+      expect(store.read('new-row')).toBeUndefined();
+      expect(store.isTombstoned('new-row')).toBe(false);
+      expect(store.persistEntries()).toEqual([]);
+      expect(scope.toArray()).toMatchObject([{ id: 'seed', label: 'before' }]);
+      expect(seen).toHaveLength(0);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('nets a same-batch insert and destroy to no collection write', () => {
@@ -108,7 +144,12 @@ describe('model store', () => {
 
     expect(store.read('row-1')).toBeUndefined();
     expect(store.read('row-2')).toMatchObject({ id: 'row-2' });
-    expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(['row-2']);
+    expect(
+      store
+        .scopeCollection('scope-1')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(['row-2']);
   });
 
   it('orders scope rows by membership order key using code points', () => {
@@ -122,7 +163,12 @@ describe('model store', () => {
     store.applyScopeChanges([{ scopeKey: 'scope-1', entries: keys.map(key => ({ id: `row-${key}`, orderKey: key })) }]);
     store.markReady();
 
-    expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(codepoint.map(key => `row-${key}`));
+    expect(
+      store
+        .scopeCollection('scope-1')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(codepoint.map(key => `row-${key}`));
   });
 
   it('serves only memberships of the requested scope', () => {
@@ -135,7 +181,12 @@ describe('model store', () => {
     ]);
     store.markReady();
 
-    expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(['scope-1-row']);
+    expect(
+      store
+        .scopeCollection('scope-1')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(['scope-1-row']);
   });
 
   it('projects reposition upserts verbatim without recomputing any order', () => {
@@ -148,7 +199,12 @@ describe('model store', () => {
 
     store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: 'row-1', orderKey: `${entries[1]!.orderKey}V` }] }]);
 
-    expect(store.scopeCollection('scope-1').toArray().map(row => row.id)).toEqual(['row-2', 'row-1']);
+    expect(
+      store
+        .scopeCollection('scope-1')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(['row-2', 'row-1']);
   });
 
   it('writes nothing for a replaceAll whose id and key pairs are unchanged', () => {
