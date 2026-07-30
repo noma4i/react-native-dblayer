@@ -126,6 +126,9 @@ see [reading.md](./reading.md).
 | `fromNodes`       | value | [queries.md](./queries.md#connection-and-extract-helpers) |
 | `intoIf`          | value | [queries.md](./queries.md#connection-and-extract-helpers) |
 | `bridgeWindowPagination` | value | [queries.md](./queries.md#queryresult) |
+| `useLoadMore` | value | [queries.md](./queries.md#queryresult) |
+| `LoadMoreTarget` | type | [queries.md](./queries.md#queryresult) |
+| `LoadMoreOptions` | type | [queries.md](./queries.md#queryresult) |
 | `WindowPaginationBridge` | type | [queries.md](./queries.md#queryresult) |
 | `LiveQueryHandle` | type  | [queries.md](./queries.md#live-subscription-colocation) |
 | `ScopeCoverage`   | type  | [queries.md](./queries.md#scopecoverage-semantics)      |

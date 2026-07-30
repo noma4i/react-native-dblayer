@@ -20,8 +20,7 @@ import type {
   ScopeWindowResult,
   WriteOp
 } from '../types';
-import { bridgeWindowPagination } from './pagination';
-import { Debouncer } from '@tanstack/pacer';
+import { bridgeWindowPagination, useLoadMore } from './pagination';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { buildScopeKey } from '../core/compileDbWhere';
@@ -184,12 +183,13 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const staleTimeOf = (key: string): number => {
     const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return meta?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null
-      ? (config.emptyStaleTime ?? defaults.emptyStaleTime)!
+    return meta?.lastCount === 0 && (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime) != null
+      ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime)!
       : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };
   const run = async (scope: TScope, options: { restart: boolean; resurrectDestroyed?: boolean; nextPage?: boolean; propagateFailure?: boolean }): Promise<void> => {
     resolveStaleTime(config.staleTime, getDbRuntimeConfig().defaults);
+    resolveStaleTime(config.emptyStaleTime, getDbRuntimeConfig().defaults);
     if (config.enabled && !config.enabled(scope)) return;
     const key = bucketKeyOf(scope);
     const client = getDbQueryClient();
@@ -421,15 +421,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       });
       const result = buildResult(window.rows as TStored[], enabled, state, scope);
       const bridge = bridgeWindowPagination(window, result);
-      // Debounced list-footer advance: bursts collapse to one trailing call, guarded at fire time.
-      const advanceRef = useRef<() => void>(() => {});
-      advanceRef.current = () => {
-        if (bridge.hasNextPage && !bridge.isFetchingNextPage) bridge.fetchNextPage();
-      };
-      const debouncerRef = useRef<Debouncer<() => void> | null>(null);
-      debouncerRef.current ??= new Debouncer(() => advanceRef.current(), { wait: options?.loadMoreDebounceMs ?? 160 });
-      useEffect(() => () => debouncerRef.current?.cancel(), []);
-      const loadMore = useCallback(() => debouncerRef.current?.maybeExecute(), []);
+      const loadMore = useLoadMore(bridge, { debounceMs: options?.loadMoreDebounceMs });
       return { ...bridge, loadMore };
     };
     return { ...handle, useWindow } as QueryHandle<TStored, TScope> & { useWindow: typeof useWindow };

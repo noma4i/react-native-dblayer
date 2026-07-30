@@ -38,7 +38,7 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
   /** Freshness window in ms, or the name of a class declared in `configureDb` `defaults.freshnessClasses`. */
   staleTime?: number | string;
   resumeStaleTime?: number | null;
-  emptyStaleTime?: number;
+  emptyStaleTime?: number | string;
   refetchOnMount?: boolean;
   maxPages?: number;
   direction?: 'forward' | 'backward';

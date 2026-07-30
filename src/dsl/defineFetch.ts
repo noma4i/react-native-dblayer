@@ -37,8 +37,8 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const staleTimeOf = (key: string): number => {
     const data = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return data?.empty === true && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null
-      ? (config.emptyStaleTime ?? defaults.emptyStaleTime)!
+    return data?.empty === true && (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime) != null
+      ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime)!
       : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };
   const execute = async (input: TInput, isCurrent: () => boolean): Promise<FetchData<TSelected>> => {
@@ -60,6 +60,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   };
   const run = async (input: TInput, options: { restart: boolean; propagateFailure?: boolean }): Promise<TSelected> => {
     resolveStaleTime(config.staleTime, getDbRuntimeConfig().defaults);
+    resolveStaleTime(config.emptyStaleTime, getDbRuntimeConfig().defaults);
     const key = keyOf(input);
     const client = getDbQueryClient();
     const queryKey = queryKeyOf(key);

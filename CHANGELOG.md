@@ -1,5 +1,13 @@
 # Changelog
 
+## 9.0.0-beta.13 - 2026-07-30
+
+### Added
+
+- `useLoadMore(target, { debounceMs?, enabled? })` - the standalone debounced list-footer advance behind `useWindow`'s `loadMore`: works over any surface carrying `hasNextPage`/`isFetchingNextPage`/`fetchNextPage` (`LoadMoreTarget`), guarded at fire time and suppressible via `enabled`. Retires the consumer's `useDeferredLoadMore` re-implementation.
+- `emptyStaleTime` in `Model.query`/`defineQuery`/`Model.fetch`/`defineFetch` configs now accepts a freshness class name from `defaults.freshnessClasses`, resolving like `staleTime`; an unknown name throws on the first run. Retires the consumer's last numeric freshness-dictionary lookup (`FRESHNESS.EMPTY_RETRY`).
+
+
 ## 9.0.0-beta.12 - 2026-07-30
 
 ### Breaking changes and migration

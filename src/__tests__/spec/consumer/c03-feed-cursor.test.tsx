@@ -505,4 +505,35 @@ describe('feed cursor pagination consumer contracts', () => {
     });
     await expect(brokenQuery.fetch({ vibeId: 'v1' })).rejects.toThrow('unknown freshness class');
   });
+
+  it('resolves a named freshness class for emptyStaleTime', async () => {
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return { data: { feed: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null }, lastSequenceNumber: 0 } } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { freshnessClasses: { emptyRetry: 0 }, staleTime: 3_600_000 } });
+    const moments = createMoments('FreshnessEmptyClass');
+    const feedQuery = moments.query<FeedResponse, ScopeValue, ScopeValue, FeedRow>('feed-empty-freshness-class', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments.scopes.feed,
+      emptyStaleTime: 'emptyRetry'
+    });
+
+    const first = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    first.unmount();
+    expect(calls).toBe(1);
+
+    const second = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    second.unmount();
+    expect(calls).toBe(2);
+  });
 });

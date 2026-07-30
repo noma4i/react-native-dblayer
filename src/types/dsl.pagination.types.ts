@@ -21,3 +21,18 @@ export type WindowPaginationBridge<T> = {
   /** The backing query's last error, or null. */
   error: Error | null;
 };
+
+/** Minimal pagination surface `useLoadMore` advances - a bridge, window, or query result carrying these three fields. */
+export type LoadMoreTarget = {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
+};
+
+/** Options for `useLoadMore`. */
+export type LoadMoreOptions = {
+  /** Trailing debounce window in ms (default 160). */
+  debounceMs?: number;
+  /** When false the advance is suppressed at fire time (e.g. search mode, inactive tab). Default true. */
+  enabled?: boolean;
+};

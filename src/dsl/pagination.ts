@@ -1,4 +1,6 @@
-import type { QueryResult, ScopeWindowResult, WindowPaginationBridge } from '../types';
+import { useCallback, useEffect, useRef } from 'react';
+import { Debouncer } from '@tanstack/pacer';
+import type { LoadMoreOptions, LoadMoreTarget, QueryResult, ScopeWindowResult, WindowPaginationBridge } from '../types';
 
 /**
  * Combine a scope window (local pagination) with its backing query (network pagination) into one
@@ -27,3 +29,24 @@ export const bridgeWindowPagination = <T>(
   loadingState: query.loadingState,
   error: query.error
 });
+
+/**
+ * THE debounced list-footer advance: bursts of calls (e.g. FlatList onEndReached) collapse into one
+ * trailing invocation, guarded at fire time by `hasNextPage`/`isFetchingNextPage` and the `enabled`
+ * option. Works over any pagination surface carrying those fields - a `bridgeWindowPagination`
+ * result, a scope/query window, or a plain query result.
+ *
+ * @param target Pagination surface to advance (`hasNextPage`/`isFetchingNextPage`/`fetchNextPage` are read at fire time).
+ * @param options Optional `debounceMs` (default 160) and `enabled` fire-time gate (default true).
+ * @returns Stable callback for the list footer; safe to call on every end-reached event.
+ */
+export const useLoadMore = (target: LoadMoreTarget, options?: LoadMoreOptions): (() => void) => {
+  const advanceRef = useRef<() => void>(() => {});
+  advanceRef.current = () => {
+    if ((options?.enabled ?? true) && target.hasNextPage && !target.isFetchingNextPage) target.fetchNextPage();
+  };
+  const debouncerRef = useRef<Debouncer<() => void> | null>(null);
+  debouncerRef.current ??= new Debouncer(() => advanceRef.current(), { wait: options?.debounceMs ?? 160 });
+  useEffect(() => () => debouncerRef.current?.cancel(), []);
+  return useCallback(() => debouncerRef.current?.maybeExecute(), []);
+};

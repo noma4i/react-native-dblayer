@@ -37,6 +37,7 @@ const runtimeExportAllowlist = [
   'setFetchNetworkOnline',
   'stringifyNullish',
   'updateWhenRowExists',
+  'useLoadMore',
   'useMergedScopeRows',
   'waitForRow'
 ];

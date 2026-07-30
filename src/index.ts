@@ -18,8 +18,8 @@ export { defineShape, projectShape, readShape, readShapeOrThrow } from './schema
 export { fromNodes } from './queries/base/connection';
 export { intoIf } from './dsl/defineQuery';
 export type { EnsuredRowResult, QueryResult, ExtractSink } from './types';
-export { bridgeWindowPagination } from './dsl/pagination';
-export type { WindowPaginationBridge } from './types';
+export { bridgeWindowPagination, useLoadMore } from './dsl/pagination';
+export type { WindowPaginationBridge, LoadMoreTarget, LoadMoreOptions } from './types';
 export { defineFetch } from './dsl/defineFetch';
 export type { FetchConfig, FetchHandle, FetchResult } from './types';
 export type { MutateCallbacks, ScopePlacement } from './types';

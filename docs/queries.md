@@ -57,7 +57,7 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 | `requiredScope`  | `ReadonlyArray<keyof TScope>`                          | Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. |
 | `staleTime`      | `number` (ms) \| class name                            | Freshness window before a scope with data is considered stale and refetched, or the name of a class declared in `DbDefaults.freshnessClasses`. Defaults to `DbDefaults.staleTime`, then `0`.                                                            |
 | `resumeStaleTime` | `number \| null` (ms)                                 | Per-query foreground-resume freshness window. Omit for `DbDefaults.resumeStaleTime`; `null` disables resume invalidation for this query.                                              |
-| `emptyStaleTime` | `number` (ms)                                          | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows.                                                                                 |
+| `emptyStaleTime` | `number` (ms) \| freshness class name                  | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows. A string resolves through `defaults.freshnessClasses` like `staleTime`.                                                                                 |
 | `maxPages`       | `number`                                               | Hard page-count ceiling. Once reached, the chain reports exhaustion and issues no additional page request.                                                                            |
 | `refetchOnMount` | `boolean`                                              | Whether TanStack Query refetches on hook remount.                                                                                                                                     |
 | `direction`      | `'forward' \| 'backward'`                              | Cursor pagination direction; `'backward'` reads `hasPreviousPage`/`startCursor` instead of the forward pair.                                                                          |
@@ -123,6 +123,13 @@ straight into `onEndReached`.
 cannot own (e.g. a `Model.view(...).useWindow` over a different projection of the same data). Its
 returned container and `fetchNextPage` closure are fresh on every render - destructure its fields
 and do not memoize on container identity.
+
+`useLoadMore(target, { debounceMs?, enabled? })` is the standalone debounced list-footer advance
+behind `useWindow`'s `loadMore`: pass any pagination surface carrying `hasNextPage` /
+`isFetchingNextPage` / `fetchNextPage` (`LoadMoreTarget` - a bridge, a window, or a plain query
+result) and wire the returned stable callback into `onEndReached`. Bursts collapse into one
+trailing call (default 160ms, `LoadMoreOptions.debounceMs`); the advance is re-checked at fire
+time against the latest render and suppressed while `enabled: false` (e.g. search mode).
 
 ### Live subscription colocation
 
@@ -257,7 +264,7 @@ created.
 | `enabled`         | `(input: TInput) => boolean`                 | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`.             |
 | `staleTime`       | `number` (ms) \| class name                  | Freshness window before a result is considered stale and refetched, or a `DbDefaults.freshnessClasses` name. Defaults to `DbDefaults.staleTime`, then `0`.             |
 | `resumeStaleTime` | `number \| null` (ms)                        | Per-fetch foreground-resume freshness window. Omit for the package default; `null` disables resume invalidation.             |
-| `emptyStaleTime`  | `number` (ms)                                | Freshness window used instead of `staleTime` when the selected result is empty.                                               |
+| `emptyStaleTime`  | `number` (ms) \| freshness class name        | Freshness window used instead of `staleTime` when the selected result is empty. A string resolves through `defaults.freshnessClasses`.                                               |
 | `isEmpty`         | `(data: TSelected) => boolean`               | Override empty-result classification used to choose `emptyStaleTime`; defaults to nullish or empty-array detection.          |
 
 `defineFetch` returns `{ use, fetch, remove }`:

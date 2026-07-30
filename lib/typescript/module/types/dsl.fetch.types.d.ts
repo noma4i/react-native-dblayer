@@ -8,7 +8,7 @@ type FetchConfigBase<TData, TInput, TSelected> = {
     /** Freshness window in ms, or the name of a class declared in `configureDb` `defaults.freshnessClasses`. */
     staleTime?: number | string;
     resumeStaleTime?: number | null;
-    emptyStaleTime?: number;
+    emptyStaleTime?: number | string;
     isEmpty?: (data: TSelected) => boolean;
 };
 export type FetchConfig<TData, TInput, TSelected> = FetchConfigBase<TData, TInput, TSelected> & ({
