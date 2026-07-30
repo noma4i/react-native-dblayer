@@ -31,7 +31,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
 }) => {
   const { planes } = options.context;
   return (scopeName: string): ScopeHandle<TStored, Record<string, unknown>, TInput> => {
-    const spec = (options.scopes ?? {})[scopeName] as ScopeSpec<TStored>;
+    const spec = options.scopes![scopeName] as ScopeSpec<TStored>;
     const planScope = (
       scopeKey: string,
       liveRows: Array<{ row: Record<string, unknown> }>,
@@ -44,12 +44,8 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         const compare = compareRowsBySpec(spec.sort);
         const rowsById = new Map<string, TStored>();
         for (const { row } of liveRows) {
-          try {
-            const stored = options.normalize(row);
-            rowsById.set(String(stored.id), stored);
-          } catch {
-            /* keyless rows fall to the reconcile tail */
-          }
+          const stored = options.normalize(row);
+          rowsById.set(String(stored.id), stored);
         }
         if (coverage === 'page' && planOptions?.resetOrder === true) {
           const incomingIds = new Set(incoming.map(item => item.id));
@@ -75,8 +71,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
           });
           incoming = incoming.map(item => {
             if (memberIds.has(item.id)) return item;
-            const row = rowsById.get(item.id);
-            if (!row) return item;
+            const row = rowsById.get(item.id)!;
             let lower = 0;
             let upper = anchors.length;
             while (lower < upper) {

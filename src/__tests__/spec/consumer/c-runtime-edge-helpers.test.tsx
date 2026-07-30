@@ -4,6 +4,7 @@ import {
   configureDb,
   compositeKey,
   computePhase,
+  createModelReadEngine,
   createModelContext,
   createModelCriteria,
   createModelScopeKeys,
@@ -12,12 +13,15 @@ import {
   getCommitBus,
   getDbQueryClient,
   isFetchedResult,
+  limitRows,
   isTempRowProtectedByModel,
   refetchActiveFetchReaders,
   registerActiveFetchReaders,
   resetRuntime,
+  rowsShallowEqual,
   resumeFetchReaders,
   suspendDb,
+  sortModelReadRows,
   useMergedScopeRows
 } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
@@ -81,6 +85,74 @@ describe('runtime edge helpers', () => {
 
     expect(second).toBe(first);
     expect(emptyKeys).toBe(withoutKeys);
+    expect(gate.projectRows([row], { renderKeys: ['label'] })).toBe(withoutKeys);
+  });
+
+  it('compares row arrays shallowly and applies bounded model read ordering', () => {
+    const shared = { id: 'nested' };
+    expect(rowsShallowEqual({ values: [shared], label: 'x' }, { values: [shared], label: 'x' })).toBe(true);
+    expect(rowsShallowEqual({ values: [shared] }, { values: [{ id: 'nested' }] })).toBe(false);
+    expect(rowsShallowEqual({ label: 'x' }, { label: 'y', extra: true })).toBe(false);
+    expect(limitRows([1, 2], undefined)).toEqual([1, 2]);
+    expect(limitRows([1, 2], -1)).toEqual([]);
+    expect(
+      sortModelReadRows(
+        [
+          { id: 'b', rank: 2 },
+          { id: 'a', rank: 1 }
+        ],
+        [{ field: 'rank', direction: 'asc' }],
+        1
+      )
+    ).toEqual([{ id: 'a', rank: 1 }]);
+  });
+
+  it('updates row and count engines across membership, value, and rebuild transitions', () => {
+    const rows = new Map([
+      ['a', { id: 'a', rank: 1, visible: true }],
+      ['b', { id: 'b', rank: 2, visible: false }]
+    ]);
+    const engine = createModelReadEngine({
+      signature: 'runtime-edge-engine',
+      model: 'RuntimeEdgeRows',
+      where: row => row.visible,
+      options: { orderBy: [{ field: 'rank', direction: 'asc' }] },
+      initial: () => [...rows.values()],
+      read: id => rows.get(id),
+      select: selected => selected.map(row => row.id)
+    });
+    const batch = (id: string, fields: string[] | null = null) =>
+      ({
+        rows: [{ model: 'RuntimeEdgeRows', id, fields, kind: 'update' }],
+        scopes: [],
+        pending: [],
+        scopeChanges: []
+      });
+
+    expect(engine.value).toEqual(['a']);
+    expect(engine.apply(batch('missing') as never)).toBe(false);
+    rows.set('b', { id: 'b', rank: 0, visible: true });
+    expect(engine.apply(batch('b') as never)).toBe(true);
+    expect(engine.value).toEqual(['b', 'a']);
+    rows.set('a', { id: 'a', rank: 3, visible: true });
+    expect(engine.apply(batch('a', ['rank']) as never)).toBe(false);
+    rows.set('a', { id: 'a', rank: -1, visible: true });
+    expect(engine.apply(batch('a', ['rank']) as never)).toBe(true);
+    rows.set('a', { id: 'a', rank: 3, visible: false });
+    expect(engine.apply(batch('a') as never)).toBe(true);
+    expect(engine.apply({ ...batch('b'), mode: 'bulk' } as never)).toBe(true);
+
+    const count = createModelReadEngine({
+      signature: 'runtime-edge-count',
+      model: 'RuntimeEdgeRows',
+      where: row => row.visible,
+      countOnly: true,
+      initial: () => [...rows.values()],
+      read: id => rows.get(id),
+      select: (_selected, size) => size
+    });
+    expect(count.value).toBe(1);
+    expect(count.apply(batch('b', []) as never)).toBe(false);
   });
 
   it('reports an absent maintenance owner as unprotected', () => {
@@ -180,6 +252,36 @@ describe('merged scope rows memo', () => {
     const first = latest;
     act(() => root.update(React.createElement(Probe, { tick: 1 })));
     expect(latest).toBe(first);
+    act(() => root.unmount());
+  });
+
+  it('deduplicates extras, sorts with a comparator, and reuses equivalent output', () => {
+    const rowA = { id: 'a', rank: 1 };
+    const rowB = { id: 'b', rank: 2 };
+    let base = [rowB];
+    let extras = [
+      rowB,
+      rowA
+    ];
+    const comparator = (left: { rank: number }, right: { rank: number }) => left.rank - right.rank;
+    let latest: ReadonlyArray<{ id: string; rank: number }> = [];
+    const Probe = () => {
+      latest = useMergedScopeRows(base, extras, { comparator });
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Probe));
+    });
+    expect(latest.map(row => row.id)).toEqual(['a', 'b']);
+    const first = latest;
+    base = [rowB];
+    extras = [rowA];
+    act(() => root.update(React.createElement(Probe)));
+    expect(latest).toBe(first);
+    extras = [];
+    act(() => root.update(React.createElement(Probe)));
+    expect(latest.map(row => row.id)).toEqual(['b']);
     act(() => root.unmount());
   });
 });

@@ -83,13 +83,12 @@ export const createModelReadEngine = <T extends RowRecord, TValue>(options: RowE
   const rows = options.countOnly ? null : new Map<string, T>();
   const ids = new Set<string>();
   let ordered: T[] = [];
-  const engine: Engine<TValue> = {
+  const engine = {
     signature: options.signature,
     generation: getRuntimeGeneration(),
     value: undefined as TValue,
-    version: 0,
-    apply: () => false
-  };
+    version: 0
+  } as Engine<TValue>;
   const render = (): void => {
     if (rows) {
       const orderBy = options.options?.orderBy ?? [];

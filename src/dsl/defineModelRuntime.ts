@@ -77,7 +77,6 @@ export const defineModelRuntime = <
 
   registerRelationHost(config.id, {
     relations: resolvedRelations,
-    has: id => planes().entityState.read(id) !== undefined,
     read: id => planes().entityState.read(id),
     membershipForUpsert,
     detachForDestroy

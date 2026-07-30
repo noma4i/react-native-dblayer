@@ -321,7 +321,6 @@ describe('apply pipeline batching', () => {
     };
     const host: RelationHost = {
       relations: () => ({ children: { kind: 'hasMany', model: childRef, foreignKey: 'parentId', dependent: 'destroy' } }),
-      has: id => parent.rows.has(id),
       read: id => parent.rows.get(id),
       membershipForUpsert: () => [],
       detachForDestroy: () => []

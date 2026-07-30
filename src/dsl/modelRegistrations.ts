@@ -58,8 +58,7 @@ export const registerModelSchemaAndGc = <TStored extends { id: string } & Record
     scopeLastAccess: key => planes().scopeIndex.lastAccess(key),
     evict: id => planes().entityState.evict(id),
     referencesOf: id => {
-      const row = planes().entityState.read(id);
-      if (!row) return [];
+      const row = planes().entityState.read(id)!;
       const out: Array<{ model: string; id: string }> = [];
       for (const relation of Object.values(resolvedRelations())) {
         if (relation.kind === 'belongsTo') {

@@ -7,6 +7,7 @@ import {
   firstCompositeKeyPart,
   getApplyTarget,
   getInternalModelHandle,
+  getInternalScopeHandle,
   planModelLanding,
   planModelLandingWithRoot,
   readModelField,
@@ -155,6 +156,9 @@ describe('model write planning edges', () => {
     const handle = getInternalModelHandle(model);
     const memberships = handle.captureMembership('old-id');
 
+    expect(handle.readRow('old-id')).toMatchObject({ id: 'old-id', label: 'old' });
+    handle.applyRows([{ id: 'applied-id', bucket: 'b', label: 'applied' }]);
+    expect(model.find('applied-id')).toMatchObject({ id: 'applied-id', label: 'applied' });
     expect(handle.planRestore({ id: 'new-id', bucket: 'a', label: 'new' }, memberships)).toEqual([
       { kind: 'upsert', model: model.modelId, rows: [{ id: 'new-id', bucket: 'a', label: 'new' }], origin: 'replace' },
       {
@@ -224,5 +228,62 @@ describe('model write planning edges', () => {
         statics: () => ({ find: () => undefined })
       })
     ).toThrow('ModelStaticCollision statics collide with base model key find');
+  });
+
+  it('plans filtered sorted scopes across reset, delta, placement, and stale membership states', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const model = defineModel({
+      id: 'ModelScopePlannerEdges',
+      name: 'ModelScopePlannerEdges',
+      fields: { bucket: f.str(), rank: f.num(), label: f.str() },
+      scopes: {
+        filtered: ({
+          by: { bucket: 'bucket' },
+          member: row => row.label !== 'skip',
+          sort: { field: 'rank', dir: 'asc' },
+          retention: { maxRows: 2 }
+        }),
+        server: ({ sort: 'server-order' })
+      }
+    });
+    const filtered = getInternalScopeHandle(model.scopes.filtered);
+    const server = getInternalScopeHandle(model.scopes.server);
+    const scopeValue = { bucket: 'a' };
+    model.scopes.filtered.seed(scopeValue, [
+      { id: 'old-1', bucket: 'a', rank: 1, label: 'one' },
+      { id: 'old-2', bucket: 'a', rank: 2, label: 'two' }
+    ]);
+    const target = getApplyTarget(model.modelId);
+
+    expect(filtered.isServerOrder()).toBe(false);
+    expect(server.isServerOrder()).toBe(true);
+    expect(filtered.isResolved(scopeValue)).toBe(true);
+    expect(filtered.readRows(scopeValue).map(row => row.id)).toEqual(['old-1', 'old-2']);
+    expect(() => filtered.noteAccess(scopeValue)).not.toThrow();
+    expect(filtered.planPlacement(scopeValue, 'prepend', 'prepend')).toHaveLength(1);
+    expect(filtered.planPlacement(scopeValue, 'append', 'append')).toHaveLength(1);
+    const filteredPlan = filtered.planApply(
+      scopeValue,
+      [
+        { row: { id: 'skip', bucket: 'a', rank: 3, label: 'skip' } },
+        { row: { id: 'missing-bucket', rank: 4, label: 'four' } }
+      ],
+      'delta'
+    );
+    expect(filteredPlan).toHaveLength(2);
+    expect(filteredPlan.flatMap(op => (op.kind === 'scope' ? op.next.entries.map(entry => entry.id) : []))).toEqual(['old-1', 'old-2']);
+
+    target.destroy(['old-1']);
+    filtered.apply(scopeValue, [{ id: 'new-3', bucket: 'a', rank: 3, label: 'three' }], 'page', { resetOrder: true });
+    filtered.apply(
+      scopeValue,
+      [
+        { id: 'old-2', bucket: 'a', rank: 2, label: 'two' },
+        { id: 'new-0', bucket: 'a', rank: 0, label: 'zero' }
+      ],
+      'delta'
+    );
+
+    expect(filtered.readRows(scopeValue).map(row => row.id)).toEqual(['new-0', 'old-2', 'new-3']);
   });
 });

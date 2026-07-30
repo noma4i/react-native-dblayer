@@ -67,7 +67,6 @@ export type DestroyedRow = {
 /** Model surface relation effects read and plan against. */
 export type RelationHost = {
     relations(): Record<string, RelationDecl>;
-    has(id: string): boolean;
     read(id: string): StoredRow | undefined;
     membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
     detachForDestroy(id: string): MembershipDelta[];
