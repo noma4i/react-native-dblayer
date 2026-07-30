@@ -1,9 +1,8 @@
 /** Minimal model surface the row waiters read and patch through. */
 export type WaiterModel<TStored extends { id: string }> = {
-  modelId: string;
   find(id: string | null | undefined): TStored | undefined;
   update(id: string, patch: Record<string, unknown>): void;
-};
+} & ({ modelId: string } | { key: string });
 
 export type RowPatch<TStored> = Partial<TStored> | ((row: TStored) => Partial<TStored>);
 

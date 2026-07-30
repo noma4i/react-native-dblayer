@@ -1,4 +1,4 @@
-import { advanceRuntimeGeneration, defineModelRuntime, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../testApi';
+import { advanceRuntimeGeneration, defineModel, defineModelRuntime, defineShape, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../testApi';
 import { getCommitBus } from '../../../dsl/configure';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
@@ -94,6 +94,15 @@ describe('waitForRow', () => {
     const rows = createRows('Immediate');
     rows.insert({ id: 'r-1', label: 'here' });
     await expect(waitForRow(rows, 'r-1', { timeoutMs: 1000 })).resolves.toMatchObject({ id: 'r-1', label: 'here' });
+  });
+
+  it('accepts the public model facade directly', async () => {
+    setupSpecRuntime();
+    const Rows = defineModel('facade-waiter-rows', {
+      schema: defineShape<{ id: string; label: string }>()({ label: f.str() })
+    });
+    Rows.insert({ id: 'r-1', label: 'here' });
+    await expect(waitForRow(Rows, 'r-1', { timeoutMs: 1000 })).resolves.toMatchObject({ id: 'r-1', label: 'here' });
   });
 
   it('resolves once the row appears later', async () => {

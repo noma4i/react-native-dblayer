@@ -3,7 +3,8 @@ import { getCommitBus } from '../dsl/configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { noteDataLoss } from './diagnostics';
 
-const rowDepOf = <TStored extends { id: string }>(model: WaiterModel<TStored>, id: string): Dependency => ({ kind: 'row', model: model.modelId, id });
+const modelKeyOf = <TStored extends { id: string }>(model: WaiterModel<TStored>): string => ('modelId' in model ? model.modelId : model.key);
+const rowDepOf = <TStored extends { id: string }>(model: WaiterModel<TStored>, id: string): Dependency => ({ kind: 'row', model: modelKeyOf(model), id });
 
 const resolvePatch = <TStored extends { id: string }>(row: TStored, patch: RowPatch<TStored>): Record<string, unknown> =>
   (typeof patch === 'function' ? (patch as (row: TStored) => Partial<TStored>)(row) : patch) as Record<string, unknown>;
@@ -47,7 +48,7 @@ export const updateWhenRowExists = <TStored extends { id: string }>(
     model.update(id, resolvePatch(row, patch));
   }, [rowDepOf(model, id)]);
   timer = setTimeout(() => {
-    noteDataLoss('deferred-patch-timeout', model.modelId, 1);
+    noteDataLoss('deferred-patch-timeout', modelKeyOf(model), 1);
     stop();
   }, options.ttlMs);
 };
