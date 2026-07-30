@@ -25,6 +25,7 @@ const createCounters = (suffix: string) =>
         useCurrent: singleton.useCurrent,
         useCurrentField: singleton.useCurrentField,
         upsertCurrent: singleton.upsertCurrent,
+        updateClamped: singleton.updateClamped,
         mergeCurrent: (updates: Partial<CountersRow>) => {
           singleton.upsertCurrent(pickPresent(updates, mergeFields));
         }
@@ -101,5 +102,41 @@ describe('counters singleton consumer contracts', () => {
     expect(reader.result().unreadChatsCount).toBe(7);
     expect(reader.result().unreadSecondaryChatsCount).toBe(2);
     reader.unmount();
+  });
+
+  it('applies bounded numeric deltas only to an existing singleton row', () => {
+    setupSpecRuntime();
+    const counters = createCounters('Clamped');
+
+    expect(counters.updateClamped('unreadChatsCount', 1)).toBe(false);
+    counters.upsertCurrent({ id: 'ignored', unreadChatsCount: 2 });
+    expect(counters.current()?.id).toBe(RECORD_ID);
+    expect(counters.updateClamped('unreadChatsCount', 0)).toBe(false);
+    expect(counters.updateClamped('unreadChatsCount', -5, 1)).toBe(true);
+    expect(counters.current()?.unreadChatsCount).toBe(1);
+    expect(counters.updateClamped('unreadChatsCount', 4)).toBe(true);
+    expect(counters.current()?.unreadChatsCount).toBe(5);
+  });
+
+  it('treats a malformed stored numeric value as zero before clamping', () => {
+    let row = { id: RECORD_ID, unreadChatsCount: 'bad', unreadSecondaryChatsCount: 0 } as unknown as CountersRow;
+    const update = jest.fn((_id: string, patch: Partial<CountersRow>) => {
+      row = { ...row, ...patch };
+    });
+    const singleton = createSingletonStatics<CountersRow>(
+      {
+        find: () => row,
+        use: { find: () => row, field: (_id, field) => row[field] },
+        insert: next => {
+          row = next;
+        },
+        update
+      },
+      RECORD_ID,
+      DEFAULTS
+    );
+
+    expect(singleton.updateClamped('unreadChatsCount', 2)).toBe(true);
+    expect(update).toHaveBeenCalledWith(RECORD_ID, { unreadChatsCount: 2 });
   });
 });
