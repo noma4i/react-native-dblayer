@@ -25,7 +25,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   scopeDep(scopeKey: string): Dependency;
   useScopeAccess(scopeKey: string | null): void;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-  splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: WriteOp[] };
+  planRows(rows: unknown[]): WriteOp[];
   applySnapshot(ops: WriteOp[]): void;
   applyEvent(ops: WriteOp[]): void;
 }) => {
@@ -110,8 +110,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
     ): WriteOp[] => {
       const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
-      const split = options.splitCorrelatedRows(liveRows.map(({ row }) => row));
-      const rowOps: WriteOp[] = [{ kind: 'upsert', model: options.modelId, rows: split.plain }, ...split.replaceOps];
+      const rowOps = options.planRows(liveRows.map(({ row }) => row));
       if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
 
       const rowsByScope = new Map<string, Array<{ row: Record<string, unknown> }>>();
@@ -210,7 +209,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
           .filter(row => !planes().entityState.isTombstoned(String((row as { id: unknown }).id)))
           .map(row => ({ row: row as Record<string, unknown> }));
         options.applyEvent([
-          { kind: 'upsert', model: options.modelId, rows: liveRows.map(entry => entry.row) },
+          ...options.planRows(liveRows.map(entry => entry.row)),
           planScope(options.keyForScope(scopeName, scopeValue), liveRows, 'complete', { resetOrder: true })
         ]);
       }

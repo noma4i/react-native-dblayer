@@ -14,10 +14,7 @@ export declare const createModelScopeHandle: <TStored extends {
     scopeDep(scopeKey: string): Dependency;
     useScopeAccess(scopeKey: string | null): void;
     scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-    splitCorrelatedRows(accepted: unknown[]): {
-        plain: unknown[];
-        replaceOps: WriteOp[];
-    };
+    planRows(rows: unknown[]): WriteOp[];
     applySnapshot(ops: WriteOp[]): void;
     applyEvent(ops: WriteOp[]): void;
 }) => (scopeName: string) => ScopeHandle<TStored, Record<string, unknown>, TInput>;

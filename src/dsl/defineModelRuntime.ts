@@ -3,13 +3,15 @@ import type {
   InferBuildInput,
   InferStoredFields,
   ModelFieldSpecs,
+  ModelLandingOptions,
   ModelConfig,
   ModelCore,
   QueryScopeReads,
   QueryScopeSpec,
   RequiredReadUse,
   ScopeHandle,
-  ScopeSpec
+  ScopeSpec,
+  WriteOp
 } from '../types';
 import { registerRelationHost } from '../core/relations';
 import { registerKeyedReset } from '../core/reset';
@@ -26,6 +28,7 @@ import { createModelScopeHandle } from './modelScopeHandle';
 import { createModelDefinitions } from './modelDefinitions';
 import { createModelDirectAccess } from './modelDirectAccess';
 import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
+import { planModelLanding, planModelLandingWithRoot, registerModelLandingHost } from './modelLandingGraph';
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
@@ -41,7 +44,8 @@ export const defineModelRuntime = <
   TExt extends Record<string, unknown> = {},
   TQueryScopeNames extends string = never
 >(
-  config: ModelConfig<TFields, TScopeNames, TExt, TQueryScopeNames>
+  config: ModelConfig<TFields, TScopeNames, TExt, TQueryScopeNames>,
+  landing?: ModelLandingOptions
 ): Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
   use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
     QueryScopeReads<InferStoredFields<TFields>, TQueryScopeNames>;
@@ -95,7 +99,7 @@ export const defineModelRuntime = <
           .entries.find(candidate => candidate.id === id);
         return entry ? [{ id, scopeKey, orderKey: entry.orderKey }] : [];
       });
-  const { prepareRow, preparePatch, putRows, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<
+  const { prepareRow, preparePatch, putRows, planRows: planOwnRows, planReplace: planOwnReplace, planRestore } = createModelWrites<
     InferStoredFields<TFields> & Record<string, unknown>
   >({
     modelId: config.id,
@@ -106,6 +110,20 @@ export const defineModelRuntime = <
     bumpRevision: context.bumpRevision,
     captureMembership
   });
+  if (landing) {
+    registerModelLandingHost(config.id, {
+      normalize,
+      planOwnRows,
+      sideloads: landing.sideloads
+    });
+  }
+  const planRows = landing
+    ? (rows: unknown[], planOptions?: { origin?: 'event' }): WriteOp[] => planModelLanding(config.id, rows, planOptions)
+    : planOwnRows;
+  const planReplace = landing
+    ? (oldId: string, next: unknown): WriteOp[] =>
+        planModelLandingWithRoot(config.id, [next], rows => planOwnReplace(oldId, rows[0]))
+    : planOwnReplace;
 
   const { rowDep, modelDep, scopeDep, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<
     InferStoredFields<TFields> & Record<string, unknown>
@@ -149,7 +167,7 @@ export const defineModelRuntime = <
     scopeDep,
     useScopeAccess,
     scopeSortedRows,
-    splitCorrelatedRows,
+    planRows,
     applySnapshot,
     applyEvent
   });

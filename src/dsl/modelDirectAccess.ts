@@ -37,8 +37,8 @@ export const createModelDirectAccess = <TStored extends { id: string; updatedAt?
       options.applyEvent([{ kind: 'destroy', model: options.modelId, ids }]);
       return ids.length;
     },
-    insert: row => options.applyEvent([{ kind: 'upsert', model: options.modelId, rows: [row] }]),
-    insertMany: rows => options.applyEvent([{ kind: 'upsert', model: options.modelId, rows }]),
+    insert: row => options.applyEvent(options.planRows([row])),
+    insertMany: rows => options.applyEvent(options.planRows(rows)),
     seed: rows => options.applyEvent(options.planRows(rows)),
     replace: (oldId, next) => options.applyEvent(options.planReplace(String(oldId), next)),
     build: input => options.normalize(input, true),

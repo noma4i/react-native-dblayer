@@ -127,7 +127,7 @@ export type RelationSpec<TStored, TRemote = GraphqlConnectionDefinition<any, any
 };
 export type SideloadEdge = {
     model: {
-        modelId: string;
+        key: string;
     };
     select(input: unknown): unknown | readonly unknown[] | null | undefined;
 };

@@ -252,7 +252,7 @@ export const defineModelFacade = <
     gc: config.gc,
     maintenance: config.maintenance,
     write: config.write
-  } as never) as FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>>;
+  } as never, { sideloads: config.sideloads }) as FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>>;
 
   const compiledRelations = Object.fromEntries(
     Object.entries(config.relations ?? {}).map(([name, definition]) => {

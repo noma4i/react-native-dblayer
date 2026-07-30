@@ -26,6 +26,7 @@ export type * from './dsl.readBuilder.types';
 export type * from './dsl.ordering.types';
 export type * from './dsl.configure.types';
 export type * from './dsl.modelFacade.types';
+export type * from './dsl.modelLanding.types';
 export type * from './dsl.dbProvider.types';
 export type * from './dsl.detachedOperation.types';
 export type * from './dsl.ingest.types';
