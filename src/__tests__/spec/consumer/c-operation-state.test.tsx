@@ -16,7 +16,7 @@ type UpdateData = {
 
 type UpdateVariables = {
   input: {
-    id: string;
+    id: string | number;
     username: string;
   };
 };

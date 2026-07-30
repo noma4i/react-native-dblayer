@@ -34,6 +34,7 @@ import { readModelRelation } from '../core/relations';
 import { registerBootValidation } from './bootValidations';
 import { readRowOperationState, useRowOperationState } from './rowOperationState';
 import { getInternalModelHandle, registerInternalModelHandle } from '../core/internalHandles';
+import { scalarFieldCodecs } from '../schema/fieldCodec';
 import { useEffect } from 'react';
 
 const localLoadingState = (hasData: boolean): LoadingState => ({
@@ -230,6 +231,11 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
   name: string,
   definition: TDefinition
 ): ModelActionMethods<Record<'defined', TDefinition>>['defined'] => {
+  const readActionId = (value: unknown): string => {
+    const id = scalarFieldCodecs.id.read(value);
+    if (id === undefined) throw new Error(`${name}: action requires id`);
+    return id;
+  };
   if (definition.mode === 'durable') {
     if (!definition.optimistic) throw new Error(`${name}: durable insert requires optimistic build`);
     const insert = definition.optimistic;
@@ -263,7 +269,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       intervalMs: definition.poll.intervalMs,
       maxAttempts: definition.poll.maxAttempts
     });
-    const idFor = (input: ActionInput<TDefinition>): string => String(definition.id(input));
+    const idFor = (input: ActionInput<TDefinition>): string => readActionId(definition.id(input));
     const retain = (id: string): void => {
       refs.set(id, (refs.get(id) ?? 0) + 1);
     };
@@ -327,7 +333,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       return {
         method: 'patch' as const,
         model: runtime,
-        selectId: definition.id,
+        selectId: (input: ActionInput<TDefinition>) => readActionId(definition.id(input)),
         selectPatch: definition.optimistic.patch
       };
     }
@@ -335,7 +341,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       return {
         method: 'destroy' as const,
         model: runtime,
-        selectId: definition.id
+        selectId: (input: ActionInput<TDefinition>) => readActionId(definition.id(input))
       };
     }
     return undefined;

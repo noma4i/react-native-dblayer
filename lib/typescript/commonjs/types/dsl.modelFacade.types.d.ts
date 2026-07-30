@@ -140,7 +140,7 @@ type InsertAction<TData, TInput, TNode> = {
 };
 type UpdateAction<TData, TInput, TNode> = {
     kind: 'update';
-    id(input: TInput): string;
+    id(input: TInput): unknown;
     select(data: TData): TNode | null | undefined;
     optimistic?: {
         patch(input: TInput): Record<string, unknown>;
@@ -148,7 +148,7 @@ type UpdateAction<TData, TInput, TNode> = {
 };
 type DestroyAction<TInput> = {
     kind: 'destroy';
-    id(input: TInput): string;
+    id(input: TInput): unknown;
     optimistic?: boolean;
 };
 type CustomAction<TData, TNode> = {
