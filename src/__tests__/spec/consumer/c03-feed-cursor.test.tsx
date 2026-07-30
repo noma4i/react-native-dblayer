@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/queries/useFeed.ts: server-order scope, cursor pagination keyed off the
@@ -18,7 +18,7 @@ const createMoments = (suffix: string) =>
     name: `SpecConsumerFeedCursor${suffix}`,
     fields: { id: f.str(), vibeId: f.str(), sequenceNumber: f.num() },
     scopes: {
-      feed: scope<FeedRow>({ by: { vibeId: 'vibeId' }, sort: 'server-order' })
+      feed: ({ by: { vibeId: 'vibeId' }, sort: 'server-order' })
     }
   });
 
@@ -464,5 +464,45 @@ describe('feed cursor pagination consumer contracts', () => {
     expect(reader.result().rows.map(row => row.id)).toEqual(['m106']);
     expect(reader.result().totalCount).toBe(2);
     reader.unmount();
+  });
+
+  it('resolves a named freshness class from configureDb defaults and rejects an unknown name', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          feed: { nodes: [{ id: 'm1', vibeId: 'v1', sequenceNumber: 101 }], pageInfo: { hasNextPage: false, endCursor: null }, lastSequenceNumber: 101 }
+        } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { freshnessClasses: { chat: 60_000 } } });
+    const moments = createMoments('FreshnessClass');
+    const feedQuery = moments.query<FeedResponse, ScopeValue, ScopeValue, FeedRow>('feed-freshness-class', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments.scopes.feed,
+      staleTime: 'chat'
+    });
+
+    const first = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    first.unmount();
+    expect(transport.calls).toHaveLength(1);
+
+    const second = renderCountedInProvider(() => feedQuery.use({ vibeId: 'v1' }));
+    await settle();
+    await settle(1, { macro: true });
+    second.unmount();
+    expect(transport.calls).toHaveLength(1);
+
+    const brokenQuery = moments.query<FeedResponse, ScopeValue, ScopeValue, FeedRow>('feed-freshness-unknown', {
+      document,
+      vars: value => ({ vibeId: value.vibeId }),
+      page: data => data.feed,
+      into: moments.scopes.feed,
+      staleTime: 'nonexistent'
+    });
+    await expect(brokenQuery.fetch({ vibeId: 'v1' })).rejects.toThrow('unknown freshness class');
   });
 });

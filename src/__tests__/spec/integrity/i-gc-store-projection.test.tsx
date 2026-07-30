@@ -1,8 +1,7 @@
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
-type Row = { id: string; bucket: string; label: string };
 
 /**
  * GC writes to the scope plane and the store through ONE seam: `publishProjectedBatch`. A GC
@@ -16,7 +15,7 @@ describe('gc store projection', () => {
       id: 'SpecGcStoreProjection',
       name: 'SpecGcStoreProjection',
       fields: { bucket: f.str(), label: f.str() },
-      scopes: { feed: scope<Row>({ by: { bucket: 'bucket' } }) },
+      scopes: { feed: ({ by: { bucket: 'bucket' } }) },
       maintenance: { dropIdleScopesAfterMs: 0 }
     });
     rows.insertMany([

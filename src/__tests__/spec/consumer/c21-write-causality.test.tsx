@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope } from '../../../index';
+import { DbProvider, configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, recordTimeline, settle } from '../helpers/harness';
 
 type ChatRow = { id: string; groupId: string; pinned: boolean; muted: boolean; read: boolean; rev: number };
@@ -48,7 +48,7 @@ const createFixture = (suffix: string, guarded = false) => {
         }
       : undefined,
     scopes: {
-      byGroup: scope<ChatRow>({ by: { groupId: 'groupId' } })
+      byGroup: ({ by: { groupId: 'groupId' } })
     }
   });
   const query = chats.query<QueryResponse, ScopeValue, ScopeValue, ChatRow>('chats', {

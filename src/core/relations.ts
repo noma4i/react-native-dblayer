@@ -2,6 +2,7 @@ import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
 import type { AcceptedRow, CounterRef, DestroyedRow, MembershipDelta, ModelRef, RelationDecl, RelationHost, RelationPlanReader, StoredRow, TouchEntry, TouchFn, WriteOp } from '../types';
 import { createGenerationRegistry } from './generationRegistry';
+import { noteRelationChildScan } from './diagnostics';
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
@@ -206,6 +207,28 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     }
   };
 
+  /** Plan-local lazy FK index: one child-model scan per (model, foreignKey) per plan instead of one per destroyed parent. */
+  const childFkIndexes = new Map<string, Map<string, string[]>>();
+  const childrenByForeignKey = (childModelId: string, foreignKey: string): Map<string, string[]> => {
+    const indexKey = compositeKey(childModelId, foreignKey);
+    const existing = childFkIndexes.get(indexKey);
+    if (existing) return existing;
+    noteRelationChildScan();
+    const index = new Map<string, string[]>();
+    for (const child of reader.rows(childModelId)) {
+      const parentId = child[foreignKey];
+      if (typeof parentId !== 'string' || parentId.length === 0) continue;
+      let bucket = index.get(parentId);
+      if (!bucket) {
+        bucket = [];
+        index.set(parentId, bucket);
+      }
+      bucket.push(String(child.id));
+    }
+    childFkIndexes.set(indexKey, index);
+    return index;
+  };
+
   /** Ordinary-destroy branch of the relation effect origin matrix above. */
   const destroyEffects = (modelId: string, id: string, row: StoredRow | undefined): void => {
     const destroyKey = compositeKey(modelId, id);
@@ -227,12 +250,9 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
         }
       }
       if (relation.kind === 'hasMany' && relation.dependent === 'destroy') {
-        const ids = uniq(
-          reader
-            .rows(relation.model.modelId)
-            .filter(child => child[relation.foreignKey] === id)
-            .map(child => String(child.id))
-        ).filter(childId => !destroyed.has(compositeKey(relation.model.modelId, childId)));
+        const ids = uniq(childrenByForeignKey(relation.model.modelId, relation.foreignKey).get(id) ?? []).filter(
+          childId => !destroyed.has(compositeKey(relation.model.modelId, childId))
+        );
         if (ids.length > 0) queue.push({ kind: 'destroy', model: relation.model.modelId, ids });
       }
     }

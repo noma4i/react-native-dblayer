@@ -117,7 +117,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         kind: 'scope-delta',
         model: op.model,
         scopeKey: op.scopeKey,
-        append: append.map(entry => ({ id: entry.id, orderKey: entry.orderKey ?? placed.get(entry.id)!, ...(entry.edge ? { edge: entry.edge } : {}) })),
+        append: append.map(entry => ({ id: entry.id, orderKey: entry.orderKey ?? placed.get(entry.id)! })),
         detach: op.detach
       });
       continue;

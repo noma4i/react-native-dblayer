@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // A2 audit guards: equal-sort-key ordering is deterministic and identical across read surfaces.
@@ -7,7 +7,6 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 // tie-break state. Scope reads (membership join) and model builder reads must never diverge
 // on ties, and order must survive unmount/remount.
 
-type ItemRow = { id: string; status: string; score: number };
 
 const createItems = (suffix: string) =>
   defineModel({
@@ -15,7 +14,7 @@ const createItems = (suffix: string) =>
     name: `SpecIntegrityTiebreak${suffix}`,
     fields: { id: f.str(), status: f.str(), score: f.num() },
     scopes: {
-      list: scope<ItemRow>({ by: { status: 'status' }, sort: { field: 'score', dir: 'desc' } })
+      list: ({ by: { status: 'status' }, sort: { field: 'score', dir: 'desc' } })
     }
   });
 
@@ -88,13 +87,12 @@ describe('sort tie-break determinism (A2)', () => {
 
   it('orders a scope by a declared key list: primary desc, secondary desc, nulls last, id tie-break', () => {
     setupSpecRuntime();
-    type MessageRow = { id: string; chatId: string; seq: number | null; createdAt: string };
     const messages = defineModel({
       id: 'SpecIntegrityMultiKeySort',
       name: 'SpecIntegrityMultiKeySort',
       fields: { id: f.str(), chatId: f.str(), seq: f.num().nullable(), createdAt: f.str() },
       scopes: {
-        thread: scope<MessageRow>({
+        thread: ({
           by: { chatId: 'chatId' },
           sort: [
             { field: 'seq', dir: 'desc' },

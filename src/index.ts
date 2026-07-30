@@ -10,7 +10,6 @@ export type { StoragePlane } from './types';
 export { defineModel } from './dsl/defineModel';
 export type { GuardedOrigin, ModelConfig, MonotonicSpec, NestedKeyPolicy, ScopeHandle, ScopeWindowResult, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from './types';
 export type { ViewConfig, ViewIncludeModel, ViewIncludeSpec } from './types';
-export { scope } from './dsl/scope';
 export type { ScopeSpec, ScopeCoverage } from './types';
 export type { GcReport } from './types';
 export { belongsTo, hasMany, hasOne, references } from './core/relations';

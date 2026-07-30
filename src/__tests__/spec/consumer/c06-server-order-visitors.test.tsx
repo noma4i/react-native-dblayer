@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { momentId: string };
@@ -28,7 +28,7 @@ const createVisitorModel = () =>
       fullName: f.str()
     },
     scopes: {
-      visitors: scope<VisitorRow>({ by: { momentId: 'momentId' }, sort: 'server-order' })
+      visitors: ({ by: { momentId: 'momentId' }, sort: 'server-order' })
     }
   });
 

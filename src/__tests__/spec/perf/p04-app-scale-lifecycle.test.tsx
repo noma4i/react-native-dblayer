@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f, scope } from '../../../index';
+import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
@@ -25,7 +25,7 @@ const createChatsModel = () =>
     name: 'SpecAppScaleChats',
     fields: { status: f.str(), kind: f.str(), lastActivityAt: f.str(), memberIds: f.array(f.str()) },
     scopes: {
-      active: scope<ChatRow>({ by: { status: 'status' }, member: row => row.kind !== 'system', sort: { field: 'lastActivityAt', dir: 'desc' } })
+      active: ({ by: { status: 'status' }, member: row => row.kind !== 'system', sort: { field: 'lastActivityAt', dir: 'desc' } })
     }
   });
 
@@ -35,7 +35,7 @@ const createMessagesModel = () =>
     name: 'SpecAppScaleMessages',
     fields: { chatId: f.str(), sequenceNumber: f.num(), body: f.str() },
     scopes: {
-      thread: scope<MessageRow>({ by: { chatId: 'chatId' }, sort: { comparator: (left, right) => left.sequenceNumber - right.sequenceNumber } })
+      thread: ({ by: { chatId: 'chatId' }, sort: { comparator: (left, right) => left.sequenceNumber - right.sequenceNumber } })
     }
   });
 

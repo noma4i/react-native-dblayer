@@ -72,7 +72,7 @@ const MessageModel = defineModel({
   name: 'MessageModel',
   fields: MessageSchema.fields,
   scopes: {
-    thread: scope({ by: { chatId: 'chatId' }, sort: { field: 'createdAt', dir: 'asc' } })
+    thread: { by: { chatId: 'chatId' }, sort: { field: 'createdAt', dir: 'asc' } }
   },
   relations: () => ({
     chat: belongsTo(ChatModel, {
@@ -101,7 +101,7 @@ Relations are the Rails taxonomy compiled into plan expansion:
   relation is query-only - destroying a parent never touches children.
 - `hasOne` picks the best child by comparator on read.
 
-`scope({ by })` is declarative membership: an event row (optimistic insert, ingest, replace,
+A scope with `by` is declarative membership: an event row (optimistic insert, ingest, replace,
 re-parenting patch) joins and leaves its scopes inside the same plan - a sent message is a member
 of its thread in the same tick, before the server responds. Server snapshots stay authoritative:
 a page reconcile overrides auto-membership, and `complete` coverage detaches rows that left the

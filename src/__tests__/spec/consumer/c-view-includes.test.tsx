@@ -1,11 +1,10 @@
-import { belongsTo, bridgeWindowPagination, defineModel, f, hasOne, references, scope } from '../../../index';
+import { belongsTo, bridgeWindowPagination, defineModel, f, hasOne, references } from '../../../index';
 import type { LoadingState } from '../../../index';
 import { act } from 'react';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type UserRow = { id: string; name: string; role?: string };
 type MessageRow = { id: string; chatId: string; sentAt: number; text: string };
-type ChatRow = { id: string; inboxId: string; authorId: string; pinnedMessageId: string };
 
 /**
  * Contracts for `Model.view` include resolution: define-time validation (unknown scope, foreign
@@ -28,7 +27,7 @@ const createViewModels = (suffix: string) => {
     id: `SpecViewChats${suffix}`,
     name: `SpecViewChats${suffix}`,
     fields: { inboxId: f.str(), authorId: f.str(), pinnedMessageId: f.str() },
-    scopes: { list: scope<ChatRow>({ by: { inboxId: 'inboxId' } }) },
+    scopes: { list: ({ by: { inboxId: 'inboxId' } }) },
     relations: () => ({
       author: belongsTo(users, { foreignKey: 'authorId' }),
       latest: hasOne(messages, { foreignKey: 'chatId' }),
@@ -51,7 +50,7 @@ describe('view include contracts', () => {
       id: 'SpecViewForeignScope',
       name: 'SpecViewForeignScope',
       fields: { inboxId: f.str() },
-      scopes: { list: scope<{ id: string; inboxId: string }>({ by: { inboxId: 'inboxId' } }) }
+      scopes: { list: ({ by: { inboxId: 'inboxId' } }) }
     });
     void messages;
 
@@ -153,6 +152,47 @@ describe('view include contracts', () => {
     const reader = renderCounted(() => view.use({ inboxId: 'main' } as never));
 
     expect(reader.result()).toEqual([{ id: 'chat-1', latest: expect.objectContaining({ id: 'msg-1' }) }]);
+    reader.unmount();
+  });
+
+  it('orders view items by the declared view sort independently of source scope order', () => {
+    const { chats } = createViewModels('ViewSort');
+    chats.insertMany([
+      { id: 'chat-1', inboxId: 'main', authorId: 'user-1', pinnedMessageId: '' },
+      { id: 'chat-2', inboxId: 'main', authorId: 'user-2', pinnedMessageId: '' },
+      { id: 'chat-3', inboxId: 'main', authorId: 'user-3', pinnedMessageId: '' }
+    ]);
+    const unreadByAuthor: Record<string, number> = { 'user-1': 0, 'user-2': 5, 'user-3': 2 };
+    const view = chats.view<{ id: string; unread: number }>('sortedByUnread', {
+      source: 'list',
+      include: {},
+      select: row => ({ id: row.id, unread: unreadByAuthor[row.authorId] ?? 0 }),
+      sort: [{ field: 'unread', dir: 'desc' }]
+    });
+
+    const reader = renderCounted(() => view.use({ inboxId: 'main' } as never));
+
+    expect(reader.result().map(item => item.id)).toEqual(['chat-2', 'chat-3', 'chat-1']);
+    reader.unmount();
+  });
+
+  it('filters view items by a predicate over the row and its resolved includes', () => {
+    const { users, chats } = createViewModels('ViewFilter');
+    users.insert({ id: 'user-1', name: 'Author One', role: 'member' });
+    chats.insertMany([
+      { id: 'chat-1', inboxId: 'main', authorId: 'user-1', pinnedMessageId: '' },
+      { id: 'chat-2', inboxId: 'main', authorId: 'user-missing', pinnedMessageId: '' }
+    ]);
+    const view = chats.view<{ id: string }, { author: UserRow | null }>('withAuthorOnly', {
+      source: 'list',
+      include: { author: 'author' },
+      filter: (_row, included) => included.author !== null,
+      select: row => ({ id: row.id })
+    });
+
+    const reader = renderCounted(() => view.use({ inboxId: 'main' } as never));
+
+    expect(reader.result().map(item => item.id)).toEqual(['chat-1']);
     reader.unmount();
   });
 

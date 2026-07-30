@@ -71,6 +71,7 @@ describe('read diagnostics', () => {
       readEngineRebuilds: 0,
       readEngineDeltaRows: 0,
       readEngineScanRows: 0,
+      relationChildScans: 0,
       scopeReadPasses: 0,
       scopeReadResorts: 0,
       replaceRejected: 0,

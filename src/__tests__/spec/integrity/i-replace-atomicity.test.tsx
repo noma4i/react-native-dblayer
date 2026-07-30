@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, scope } from '../../../index';
+import { configureDb, defineModel, defineShape, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -11,7 +11,7 @@ const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) =>
     name: id,
     fields: { chatId: f.id(), body: f.str(), media: f.object(media) },
     maintenance: { dropTempRowsAfterMs: 1000 },
-    scopes: { thread: scope<any>({ by: { chatId: 'chatId' }, sort: { field: 'body', dir: 'asc' } }) },
+    scopes: { thread: ({ by: { chatId: 'chatId' }, sort: { field: 'body', dir: 'asc' } }) },
     ...(options?.mergeMedia
       ? {
           write: {

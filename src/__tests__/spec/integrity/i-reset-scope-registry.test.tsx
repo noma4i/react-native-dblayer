@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type GroupRow = { id: string; groupId: string; label: string };
@@ -28,7 +28,7 @@ describe('query scope registry reset contract', () => {
         label: f.str()
       },
       scopes: {
-        byGroup: scope<GroupRow>({ by: { groupId: 'groupId' } })
+        byGroup: ({ by: { groupId: 'groupId' } })
       }
     });
     const query = groups.query<GroupResponse, GroupScope, GroupScope, GroupRow>('byGroup', {

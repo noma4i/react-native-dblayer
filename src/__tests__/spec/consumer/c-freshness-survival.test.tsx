@@ -1,9 +1,10 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime, scope } from '../../../index';
+import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
 import { registerActiveFetchReaders } from '../../../core/fetch/fetchReaderRegistry';
+import { compositeKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -17,7 +18,7 @@ const createRowsModel = (id: string) =>
     id,
     name: id,
     fields: { name: f.str(), group: f.str().nullable() },
-    scopes: { group: scope<Row>({ by: { group: 'group' } }) }
+    scopes: { group: ({ by: { group: 'group' } }) }
   });
 
 describe('freshness follows committed-row survival and foreground resume', () => {
@@ -167,6 +168,42 @@ describe('freshness follows committed-row survival and foreground resume', () =>
 
     expect(calls).toBe(2);
     expect(rows.find('row-2')).toBeTruthy();
+    act(() => root.unmount());
+  });
+
+  it('leaves a non-chain cached result untouched when its ids-shaped payload matches destroyed rows', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', name: 'Foreign', group: null }] } as TData })
+      })
+    });
+    const rows = createRowsModel('FreshnessForeignIds');
+    const foreignId = compositeKey('FreshnessForeignIds', 'row-1');
+    const fetch = defineFetch<Response, void, { ids: string[] }>({
+      document,
+      key: 'freshness-foreign-ids',
+      select: () => ({ ids: [foreignId] }),
+      staleTime: Infinity
+    });
+    let observed: { ids: string[] } | undefined;
+    const Reader = () => {
+      observed = fetch.use(undefined).data;
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    act(() => rows.seed([{ id: 'row-1', name: 'Foreign', group: null }]));
+    await settle();
+    expect(observed).toEqual({ ids: [foreignId] });
+
+    act(() => rows.destroy('row-1'));
+    await settle();
+
+    expect(observed).toEqual({ ids: [foreignId] });
     act(() => root.unmount());
   });
 

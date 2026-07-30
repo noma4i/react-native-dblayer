@@ -20,6 +20,31 @@ const setup = (maxPendingPlans = 10) => {
 };
 
 describe('checkpoint scheduler pacing', () => {
+  it('keeps the pending-plan backlog when a flush write fails', () => {
+    const storage = createMemoryPlane();
+    const scheduler = createCheckpointScheduler({
+      storage,
+      prefix: () => 'dbl:',
+      getTarget: () => ({ persistEntries: () => [{ key: 'dbl:row', value: 'x' }], ackPersist: () => {} }),
+      delayMs: 10_000,
+      maxPendingPlans: 100
+    });
+    scheduler.notePlan(['SpecCheckpointModel'], 1);
+    scheduler.notePlan(['SpecCheckpointModel'], 2);
+    const originalSet = storage.set.bind(storage);
+    storage.set = () => {
+      throw new Error('flush write failed');
+    };
+
+    expect(() => scheduler.flushNow()).toThrow('flush write failed');
+    expect(scheduler.pendingPlans()).toBe(2);
+
+    storage.set = originalSet;
+    scheduler.flushNow();
+    expect(scheduler.pendingPlans()).toBe(0);
+    expect(scheduler.flushedEpoch()).toBe(2);
+  });
+
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 

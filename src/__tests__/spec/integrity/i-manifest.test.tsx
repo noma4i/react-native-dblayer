@@ -228,6 +228,15 @@ describe('persistence schema manifest', () => {
     expect(storage.get('dbl:sentinel')).toBeUndefined();
   });
 
+  it('cold-resets format 5 keys from the membership-edge era', async () => {
+    const storage = configureManifestRuntime();
+    writePersistenceManifest('dbl:', { formatVersion: 5, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    storage.set([{ key: 'dbl:sentinel', value: 'edge-era' }]);
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: true });
+    expect(storage.get('dbl:sentinel')).toBeUndefined();
+  });
+
   it('records manifest-driven resets in diagnostics', async () => {
     const storage = configureManifestRuntime();
     storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);

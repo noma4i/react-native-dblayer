@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MediaRow = { id: string; chatId: string; mediaBucket: string; sequenceNumber: number; label: string };
@@ -30,7 +30,7 @@ const createMediaModel = (onCompare?: () => void) =>
       label: f.str()
     },
     scopes: {
-      media: scope<MediaRow>({
+      media: ({
         by: { chatId: 'chatId', mediaBucket: 'mediaBucket' },
         sort:
           onCompare === undefined
@@ -58,7 +58,7 @@ const createDerivedMediaModel = () =>
       label: f.str()
     },
     scopes: {
-      media: scope<DerivedMediaRow>({
+      media: ({
         by: { chatId: 'chatId', bucket: 'bucket' },
         sort: { field: 'sequenceNumber', dir: 'desc' }
       })
@@ -450,7 +450,7 @@ describe('media scope bucket behavior', () => {
       name: 'SpecCompositePlacement',
       fields: { chatId: f.str(), mediaBucket: f.str(), label: f.str() },
       maintenance: { dropTempRowsAfterMs: 1000 },
-      scopes: { media: scope<{ id: string; chatId: string; mediaBucket: string; label: string }>({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: 'server-order' }) }
+      scopes: { media: ({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: 'server-order' }) }
     });
     const mutation = media.mutation<
       { save: { id: string; chatId: string; mediaBucket: string; label: string } },

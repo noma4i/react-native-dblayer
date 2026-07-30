@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
+import { DbProvider, configureDb, defineModel, f, type DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
@@ -14,7 +14,7 @@ const createRowsModel = (id: string) => {
     id,
     name: id,
     fields: { name: f.str(), status: f.str(), updatedAt: f.str(), shareUrl: f.str().optional() },
-    scopes: { byStatus: scope<Row>({ by: { status: 'status' } }) }
+    scopes: { byStatus: ({ by: { status: 'status' } }) }
   });
   writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
   return model;

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createJournal } from '../../../core/apply/journal';
@@ -10,13 +10,13 @@ const createModels = () => {
     id: 'ApplyRecoveryFirst',
     name: 'ApplyRecoveryFirst',
     fields: { label: f.str() },
-    scopes: { all: scope({ sort: 'server-order' }) }
+    scopes: { all: ({ sort: 'server-order' }) }
   });
   const second = defineModel({
     id: 'ApplyRecoverySecond',
     name: 'ApplyRecoverySecond',
     fields: { label: f.str() },
-    scopes: { all: scope({ sort: 'server-order' }) }
+    scopes: { all: ({ sort: 'server-order' }) }
   });
   return { first, second };
 };
@@ -113,6 +113,26 @@ describe('post-WAL apply recovery', () => {
       secondTarget.scopeDelta = originalScopeDelta;
       unsubscribe();
     }
+  });
+
+  it('recovers a commit that failed after its WAL record became durable via a later replay', () => {
+    const { first } = createModels();
+    const target = getApplyTarget(first.modelId);
+    const originalPut = target.put;
+    target.put = () => {
+      throw new Error('persistent row apply failure');
+    };
+
+    try {
+      expect(() => getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: first.modelId, rows: [{ id: 'wal-row', label: 'durable' }] }]))).toThrow(
+        'persistent row apply failure'
+      );
+    } finally {
+      target.put = originalPut;
+    }
+
+    expect(getApplyRuntime().replay()).toBeGreaterThanOrEqual(1);
+    expect(first.find('wal-row')).toMatchObject({ label: 'durable' });
   });
 
   it('poisons reads and publishes nothing when clean replay also fails', () => {

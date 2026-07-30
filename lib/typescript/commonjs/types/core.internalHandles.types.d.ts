@@ -15,13 +15,11 @@ export type InternalModelHandle = {
         id: string;
         scopeKey: string;
         orderKey: string;
-        edge?: Record<string, unknown>;
     }>;
     planRestore(next: unknown, memberships: Array<{
         id: string;
         scopeKey: string;
         orderKey: string;
-        edge?: Record<string, unknown>;
     }>): WriteOp[];
     relations(): Record<string, RelationDecl>;
     revision(): number;
@@ -34,7 +32,6 @@ export type InternalScopeHandle = {
     }): void;
     planApply(scopeValue: unknown, rows: Array<{
         row: unknown;
-        edge?: Record<string, unknown>;
     }>, coverage: ScopeCoverage, options?: {
         resetOrder?: boolean;
     }): WriteOp[];

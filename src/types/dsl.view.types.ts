@@ -2,6 +2,7 @@ import type { Dependency } from './core.apply.commitBus.types';
 import type { RowRecord } from './db.types';
 import type { ScopeHandle } from './dsl.model.types';
 import type { KeepPreviousOption } from './read.scopeRetention.types';
+import type { ClientSort } from './dsl.ordering.types';
 
 /** Resolved include values keyed by include name, as passed to a view `select`. */
 export type ViewIncluded = Record<string, unknown>;
@@ -19,6 +20,8 @@ export type InternalViewConfig<TItem> = {
   include: Record<string, InternalIncludeConfig>;
   select?: (row: RowRecord, included: ViewIncluded, ctx: { index: number }) => TItem;
   renderKeys?: readonly string[];
+  filter?: (row: RowRecord, included: ViewIncluded) => boolean;
+  sort?: ClientSort<RowRecord>;
 };
 /** Per-row item cache entry: inputs (row + includes) and the projected item they produced. */
 export type ViewCacheEntry<TItem> = { row: RowRecord; included: ViewIncluded; item: TItem };
@@ -71,6 +74,10 @@ export type ViewConfig<TRow extends { id: string }, TIncluded extends Record<str
   select?: (row: TRow, included: TIncluded, ctx: { index: number }) => TItem;
   /** Preserve an item reference while all listed keys of the selected output, or the whole row when `select` is absent, are unchanged. */
   renderKeys?: readonly (keyof TItem & string)[];
+  /** Keep only the rows this predicate accepts - it sees the source row AND its resolved includes, so a view can filter by joined data a scope `member` predicate cannot reach. Applied before `sort`/window; `totalCount` reflects the filtered set. */
+  filter?: (row: TRow, included: TIncluded) => boolean;
+  /** Declared order of the projected ITEMS: one field, a key list, or a comparator (same vocabulary as scope `sort`; id tie-break from the source row). Overrides the source scope order for this view's reads. */
+  sort?: ClientSort<TItem & { id: string }>;
 };
 
 export type ViewHandle<TItem, TScope> = {

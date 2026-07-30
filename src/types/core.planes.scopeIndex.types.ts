@@ -2,7 +2,7 @@
 export type ScopeCoverage = 'complete' | 'page' | 'delta';
 
 /** One persisted scope membership entry; `orderKey` is a lexical fractional key from `core/orderKey.ts`. */
-export type ScopeEntry = { id: string; orderKey: string; edge?: Record<string, unknown> };
+export type ScopeEntry = { id: string; orderKey: string };
 
 /** Persisted scope index snapshot used by the membership ledger. */
 export type ScopeIndexValue = {
@@ -12,7 +12,7 @@ export type ScopeIndexValue = {
 };
 
 /** One incoming row for scope membership reconciliation; a present `orderKey` (placement/restore) is authoritative. */
-export type IncomingScopeRow = { id: string; edge?: Record<string, unknown>; orderKey?: string };
+export type IncomingScopeRow = { id: string; orderKey?: string };
 
 /** Reconciliation outcome: the next persisted snapshot plus members detached by it. */
 export type ReconcileResult = { next: ScopeIndexValue; detachedIds: string[] };

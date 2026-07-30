@@ -9,6 +9,7 @@ export declare const noteScopeReadPass: (resorted: boolean) => void;
 export declare const noteResumeDrain: (refetched: number) => void;
 export declare const noteEntityUpsertGuardHit: () => void;
 /** Count membership feed messages actually written - the work-counter behind same-pairs replaceAll staying at zero. */
+export declare const noteRelationChildScan: () => void;
 export declare const noteMembershipWrites: (count: number) => void;
 export declare const noteCorruptionJournalDrop: () => void;
 export declare const noteCorruptionJournalLoss: () => void;

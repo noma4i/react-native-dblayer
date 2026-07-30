@@ -47,7 +47,6 @@ export type WriteOp = {
     scopeKey: string;
     append: Array<{
         id: string;
-        edge?: Record<string, unknown>;
         orderKey?: string;
     }>;
     detach: string[];
@@ -82,7 +81,6 @@ export type JournalOp = {
     append: Array<{
         id: string;
         orderKey: string;
-        edge?: Record<string, unknown>;
     }>;
     detach: string[];
 };
@@ -96,19 +94,21 @@ export type JournalRecord = {
 export type PersistedJournalRecord = Omit<JournalRecord, 'ops'> & {
     ops: Array<VersionedValue<JournalOp>>;
 };
+/** Planned journal write batch: `entries` go into one storage.set; `commit()` advances the in-memory epoch index and must run only after that set succeeded. */
+export type JournalWritePlan = {
+    entries: Array<{
+        key: string;
+        value: string | null;
+    }>;
+    commit(): void;
+};
 export type Journal = {
     pendingEntry(record: JournalRecord): Array<{
         key: string;
         value: string | null;
     }>;
-    committedEntry(record: JournalRecord, pruneBeforeEpoch?: number): Array<{
-        key: string;
-        value: string | null;
-    }>;
-    pruneCommitted(pruneBeforeEpoch: number): Array<{
-        key: string;
-        value: string | null;
-    }>;
+    committedEntry(record: JournalRecord, pruneBeforeEpoch?: number): JournalWritePlan;
+    pruneCommitted(pruneBeforeEpoch: number): JournalWritePlan;
     allRecords(): JournalRecord[];
     pending(): JournalRecord[];
     lastEpoch(): number;

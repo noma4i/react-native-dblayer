@@ -4,6 +4,8 @@ import type { StoragePlane } from './core.planes.storagePlane.types';
 export interface DbDefaults {
   /** Package-wide default `staleTime` (ms) for `defineQuery` results that omit their own. */
   staleTime?: number;
+  /** Named freshness vocabulary: `staleTime: '<name>'` on a query/fetch resolves through this map. An unknown name throws at resolution, a non-positive/non-finite value throws at `configureDb`. */
+  freshnessClasses?: Readonly<Record<string, number>>;
   /** Package-wide default `emptyStaleTime` (ms) for `defineQuery` and `defineFetch` results that omit their own. */
   emptyStaleTime?: number;
   /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */

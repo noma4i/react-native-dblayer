@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { collectGarbage } from '../../../core/gc';
 import { flushPersistence, getOperationState, replayJournal } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
@@ -16,7 +16,7 @@ const defineRows = (id: string, options: { gc?: 'exempt'; maxAgeMs?: number } = 
     name: id,
     gc: options.gc,
     fields: { bucket: f.str(), label: f.str(), state: f.enum<Row['state']>(['pending', 'failed', 'complete']), createdAt: f.str() },
-    scopes: { byBucket: scope<Row>({ by: { bucket: 'bucket' } }) },
+    scopes: { byBucket: ({ by: { bucket: 'bucket' } }) },
     maintenance: { dropTempRowsAfterMs: options.maxAgeMs ?? 60_000 }
   });
 

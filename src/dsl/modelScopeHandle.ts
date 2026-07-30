@@ -34,11 +34,11 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
     const spec = (options.scopes ?? {})[scopeName] as ScopeSpec<TStored>;
     const planScope = (
       scopeKey: string,
-      liveRows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
+      liveRows: Array<{ row: Record<string, unknown> }>,
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp => {
-      let incoming = liveRows.map(({ row, edge }) => ({ id: String(row.id), edge }) as { id: string; edge?: Record<string, unknown>; orderKey?: string });
+      let incoming = liveRows.map(({ row }) => ({ id: String(row.id) }) as { id: string; orderKey?: string });
       if (spec?.sort && spec.sort !== 'server-order') {
         /** Sorted scopes: order keys are born HERE, on planning - the plane and the store only carry them. */
         const compare = compareRowsBySpec(spec.sort);
@@ -55,7 +55,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
           const incomingIds = new Set(incoming.map(item => item.id));
           for (const entry of planes().scopeIndex.read(scopeKey).entries) {
             if (incomingIds.has(entry.id)) continue;
-            incoming.push({ id: entry.id, edge: entry.edge });
+            incoming.push({ id: entry.id });
             const stored = planes().entityState.read(entry.id) as TStored | undefined;
             if (stored) rowsById.set(entry.id, stored);
           }
@@ -104,7 +104,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
     };
     const planApply = (
       scopeValue: unknown,
-      rows: Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>,
+      rows: Array<{ row: Record<string, unknown> }>,
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp[] => {
@@ -114,7 +114,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       const rowOps: WriteOp[] = [{ kind: 'upsert', model: options.modelId, rows: split.plain }, ...split.replaceOps];
       if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
 
-      const rowsByScope = new Map<string, Array<{ row: Record<string, unknown>; edge?: Record<string, unknown> }>>();
+      const rowsByScope = new Map<string, Array<{ row: Record<string, unknown> }>>();
       for (const entry of liveRows) {
         if (!matchesMemberPredicate<TStored>(spec, entry.row as TStored)) continue;
         const derivedValue = options.scopeValueFromRow(spec.by, entry.row);

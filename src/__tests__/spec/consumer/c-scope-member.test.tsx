@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 type ChatRow = { id: string; inboxId: string; premium: boolean; kind: string };
@@ -12,7 +12,7 @@ const createMemberChats = (suffix: string) =>
     name: `SpecScopeMember${suffix}`,
     fields: { id: f.str(), inboxId: f.str(), premium: f.bool(), kind: f.str() },
     scopes: {
-      primary: scope<ChatRow>({ by: { inboxId: 'inboxId' }, member: row => row.premium && row.kind !== 'system' })
+      primary: ({ by: { inboxId: 'inboxId' }, member: row => row.premium && row.kind !== 'system' })
     }
   });
 
@@ -22,7 +22,7 @@ const createQueryChats = () =>
     name: 'SpecScopeMemberQuery',
     fields: { id: f.str(), inboxId: f.str(), premium: f.bool(), kind: f.str() },
     scopes: {
-      remote: scope<ChatRow>({ member: () => false })
+      remote: ({ member: () => false })
     }
   });
 

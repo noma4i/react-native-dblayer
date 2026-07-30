@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
+import { belongsTo, configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // Channel-agnostic temp correlation (G1, closed in 9.0): a mutation that declares
@@ -26,7 +26,7 @@ const createMessagesModel = (suffix: string) =>
     },
     maintenance: { dropTempRowsAfterMs: 60_000 },
     scopes: {
-      thread: scope<MessageRow>({ by: { chatId: 'chatId' } })
+      thread: ({ by: { chatId: 'chatId' } })
     }
   });
 

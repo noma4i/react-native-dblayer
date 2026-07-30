@@ -13,7 +13,7 @@ export type WriteOp =
   /** `replace` marks the destroy half of an identity swap during relation planning. */
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; operationTransitions?: OperationTransition[] }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
-  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; edge?: Record<string, unknown>; orderKey?: string }>; detach: string[] }
+  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey?: string }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };
 
 /** Callback-free operation persisted in WAL and applied verbatim by commit and replay. */
@@ -21,7 +21,7 @@ export type JournalOp =
   | { kind: 'upsert'; model: string; rows: StoredRow[]; origin?: 'replace' }
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace' }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
-  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey: string; edge?: Record<string, unknown> }>; detach: string[] };
+  | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey: string }>; detach: string[] };
 
 export type JournalRecord = {
   txId: string;
@@ -35,10 +35,13 @@ export type PersistedJournalRecord = Omit<JournalRecord, 'ops'> & {
   ops: Array<VersionedValue<JournalOp>>;
 };
 
+/** Planned journal write batch: `entries` go into one storage.set; `commit()` advances the in-memory epoch index and must run only after that set succeeded. */
+export type JournalWritePlan = { entries: Array<{ key: string; value: string | null }>; commit(): void };
+
 export type Journal = {
   pendingEntry(record: JournalRecord): Array<{ key: string; value: string | null }>;
-  committedEntry(record: JournalRecord, pruneBeforeEpoch?: number): Array<{ key: string; value: string | null }>;
-  pruneCommitted(pruneBeforeEpoch: number): Array<{ key: string; value: string | null }>;
+  committedEntry(record: JournalRecord, pruneBeforeEpoch?: number): JournalWritePlan;
+  pruneCommitted(pruneBeforeEpoch: number): JournalWritePlan;
   allRecords(): JournalRecord[];
   pending(): JournalRecord[];
   lastEpoch(): number;

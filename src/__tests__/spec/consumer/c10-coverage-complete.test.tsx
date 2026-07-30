@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type FriendState = { userId: string; id: string; kind: string; fullName: string };
@@ -20,11 +20,11 @@ const createUserModel = () =>
       fullName: f.str()
     },
     scopes: {
-      blocked: scope<FriendState>({
+      blocked: ({
         by: { userId: 'userId', kind: 'kind' },
         sort: { field: 'fullName', dir: 'asc' }
       }),
-      friends: scope<FriendState>({
+      friends: ({
         by: { userId: 'userId', kind: 'kind' },
         sort: { field: 'fullName', dir: 'asc' }
       })

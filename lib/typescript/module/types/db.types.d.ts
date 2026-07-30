@@ -15,8 +15,6 @@ export type StorageAdapter = {
     removeItem(key: string): void;
     /** Enumerate stored keys under a prefix (hydration, GC and stale-key cleanup). */
     allKeys(): string[];
-    /** Clear every key owned by the adapter. */
-    clear(): void;
 };
 export type DbLogger = {
     /** Verbose lifecycle logs from request and mutation runtimes. */

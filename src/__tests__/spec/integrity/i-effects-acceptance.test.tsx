@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, scope } from '../../../index';
+import { belongsTo, configureDb, defineModel, f } from '../../../index';
 import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { flushPersistence, getOperationState } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
@@ -21,7 +21,7 @@ describe('effects derive from accepted rows', () => {
       id: 'EffectsAcceptanceMessage',
       name: 'EffectsAcceptanceMessage',
       fields: { chatId: f.str(), body: f.str(), createdAt: f.num() },
-      scopes: { byChat: scope<Message>({ by: { chatId: 'chatId' } }) },
+      scopes: { byChat: ({ by: { chatId: 'chatId' } }) },
       relations: () => ({
         chat: belongsTo<Message, Chat>(chats, {
           foreignKey: 'chatId',

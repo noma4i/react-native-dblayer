@@ -76,7 +76,7 @@ const createTargetMock = () => {
 const encodeJournalRecord = (record: JournalRecord): string => {
   const storage = createMemoryPlane();
   const journal = createJournal(storage, () => PREFIX);
-  return (record.status === 'pending' ? journal.pendingEntry(record) : journal.committedEntry(record))[0]!.value!;
+  return (record.status === 'pending' ? journal.pendingEntry(record) : journal.committedEntry(record).entries)[0]!.value!;
 };
 
 const journalRecord = (epoch: number, status: 'pending' | 'committed', ops: JournalRecord['ops']): JournalRecord => ({

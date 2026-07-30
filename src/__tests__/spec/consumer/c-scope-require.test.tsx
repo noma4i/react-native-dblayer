@@ -1,8 +1,7 @@
 import { act } from 'react';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
-type ItemRow = { id: string; groupId: string; media?: string };
 
 const createItemsModel = (suffix: string) =>
   defineModel({
@@ -10,7 +9,7 @@ const createItemsModel = (suffix: string) =>
     name: `SpecScopeRequire${suffix}`,
     fields: { groupId: f.str(), media: f.str().optional() },
     scopes: {
-      group: scope<ItemRow>({ by: { groupId: 'groupId' } })
+      group: ({ by: { groupId: 'groupId' } })
     }
   });
 

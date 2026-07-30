@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopedRow = { id: string; groupId: string; title: string; rank: number; markers: Array<{ id: string }> };
@@ -11,7 +11,7 @@ const createRows = () =>
     id: 'SpecRerenderScopeWindowBudget',
     name: 'SpecRerenderScopeWindowBudget',
     fields: { groupId: f.str(), title: f.str(), rank: f.num(), markers: f.raw<Array<{ id: string }>>() },
-    scopes: { byGroup: scope<ScopedRow>({ by: { groupId: 'groupId' }, sort: { field: 'rank', dir: 'asc' } }) }
+    scopes: { byGroup: ({ by: { groupId: 'groupId' }, sort: { field: 'rank', dir: 'asc' } }) }
   });
 
 const seedRows = (rows: ReturnType<typeof createRows>): void => {

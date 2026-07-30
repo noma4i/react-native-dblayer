@@ -4,7 +4,6 @@ export type ScopeCoverage = 'complete' | 'page' | 'delta';
 export type ScopeEntry = {
     id: string;
     orderKey: string;
-    edge?: Record<string, unknown>;
 };
 /** Persisted scope index snapshot used by the membership ledger. */
 export type ScopeIndexValue = {
@@ -15,7 +14,6 @@ export type ScopeIndexValue = {
 /** One incoming row for scope membership reconciliation; a present `orderKey` (placement/restore) is authoritative. */
 export type IncomingScopeRow = {
     id: string;
-    edge?: Record<string, unknown>;
     orderKey?: string;
 };
 /** Reconciliation outcome: the next persisted snapshot plus members detached by it. */

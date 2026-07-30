@@ -53,7 +53,6 @@ export type ModelMembership = {
     id: string;
     scopeKey: string;
     orderKey: string;
-    edge?: Record<string, unknown>;
 };
 export type ModelWrites<TStored extends {
     id: string;
@@ -154,13 +153,11 @@ export type ModelRuntimeRegistrationOptions<TStored extends {
         id: string;
         scopeKey: string;
         orderKey: string;
-        edge?: Record<string, unknown>;
     }>;
     planRestore(next: unknown, memberships: Array<{
         id: string;
         scopeKey: string;
         orderKey: string;
-        edge?: Record<string, unknown>;
     }>): WriteOp[];
 };
 export type ModelDirectAccess<TStored extends {
@@ -523,10 +520,10 @@ export type QueryScopeSpec<TStored extends {
 };
 export type QueryScopeReads<TStored extends {
     id: string;
-}, TQueryScopes> = {
-    [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
+}, TQueryScopeNames extends string> = {
+    [K in TQueryScopeNames]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
 };
-export type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>, TExt extends Record<string, unknown>, TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}> = {
+export type ModelConfig<TFields extends ModelFieldSpecs, TScopeNames extends string, TExt extends Record<string, unknown>, TQueryScopeNames extends string = never> = {
     /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
     id: string;
     /** Human-readable model name; prefixes normalize/apply error and log messages. */
@@ -540,7 +537,9 @@ export type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<
      * at define time. Distinct from membership `scopes`: queryScopes are local predicates, not
      * server-order membership indexes.
      */
-    queryScopes?: TQueryScopes;
+    queryScopes?: {
+        [K in TQueryScopeNames]: QueryScopeSpec<InferStoredFields<TFields>>;
+    };
     /**
      * Implicit ordering for reads that declare no explicit order: `where` without `opts.orderBy`,
      * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
@@ -567,11 +566,13 @@ export type ModelConfig<TFields extends ModelFieldSpecs, TScopes extends Record<
      */
     relations?: () => Record<string, RelationDecl>;
     /**
-     * Named `ScopeSpec` definitions (built with `scope(...)`). Each entry becomes a `model.scopes.<name>`
+     * Named `ScopeSpec` definitions (plain object literals). Each entry becomes a `model.scopes.<name>`
      * handle exposing scoped `use`/`useWindow`/`useCount`/`invalidate`/`read` and, for scopes with `by`,
      * automatic membership tracking as rows are written.
      */
-    scopes?: TScopes;
+    scopes?: {
+        [K in TScopeNames]: ScopeSpec<InferStoredFields<TFields>>;
+    };
     /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
     gc?: 'exempt';
     /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */

@@ -295,6 +295,36 @@ describe('hydrate key retention', () => {
     expect(fresh.hydratedPending()).toEqual([]);
   });
 
+  it('keeps the hydrated-pending resume mark when a transition is a no-op', () => {
+    const { storage, state } = setup();
+    state.begin(baseRecord('op-pending', { idempotencyKey: 'pending-key' }));
+
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    fresh.hydrate();
+    expect(fresh.hydratedPending().map(operation => operation.operationId)).toEqual(['op-pending']);
+
+    fresh.applyTransitions([{ kind: 'remove', operationId: 'op-pending', expectedStatus: 'failed' }]);
+
+    expect(fresh.get('op-pending')?.status).toBe('pending');
+    expect(fresh.hydratedPending().map(operation => operation.operationId)).toEqual(['op-pending']);
+  });
+
+  it('applyTransitions never writes storage - durability belongs to the prepared WAL batch', () => {
+    const { storage, state } = setup();
+    state.begin(baseRecord('op-a', { idempotencyKey: 'key-a' }));
+    const writes: unknown[] = [];
+    const originalSet = storage.set.bind(storage);
+    storage.set = entries => {
+      writes.push(entries);
+      originalSet(entries);
+    };
+
+    state.applyTransitions([{ kind: 'close', operationId: 'op-a', status: 'committed' }]);
+
+    expect(state.get('op-a')?.status).toBe('committed');
+    expect(writes).toEqual([]);
+  });
+
   it('cold-resets a corrupt ops record and reports the loss', () => {
     const { storage } = setup();
     storage.set([{ key: `${PREFIX}ops`, value: '{corrupt' }]);

@@ -1,5 +1,7 @@
-import type { ChangeMessage, ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
+import type { ChangeMessage, ChangeMessageOrDeleteKeyMessage, Collection } from '@tanstack/db';
 import type { WriteCtx } from './core.writePolicies.types';
+import type { RowRecord } from './db.types';
+import type { StoragePlane } from './core.planes.storagePlane.types';
 type UpsertResult = {
     changedFields: string[] | null;
 };
@@ -84,6 +86,39 @@ export type ModelStore<T extends {
     applyScopeChanges(changes: readonly StoreScopeSyncChange[]): void;
     markReady(): void;
     dispose(): void;
+};
+/** Entity half of a model store: rows, transactional buffer, tombstones, persistence (implemented by `createEntityPlane`). */
+export type EntityPlane = EntityState<RowRecord> & {
+    /** Committed-only read (no transactional-buffer overlay) for scope projections. */
+    readCommitted(id: string): RowRecord | undefined;
+    /** The TanStack entities collection, exposed only for the scope plane's live-query join. */
+    entities: Collection<RowRecord>;
+    markReady(): void;
+    dispose(): void;
+};
+export type EntityPlaneOptions = {
+    modelId: string;
+    storeId: number;
+    now: () => number;
+    storage: StoragePlane;
+    prefix: () => string;
+    applyWriteGate: (previous: RowRecord, incoming: RowRecord, ctx: WriteCtx) => RowRecord;
+    ownedFields?: (rowId: string, excludeOperationId?: string) => ReadonlySet<string>;
+};
+/** Scope half of a model store: membership collection, live scope collections, projection (implemented by `createScopePlane`). */
+export type ScopePlane = {
+    scopeCollection(scopeKey: string): StoreScopeCollection;
+    applyScopeChanges(changes: readonly StoreScopeSyncChange[]): void;
+    markReady(): void;
+    reset(): void;
+    dispose(): void;
+};
+export type ScopePlaneOptions = {
+    modelId: string;
+    storeId: number;
+    entities: Collection<RowRecord>;
+    readCommitted(id: string): RowRecord | undefined;
+    isReady(): boolean;
 };
 /** Collection sync-feed controls: transactional begin/write/commit plus readiness and truncate. */
 export type StoreSyncMethods<T extends object> = {

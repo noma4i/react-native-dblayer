@@ -1,4 +1,4 @@
-import type { SparseModelField, InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization, ScopeSpec } from '../types';
+import type { SparseModelField, InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization } from '../types';
 import { getDbLogger } from '../core/logger';
 import { compileWritePolicies } from '../core/writePolicies';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
@@ -13,10 +13,10 @@ export const readModelField = (field: ModelFieldSpecs[string], input: unknown, k
 
 export const createModelNormalization = <
   TFields extends ModelFieldSpecs,
-  TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>,
+  TScopeNames extends string,
   TExt extends Record<string, unknown>
 >(
-  config: ModelConfig<TFields, TScopes, TExt, any>
+  config: ModelConfig<TFields, TScopeNames, TExt, any>
 ): ModelNormalization<InferStoredFields<TFields> & Record<string, unknown>> => {
   const applyWriteGate = (() => {
     const groups = config.write?.groups;

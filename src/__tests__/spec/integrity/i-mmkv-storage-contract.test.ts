@@ -2,7 +2,7 @@ import type { UsedMmkvMethods } from '../../../../__mocks__/mmkvMockFactory';
 import { configureDb } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { mmkvStoragePlane } from '../../../core/planes/storagePlane';
-import { mmkvStorageAdapter, clearDbStorage, getDbStorageKeys, removeDbStorageKey } from '../../../utils/mmkvStorage';
+import { mmkvStorageAdapter, getDbStorageKeys, removeDbStorageKey } from '../../../utils/mmkvStorage';
 import { createMockTransport } from '../helpers/harness';
 
 // Type-only import: pulls the real-package-bound mock factory (__mocks__/mmkvMockFactory.ts) into this
@@ -13,13 +13,13 @@ const declaresUsedMethods = (methods: EnsureMockTypeChecked): EnsureMockTypeChec
 void declaresUsedMethods;
 
 describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot path', () => {
-  beforeEach(() => {
-    clearDbStorage();
-  });
+  const removeAllDbKeys = (): void => {
+    for (const key of getDbStorageKeys()) removeDbStorageKey(key);
+  };
 
-  afterEach(() => {
-    clearDbStorage();
-  });
+  beforeEach(removeAllDbKeys);
+
+  afterEach(removeAllDbKeys);
 
   it('round-trips through the real mmkv-backed adapter (getItem/setItem/removeItem)', () => {
     expect(mmkvStorageAdapter.getItem('missing-key')).toBeNull();

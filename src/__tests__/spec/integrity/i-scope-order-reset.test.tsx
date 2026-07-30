@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createScopeIndex } from '../../../core/planes/scopeIndex';
 import { compositeKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
@@ -16,7 +16,7 @@ const createScopeModel = (orderFields?: ReadonlyArray<keyof ScopeRow & string>, 
       label: f.str()
     },
     scopes: {
-      byBucket: scope<ScopeRow>({
+      byBucket: ({
         by: { bucket: 'bucket' },
         sort: {
           comparator: (left: ScopeRow, right: ScopeRow) => {
@@ -207,11 +207,10 @@ describe('scope order cache reset contract', () => {
     const scopeKey = compositeKey('byBucket', `{"bucket":"${coverage}"}`);
     index.write(scopeKey, index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }]).next);
 
-    const next = index.reconcileNext(scopeKey, coverage, [{ id: 'row-2', edge: { label: 'first' } }, { id: 'row-2', edge: { label: 'last' } }, { id: 'row-3' }]).next;
+    const next = index.reconcileNext(scopeKey, coverage, [{ id: 'row-2' }, { id: 'row-2' }, { id: 'row-3' }]).next;
     index.write(scopeKey, next);
 
     expect(index.read(scopeKey).entries.map(entry => entry.id)).toEqual(['row-1', 'row-2', 'row-3']);
-    expect(index.read(scopeKey).entries.find(entry => entry.id === 'row-2')?.edge).toEqual({ label: 'last' });
   });
 
   it('deduplicates repeated ids before applying a scope delta', () => {
@@ -221,12 +220,12 @@ describe('scope order cache reset contract', () => {
     index.applyDelta(
       scopeKey,
       [
-        { id: 'row-1', orderKey: 'V', edge: { label: 'first' } },
-        { id: 'row-1', orderKey: 'W', edge: { label: 'last' } }
+        { id: 'row-1', orderKey: 'V' },
+        { id: 'row-1', orderKey: 'W' }
       ],
       []
     );
 
-    expect(index.read(scopeKey).entries).toEqual([{ id: 'row-1', orderKey: 'W', edge: { label: 'last' } }]);
+    expect(index.read(scopeKey).entries).toEqual([{ id: 'row-1', orderKey: 'W' }]);
   });
 });

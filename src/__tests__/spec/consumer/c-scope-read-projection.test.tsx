@@ -1,7 +1,6 @@
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
-type Row = { id: string; bucket: string; rank: number; label: string };
 
 /**
  * Scope order is persisted as `orderKey` at planning time; every read surface is a mechanical
@@ -17,7 +16,7 @@ describe('scope read projection', () => {
       name: `SpecScopeReadProjection${tag}`,
       fields: { bucket: f.str(), rank: f.num(), label: f.str() },
       scopes: {
-        feed: scope<Row>({
+        feed: ({
           by: { bucket: 'bucket' },
           sort: {
             comparator: (left, right) => {

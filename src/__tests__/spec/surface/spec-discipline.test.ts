@@ -21,6 +21,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-generation-registry.test.ts'), source: path.resolve(specRoot, '../../core/generationRegistry.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-freshness-survival.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
   { spec: path.resolve(specRoot, 'consumer/c-freshness-survival.test.tsx'), source: path.resolve(specRoot, '../../core/fetch/fetchReaderRegistry.ts') },
+  { spec: path.resolve(specRoot, 'consumer/c-freshness-survival.test.tsx'), source: path.resolve(specRoot, '../../core/serialize.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-durable-temp-protection.test.tsx'), source: path.resolve(specRoot, '../../core/gc.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-durable-temp-protection.test.tsx'), source: path.resolve(specRoot, '../../dsl/mutationRuntime.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-durable-temp-protection.test.tsx'), source: path.resolve(specRoot, '../../dsl/maintenanceRegistry.ts') },

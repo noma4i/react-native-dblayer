@@ -3,6 +3,24 @@ import { generateTempId, isTempId, pickDefined, pickPresent, stringifyNullish } 
 // Named behavioral contracts for pure utility exports that previously had no direct tests.
 
 describe('generateTempId / isTempId', () => {
+  it('never re-issues an id when the wall clock rolls backwards', () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    try {
+      nowSpy.mockReturnValue(2_000);
+      const before = generateTempId('clock');
+      nowSpy.mockReturnValue(1_000);
+      const rolledBack = generateTempId('clock');
+      const rolledBackNext = generateTempId('clock');
+      nowSpy.mockReturnValue(2_000);
+      const recovered = generateTempId('clock');
+
+      const ids = [before, rolledBack, rolledBackNext, recovered];
+      expect(new Set(ids).size).toBe(ids.length);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('generates unique, temp-prefixed ids under rapid-fire calls', () => {
     const ids = Array.from({ length: 100 }, () => generateTempId());
     expect(new Set(ids).size).toBe(100);

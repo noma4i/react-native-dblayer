@@ -1,6 +1,6 @@
 import type { DocumentNode } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; accountId: string; title: string };
@@ -11,8 +11,8 @@ const createRows = (suffix: string) =>
     name: `ScopeValueGuard${suffix}`,
     fields: { id: f.str(), accountId: f.str(), title: f.str() },
     scopes: {
-      byAccount: scope<Row>({ by: { accountId: 'accountId' } }),
-      catalog: scope<Row>({})
+      byAccount: ({ by: { accountId: 'accountId' } }),
+      catalog: ({})
     }
   });
 

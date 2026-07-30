@@ -270,7 +270,7 @@ call, if either is combined with a `method: 'patch'`/`method: 'destroy'` optimis
 are set at once, if `scope` is not a server-order scope (a `sort: { field, dir }` or
 custom-comparator scope rejects it), or if `scope` belongs to a different model than
 `optimistic.model`. The assigned position survives the temp-id -> server-node replace - the same
-edge/order captured for the temp row is carried over onto the committed server row in the same
+order captured for the temp row is carried over onto the committed server row in the same
 transaction, so a message optimistically prepended into a thread stays at the top once the server
 response lands. On rollback, destroying the temp row removes it from the scope's membership entirely,
 restoring the scope to the order it had before the optimistic insert.

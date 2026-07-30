@@ -1,5 +1,30 @@
 # Changelog
 
+## 9.0.0-beta.12 - 2026-07-30
+
+### Breaking changes and migration
+
+- BREAKING: remove the `scope()` builder. Migration: declare scopes as plain `ScopeSpec` object literals - `scopes: { thread: { by: { chatId: 'chatId' }, sort: { field: 'createdAt', dir: 'asc' } } }`. `defineModel` now provides full contextual inference for literal scopes (`member`/`comparator` parameters are typed, `by`/`sort` field names are checked), so no wrapper is needed; the `StructuralScopeSpec` type is removed with it.
+- BREAKING: remove the write-only membership-edge surface - `QueryConfig.edge`, edge payloads on scope entries, journal scope-delta `edge` fields, and `ScopePlacement` edge capture. Edge data had no read surface, so no consumer migration exists. `DB_FORMAT_VERSION` bumps to 6: on-device storage written by an edge-era build cold-resets once on first boot and refills from the server.
+- BREAKING: `StorageAdapter` loses `clear()`. The runtime never called it - cold reset deletes keys individually - so custom adapters simply drop the method.
+
+### Declarative reads
+
+- `ViewConfig.sort` - declare view-item ordering with a single field, a key list (per-key direction, missing-values-last, id tie-break), or a comparator over the mapped item. Replaces app-side re-sorting of view results.
+- `ViewConfig.filter` - `(row, included) => boolean` predicate evaluated after include resolution, so a view can filter by joined data (e.g. a chat list filtered by its joined opponent). `totalCount` reflects the filtered set.
+- `configureDb` gains `defaults.freshnessClasses: Record<string, number>`; `staleTime` in `Model.query`, `defineQuery`, `Model.fetch`, and `defineFetch` configs now also accepts a class name. An unknown class name throws on the first run of the query, naming the class.
+
+### Durability and integrity
+
+- The WAL journal's committed-epoch index advances only after its storage batch succeeds: `committedEntry`/`pruneCommitted` return a write plan (`entries` + `commit()`), so a failed `storage.set` retries with the full prune-delete set instead of silently leaking committed records past the retention cap.
+- The checkpoint scheduler keeps its pending-plan backlog when a flush write throws; the cap-forced flush still fires on the next plan instead of restarting the count from zero.
+- A commit that throws after its WAL record became durable is recovered by the next replay (contract pinned; `applyTransitions` never writes storage - durability belongs to the prepared WAL batch, also pinned).
+- An operation-ledger no-op transition (status mismatch or unknown id) no longer strips the hydrated resume mark, so a pending optimistic operation cannot silently lose its boot-resume slot.
+- `generateTempId` is monotonic under wall-clock rollback: an NTP correction can no longer re-issue an already-used timestamp+counter pair.
+- `hasMany` `dependent: 'destroy'` cascades build a plan-local FK index: destroying N parents in one plan scans the child model once per relation instead of once per parent (new `relationChildScans` diagnostics counter).
+- The committed-row loss feed can only ever touch query chain metadata: a cached fetch result whose payload happens to carry an `ids` array is untouched by row destroys (contract pinned on the fetch cache envelope).
+
+
 ## 9.0.0-beta.11 - 2026-07-30
 
 ### Breaking changes and migration

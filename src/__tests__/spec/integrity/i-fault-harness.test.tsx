@@ -192,7 +192,7 @@ describe('persistence fault invariants', () => {
     };
     storage.plane.set([
       { key: `dbl:applied:${rows.modelId}`, value: encodePersistence(1) },
-      { key: 'dbl:journal:1', value: createJournal(storage.plane, () => 'dbl:').committedEntry(record)[0]!.value }
+      { key: 'dbl:journal:1', value: createJournal(storage.plane, () => 'dbl:').committedEntry(record).entries[0]!.value }
     ]);
     const bus = createCommitBus();
     const batches: unknown[] = [];

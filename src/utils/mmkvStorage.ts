@@ -24,11 +24,6 @@ export const mmkvStorageAdapter = {
   }
 };
 
-/** Clear all DB keys from MMKV. */
-export const clearDbStorage = (): void => {
-  getDbStorage().clearAll();
-};
-
 /** Return all DB storage keys. */
 export const getDbStorageKeys = (): string[] => getDbStorage().getAllKeys();
 

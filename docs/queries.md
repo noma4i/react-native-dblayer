@@ -26,7 +26,6 @@ const threadQuery = MessageModel.query('thread', {
   vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
   page: data => data.messages, // infinite connection; use `select` for a single fetch
   into: MessageModel.scopes.thread,
-  edge: node => ({ deliveredAt: node.deliveredAt }),
   extract: ({ nodes }) => [{ into: UserModel, rows: authorsOf(nodes) }],
   staleTime: 30_000,
   emptyStaleTime: 5_000
@@ -53,11 +52,10 @@ threadQuery.invalidate({ chatId }); // clear the React Query cache for one scope
 | `select`         | `(data) => unknown`                                    | Non-paginated payload selector for a single-fetch query. Mutually exclusive with `page`.                                                                                              |
 | `into`           | `ScopeHandle \| Model`                                 | Write destination: a model's scope handle (scoped write, membership tracking) or a model directly. Defaults to the owning model.                                                      |
 | `coverage`       | `ScopeCoverage`                                        | Membership reconciliation mode for scope destinations. Defaults to `'page'` when `page` is set, else `'complete'`. See [ScopeCoverage semantics](#scopecoverage-semantics) below.     |
-| `edge`           | `(edgeSource) => Record<string, unknown> \| undefined` | Edge payload stored alongside a scope entry; receives the connection edge object (or the node itself for plain lists).                                                                |
 | `extract`        | `(ctx: { data, nodes }) => ExtractSink[]`              | Cross-model sideloads applied in the SAME transaction as the main rows.                                                                                                               |
 | `enabled`        | `(scope) => boolean`                                   | Gate network execution per scope value; `false` skips fetching while local reads stay live. Defaults to always enabled.                                                               |
 | `requiredScope`  | `ReadonlyArray<keyof TScope>`                          | Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. |
-| `staleTime`      | `number` (ms)                                          | Freshness window before a scope with data is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.                                                            |
+| `staleTime`      | `number` (ms) \| class name                            | Freshness window before a scope with data is considered stale and refetched, or the name of a class declared in `DbDefaults.freshnessClasses`. Defaults to `DbDefaults.staleTime`, then `0`.                                                            |
 | `resumeStaleTime` | `number \| null` (ms)                                 | Per-query foreground-resume freshness window. Omit for `DbDefaults.resumeStaleTime`; `null` disables resume invalidation for this query.                                              |
 | `emptyStaleTime` | `number` (ms)                                          | Freshness window used instead of `staleTime` only when the last fetch for a scope returned zero rows.                                                                                 |
 | `maxPages`       | `number`                                               | Hard page-count ceiling. Once reached, the chain reports exhaustion and issues no additional page request.                                                                            |
@@ -257,7 +255,7 @@ created.
 | `select`          | `(data: TData) => TSelected`                 | Pick the payload to expose as `data`; the raw response is never returned.                                                     |
 | `vars`            | `(input: TInput) => Record<string, unknown>` | Derive GraphQL variables from the hook/imperative call input (`document` form only). Omit for input-less queries.             |
 | `enabled`         | `(input: TInput) => boolean`                 | Gate `use(input)`'s automatic network fetch; `false` keeps the hook network-idle. Does not affect `fetch(input)`.             |
-| `staleTime`       | `number` (ms)                                | Freshness window before a result is considered stale and refetched. Defaults to `DbDefaults.staleTime`, then `0`.             |
+| `staleTime`       | `number` (ms) \| class name                  | Freshness window before a result is considered stale and refetched, or a `DbDefaults.freshnessClasses` name. Defaults to `DbDefaults.staleTime`, then `0`.             |
 | `resumeStaleTime` | `number \| null` (ms)                        | Per-fetch foreground-resume freshness window. Omit for the package default; `null` disables resume invalidation.             |
 | `emptyStaleTime`  | `number` (ms)                                | Freshness window used instead of `staleTime` when the selected result is empty.                                               |
 | `isEmpty`         | `(data: TSelected) => boolean`               | Override empty-result classification used to choose `emptyStaleTime`; defaults to nullish or empty-array detection.          |

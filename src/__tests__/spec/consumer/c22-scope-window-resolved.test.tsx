@@ -1,9 +1,8 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
-type StoryRow = { id: string; bucket: string; title: string };
 
 const createStories = () =>
   defineModel({
@@ -14,7 +13,7 @@ const createStories = () =>
       title: f.str()
     },
     scopes: {
-      byBucket: scope<StoryRow>({ by: { bucket: 'bucket' } })
+      byBucket: ({ by: { bucket: 'bucket' } })
     }
   });
 

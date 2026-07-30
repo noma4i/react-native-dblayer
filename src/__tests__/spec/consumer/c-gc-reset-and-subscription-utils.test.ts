@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime, scope } from '../../../index';
+import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../../index';
 import { collectGarbage, registerGcHost } from '../../../core/gc';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
@@ -42,7 +42,7 @@ describe('collectGarbage', () => {
       id: 'SpecConsumerGcIdleScope',
       name: 'SpecConsumerGcIdleScope',
       fields: { bucket: f.str(), label: f.str() },
-      scopes: { feed: scope<{ id: string; bucket: string; label: string }>({ by: { bucket: 'bucket' } }) },
+      scopes: { feed: ({ by: { bucket: 'bucket' } }) },
       maintenance: { dropIdleScopesAfterMs: 0 }
     });
     const query = rows.query<{ rows: Array<{ id: string; bucket: string; label: string }> }, { bucket: string }, { bucket: string }, { id: string; bucket: string; label: string }>('idle-scope', {

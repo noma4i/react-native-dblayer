@@ -1,11 +1,10 @@
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { bootDb } from '../../../dsl/lifecycle';
 import { encodePersistence } from '../../../core/persistenceCodec';
 import { compositeKey } from '../../../core/serialize';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
-type Row = { id: string; bucket: string; label: string };
 
 const configureRecoveryRuntime = (entries: Array<{ key: string; value: string }> = []) => {
   const storage = createMemoryPlane();
@@ -20,7 +19,7 @@ const defineRecoveryModel = (id: string) =>
     name: id,
     gc: 'exempt',
     fields: { bucket: f.str(), label: f.str() },
-    scopes: { feed: scope<Row>({ by: { bucket: 'bucket' } }) }
+    scopes: { feed: ({ by: { bucket: 'bucket' } }) }
   });
 
 const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
@@ -201,7 +200,6 @@ describe('persistence recovery protocol', () => {
     ],
     ['unresolved scope with members', { generation: 0, coverage: 'delta', entries: [{ id: 'row-1', orderKey: 'V' }] }],
     ['unresolved complete scope', { generation: 0, coverage: 'complete', entries: [] }],
-    ['array edge', { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V', edge: [] }] }]
   ])('drops a semantically invalid scope snapshot: %s', async (_label, snapshot) => {
     const modelId = `RecoveryScopeShape${String(_label).replaceAll(' ', '')}`;
     const storageKey = compositeStorageKey('dbl:', 'scope', modelId, compositeKey('feed', '{"bucket":"a"}'));

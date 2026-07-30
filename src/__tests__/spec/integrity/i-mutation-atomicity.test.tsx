@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { getOperationState, replayJournal } from '../../../dsl/configure';
 import { attemptAsyncWithLastWriteFaulted, attemptWithLastWriteFaulted, createFaultStorage, failAfterSettledBatches, snapshotAfterBatches } from '../helpers/faultStorage';
 import { createMockTransport } from '../helpers/harness';
@@ -23,7 +23,7 @@ const defineRows = (id: string) =>
     id,
     name: id,
     fields: { bucket: f.str(), label: f.str() },
-    scopes: { byBucket: scope<Row>({ by: { bucket: 'bucket' } }) },
+    scopes: { byBucket: ({ by: { bucket: 'bucket' } }) },
     maintenance: { dropTempRowsAfterMs: 60_000 }
   });
 

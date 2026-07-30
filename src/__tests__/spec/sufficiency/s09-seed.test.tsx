@@ -1,10 +1,9 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, defineModel, f, resetRuntime, scope } from '../../../index';
+import { DbProvider, defineModel, f, resetRuntime } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
-type StoryRow = { id: string; bucket: string; label: string };
 
 const createStories = (suffix: string) =>
   defineModel({
@@ -12,8 +11,8 @@ const createStories = (suffix: string) =>
     name: `SpecSeed${suffix}`,
     fields: { id: f.str(), bucket: f.str(), label: f.str() },
     scopes: {
-      byBucket: scope<StoryRow>({ by: { bucket: 'bucket' }, sort: 'server-order' }),
-      featured: scope<StoryRow>({ sort: 'server-order' })
+      byBucket: ({ by: { bucket: 'bucket' }, sort: 'server-order' }),
+      featured: ({ sort: 'server-order' })
     }
   });
 

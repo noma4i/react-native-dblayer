@@ -1,9 +1,7 @@
-import { configureDb, defineModel, f, hasMany, resetRuntime, scope } from '../../../index';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { configureDb, defineModel, f, hasMany, resetRuntime } from '../../../index';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { act } from 'react';
 
-type ParentRow = { id: string; owner: string; name: string };
-type ChildRow = { id: string; parentId: string; label: string };
 const createChildModel = () =>
   defineModel({
     id: 'SpecConsumerCascadeChild',
@@ -14,7 +12,7 @@ const createChildModel = () =>
       label: f.str()
     },
     scopes: {
-      byParent: scope<ChildRow>({ by: { parentId: 'parentId' } })
+      byParent: ({ by: { parentId: 'parentId' } })
     }
   });
 
@@ -28,7 +26,7 @@ const createParentModel = (childrenModel: ReturnType<typeof createChildModel>, d
       name: f.str()
     },
     scopes: {
-      byOwner: scope<ParentRow>({ by: { owner: 'owner' } })
+      byOwner: ({ by: { owner: 'owner' } })
     },
     relations: () => ({
       children: hasMany(childrenModel, { foreignKey: 'parentId', ...(dependentDestroy ? { dependent: 'destroy' } : {}) })
@@ -59,6 +57,23 @@ describe('dependent destroy relation contracts', () => {
     expect(children.find('c-2')).toBeUndefined();
     expect(parents.find('p-1')).toBeUndefined();
     childReader.unmount();
+  });
+
+  it('cascades a multi-parent destroy with one child-model scan per relation', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+    const children = createChildModel();
+    const parents = createParentModel(children, true);
+    const parentIds = Array.from({ length: 20 }, (_, index) => `parent-${index}`);
+    act(() => {
+      parents.seed(parentIds.map(id => ({ id, owner: 'me', name: id })));
+      children.seed(parentIds.map(id => ({ id: `child-of-${id}`, parentId: id, label: 'x' })));
+    });
+    diagnostics().reset();
+
+    act(() => parents.destroyMany(parentIds));
+
+    expect(parentIds.every(id => children.find(`child-of-${id}`) === undefined)).toBe(true);
+    expect(diagnostics().snapshot().relationChildScans).toBe(1);
   });
 
   it('keeps non-dependent children intact when parent is destroyed', () => {

@@ -47,7 +47,7 @@ export type ModelReadAccess<TStored extends { id: string } & Record<string, unkn
 };
 
 export type ModelWriteResult = { id: string; changedFields: string[] | null };
-export type ModelMembership = { id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> };
+export type ModelMembership = { id: string; scopeKey: string; orderKey: string };
 
 export type ModelWrites<TStored extends { id: string } & Record<string, unknown>> = {
   prepareRow(
@@ -140,8 +140,8 @@ export type ModelRuntimeRegistrationOptions<TStored extends { id: string; update
   applySnapshot(ops: WriteOp[]): void;
   planRows(rows: unknown[]): WriteOp[];
   planReplace(oldId: string, next: unknown): WriteOp[];
-  captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>;
-  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>): WriteOp[];
+  captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string }>;
+  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string }>): WriteOp[];
 };
 
 export type ModelDirectAccess<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<
@@ -451,15 +451,15 @@ export type QueryScopeSpec<TStored extends { id: string }> = {
   limit?: number;
 };
 
-export type QueryScopeReads<TStored extends { id: string }, TQueryScopes> = {
-  [K in keyof TQueryScopes]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
+export type QueryScopeReads<TStored extends { id: string }, TQueryScopeNames extends string> = {
+  [K in TQueryScopeNames]: (extra?: DbWhere<TStored>) => ModelReadBuilder<TStored>;
 };
 
 export type ModelConfig<
   TFields extends ModelFieldSpecs,
-  TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>>,
+  TScopeNames extends string,
   TExt extends Record<string, unknown>,
-  TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}
+  TQueryScopeNames extends string = never
 > = {
   /** Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets. */
   id: string;
@@ -474,7 +474,7 @@ export type ModelConfig<
    * at define time. Distinct from membership `scopes`: queryScopes are local predicates, not
    * server-order membership indexes.
    */
-  queryScopes?: TQueryScopes;
+  queryScopes?: { [K in TQueryScopeNames]: QueryScopeSpec<InferStoredFields<TFields>> };
   /**
    * Implicit ordering for reads that declare no explicit order: `where` without `opts.orderBy`,
    * `use.first` without `opts.orderBy`, and `use.where(...)` builders without `.orderBy(...)`.
@@ -501,11 +501,11 @@ export type ModelConfig<
    */
   relations?: () => Record<string, RelationDecl>;
   /**
-   * Named `ScopeSpec` definitions (built with `scope(...)`). Each entry becomes a `model.scopes.<name>`
+   * Named `ScopeSpec` definitions (plain object literals). Each entry becomes a `model.scopes.<name>`
    * handle exposing scoped `use`/`useWindow`/`useCount`/`invalidate`/`read` and, for scopes with `by`,
    * automatic membership tracking as rows are written.
    */
-  scopes?: TScopes;
+  scopes?: { [K in TScopeNames]: ScopeSpec<InferStoredFields<TFields>> };
   /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
   gc?: 'exempt';
   /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */

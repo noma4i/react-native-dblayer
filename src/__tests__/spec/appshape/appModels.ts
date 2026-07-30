@@ -7,8 +7,7 @@ import {
   hasMany,
   hasOne,
   projectShape,
-  references,
-  scope
+  references
 } from '../../../index';
 
 const mediaSchema = defineShape()({
@@ -146,10 +145,10 @@ export const createAppModels = (tag: string) => {
       isFriend: f.bool().optional(), isBlocked: f.bool().optional()
     },
     scopes: {
-      blocked: scope<any>({ by: { isBlocked: 'isBlocked' }, sort: { field: 'fullName', dir: 'asc' } }),
-      friends: scope<any>({ by: { isFriend: 'isFriend' }, sort: { field: 'fullName', dir: 'asc' } }),
-      byUuid: scope<any>({ by: { uuid: 'uuid' } }),
-      visitors: scope<any>({ sort: 'server-order' })
+      blocked: ({ by: { isBlocked: 'isBlocked' }, sort: { field: 'fullName', dir: 'asc' } }),
+      friends: ({ by: { isFriend: 'isFriend' }, sort: { field: 'fullName', dir: 'asc' } }),
+      byUuid: ({ by: { uuid: 'uuid' } }),
+      visitors: ({ sort: 'server-order' })
     },
     statics: () => ({ toAttachedSnapshot: (user: any) => projectShape(attachedUserSchema, user) })
   });
@@ -189,7 +188,7 @@ export const createAppModels = (tag: string) => {
     name: `AppShapeVibe:${tag}`,
     gc: 'exempt',
     fields: { name: f.str(), description: f.str().nullable(), color: f.str(), position: f.num(), createdAt: f.str(), updatedAt: f.str() },
-    scopes: { catalog: scope<any>({ sort: { field: 'position', dir: 'asc' } }) }
+    scopes: { catalog: ({ sort: { field: 'position', dir: 'asc' } }) }
   });
 
   const walletTransactions = defineModel({
@@ -199,7 +198,7 @@ export const createAppModels = (tag: string) => {
       amount: f.num(), creditAmount: f.num().nullable(), price: f.num().nullable(), currency: f.str().nullable(), localizedPrice: f.str().nullable(), kind: f.str(), title: f.str().nullable(), subtitle: f.str().nullable(), description: f.str().nullable(),
       gift: f.object(defineShape()({ imageUrl: f.str() })).from((input: any) => input.gift?.imageUrl ? input.gift : null).nullable(), recipient: f.object(attachedUserSchema).from((input: any) => input.recipient ?? null).nullable(), createdAt: f.str(), updatedAt: f.str()
     },
-    scopes: { all: scope<any>({ sort: { field: 'createdAt', dir: 'desc' } }), byKind: scope<any>({ by: { kind: 'kind' }, sort: { field: 'createdAt', dir: 'desc' } }) }
+    scopes: { all: ({ sort: { field: 'createdAt', dir: 'desc' } }), byKind: ({ by: { kind: 'kind' }, sort: { field: 'createdAt', dir: 'desc' } }) }
   });
 
   const messages: any = defineModel({
@@ -215,8 +214,8 @@ export const createAppModels = (tag: string) => {
       attachedUser: f.object(attachedUserSchema).from((message: any) => message.attachedUser ?? null).nullable(), attachedReaction: f.object(reactionSchema).from((message: any) => message.attachedReaction ?? null).nullable(), replyTo: f.object(replySchema).from((message: any) => message.replyTo ?? null).nullable(), clientId: f.str().from((message: any) => message.clientId).nullDefault(), isDeleted: f.custom<boolean, any>(message => message.isDeleted === true).default(false)
     },
     scopes: {
-      thread: scope<any>({ by: { chatId: 'chatId' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } }),
-      media: scope<any>({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } })
+      thread: ({ by: { chatId: 'chatId' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } }),
+      media: ({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } })
     },
     relations: () => ({
       user: belongsTo<any, any>(users, { foreignKey: 'userId' }),
@@ -241,10 +240,10 @@ export const createAppModels = (tag: string) => {
       lastMessageId: f.id().from((chat: any) => chat.lastMessage?.id).nullable().optional(), readMarksSummary: f.object(readMarksSchema).from((chat: any) => chat.readMarksSummary).nullable(), summary: f.object(summarySchema).from((chat: any) => chat.summary).nullable(), connectionStatus: f.enum(['none', 'pending', 'connected'] as const).nullable(), userIds: f.custom<string[], any>(chat => chat.userIds ?? chat.users?.map((user: any) => user.id) ?? []), ownerId: f.id().from((chat: any) => chat.owner?.id).nullable().optional(), createdAt: f.str(), updatedAt: f.str()
     },
     scopes: {
-      list: scope<any>({ by: { statusFilter: 'status' }, sort: { field: 'lastActivityAt', dir: 'desc' } }),
-      premium: scope<any>({ by: { statusFilter: 'status' }, member: (chat: any) => chat.premium === true && chat.kind !== 'system', sort: { field: 'lastActivityAt', dir: 'desc' } }),
-      pinnedNonSystem: scope<any>({ by: { statusFilter: 'status' }, member: (chat: any) => chat.pinned === true && chat.kind !== 'system', sort: { field: 'lastActivityAt', dir: 'desc' } }),
-      pinnedOrSystem: scope<any>({ by: { statusFilter: 'status' }, member: (chat: any) => chat.pinned === true || chat.kind === 'system', sort: { field: 'lastActivityAt', dir: 'desc' } })
+      list: ({ by: { statusFilter: 'status' }, sort: { field: 'lastActivityAt', dir: 'desc' } }),
+      premium: ({ by: { statusFilter: 'status' }, member: (chat: any) => chat.premium === true && chat.kind !== 'system', sort: { field: 'lastActivityAt', dir: 'desc' } }),
+      pinnedNonSystem: ({ by: { statusFilter: 'status' }, member: (chat: any) => chat.pinned === true && chat.kind !== 'system', sort: { field: 'lastActivityAt', dir: 'desc' } }),
+      pinnedOrSystem: ({ by: { statusFilter: 'status' }, member: (chat: any) => chat.pinned === true || chat.kind === 'system', sort: { field: 'lastActivityAt', dir: 'desc' } })
     },
     relations: () => ({ messages: hasMany<any, any>(messages, { foreignKey: 'chatId', dependent: 'destroy' }), lastMessage: hasOne<any, any>(messages, { foreignKey: 'chatId', comparator: compareMessagesNewest }), memberUsers: references<any, any>(users, { ids: chat => chat.userIds ?? [] }) }),
     write: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, policy: { monotonic: { tuple: ['lastSequenceNumber', 'lastMessageAt', 'lastMessageId'] } } }, { fields: ['pinned', 'muted'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
@@ -256,7 +255,7 @@ export const createAppModels = (tag: string) => {
     fields: {
       uuid: f.str(), userId: f.id().from((moment: any) => moment.user?.id ?? moment.userId).nullable(), kind: f.enum(['basic', 'compass'] as const).default('basic'), status: f.enum(['drafted', 'published'] as const).default('drafted'), contentKind: f.enum(['safe', 'sensitive'] as const).default('safe'), media: f.object(mediaSchema).default(() => ({ id: '', kind: '', fileUrl: '', thumbUrl: null, coverUrl: null, gifUrl: null, blurHash: null, duration: null, width: null, height: null, transcoded: false, transcodeStatus: null, transcodeProgress: null, transcodeError: null })), compassTitle: f.str().default(''), compassUpdatedAt: f.str().nullable(), reacted: f.bool().default(false), shareUrl: f.str().default(''), visitsCount: f.num().nullable(), visitorIds: f.array(f.id()).from((input: any) => input.visitorIds ?? []).default(() => []), unreadCount: f.num().nullable(), similarMomentsCount: f.num().default(0), unreadSimilarMomentsCount: f.num().default(0), impressionScore: f.num().nullable(), impressionUuid: f.str().nullable(), sequenceNumber: f.num().nullable(), vibeId: f.id().from((input: any) => input.vibeId).nullable(), widgets: f.raw<any[]>().from((input: any) => input.widgets ?? undefined).default(() => []), metrics: f.object(metricsSchema).from((input: any) => input.metrics ?? null).nullable(), createdAt: f.str(), updatedAt: f.str()
     },
-    scopes: { byUser: scope<any>({ by: { userId: 'userId' }, sort: { field: 'createdAt', dir: 'desc' } }), byUuid: scope<any>({ by: { uuid: 'uuid' } }), feed: scope<any>({ sort: 'server-order' }), myMoments: scope<any>({ sort: { comparator: compareCompassMoments, orderFields: ['unreadSimilarMomentsCount', 'createdAt'] } }), compassRelations: scope<any>({ sort: 'server-order' }) },
+    scopes: { byUser: ({ by: { userId: 'userId' }, sort: { field: 'createdAt', dir: 'desc' } }), byUuid: ({ by: { uuid: 'uuid' } }), feed: ({ sort: 'server-order' }), myMoments: ({ sort: { comparator: compareCompassMoments, orderFields: ['unreadSimilarMomentsCount', 'createdAt'] } }), compassRelations: ({ sort: 'server-order' }) },
     relations: () => ({ user: belongsTo<any, any>(users, { foreignKey: 'userId' }) }),
     write: { groups: [{ fields: ['media'] as const, policy: { monotonic: { all: [{ ladder: { path: 'media.transcodeStatus', tiers: [['processing'], ['ready', 'failed', 'completed']] } }, { tuple: ['media.transcodeProgress'] }] } } }] }
   });

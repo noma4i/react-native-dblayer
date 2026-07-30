@@ -28,8 +28,10 @@ export const createCheckpointScheduler = (options: {
 
   function flushNow(): void {
     checkpointDeadline.cancel();
-    plans = 0;
-    if (knownModels.size === 0) return;
+    if (knownModels.size === 0) {
+      plans = 0;
+      return;
+    }
     const checkpointEpoch = latestEpoch;
     const entries: Array<{ key: string; value: string | null }> = [];
     const markers: Array<{ key: string; value: string | null }> = [];
@@ -39,12 +41,16 @@ export const createCheckpointScheduler = (options: {
       entries.push(...options.getTarget(model).persistEntries());
       if (epoch !== undefined) markers.push({ key: `${options.prefix()}applied:${model}`, value: encodePersistence(epoch) });
     }
-    if (entries.length === 0 && markers.length === 0) return;
+    if (entries.length === 0 && markers.length === 0) {
+      plans = 0;
+      return;
+    }
     entries.push(...markers);
     entries.push(...(options.extraEntries?.() ?? []));
     entries.push({ key: `${options.prefix()}meta`, value: encodePersistence({ lastCheckpointEpoch: checkpointEpoch }) });
     options.storage.set(entries);
-    // Ack strictly after the successful write: a thrown set keeps every dirty marker for the next flush.
+    // Ack strictly after the successful write: a thrown set keeps every dirty marker AND the pending-plan backlog for the next flush.
+    plans = 0;
     for (const model of knownModels) options.getTarget(model).ackPersist();
     dirty.clear();
     flushed = checkpointEpoch;

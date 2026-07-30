@@ -46,7 +46,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     let tempId: string | null = null;
     let insertedTempId: string | null = null;
     let previous: unknown = null;
-    let previousMemberships: Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }> = [];
+    let previousMemberships: Array<{ id: string; scopeKey: string; orderKey: string }> = [];
     let respondInverse: WriteOp[] = [];
     let operationContext!: OptimisticCtx;
     let data!: TData;

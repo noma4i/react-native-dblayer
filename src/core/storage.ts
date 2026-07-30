@@ -15,8 +15,7 @@ const defaultStorageAdapter: StorageAdapter = {
   getItem: (key: string) => getMmkvStorageModule().mmkvStorageAdapter.getItem(key),
   setItem: (key: string, value: string) => getMmkvStorageModule().mmkvStorageAdapter.setItem(key, value),
   removeItem: (key: string) => getMmkvStorageModule().removeDbStorageKey(key),
-  allKeys: () => getMmkvStorageModule().getDbStorageKeys(),
-  clear: () => getMmkvStorageModule().clearDbStorage()
+  allKeys: () => getMmkvStorageModule().getDbStorageKeys()
 };
 
 const currentStorageAdapter = createConfiguredSlot(defaultStorageAdapter);

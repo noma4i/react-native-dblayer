@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, scope } from '../../../index';
+import { configureDb, defineModel, defineShape, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type BulkRow = { id: string; name: string; status: string; score: number };
@@ -48,7 +48,7 @@ const createScopedModel = () =>
       score: f.num()
     },
     scopes: {
-      byStatus: scope<BulkRow>({ by: { status: 'status' } })
+      byStatus: ({ by: { status: 'status' } })
     }
   });
 
@@ -63,7 +63,7 @@ const createNestedScopedModel = () =>
       markers: f.array(markerShape)
     },
     scopes: {
-      byStatus: scope<NestedBulkRow>({ by: { status: 'status' } })
+      byStatus: ({ by: { status: 'status' } })
     }
   });
 

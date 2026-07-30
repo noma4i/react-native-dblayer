@@ -9,7 +9,7 @@ type Mmkv = ReturnType<typeof createMMKV>;
  * (e.g. the `allKeys`/`getAllKeys` drift fixed in 8.0.0-beta.4) fails `tsc` instead of silently boot-crashing
  * on device.
  */
-export type UsedMmkvMethods = Pick<Mmkv, 'getString' | 'set' | 'remove' | 'getAllKeys' | 'clearAll'>;
+export type UsedMmkvMethods = Pick<Mmkv, 'getString' | 'set' | 'remove' | 'getAllKeys'>;
 
 const stores = new Map<string, Map<string, string>>();
 
@@ -32,10 +32,7 @@ export const createMockMmkv = (options?: { id?: string }): UsedMmkvMethods => {
       store.set(key, String(value));
     },
     remove: key => store.delete(key),
-    getAllKeys: () => Array.from(store.keys()),
-    clearAll: () => {
-      store.clear();
-    }
+    getAllKeys: () => Array.from(store.keys())
   };
   return fake;
 };

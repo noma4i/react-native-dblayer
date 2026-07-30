@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModel, f, scope } from '../../../index';
+import { DbProvider, configureDb, defineFetch, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type Item = { id: string; bucket: string };
@@ -39,7 +39,7 @@ const createQueryCase = (suffix: string, rows: Item[], options: { emptyStaleTime
     id: `SpecEmptyQuery${suffix}`,
     name: `SpecEmptyQuery${suffix}`,
     fields: { bucket: f.str() },
-    scopes: { byBucket: scope<Item>({ sort: 'server-order' }) }
+    scopes: { byBucket: ({ sort: 'server-order' }) }
   });
   const query = items.query<QueryResponse, Record<string, never>, { bucket: string }, Item>('list', {
     document,
@@ -69,7 +69,7 @@ const createDirectModelQueryCase = (suffix: string, rows: Item[]) => {
     id: `SpecEmptyDirectModelQuery${suffix}`,
     name: `SpecEmptyDirectModelQuery${suffix}`,
     fields: { bucket: f.str() },
-    scopes: { byBucket: scope<Item>({ by: { bucket: 'bucket' } }) }
+    scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
   });
   const query = items.query<{ rows: Item[] }, Record<string, never>, Record<string, never>, Item>('list', {
     document,

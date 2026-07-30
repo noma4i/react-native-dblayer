@@ -1,9 +1,8 @@
 import React, { act, useState } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, resetRuntime, scope } from '../../../index';
+import { defineModel, f, resetRuntime } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
-type Row = { id: string; bucket: string; rank: number };
 type ScopeReadWork = { fullRows: number; incrementalRows: number };
 
 const scopeReadWork = (): { snapshot: () => ScopeReadWork; reset: () => void } =>
@@ -18,7 +17,7 @@ const createRows = (tag: string) =>
     name: `SpecScopeCollectionRows${tag}`,
     fields: { bucket: f.str(), rank: f.num() },
     scopes: {
-      bucket: scope<Row>({ by: { bucket: 'bucket' }, sort: { field: 'rank', dir: 'asc' } })
+      bucket: ({ by: { bucket: 'bucket' }, sort: { field: 'rank', dir: 'asc' } })
     }
   });
 

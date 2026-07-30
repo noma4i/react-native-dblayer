@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineFetch, defineModel, f, scope } from '../../../index';
+import { configureDb, defineFetch, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestFocused, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type FetchPayload = { value: string };
@@ -106,7 +106,7 @@ describe('fetch lifecycle contracts', () => {
       id: 'SpecFetchContractsRows',
       name: 'SpecFetchContractsRows',
       fields: { bucket: f.str(), version: f.num() },
-      scopes: { byBucket: scope<Row>({ by: { bucket: 'bucket' } }) }
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
     });
     const request = rows.query<QueryResponse, ScopeValue, ScopeValue, Row>('f5-invalidate', {
       document,

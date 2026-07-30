@@ -57,7 +57,7 @@ export type ApplyTarget = {
   put(rows: StoredRow[]): Array<{ id: string; changedFields: string[] | null }>;
   destroy(ids: string[], tombstone?: boolean): string[];
   scope(scopeKey: string, next: unknown): void;
-  scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; orderKey: string; edge?: Record<string, unknown> }>; detach: string[] }): void;
+  scopeDelta(scopeKey: string, delta: { append: Array<{ id: string; orderKey: string }>; detach: string[] }): void;
   reactiveScopes?(ids: string[]): string[];
   persistEntries(): Array<{ key: string; value: string | null }>;
   /** Clears the dirty markers captured by the last persistEntries; called only after a successful storage write. */

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, hasMany, scope } from '../../../index';
+import { belongsTo, configureDb, defineModel, f, hasMany } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -18,7 +18,7 @@ const createModels = (suffix: string) => {
     name: `SpecIntegrityReplaceSymmetryItems${suffix}`,
     fields: { id: f.str(), parentId: f.str() },
     maintenance: { dropTempRowsAfterMs: 1000 },
-    scopes: { byParent: scope<ItemRow>({ by: { parentId: 'parentId' } }) },
+    scopes: { byParent: ({ by: { parentId: 'parentId' } }) },
     relations: () => ({
       parent: belongsTo<ItemRow, ParentRow>(parents, { foreignKey: 'parentId', counterCache: { field: 'itemCount' } })
     })

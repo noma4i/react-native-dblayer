@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { configureDb, createSingletonStatics, defineModel, f, scope } from '../../../index';
+import { configureDb, createSingletonStatics, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
@@ -32,7 +32,7 @@ const createChatsModel = (tag: string) =>
       ...Object.fromEntries(Array.from({ length: CONTENT_FIELD_COUNT }, (_, index) => [`content${index}`, f.str()]))
     },
     scopes: {
-      active: scope<ChatRow>({ by: { bucket: 'bucket' }, sort: { field: 'lastActivityAt', dir: 'desc' } })
+      active: ({ by: { bucket: 'bucket' }, sort: { field: 'lastActivityAt', dir: 'desc' } })
     }
   });
 

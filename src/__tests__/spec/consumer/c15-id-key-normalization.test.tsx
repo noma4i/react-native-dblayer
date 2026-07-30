@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MomentRow = { id: string; userId: string; status: string };
@@ -20,7 +20,7 @@ const createMoments = () =>
       status: f.str()
     },
     scopes: {
-      byUser: scope<MomentRow>({ by: { userId: 'userId' } })
+      byUser: ({ by: { userId: 'userId' } })
     }
   });
 

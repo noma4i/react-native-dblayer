@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopedRow = {
@@ -48,7 +48,7 @@ const createScopedModel = () =>
       markers: f.raw<Array<{ id: string }>>()
     },
     scopes: {
-      byGroup: scope<ScopedRow>({
+      byGroup: ({
         by: { groupId: 'groupId' },
         sort: { field: 'rank', dir: 'asc' }
       })

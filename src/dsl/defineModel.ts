@@ -9,8 +9,7 @@ import type {
   QueryScopeSpec,
   RequiredReadUse,
   ScopeHandle,
-  ScopeSpec,
-  ScopeValueOf
+  ScopeSpec
 } from '../types';
 import { registerRelationHost } from '../core/relations';
 import { registerKeyedReset } from '../core/reset';
@@ -38,15 +37,15 @@ import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrat
  */
 export const defineModel = <
   const TFields extends ModelFieldSpecs,
-  TScopes extends Record<string, ScopeSpec<InferStoredFields<TFields>>> = {},
+  TScopeNames extends string = never,
   TExt extends Record<string, unknown> = {},
-  TQueryScopes extends Record<string, QueryScopeSpec<InferStoredFields<TFields>>> = {}
+  TQueryScopeNames extends string = never
 >(
-  config: ModelConfig<TFields, TScopes, TExt, TQueryScopes>
+  config: ModelConfig<TFields, TScopeNames, TExt, TQueryScopeNames>
 ): Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
   use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
-    QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
-  scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>> };
+    QueryScopeReads<InferStoredFields<TFields>, TQueryScopeNames>;
+  scopes: { [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields>, Record<string, unknown>, InferBuildInput<TFields>> };
 } & TExt => {
   const { applyWriteGate, isPlanRow, normalize } = createModelNormalization(config);
   const context = createModelContext<InferStoredFields<TFields> & Record<string, unknown>>({
@@ -57,7 +56,8 @@ export const defineModel = <
   });
   const { planes, resolvedRelations } = context;
 
-  const membershipScopes = Object.entries(config.scopes ?? {}).flatMap(([name, spec]) => (spec.by ? [[name, { ...spec, by: spec.by }] as const] : []));
+  const scopeSpecs = (config.scopes ?? {}) as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>>;
+  const membershipScopes = Object.entries(scopeSpecs).flatMap(([name, spec]) => (spec.by ? [[name, { ...spec, by: spec.by }] as const] : []));
 
   const scopeByFieldMap = new Map(membershipScopes.map(([name, spec]) => [name, spec.by] as const));
   const { keyForScope, scopeValueFromRow } = createModelScopeKeys(config, scopeByFieldMap);
@@ -86,14 +86,14 @@ export const defineModel = <
     detachForDestroy
   });
 
-  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }> =>
+  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; orderKey: string }> =>
     planes()
       .scopeIndex.keysOf(id)
       .flatMap(scopeKey => {
         const entry = planes()
           .scopeIndex.read(scopeKey)
           .entries.find(candidate => candidate.id === id);
-        return entry ? [{ id, scopeKey, orderKey: entry.orderKey, edge: entry.edge }] : [];
+        return entry ? [{ id, scopeKey, orderKey: entry.orderKey }] : [];
       });
   const { prepareRow, preparePatch, putRows, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<
     InferStoredFields<TFields> & Record<string, unknown>
@@ -156,7 +156,7 @@ export const defineModel = <
 
   let consumerResetSequence = 0;
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
-    [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields> & Record<string, unknown>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>>;
+    [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields> & Record<string, unknown>, Record<string, unknown>, InferBuildInput<TFields>>;
   };
 
   const model: ModelCore<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>> & { scopes: typeof scopeHandles } = {
@@ -200,7 +200,8 @@ export const defineModel = <
     planRestore
   });
 
-  for (const [scopeName, spec] of Object.entries(config.queryScopes ?? {})) {
+  const queryScopeSpecs = (config.queryScopes ?? {}) as Record<string, QueryScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>>;
+  for (const [scopeName, spec] of Object.entries(queryScopeSpecs)) {
     if (scopeName in model.use) throw new Error(`${config.name} queryScope '${scopeName}' collides with a built-in use key`);
     (model.use as Record<string, unknown>)[scopeName] = (extra?: DbWhere<InferStoredFields<TFields> & Record<string, unknown>>) => {
       const criteria = extra ? ({ and: [spec.where, extra] } as DbWhere<InferStoredFields<TFields> & Record<string, unknown>>) : spec.where;
@@ -219,7 +220,7 @@ export const defineModel = <
   }
   return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
     use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
-      QueryScopeReads<InferStoredFields<TFields>, TQueryScopes>;
-    scopes: { [K in keyof TScopes]: ScopeHandle<InferStoredFields<TFields>, ScopeValueOf<TScopes[K]>, InferBuildInput<TFields>> };
+      QueryScopeReads<InferStoredFields<TFields>, TQueryScopeNames>;
+    scopes: { [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields>, Record<string, unknown>, InferBuildInput<TFields>> };
   } & TExt;
 };

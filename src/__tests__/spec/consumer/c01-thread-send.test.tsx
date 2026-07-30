@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { belongsTo, configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/MessageModel.ts: thread scope by chatId, custom comparator
@@ -69,7 +69,7 @@ const createModels = (suffix: string, options?: { threadRetention?: number }) =>
       })
     }),
     scopes: {
-      thread: scope<MessageRow>({
+      thread: ({
         by: { chatId: 'chatId' },
         sort: { comparator: compareNewestFirst },
         retention: options?.threadRetention == null ? undefined : { maxRows: options.threadRetention }

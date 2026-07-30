@@ -66,7 +66,6 @@ export type ApplyTarget = {
         append: Array<{
             id: string;
             orderKey: string;
-            edge?: Record<string, unknown>;
         }>;
         detach: string[];
     }): void;

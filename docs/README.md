@@ -65,7 +65,6 @@ somewhere under `docs/`.
 | `defineModel` | value | [models.md](./models.md#definemodelconfig) |
 | `ScopeHandle` | type  | [models.md](./models.md#scopes)            |
 | `ScopeWindowResult` | type | [reading.md](./reading.md#scope-reads) |
-| `scope`       | value | [models.md](./models.md#scopes)            |
 | `ScopeSpec`   | type  | [models.md](./models.md#scopespec)         |
 | `ModelInput`  | type  | [models.md](./models.md#fields-f)          |
 | `ModelStored` | type  | [models.md](./models.md#fields-f)          |

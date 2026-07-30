@@ -25,6 +25,10 @@ export const useMergedScopeRows = <TRow extends { id: string }>(
   options?: MergeOptions<TRow>
 ): ReadonlyArray<TRow> => {
   const comparator = options?.comparator;
+  // Concurrent-render safety: this ref is a pure memo keyed by the FULL input identity (base, extras,
+  // comparator). A discarded or interleaved concurrent render can only overwrite it with an entry
+  // derived from the same pure computation, and result identity is re-guarded by arraysShallowEqual,
+  // so no render can observe a value that differs from what its own inputs produce.
   const previousRef = useRef<{ base: ReadonlyArray<TRow>; extras: ReadonlyArray<TRow>; comparator: MergeOptions<TRow>['comparator']; result: ReadonlyArray<TRow> } | null>(null);
   return useMemo(() => {
     const previous = previousRef.current;

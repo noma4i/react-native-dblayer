@@ -50,7 +50,6 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
     select?: (data: TResponse) => unknown;
     into: QueryDestination<TStored, TScope>;
     coverage?: ScopeCoverage;
-    edge?: (edgeSource: unknown) => Record<string, unknown> | undefined;
     extract?: (ctx: {
         data: TResponse;
         nodes: unknown[];
@@ -58,7 +57,8 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
     enabled?: (scope: TScope) => boolean;
     /** Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. */
     requiredScope?: ReadonlyArray<keyof TScope & string>;
-    staleTime?: number;
+    /** Freshness window in ms, or the name of a class declared in `configureDb` `defaults.freshnessClasses`. */
+    staleTime?: number | string;
     resumeStaleTime?: number | null;
     emptyStaleTime?: number;
     refetchOnMount?: boolean;

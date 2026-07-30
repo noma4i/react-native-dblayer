@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getInternalModelHandle } from '../../../core/internalHandles';
 import { compositeKey } from '../../../core/serialize';
@@ -100,8 +100,8 @@ describe('commit-envelope planning purity', () => {
         model: rows.modelId,
         scopeKey: 'scope-1',
         append: [
-          { id: 'row-1', orderKey: 'V', edge: { label: 'first' } },
-          { id: 'row-1', orderKey: 'W', edge: { label: 'last' } }
+          { id: 'row-1', orderKey: 'V' },
+          { id: 'row-1', orderKey: 'W' }
         ],
         detach: []
       }
@@ -112,7 +112,7 @@ describe('commit-envelope planning purity', () => {
         kind: 'scope-delta',
         model: rows.modelId,
         scopeKey: 'scope-1',
-        append: [{ id: 'row-1', orderKey: 'W', edge: { label: 'last' } }],
+        append: [{ id: 'row-1', orderKey: 'W' }],
         detach: []
       }
     ]);
@@ -124,7 +124,7 @@ describe('commit-envelope planning purity', () => {
       id: 'CommitEnvelopePlanningPlacement',
       name: 'CommitEnvelopePlanningPlacement',
       fields: { rank: f.num() },
-      scopes: { list: scope({ sort: { field: 'rank', dir: 'asc' } }) }
+      scopes: { list: ({ sort: { field: 'rank', dir: 'asc' } }) }
     });
 
     const envelope = createCommitEnvelope([

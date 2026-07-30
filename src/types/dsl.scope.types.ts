@@ -1,4 +1,4 @@
-import type { ClientSort, ComparatorSort } from './dsl.ordering.types';
+import type { ClientSort } from './dsl.ordering.types';
 
 /**
  * Declarative membership and ordering contract for a model scope.
@@ -10,16 +10,9 @@ import type { ClientSort, ComparatorSort } from './dsl.ordering.types';
  */
 export interface ScopeSpec<TStored> {
   by?: Record<string, keyof TStored & string>;
+  /** Additional membership predicate for `by`-derived scopes. A row joins the scope instance matching its field values only while `member(row)` is true; when a write makes it false the row leaves the scope in the same apply transaction. Requires `by`. Ignored for query-destination scopes (no `by`). */
   member?: { call(row: TStored): boolean }['call'];
   sort?: ClientSort<TStored> | 'server-order';
   retention?: { maxRows: number };
 }
 
-/** Structural (untyped) scope spec accepted by the `scope()` overload without a row generic. */
-export type StructuralScopeSpec = {
-  by?: Record<string, string>;
-  /** Additional membership predicate for `by`-derived scopes. A row joins the scope instance matching its field values only while `member(row)` is true; when a write makes it false the row leaves the scope in the same apply transaction. Requires `by`. Ignored for query-destination scopes (no `by`). */
-  member?: { call(row: Record<string, unknown>): boolean }['call'];
-  sort?: { field: string; dir: 'asc' | 'desc' } | ComparatorSort<Record<string, unknown>> | 'server-order';
-  retention?: { maxRows: number };
-};

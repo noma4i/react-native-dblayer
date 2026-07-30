@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { belongsTo, defineModel, f, hasMany, hasOne, scope } from '../../../index';
+import { belongsTo, defineModel, f, hasMany, hasOne } from '../../../index';
 import { getCommitBus } from '../../../dsl/configure';
 import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 
@@ -8,7 +8,6 @@ type ScopeRow = { id: string; groupId: string; title: string };
 type ProjectedScopeRow = { id: string; title: string };
 type AuthorRow = { id: string; name: string };
 type ChildRow = { id: string; parentId: string; title: string; rank: number };
-type ViewRow = { id: string; groupId: string; title: string };
 type CommentRow = { id: string; parentId: string; body: string };
 
 const createScopeRows = () =>
@@ -17,7 +16,7 @@ const createScopeRows = () =>
     name: 'SpecReadPathBudgetScopeRows',
     fields: { groupId: f.str(), title: f.str() },
     scopes: {
-      byGroup: scope<ScopeRow>({ by: { groupId: 'groupId' } })
+      byGroup: ({ by: { groupId: 'groupId' } })
     }
   });
 
@@ -64,7 +63,7 @@ const createViewRelations = () => {
     id: 'SpecReadPathBudgetViewRows',
     name: 'SpecReadPathBudgetViewRows',
     fields: { groupId: f.str(), title: f.str() },
-    scopes: { byGroup: scope<ViewRow>({ by: { groupId: 'groupId' } }) },
+    scopes: { byGroup: ({ by: { groupId: 'groupId' } }) },
     relations: () => ({ comments: hasMany(comments, { foreignKey: 'parentId' }) })
   });
   return { comments, rows };

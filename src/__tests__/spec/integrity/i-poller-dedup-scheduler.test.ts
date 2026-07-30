@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createModelStatusPoller } from '../../../utils/modelStatusPoller';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -18,7 +18,7 @@ describe('poller reset and complete scope deduplication', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineModel({
       id: 'CompleteDedupRows', name: 'CompleteDedupRows', fields: { bucket: f.str(), label: f.str() },
-      scopes: { byBucket: scope<{ id: string; bucket: string; label: string }>({ by: { bucket: 'bucket' } }) }
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
     });
     rows.scopes.byBucket.seed({ bucket: 'a' }, [
       { id: 'row-1', bucket: 'a', label: 'first' },

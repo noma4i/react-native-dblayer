@@ -1,14 +1,11 @@
 import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
+export { runInApplyBatch, poisonStoreReads, restoreStoreReads } from './storeSync';
 export declare const registerModelStoreFactory: <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>) => void;
 /**
- * Run one apply pass with batched collection flushes: every store write inside `run` lands in a
- * per-store transactional buffer (readable through the store immediately) and is committed to the
- * collections as one sync-feed transaction per store when the pass ends, so live queries observe
- * one consistent tick instead of per-row churn. A failure aborts every participating store buffer.
+ * Per-model primary store facade: composes the entity plane (rows, transactional buffer,
+ * tombstones, persistence) with the scope plane (membership collection, live scope collections)
+ * into the `ModelStore` contract. Both planes are private to this composition.
  */
-export declare const runInApplyBatch: <T>(run: () => T) => T;
-export declare const poisonStoreReads: () => void;
-export declare const restoreStoreReads: () => void;
 export declare const createModelStore: <T extends RowRecord>(options: {
     modelId: string;
     now: () => number;

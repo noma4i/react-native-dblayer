@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const QUERY_DOCUMENT = { kind: 'Document', definitions: [] } as never;
@@ -29,7 +29,7 @@ const createLiveHarness = (suffix: string) => {
     id: `SpecLiveMessages${suffix}`,
     name: `SpecLiveMessages${suffix}`,
     fields: { chatId: f.str(), text: f.str() },
-    scopes: { thread: scope<MessageRow>({ by: { chatId: 'chatId' } }) }
+    scopes: { thread: ({ by: { chatId: 'chatId' } }) }
   });
   const threadQuery = messages.query<{ rows: MessageRow[] }, { chatId: string }, { chatId: string }, MessageRow>('thread', {
     document: QUERY_DOCUMENT,

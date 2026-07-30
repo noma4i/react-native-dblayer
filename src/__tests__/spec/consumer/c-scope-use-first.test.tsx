@@ -1,10 +1,9 @@
 import { act } from 'react';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // ScopeHandle.useFirst: nullable single-row scope reads.
 
-type ProfileRow = { id: string; uuid: string; score: number };
 
 const createProfiles = (suffix: string) =>
   defineModel({
@@ -12,8 +11,8 @@ const createProfiles = (suffix: string) =>
     name: `SpecScopeUseFirst${suffix}`,
     fields: { id: f.str(), uuid: f.str(), score: f.num() },
     scopes: {
-      byUuid: scope<ProfileRow>({ by: { uuid: 'uuid' } }),
-      ranked: scope<ProfileRow>({ by: { uuid: 'uuid' }, sort: { field: 'score', dir: 'desc' } })
+      byUuid: ({ by: { uuid: 'uuid' } }),
+      ranked: ({ by: { uuid: 'uuid' }, sort: { field: 'score', dir: 'desc' } })
     }
   });
 

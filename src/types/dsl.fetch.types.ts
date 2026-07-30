@@ -6,7 +6,8 @@ type FetchConfigBase<TData, TInput, TSelected> = {
   select: (data: TData) => TSelected;
   vars?: (input: TInput) => Record<string, unknown>;
   enabled?: (input: TInput) => boolean;
-  staleTime?: number;
+  /** Freshness window in ms, or the name of a class declared in `configureDb` `defaults.freshnessClasses`. */
+  staleTime?: number | string;
   resumeStaleTime?: number | null;
   emptyStaleTime?: number;
   isEmpty?: (data: TSelected) => boolean;

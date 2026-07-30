@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { userId: string };
@@ -28,7 +28,7 @@ const createMixedMoments = () =>
       status: f.str()
     },
     scopes: {
-      byUser: scope<MixedRow>({ by: { userId: 'userId' } })
+      byUser: ({ by: { userId: 'userId' } })
     }
   });
 
@@ -42,7 +42,7 @@ const createRaceMoments = () =>
       status: f.str()
     },
     scopes: {
-      byUser: scope<RaceRow>({ by: { userId: 'userId' } })
+      byUser: ({ by: { userId: 'userId' } })
     }
   });
 
@@ -57,7 +57,7 @@ const createNullableMoments = () =>
       note: f.str().nullable().optional()
     },
     scopes: {
-      byUser: scope<NullableRow>({ by: { userId: 'userId' }, sort: { field: 'rank', dir: 'asc' } })
+      byUser: ({ by: { userId: 'userId' }, sort: { field: 'rank', dir: 'asc' } })
     }
   });
 

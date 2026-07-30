@@ -1,5 +1,5 @@
 import { sortBy } from 'es-toolkit';
-import type { StoragePlane, Journal, JournalOp, JournalRecord, PersistedJournalRecord } from '../../types';
+import type { StoragePlane, Journal, JournalOp, JournalRecord, JournalWritePlan, PersistedJournalRecord } from '../../types';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
@@ -122,26 +122,45 @@ export const createJournal = (storage: StoragePlane, prefix: () => string): Jour
     (committedEpochs ??= allRecords()
       .filter(record => record.status === 'committed')
       .map(record => record.epoch));
-  const pruneCommitted = (pruneBeforeEpoch: number): Array<{ key: string; value: string | null }> => {
+  /** Plan which committed epochs fall past the cap; the live index is only mutated by `commit()` after the batch is durable. */
+  const planPrune = (index: number[], virtual: readonly number[], pruneBeforeEpoch: number): { stale: number[]; commitStale: () => void } => {
+    const prunable = virtual.filter(epoch => epoch <= pruneBeforeEpoch).sort((a, b) => a - b);
+    const stale = prunable.slice(0, Math.max(0, virtual.length - COMMITTED_CAP));
+    const commitStale = (): void => {
+      for (const epoch of stale) {
+        const position = index.indexOf(epoch);
+        if (position >= 0) index.splice(position, 1);
+      }
+    };
+    return { stale, commitStale };
+  };
+  const pruneCommitted = (pruneBeforeEpoch: number): JournalWritePlan => {
     const index = committedIndex();
-    const prunable = index.filter(epoch => epoch <= pruneBeforeEpoch).sort((a, b) => a - b);
-    const stale = prunable.slice(0, Math.max(0, index.length - COMMITTED_CAP));
-    for (const epoch of stale) index.splice(index.indexOf(epoch), 1);
-    return stale.map(epoch => ({ key: recordKey(epoch), value: null }));
+    const { stale, commitStale } = planPrune(index, index, pruneBeforeEpoch);
+    return { entries: stale.map(epoch => ({ key: recordKey(epoch), value: null })), commit: commitStale };
   };
 
   return {
     /** Storage entry for one pending WAL record, composed with other durable state in one batch. */
     pendingEntry: (record: JournalRecord): Array<{ key: string; value: string | null }> => [{ key: recordKey(record.epoch), value: encodeJournalRecord(record) }],
-    /** Storage entries marking the record committed + pruning old committed records past the cap. */
-    committedEntry: (record: JournalRecord, pruneBeforeEpoch = Number.POSITIVE_INFINITY): Array<{ key: string; value: string | null }> => {
+    /** Plan marking the record committed + pruning past-cap records; call `commit()` only after the batch's storage.set succeeded. */
+    committedEntry: (record: JournalRecord, pruneBeforeEpoch = Number.POSITIVE_INFINITY): JournalWritePlan => {
       const index = committedIndex();
-      const entries: Array<{ key: string; value: string | null }> = [{ key: recordKey(record.epoch), value: encodeJournalRecord({ ...record, status: 'committed' }) }];
-      if (!index.includes(record.epoch)) index.push(record.epoch);
-      entries.push(...pruneCommitted(pruneBeforeEpoch));
-      return entries;
+      const virtual = index.includes(record.epoch) ? index : [...index, record.epoch];
+      const { stale, commitStale } = planPrune(index, virtual, pruneBeforeEpoch);
+      const entries: Array<{ key: string; value: string | null }> = [
+        { key: recordKey(record.epoch), value: encodeJournalRecord({ ...record, status: 'committed' }) },
+        ...stale.map(epoch => ({ key: recordKey(epoch), value: null }))
+      ];
+      return {
+        entries,
+        commit: () => {
+          if (!index.includes(record.epoch)) index.push(record.epoch);
+          commitStale();
+        }
+      };
     },
-    /** Prune committed records after their checkpoint batch has completed successfully. */
+    /** Plan pruning committed records after their checkpoint batch flushed; call `commit()` only after the deletes are durable. */
     pruneCommitted,
     allRecords,
     pending: (): JournalRecord[] => allRecords().filter(record => record.status === 'pending'),

@@ -18,6 +18,7 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   resumeRefetches: 0,
   entityUpsertGuardHits: 0,
   membershipWrites: 0,
+  relationChildScans: 0,
   corruptionJournalDrops: 0,
   corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
@@ -70,6 +71,10 @@ export const noteEntityUpsertGuardHit = (): void => {
 };
 
 /** Count membership feed messages actually written - the work-counter behind same-pairs replaceAll staying at zero. */
+export const noteRelationChildScan = (): void => {
+  diagnostics.relationChildScans += 1;
+};
+
 export const noteMembershipWrites = (count: number): void => {
   diagnostics.membershipWrites += count;
 };

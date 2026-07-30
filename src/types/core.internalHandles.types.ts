@@ -10,8 +10,8 @@ export type InternalModelHandle = {
   applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
   planRows(rows: unknown[], options?: { origin?: 'event' }): WriteOp[];
   planReplace(oldId: string, next: unknown): WriteOp[];
-  captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>;
-  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string; edge?: Record<string, unknown> }>): WriteOp[];
+  captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string }>;
+  planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string }>): WriteOp[];
   relations(): Record<string, RelationDecl>;
   revision(): number;
   dropTempRowsAfterMs(): number | undefined;
@@ -20,7 +20,7 @@ export type InternalModelHandle = {
 /** Opaque per-scope capabilities: apply plans, keying, order semantics, and resolution. */
 export type InternalScopeHandle = {
   apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: { resetOrder?: boolean }): void;
-  planApply(scopeValue: unknown, rows: Array<{ row: unknown; edge?: Record<string, unknown> }>, coverage: ScopeCoverage, options?: { resetOrder?: boolean }): WriteOp[];
+  planApply(scopeValue: unknown, rows: Array<{ row: unknown }>, coverage: ScopeCoverage, options?: { resetOrder?: boolean }): WriteOp[];
   key(scopeValue: unknown): string;
   isServerOrder(): boolean;
   planPlacement(scopeValue: unknown, id: string, position: 'prepend' | 'append'): WriteOp[];

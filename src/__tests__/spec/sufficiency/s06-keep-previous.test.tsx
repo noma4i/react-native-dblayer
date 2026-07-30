@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -10,7 +10,7 @@ const createMoments = (id: string) =>
     id,
     name: id,
     fields: { vibeId: f.str(), label: f.str() },
-    scopes: { feed: scope<{ id: string; vibeId: string; label: string }>({ by: { vibeId: 'vibeId' }, sort: 'server-order' }) }
+    scopes: { feed: ({ by: { vibeId: 'vibeId' }, sort: 'server-order' }) }
   });
 
 type Moments = ReturnType<typeof createMoments>;

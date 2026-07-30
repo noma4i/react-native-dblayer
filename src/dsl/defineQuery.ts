@@ -33,7 +33,7 @@ import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
-import { isQueryFresh } from '../core/fetch/queryFreshness';
+import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { createGenerationFence } from '../utils/runtimeGeneration';
@@ -60,13 +60,13 @@ const operationKey = (document: DbGraphQLDocument<any, any>, override?: string):
   if (!name) throw new Error('defineQuery requires a named operation or an explicit key');
   return name;
 };
-const nodePairsOf = (value: unknown): Array<{ node: unknown; edgeSource: unknown }> => {
-  if (Array.isArray(value)) return value.map(node => ({ node, edgeSource: node }));
-  if (!isRecord(value)) return value == null ? [] : [{ node: value, edgeSource: value }];
+const nodesOf = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return value == null ? [] : [value];
   const connection = value as ConnectionLike;
-  if (connection.nodes) return connection.nodes.map(node => ({ node, edgeSource: node }));
-  if (connection.edges) return connection.edges.flatMap(edge => (edge.node == null ? [] : [{ node: edge.node, edgeSource: edge }]));
-  return [{ node: value, edgeSource: value }];
+  if (connection.nodes) return connection.nodes;
+  if (connection.edges) return connection.edges.flatMap(edge => (edge.node == null ? [] : [edge.node]));
+  return [value];
 };
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
 /** Fail fast at define time, then rewrite the `connection` shorthand into the one `page` seam - dense nodes, pageInfo passthrough. */
@@ -131,10 +131,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     resurrectDestroyed: boolean
   ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
-    const pairs = nodePairsOf(selected);
-    const nodes = pairs.map(pair => pair.node);
+    const nodes = nodesOf(selected);
     const ops: WriteOp[] = [];
-    const rows = isScopeDestination(config.into) ? pairs.map(pair => ({ row: pair.node as TStored & { id: string }, edge: config.edge?.(pair.edgeSource) })) : [];
+    const rows = isScopeDestination(config.into) ? nodes.map(node => ({ row: node as TStored & { id: string } })) : [];
     if (isScopeDestination(config.into)) ops.push(...getInternalScopeHandle(config.into).planApply(scope, rows, coverage, { resetOrder }));
     else ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], resurrectDestroyed ? { origin: 'event' as const } : undefined));
     for (const sink of config.extract?.({ data, nodes }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
@@ -187,9 +186,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const defaults = getDbRuntimeConfig().defaults;
     return meta?.lastCount === 0 && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null
       ? (config.emptyStaleTime ?? defaults.emptyStaleTime)!
-      : (config.staleTime ?? defaults.staleTime ?? 0);
+      : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };
   const run = async (scope: TScope, options: { restart: boolean; resurrectDestroyed?: boolean; nextPage?: boolean; propagateFailure?: boolean }): Promise<void> => {
+    resolveStaleTime(config.staleTime, getDbRuntimeConfig().defaults);
     if (config.enabled && !config.enabled(scope)) return;
     const key = bucketKeyOf(scope);
     const client = getDbQueryClient();

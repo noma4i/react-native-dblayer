@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, recordTimelineInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type Row = { id: string; groupId: string; status: string };
@@ -24,7 +24,7 @@ const createRows = () =>
       status: f.str()
     },
     scopes: {
-      byGroup: scope<Row>({ by: { groupId: 'groupId' } })
+      byGroup: ({ by: { groupId: 'groupId' } })
     }
   });
 

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime, scope } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../../index';
 import { flushPersistence, replayJournal } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
@@ -107,7 +107,7 @@ describe('account switch integrity', () => {
       id: 'AccountSwitchScope',
       name: 'AccountSwitchScope',
       fields: { accountId: f.str(), label: f.str() },
-      scopes: { byAccount: scope<Row>({ by: { accountId: 'accountId' } }) }
+      scopes: { byAccount: ({ by: { accountId: 'accountId' } }) }
     });
     const query = rows.query<QueryResult, ScopeValue, ScopeValue, Row>('byAccount', {
       document,

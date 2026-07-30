@@ -1,9 +1,8 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, scope } from '../../../index';
+import { defineModel, f } from '../../../index';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
-type ScaleRow = { id: string; bucket: string; rank: number; name: string };
 
 const comparatorCalls = (size: number, rank: (index: number) => number): number => {
   setupSpecRuntime();
@@ -13,7 +12,7 @@ const comparatorCalls = (size: number, rank: (index: number) => number): number 
     name: `SpecSortScale${size}${rank(1)}`,
     fields: { bucket: f.str(), rank: f.num(), name: f.str() },
     scopes: {
-      ranked: scope<ScaleRow>({
+      ranked: ({
         by: { bucket: 'bucket' },
         sort: { comparator: (left, right) => {
           calls += 1;

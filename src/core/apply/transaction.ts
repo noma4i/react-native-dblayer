@@ -15,8 +15,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
   const journal = createJournal(storage, prefix);
   let epoch = journal.lastEpoch();
   checkpoint?.setAfterFlush(flushedEpoch => {
-    const entries = journal.pruneCommitted(flushedEpoch);
-    if (entries.length > 0) storage.set(entries);
+    const prunePlan = journal.pruneCommitted(flushedEpoch);
+    if (prunePlan.entries.length > 0) storage.set(prunePlan.entries);
+    prunePlan.commit();
   });
 
   const persistImmediate = (ops: JournalOp[], record: JournalRecord): void => {
@@ -26,8 +27,10 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       entries.push(...getApplyTarget(model).persistEntries());
       entries.push({ key: `${prefix()}applied:${model}`, value: encodePersistence(record.epoch) });
     }
-    entries.push(...journal.committedEntry(record));
+    const commitPlan = journal.committedEntry(record);
+    entries.push(...commitPlan.entries);
     storage.set(entries);
+    commitPlan.commit();
     for (const model of models) getApplyTarget(model).ackPersist();
   };
 
@@ -75,7 +78,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       }
       if (envelope.operationTransitions.length > 0) getOperationState().applyTransitions(envelope.operationTransitions);
       if (checkpoint) {
-        storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
+        const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
+        storage.set(commitPlan.entries);
+        commitPlan.commit();
         checkpoint.notePlan(touchedModelsOf(ops), epoch);
       } else {
         persistImmediate(ops, record);
@@ -98,7 +103,11 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         const ops = record.ops.filter(op => appliedFor(op.model) < record.epoch);
         epoch = Math.max(epoch, record.epoch);
         if (ops.length === 0) {
-          if (record.status === 'pending') storage.set(journal.committedEntry(record, checkpoint?.flushedEpoch()));
+          if (record.status === 'pending') {
+            const commitPlan = journal.committedEntry(record, checkpoint?.flushedEpoch());
+            storage.set(commitPlan.entries);
+            commitPlan.commit();
+          }
           continue;
         }
         let batch: IncrementalCommitBatch;
@@ -110,7 +119,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           throw error;
         }
         if (checkpoint) {
-          storage.set(journal.committedEntry(record, checkpoint.flushedEpoch()));
+          const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
+          storage.set(commitPlan.entries);
+          commitPlan.commit();
           checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
         } else {
           persistImmediate(ops, record);

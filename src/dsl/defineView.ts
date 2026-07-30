@@ -22,6 +22,7 @@ import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
 import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { arraysShallowEqual } from '../utils/arrayEquality';
+import { compareRowsBySpec } from '../core/ordering';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { useScopeRetention } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
@@ -162,7 +163,9 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
     }, [scopeKey, scopeValue]);
     const evaluate = (): { items: TItem[]; totalCount: number; resolved: boolean; deps: Dependency[] } => {
       const rows = scopeValue == null ? [] : sourceInternal.readRows(scopeValue);
-      const visibleRows = limit === null ? rows : rows.slice(0, limit);
+      // filter/sort derive their own row set: every row must be materialized before the window slices.
+      const derivesOwnSet = config.filter !== undefined || config.sort !== undefined;
+      const visibleRows = derivesOwnSet || limit === null ? rows : rows.slice(0, limit);
       const relationModelIds = new Set<string>();
       for (const [alias, include] of Object.entries(config.include)) {
         const relationName = typeof include === 'string' ? include : Array.isArray(include) ? null : 'model' in include ? null : alias;
@@ -175,7 +178,7 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
         ...(scopeValue == null ? [] : [{ kind: 'scope' as const, model: source.modelId, scopeKey: sourceInternal.key(scopeValue) }])
       ];
       const liveIds = new Set(rows.map(row => row.id));
-      const items = visibleRows.map((row, index) => {
+      const projected = visibleRows.map((row, index) => {
         deps.push({ kind: 'row', model: model.modelId, id: row.id });
         const included: ViewIncluded = {};
         for (const [alias, include] of Object.entries(config.include)) {
@@ -213,14 +216,25 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
           }
         }
         const current = cacheRef.current.get(row.id);
-        if (current && current.row === row && rowsShallowEqual(current.included, included)) return current.item;
+        if (current && current.row === row && rowsShallowEqual(current.included, included)) return { row, included: current.included, item: current.item };
         const candidate = (config.select ? config.select(row, included, { index }) : { ...row, ...included }) as RowRecord;
         const item = projectionGateRef.current.projectValue(row.id, candidate, candidate, config.renderKeys) as TItem;
         cacheRef.current.set(row.id, { row, included, item });
-        return item;
+        return { row, included, item };
       });
       for (const id of cacheRef.current.keys()) if (!liveIds.has(id)) cacheRef.current.delete(id);
-      return { items, totalCount: rows.length, resolved: scopeValue == null || sourceInternal.isResolved(scopeValue), deps };
+      const resolved = scopeValue == null || sourceInternal.isResolved(scopeValue);
+      if (!derivesOwnSet) return { items: projected.map(pair => pair.item), totalCount: rows.length, resolved, deps };
+      let pairs = projected;
+      if (config.filter) pairs = pairs.filter(pair => config.filter!(pair.row, pair.included));
+      if (config.sort) {
+        const compare = compareRowsBySpec(config.sort);
+        const decorated = pairs.map(pair => ({ pair, sortable: { ...(pair.item as Record<string, unknown>), id: pair.row.id } as RowRecord }));
+        decorated.sort((left, right) => compare(left.sortable, right.sortable));
+        pairs = decorated.map(entry => entry.pair);
+      }
+      const windowed = limit === null ? pairs : pairs.slice(0, limit);
+      return { items: windowed.map(pair => pair.item), totalCount: pairs.length, resolved, deps };
     };
     if (evaluatedRef.current === null || evaluatedRef.current.scopeKey !== scopeKey || evaluatedRef.current.limit !== limit) {
       const result = evaluate();

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, createDbSubscriptionRuntime, createThrottledSingleFlight, defineModel, f, scope } from '../../../index';
+import { configureDb, createDbSubscriptionRuntime, createThrottledSingleFlight, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/ChatModel.ts: throttled single-flight sync mutation, and
@@ -15,7 +15,7 @@ const createChats = (suffix: string) =>
     name: `SpecConsumerChatsSync${suffix}`,
     fields: { id: f.str(), status: f.str(), title: f.str(), lastActivityAt: f.num() },
     scopes: {
-      list: scope<ChatRow>({ by: { status: 'status' }, sort: { field: 'lastActivityAt', dir: 'desc' } })
+      list: ({ by: { status: 'status' }, sort: { field: 'lastActivityAt', dir: 'desc' } })
     }
   });
 

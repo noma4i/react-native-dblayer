@@ -44,7 +44,7 @@ const MessageModel = defineModel({
   name: 'MessageModel',
   fields: MessageSchema.fields,
   scopes: {
-    thread: scope({ by: { chatId: 'chatId' }, sort: { field: 'createdAt', dir: 'asc' } })
+    thread: { by: { chatId: 'chatId' }, sort: { field: 'createdAt', dir: 'asc' } }
   },
   relations: () => ({
     chat: belongsTo(ChatModel, {
@@ -76,7 +76,7 @@ const MessageModel = defineModel({
 | `rowId`                 | `(input: unknown) => string`                   | Derive the row id from raw input. Defaults to `input.id`. Returning anything other than a non-empty string makes `normalize` throw `${name} requires id`.                                                                               |
 | `guard`                 | `(input: unknown) => boolean`                  | Row-level filter run before id resolution. Returning `false` throws `${name} rejected input`, handled the same way as an unresolved `rowId`.                                                                                            |
 | `relations`             | `() => Record<string, RelationDecl>`           | Lazily-evaluated relation declarations (`belongsTo`/`hasMany`/`hasOne`/`references`). Evaluated once on first access, so relation targets defined later in the same module do not need to exist yet at `defineModel` call time.         |
-| `scopes`                | `Record<string, ScopeSpec>`                    | Named `ScopeSpec` definitions built with `scope(...)`. Each entry becomes a `model.scopes.<name>` handle.                                                                                                                               |
+| `scopes`                | `Record<string, ScopeSpec>`                    | Named `ScopeSpec` object literals. Each entry becomes a `model.scopes.<name>` handle.                                                                                                                               |
 | `gc`                    | `'exempt'`                                     | Keeps this model's rows out of garbage-collection sweeps even when unreferenced by any scope. See [runtime.md](./runtime.md#garbage-collection).                                                                                        |
 | `maintenance`           | `{ maxRowsPerScope?, dropIdleScopesAfterMs?, dropTempRowsAfterMs?, protectTempRows? }` | Boot-time and in-session retention declarations. See [runtime.md](./runtime.md#maintenance).                                                                                                      |
 | `write`                 | `{ groups?: { fields, policy }[] }`             | Closed per-field policies. Fields outside groups use incoming server values, including explicit null. A field may appear in only one group.                                                                                  |
@@ -221,7 +221,7 @@ object type a standalone `defineShape` shape reads into.
 
 `insert`/`insertMany`/`patch`/`updateAll`/`destroy`/`destroyMany`/`destroyAll`/`replace` are all **event**
 writes: they run through `expandPlan`, so declared relation side effects (`touch`, `counterCache`,
-`dependent: 'destroy'` cascades) and declarative scope membership (`scope({ by })`) apply in the
+`dependent: 'destroy'` cascades) and declarative scope membership (`by` scopes) apply in the
 same transaction. `Model.query`/`Model.mutation` server-response writes apply as **snapshot**
 writes instead (verbatim, no relation expansion - server data already carries derived state); see
 [queries.md](./queries.md) and [mutations.md](./mutations.md).
@@ -250,17 +250,18 @@ out even without fresh activity on that model.
 
 ## Scopes
 
-A scope is a named, ordered subset of a model's rows, declared with `scope(spec)` and consumed
+A scope is a named, ordered subset of a model's rows, declared as a plain `ScopeSpec` literal in
+`scopes:` and consumed
 through `model.scopes.<name>`. Every read/write member on the returned handle (`use`, `useWindow`,
 `useCount`, `invalidate`, `read`, `seed`) is documented in [reading.md](./reading.md#scope-reads).
 
 ```ts
 scopes: {
-  thread: scope({
+  thread: {
     by: { chatId: 'chatId' },
     sort: { field: 'createdAt', dir: 'asc' },
     retention: { maxRows: 500 }
-  });
+  }
 }
 ```
 

@@ -1,11 +1,10 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, scope, type DbTransport } from '../../../index';
+import { DbProvider, configureDb, defineModel, f, type DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type PrimaryRow = { id: string; uuid: string; status: string };
 type SecondaryRow = { id: string; primaryId: string; label: string };
-type UnrelatedRow = { id: string; bucket: string; value: string };
 type EventPayload = { primary: PrimaryRow; secondary: SecondaryRow };
 type OperationPayload = { operationId?: string; primary: PrimaryRow; secondary: SecondaryRow };
 type MutationInput = { id: string; uuid: string; status: string; operationId: string };
@@ -24,7 +23,7 @@ const createPrimaryModel = () =>
       status: f.str()
     },
     scopes: {
-      byUuid: scope<PrimaryRow>({ by: { uuid: 'uuid' } })
+      byUuid: ({ by: { uuid: 'uuid' } })
     },
     relations: () => ({})
   });
@@ -39,7 +38,7 @@ const createSecondaryModel = () =>
       label: f.str()
     },
     scopes: {
-      byPrimary: scope<SecondaryRow>({ by: { primaryId: 'primaryId' } })
+      byPrimary: ({ by: { primaryId: 'primaryId' } })
     },
     relations: () => ({})
   });
@@ -54,7 +53,7 @@ const createUnrelatedModel = () =>
       value: f.str()
     },
     scopes: {
-      byBucket: scope<UnrelatedRow>({ by: { bucket: 'bucket' } })
+      byBucket: ({ by: { bucket: 'bucket' } })
     },
     relations: () => ({})
   });

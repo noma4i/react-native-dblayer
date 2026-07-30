@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('sorted scope batch reposition integrity', () => {
@@ -12,7 +12,7 @@ describe('sorted scope batch reposition integrity', () => {
         rank: f.num()
       },
       scopes: {
-        byBucket: scope<{ id: string; bucket: string; rank: number }>({
+        byBucket: ({
           by: { bucket: 'bucket' },
           sort: { field: 'rank', dir: 'asc' }
         })

@@ -8,7 +8,7 @@ import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
-import { isQueryFresh } from '../core/fetch/queryFreshness';
+import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { reportSyncError } from '../core/syncError';
@@ -37,7 +37,9 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const staleTimeOf = (key: string): number => {
     const data = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return data?.empty === true && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null ? (config.emptyStaleTime ?? defaults.emptyStaleTime)! : (config.staleTime ?? defaults.staleTime ?? 0);
+    return data?.empty === true && (config.emptyStaleTime ?? defaults.emptyStaleTime) != null
+      ? (config.emptyStaleTime ?? defaults.emptyStaleTime)!
+      : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };
   const execute = async (input: TInput, isCurrent: () => boolean): Promise<FetchData<TSelected>> => {
     let data: TData;
@@ -57,6 +59,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     return isQueryFresh(client, queryKeyOf(key), staleTimeOf(key));
   };
   const run = async (input: TInput, options: { restart: boolean; propagateFailure?: boolean }): Promise<TSelected> => {
+    resolveStaleTime(config.staleTime, getDbRuntimeConfig().defaults);
     const key = keyOf(input);
     const client = getDbQueryClient();
     const queryKey = queryKeyOf(key);

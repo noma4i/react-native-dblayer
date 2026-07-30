@@ -209,7 +209,6 @@ describe('journal corruption policy', () => {
     ['fractional scope generation', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1.5, coverage: 'complete', entries: [] } }],
     ['invalid scope coverage', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'all', entries: [] } }],
     ['missing scope order key', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1' }] } }],
-    ['invalid scope edge', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V', edge: [] }] } }],
     ['invalid scope order alphabet', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V!' }] } }],
     ['non-fractional scope order tail', { kind: 'scope', model: 'M', scopeKey: 'feed', next: { generation: 1, coverage: 'complete', entries: [{ id: 'row-1', orderKey: 'V0' }] } }],
     [
@@ -291,7 +290,6 @@ describe('journal corruption policy', () => {
         detach: []
       }
     ],
-    ['invalid appended edge', { kind: 'scope-delta', model: 'M', scopeKey: 'feed', append: [{ id: 'row-1', orderKey: 'V', edge: [] }], detach: [] }],
     ['empty detached id', { kind: 'scope-delta', model: 'M', scopeKey: 'feed', append: [], detach: [''] }]
   ])('rejects a semantically invalid journal operation: %s', (_label, operation) => {
     const { storage } = setup();
@@ -336,6 +334,34 @@ describe('journal corruption policy', () => {
 });
 
 describe('journal epoch scan and prune', () => {
+  it('re-emits prune deletes after a failed commit batch - the epoch index only advances on durable success', () => {
+    const { storage } = setup();
+    for (let epoch = 1; epoch <= 52; epoch += 1) {
+      const record = { ...pendingRecord(epoch), status: 'committed' as const };
+      storage.set([{ key: `${PREFIX}journal:${epoch}`, value: encodeRecord(record) }]);
+    }
+    const fresh = createJournal(storage, () => PREFIX);
+    const next = pendingRecord(53);
+    storage.set(fresh.pendingEntry(next));
+
+    const originalSet = storage.set.bind(storage);
+    storage.set = () => {
+      throw new Error('storage write failed');
+    };
+    expect(() => {
+      const plan = fresh.committedEntry(next, Number.POSITIVE_INFINITY);
+      storage.set(plan.entries);
+      plan.commit();
+    }).toThrow('storage write failed');
+    storage.set = originalSet;
+
+    const retry = fresh.committedEntry(next, Number.POSITIVE_INFINITY);
+    storage.set(retry.entries);
+    retry.commit();
+
+    expect(readJournalRecord(storage, PREFIX, `${PREFIX}journal:1`)).toBeNull();
+  });
+
   it('orders allRecords by epoch, filters pending, and reports the max epoch', () => {
     const { storage, journal } = setup();
     storage.set([
@@ -365,7 +391,7 @@ describe('journal epoch scan and prune', () => {
       }))
     );
 
-    const entries = journal.pruneCommitted(Number.POSITIVE_INFINITY);
+    const entries = journal.pruneCommitted(Number.POSITIVE_INFINITY).entries;
 
     expect(entries.map(entry => entry.key)).toEqual(Array.from({ length: total - 50 }, (_, index) => `${PREFIX}journal:${index + 1}`));
     expect(entries.every(entry => entry.value === null)).toBe(true);
@@ -380,7 +406,7 @@ describe('journal epoch scan and prune', () => {
       }))
     );
 
-    expect(journal.pruneCommitted(3).map(entry => entry.key)).toEqual([`${PREFIX}journal:1`, `${PREFIX}journal:2`, `${PREFIX}journal:3`]);
+    expect(journal.pruneCommitted(3).entries.map(entry => entry.key)).toEqual([`${PREFIX}journal:1`, `${PREFIX}journal:2`, `${PREFIX}journal:3`]);
   });
 
   it('marks a record committed and prunes through committedEntry in one storage batch', () => {
@@ -392,7 +418,7 @@ describe('journal epoch scan and prune', () => {
       }))
     );
 
-    const entries = journal.committedEntry(pendingRecord(60));
+    const entries = journal.committedEntry(pendingRecord(60)).entries;
 
     expect(entries[0]).toEqual({ key: `${PREFIX}journal:60`, value: encodeRecord({ ...pendingRecord(60), status: 'committed' }) });
     expect(entries.slice(1).map(entry => entry.key)).toEqual([`${PREFIX}journal:1`, `${PREFIX}journal:2`]);

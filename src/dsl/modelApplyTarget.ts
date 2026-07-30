@@ -117,7 +117,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     scope: (scopeKey: string, next: unknown): void => {
       planes().scopeIndex.write(scopeKey, next as ScopeIndexValue);
     },
-    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; orderKey: string; edge?: Record<string, unknown> }>; detach: string[] }): void => {
+    scopeDelta: (scopeKey: string, delta: { append: Array<{ id: string; orderKey: string }>; detach: string[] }): void => {
       planes().scopeIndex.applyDelta(scopeKey, delta.append, delta.detach);
     },
     reactiveScopes: (ids: string[]) => planes().scopeIndex.touchMembers(ids),

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, scope } from '../../../index';
+import { configureDb, defineModel, f } from '../../../index';
 import { bootDb } from '../../../dsl/lifecycle';
 import { collectGarbage } from '../../../core/gc';
 import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';
@@ -7,7 +7,6 @@ import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest }
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
-type MessageScope = MessageRow;
 type MessageResponse = { rows: MessageRow[] };
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -24,7 +23,7 @@ const createMessageModel = (limit: number, protect?: () => Set<string>) =>
       payload: f.str()
     },
     scopes: {
-      byChat: scope<MessageScope>({
+      byChat: ({
         by: { chatId: 'chatId' },
         sort: { comparator: (left: MessageRow, right: MessageRow) => right.sequence - left.sequence }
       })
@@ -134,7 +133,7 @@ describe('maintenance trim contracts', () => {
       name: 'SpecConsumerMessagesRetention',
       fields: { id: f.str(), chatId: f.str(), sequence: f.num(), payload: f.str() },
       scopes: {
-        byChat: scope<MessageScope>({
+        byChat: ({
           by: { chatId: 'chatId' },
           sort: { comparator: (left, right) => right.sequence - left.sequence },
           retention: { maxRows: 2 }

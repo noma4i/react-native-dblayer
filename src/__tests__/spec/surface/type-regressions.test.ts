@@ -28,16 +28,16 @@ const compileFixture = (source: string): readonly ts.Diagnostic[] => {
 describe('public type regressions', () => {
   it('accepts server-order, field-sort, and comparator model scopes', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f, scope } from '${entry}';
+      import { defineModel, f } from '${entry}';
       type Row = { id: string; rank: number };
       defineModel({
         id: 'scope-types',
         name: 'ScopeTypes',
         fields: { id: f.id(), rank: f.num() },
         scopes: {
-          serverOrder: scope({ sort: 'server-order' }),
-          fieldSort: scope<Row>({ sort: { field: 'rank', dir: 'asc' } }),
-          comparator: scope<Row>({ sort: { comparator: (left, right) => left.rank - right.rank } })
+          serverOrder: ({ sort: 'server-order' }),
+          fieldSort: ({ sort: { field: 'rank', dir: 'asc' } }),
+          comparator: ({ sort: { comparator: (left, right) => left.rank - right.rank } })
         }
       });
     `);
@@ -46,7 +46,7 @@ describe('public type regressions', () => {
 
   it('keeps the full model type when an inferred scope comparator reads a row subset', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f, scope } from '${entry}';
+      import { defineModel, f } from '${entry}';
       type Row = { id: string; userId: string; createdAt: string; rank: number };
       const compareRows = (
         left: Pick<Row, 'createdAt' | 'rank'>,
@@ -63,7 +63,7 @@ describe('public type regressions', () => {
           rank: f.num()
         },
         scopes: {
-          byUser: scope({ by: { userId: 'userId' }, member: isUserRow, sort: { comparator: compareRows } })
+          byUser: ({ by: { userId: 'userId' }, member: isUserRow, sort: { comparator: compareRows } })
         },
         statics: model => ({ readUser: (id: string) => model.find(id)?.userId })
       });
@@ -75,7 +75,8 @@ describe('public type regressions', () => {
 
   it('rejects non-orderable fields on typed field-sort surfaces', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f, scope } from '${entry}';
+      import { defineModel, f } from '${entry}';
+      import type { ScopeSpec } from '${entry}';
       type Row = { id: string; rank: number; meta: { rank: number }; tags: string[]; when: Date; count: bigint };
       const rows = defineModel({
         id: 'orderable-fields',
@@ -92,11 +93,11 @@ describe('public type regressions', () => {
       // @ts-expect-error array fields require a comparator
       rows.where({}, { orderBy: { field: 'tags', direction: 'asc' } });
       // @ts-expect-error object fields require a comparator
-      scope<Row>({ sort: { field: 'meta', dir: 'asc' } });
+      ({ sort: { field: 'meta', dir: 'asc' } } satisfies ScopeSpec<Row>);
       // @ts-expect-error Date fields are not stable across JSON persistence
-      scope<Row>({ sort: { field: 'when', dir: 'asc' } });
+      ({ sort: { field: 'when', dir: 'asc' } } satisfies ScopeSpec<Row>);
       // @ts-expect-error bigint fields are not JSON serializable
-      scope<Row>({ sort: { field: 'count', dir: 'asc' } });
+      ({ sort: { field: 'count', dir: 'asc' } } satisfies ScopeSpec<Row>);
       defineModel({
         id: 'invalid-default-order',
         name: 'InvalidDefaultOrder',
@@ -149,7 +150,7 @@ describe('public type regressions', () => {
   it('accepts null as a disabled query scope for reactive and imperative reads', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-      import { defineModel, f, scope } from '${entry}';
+      import { defineModel, f } from '${entry}';
       type Row = { id: string; accountId: string };
       type Data = { rows: Row[] };
       type Variables = { accountId: string };
@@ -158,7 +159,7 @@ describe('public type regressions', () => {
         id: 'null-query-scope',
         name: 'NullQueryScope',
         fields: { id: f.id(), accountId: f.str() },
-        scopes: { byAccount: scope<Row>({ by: { accountId: 'accountId' } }) }
+        scopes: { byAccount: ({ by: { accountId: 'accountId' } }) }
       });
       const query = rows.query<Data, Variables, { accountId: string }, Row>('byAccount', {
         document,
@@ -174,13 +175,13 @@ describe('public type regressions', () => {
 
   it('types query data by destination: scope reads land as arrays, point model reads as one row', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f, scope } from '${entry}';
+      import { defineModel, f } from '${entry}';
       type Row = { id: string; groupId: string; title: string };
       const rows = defineModel({
         id: 'query-data-typing',
         name: 'QueryDataTyping',
         fields: { id: f.id(), groupId: f.str(), title: f.str() },
-        scopes: { byGroup: scope<Row>({ by: { groupId: 'groupId' } }) }
+        scopes: { byGroup: ({ by: { groupId: 'groupId' } }) }
       });
       const listQuery = rows.query<{ items: Row[] }, Record<string, never>, { groupId: string }, Row>('list', {
         document: {} as never,
