@@ -5,34 +5,46 @@ export type ModelRef<TStored> = {
     all(): TStored[];
     where(where: Record<string, unknown>): TStored[];
 };
+export type FacadeRelationTarget<TStored> = {
+    key: string;
+    find(id: string | null | undefined): TStored | undefined;
+    where(where: Record<string, unknown>): {
+        read(): TStored[];
+    };
+};
+export type RelationTarget<TStored> = ModelRef<TStored> | FacadeRelationTarget<TStored>;
 /** Untyped stored row: arbitrary model fields without an id requirement. */
 export type StoredRow = Record<string, unknown>;
 /** Parent-touch producer: derives a parent patch from a child write, or null to skip. */
 export type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
-export type RelationDecl = {
+export type BelongsToDecl<TStored = StoredRow> = {
     kind: 'belongsTo';
-    model: ModelRef<StoredRow>;
+    model: ModelRef<TStored>;
     foreignKey: string;
     touch?: TouchFn;
     counterCache?: {
         field: string;
         filter?: (child: StoredRow) => boolean;
     };
-} | {
+};
+export type HasManyDecl<TStored = StoredRow> = {
     kind: 'hasMany';
-    model: ModelRef<StoredRow>;
+    model: ModelRef<TStored>;
     foreignKey: string;
     dependent?: 'destroy';
-} | {
+};
+export type HasOneDecl<TStored = StoredRow> = {
     kind: 'hasOne';
-    model: ModelRef<StoredRow>;
+    model: ModelRef<TStored>;
     foreignKey: string;
     comparator?: (left: StoredRow, right: StoredRow) => number;
-} | {
+};
+export type ReferencesDecl<TStored = StoredRow> = {
     kind: 'references';
-    model: ModelRef<StoredRow>;
+    model: ModelRef<TStored>;
     ids: (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined;
 };
+export type RelationDecl<TStored = StoredRow> = BelongsToDecl<TStored> | HasManyDecl<TStored> | HasOneDecl<TStored> | ReferencesDecl<TStored>;
 export type MembershipDelta = {
     scopeKey: string;
     append?: string[];

@@ -1,8 +1,27 @@
 import { uniq } from 'es-toolkit';
 import { compositeKey } from './serialize';
-import type { AcceptedRow, CounterRef, DestroyedRow, MembershipDelta, ModelRef, RelationDecl, RelationHost, RelationPlanReader, StoredRow, TouchEntry, TouchFn, WriteOp } from '../types';
+import type {
+  AcceptedRow,
+  BelongsToDecl,
+  CounterRef,
+  DestroyedRow,
+  HasManyDecl,
+  HasOneDecl,
+  MembershipDelta,
+  ModelRef,
+  ReferencesDecl,
+  RelationDecl,
+  RelationHost,
+  RelationPlanReader,
+  RelationTarget,
+  StoredRow,
+  TouchEntry,
+  TouchFn,
+  WriteOp
+} from '../types';
 import { createGenerationRegistry } from './generationRegistry';
 import { noteRelationChildScan } from './diagnostics';
+import { withIdTieBreak } from './ordering';
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
@@ -21,15 +40,15 @@ import { noteRelationChildScan } from './diagnostics';
  * @returns A belongsTo relation declaration for a parent-model edge.
  */
 export const belongsTo = <TChild, TParent>(
-  model: ModelRef<TParent>,
+  model: RelationTarget<TParent>,
   options: {
     foreignKey: keyof TChild & string;
     touch?: (child: TChild, parent: TParent) => Partial<TParent> | null;
     counterCache?: { field: keyof TParent & string; filter?: (child: TChild) => boolean };
   }
-): RelationDecl => ({
+): BelongsToDecl<TParent> => ({
   kind: 'belongsTo',
-  model: model as ModelRef<StoredRow>,
+  model: toModelRef(model),
   foreignKey: options.foreignKey,
   touch: options.touch as TouchFn | undefined,
   counterCache: options.counterCache as { field: string; filter?: (child: StoredRow) => boolean } | undefined
@@ -47,9 +66,9 @@ export const belongsTo = <TChild, TParent>(
  * since a cascaded destroy cannot be rolled back.
  * @returns A hasMany relation declaration for a child-collection edge.
  */
-export const hasMany = <_TParent, TChild>(model: ModelRef<TChild>, options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }): RelationDecl => ({
+export const hasMany = <_TParent, TChild>(model: RelationTarget<TChild>, options: { foreignKey: keyof TChild & string; dependent?: 'destroy' }): HasManyDecl<TChild> => ({
   kind: 'hasMany',
-  model: model as ModelRef<StoredRow>,
+  model: toModelRef(model),
   foreignKey: options.foreignKey,
   dependent: options.dependent
 });
@@ -65,11 +84,11 @@ export const hasMany = <_TParent, TChild>(model: ModelRef<TChild>, options: { fo
  * @returns A hasOne relation declaration for a single-child edge.
  */
 export const hasOne = <_TParent, TChild>(
-  model: ModelRef<TChild>,
+  model: RelationTarget<TChild>,
   options: { foreignKey: keyof TChild & string; comparator?: (left: TChild, right: TChild) => number }
-): RelationDecl => ({
+): HasOneDecl<TChild> => ({
   kind: 'hasOne',
-  model: model as ModelRef<StoredRow>,
+  model: toModelRef(model),
   foreignKey: options.foreignKey,
   comparator: options.comparator as ((left: StoredRow, right: StoredRow) => number) | undefined
 });
@@ -84,11 +103,11 @@ export const hasOne = <_TParent, TChild>(
  * @returns A references relation declaration for GC liveness edges.
  */
 export const references = <TChild, TRef>(
-  model: ModelRef<TRef>,
+  model: RelationTarget<TRef>,
   options: { ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined }
-): RelationDecl => ({
+): ReferencesDecl<TRef> => ({
   kind: 'references',
-  model: model as ModelRef<StoredRow>,
+  model: toModelRef(model),
   ids: options.ids as (row: StoredRow) => ReadonlyArray<string | null | undefined> | string | null | undefined
 });
 
@@ -102,6 +121,42 @@ const hosts = createGenerationRegistry<RelationHost>();
 
 export const registerRelationHost = (modelId: string, host: RelationHost): (() => void) => {
   return hosts.register(modelId, host, `Relation host already registered for model ${modelId}`);
+};
+
+/**
+ * Read one declared association through the same registered relation graph used by write effects.
+ *
+ * @param modelId Source model key.
+ * @param id Source row id.
+ * @param name Association name.
+ * @returns One target row, an ordered target row list, or undefined.
+ */
+export const readModelRelation = <TResult = unknown>(modelId: string, id: string | null | undefined, name: string): TResult => {
+  const host = hosts.get(modelId);
+  const relation = host?.relations()[name];
+  if (!host || !relation) throw new Error(`${modelId} has no association ${name}`);
+  if (id == null) return (relation.kind === 'hasMany' || relation.kind === 'references' ? [] : undefined) as TResult;
+  const source = host.read(String(id));
+  if (!source) return (relation.kind === 'hasMany' || relation.kind === 'references' ? [] : undefined) as TResult;
+  if (relation.kind === 'belongsTo') {
+    const targetId = source[relation.foreignKey];
+    return (typeof targetId === 'string' ? relation.model.find(targetId) : undefined) as TResult;
+  }
+  if (relation.kind === 'hasMany') return relation.model.where({ [relation.foreignKey]: String(id) }) as TResult;
+  if (relation.kind === 'hasOne') {
+    const rows = relation.model.where({ [relation.foreignKey]: String(id) }) as Array<StoredRow & { id: string }>;
+    if (rows.length === 0) return undefined as TResult;
+    const comparator = relation.comparator
+      ? withIdTieBreak(relation.comparator as (left: StoredRow & { id: string }, right: StoredRow & { id: string }) => number)
+      : undefined;
+    return (comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0]) as TResult;
+  }
+  const selected = relation.ids(source);
+  const ids = Array.isArray(selected) ? selected : [selected];
+  return ids.flatMap(targetId => {
+    const row = targetId == null ? undefined : relation.model.find(String(targetId));
+    return row ? [row] : [];
+  }) as TResult;
 };
 
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
@@ -305,4 +360,13 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
       return append.length > 0 || entry.detach.size > 0 ? [{ kind: 'scope-delta' as const, model: entry.model, scopeKey: entry.scopeKey, append, detach: [...entry.detach] }] : [];
     })
   ].filter(op => !(op.kind === 'counter' && authoritative.has(compositeKey(op.model, op.id))));
+};
+const toModelRef = <TStored>(model: RelationTarget<TStored>): ModelRef<TStored> => {
+  if ('modelId' in model) return model;
+  return {
+    modelId: model.key,
+    find: model.find,
+    all: () => model.where({}).read(),
+    where: where => model.where(where).read()
+  };
 };

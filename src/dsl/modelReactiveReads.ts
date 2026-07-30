@@ -6,6 +6,7 @@ import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { getCommitBus, getOperationState } from './configure';
 import { withIdTieBreak } from '../core/ordering';
+import { arraysShallowEqual } from '../utils/arrayEquality';
 
 const EMPTY_ROWS: never[] = [];
 
@@ -173,7 +174,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
       }
       let compute: () => unknown;
       let deps: Dependency[];
-      const isEqual: (a: unknown, b: unknown) => boolean = Object.is;
+      let isEqual: (a: unknown, b: unknown) => boolean = Object.is;
       if (relation.kind === 'belongsTo') {
         const parentIdOf = (): string | null => {
           const child = id == null ? undefined : planes().entityState.read(id);
@@ -197,8 +198,18 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
         };
         deps = id == null ? [] : [options.rowDep(id), { kind: 'model', model: relation.model.modelId }];
       } else {
-        compute = () => undefined;
-        deps = [];
+        const idsOf = (): string[] => {
+          const source = id == null ? undefined : planes().entityState.read(id);
+          if (!source) return [];
+          const selected = relation.ids(source);
+          return (Array.isArray(selected) ? selected : [selected]).flatMap(targetId => (targetId == null ? [] : [String(targetId)]));
+        };
+        compute = () => idsOf().flatMap(targetId => {
+          const row = relation.model.find(targetId);
+          return row ? [row] : [];
+        });
+        deps = id == null ? [] : [options.rowDep(id), ...idsOf().map(targetId => ({ kind: 'row' as const, model: relation.model.modelId, id: targetId }))];
+        isEqual = (left, right) => Array.isArray(left) && Array.isArray(right) && arraysShallowEqual(left, right);
       }
       return useLiveRead(compute, deps, isEqual);
     }) as ModelCore<TStored, TInput>['use']['related']

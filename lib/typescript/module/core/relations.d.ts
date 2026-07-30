@@ -1,4 +1,4 @@
-import type { AcceptedRow, DestroyedRow, ModelRef, RelationDecl, RelationHost, RelationPlanReader, WriteOp } from '../types';
+import type { AcceptedRow, BelongsToDecl, DestroyedRow, HasManyDecl, HasOneDecl, ReferencesDecl, RelationHost, RelationPlanReader, RelationTarget, WriteOp } from '../types';
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
@@ -15,14 +15,14 @@ import type { AcceptedRow, DestroyedRow, ModelRef, RelationDecl, RelationHost, R
  * which children count.
  * @returns A belongsTo relation declaration for a parent-model edge.
  */
-export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, options: {
+export declare const belongsTo: <TChild, TParent>(model: RelationTarget<TParent>, options: {
     foreignKey: keyof TChild & string;
     touch?: (child: TChild, parent: TParent) => Partial<TParent> | null;
     counterCache?: {
         field: keyof TParent & string;
         filter?: (child: TChild) => boolean;
     };
-}) => RelationDecl;
+}) => BelongsToDecl<TParent>;
 /**
  * Declare a direct child relation (parent -> children) whose cascade authority is explicit destroy only.
  * `deriveEffects` reads children through the immutable plan snapshot so a cascade sees children written
@@ -35,10 +35,10 @@ export declare const belongsTo: <TChild, TParent>(model: ModelRef<TParent>, opti
  * since a cascaded destroy cannot be rolled back.
  * @returns A hasMany relation declaration for a child-collection edge.
  */
-export declare const hasMany: <_TParent, TChild>(model: ModelRef<TChild>, options: {
+export declare const hasMany: <_TParent, TChild>(model: RelationTarget<TChild>, options: {
     foreignKey: keyof TChild & string;
     dependent?: "destroy";
-}) => RelationDecl;
+}) => HasManyDecl<TChild>;
 /**
  * Declare a query-only single child relation (parent -> one child), read through `model.related(id, name)`.
  * Not resolved by `deriveEffects` - it has no write-time side effects, only a reactive query.
@@ -49,10 +49,10 @@ export declare const hasMany: <_TParent, TChild>(model: ModelRef<TChild>, option
  * use the first match in read order.
  * @returns A hasOne relation declaration for a single-child edge.
  */
-export declare const hasOne: <_TParent, TChild>(model: ModelRef<TChild>, options: {
+export declare const hasOne: <_TParent, TChild>(model: RelationTarget<TChild>, options: {
     foreignKey: keyof TChild & string;
     comparator?: (left: TChild, right: TChild) => number;
-}) => RelationDecl;
+}) => HasOneDecl<TChild>;
 /**
  * Declare a GC-only reference edge: ids extracted from the row keep the referenced target-model rows alive
  * during garbage-collection sweeps. Not resolved by `deriveEffects` - it has no write-time side effects, only
@@ -62,10 +62,19 @@ export declare const hasOne: <_TParent, TChild>(model: ModelRef<TChild>, options
  * @param options.ids Extract the referenced id(s) from the row; a single id, an array, or nullish (no reference).
  * @returns A references relation declaration for GC liveness edges.
  */
-export declare const references: <TChild, TRef>(model: ModelRef<TRef>, options: {
+export declare const references: <TChild, TRef>(model: RelationTarget<TRef>, options: {
     ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined;
-}) => RelationDecl;
+}) => ReferencesDecl<TRef>;
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
+/**
+ * Read one declared association through the same registered relation graph used by write effects.
+ *
+ * @param modelId Source model key.
+ * @param id Source row id.
+ * @param name Association name.
+ * @returns One target row, an ordered target row list, or undefined.
+ */
+export declare const readModelRelation: <TResult = unknown>(modelId: string, id: string | null | undefined, name: string) => TResult;
 /** True when the model declares a hasMany dependent:'destroy' cascade - optimistic destroy cannot roll such a cascade back. */
 export declare const hasDependentCascade: (modelId: string) => boolean;
 /**

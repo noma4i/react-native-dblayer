@@ -1,0 +1,114 @@
+import { act } from 'react';
+import { belongsTo, configureDb, defineModel, defineShape, f, hasMany, hasOne, references } from '../../../index';
+import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+
+type UserInput = {
+  id: string;
+  username: string;
+};
+
+type ChatInput = {
+  id: string;
+  ownerId: string;
+  memberIds: string[];
+};
+
+type MessageInput = {
+  id: string;
+  chatId: string;
+  authorId: string;
+  sequence: number;
+};
+
+const UserSchema = defineShape<UserInput>()({
+  username: f.str()
+});
+
+const MessageSchema = defineShape<MessageInput>()({
+  chatId: f.id(),
+  authorId: f.id(),
+  sequence: f.num()
+});
+
+const ChatSchema = defineShape<ChatInput>()({
+  ownerId: f.id(),
+  memberIds: f.array(f.id())
+});
+
+describe('v10 associations', () => {
+  it('exposes every association kind as a flat Relation method', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const User = defineModel('SpecV10AssociationUser', {
+      schema: UserSchema
+    });
+    const Message = defineModel('SpecV10AssociationMessage', {
+      schema: MessageSchema,
+      associations: () => ({
+        author: belongsTo<MessageInput, UserInput>(User, { foreignKey: 'authorId' })
+      })
+    });
+    const Chat = defineModel('SpecV10AssociationChat', {
+      schema: ChatSchema,
+      associations: () => ({
+        messages: hasMany<ChatInput, MessageInput>(Message, { foreignKey: 'chatId' }),
+        latest: hasOne<ChatInput, MessageInput>(Message, {
+          foreignKey: 'chatId',
+          comparator: (left, right) => right.sequence - left.sequence
+        }),
+        members: references<ChatInput, UserInput>(User, { ids: chat => chat.memberIds })
+      })
+    });
+    User.insertMany([
+      { id: 'user-1', username: 'one' },
+      { id: 'user-2', username: 'two' }
+    ]);
+    Chat.insert({ id: 'chat-1', ownerId: 'user-1', memberIds: ['user-1', 'user-2'] });
+    Message.insert({ id: 'message-1', chatId: 'chat-1', authorId: 'user-1', sequence: 1 });
+
+    expect(Message.author('message-1').read()).toEqual({ id: 'user-1', username: 'one' });
+    expect(Chat.messages('chat-1').read()).toEqual([{ id: 'message-1', chatId: 'chat-1', authorId: 'user-1', sequence: 1 }]);
+    expect(Chat.latest('chat-1').read()).toEqual({ id: 'message-1', chatId: 'chat-1', authorId: 'user-1', sequence: 1 });
+    expect(Chat.members('chat-1').read()).toEqual([
+      { id: 'user-1', username: 'one' },
+      { id: 'user-2', username: 'two' }
+    ]);
+    expect(Message.author('message-1').count()).toBe(1);
+    expect(Chat.messages('chat-1').count()).toBe(1);
+    expect(Chat.members('chat-1').count()).toBe(2);
+
+    const messages = renderCounted(() => Chat.messages('chat-1').use());
+    const latest = renderCounted(() => Chat.latest('chat-1').use());
+    const author = renderCounted(() => Message.author('message-1').use());
+    const members = renderCounted(() => Chat.members('chat-1').use());
+    try {
+      act(() => {
+        Message.insert({ id: 'message-2', chatId: 'chat-1', authorId: 'user-2', sequence: 2 });
+        User.update('user-1', { username: 'updated' });
+        Chat.update('chat-1', { memberIds: ['user-2'] });
+      });
+      expect(messages.result().data.map(row => row.id)).toEqual(['message-1', 'message-2']);
+      expect(latest.result().data?.id).toBe('message-2');
+      expect(author.result().data?.username).toBe('updated');
+      expect(members.result().data.map(row => row.id)).toEqual(['user-2']);
+    } finally {
+      messages.unmount();
+      latest.unmount();
+      author.unmount();
+      members.unmount();
+    }
+  });
+
+  it('rejects association names that collide with the model surface', () => {
+    const User = defineModel('SpecV10AssociationCollisionUser', {
+      schema: UserSchema
+    });
+    const Message = defineModel('SpecV10AssociationCollisionMessage', {
+      schema: MessageSchema,
+      associations: () => ({
+        find: belongsTo<MessageInput, UserInput>(User, { foreignKey: 'authorId' })
+      })
+    });
+
+    expect(() => Message.find).toThrow('association find collides with the model surface');
+  });
+});

@@ -1,7 +1,10 @@
 import type {
   ModelAction,
   ActionPayload,
+  AssociationData,
+  AssociationStored,
   ModelBuildInput,
+  ModelAssociationMethods,
   ModelFacadeCore,
   ModelFacadeBase,
   ModelFacade,
@@ -10,6 +13,7 @@ import type {
   ModelRelationMethods,
   RowOperation,
   Relation,
+  RelationDecl,
   RelationResult,
   ModelStoredValue,
   AnyFields,
@@ -24,6 +28,8 @@ import type {
 } from '../types';
 import { defineModelRuntime } from './defineModelRuntime';
 import { useRelationLoadMore } from './pagination';
+import { readModelRelation } from '../core/relations';
+import { registerBootValidation } from './bootValidations';
 
 const localLoadingState = (hasData: boolean): LoadingState => ({
   phase: 'ready',
@@ -154,6 +160,33 @@ const createByIdsRelation = <TStored extends { id: string; updatedAt?: string | 
   }
 });
 
+const createAssociationRelation = <
+  TStored extends { id: string; updatedAt?: string | null },
+  TInput,
+  TDefinition extends RelationDecl<unknown>
+>(
+  runtime: FacadeRuntimeModel<TStored, TInput>,
+  name: string,
+  id: string | null | undefined
+): Relation<AssociationStored<TDefinition>, AssociationData<TDefinition>> => {
+  const read = (): AssociationData<TDefinition> => readModelRelation<AssociationData<TDefinition>>(runtime.modelId, id, name);
+  const use = (): AssociationData<TDefinition> => runtime.use.related(id, name) as AssociationData<TDefinition>;
+  const count = (data: AssociationData<TDefinition>): number => (Array.isArray(data) ? data.length : data === undefined ? 0 : 1);
+  return {
+    read,
+    use: () => {
+      const data = use();
+      return createLocalResult(data, count(data) > 0, false, () => {});
+    },
+    count: () => count(read()),
+    useCount: () => count(use()),
+    invalidate: () => {},
+    issueSequence: () => {
+      throw new Error('issueSequence requires a named relation');
+    }
+  };
+};
+
 const createOperation = <TStored extends { id: string; updatedAt?: string | null }, TInput>(
   runtime: FacadeRuntimeModel<TStored, TInput>,
   id: string | null | undefined
@@ -223,12 +256,17 @@ export const defineModelFacade = <
   TShape extends DbShape<any, AnyFields>,
   const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
   const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
-  const TAssociations extends Record<string, import('../types').RelationDecl>,
+  const TAssociations extends Record<string, RelationDecl<unknown>>,
   TStatics extends Record<string, unknown>
 >(
   key: TKey,
   config: ModelFacadeConfig<TShape, TRelations, TActions, TAssociations, TStatics>
-): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TStatics> => {
+): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations, TStatics> => {
+  let associationCache: TAssociations | undefined;
+  const associations = (): TAssociations => {
+    associationCache ??= config.associations?.() ?? ({} as TAssociations);
+    return associationCache;
+  };
   const relationSpecs = Object.fromEntries(
     Object.entries(config.relations ?? {}).map(([name, relation]) => [
       name,
@@ -247,7 +285,7 @@ export const defineModelFacade = <
     defaultOrder: config.defaultOrder,
     rowId: config.rowId,
     guard: config.guard,
-    relations: config.associations,
+    relations: associations,
     scopes: relationSpecs,
     gc: config.gc,
     maintenance: config.maintenance,
@@ -301,7 +339,39 @@ export const defineModelFacade = <
     operation: (id: string | null | undefined) => createOperation(runtime, id),
     actions
   };
-  const model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions> = Object.assign(base, relationMethods);
+  const modelBase: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations> = Object.assign(
+    base,
+    relationMethods,
+    Object.create(null) as ModelAssociationMethods<TAssociations>
+  );
+  const associationMethods = new Map<string, (id: string | null | undefined) => Relation<any, any>>();
+  let associationsValidated = false;
+  const validateAssociations = (): void => {
+    if (associationsValidated) return;
+    for (const name of Object.keys(associations())) {
+      if (Reflect.has(modelBase, name) || name in (config.actions ?? {})) {
+        throw new Error(`${key}: association ${name} collides with the model surface`);
+      }
+    }
+    associationsValidated = true;
+  };
+  registerBootValidation(`model-associations:${key}`, validateAssociations);
+  const model = new Proxy(modelBase, {
+    get: (target, property, receiver) => {
+      validateAssociations();
+      if (Reflect.has(target, property)) return Reflect.get(target, property, receiver);
+      if (typeof property !== 'string') return undefined;
+      const definition = associations()[property];
+      if (!definition) return undefined;
+      if (property in (config.actions ?? {})) throw new Error(`${key}: association ${property} collides with an action`);
+      const existing = associationMethods.get(property);
+      if (existing) return existing;
+      const method = (id: string | null | undefined) =>
+        createAssociationRelation<ModelStoredValue<TShape>, ModelBuildInput<TShape>, typeof definition>(runtime, property, id);
+      associationMethods.set(property, method);
+      return method;
+    }
+  });
   const statics = config.statics?.(model) ?? ({} as TStatics);
   for (const name of Object.keys(statics)) {
     if (name in model) throw new Error(`${key}: static ${name} collides with the model surface`);

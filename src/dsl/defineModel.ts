@@ -25,12 +25,12 @@ export function defineModel<
   TShape extends DbShape<any, AnyFields>,
   const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
   const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
-  const TAssociations extends Record<string, RelationDecl>,
+  const TAssociations extends Record<string, RelationDecl<unknown>>,
   TStatics extends Record<string, unknown>
 >(
   key: TKey,
   config: ModelFacadeConfig<TShape, TRelations, TActions, TAssociations, TStatics>
-): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TStatics>;
+): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations, TStatics>;
 export function defineModel<
   const TFields extends import('../types').ModelFieldSpecs,
   TScopeNames extends string = never,

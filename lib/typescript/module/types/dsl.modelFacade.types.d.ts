@@ -131,7 +131,7 @@ export type SideloadEdge = {
     };
     select(input: unknown): unknown | readonly unknown[] | null | undefined;
 };
-export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TAssociations extends Record<string, RelationDecl>, TStatics extends Record<string, unknown>> = {
+export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TAssociations extends Record<string, RelationDecl<unknown>>, TStatics extends Record<string, unknown>> = {
     schema: TShape;
     associations?: () => TAssociations;
     relations?: TRelations;
@@ -158,7 +158,7 @@ export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations
             policy: import('./core.writePolicies.types').WritePolicy | readonly import('./core.writePolicies.types').WritePolicy[];
         }>;
     };
-    statics?: (model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions>) => TStatics;
+    statics?: (model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations>) => TStatics;
 };
 type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStored & string> ? {
     [K in keyof TBy]: TBy[K] extends keyof TStored ? TStored[TBy[K]] : never;
@@ -193,6 +193,13 @@ export type RowOperation<TStored> = {
 export type ModelRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>> = {
     [K in keyof TRelations]: (params: RelationParams<TStored, TRelations[K]>) => Relation<TStored>;
 };
+export type AssociationStored<TDefinition> = TDefinition extends RelationDecl<infer TStored> ? TStored : never;
+export type AssociationData<TDefinition> = TDefinition extends {
+    kind: 'belongsTo' | 'hasOne';
+} ? AssociationStored<TDefinition> | undefined : AssociationStored<TDefinition>[];
+export type ModelAssociationMethods<TAssociations extends Record<string, RelationDecl<unknown>>> = {
+    [K in keyof TAssociations]: (id: string | null | undefined) => Relation<AssociationStored<TAssociations[K]>, AssociationData<TAssociations[K]>>;
+};
 export type ModelActionMethods<TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>> = {
     [K in keyof TActions]: ModelAction<ActionInput<TActions[K]>, ActionPayload<TActions[K]>>;
 };
@@ -220,9 +227,9 @@ export type ModelFacadeCore<TStored extends {
 };
 export type ModelFacadeBase<TStored extends {
     id: string;
-}, TInput, TRelations extends Record<string, RelationSpec<TStored, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>> = ModelFacadeCore<TStored, TInput, TActions> & ModelRelationMethods<TStored, TRelations>;
+}, TInput, TRelations extends Record<string, RelationSpec<TStored, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TAssociations extends Record<string, RelationDecl<unknown>>> = ModelFacadeCore<TStored, TInput, TActions> & ModelRelationMethods<TStored, TRelations> & ModelAssociationMethods<TAssociations>;
 export type ModelFacade<TStored extends {
     id: string;
-}, TInput, TRelations extends Record<string, RelationSpec<TStored, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TStatics extends Record<string, unknown>> = ModelFacadeBase<TStored, TInput, TRelations, TActions> & TStatics;
+}, TInput, TRelations extends Record<string, RelationSpec<TStored, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TAssociations extends Record<string, RelationDecl<unknown>>, TStatics extends Record<string, unknown>> = ModelFacadeBase<TStored, TInput, TRelations, TActions, TAssociations> & TStatics;
 export {};
 //# sourceMappingURL=dsl.modelFacade.types.d.ts.map
