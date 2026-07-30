@@ -115,6 +115,9 @@ type GraphqlActionBase<TData, TVariables, TInput, TResultKey extends keyof TData
   variables(input: TInput, context: ActionContext): TVariables;
   dedupe?: false | { key(input: TInput): string | null };
   once?: boolean;
+  before?(input: TInput, context: ActionContext): void;
+  after?(context: { input: TInput; data: TData }): void;
+  error?(error: Error, context: ActionContext & { input: TInput }): void;
   invalidate?(context: { input: TInput; data: TData }): void;
   track?(context: { input: TInput; data: TData }): void;
 };

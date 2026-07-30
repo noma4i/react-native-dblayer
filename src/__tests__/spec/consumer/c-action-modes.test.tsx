@@ -1,6 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
 import { configureDb, defineModel, defineShape, f, gql } from '../../../index';
+import type { DbTransport } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type JobInput = {
@@ -40,6 +41,44 @@ const JobSchema = defineShape<JobInput>()({
 describe('action modes', () => {
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('runs request lifecycle callbacks around commit and rollback', async () => {
+    const calls: string[] = [];
+    const transport = createMockTransport({
+      mutation: async <TData,>(operation: Parameters<DbTransport['mutation']>[0]) => {
+        const variables = operation.variables as { input: StartVariables['input'] | StartVariables };
+        const input = 'input' in variables.input ? variables.input.input : variables.input;
+        if (input.label === 'fail') throw new Error('rejected');
+        return {
+          data: {
+            startJob: {
+              job: { id: 'job-1', label: input.label, status: 'done' }
+            }
+          } as TData
+        };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Job = defineModel('SpecRequestLifecycleJob', {
+      schema: JobSchema,
+      actions: {
+        start: gql.action(startDocument, {
+          result: 'startJob',
+          variables: input => ({ input }),
+          kind: 'insert',
+          select: data => data.startJob.job,
+          before: input => calls.push(`before:${input.label}`),
+          after: ({ input, data }) => calls.push(`after:${input.label}:${data.startJob.job.id}`),
+          error: (error, { input }) => calls.push(`error:${input.label}:${error.message}`)
+        })
+      }
+    });
+
+    await Job.actions.start.run({ label: 'pass' });
+    await expect(Job.actions.start.run({ label: 'fail' })).rejects.toThrow('rejected');
+
+    expect(calls).toEqual(['before:pass', 'after:pass:job-1', 'before:fail', 'error:fail:rejected']);
   });
 
   it('starts and completes a durable action through one model-owned handle', () => {

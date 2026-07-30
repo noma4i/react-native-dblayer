@@ -366,6 +366,9 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
     extract,
     dedupe: definition.dedupe,
     once: definition.once,
+    onMutate: definition.before,
+    onCommit: definition.after ? (data, context) => definition.after?.({ input: context.input, data }) : undefined,
+    onError: definition.error,
     invalidate: definition.invalidate,
     track: definition.track
   });

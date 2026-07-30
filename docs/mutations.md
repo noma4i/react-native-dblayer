@@ -24,6 +24,9 @@ send: gql.action(SendMessageDocument, {
 | `variables` | Maps command input and operation context to GraphQL variables. |
 | `dedupe` | Declares an idempotency key or disables deduplication. |
 | `once` | Persists successful one-time execution. |
+| `before` | Runs before the request with the input and operation context. |
+| `after` | Runs after the atomic commit with the input and response data. |
+| `error` | Runs after rollback with the error, input, and operation context. |
 | `invalidate` | Invalidates related reads after commit. |
 | `track` | Observes a successful commit. |
 | `kind` | Selects `insert`, `update`, `destroy`, or `custom`. |
