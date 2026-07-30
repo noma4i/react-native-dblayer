@@ -53,6 +53,7 @@ describe('core edge helpers', () => {
     expect(tuple({ id: 'row-1', sequence: null }, { id: 'row-1', sequence: 1 }, { origin: 'snapshot' })).toMatchObject({ sequence: 1 });
     expect(tuple({ id: 'row-1', sequence: 'a' }, { id: 'row-1', sequence: 'b' }, { origin: 'snapshot' })).toMatchObject({ sequence: 'b' });
     expect(tuple({ id: 'row-1', sequence: null }, { id: 'row-1', sequence: null }, { origin: 'snapshot' })).toMatchObject({ sequence: null });
+    expect(tuple({ id: 'row-1', sequence: 1 }, { id: 'row-1', sequence: null }, { origin: 'snapshot' })).toMatchObject({ sequence: 1 });
 
     const nestedContinuity = compileWritePolicies(
       [{ fields: ['meta'], policy: { keys: { value: 'continuity' } } }],

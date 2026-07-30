@@ -1,4 +1,11 @@
-import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime, resetRuntime } from '../../legacyTestApi';
+import {
+  advanceRuntimeGeneration,
+  configureDb,
+  createDbSubscriptionEffects,
+  createDbSubscriptionRuntime,
+  registerReset,
+  resetRuntime
+} from '../../legacyTestApi';
 import { setFetchNetworkOnline } from '../../../core/fetch/networkState';
 import * as networkState from '../../../core/fetch/networkState';
 import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';
@@ -298,6 +305,216 @@ describe('subscription runtime correctness', () => {
 
     expect(received).toEqual(['first', 'second']);
     runtime.stop();
+  });
+
+  it('cancels a scheduled retry when stopped before the timer fires', () => {
+    jest.useFakeTimers();
+    try {
+      let attempts = 0;
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          subscribe: (_options, nextHandlers) => {
+            attempts += 1;
+            handlers = nextHandlers;
+            return jest.fn();
+          }
+        })
+      });
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      runtime.setActive(true);
+      handlers.error(new Error('retry later'));
+
+      runtime.stop();
+      jest.advanceTimersByTime(30_000);
+
+      expect(attempts).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('skips stale, malformed, and unknown dispatch payloads', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
+    const received: unknown[] = [];
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
+
+    runtime.dispatch('event', 7);
+    runtime.dispatch('missing', { id: 'unknown' });
+    runtime.setActive(true);
+    advanceRuntimeGeneration();
+    runtime.dispatch('event', { id: 'stale' });
+
+    expect(received).toEqual([]);
+    runtime.stop();
+  });
+
+  it('skips a non-object transport response', () => {
+    let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        subscribe: (_options, nextHandlers) => {
+          handlers = nextHandlers;
+          return jest.fn();
+        }
+      })
+    });
+    const received: unknown[] = [];
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
+    runtime.setActive(true);
+
+    handlers.next(7);
+
+    expect(received).toEqual([]);
+    runtime.stop();
+  });
+
+  it('routes an onSubscribe failure through retry handling', () => {
+    jest.useFakeTimers();
+    try {
+      const unsubscribe = jest.fn();
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({ subscribe: () => unsubscribe })
+      });
+      const runtime = createDbSubscriptionRuntime([
+        {
+          key: 'event',
+          query: document,
+          onSubscribe: () => {
+            throw new Error('reconcile failed');
+          },
+          onData: () => {}
+        }
+      ]);
+
+      runtime.setActive(true);
+
+      expect(runtime.inspect()[0]).toMatchObject({ active: false, errorCount: 1 });
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ignores an error callback from a superseded attempt', () => {
+    const handlerSets: Array<{ next: (data: unknown) => void; error: (error: unknown) => void }> = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        subscribe: (_options, handlers) => {
+          handlerSets.push(handlers);
+          return jest.fn();
+        }
+      })
+    });
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    runtime.setActive(true);
+    runtime.setActive(false);
+    runtime.setActive(true);
+
+    handlerSets[0]!.error(new Error('stale'));
+
+    expect(runtime.inspect()[0]).toMatchObject({ active: true, errorCount: 0 });
+    runtime.stop();
+  });
+
+  it('restarts an active runtime after a direct generation advance', () => {
+    let attempts = 0;
+    const releases: jest.Mock[] = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        subscribe: () => {
+          attempts += 1;
+          const release = jest.fn();
+          releases.push(release);
+          return release;
+        }
+      })
+    });
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    runtime.setActive(true);
+    advanceRuntimeGeneration();
+
+    runtime.setActive(true);
+
+    expect(attempts).toBe(2);
+    expect(releases[0]).toHaveBeenCalledTimes(1);
+    runtime.stop();
+  });
+
+  it('rejects activation when the transport has no subscription capability', () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: {
+        query: async () => ({ data: undefined }),
+        mutation: async () => ({ data: undefined })
+      } as never
+    });
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+
+    expect(() => runtime.setActive(true)).toThrow('transport.subscribe is required');
+    runtime.stop();
+  });
+
+  it('preserves a runtime activated by an earlier reset callback in the fresh generation', () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ subscribe: () => jest.fn() })
+    });
+    const holder: { runtime?: ReturnType<typeof createDbSubscriptionRuntime> } = {};
+    const unregister = registerReset(() => holder.runtime!.setActive(true));
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    holder.runtime = runtime;
+
+    resetRuntime();
+
+    expect(runtime.isActive()).toBe(true);
+    unregister();
+    runtime.stop();
+  });
+
+  it('guards an offline reconnect callback that fires while offline or after a generation change', () => {
+    let reconnect!: () => void;
+    const release = jest.fn();
+    const subscribeNetwork = jest.spyOn(networkState, 'subscribeFetchNetwork').mockImplementation(callback => {
+      reconnect = callback;
+      return release;
+    });
+    try {
+      let attempts = 0;
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          subscribe: (_options, nextHandlers) => {
+            attempts += 1;
+            handlers = nextHandlers;
+            return jest.fn();
+          }
+        })
+      });
+      setFetchNetworkOnline(false);
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      runtime.setActive(true);
+      handlers.error(new Error('offline'));
+
+      reconnect();
+      advanceRuntimeGeneration();
+      setFetchNetworkOnline(true);
+      reconnect();
+
+      expect(attempts).toBe(1);
+      expect(release).toHaveBeenCalledTimes(2);
+      runtime.stop();
+    } finally {
+      subscribeNetwork.mockRestore();
+      setFetchNetworkOnline(true);
+    }
   });
 });
 

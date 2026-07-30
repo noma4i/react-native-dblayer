@@ -43,3 +43,4 @@ export { retryDelayMs } from '../core/fetch/retryPolicy';
 export { createModelStore } from '../core/store';
 export { registerApplyTarget } from '../core/apply/applyTargetRegistry';
 export { advanceRuntimeGeneration, getOperationState } from '../dsl/configure';
+export { deriveEffects, hasDependentCascade, readModelRelation, registerRelationHost } from '../core/relations';

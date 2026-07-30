@@ -69,7 +69,6 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     state.eventCount += 1;
   };
   const handlePayload = (state: SubscriptionEntryState, payload: unknown): void => {
-    if (!isCurrentGeneration()) return;
     if (!isNonArrayRecord(payload)) {
       getDbLogger().debug(LOG_PREFIX, 'payload skipped', { key: state.entry.key });
       return;
@@ -118,8 +117,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
   const subscribeEntry = (state: SubscriptionEntryState): void => {
     if (!context.active || !isCurrentGeneration() || state.unsubscribe) return;
     clearRetryWait(state);
-    const subscribe = getDbTransport().subscribe;
-    if (!subscribe) throw new Error('react-native-dblayer: transport.subscribe is required before activating subscription runtime');
+    const subscribe = getDbTransport().subscribe!;
     const epoch = context.activationEpoch;
     const token = state.attemptToken + 1;
     const placeholder = (): void => {};
@@ -146,15 +144,14 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
       handleEntryError(state, error, epoch, token);
     }
   };
-  const scheduleRetry = (state: SubscriptionEntryState, epoch: number, token: number): void => {
-    if (!isCurrentAttempt(state, epoch, token)) return;
+  const scheduleRetry = (state: SubscriptionEntryState): void => {
     clearRetryWait(state);
     /** Offline gate: never burn retry attempts without a network - resubscribe once connectivity returns. */
     if (!isFetchNetworkOnline()) {
       const release = subscribeFetchNetwork(() => {
         if (state.retryNetworkRelease === release) state.retryNetworkRelease = null;
         release();
-        if (!isFetchNetworkOnline() || !isCurrentAttempt(state, epoch, token) || state.unsubscribe) return;
+        if (!isFetchNetworkOnline()) return;
         subscribeEntry(state);
       });
       state.retryNetworkRelease = release;
@@ -164,7 +161,6 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     state.retryAttempts += 1;
     state.retryTimer = setTimeout(() => {
       state.retryTimer = null;
-      if (!isCurrentAttempt(state, epoch, token) || state.unsubscribe) return;
       subscribeEntry(state);
     }, delay);
   };
@@ -173,7 +169,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     state.errorCount += 1;
     getDbLogger().error(LOG_PREFIX, 'subscription error', { key: state.entry.key, error });
     unsubscribeEntry(state);
-    scheduleRetry(state, epoch, token);
+    scheduleRetry(state);
   }
   const deactivateAll = (): void => {
     for (const state of context.states) {
@@ -229,7 +225,6 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     },
     isActive: () => context.active,
     dispatch(key, payload) {
-      if (!isCurrentGeneration()) return;
       const state = context.byKey.get(key);
       if (!state) {
         getDbLogger().debug(LOG_PREFIX, 'dispatch skipped', { key });
