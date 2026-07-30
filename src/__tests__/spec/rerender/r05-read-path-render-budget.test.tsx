@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { belongsTo, defineModel, f, hasMany, hasOne } from '../../legacyTestApi';
+import { belongsTo, defineModelRuntime, f, hasMany, hasOne } from '../../testApi';
 import { getCommitBus } from '../../../dsl/configure';
 import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 
@@ -11,7 +11,7 @@ type ChildRow = { id: string; parentId: string; title: string; rank: number };
 type CommentRow = { id: string; parentId: string; body: string };
 
 const createScopeRows = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecReadPathBudgetScopeRows',
     name: 'SpecReadPathBudgetScopeRows',
     fields: { groupId: f.str(), title: f.str() },
@@ -21,12 +21,12 @@ const createScopeRows = () =>
   });
 
 const createRelatedRows = () => {
-  const authors = defineModel({
+  const authors = defineModelRuntime({
     id: 'SpecReadPathBudgetAuthors',
     name: 'SpecReadPathBudgetAuthors',
     fields: { name: f.str() }
   });
-  const posts = defineModel({
+  const posts = defineModelRuntime({
     id: 'SpecReadPathBudgetPosts',
     name: 'SpecReadPathBudgetPosts',
     fields: { authorId: f.str(), title: f.str() },
@@ -36,12 +36,12 @@ const createRelatedRows = () => {
 };
 
 const createCollectionRelations = () => {
-  const children = defineModel({
+  const children = defineModelRuntime({
     id: 'SpecReadPathBudgetChildren',
     name: 'SpecReadPathBudgetChildren',
     fields: { parentId: f.str(), title: f.str(), rank: f.num() }
   });
-  const parents = defineModel({
+  const parents = defineModelRuntime({
     id: 'SpecReadPathBudgetParents',
     name: 'SpecReadPathBudgetParents',
     fields: { name: f.str() },
@@ -54,12 +54,12 @@ const createCollectionRelations = () => {
 };
 
 const createViewRelations = () => {
-  const comments = defineModel({
+  const comments = defineModelRuntime({
     id: 'SpecReadPathBudgetComments',
     name: 'SpecReadPathBudgetComments',
     fields: { parentId: f.str(), body: f.str() }
   });
-  const rows = defineModel({
+  const rows = defineModelRuntime({
     id: 'SpecReadPathBudgetViewRows',
     name: 'SpecReadPathBudgetViewRows',
     fields: { groupId: f.str(), title: f.str() },
@@ -70,7 +70,7 @@ const createViewRelations = () => {
 };
 
 const createFanoutRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecReadPathBudgetFanout${suffix}`,
     name: `SpecReadPathBudgetFanout${suffix}`,
     fields: { value: f.num() }

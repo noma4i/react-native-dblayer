@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { createSingletonStatics, defineModel, f, pickPresent, resetRuntime } from '../../legacyTestApi';
+import { createSingletonStatics, defineModelRuntime, f, pickPresent, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/UserCountersModel.ts: a single-record singleton built on
@@ -12,7 +12,7 @@ const DEFAULTS: CountersRow = { id: RECORD_ID, unreadChatsCount: 0, unreadSecond
 const mergeFields = ['unreadChatsCount', 'unreadSecondaryChatsCount'] as const;
 
 const createCounters = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerCounters${suffix}`,
     name: `SpecConsumerCounters${suffix}`,
     fields: { id: f.str(), unreadChatsCount: f.num(), unreadSecondaryChatsCount: f.num() },

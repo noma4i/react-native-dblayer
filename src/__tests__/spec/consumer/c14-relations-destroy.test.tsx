@@ -1,9 +1,9 @@
-import { configureDb, defineModel, f, hasMany, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, hasMany, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { act } from 'react';
 
 const createChildModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerCascadeChild',
     name: 'SpecConsumerCascadeChild',
     fields: {
@@ -17,7 +17,7 @@ const createChildModel = () =>
   });
 
 const createParentModel = (childrenModel: ReturnType<typeof createChildModel>, dependentDestroy: boolean) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerCascadeParent-${dependentDestroy ? 'with' : 'without'}-dependent`,
     name: `SpecConsumerCascadeParent-${dependentDestroy ? 'with' : 'without'}-dependent`,
     fields: {

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createJournal } from '../../../core/apply/journal';
@@ -6,13 +6,13 @@ import { getApplyRuntime, getCommitBus } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const createModels = () => {
-  const first = defineModel({
+  const first = defineModelRuntime({
     id: 'ApplyRecoveryFirst',
     name: 'ApplyRecoveryFirst',
     fields: { label: f.str() },
     scopes: { all: ({ sort: 'server-order' }) }
   });
-  const second = defineModel({
+  const second = defineModelRuntime({
     id: 'ApplyRecoverySecond',
     name: 'ApplyRecoverySecond',
     fields: { label: f.str() },

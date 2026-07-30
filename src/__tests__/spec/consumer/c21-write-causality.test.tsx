@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f } from '../../legacyTestApi';
+import { DbProvider, configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimeline, settle } from '../helpers/harness';
 
 type ChatRow = { id: string; groupId: string; pinned: boolean; muted: boolean; read: boolean; rev: number };
@@ -26,7 +26,7 @@ const createFixture = (suffix: string, guarded = false) => {
       })
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecWriteCausality${suffix}`,
     name: `SpecWriteCausality${suffix}`,
     fields: {

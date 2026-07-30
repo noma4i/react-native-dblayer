@@ -1,4 +1,4 @@
-import { configureDb, defineFetch } from '../../legacyTestApi';
+import { configureDb, defineFetch } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type FetchInput = { at?: Date; value?: bigint | null | number };

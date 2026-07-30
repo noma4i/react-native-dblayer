@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { userId: string };
@@ -19,7 +19,7 @@ type Deferred<T> = {
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMixedMoments = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecTransportMixedMoment',
     name: 'SpecTransportMixedMoment',
     fields: {
@@ -33,7 +33,7 @@ const createMixedMoments = () =>
   });
 
 const createRaceMoments = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecTransportRaceMoment',
     name: 'SpecTransportRaceMoment',
     fields: {
@@ -47,7 +47,7 @@ const createRaceMoments = () =>
   });
 
 const createNullableMoments = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecTransportNullableMoment',
     name: 'SpecTransportNullableMoment',
     fields: {

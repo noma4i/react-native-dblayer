@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, type DbTransport } from '../../legacyTestApi';
+import { DbProvider, configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type PrimaryRow = { id: string; uuid: string; status: string };
@@ -14,7 +14,7 @@ type ScopeValue = { uuid: string };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createPrimaryModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerIngestPrimary',
     name: 'SpecConsumerIngestPrimary',
     fields: {
@@ -29,7 +29,7 @@ const createPrimaryModel = () =>
   });
 
 const createSecondaryModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerIngestSecondary',
     name: 'SpecConsumerIngestSecondary',
     fields: {
@@ -44,7 +44,7 @@ const createSecondaryModel = () =>
   });
 
 const createUnrelatedModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerIngestUnrelated',
     name: 'SpecConsumerIngestUnrelated',
     fields: {

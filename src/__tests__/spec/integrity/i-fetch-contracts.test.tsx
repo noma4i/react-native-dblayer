@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineFetch, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestFocused, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type FetchPayload = { value: string };
@@ -254,7 +254,7 @@ describe('fetch lifecycle contracts', () => {
       }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecFetchContractsRows',
       name: 'SpecFetchContractsRows',
       fields: { bucket: f.str(), version: f.num() },

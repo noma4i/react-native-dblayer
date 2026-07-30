@@ -1,4 +1,4 @@
-import { configureDb, createModelStatusPoller, resetRuntime } from '../../legacyTestApi';
+import { configureDb, createModelStatusPoller, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 type Result = { status: 'processing' | 'ready' };

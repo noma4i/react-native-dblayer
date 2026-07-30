@@ -1,10 +1,10 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const createUsers = (id: string) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     fields: {

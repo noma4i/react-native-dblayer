@@ -1,4 +1,4 @@
-import { belongsTo, configureDb, defineModel, f } from '../../legacyTestApi';
+import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
 import { isIncomingNewer } from '../../../core/invariants';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
@@ -31,7 +31,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('rejects an invalid or older newerBy timestamp and accepts a newer timestamp', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NewerBy',
       name: 'V9NewerBy',
       fields: { updatedAt: f.str(), body: f.str() },
@@ -48,7 +48,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('restores a field the previous row never had by omission on monotonic rejection', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9RejectMissingField',
       name: 'V9RejectMissingField',
       fields: { updatedAt: f.str(), body: f.str().optional(), label: f.str() },
@@ -63,7 +63,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('restores a field the previous row never had by omission under continuity', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9ContinuityMissingField',
       name: 'V9ContinuityMissingField',
       fields: { body: f.str().nullable().optional(), label: f.str() },
@@ -78,7 +78,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('restores a nested key the previous object never had by omission under a nested continuity policy', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NestedMissingKey',
       name: 'V9NestedMissingKey',
       fields: { meta: f.raw<Record<string, unknown>>() },
@@ -93,7 +93,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('accepts both-missing newerBy values but rejects an unparseable incoming value against a valid one', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NewerByMissing',
       name: 'V9NewerByMissing',
       fields: { updatedAt: f.raw<string | null>(), body: f.str() },
@@ -109,7 +109,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('compares tuple fields numerically before using codepoint ordering', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9Tuple',
       name: 'V9Tuple',
       fields: { sequence: f.raw<number | string | null>(), messageId: f.str() },
@@ -123,7 +123,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('keeps prior values for nullish or empty nonEmpty writes', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NonEmpty',
       name: 'V9NonEmpty',
       fields: { clientId: f.str().nullable() },
@@ -137,7 +137,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('preserves media dimensions and sources during events but never during replace', () => {
-    const media = defineModel({
+    const media = defineModelRuntime({
       id: 'V9Media',
       name: 'V9Media',
       fields: { media: f.raw<Record<string, unknown>>() },
@@ -154,7 +154,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('shallow-folds snapshot object fields but lets scalar and null snapshot values replace', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9Snapshot',
       name: 'V9Snapshot',
       fields: { payload: f.raw<Record<string, unknown>>().nullable() },
@@ -168,7 +168,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('folds the replaced row into a new id when the model has no write groups', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9ReplaceWithoutPolicies',
       name: 'V9ReplaceWithoutPolicies',
       fields: { body: f.str(), localUri: f.raw<string | undefined>() }
@@ -180,7 +180,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('uses server values for every policy on replace', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9ReplacePolicyMatrix',
       name: 'V9ReplacePolicyMatrix',
       fields: {
@@ -205,7 +205,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('lets a ladder abstain when either nested stage is absent', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9LadderAbstain',
       name: 'V9LadderAbstain',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -219,7 +219,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('lets a ladder abstain when the stage is explicitly null, matching the null-as-absent convention', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9LadderNullAbstain',
       name: 'V9LadderNullAbstain',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -231,7 +231,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('rejects a lower ladder tier and accepts movement within its current tier', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9LadderTiers',
       name: 'V9LadderTiers',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -245,7 +245,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('reports an unknown incoming ladder tier but not an absent incoming tier', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9LadderUnknown',
       name: 'V9LadderUnknown',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -265,7 +265,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('composes ladder and tuple guards over nested paths', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9LadderTuple',
       name: 'V9LadderTuple',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -279,7 +279,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('accepts one any branch but rejects an all composition with a failed branch', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9AnyAll',
       name: 'V9AnyAll',
       fields: { blob: f.raw<Record<string, unknown>>(), headId: f.str().nullable(), headAt: f.num(), headSeq: f.num() },
@@ -293,7 +293,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('preserves positive and non-empty nested keys', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NestedKeys',
       name: 'V9NestedKeys',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -307,7 +307,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('applies a policy list left to right after a rejected guard restores the group', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9PolicySequence',
       name: 'V9PolicySequence',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -326,7 +326,7 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('reads nested paths in newerBy, tuple, present, and equal predicates', () => {
-    const newerRows = defineModel({
+    const newerRows = defineModelRuntime({
       id: 'V9PathNewer',
       name: 'V9PathNewer',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -336,7 +336,7 @@ describe('v9 model-owned write policies', () => {
     newerRows.insert({ id: 'row-1', blob: { updatedAt: '2026-01-01T00:00:00Z' } });
     expect(newerRows.find('row-1')?.blob).toEqual({ updatedAt: '2026-01-02T00:00:00Z' });
 
-    const tupleRows = defineModel({
+    const tupleRows = defineModelRuntime({
       id: 'V9PathTuple',
       name: 'V9PathTuple',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -346,7 +346,7 @@ describe('v9 model-owned write policies', () => {
     tupleRows.insert({ id: 'row-1', blob: { seq: 1 } });
     expect(tupleRows.find('row-1')?.blob).toEqual({ seq: 2 });
 
-    const predicateRows = defineModel({
+    const predicateRows = defineModelRuntime({
       id: 'V9PathPredicates',
       name: 'V9PathPredicates',
       fields: { blob: f.raw<Record<string, unknown>>() },
@@ -360,13 +360,13 @@ describe('v9 model-owned write policies', () => {
   });
 
   it('routes relation counter decrements through the patch write gate', () => {
-    const parents = defineModel({
+    const parents = defineModelRuntime({
       id: 'V9CounterParent',
       name: 'V9CounterParent',
       fields: { childCount: f.num() },
       write: { groups: [{ fields: ['childCount'] as const, policy: { monotonic: { tuple: ['childCount'] }, on: ['patch'] } }] }
     });
-    const children = defineModel({
+    const children = defineModelRuntime({
       id: 'V9CounterChild',
       name: 'V9CounterChild',
       fields: { parentId: f.str() },
@@ -388,7 +388,7 @@ describe('v9 policy primitive edges', () => {
   });
 
   it('rejects a nonEmpty group when the guarded field is absent from the payload', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NonEmptyAbsent',
       name: 'V9NonEmptyAbsent',
       fields: { clientId: f.str(), body: f.str() },
@@ -401,7 +401,7 @@ describe('v9 policy primitive edges', () => {
   });
 
   it('treats numeric zero as a present nonEmpty value', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9NonEmptyZero',
       name: 'V9NonEmptyZero',
       fields: { rank: f.num() },
@@ -414,7 +414,7 @@ describe('v9 policy primitive edges', () => {
   });
 
   it('compares numeric-like tuple parts numerically and falls through equal parts', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9TupleNumeric',
       name: 'V9TupleNumeric',
       fields: { headAt: f.str(), headSeq: f.str(), body: f.str() },
@@ -432,7 +432,7 @@ describe('v9 policy primitive edges', () => {
   });
 
   it('restores the whole rejected group so a stale partial can never tear paired fields', () => {
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'V9GroupAtomic',
       name: 'V9GroupAtomic',
       fields: { updatedAt: f.str(), body: f.str(), unguarded: f.str() },

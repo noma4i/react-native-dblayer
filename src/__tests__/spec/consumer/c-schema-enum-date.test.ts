@@ -1,4 +1,4 @@
-import { defineModel, defineShape, f, readShape, scalarFieldCodecs } from '../../legacyTestApi';
+import { defineModelRuntime, defineShape, f, readShape, scalarFieldCodecs } from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Runtime contracts for the enum and date field readers.
@@ -16,7 +16,7 @@ describe('f.enum runtime validation', () => {
 
   it('drops invalid enum values at the model normalize boundary', () => {
     setupSpecRuntime();
-    const items = defineModel({
+    const items = defineModelRuntime({
       id: 'SpecEnumModelBoundary',
       name: 'SpecEnumModelBoundary',
       fields: { id: f.str(), status: f.enum(['draft', 'sent'] as const) }
@@ -128,7 +128,7 @@ describe('field spec chains', () => {
   it('covers scalar, custom, and empty-object model normalization', () => {
     setupSpecRuntime();
     const child = defineShape()({ name: f.str().default('child') });
-    const Item = defineModel({
+    const Item = defineModelRuntime({
       id: 'SpecFieldChainItem',
       name: 'SpecFieldChainItem',
       fields: {

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type GroupRow = { id: string; groupId: string; label: string };
@@ -20,7 +20,7 @@ describe('query scope registry reset contract', () => {
       }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const groups = defineModel({
+    const groups = defineModelRuntime({
       id: 'SpecResetScopeRegistry',
       name: 'SpecResetScopeRegistry',
       fields: {

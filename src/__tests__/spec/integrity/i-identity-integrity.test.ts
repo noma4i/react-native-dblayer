@@ -1,4 +1,4 @@
-import { belongsTo, configureDb, createDbSubscriptionRuntime, defineModel, f } from '../../legacyTestApi';
+import { belongsTo, configureDb, createDbSubscriptionRuntime, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('identity integrity red-first', () => {
@@ -7,15 +7,15 @@ describe('identity integrity red-first', () => {
   });
 
   it('rejects a duplicate model id before it can replace an apply target', () => {
-    defineModel({ id: 'IdentityDuplicateId', name: 'IdentityFirst', fields: { body: f.str() } });
+    defineModelRuntime({ id: 'IdentityDuplicateId', name: 'IdentityFirst', fields: { body: f.str() } });
 
-    expect(() => defineModel({ id: 'IdentityDuplicateId', name: 'IdentitySecond', fields: { body: f.str() } })).toThrow('IdentityDuplicateId');
+    expect(() => defineModelRuntime({ id: 'IdentityDuplicateId', name: 'IdentitySecond', fields: { body: f.str() } })).toThrow('IdentityDuplicateId');
   });
 
   it('rejects a duplicate model name before ingest can route to the wrong model', () => {
-    defineModel({ id: 'IdentityIngestFirst', name: 'IdentityDuplicateName', fields: { body: f.str() } });
+    defineModelRuntime({ id: 'IdentityIngestFirst', name: 'IdentityDuplicateName', fields: { body: f.str() } });
 
-    expect(() => defineModel({ id: 'IdentityIngestSecond', name: 'IdentityDuplicateName', fields: { body: f.str() } })).toThrow('IdentityDuplicateName');
+    expect(() => defineModelRuntime({ id: 'IdentityIngestSecond', name: 'IdentityDuplicateName', fields: { body: f.str() } })).toThrow('IdentityDuplicateName');
   });
 
   it('rejects a duplicate subscription key', () => {
@@ -26,9 +26,9 @@ describe('identity integrity red-first', () => {
   });
 
   it('aliases counter snapshots when template key segments contain colons', () => {
-    const first = defineModel({ id: 'a:b', name: 'IdentityCounterFirst', fields: { count: f.num() } });
-    const second = defineModel({ id: 'a', name: 'IdentityCounterSecond', fields: { count: f.num() } });
-    const children = defineModel({
+    const first = defineModelRuntime({ id: 'a:b', name: 'IdentityCounterFirst', fields: { count: f.num() } });
+    const second = defineModelRuntime({ id: 'a', name: 'IdentityCounterSecond', fields: { count: f.num() } });
+    const children = defineModelRuntime({
       id: 'IdentityCounterChild',
       name: 'IdentityCounterChild',
       fields: { firstId: f.str(), secondId: f.str() },
@@ -45,7 +45,7 @@ describe('identity integrity red-first', () => {
   });
 
   it('normalizes a numeric id before core row lookup', () => {
-    const rows = defineModel({ id: 'IdentityNumericId', name: 'IdentityNumericId', fields: { body: f.str() } });
+    const rows = defineModelRuntime({ id: 'IdentityNumericId', name: 'IdentityNumericId', fields: { body: f.str() } });
     rows.insert({ id: 1, body: 'number' } as never);
 
     expect(rows.find('1')?.body).toBe('number');

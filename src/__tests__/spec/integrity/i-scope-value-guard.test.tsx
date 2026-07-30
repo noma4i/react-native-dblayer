@@ -1,12 +1,12 @@
 import type { DocumentNode } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; accountId: string; title: string };
 
 const createRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `ScopeValueGuard${suffix}`,
     name: `ScopeValueGuard${suffix}`,
     fields: { id: f.str(), accountId: f.str(), title: f.str() },

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { collectGarbage } from '../../../core/gc';
 import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';
@@ -13,7 +13,7 @@ const document = { kind: 'Document', definitions: [] } as never;
 const persistCurrentManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
 const createMessageModel = (limit: number, protect?: () => Set<string>) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerMessagesMaint${limit}`,
     name: `SpecConsumerMessagesMaint${limit}`,
     fields: {
@@ -128,7 +128,7 @@ describe('maintenance trim contracts', () => {
       })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'SpecConsumerMessagesRetention',
       name: 'SpecConsumerMessagesRetention',
       fields: { id: f.str(), chatId: f.str(), sequence: f.num(), payload: f.str() },
@@ -162,7 +162,7 @@ describe('maintenance trim contracts', () => {
 type TempRow = { id: string; createdAt: string; label: string };
 
 const createTempRows = (id: string, maxAgeMs?: number, protectTempRows?: () => ReadonlySet<string>) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     gc: 'exempt',

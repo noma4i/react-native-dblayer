@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createScopeIndex, isScopeIndexValue } from '../../../core/planes/scopeIndex';
 import { compositeKey, compositeStorageKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ScopeRow = { id: string; bucket: string; rank: number; label: string };
 const createScopeModel = (orderFields?: ReadonlyArray<keyof ScopeRow & string>, onCompare?: () => void) =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecIntegrityScopeOrderReset',
     name: 'SpecIntegrityScopeOrderReset',
     fields: {

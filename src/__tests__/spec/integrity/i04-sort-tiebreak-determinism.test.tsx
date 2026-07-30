@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // A2 audit guards: equal-sort-key ordering is deterministic and identical across read surfaces.
@@ -9,7 +9,7 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
 const createItems = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecIntegrityTiebreak${suffix}`,
     name: `SpecIntegrityTiebreak${suffix}`,
     fields: { id: f.str(), status: f.str(), score: f.num() },
@@ -87,7 +87,7 @@ describe('sort tie-break determinism (A2)', () => {
 
   it('orders a scope by a declared key list: primary desc, secondary desc, nulls last, id tie-break', () => {
     setupSpecRuntime();
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'SpecIntegrityMultiKeySort',
       name: 'SpecIntegrityMultiKeySort',
       fields: { id: f.str(), chatId: f.str(), seq: f.num().nullable(), createdAt: f.str() },

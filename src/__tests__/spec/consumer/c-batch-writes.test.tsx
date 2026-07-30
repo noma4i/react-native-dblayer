@@ -1,11 +1,11 @@
 import { act } from 'react';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // updateAll/destroyAll: one journal plan, one commit, snapshot match semantics.
 
 const createItems = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerBatchWrites${suffix}`,
     name: `SpecConsumerBatchWrites${suffix}`,
     fields: { id: f.str(), score: f.num(), status: f.str() }

@@ -1,4 +1,4 @@
-import { configureDb, defineCommand, defineFetch, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineCommand, defineFetch, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle, renderCountedInProvider } from '../helpers/harness';
 
 type UserRow = { id: string; balance: number };
@@ -19,7 +19,7 @@ describe('command invalidation and dedupe contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
-    const users = defineModel({
+    const users = defineModelRuntime({
       id: 'SpecConsumerCommandInvalidateUsers',
       name: 'SpecConsumerCommandInvalidateUsers',
       fields: {
@@ -73,7 +73,7 @@ describe('command invalidation and dedupe contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
-    const users = defineModel({
+    const users = defineModelRuntime({
       id: 'SpecConsumerCommandInvalidateUsersNoInvalidate',
       name: 'SpecConsumerCommandInvalidateUsersNoInvalidate',
       fields: {

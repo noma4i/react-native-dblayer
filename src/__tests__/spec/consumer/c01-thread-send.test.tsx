@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { belongsTo, configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/MessageModel.ts: thread scope by chatId, custom comparator
@@ -35,7 +35,7 @@ const isNewerThanChatPreview = (message: MessageRow, chat: ChatRow): boolean =>
   }) < 0;
 
 const createModels = (suffix: string, options?: { threadRetention?: number }) => {
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecConsumerChatsThread${suffix}`,
     name: `SpecConsumerChatsThread${suffix}`,
     fields: {
@@ -47,7 +47,7 @@ const createModels = (suffix: string, options?: { threadRetention?: number }) =>
       lastSequenceNumber: f.num().nullable()
     }
   });
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecConsumerMessagesThread${suffix}`,
     name: `SpecConsumerMessagesThread${suffix}`,
     fields: {

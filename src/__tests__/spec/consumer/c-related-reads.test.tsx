@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, defineModel, f, hasMany, hasOne, references } from '../../legacyTestApi';
+import { belongsTo, defineModelRuntime, f, hasMany, hasOne, references } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // use.related contracts: belongsTo/hasMany/hasOne reactive reads through declared relations.
@@ -11,12 +11,12 @@ type AuthorRow = { id: string; name: string };
 type PostRow = { id: string; authorId: string; title: string; seq: number };
 
 const createBelongsToPair = (suffix: string) => {
-  const authors = defineModel({
+  const authors = defineModelRuntime({
     id: `SpecRelBAuthors${suffix}`,
     name: `SpecRelBAuthors${suffix}`,
     fields: { id: f.str(), name: f.str() }
   });
-  const posts = defineModel({
+  const posts = defineModelRuntime({
     id: `SpecRelBPosts${suffix}`,
     name: `SpecRelBPosts${suffix}`,
     fields: { id: f.str(), authorId: f.str(), title: f.str(), seq: f.num() },
@@ -28,12 +28,12 @@ const createBelongsToPair = (suffix: string) => {
 };
 
 const createHasPair = (suffix: string) => {
-  const posts = defineModel({
+  const posts = defineModelRuntime({
     id: `SpecRelHPosts${suffix}`,
     name: `SpecRelHPosts${suffix}`,
     fields: { id: f.str(), authorId: f.str(), title: f.str(), seq: f.num() }
   });
-  const authors = defineModel({
+  const authors = defineModelRuntime({
     id: `SpecRelHAuthors${suffix}`,
     name: `SpecRelHAuthors${suffix}`,
     fields: { id: f.str(), name: f.str() },
@@ -123,17 +123,17 @@ describe('use.related', () => {
 
   it('covers absent parents, empty and unsorted single relations, scalar references, and null fields', () => {
     setupSpecRuntime();
-    const targets = defineModel({
+    const targets = defineModelRuntime({
       id: 'SpecRelEdgeTargets',
       name: 'SpecRelEdgeTargets',
       fields: { name: f.str() }
     });
-    const children = defineModel({
+    const children = defineModelRuntime({
       id: 'SpecRelEdgeChildren',
       name: 'SpecRelEdgeChildren',
       fields: { parentId: f.str(), rank: f.num() }
     });
-    const sources = defineModel({
+    const sources = defineModelRuntime({
       id: 'SpecRelEdgeSources',
       name: 'SpecRelEdgeSources',
       fields: { parentId: f.str(), targetId: f.str(), secondTargetId: f.str() },

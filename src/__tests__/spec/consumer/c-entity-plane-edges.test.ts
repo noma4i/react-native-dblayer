@@ -5,7 +5,7 @@ import {
   encodePersistence,
   runInApplyBatch,
   type StoragePlane
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';
 
 const prefix = 'entity-edge:';

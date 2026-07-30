@@ -1,4 +1,4 @@
-import { createSingleFlight, createThrottledSingleFlight, configureDb, resetRuntime } from '../../legacyTestApi';
+import { createSingleFlight, createThrottledSingleFlight, configureDb, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 const deferred = <TResult>() => {

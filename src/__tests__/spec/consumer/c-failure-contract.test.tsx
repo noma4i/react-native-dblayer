@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { flushPersistence } from '../../../dsl/configure';
@@ -13,7 +13,7 @@ const document = { kind: 'Document', definitions: [] } as never;
 
 const createMessages = (id: string, transport: ReturnType<typeof createMockTransport>, configure = true, onError?: (error: Error) => void, tempTtlMs = 1000) => {
   if (configure) configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: tempTtlMs } });
+  const messages = defineModelRuntime({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: tempTtlMs } });
   let latestTempId: string | null = null;
   const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
     document,
@@ -122,7 +122,7 @@ describe('optimistic failure contract', () => {
   it('failure rollback opt-out restores destroy-on-error', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'FailureRollback',
       name: 'FailureRollback',
       gc: 'exempt',
@@ -251,7 +251,7 @@ describe('optimistic failure contract', () => {
 
   it('T1 rejects an optimistic insert declaration without a pending temp-row TTL', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineModel({ id: 'FailureMissingTempTtl', name: 'FailureMissingTempTtl', fields: { text: f.str() } });
+    const rows = defineModelRuntime({ id: 'FailureMissingTempTtl', name: 'FailureMissingTempTtl', fields: { text: f.str() } });
 
     expect(() =>
       rows.mutation('send', {

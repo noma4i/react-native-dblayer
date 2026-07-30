@@ -1,16 +1,16 @@
 import React, { act, memo } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, hasOne } from '../../legacyTestApi';
+import { defineModelRuntime, f, hasOne } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
 const createChatModels = (suffix: string) => {
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecMessages${suffix}`,
     name: `SpecMessages${suffix}`,
     fields: { chatId: f.str(), text: f.str(), sentAt: f.num() }
   });
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecChats${suffix}`,
     name: `SpecChats${suffix}`,
     fields: { inboxId: f.str(), title: f.str(), lastActivityAt: f.num(), muted: f.bool() },
@@ -73,7 +73,7 @@ describe('chat list view sufficiency', () => {
   it('keeps scope output stable for an unrelated model write', () => {
     setupSpecRuntime();
     const models = createChatModels('UnrelatedScope');
-    const unrelated = defineModel({ id: 'SpecUnrelatedChatScope', name: 'SpecUnrelatedChatScope', fields: { value: f.str() } });
+    const unrelated = defineModelRuntime({ id: 'SpecUnrelatedChatScope', name: 'SpecUnrelatedChatScope', fields: { value: f.str() } });
     seedChats(models);
     unrelated.insert({ id: 'one', value: 'before' });
     const reader = renderCounted(() => models.chats.scopes.list.use({ inboxId: 'main' }));
@@ -88,7 +88,7 @@ describe('chat list view sufficiency', () => {
   it('keeps scope output identity across unrelated-model writes', () => {
     setupSpecRuntime();
     const models = createChatModels('IdentityScope');
-    const unrelated = defineModel({ id: 'SpecUnrelatedChatScopeIdentity', name: 'SpecUnrelatedChatScopeIdentity', fields: { value: f.str() } });
+    const unrelated = defineModelRuntime({ id: 'SpecUnrelatedChatScopeIdentity', name: 'SpecUnrelatedChatScopeIdentity', fields: { value: f.str() } });
     seedChats(models);
     unrelated.insert({ id: 'one', value: 'before' });
     const reader = renderCounted(() => models.chats.scopes.list.use({ inboxId: 'main' }));
@@ -183,7 +183,7 @@ describe('chat list view sufficiency', () => {
   it('keeps array identity across unrelated-model writes', () => {
     setupSpecRuntime();
     const models = createChatModels('Identity');
-    const unrelated = defineModel({ id: 'SpecUnrelatedChatView', name: 'SpecUnrelatedChatView', fields: { value: f.str() } });
+    const unrelated = defineModelRuntime({ id: 'SpecUnrelatedChatView', name: 'SpecUnrelatedChatView', fields: { value: f.str() } });
     seedChats(models);
     unrelated.insert({ id: 'one', value: 'before' });
     const view = createChatView(models);

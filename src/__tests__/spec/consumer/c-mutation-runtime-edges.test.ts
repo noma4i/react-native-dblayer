@@ -1,11 +1,11 @@
-import { configureDb, defineModel, f, getOperationState, hasMany, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, getOperationState, hasMany, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 type EdgeRow = { id: string; bucket: string; label: string; note?: string };
 
 const createRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `MutationRuntimeEdges${suffix}`,
     name: `MutationRuntimeEdges${suffix}`,
     fields: { bucket: f.str(), label: f.str(), note: f.str().optional() },
@@ -267,12 +267,12 @@ describe('mutation runtime edges', () => {
 
   it('rejects direct optimistic destroy when dependent rows exist', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const children = defineModel({
+    const children = defineModelRuntime({
       id: 'MutationRuntimeCascadeChildren',
       name: 'MutationRuntimeCascadeChildren',
       fields: { parentId: f.str() }
     });
-    const cascadedParents = defineModel({
+    const cascadedParents = defineModelRuntime({
       id: 'MutationRuntimeCascadeOwnedParents',
       name: 'MutationRuntimeCascadeOwnedParents',
       fields: { label: f.str() },

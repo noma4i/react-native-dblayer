@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createThreadMessages = (id: string, options?: { mergeMedia?: boolean }) => {
   const media = defineShape()({ id: f.id(), transcodeStatus: f.enum(['processing', 'completed'] as const), fileUrl: f.str() });
-  return defineModel({
+  return defineModelRuntime({
     id,
     name: id,
     fields: { chatId: f.id(), body: f.str(), media: f.object(media) },

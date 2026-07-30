@@ -1,7 +1,7 @@
 import * as React from 'react';
 import * as TestRenderer from 'react-test-renderer';
 import { act } from 'react';
-import { useMergedScopeRows } from '../../legacyTestApi';
+import { useMergedScopeRows } from '../../testApi';
 
 type TestRow = { id: string; name: string; score: number };
 

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -22,7 +22,7 @@ describe('mutation retry policy', () => {
         retry: { mutation: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1, maxMs: 1 } } }
       }
     });
-    const model = defineModel({ id: 'MutationRetry', name: 'MutationRetry', fields: { id: f.str() } });
+    const model = defineModelRuntime({ id: 'MutationRetry', name: 'MutationRetry', fields: { id: f.str() } });
     const send = model.mutation<{ send: { id: string } }, { id: string }, { id: string }, { id: string }>('send', {
       document,
       result: 'send',
@@ -50,7 +50,7 @@ describe('mutation retry policy', () => {
         retry: { mutation: { classify: () => 'server', budgets: { network: 2 }, backoff: { baseMs: 1, maxMs: 1 } } }
       }
     });
-    const model = defineModel({ id: 'MutationRetryServer', name: 'MutationRetryServer', fields: { id: f.str() } });
+    const model = defineModelRuntime({ id: 'MutationRetryServer', name: 'MutationRetryServer', fields: { id: f.str() } });
     const send = model.mutation<{ send: { id: string } }, { id: string }, { id: string }, { id: string }>('send', {
       document,
       result: 'send',
@@ -78,7 +78,7 @@ describe('mutation retry policy', () => {
           retry: { mutation: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1000, maxMs: 1000 } } }
         }
       });
-      const model = defineModel({ id: 'MutationRetryReset', name: 'MutationRetryReset', fields: { id: f.str() } });
+      const model = defineModelRuntime({ id: 'MutationRetryReset', name: 'MutationRetryReset', fields: { id: f.str() } });
       const send = model.mutation<{ send: { id: string } }, { id: string }, { id: string }, { id: string }>('send', {
         document,
         result: 'send',
@@ -118,7 +118,7 @@ describe('mutation retry policy', () => {
           retry: { mutation: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1000, maxMs: 1000 } } }
         }
       });
-      const model = defineModel({ id: 'MutationRetryInflightReset', name: 'MutationRetryInflightReset', fields: { id: f.str() } });
+      const model = defineModelRuntime({ id: 'MutationRetryInflightReset', name: 'MutationRetryInflightReset', fields: { id: f.str() } });
       const send = model.mutation<{ send: { id: string } }, { id: string }, { id: string }, { id: string }>('send', {
         document,
         result: 'send',

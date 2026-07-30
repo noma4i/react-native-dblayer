@@ -1,13 +1,13 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, type DbWhere } from '../../legacyTestApi';
+import { defineModelRuntime, f, type DbWhere } from '../../testApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 type ScaleRow = { id: string; score: number; status: string };
 
 const buildModel = (tag: string, size: number) => {
   setupSpecRuntime();
-  const items = defineModel({
+  const items = defineModelRuntime({
     id: `SpecWhereOpScale${tag}${size}`,
     name: `SpecWhereOpScale${tag}${size}`,
     fields: { id: f.str(), score: f.num(), status: f.str() }

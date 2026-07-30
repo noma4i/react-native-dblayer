@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { DbProvider, configureDb, defineFetch, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { collectGarbage } from '../../../core/gc';
 import { registerActiveFetchReaders } from '../../../core/fetch/fetchReaderRegistry';
 import { compositeKey } from '../../../core/serialize';
@@ -14,7 +14,7 @@ type FetchResponse = { value: string };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createRowsModel = (id: string) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     fields: { name: f.str(), group: f.str().nullable() },

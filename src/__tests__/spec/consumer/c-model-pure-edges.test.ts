@@ -3,7 +3,7 @@ import {
   collectGarbage,
   createModelNormalization,
   createModelScopeKeys,
-  defineModel,
+  defineModelRuntime,
   f,
   firstCompositeKeyPart,
   getApplyTarget,
@@ -15,7 +15,7 @@ import {
   registerModelLandingHost,
   type ModelLandingHost,
   type WriteOp
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const createLandingHost = (model: string, sideloads?: ModelLandingHost['sideloads']): ModelLandingHost => ({
@@ -147,7 +147,7 @@ describe('model landing graph edges', () => {
 describe('model write planning edges', () => {
   it('detaches stale scope members during garbage collection', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const model = defineModel({
+    const model = defineModelRuntime({
       id: 'ModelGcStaleScopeMember',
       name: 'ModelGcStaleScopeMember',
       fields: { bucket: f.str() },
@@ -164,7 +164,7 @@ describe('model write planning edges', () => {
 
   it('restores captured memberships under the normalized replacement id and ignores a missing patch row', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const model = defineModel({
+    const model = defineModelRuntime({
       id: 'ModelWritePlanningEdges',
       name: 'ModelWritePlanningEdges',
       fields: { bucket: f.str(), label: f.str() },
@@ -194,7 +194,7 @@ describe('model write planning edges', () => {
 
   it('classifies scope order dependencies and acknowledges both persistence planes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const model = defineModel({
+    const model = defineModelRuntime({
       id: 'ModelApplyTargetEdges',
       name: 'ModelApplyTargetEdges',
       fields: { bucket: f.str(), rank: f.num(), label: f.str() },
@@ -239,7 +239,7 @@ describe('model write planning edges', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
 
     expect(() =>
-      defineModel({
+      defineModelRuntime({
         id: 'ModelStaticCollision',
         name: 'ModelStaticCollision',
         fields: { label: f.str() },
@@ -250,7 +250,7 @@ describe('model write planning edges', () => {
 
   it('plans filtered sorted scopes across reset, delta, placement, and stale membership states', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const model = defineModel({
+    const model = defineModelRuntime({
       id: 'ModelScopePlannerEdges',
       name: 'ModelScopePlannerEdges',
       fields: { bucket: f.str(), rank: f.num(), label: f.str() },

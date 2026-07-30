@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, createDbSubscriptionRuntime, createThrottledSingleFlight, defineModel, f } from '../../legacyTestApi';
+import { configureDb, createDbSubscriptionRuntime, createThrottledSingleFlight, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/ChatModel.ts: throttled single-flight sync mutation, and
@@ -10,7 +10,7 @@ type ChatRow = { id: string; status: string; title: string; lastActivityAt: numb
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createChats = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerChatsSync${suffix}`,
     name: `SpecConsumerChatsSync${suffix}`,
     fields: { id: f.str(), status: f.str(), title: f.str(), lastActivityAt: f.num() },

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 type ChatRow = { id: string; inboxId: string; premium: boolean; kind: string };
@@ -7,7 +7,7 @@ type QueryResponse = { chats: ChatRow[] };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMemberChats = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecScopeMember${suffix}`,
     name: `SpecScopeMember${suffix}`,
     fields: { id: f.str(), inboxId: f.str(), premium: f.bool(), kind: f.str() },
@@ -17,7 +17,7 @@ const createMemberChats = (suffix: string) =>
   });
 
 const createQueryChats = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecScopeMemberQuery',
     name: 'SpecScopeMemberQuery',
     fields: { id: f.str(), inboxId: f.str(), premium: f.bool(), kind: f.str() },

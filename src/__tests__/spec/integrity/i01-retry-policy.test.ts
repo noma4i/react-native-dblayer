@@ -1,4 +1,4 @@
-import { configureDb, defineFetch, defineModel, f, resetRuntime, setFetchNetworkOnline } from '../../legacyTestApi';
+import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime, setFetchNetworkOnline } from '../../testApi';
 import { backoffDelayMs } from '../../../core/fetch/retryPolicy';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
@@ -157,7 +157,7 @@ describe('query retry policy', () => {
       }),
       defaults: { onSyncError }
     });
-    const rows = defineModel({ id: 'QueryErrorResetFence', name: 'QueryErrorResetFence', fields: { label: f.str() } });
+    const rows = defineModelRuntime({ id: 'QueryErrorResetFence', name: 'QueryErrorResetFence', fields: { label: f.str() } });
     const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('stale-error', {
       key: 'query-error-reset-fence',
       document,
@@ -220,7 +220,7 @@ describe('query retry policy', () => {
             })
         })
       });
-      const rows = defineModel({ id: 'QueryStateResetFence', name: 'QueryStateResetFence', fields: { label: f.str() } });
+      const rows = defineModelRuntime({ id: 'QueryStateResetFence', name: 'QueryStateResetFence', fields: { label: f.str() } });
       const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('stale-state', {
         key: 'query-state-reset-fence',
         document,

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { bootDb } from '../../../dsl/lifecycle';
 import { encodePersistence } from '../../../core/persistenceCodec';
@@ -14,7 +14,7 @@ const configureRecoveryRuntime = (entries: Array<{ key: string; value: string }>
 };
 
 const defineRecoveryModel = (id: string) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     gc: 'exempt',

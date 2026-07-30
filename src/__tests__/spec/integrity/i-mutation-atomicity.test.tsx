@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { getOperationState, replayJournal } from '../../../dsl/configure';
 import { attemptAsyncWithLastWriteFaulted, attemptWithLastWriteFaulted, createFaultStorage, failAfterSettledBatches, snapshotAfterBatches } from '../helpers/faultStorage';
 import { createMockTransport } from '../helpers/harness';
@@ -19,7 +19,7 @@ type Row = { id: string; bucket: string; label: string };
 type Input = { bucket: string; label: string };
 
 const defineRows = (id: string) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     fields: { bucket: f.str(), label: f.str() },

@@ -1,4 +1,4 @@
-import { SyncFeed } from '../../legacyTestApi';
+import { SyncFeed } from '../../testApi';
 import { createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection } from '../../../core/store';
 import { keysForSequence } from '../../../core/orderKey';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';

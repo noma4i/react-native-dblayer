@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, createDbSubscriptionEffects, defineFetch, resetRuntime } from '../../legacyTestApi';
+import { configureDb, createDbSubscriptionEffects, defineFetch, resetRuntime } from '../../testApi';
 import { registerBootValidation, runBootValidations } from '../../../dsl/bootValidations';
 import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';
 import { setFetchNetworkOnline } from '../../../core/fetch/networkState';

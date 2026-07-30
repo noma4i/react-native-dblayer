@@ -1,5 +1,5 @@
 import {
-  defineModel,
+  defineModelRuntime,
   f,
   isNonArrayRecord,
   isNonEmptyString,
@@ -7,13 +7,13 @@ import {
   isPositiveSafeInteger,
   isRecord,
   toTimestamp
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 describe('numeric field normalization', () => {
   it('drops non-finite numbers and canonicalizes negative zero', () => {
     setupSpecRuntime();
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecNumericNormalization',
       name: 'SpecNumericNormalization',
       fields: { value: f.num(), nullableValue: f.num().nullable() }
@@ -27,7 +27,7 @@ describe('numeric field normalization', () => {
 
   it('converts numeric transport strings to stored numbers', () => {
     setupSpecRuntime();
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecNumericTransportNormalization',
       name: 'SpecNumericTransportNormalization',
       fields: { value: f.num() }
@@ -39,7 +39,7 @@ describe('numeric field normalization', () => {
 
   it('converts integer transport values and rejects fractional or unsafe values', () => {
     setupSpecRuntime();
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecIntegerTransportNormalization',
       name: 'SpecIntegerTransportNormalization',
       fields: { value: f.int() }

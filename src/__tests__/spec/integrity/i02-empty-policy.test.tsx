@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModel, f } from '../../legacyTestApi';
+import { DbProvider, configureDb, defineFetch, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type Item = { id: string; bucket: string };
@@ -35,7 +35,7 @@ const createQueryCase = (suffix: string, rows: Item[], options: { emptyStaleTime
     transport,
     defaults: { staleTime: 60 * 60 * 1000, emptyStaleTime: options.defaultsEmptyStaleTime }
   });
-  const items = defineModel({
+  const items = defineModelRuntime({
     id: `SpecEmptyQuery${suffix}`,
     name: `SpecEmptyQuery${suffix}`,
     fields: { bucket: f.str() },
@@ -65,7 +65,7 @@ const createDirectModelQueryCase = (suffix: string, rows: Item[]) => {
     }
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const items = defineModel({
+  const items = defineModelRuntime({
     id: `SpecEmptyDirectModelQuery${suffix}`,
     name: `SpecEmptyDirectModelQuery${suffix}`,
     fields: { bucket: f.str() },

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createModelStatusPoller } from '../../../utils/modelStatusPoller';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -16,7 +16,7 @@ describe('poller reset and complete scope deduplication', () => {
 
   it('keeps one row for a duplicate id in a complete scope payload', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'CompleteDedupRows', name: 'CompleteDedupRows', fields: { bucket: f.str(), label: f.str() },
       scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
     });

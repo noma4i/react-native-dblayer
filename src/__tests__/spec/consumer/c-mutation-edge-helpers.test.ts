@@ -2,7 +2,7 @@ import {
   configureDb,
   correlateIncomingRow,
   createMutationResponder,
-  defineModel,
+  defineModelRuntime,
   f,
   getOperationState,
   hasMany,
@@ -13,7 +13,7 @@ import {
   registerMutationCorrelator,
   runBootValidations,
   validateMutationConfig
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -21,12 +21,12 @@ const document = { kind: 'Document', definitions: [] } as never;
 describe('mutation configuration edges', () => {
   it('rejects conflicting declaration shapes and invalid optimistic placement', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const plain = defineModel({
+    const plain = defineModelRuntime({
       id: 'MutationConfigPlain',
       name: 'MutationConfigPlain',
       fields: { label: f.str() }
     });
-    const maintained = defineModel({
+    const maintained = defineModelRuntime({
       id: 'MutationConfigMaintained',
       name: 'MutationConfigMaintained',
       fields: { label: f.str() },
@@ -36,7 +36,7 @@ describe('mutation configuration edges', () => {
         server: ({ sort: 'server-order' })
       }
     });
-    const other = defineModel({
+    const other = defineModelRuntime({
       id: 'MutationConfigOther',
       name: 'MutationConfigOther',
       fields: { label: f.str() },
@@ -110,12 +110,12 @@ describe('mutation configuration edges', () => {
 
   it('rejects optimistic destroy when a dependent cascade makes rollback incomplete', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const child = defineModel({
+    const child = defineModelRuntime({
       id: 'MutationConfigCascadeChild',
       name: 'MutationConfigCascadeChild',
       fields: { parentId: f.id() }
     });
-    const parent = defineModel({
+    const parent = defineModelRuntime({
       id: 'MutationConfigCascadeParent',
       name: 'MutationConfigCascadeParent',
       fields: { label: f.str() },
@@ -141,7 +141,7 @@ describe('mutation configuration edges', () => {
 describe('mutation correlation edges', () => {
   it('filters invalid candidates and picks the oldest matching open operation deterministically', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'MutationCorrelationEdges',
       name: 'MutationCorrelationEdges',
       fields: {
@@ -208,14 +208,14 @@ describe('mutation correlation edges', () => {
 describe('mutation responder edges', () => {
   it('plans absent payload errors, temp placement, replacement, extraction, and inverse writes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'MutationResponderRows',
       name: 'MutationResponderRows',
       fields: { label: f.str() },
       maintenance: { dropTempRowsAfterMs: 1000 },
       scopes: { feed: ({ sort: 'server-order' }) }
     });
-    const extracted = defineModel({
+    const extracted = defineModelRuntime({
       id: 'MutationResponderExtracted',
       name: 'MutationResponderExtracted',
       fields: { label: f.str() }

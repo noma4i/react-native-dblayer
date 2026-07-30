@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/queries/useFeed.ts: server-order scope, cursor pagination keyed off the
@@ -13,7 +13,7 @@ type CallEntry = { kind: 'query'; operation: { variables: { vibeId: string; afte
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMoments = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerFeedCursor${suffix}`,
     name: `SpecConsumerFeedCursor${suffix}`,
     fields: { id: f.str(), vibeId: f.str(), sequenceNumber: f.num() },

@@ -1,11 +1,11 @@
-import { advanceRuntimeGeneration, defineModel, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../legacyTestApi';
+import { advanceRuntimeGeneration, defineModelRuntime, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../testApi';
 import { getCommitBus } from '../../../dsl/configure';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for commit-bus row waiters.
 
 const createRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerRowWaiters${suffix}`,
     name: `SpecConsumerRowWaiters${suffix}`,
     fields: { id: f.str(), label: f.str() }

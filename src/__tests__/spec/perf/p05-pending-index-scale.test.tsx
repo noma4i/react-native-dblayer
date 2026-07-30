@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
 import type { OperationRecord, OperationTransition } from '../../../types';
@@ -60,7 +60,7 @@ describe('pending operation index scale', () => {
 
   it('pendingForRow is true only for the operation rows, and flips false after commit/discard', () => {
     setupSpecRuntime();
-    const model = defineModel({ id: 'SpecPendingIndexRow', name: 'SpecPendingIndexRow', fields: { text: f.str() } });
+    const model = defineModelRuntime({ id: 'SpecPendingIndexRow', name: 'SpecPendingIndexRow', fields: { text: f.str() } });
     model.insert({ id: 'row-a', text: 'a' });
     model.insert({ id: 'row-b', text: 'b' });
     const operations = getOperationState();
@@ -80,7 +80,7 @@ describe('pending operation index scale', () => {
 
   it('unsyncedChanges merges patches in the order the operations were created', () => {
     setupSpecRuntime();
-    const model = defineModel({
+    const model = defineModelRuntime({
       id: 'SpecPendingIndexMergeOrder',
       name: 'SpecPendingIndexMergeOrder',
       fields: { a: f.num(), b: f.num(), shared: f.str() }

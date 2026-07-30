@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { belongsTo, configureDb, defineModel, f, hasOne } from '../../legacyTestApi';
+import { belongsTo, configureDb, defineModelRuntime, f, hasOne } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ChatRow = {
@@ -16,12 +16,12 @@ type MessageRow = {
 };
 
 const createModels = (suffix: string) => {
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecViewRuntimeMessages${suffix}`,
     name: `SpecViewRuntimeMessages${suffix}`,
     fields: { chatId: f.str(), rank: f.num(), text: f.str() }
   });
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecViewRuntimeChats${suffix}`,
     name: `SpecViewRuntimeChats${suffix}`,
     fields: { inboxId: f.str() },
@@ -108,12 +108,12 @@ describe('view runtime edges', () => {
 
   it('maps a non-string parent key to a null relation include', () => {
     setupSpecRuntime();
-    const owners = defineModel({
+    const owners = defineModelRuntime({
       id: 'SpecViewRuntimeOwners',
       name: 'SpecViewRuntimeOwners',
       fields: { name: f.str() }
     });
-    const records = defineModel({
+    const records = defineModelRuntime({
       id: 'SpecViewRuntimeOwnedRecords',
       name: 'SpecViewRuntimeOwnedRecords',
       fields: { groupId: f.str(), ownerId: f.str() },

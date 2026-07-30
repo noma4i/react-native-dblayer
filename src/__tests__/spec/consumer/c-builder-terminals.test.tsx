@@ -1,11 +1,11 @@
 import { act } from 'react';
-import { defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Builder terminal contracts: last(), pluck(field), exists().
 
 const createItems = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerBuilderTerm${suffix}`,
     name: `SpecConsumerBuilderTerm${suffix}`,
     fields: { id: f.str(), score: f.num(), name: f.str(), status: f.str() }

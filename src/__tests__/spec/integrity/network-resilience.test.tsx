@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineFetch } from '../../legacyTestApi';
+import { configureDb, defineFetch } from '../../testApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, recordTimelineInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type Response = { value: number };

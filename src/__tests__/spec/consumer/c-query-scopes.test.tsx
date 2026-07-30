@@ -1,11 +1,11 @@
 import { act } from 'react';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // queryScopes: named reusable predicate fragments exposed as use.<name>(extra?) builders.
 
 const createItems = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerQueryScopes${suffix}`,
     name: `SpecConsumerQueryScopes${suffix}`,
     fields: { id: f.str(), score: f.num(), status: f.str() },
@@ -79,7 +79,7 @@ describe('queryScopes', () => {
   it('throws at define time when a queryScope name collides with a built-in use key', () => {
     setupSpecRuntime();
     expect(() =>
-      defineModel({
+      defineModelRuntime({
         id: 'SpecConsumerQueryScopesCollide',
         name: 'SpecConsumerQueryScopesCollide',
         fields: { id: f.str(), status: f.str() },

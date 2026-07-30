@@ -4,20 +4,20 @@ import {
   createDbSubscriptionEffects,
   createModelStore,
   defineDbSubscriptionEntry,
-  defineModel,
+  defineModelRuntime,
   f,
   getOperationState,
   registerApplyTarget,
   registerReset,
   resetRuntime
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { collectGarbage, registerGcHost } from '../../../core/gc';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for GC roots/exemption, reset registration, and subscription utilities.
 
 const createRows = (suffix: string, gc?: 'exempt') =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerGcRows${suffix}`,
     name: `SpecConsumerGcRows${suffix}`,
     fields: { id: f.str(), label: f.str() },
@@ -28,7 +28,7 @@ describe('resetRuntime logout wipe', () => {
   it('deletes every persisted key - rows, scopes, journal, ledger, manifest - in one synchronous call', () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport() });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecConsumerLogoutWipe',
       name: 'SpecConsumerLogoutWipe',
       fields: { id: f.str(), label: f.str() },
@@ -71,7 +71,7 @@ describe('collectGarbage', () => {
       storage: createMemoryPlane(),
       transport: createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: 'r-1', bucket: 'a', label: 'idle' }] } as TData }) })
     });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecConsumerGcIdleScope',
       name: 'SpecConsumerGcIdleScope',
       fields: { bucket: f.str(), label: f.str() },
@@ -185,7 +185,7 @@ describe('collectGarbage', () => {
 
   it('preserves a scope while a reader declares it as a live dependency', () => {
     setupSpecRuntime();
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecGcLiveScope',
       name: 'SpecGcLiveScope',
       fields: { bucket: f.str(), label: f.str() },
@@ -338,7 +338,7 @@ describe('createDbSubscriptionEffects', () => {
   it('keeps ingest effect names resolvable after the channel resets to noop', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const channel = createDbSubscriptionEffects({ onEchoResolvable: (_payload: unknown) => {} });
-    const rows = defineModel({ id: 'EffectsResetResolvable', name: 'EffectsResetResolvable', fields: { label: f.str() } });
+    const rows = defineModelRuntime({ id: 'EffectsResetResolvable', name: 'EffectsResetResolvable', fields: { label: f.str() } });
     const ingest = rows.ingest({ evt: { payload: data => data, effect: { name: 'onEchoResolvable', when: 'before' } } });
     const seen: unknown[] = [];
 

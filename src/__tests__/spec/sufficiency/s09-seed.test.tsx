@@ -1,12 +1,12 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { DbProvider, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
 
 const createStories = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecSeed${suffix}`,
     name: `SpecSeed${suffix}`,
     fields: { id: f.str(), bucket: f.str(), label: f.str() },

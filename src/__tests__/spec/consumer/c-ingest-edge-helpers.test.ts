@@ -3,13 +3,13 @@ import {
   configureDb,
   createDbSubscriptionEffects,
   defineIngest,
-  defineModel,
+  defineModelRuntime,
   defineModelIngest,
   f,
   getOperationState,
   registerMutationCorrelator,
   type ModelIngestTools
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -30,12 +30,12 @@ describe('model ingest edge helpers', () => {
         seen.push('after');
       }
     });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'ModelIngestEdgeRows',
       name: 'ModelIngestEdgeRows',
       fields: { label: f.str() }
     });
-    const sibling = defineModel({
+    const sibling = defineModelRuntime({
       id: 'ModelIngestEdgeSibling',
       name: 'ModelIngestEdgeSibling',
       fields: { label: f.str() }
@@ -115,12 +115,12 @@ describe('model ingest edge helpers', () => {
     expect(rows.find('handler-id')).toMatchObject({ label: 'handler' });
     expect(compiled.entries).toHaveLength(15);
 
-    const parents = defineModel({
+    const parents = defineModelRuntime({
       id: 'BaseIngestEdgeParents',
       name: 'BaseIngestEdgeParents',
       fields: { childCount: f.num() }
     });
-    const children = defineModel({
+    const children = defineModelRuntime({
       id: 'BaseIngestEdgeChildren',
       name: 'BaseIngestEdgeChildren',
       fields: { parentId: f.str() },
@@ -156,7 +156,7 @@ describe('model ingest edge helpers', () => {
 
   it('returns null for absent declarations and reports handler failures', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'BaseIngestEdgeRows',
       name: 'BaseIngestEdgeRows',
       fields: { label: f.str() }

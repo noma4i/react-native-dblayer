@@ -1,9 +1,9 @@
 import { act } from 'react';
-import { defineModel, f, noteDataLoss, resetRuntime } from '../../legacyTestApi';
+import { defineModelRuntime, f, noteDataLoss, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 const createItems = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecDiagnostics${suffix}`,
     name: `SpecDiagnostics${suffix}`,
     fields: { id: f.str(), status: f.str(), score: f.num() }

@@ -10,7 +10,7 @@ import {
   createModelCriteria,
   createModelScopeKeys,
   createProjectionGate,
-  defineModel,
+  defineModelRuntime,
   f,
   getCommitBus,
   getDbRuntimeConfig,
@@ -28,7 +28,7 @@ import {
   sortModelReadRows,
   useLiveRead,
   useMergedScopeRows
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('runtime edge helpers', () => {
@@ -56,7 +56,7 @@ describe('runtime edge helpers', () => {
     const storage = createMemoryPlane();
     storage.set([{ key: 'foreign', value: 'value' }]);
     configureDb({ storage, transport: createMockTransport() });
-    const model = defineModel({
+    const model = defineModelRuntime({
       id: 'RuntimeEdgeFetchModel',
       name: 'RuntimeEdgeFetchModel',
       fields: { label: f.str() }

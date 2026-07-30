@@ -1,11 +1,11 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 const measurePatchWork = (size: number) => {
   setupSpecRuntime();
-  const users = defineModel({
+  const users = defineModelRuntime({
     id: `SpecProjectionScale${size}`,
     name: `SpecProjectionScale${size}`,
     fields: { name: f.str(), ignored: f.num() }

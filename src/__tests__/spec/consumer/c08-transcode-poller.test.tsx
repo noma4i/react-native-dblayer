@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type PollPayload = { transcodeMessage: { id: string; status: string; progress: number } };
@@ -8,7 +8,7 @@ type MessageRow = { id: string; status: string; progress: number };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMessageModel = (intervalMs: number, maxAttempts: number) => {
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecConsumerPoller${intervalMs}-${maxAttempts}`,
     name: `SpecConsumerPoller${intervalMs}-${maxAttempts}`,
     fields: {
@@ -182,7 +182,7 @@ describe('model status poller', () => {
       }),
       logger: { debug: () => {}, error }
     });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'SpecConsumerPollerFailure',
       name: 'SpecConsumerPollerFailure',
       fields: { status: f.str() },

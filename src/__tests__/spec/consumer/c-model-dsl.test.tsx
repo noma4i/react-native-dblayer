@@ -61,7 +61,7 @@ const MessageSchema = defineShape<MessageInput>()({
 });
 
 const createMessageModel = (suffix: string) =>
-  defineModel(`SpecV10Message${suffix}`, {
+  defineModel(`SpecMessage${suffix}`, {
     schema: MessageSchema,
     relations: {
       thread: {
@@ -113,10 +113,24 @@ const assertModelUtilityTypes = (stored: ModelStored<MessageModelType>, input: M
 };
 void assertModelUtilityTypes;
 
-describe('v10 model surface', () => {
+describe('model surface', () => {
+  it('normalizes transport row ids through the model id codec', () => {
+    configureRuntime(createMockTransport());
+    const Imported = defineModel('SpecTransportRowId', {
+      schema: defineShape<{ sourceId: string | number; title: string }>()({
+        title: f.str()
+      }),
+      rowId: input => input.sourceId
+    });
+
+    Imported.insert({ sourceId: 42, title: 'numeric transport id' });
+
+    expect(Imported.find('42')).toEqual({ id: '42', title: 'numeric transport id' });
+  });
+
   it('builds singleton statics from the public model facade', () => {
     configureRuntime(createMockTransport());
-    const Counters = defineModel('SpecV10SingletonCounters', {
+    const Counters = defineModel('SpecSingletonCounters', {
       schema: defineShape<{ id: string; unread: number }>()({
         unread: f.int()
       }),
@@ -184,7 +198,7 @@ describe('v10 model surface', () => {
 
   it('uses one complete Relation result for a local-only named relation', async () => {
     configureRuntime(createMockTransport());
-    const Message = defineModel('SpecV10LocalOnlyMessage', {
+    const Message = defineModel('SpecLocalOnlyMessage', {
       schema: MessageSchema,
       relations: {
         thread: {

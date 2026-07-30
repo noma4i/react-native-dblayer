@@ -1,9 +1,9 @@
 import { act } from 'react';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const createUsers = (id: string) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     fields: { fullName: f.str(), avatarUrl: f.str() }

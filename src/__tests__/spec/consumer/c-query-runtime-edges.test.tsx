@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import {
   createMemoryPlane,
   createMockTransport,
@@ -18,7 +18,7 @@ type Row = {
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecQueryRuntimeRows${suffix}`,
     name: `SpecQueryRuntimeRows${suffix}`,
     fields: { bucket: f.str(), label: f.str() },

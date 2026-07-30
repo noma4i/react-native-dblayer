@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type BulkRow = { id: string; name: string; status: string; score: number };
@@ -28,7 +28,7 @@ const markerShape = defineShape<{ id: string; label: string }>()({
 });
 
 const createSimpleModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderBatchSimple',
     name: 'SpecRerenderBatchSimple',
     fields: {
@@ -39,7 +39,7 @@ const createSimpleModel = () =>
   });
 
 const createScopedModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderBatchScoped',
     name: 'SpecRerenderBatchScoped',
     fields: {
@@ -53,7 +53,7 @@ const createScopedModel = () =>
   });
 
 const createNestedScopedModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderBatchNested',
     name: 'SpecRerenderBatchNested',
     fields: {

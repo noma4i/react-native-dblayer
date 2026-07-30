@@ -1,4 +1,4 @@
-import { generateTempId, isTempId, pickDefined, pickPresent } from '../../legacyTestApi';
+import { generateTempId, isTempId, pickDefined, pickPresent } from '../../testApi';
 
 // Named behavioral contracts for pure utility exports that previously had no direct tests.
 

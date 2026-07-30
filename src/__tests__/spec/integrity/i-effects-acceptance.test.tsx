@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f } from '../../legacyTestApi';
+import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
 import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { flushPersistence, getOperationState } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
@@ -12,12 +12,12 @@ type Message = { id: string; chatId: string; body: string; createdAt: number };
 describe('effects derive from accepted rows', () => {
   it('drops relation effects for an event row rejected by the write gate', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const chats = defineModel({
+    const chats = defineModelRuntime({
       id: 'EffectsAcceptanceChat',
       name: 'EffectsAcceptanceChat',
       fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() }
     });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'EffectsAcceptanceMessage',
       name: 'EffectsAcceptanceMessage',
       fields: { chatId: f.str(), body: f.str(), createdAt: f.num() },
@@ -49,7 +49,7 @@ describe('effects derive from accepted rows', () => {
   it('does not commit a method patch ledger entry when its response apply fails', async () => {
     let resolveMutation!: (value: { data: { pin: { id: string; pinned: boolean } } }) => void;
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) }) });
-    const chats = defineModel({ id: 'EffectsAcceptanceLedger', name: 'EffectsAcceptanceLedger', fields: { pinned: f.bool() } });
+    const chats = defineModelRuntime({ id: 'EffectsAcceptanceLedger', name: 'EffectsAcceptanceLedger', fields: { pinned: f.bool() } });
     chats.insert({ id: 'chat-1', pinned: false });
     const mutation = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
       document: { kind: 'Document', definitions: [] } as never,
@@ -85,8 +85,8 @@ describe('effects derive from accepted rows', () => {
       throw new Error('relation callback ran during replay');
     });
     const defineRows = (replaying = false) => {
-      const chats = defineModel({ id: 'EffectsAcceptanceReplayChat', name: 'EffectsAcceptanceReplayChat', gc: 'exempt', fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() } });
-      const messages = defineModel({
+      const chats = defineModelRuntime({ id: 'EffectsAcceptanceReplayChat', name: 'EffectsAcceptanceReplayChat', gc: 'exempt', fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() } });
+      const messages = defineModelRuntime({
         id: 'EffectsAcceptanceReplayMessage',
         name: 'EffectsAcceptanceReplayMessage',
         gc: 'exempt',
@@ -134,12 +134,12 @@ describe('effects derive from accepted rows', () => {
     const storage = createMemoryPlane();
     let journalRecordsDuringTouch = -1;
     configureDb({ storage, transport: createMockTransport() });
-    const chats = defineModel({
+    const chats = defineModelRuntime({
       id: 'EffectsAcceptancePreflightChat',
       name: 'EffectsAcceptancePreflightChat',
       fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() }
     });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'EffectsAcceptancePreflightMessage',
       name: 'EffectsAcceptancePreflightMessage',
       fields: { chatId: f.str(), body: f.str(), createdAt: f.num() },

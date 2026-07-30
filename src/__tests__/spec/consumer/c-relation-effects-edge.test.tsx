@@ -1,4 +1,4 @@
-import { belongsTo, defineModel, f } from '../../legacyTestApi';
+import { belongsTo, defineModelRuntime, f } from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 /**
@@ -12,12 +12,12 @@ type Message = { id: string; chatId: string; createdAt: number };
 
 const createChatModels = (suffix: string) => {
   setupSpecRuntime();
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecEffectsChats${suffix}`,
     name: `SpecEffectsChats${suffix}`,
     fields: { unreadCount: f.num(), lastActivityAt: f.num() }
   });
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecEffectsMessages${suffix}`,
     name: `SpecEffectsMessages${suffix}`,
     fields: { chatId: f.str(), createdAt: f.num() },

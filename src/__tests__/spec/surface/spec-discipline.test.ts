@@ -136,7 +136,7 @@ const internalAccessExceptions: ReadonlyArray<{ spec: string; source: string }> 
   { spec: path.resolve(specRoot, 'integrity/i-commit-envelope-planning.test.tsx'), source: path.resolve(specRoot, '../../dsl/configure.ts') },
   { spec: path.resolve(specRoot, 'perf/p05-pending-index-scale.test.tsx'), source: path.resolve(specRoot, '../../core/apply/commitEnvelope.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-detached-operations.test.tsx'), source: path.resolve(specRoot, '../../dsl/lifecycle.ts') },
-  { spec: path.resolve(specRoot, 'integrity/i-write-policies-v9.test.ts'), source: path.resolve(specRoot, '../../core/invariants.ts') },
+  { spec: path.resolve(specRoot, 'integrity/i-write-policies.test.ts'), source: path.resolve(specRoot, '../../core/invariants.ts') },
   { spec: path.resolve(specRoot, 'integrity/i01-retry-policy.test.ts'), source: path.resolve(specRoot, '../../core/fetch/retryPolicy.ts') },
   { spec: path.resolve(specRoot, 'integrity/i06-ordering-laws.test.ts'), source: path.resolve(specRoot, '../../core/ordering.ts') },
   { spec: path.resolve(specRoot, 'integrity/i-scope-order-reset.test.tsx'), source: path.resolve(specRoot, '../../core/planes/scopeIndex.ts') },
@@ -179,7 +179,7 @@ const relativeImports = (file: string): string[] => {
 
 describe('spec import discipline', () => {
   it('allows source imports only through the public barrel', () => {
-    const compilerTestBarrel = path.resolve(specRoot, '../legacyTestApi.ts');
+    const compilerTestBarrel = path.resolve(specRoot, '../testApi.ts');
     const violations = sourceFiles(specRoot).flatMap(file =>
       relativeImports(file).flatMap(specifier => {
         const target = resolvedImport(file, specifier);

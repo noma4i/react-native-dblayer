@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import * as dbl from '../../legacyTestApi';
+import * as dbl from '../../testApi';
 import * as lifecycle from '../../../dsl/lifecycle';
 import { registerBootValidation } from '../../../dsl/bootValidations';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
@@ -50,7 +50,7 @@ describe('provider-owned query runtime', () => {
 
   it('gates children until boot completes and then supports DSL reads', async () => {
     setupSpecRuntime();
-    const users = dbl.defineModel({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    const users = dbl.defineModelRuntime({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() }, gc: 'exempt' });
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     users.insert({ id: 'user', name: 'Ready' });
     let renders = 0;
@@ -191,7 +191,7 @@ describe('provider-owned query runtime', () => {
 
   it('flushes pending persistence on background and drains readers after background or inactive', async () => {
     const { storage } = setupSpecRuntime();
-    const users = dbl.defineModel({ id: 'SpecProviderBackground', name: 'SpecProviderBackground', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    const users = dbl.defineModelRuntime({ id: 'SpecProviderBackground', name: 'SpecProviderBackground', fields: { name: dbl.f.str() }, gc: 'exempt' });
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
@@ -246,7 +246,7 @@ describe('provider-owned query runtime', () => {
       }
     });
     dbl.configureDb({ storage: createMemoryPlane(), transport } as never);
-    const users = dbl.defineModel({ id: 'SpecProviderReset', name: 'SpecProviderReset', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    const users = dbl.defineModelRuntime({ id: 'SpecProviderReset', name: 'SpecProviderReset', fields: { name: dbl.f.str() }, gc: 'exempt' });
     const query = users.query<{ rows: Array<{ id: string; name: string }> }, Record<string, never>, Record<string, never>, { id: string; name: string }>('screen', {
       document,
       key: 'spec-provider-reset',

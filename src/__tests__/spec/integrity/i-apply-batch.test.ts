@@ -1,4 +1,4 @@
-import { configureDb, registerRelationHost, resetRuntime } from '../../legacyTestApi';
+import { configureDb, registerRelationHost, resetRuntime } from '../../testApi';
 import { registerApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createApplyRuntime } from '../../../core/apply/transaction';

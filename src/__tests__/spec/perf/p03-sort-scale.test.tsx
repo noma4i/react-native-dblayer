@@ -1,13 +1,13 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 
 const comparatorCalls = (size: number, rank: (index: number) => number): number => {
   setupSpecRuntime();
   let calls = 0;
-  const items = defineModel({
+  const items = defineModelRuntime({
     id: `SpecSortScale${size}${rank(1)}`,
     name: `SpecSortScale${size}${rank(1)}`,
     fields: { bucket: f.str(), rank: f.num(), name: f.str() },
@@ -29,7 +29,7 @@ const comparatorCalls = (size: number, rank: (index: number) => number): number 
 
 const patchWork = (size: number) => {
   setupSpecRuntime();
-  const items = defineModel({
+  const items = defineModelRuntime({
     id: `SpecSortPatch${size}`,
     name: `SpecSortPatch${size}`,
     fields: { rank: f.num(), name: f.str() }

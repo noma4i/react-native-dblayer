@@ -37,7 +37,7 @@ const JobSchema = defineShape<JobInput>()({
   status: f.enum(['pending', 'done'] as const)
 });
 
-describe('v10 action modes', () => {
+describe('action modes', () => {
   afterEach(() => {
     jest.useRealTimers();
   });
@@ -45,7 +45,7 @@ describe('v10 action modes', () => {
   it('starts and completes a durable action through one model-owned handle', () => {
     const transport = createMockTransport();
     configureDb({ storage: createMemoryPlane(), transport });
-    const Job = defineModel('SpecV10DurableJob', {
+    const Job = defineModel('SpecDurableJob', {
       schema: JobSchema,
       actions: {
         start: gql.action(startDocument, {
@@ -96,7 +96,7 @@ describe('v10 action modes', () => {
   it('fails, resumes, and discards durable work through one handle', async () => {
     const transport = createMockTransport();
     configureDb({ storage: createMemoryPlane(), transport });
-    const Job = defineModel('SpecV10DurableLifecycleJob', {
+    const Job = defineModel('SpecDurableLifecycleJob', {
       schema: JobSchema,
       actions: {
         start: gql.action(startDocument, {
@@ -136,7 +136,7 @@ describe('v10 action modes', () => {
   it('rejects a durable insert without an optimistic row', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     expect(() =>
-      defineModel('SpecV10InvalidDurableJob', {
+      defineModel('SpecInvalidDurableJob', {
         schema: JobSchema,
         actions: {
           start: gql.action(startDocument, {
@@ -166,7 +166,7 @@ describe('v10 action modes', () => {
       })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const Job = defineModel('SpecV10PollJob', {
+    const Job = defineModel('SpecPollJob', {
       schema: JobSchema,
       actions: {
         status: gql.action(statusDocument, {

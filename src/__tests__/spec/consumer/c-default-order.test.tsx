@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // defaultOrder: implicit order for order-less reads; explicit orderBy fully replaces it.
@@ -6,7 +6,7 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 type OrderedRow = { id: string; score: number; name: string };
 
 const createOrdered = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerDefaultOrder${suffix}`,
     name: `SpecConsumerDefaultOrder${suffix}`,
     fields: { id: f.str(), score: f.num(), name: f.str() },
@@ -70,7 +70,7 @@ describe('defaultOrder', () => {
   // the one ordering that survives restarts.
   it('serves a deterministic id-ordered sequence for models without defaultOrder', () => {
     setupSpecRuntime();
-    const plain = defineModel({
+    const plain = defineModelRuntime({
       id: 'SpecConsumerDefaultOrderPlain',
       name: 'SpecConsumerDefaultOrderPlain',
       fields: { id: f.str(), score: f.num(), name: f.str() }

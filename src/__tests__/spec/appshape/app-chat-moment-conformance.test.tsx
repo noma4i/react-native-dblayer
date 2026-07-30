@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb } from '../../legacyTestApi';
+import { configureDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
 import { createAppModels } from './appModels';
 

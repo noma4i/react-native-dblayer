@@ -14,7 +14,7 @@ export type TypedMutationInput<TVariables> = TVariables extends {
     input: infer TInput;
 } ? TInput : TVariables;
 export type ModelStoredValue<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<any, infer TFields> ? InferStoredFields<TFields> : never;
-export type ModelBuildInput<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<any, infer TFields> ? InferBuildInput<TFields> : never;
+export type ModelBuildInput<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<infer TInput, infer TFields> ? unknown extends TInput ? InferBuildInput<TFields> : TInput : never;
 export type FacadeRuntimeModel<TStored extends {
     id: string;
     updatedAt?: string | null;
@@ -204,8 +204,8 @@ export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations
     events?: TEvents;
     sideloads?: () => Record<string, SideloadEdge>;
     defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
-    rowId?: (input: unknown) => string;
-    guard?: (input: unknown) => boolean;
+    rowId?: (input: ModelBuildInput<TShape>) => unknown;
+    guard?: (input: ModelBuildInput<TShape>) => boolean;
     gc?: 'exempt';
     maintenance?: {
         dropIdleScopesAfterMs?: number;

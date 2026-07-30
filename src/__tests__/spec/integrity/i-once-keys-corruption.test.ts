@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION } from '../../../core/schemaManifest';
 import { encodePersistence } from '../../../core/persistenceCodec';
@@ -18,7 +18,7 @@ describe('once-keys corruption diagnostics', () => {
     ]);
     configureDb({ storage, transport: createMockTransport() });
     diagnostics().reset();
-    defineModel({ id: 'SpecOnceKeysCorruption', name: 'SpecOnceKeysCorruption', fields: { label: f.str() } });
+    defineModelRuntime({ id: 'SpecOnceKeysCorruption', name: 'SpecOnceKeysCorruption', fields: { label: f.str() } });
 
     await bootDb();
 

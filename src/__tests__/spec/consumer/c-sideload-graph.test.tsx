@@ -58,10 +58,10 @@ const ChatSchema = defineShape<ChatInput>()({
 });
 
 const createGraphModels = (suffix: string) => {
-  const User = defineModel(`SpecV10GraphUser${suffix}`, {
+  const User = defineModel(`SpecGraphUser${suffix}`, {
     schema: UserSchema
   });
-  const Chat = defineModel(`SpecV10GraphChat${suffix}`, {
+  const Chat = defineModel(`SpecGraphChat${suffix}`, {
     schema: ChatSchema,
     relations: {
       byOwner: {
@@ -102,7 +102,7 @@ const createGraphModels = (suffix: string) => {
   return { Chat, User };
 };
 
-describe('v10 sideload graph', () => {
+describe('sideload graph', () => {
   it('normalizes, deduplicates, and commits a direct graph in one envelope', () => {
     configureRuntime(createMockTransport());
     diagnostics().reset();
@@ -142,7 +142,7 @@ describe('v10 sideload graph', () => {
   it('terminates a cyclic graph and lands each model id once', () => {
     configureRuntime(createMockTransport());
     diagnostics().reset();
-    const key = 'SpecV10GraphCategoryCycle';
+    const key = 'SpecGraphCategoryCycle';
     const Category = defineModel(key, {
       schema: defineShape<{ id: string; name: string }>()({
         name: f.str()

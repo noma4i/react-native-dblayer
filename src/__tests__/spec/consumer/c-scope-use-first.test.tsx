@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // ScopeHandle.useFirst: nullable single-row scope reads.
 
 
 const createProfiles = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecScopeUseFirst${suffix}`,
     name: `SpecScopeUseFirst${suffix}`,
     fields: { id: f.str(), uuid: f.str(), score: f.num() },

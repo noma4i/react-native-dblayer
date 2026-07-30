@@ -66,7 +66,7 @@ const UserSchema = defineShape<UserInput>()({
   username: f.str()
 });
 
-describe('v10 operation state', () => {
+describe('operation state', () => {
   it('exposes pending patch values through snapshot and reactive operation reads', async () => {
     let resolveUpdate!: (value: { data: UpdateData }) => void;
     const response = new Promise<{ data: UpdateData }>(resolve => {
@@ -81,7 +81,7 @@ describe('v10 operation state', () => {
         }
       })
     });
-    const User = defineModel('SpecV10OperationUpdateUser', {
+    const User = defineModel('SpecOperationUpdateUser', {
       schema: UserSchema,
       actions: {
         rename: gql.action(updateDocument, {
@@ -149,7 +149,7 @@ describe('v10 operation state', () => {
         }
       })
     });
-    const User = defineModel('SpecV10OperationFailedUser', {
+    const User = defineModel('SpecOperationFailedUser', {
       schema: UserSchema,
       actions: {
         create: gql.action(createDocument, {
@@ -211,7 +211,7 @@ describe('v10 operation state', () => {
         }
       })
     });
-    const User = defineModel('SpecV10OperationKindsUser', {
+    const User = defineModel('SpecOperationKindsUser', {
       schema: UserSchema,
       actions: {
         remove: gql.action(deleteDocument, {

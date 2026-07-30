@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { flushPersistence } from '../../../dsl/configure';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createApplyRuntime } from '../../../core/apply/transaction';
@@ -15,7 +15,7 @@ type FaultResponse = { detail: FaultRow };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecFaultRows${suffix}`,
     name: `SpecFaultRows${suffix}`,
     fields: { label: f.str() }

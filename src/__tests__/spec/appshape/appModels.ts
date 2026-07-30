@@ -1,14 +1,14 @@
 import {
   belongsTo,
   createSingletonStatics,
-  defineModel,
+  defineModelRuntime,
   defineShape,
   f,
   hasMany,
   hasOne,
   projectShape,
   references
-} from '../../legacyTestApi';
+} from '../../testApi';
 
 const mediaSchema = defineShape()({
   id: f.id(),
@@ -132,7 +132,7 @@ const mediaBucketOf = (message: any): string | null => {
 };
 
 export const createAppModels = (tag: string) => {
-  const users = defineModel({
+  const users = defineModelRuntime({
     id: `AppShapeUser:${tag}`,
     name: `AppShapeUser:${tag}`,
     fields: {
@@ -153,7 +153,7 @@ export const createAppModels = (tag: string) => {
     statics: () => ({ toAttachedSnapshot: (user: any) => projectShape(attachedUserSchema, user) })
   });
 
-  const currentUser = defineModel({
+  const currentUser = defineModelRuntime({
     id: `AppShapeCurrentUser:${tag}`,
     name: `AppShapeCurrentUser:${tag}`,
     gc: 'exempt',
@@ -175,7 +175,7 @@ export const createAppModels = (tag: string) => {
   });
 
   const countersDefaults = { id: 'counters', unreadChatsCount: 0, unreadCompassCount: 0, unreadSecondaryChatsCount: 0, secondaryChatsCount: 0, premiumSecondaryChatsCount: 0 };
-  const counters = defineModel({
+  const counters = defineModelRuntime({
     id: `AppShapeUserCounters:${tag}`,
     name: `AppShapeUserCounters:${tag}`,
     gc: 'exempt',
@@ -183,7 +183,7 @@ export const createAppModels = (tag: string) => {
     statics: model => createSingletonStatics(model, 'counters', countersDefaults)
   });
 
-  const vibes = defineModel({
+  const vibes = defineModelRuntime({
     id: `AppShapeVibe:${tag}`,
     name: `AppShapeVibe:${tag}`,
     gc: 'exempt',
@@ -191,7 +191,7 @@ export const createAppModels = (tag: string) => {
     scopes: { catalog: ({ sort: { field: 'position', dir: 'asc' } }) }
   });
 
-  const walletTransactions = defineModel({
+  const walletTransactions = defineModelRuntime({
     id: `AppShapeWalletTransaction:${tag}`,
     name: `AppShapeWalletTransaction:${tag}`,
     fields: {
@@ -201,7 +201,7 @@ export const createAppModels = (tag: string) => {
     scopes: { all: ({ sort: { field: 'createdAt', dir: 'desc' } }), byKind: ({ by: { kind: 'kind' }, sort: { field: 'createdAt', dir: 'desc' } }) }
   });
 
-  const messages: any = defineModel({
+  const messages: any = defineModelRuntime({
     id: `AppShapeMessage:${tag}`,
     name: `AppShapeMessage:${tag}`,
     fields: {
@@ -232,7 +232,7 @@ export const createAppModels = (tag: string) => {
     maintenance: { dropTempRowsAfterMs: 60_000, maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }
   });
 
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `AppShapeChat:${tag}`,
     name: `AppShapeChat:${tag}`,
     fields: {
@@ -249,7 +249,7 @@ export const createAppModels = (tag: string) => {
     write: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, policy: { monotonic: { tuple: ['lastSequenceNumber', 'lastMessageAt', 'lastMessageId'] } } }, { fields: ['pinned', 'muted'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
   });
 
-  const moments = defineModel({
+  const moments = defineModelRuntime({
     id: `AppShapeMoment:${tag}`,
     name: `AppShapeMoment:${tag}`,
     fields: {

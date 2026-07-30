@@ -1,10 +1,10 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('sorted scope batch reposition integrity', () => {
   it('places every changed row against one batch-wide moving set', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const users = defineModel({
+    const users = defineModelRuntime({
       id: 'SortedScopeBatchReposition',
       name: 'SortedScopeBatchReposition',
       fields: {

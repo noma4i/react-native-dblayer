@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { configureDb, createSingletonStatics, defineModel, f } from '../../legacyTestApi';
+import { configureDb, createSingletonStatics, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,
@@ -23,7 +23,7 @@ const buildChatRow = (index: number, contentFieldCount = CONTENT_FIELD_COUNT): C
 };
 
 const createChatsModel = (tag: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecLargeScopeChats${tag}`,
     name: `SpecLargeScopeChats${tag}`,
     fields: {
@@ -37,7 +37,7 @@ const createChatsModel = (tag: string) =>
   });
 
 const createCountersModel = (tag: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecLargeScopeCounters${tag}`,
     name: `SpecLargeScopeCounters${tag}`,
     fields: { totalUnread: f.num() },

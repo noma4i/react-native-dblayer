@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };
@@ -29,7 +29,7 @@ const createHandleHarness = (suffix: string) => {
       })
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecMutationHandle${suffix}`,
     name: `SpecMutationHandle${suffix}`,
     fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() },

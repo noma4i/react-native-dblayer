@@ -35,19 +35,19 @@ const ChatSchema = defineShape<ChatInput>()({
   memberIds: f.array(f.id())
 });
 
-describe('v10 associations', () => {
+describe('associations', () => {
   it('exposes every association kind as a flat Relation method', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const User = defineModel('SpecV10AssociationUser', {
+    const User = defineModel('SpecAssociationUser', {
       schema: UserSchema
     });
-    const Message = defineModel('SpecV10AssociationMessage', {
+    const Message = defineModel('SpecAssociationMessage', {
       schema: MessageSchema,
       associations: () => ({
         author: belongsTo<MessageInput, UserInput>(User, { foreignKey: 'authorId' })
       })
     });
-    const Chat = defineModel('SpecV10AssociationChat', {
+    const Chat = defineModel('SpecAssociationChat', {
       schema: ChatSchema,
       associations: () => ({
         messages: hasMany<ChatInput, MessageInput>(Message, { foreignKey: 'chatId' }),
@@ -109,10 +109,10 @@ describe('v10 associations', () => {
   });
 
   it('rejects association names that collide with the model surface', () => {
-    const User = defineModel('SpecV10AssociationCollisionUser', {
+    const User = defineModel('SpecAssociationCollisionUser', {
       schema: UserSchema
     });
-    const Message = defineModel('SpecV10AssociationCollisionMessage', {
+    const Message = defineModel('SpecAssociationCollisionMessage', {
       schema: MessageSchema,
       associations: () => ({
         find: belongsTo<MessageInput, UserInput>(User, { foreignKey: 'authorId' })
@@ -124,7 +124,7 @@ describe('v10 associations', () => {
 
   it('rejects statics that collide with the model surface', () => {
     expect(() =>
-      defineModel('SpecV10StaticCollisionUser', {
+      defineModel('SpecStaticCollisionUser', {
         schema: UserSchema,
         statics: () => ({ find: () => undefined })
       })

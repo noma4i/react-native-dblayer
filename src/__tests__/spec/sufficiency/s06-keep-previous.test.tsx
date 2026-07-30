@@ -1,12 +1,12 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMoments = (id: string) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     fields: { vibeId: f.str(), label: f.str() },

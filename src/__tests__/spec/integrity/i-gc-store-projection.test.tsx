@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { collectGarbage } from '../../../core/gc';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
@@ -11,7 +11,7 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 describe('gc store projection', () => {
   it('drops store memberships when GC removes an idle scope, so live entities do not resurrect it', () => {
     setupSpecRuntime();
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'SpecGcStoreProjection',
       name: 'SpecGcStoreProjection',
       fields: { bucket: f.str(), label: f.str() },

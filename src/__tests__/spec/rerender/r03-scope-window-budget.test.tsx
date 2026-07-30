@@ -1,13 +1,13 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopedRow = { id: string; groupId: string; title: string; rank: number; markers: Array<{ id: string }> };
 type WindowResult = { rows: ScopedRow[]; totalCount: number; hasMore: boolean; isPreviousData: boolean; fetchNextPage: () => void };
 
 const createRows = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderScopeWindowBudget',
     name: 'SpecRerenderScopeWindowBudget',
     fields: { groupId: f.str(), title: f.str(), rank: f.num(), markers: f.raw<Array<{ id: string }>>() },
@@ -123,7 +123,7 @@ describe('rerender matrix scope window budget', () => {
   it('keeps scope rows stable when an unrelated model writes', () => {
     setupSpecRuntime();
     const rows = createRows();
-    const unrelated = defineModel({ id: 'SpecRerenderScopeWindowUnrelated', name: 'SpecRerenderScopeWindowUnrelated', fields: { value: f.str() } });
+    const unrelated = defineModelRuntime({ id: 'SpecRerenderScopeWindowUnrelated', name: 'SpecRerenderScopeWindowUnrelated', fields: { value: f.str() } });
     seedRows(rows);
     unrelated.insert({ id: 'one', value: 'before' });
     const reader = renderCounted(() => rows.scopes.byGroup.use({ groupId: 'g1' }));

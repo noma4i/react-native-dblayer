@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, reportSyncError } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, reportSyncError } from '../../testApi';
 import { getApplyRuntime } from '../../../dsl/configure';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createJournal } from '../../../core/apply/journal';
@@ -14,7 +14,7 @@ describe('apply honesty (D5): mid-plan throw', () => {
     configureDb({ storage, transport: createMockTransport(), defaults: { onSyncError } });
     diagnostics().reset();
 
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'ApplyHonestyD5',
       name: 'ApplyHonestyD5',
       fields: { label: f.str() }
@@ -65,7 +65,7 @@ describe('ingest honesty (D11): failed apply is reported, not silently acknowled
         }
       }
     });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'IngestObserverAndLoggerIsolationD11',
       name: 'IngestObserverAndLoggerIsolationD11',
       fields: { label: f.str() }
@@ -93,7 +93,7 @@ describe('ingest honesty (D11): failed apply is reported, not silently acknowled
         }
       }
     });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'IngestObserverIsolationD11',
       name: 'IngestObserverIsolationD11',
       fields: { label: f.str() }
@@ -116,7 +116,7 @@ describe('ingest honesty (D11): failed apply is reported, not silently acknowled
     configureDb({ storage, transport: createMockTransport(), defaults: { onSyncError } });
     diagnostics().reset();
 
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'IngestHonestyD11',
       name: 'IngestHonestyD11',
       fields: { label: f.str() }
@@ -179,7 +179,7 @@ describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
       { key: 'dbl:journal:1', value: JSON.stringify({ epoch: 1, status: 'pending', ops: [{ rows: [{ id: 'row-1' }] }] }) },
       { key: 'dbl:journal:2', value: encodedRecord(2, 'ReplayHonestyD15') }
     ]);
-    const rows = defineModel({ id: 'ReplayHonestyD15', name: 'ReplayHonestyD15', gc: 'exempt', fields: { label: f.str() } });
+    const rows = defineModelRuntime({ id: 'ReplayHonestyD15', name: 'ReplayHonestyD15', gc: 'exempt', fields: { label: f.str() } });
     writeMatchingManifest();
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });

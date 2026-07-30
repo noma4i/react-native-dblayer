@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type FriendState = { userId: string; id: string; kind: string; fullName: string };
@@ -10,7 +10,7 @@ type ScopeValue = { userId: string; kind: string };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createUserModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerCoverageComplete',
     name: 'SpecConsumerCoverageComplete',
     fields: {

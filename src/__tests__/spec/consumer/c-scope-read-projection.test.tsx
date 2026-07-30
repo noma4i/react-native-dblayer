@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
@@ -11,7 +11,7 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 describe('scope read projection', () => {
   const build = (tag: string, onCompare: () => void) => {
     setupSpecRuntime();
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: `SpecScopeReadProjection${tag}`,
       name: `SpecScopeReadProjection${tag}`,
       fields: { bucket: f.str(), rank: f.num(), label: f.str() },

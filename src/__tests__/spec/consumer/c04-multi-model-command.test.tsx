@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineCommand, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineCommand, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/mutations/walletMutations.ts sendGift: one model-less defineCommand whose
@@ -12,10 +12,10 @@ type WalletTransactionRow = { id: string; amount: number };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createModels = (suffix: string) => ({
-  users: defineModel({ id: `SpecConsumerCmdUsers${suffix}`, name: `SpecConsumerCmdUsers${suffix}`, fields: { id: f.str(), fullName: f.str() } }),
-  messages: defineModel({ id: `SpecConsumerCmdMessages${suffix}`, name: `SpecConsumerCmdMessages${suffix}`, fields: { id: f.str(), chatId: f.str(), body: f.str() } }),
-  currentUser: defineModel({ id: `SpecConsumerCmdCurrentUser${suffix}`, name: `SpecConsumerCmdCurrentUser${suffix}`, fields: { id: f.str(), balance: f.num() } }),
-  walletTransactions: defineModel({ id: `SpecConsumerCmdWallet${suffix}`, name: `SpecConsumerCmdWallet${suffix}`, fields: { id: f.str(), amount: f.num() } })
+  users: defineModelRuntime({ id: `SpecConsumerCmdUsers${suffix}`, name: `SpecConsumerCmdUsers${suffix}`, fields: { id: f.str(), fullName: f.str() } }),
+  messages: defineModelRuntime({ id: `SpecConsumerCmdMessages${suffix}`, name: `SpecConsumerCmdMessages${suffix}`, fields: { id: f.str(), chatId: f.str(), body: f.str() } }),
+  currentUser: defineModelRuntime({ id: `SpecConsumerCmdCurrentUser${suffix}`, name: `SpecConsumerCmdCurrentUser${suffix}`, fields: { id: f.str(), balance: f.num() } }),
+  walletTransactions: defineModelRuntime({ id: `SpecConsumerCmdWallet${suffix}`, name: `SpecConsumerCmdWallet${suffix}`, fields: { id: f.str(), amount: f.num() } })
 });
 
 describe('multi-model command consumer contracts', () => {
@@ -36,7 +36,7 @@ describe('multi-model command consumer contracts', () => {
     configureDb({ storage: createMemoryPlane(), transport });
     const { users, messages, currentUser, walletTransactions } = createModels('Commit');
     currentUser.insert({ id: 'me', balance: 100 });
-    const unrelated = defineModel({ id: 'SpecConsumerCmdUnrelated', name: 'SpecConsumerCmdUnrelated', fields: { id: f.str(), value: f.str() } });
+    const unrelated = defineModelRuntime({ id: 'SpecConsumerCmdUnrelated', name: 'SpecConsumerCmdUnrelated', fields: { id: f.str(), value: f.str() } });
     unrelated.insert({ id: 'x', value: 'before' });
 
     const sendGift = defineCommand<

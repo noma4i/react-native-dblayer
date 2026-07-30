@@ -1,4 +1,4 @@
-import { configureDb, defineFetch } from '../../legacyTestApi';
+import { configureDb, defineFetch } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimelineInProvider, settle } from '../helpers/harness';
 
 type NullableResponse = { value: null };

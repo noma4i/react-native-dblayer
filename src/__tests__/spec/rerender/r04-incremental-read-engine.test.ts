@@ -7,7 +7,7 @@ import {
   getCommitBus,
   getRuntimeGeneration,
   useIncrementalRead
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type TestRow = { id: string; rank: number; label: string; visible: boolean };

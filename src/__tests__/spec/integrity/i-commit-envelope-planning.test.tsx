@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getInternalModelHandle } from '../../../core/internalHandles';
 import { compositeKey } from '../../../core/serialize';
@@ -10,7 +10,7 @@ type Row = { id: string; chatId: string; body: string };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const defineRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `CommitEnvelopePlanning${suffix}`,
     name: `CommitEnvelopePlanning${suffix}`,
     fields: {
@@ -120,7 +120,7 @@ describe('commit-envelope planning purity', () => {
 
   it('assigns unique order keys to sorted-scope appends whose rows are not yet resolvable', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'CommitEnvelopePlanningPlacement',
       name: 'CommitEnvelopePlanningPlacement',
       fields: { rank: f.num() },

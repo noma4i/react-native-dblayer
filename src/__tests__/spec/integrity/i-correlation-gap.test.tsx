@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f } from '../../legacyTestApi';
+import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // Channel-agnostic temp correlation (G1, closed in 9.0): a mutation that declares
@@ -15,7 +15,7 @@ type ChatRow = { id: string; lastMessageId: string | null; lastActivityAt: numbe
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMessagesModel = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecIntegrityCorrelationMessages${suffix}`,
     name: `SpecIntegrityCorrelationMessages${suffix}`,
     fields: {
@@ -232,12 +232,12 @@ describe('channel-agnostic temp correlation', () => {
   // public API at all. The two assertions below verify this directly (mid-flight AND after a
   // successful commit) instead of guessing from the source comment alone.
   it('case 5: cannot be reproduced - a mutation optimistic insert never touches its belongsTo parent at all (only origin:"event" ingest applies do), so there is nothing to roll back on failure', async () => {
-    const chats = defineModel({
+    const chats = defineModelRuntime({
       id: 'SpecIntegrityCorrelationChatsRollback',
       name: 'SpecIntegrityCorrelationChatsRollback',
       fields: { id: f.str(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() }
     });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'SpecIntegrityCorrelationMessagesRollback',
       name: 'SpecIntegrityCorrelationMessagesRollback',
       fields: { id: f.str(), chatId: f.str(), body: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']) },

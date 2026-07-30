@@ -1,11 +1,11 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { createCommitEnvelope, defineModel, f, getApplyRuntime, getApplyTarget } from '../../legacyTestApi';
+import { createCommitEnvelope, defineModelRuntime, f, getApplyRuntime, getApplyTarget } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
 const createStories = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecScopeWindowResolvedStories',
     name: 'SpecScopeWindowResolvedStories',
     fields: {

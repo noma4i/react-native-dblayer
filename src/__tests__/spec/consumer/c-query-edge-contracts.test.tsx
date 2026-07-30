@@ -1,4 +1,4 @@
-import { configureDb, defineModel, defineQuery, f, intoIf } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, defineQuery, f, intoIf } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; label: string };
@@ -9,7 +9,7 @@ const namedDocument = {
 } as never;
 
 const createRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecQueryEdges${suffix}`,
     name: `SpecQueryEdges${suffix}`,
     fields: { label: f.str() }

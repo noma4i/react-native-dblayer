@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { encodePersistence } from '../../../core/persistenceCodec';
@@ -24,7 +24,7 @@ const deferredMutation = () => {
 
 const createMessages = (transport: ReturnType<typeof createMockTransport>) => {
   configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({ id: 'SpecPendingMessages', name: 'SpecPendingMessages', fields: { text: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
+  const messages = defineModelRuntime({ id: 'SpecPendingMessages', name: 'SpecPendingMessages', fields: { text: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
   let tempId: string | null = null;
   const create = messages.mutation<Payload, { text: string }, { id: string; text: string }, { id: string; text: string }>('create', {
     document,
@@ -190,7 +190,7 @@ describe('model pending flag', () => {
       }
     ]);
     configureDb({ storage, transport: createMockTransport() });
-    const messages = defineModel({ id: 'SpecPendingReplay', name: 'SpecPendingReplay', fields: { text: f.str() } });
+    const messages = defineModelRuntime({ id: 'SpecPendingReplay', name: 'SpecPendingReplay', fields: { text: f.str() } });
 
     await bootDb();
     const reader = renderCounted(() => messages.use.pending('temp-replay'));
@@ -220,7 +220,7 @@ describe('model pending flag', () => {
       }
     ]);
     configureDb({ storage, transport: createMockTransport() });
-    const messages = defineModel({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() }, gc: 'exempt' });
+    const messages = defineModelRuntime({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() }, gc: 'exempt' });
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     messages.insert({ id: 'message-1', text: 'kept' });
 

@@ -5,7 +5,7 @@ import {
   diffTopLevelFields,
   isSerializedNoop,
   retryDelayMs
-} from '../../legacyTestApi';
+} from '../../testApi';
 
 describe('core edge helpers', () => {
   it('diffs deleted fields and rejects a serialized value change', () => {

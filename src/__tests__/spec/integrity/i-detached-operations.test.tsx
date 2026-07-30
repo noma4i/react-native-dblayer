@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, reconcileDetachedOperationsAtBoot, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime } from '../../testApi';
 import { collectGarbage } from '../../../core/gc';
 import { flushPersistence, getOperationState, getRuntimeGeneration, replayJournal } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
@@ -11,7 +11,7 @@ type Row = { id: string; bucket: string; label: string; state: 'pending' | 'fail
 type Input = { bucket: string; label: string };
 
 const defineRows = (id: string, options: { gc?: 'exempt'; maxAgeMs?: number } = {}) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     gc: options.gc,
@@ -33,7 +33,7 @@ const writeManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB
 describe('detached operations', () => {
   it('rejects missing maintenance and keeps terminal controls idempotent across invalid records', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const unmaintained = defineModel({
+    const unmaintained = defineModelRuntime({
       id: 'DetachedMissingMaintenance',
       name: 'DetachedMissingMaintenance',
       fields: { label: f.str() }

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, registerReset, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, registerReset, resetRuntime } from '../../testApi';
 import { collectGarbage } from '../../../core/gc';
 import { createOperationState } from '../../../core/planes/operationState';
 import type { OperationStatus } from '../../../types';
@@ -11,7 +11,7 @@ describe('pending operation GC roots', () => {
     let resolveMutation!: (value: { data: { pin: { ok: true } } }) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModel({ id: 'LedgerLifecycleGcRows', name: 'LedgerLifecycleGcRows', fields: { pinned: f.bool() } });
+    const rows = defineModelRuntime({ id: 'LedgerLifecycleGcRows', name: 'LedgerLifecycleGcRows', fields: { pinned: f.bool() } });
     rows.insert({ id: 'row-1', pinned: false });
     const pin = rows.mutation<{ pin: { ok: true } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
       document,

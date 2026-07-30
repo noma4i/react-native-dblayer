@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -50,7 +50,7 @@ describe('optimistic commit preserve semantics', () => {
       })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const messages = defineModel({
+    const messages = defineModelRuntime({
       id: 'CommitPreserveMessages',
       name: 'CommitPreserveMessages',
       fields: { body: f.str(), media: f.object(mediaShape), localPreviewUrl: f.str().nullable() },

@@ -546,12 +546,13 @@ export type ModelConfig<TFields extends ModelFieldSpecs, TScopeNames extends str
      */
     defaultOrder?: ReadOrder<InferStoredFields<TFields>>;
     /**
-     * Derive the row id from raw input. Defaults to `input.id`. Must return a non-empty string;
-     * returning anything else makes `normalize` throw `${name} requires id` for that input, which
+     * Derive the row id from raw input. Defaults to `input.id`. The ID field codec converts supported
+     * transport scalar representations to a stored string; unreadable values make `normalize` throw
+     * `${name} requires id` for that input, which
      * plan-building paths (writes, apply) catch and log as a rejected row, and direct `build`/
      * `normalize` calls propagate to the caller.
      */
-    rowId?: (input: unknown) => string;
+    rowId?: (input: unknown) => unknown;
     /**
      * Row-level filter run before id resolution. Return `false` to reject the input; `normalize` then
      * throws `${name} rejected input`, handled the same way as an unresolved `rowId` (see above).

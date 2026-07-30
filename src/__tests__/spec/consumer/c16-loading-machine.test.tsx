@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, recordTimelineInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type Row = { id: string; groupId: string; status: string };
@@ -15,7 +15,7 @@ type Deferred = {
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createRows = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerLoadingMachine',
     name: 'SpecConsumerLoadingMachine',
     fields: {

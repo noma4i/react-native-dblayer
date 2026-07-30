@@ -1,5 +1,5 @@
-import { belongsTo, bridgeWindowPagination, defineModel, f, hasOne, references } from '../../legacyTestApi';
-import type { LoadingState } from '../../legacyTestApi';
+import { belongsTo, bridgeWindowPagination, defineModelRuntime, f, hasOne, references } from '../../testApi';
+import type { LoadingState } from '../../testApi';
 import { act } from 'react';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
@@ -13,17 +13,17 @@ type MessageRow = { id: string; chatId: string; sentAt: number; text: string };
  */
 const createViewModels = (suffix: string) => {
   setupSpecRuntime();
-  const users = defineModel({
+  const users = defineModelRuntime({
     id: `SpecViewUsers${suffix}`,
     name: `SpecViewUsers${suffix}`,
     fields: { name: f.str(), role: f.str() }
   });
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecViewMessages${suffix}`,
     name: `SpecViewMessages${suffix}`,
     fields: { chatId: f.str(), sentAt: f.num(), text: f.str() }
   });
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecViewChats${suffix}`,
     name: `SpecViewChats${suffix}`,
     fields: { inboxId: f.str(), authorId: f.str(), pinnedMessageId: f.str() },
@@ -46,7 +46,7 @@ describe('view include contracts', () => {
 
   it('throws at define time when the source scope belongs to another model', () => {
     const { chats, messages } = createViewModels('ForeignScope');
-    const foreign = defineModel({
+    const foreign = defineModelRuntime({
       id: 'SpecViewForeignScope',
       name: 'SpecViewForeignScope',
       fields: { inboxId: f.str() },

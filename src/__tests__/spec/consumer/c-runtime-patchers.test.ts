@@ -1,4 +1,4 @@
-import { createIdArrayPatcher, createKeyedArrayPatcher, createNestedObjectPatcher, defineModel, defineShape, f } from '../../legacyTestApi';
+import { createIdArrayPatcher, createKeyedArrayPatcher, createNestedObjectPatcher, defineModelRuntime, defineShape, f } from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for the runtime patch helpers.
@@ -70,7 +70,7 @@ describe('createIdArrayPatcher', () => {
 type MediaState = { status: string; progress: number } | null;
 
 const createMediaRows = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecConsumerNestedPatch${suffix}`,
     name: `SpecConsumerNestedPatch${suffix}`,
     fields: { id: f.str(), media: f.raw<MediaState>() }

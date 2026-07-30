@@ -3,9 +3,9 @@ import type { RowId, SingletonStatics } from '../types';
 
 export * from '../index';
 export type * from '../types';
-export { defineModelRuntime as defineModel } from '../dsl/defineModelRuntime';
+export { defineModelRuntime } from '../dsl/defineModelRuntime';
 
-type LegacySingletonModel<TStored extends RowId> = {
+type RuntimeSingletonModel<TStored extends RowId> = {
   find(id: string): TStored | undefined;
   update(id: string, updates: Partial<TStored>): boolean | void;
   insert(item: TStored): void;
@@ -16,7 +16,7 @@ type LegacySingletonModel<TStored extends RowId> = {
 };
 
 export const createSingletonStatics = <TStored extends RowId>(
-  model: LegacySingletonModel<TStored>,
+  model: RuntimeSingletonModel<TStored>,
   recordId: string,
   defaults: TStored
 ): SingletonStatics<TStored> =>

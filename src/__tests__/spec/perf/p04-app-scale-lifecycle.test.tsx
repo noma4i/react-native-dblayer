@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f } from '../../legacyTestApi';
+import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
@@ -20,7 +20,7 @@ const MESSAGES_PER_THREAD = 25;
 const USER_COUNT = 300;
 
 const createChatsModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecAppScaleChats',
     name: 'SpecAppScaleChats',
     fields: { status: f.str(), kind: f.str(), lastActivityAt: f.str(), memberIds: f.array(f.str()) },
@@ -30,7 +30,7 @@ const createChatsModel = () =>
   });
 
 const createMessagesModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecAppScaleMessages',
     name: 'SpecAppScaleMessages',
     fields: { chatId: f.str(), sequenceNumber: f.num(), body: f.str() },
@@ -40,14 +40,14 @@ const createMessagesModel = () =>
   });
 
 const createUsersModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecAppScaleUsers',
     name: 'SpecAppScaleUsers',
     fields: { name: f.str() }
   });
 
 const createCountersModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecAppScaleCounters',
     name: 'SpecAppScaleCounters',
     fields: { totalUnread: f.num() },

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type TestRow = { id: string; name: string; status: string; score: number };
@@ -7,7 +7,7 @@ type TestRow = { id: string; name: string; status: string; score: number };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createPointModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderPointReads',
     name: 'SpecRerenderPointReads',
     fields: {
@@ -18,7 +18,7 @@ const createPointModel = () =>
   });
 
 const createUnrelatedModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderPointReadsUnrelated',
     name: 'SpecRerenderPointReadsUnrelated',
     fields: { value: f.str() }

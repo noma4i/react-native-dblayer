@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, hasMany } from '../../legacyTestApi';
+import { belongsTo, configureDb, defineModelRuntime, f, hasMany } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -8,12 +8,12 @@ type ItemRow = { id: string; parentId: string };
 type ParentRow = { id: string; itemCount: number };
 
 const createModels = (suffix: string) => {
-  const parents = defineModel({
+  const parents = defineModelRuntime({
     id: `SpecIntegrityReplaceSymmetryParents${suffix}`,
     name: `SpecIntegrityReplaceSymmetryParents${suffix}`,
     fields: { id: f.str(), itemCount: f.num() }
   });
-  const items = defineModel({
+  const items = defineModelRuntime({
     id: `SpecIntegrityReplaceSymmetryItems${suffix}`,
     name: `SpecIntegrityReplaceSymmetryItems${suffix}`,
     fields: { id: f.str(), parentId: f.str() },
@@ -55,13 +55,13 @@ describe('replace relation effects', () => {
 
   it('E2 does not cascade a child destroy from the destroy half of a parent identity swap', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
-    const parents = defineModel({
+    const parents = defineModelRuntime({
       id: 'SpecIntegrityReplaceSymmetryCascadeParents',
       name: 'SpecIntegrityReplaceSymmetryCascadeParents',
       fields: { id: f.str() },
       relations: () => ({ items: hasMany<ParentRow, ItemRow>(items, { foreignKey: 'parentId', dependent: 'destroy' }) })
     });
-    const items = defineModel({
+    const items = defineModelRuntime({
       id: 'SpecIntegrityReplaceSymmetryCascadeItems',
       name: 'SpecIntegrityReplaceSymmetryCascadeItems',
       fields: { id: f.str(), parentId: f.str() }

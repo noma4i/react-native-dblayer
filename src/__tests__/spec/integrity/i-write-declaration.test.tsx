@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMediaModel = (id: string) => {
   const media = defineShape()({ width: f.num().nullable(), height: f.num().nullable(), fileUrl: f.str().nullable(), blurHash: f.str().nullable() });
-  return defineModel({
+  return defineModelRuntime({
     id,
     name: id,
     fields: { body: f.str(), media: f.object(media) },
@@ -31,7 +31,7 @@ describe('model-owned write declarations', () => {
     let resolveMutation!: (value: { data: { pin: { id: string; pinned: boolean } } }) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const chats = defineModel({ id: 'WriteDeclarationOwnedCommit', name: 'WriteDeclarationOwnedCommit', fields: { pinned: f.bool() } });
+    const chats = defineModelRuntime({ id: 'WriteDeclarationOwnedCommit', name: 'WriteDeclarationOwnedCommit', fields: { pinned: f.bool() } });
     chats.insert({ id: 'chat-1', pinned: false });
     const pin = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
       document,
@@ -60,7 +60,7 @@ describe('model-owned write declarations', () => {
     let rejectMutation!: (error: Error) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>((_resolve, reject) => (rejectMutation = reject)) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const chats = defineModel({ id: 'WriteDeclarationOwnedRollback', name: 'WriteDeclarationOwnedRollback', fields: { pinned: f.bool() } });
+    const chats = defineModelRuntime({ id: 'WriteDeclarationOwnedRollback', name: 'WriteDeclarationOwnedRollback', fields: { pinned: f.bool() } });
     chats.insert({ id: 'chat-1', pinned: false });
     const pin = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
       document,
@@ -114,7 +114,7 @@ describe('model-owned write declarations', () => {
 
   it('keeps continuity fields for nullish incoming values but accepts empty strings', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'WriteDeclarationContinuity',
       name: 'WriteDeclarationContinuity',
       fields: { localPreviewUrl: f.str().nullable() },
@@ -139,7 +139,7 @@ describe('model-owned write declarations', () => {
       mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', body: 'server' } } } as TData })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'WriteDeclarationAccept',
       name: 'WriteDeclarationAccept',
       fields: { body: f.str() },

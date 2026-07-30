@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { flushPersistence, replayJournal } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
@@ -16,7 +16,7 @@ describe('account switch integrity', () => {
     const storageB = createMemoryPlane();
     const transport = createMockTransport();
     configureDb({ storage: preparedStorage, transport });
-    const rows = defineModel({ id: 'AccountSwitchPlanes', name: 'AccountSwitchPlanes', fields: { accountId: f.str(), label: f.str() } });
+    const rows = defineModelRuntime({ id: 'AccountSwitchPlanes', name: 'AccountSwitchPlanes', fields: { accountId: f.str(), label: f.str() } });
 
     rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
     flushPersistence();
@@ -38,7 +38,7 @@ describe('account switch integrity', () => {
     const storageB = createMemoryPlane();
     const transport = createMockTransport();
     configureDb({ storage: preparedStorage, transport });
-    const rows = defineModel({ id: 'ConfigureReentryPlanes', name: 'ConfigureReentryPlanes', fields: { accountId: f.str(), label: f.str() } });
+    const rows = defineModelRuntime({ id: 'ConfigureReentryPlanes', name: 'ConfigureReentryPlanes', fields: { accountId: f.str(), label: f.str() } });
 
     rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
     flushPersistence();
@@ -55,7 +55,7 @@ describe('account switch integrity', () => {
     const storage = createMemoryPlane();
     const transport = createMockTransport();
     configureDb({ storage, transport });
-    const rows = defineModel({ id: 'ReentryWalRecovery', name: 'ReentryWalRecovery', fields: { label: f.str() } });
+    const rows = defineModelRuntime({ id: 'ReentryWalRecovery', name: 'ReentryWalRecovery', fields: { label: f.str() } });
     rows.insert({ id: 'row-1', label: 'unflushed' });
 
     configureDb({ storage, transport });
@@ -70,7 +70,7 @@ describe('account switch integrity', () => {
     let onMutateCalls = 0;
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { row: { id: 'server-1', accountId: 'A', label: 'sent' } } } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModel({ id: 'AccountSwitchMutation', name: 'AccountSwitchMutation', fields: { accountId: f.str(), label: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
+    const rows = defineModelRuntime({ id: 'AccountSwitchMutation', name: 'AccountSwitchMutation', fields: { accountId: f.str(), label: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
     let firstTempId = '';
     const send = rows.mutation<SendResult, { label: string }, Row, Row>('send', {
       document,
@@ -103,7 +103,7 @@ describe('account switch integrity', () => {
   it('D9 rejects undefined by-scope values before query transport and permits null as disabled', async () => {
     const transport = createMockTransport({ query: async <TData,>() => ({ data: { rows: [] } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: 'AccountSwitchScope',
       name: 'AccountSwitchScope',
       fields: { accountId: f.str(), label: f.str() },

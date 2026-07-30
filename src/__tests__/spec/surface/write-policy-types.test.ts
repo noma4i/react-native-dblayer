@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 
 describe('write policy public types', () => {
   it('keeps consumer functions out of the closed write policy set', () => {
@@ -6,7 +6,7 @@ describe('write policy public types', () => {
   });
 });
 
-defineModel({
+defineModelRuntime({
   id: 'ClosedWritePolicyMerge',
   name: 'ClosedWritePolicyMerge',
   fields: { body: f.str() },
@@ -21,7 +21,7 @@ defineModel({
   }
 });
 
-defineModel({
+defineModelRuntime({
   id: 'ClosedWritePolicyAccept',
   name: 'ClosedWritePolicyAccept',
   fields: { body: f.str() },

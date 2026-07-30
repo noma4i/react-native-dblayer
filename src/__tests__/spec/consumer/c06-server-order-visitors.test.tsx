@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { momentId: string };
@@ -19,7 +19,7 @@ type CallEntry = { kind: 'query'; operation: QueryOperation };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createVisitorModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerVisitor',
     name: 'SpecConsumerVisitor',
     fields: {

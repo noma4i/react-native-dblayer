@@ -5,7 +5,7 @@ import {
   createDbSubscriptionRuntime,
   registerReset,
   resetRuntime
-} from '../../legacyTestApi';
+} from '../../testApi';
 import { setFetchNetworkOnline } from '../../../core/fetch/networkState';
 import * as networkState from '../../../core/fetch/networkState';
 import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';

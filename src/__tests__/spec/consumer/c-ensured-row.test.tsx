@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f, type DbTransport } from '../../legacyTestApi';
+import { DbProvider, configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
@@ -10,7 +10,7 @@ type Response = { detail: Row | null };
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createRowsModel = (id: string) => {
-  const model = defineModel({
+  const model = defineModelRuntime({
     id,
     name: id,
     fields: { name: f.str(), status: f.str(), updatedAt: f.str(), shareUrl: f.str().optional() },

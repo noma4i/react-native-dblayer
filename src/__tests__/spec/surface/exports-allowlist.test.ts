@@ -43,7 +43,7 @@ const runtimeExportAllowlist = [
 ];
 
 const assertRemovedModelConfig = (): void => {
-  // @ts-expect-error the public model constructor requires a key and the v10 config
+  // @ts-expect-error the public model constructor requires a key and the current config
   barrel.defineModel({ id: 'RemovedModel', name: 'RemovedModel', fields: {} });
 };
 void assertRemovedModelConfig;

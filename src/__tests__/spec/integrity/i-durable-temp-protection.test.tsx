@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { collectGarbage } from '../../../core/gc';
 import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';
 import { runPendingTempRowMaintenance } from '../../../dsl/maintenanceRegistry';
@@ -22,7 +22,7 @@ describe('durable temp row protection', () => {
         }
       })
     });
-    const rows = defineModel({
+    const rows = defineModelRuntime({
       id: `SpecDurableTemp${tag}`,
       name: `SpecDurableTemp${tag}`,
       fields: { body: f.str() },

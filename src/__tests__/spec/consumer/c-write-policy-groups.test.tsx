@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ChatRow = {
@@ -13,7 +13,7 @@ type ChatRow = {
 };
 
 const createChatModel = (id: string, groups = true) =>
-  defineModel({
+  defineModelRuntime({
     id,
     name: id,
     fields: {
@@ -144,7 +144,7 @@ describe('per-field write policy', () => {
 
   it('rejects unknown fields and overlapping groups at define time', () => {
     expect(() =>
-      defineModel({
+      defineModelRuntime({
         id: 'WritePolicyUnknownField',
         name: 'WritePolicyUnknownField',
         fields: { name: f.str() },
@@ -152,7 +152,7 @@ describe('per-field write policy', () => {
       })
     ).toThrow('write field missing is not declared');
     expect(() =>
-      defineModel({
+      defineModelRuntime({
         id: 'WritePolicyEmpty',
         name: 'WritePolicyEmpty',
         fields: { name: f.str() },
@@ -160,7 +160,7 @@ describe('per-field write policy', () => {
       })
     ).toThrow('write groups must not be empty');
     expect(() =>
-      defineModel({
+      defineModelRuntime({
         id: 'WritePolicyOverlap',
         name: 'WritePolicyOverlap',
         fields: { name: f.str(), status: f.str() },

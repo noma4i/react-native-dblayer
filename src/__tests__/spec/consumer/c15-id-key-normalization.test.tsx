@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MomentRow = { id: string; userId: string; status: string };
@@ -11,7 +11,7 @@ type RespondResponse = { send: MomentRow; sink: { id: number; userId: string; st
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMoments = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerIdKeyMoment',
     name: 'SpecConsumerIdKeyMoment',
     fields: {
@@ -239,7 +239,7 @@ describe('id-key normalization contracts (LC20)', () => {
 
   it('matches a numeric where filter against the primary id key when id is not a declared field', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
-    const widgets = defineModel({
+    const widgets = defineModelRuntime({
       id: 'SpecConsumerIdKeyWidget',
       name: 'SpecConsumerIdKeyWidget',
       fields: { label: f.str() }

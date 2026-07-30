@@ -1,4 +1,4 @@
-import { configureDb, defineCommand, defineShape, f } from '../../legacyTestApi';
+import { configureDb, defineCommand, defineShape, f } from '../../testApi';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, registerSchemaDeclaration, writePersistenceManifest } from '../../../core/schemaManifest';
 import type { SchemaDeclaration } from '../../../types';
 import { bootDb } from '../../../dsl/lifecycle';

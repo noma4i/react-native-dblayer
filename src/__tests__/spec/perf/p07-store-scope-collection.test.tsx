@@ -1,6 +1,6 @@
 import React, { act, useState } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopeReadWork = { fullRows: number; incrementalRows: number };
@@ -12,7 +12,7 @@ const storeScopeCollections = (): { count: () => number } =>
   (globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ as { count: () => number };
 
 const createRows = (tag: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecScopeCollectionRows${tag}`,
     name: `SpecScopeCollectionRows${tag}`,
     fields: { bucket: f.str(), rank: f.num() },

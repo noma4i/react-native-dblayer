@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MediaRow = { id: string; chatId: string; mediaBucket: string; sequenceNumber: number; label: string };
@@ -19,7 +19,7 @@ type CallEntry = { kind: 'query'; operation: { variables: MediaScopeValue & { af
 const document = { kind: 'Document', definitions: [] } as never;
 
 const createMediaModel = (onCompare?: () => void) =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerMediaBuckets',
     name: 'SpecConsumerMediaBuckets',
     fields: {
@@ -47,7 +47,7 @@ const createMediaModel = (onCompare?: () => void) =>
   });
 
 const createDerivedMediaModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecConsumerDerivedMediaBuckets',
     name: 'SpecConsumerDerivedMediaBuckets',
     fields: {
@@ -394,7 +394,7 @@ describe('media scope bucket behavior', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const media = createMediaModel();
-    const carriers = defineModel({ id: 'SpecCompositeCarrierQuery', name: 'SpecCompositeCarrierQuery', fields: { label: f.str() } });
+    const carriers = defineModelRuntime({ id: 'SpecCompositeCarrierQuery', name: 'SpecCompositeCarrierQuery', fields: { label: f.str() } });
     const query = carriers.query<ExtractResponse, Record<string, never>, Record<string, never>, { id: string; label: string }>('with-media', {
       document,
       vars: value => value,
@@ -420,7 +420,7 @@ describe('media scope bucket behavior', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const media = createMediaModel();
-    const carriers = defineModel({ id: 'SpecCompositeCarrierMutation', name: 'SpecCompositeCarrierMutation', fields: { label: f.str() } });
+    const carriers = defineModelRuntime({ id: 'SpecCompositeCarrierMutation', name: 'SpecCompositeCarrierMutation', fields: { label: f.str() } });
     const mutation = carriers.mutation<MutationResponse, Record<string, never>, { id: string; label: string }, never>('with-media', {
       document,
       result: 'save',
@@ -445,7 +445,7 @@ describe('media scope bucket behavior', () => {
   it('places optimistic rows into the selected composite server-order scope', () => {
     const transport = createMockTransport({ mutation: () => new Promise(() => undefined) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const media = defineModel({
+    const media = defineModelRuntime({
       id: 'SpecCompositePlacement',
       name: 'SpecCompositePlacement',
       fields: { chatId: f.str(), mediaBucket: f.str(), label: f.str() },

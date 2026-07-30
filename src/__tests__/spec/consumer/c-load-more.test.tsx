@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { useLoadMore, useRelationLoadMore } from '../../legacyTestApi';
-import type { LoadMoreTarget, LoadMoreOptions, QueryResult, ScopeWindowResult } from '../../legacyTestApi';
+import { useLoadMore, useRelationLoadMore } from '../../testApi';
+import type { LoadMoreTarget, LoadMoreOptions, QueryResult, ScopeWindowResult } from '../../testApi';
 
 const renderLoadMore = (initial: { target: LoadMoreTarget; options?: LoadMoreOptions }) => {
   let latest: () => void = () => {};

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // use.unsyncedChanges: pending optimistic patch values, cleared on commit/failure.
@@ -17,7 +17,7 @@ const setup = (suffix: string) => {
       })
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const chats = defineModel({
+  const chats = defineModelRuntime({
     id: `SpecUnsyncedChanges${suffix}`,
     name: `SpecUnsyncedChanges${suffix}`,
     fields: { id: f.str(), pinned: f.bool(), title: f.str() }

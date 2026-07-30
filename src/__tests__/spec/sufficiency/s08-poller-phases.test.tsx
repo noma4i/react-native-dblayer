@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type Result = { status: 'processing' | 'ready' | 'failed' };
@@ -11,7 +11,7 @@ const createPoller = (fetch: (id: string) => Promise<Result>, maxAttempts = 3) =
   });
   configureDb({ storage: createMemoryPlane(), transport });
   pollerSequence += 1;
-  const model = defineModel({ id: `SpecStatusPoller${pollerSequence}`, name: `SpecStatusPoller${pollerSequence}`, fields: { status: f.str() } });
+  const model = defineModelRuntime({ id: `SpecStatusPoller${pollerSequence}`, name: `SpecStatusPoller${pollerSequence}`, fields: { status: f.str() } });
   return model.poller<Result>('status', {
     document: { kind: 'Document', definitions: [] } as never,
     apply: () => undefined,

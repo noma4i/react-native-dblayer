@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const QUERY_DOCUMENT = { kind: 'Document', definitions: [] } as never;
@@ -25,7 +25,7 @@ const createLiveHarness = (suffix: string) => {
     }
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModel({
+  const messages = defineModelRuntime({
     id: `SpecLiveMessages${suffix}`,
     name: `SpecLiveMessages${suffix}`,
     fields: { chatId: f.str(), text: f.str() },

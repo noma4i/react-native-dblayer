@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopedRow = {
@@ -37,7 +37,7 @@ type WindowReader<T> = {
 };
 
 const createScopedModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderScopeWindowView',
     name: 'SpecRerenderScopeWindowView',
     fields: {
@@ -69,7 +69,7 @@ const seedRows = (rows: ReturnType<typeof createScopedModel>) => {
 };
 
 const createViewUserModel = () =>
-  defineModel({
+  defineModelRuntime({
     id: 'SpecRerenderViewUser',
     name: 'SpecRerenderViewUser',
     fields: {

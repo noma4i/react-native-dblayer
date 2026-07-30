@@ -1,4 +1,4 @@
-import { configureDb, defineCommand, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineCommand, defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { flushPersistence } from '../../../dsl/configure';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
@@ -114,7 +114,7 @@ describe('mutation dedupe semantics', () => {
   it('emits no model-reader render when a duplicate run is skipped', async () => {
     const deferred = deferredMutation();
     const command = createCommand('RenderSilence', deferred.transport);
-    const rows = defineModel({ id: 'SpecDedupeRenderRows', name: 'SpecDedupeRenderRows', fields: { value: f.str() } });
+    const rows = defineModelRuntime({ id: 'SpecDedupeRenderRows', name: 'SpecDedupeRenderRows', fields: { value: f.str() } });
     rows.seed([{ id: 'row-1', value: 'kept' }]);
     const reader = renderCounted(() => rows.use.find('row-1'));
     const before = reader.renders();

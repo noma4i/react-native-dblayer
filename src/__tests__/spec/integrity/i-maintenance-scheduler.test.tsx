@@ -1,6 +1,6 @@
 jest.mock('../../../core/gc', () => ({ ...jest.requireActual('../../../core/gc'), collectGarbage: jest.fn() }));
 
-import { configureDb, defineModel, f, getCommitBus } from '../../legacyTestApi';
+import { configureDb, defineModelRuntime, f, getCommitBus } from '../../testApi';
 import { collectGarbage } from '../../../core/gc';
 import { startMaintenanceScheduler } from '../../../core/maintenanceScheduler';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
@@ -12,7 +12,7 @@ describe('maintenance scheduler', () => {
     try {
       const collect = collectGarbage as jest.MockedFunction<typeof collectGarbage>;
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const rows = defineModel({ id: 'MaintenanceSchedulerNonStarvation', name: 'MaintenanceSchedulerNonStarvation', fields: { label: f.str() } });
+      const rows = defineModelRuntime({ id: 'MaintenanceSchedulerNonStarvation', name: 'MaintenanceSchedulerNonStarvation', fields: { label: f.str() } });
       stop = startMaintenanceScheduler({ threshold: 1, debounceMs: 10 });
 
       rows.insert({ id: 'row-1', label: 'first' });
@@ -38,7 +38,7 @@ describe('maintenance scheduler', () => {
         throw new Error('gc failed');
       });
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport(), logger: { debug: () => {}, error } });
-      const rows = defineModel({ id: 'MaintenanceSchedulerRows', name: 'MaintenanceSchedulerRows', fields: { label: f.str() } });
+      const rows = defineModelRuntime({ id: 'MaintenanceSchedulerRows', name: 'MaintenanceSchedulerRows', fields: { label: f.str() } });
       const stop = startMaintenanceScheduler({ threshold: 1, debounceMs: 10 });
 
       rows.insert({ id: 'row-1', label: 'first' });

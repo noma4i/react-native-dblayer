@@ -1,10 +1,10 @@
 import { act } from 'react';
-import { defineModel, f } from '../../legacyTestApi';
+import { defineModelRuntime, f } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
 const createItemsModel = (suffix: string) =>
-  defineModel({
+  defineModelRuntime({
     id: `SpecScopeRequire${suffix}`,
     name: `SpecScopeRequire${suffix}`,
     fields: { groupId: f.str(), media: f.str().optional() },

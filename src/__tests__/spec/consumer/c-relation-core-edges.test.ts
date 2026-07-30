@@ -7,7 +7,7 @@ import {
   readModelRelation,
   references,
   registerRelationHost
-} from '../../legacyTestApi';
+} from '../../testApi';
 
 const target = {
   modelId: 'RelationEdgeTarget',
