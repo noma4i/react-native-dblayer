@@ -26,7 +26,6 @@ export { createDbSubscriptionEffects, createDbSubscriptionRuntime, defineDbSubsc
 export type { LoadingState, DbTransport, DbTransportError, DbWhere, DbWhereOp } from './types';
 export type { ModelInput, ModelStored, InferShapeStored } from './types';
 export { generateTempId, isTempId } from './utils/generateTempId';
-export { readId, stringifyNullish } from './utils/normalizeHelpers';
 export { pickDefined, pickPresent } from './utils/pickDefined';
 export { createThrottledSingleFlight, createSingleFlight } from './utils/singleFlight';
 export { createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher } from './utils/modelPatchers';

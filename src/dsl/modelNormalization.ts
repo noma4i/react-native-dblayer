@@ -1,8 +1,9 @@
 import type { SparseModelField, InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization } from '../types';
 import { getDbLogger } from '../core/logger';
 import { compileWritePolicies } from '../core/writePolicies';
+import { scalarFieldCodecs } from '../schema/fieldCodec';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
-import { isRecord, stringifyNullish } from '../utils/normalizeHelpers';
+import { isRecord } from '../utils/normalizeHelpers';
 export const readModelField = (field: ModelFieldSpecs[string], input: unknown, key: string, complete: boolean): unknown => {
   const value = complete ? field.read(input, key) : (field as SparseModelField)[fieldSpecSparseRead](input, key);
   if (value !== undefined) return value;
@@ -36,8 +37,8 @@ export const createModelNormalization = <
 
   const normalize = (input: unknown, complete = false): InferStoredFields<TFields> & Record<string, unknown> => {
     if (config.guard && !config.guard(input)) throw new Error(`${config.name} rejected input`);
-    const id = stringifyNullish(config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined));
-    if (typeof id !== 'string' || id.length === 0) throw new Error(`${config.name} requires id`);
+    const id = scalarFieldCodecs.id.read(config.rowId?.(input) ?? (isRecord(input) ? input.id : undefined));
+    if (id === undefined) throw new Error(`${config.name} requires id`);
     const output: Record<string, unknown> = { id };
     for (const [key, field] of Object.entries(config.fields)) {
       const value = readModelField(field as ModelFieldSpecs[string], input, key, complete);

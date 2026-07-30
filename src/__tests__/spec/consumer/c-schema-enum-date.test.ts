@@ -1,15 +1,17 @@
-import { defineModel, defineShape, f, readShape } from '../../legacyTestApi';
+import { defineModel, defineShape, f, readShape, scalarFieldCodecs } from '../../legacyTestApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Runtime contracts for the enum and date field readers.
 
 describe('f.enum runtime validation', () => {
-  const statusShape = defineShape<{ status: string }>()({ status: f.enum(['draft', 'sent'] as const) });
-
   it('keeps declared values and drops anything else', () => {
+    const statusShape = defineShape<{ status: string }>()({ status: f.enum(['draft', 'sent'] as const) });
+    const statusField = f.enum(['draft', 'sent'] as const);
     expect(readShape(statusShape, { status: 'draft' })).toEqual({ status: 'draft' });
     expect(readShape(statusShape, { status: 'bogus' })).toEqual({});
     expect(readShape(statusShape, { status: 7 })).toEqual({});
+    expect(statusField.readValue('bogus')).toBeUndefined();
+    expect(statusField.readValue(7)).toBeUndefined();
   });
 
   it('drops invalid enum values at the model normalize boundary', () => {
@@ -25,20 +27,25 @@ describe('f.enum runtime validation', () => {
 });
 
 describe('f.date', () => {
-  const stampShape = defineShape<{ at: unknown }>()({ at: f.date() });
-
   it('keeps parseable ISO strings as-is', () => {
+    const stampShape = defineShape<{ at: unknown }>()({ at: f.date() });
     expect(readShape(stampShape, { at: '2026-07-21T00:00:00Z' })).toEqual({ at: '2026-07-21T00:00:00Z' });
   });
 
   it('converts Date instances and epoch millis to ISO strings', () => {
+    const stampShape = defineShape<{ at: unknown }>()({ at: f.date() });
     expect(readShape(stampShape, { at: new Date(Date.UTC(2026, 6, 21)) })).toEqual({ at: '2026-07-21T00:00:00.000Z' });
     expect(readShape(stampShape, { at: Date.UTC(2026, 6, 21) })).toEqual({ at: '2026-07-21T00:00:00.000Z' });
   });
 
   it('drops unparseable values', () => {
+    const stampShape = defineShape<{ at: unknown }>()({ at: f.date() });
     expect(readShape(stampShape, { at: 'not-a-date' })).toEqual({});
     expect(readShape(stampShape, { at: new Date('invalid') })).toEqual({});
+    expect(readShape(stampShape, { at: Number.POSITIVE_INFINITY })).toEqual({});
+    expect(readShape(stampShape, { at: null })).toEqual({});
+    expect(readShape(stampShape, { at: false })).toEqual({});
+    expect(scalarFieldCodecs.date.read(false)).toBeUndefined();
   });
 });
 
@@ -54,6 +61,14 @@ describe('field spec chains', () => {
     expect(f.date().nullable().read({ value: null }, 'value')).toBeNull();
     expect(f.date().nullable().read({ value: '2026-07-21T00:00:00Z' }, 'value')).toBe('2026-07-21T00:00:00Z');
     expect(f.num().read({ value: 2 }, 'value')).toBe(2);
+    expect(scalarFieldCodecs.num.read(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(f.id().read({ value: '' }, 'value')).toBeUndefined();
+    expect(f.bool().read({ value: 1 }, 'value')).toBeUndefined();
+    expect(f.bool().read({ value: 'true' }, 'value')).toBe(true);
+    expect(f.bool().read({ value: 'false' }, 'value')).toBe(false);
+    expect(f.bool().read({ value: 'yes' }, 'value')).toBeUndefined();
+    expect(f.custom(() => null).read({}, 'value')).toBeUndefined();
+    expect(f.custom(() => null).nullable().read({}, 'value')).toBeNull();
     expect(f.str().optional().mode).toBe('optional');
     expect(f.str().nullable().mode).toBe('nullable');
   });

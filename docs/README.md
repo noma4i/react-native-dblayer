@@ -155,7 +155,5 @@ somewhere under `docs/`.
 | `SingletonStatics`            | type  | [runtime.md](./runtime.md)        |
 | `generateTempId`              | value | [runtime.md](./runtime.md)                        |
 | `isTempId`                    | value | [runtime.md](./runtime.md)                        |
-| `stringifyNullish`            | value | [runtime.md](./runtime.md)                        |
-| `readId`                      | value | [runtime.md](./runtime.md)                        |
 | `pickDefined`                 | value | [runtime.md](./runtime.md)                        |
 | `pickPresent`                 | value | [runtime.md](./runtime.md)                        |

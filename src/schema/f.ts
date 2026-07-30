@@ -1,17 +1,16 @@
-import { readBoolean, readId, readIsoDate, readNullableNumber, readNullableString, readNumber, readString } from '../utils/normalizeHelpers';
-import { createFieldSpec, preserveNull, readObjectField } from './fieldSpec';
+import { defineFieldCodec, scalarFieldCodecs } from './fieldCodec';
+import { createFieldSpec, readObjectField } from './fieldSpec';
 import type { AnyDbShape, ArrayItem, ArrayItemOut, EmptyDefaultFieldSpec, FieldSpec, FieldValueReader, InferShapeStored } from '../types';
 import { readShape } from './shape';
 
 const definedPassthrough = <T>(value: unknown): T | undefined => (value == null ? undefined : (value as T));
 
-const valueField = <TOut>(kind: string, readValue: FieldValueReader<TOut>, readNullableValue: FieldValueReader<TOut> = preserveNull(readValue)): FieldSpec<unknown, TOut> =>
+const valueField = <TOut>(kind: string, readValue: FieldValueReader<TOut>): FieldSpec<unknown, TOut> =>
   createFieldSpec({
     kind,
     mode: 'required',
     selectSource: readObjectField,
-    readValue,
-    readNullableValue,
+    codec: defineFieldCodec(readValue),
     defaultNull: false
   });
 
@@ -20,8 +19,7 @@ const customField = <TInput, TOut>(kind: string, readValue: FieldValueReader<TOu
     kind,
     mode: 'required',
     selectSource: input => input,
-    readValue,
-    readNullableValue: preserveNull(readValue),
+    codec: defineFieldCodec(readValue),
     derived: true,
     defaultNull: false
   });
@@ -79,30 +77,38 @@ export const f = {
    *
    * @returns A field spec that stores `string`.
    */
-  str: (): FieldSpec<unknown, string> => valueField('str', readString, readNullableString),
+  str: (): FieldSpec<unknown, string> => valueField('str', scalarFieldCodecs.str.read),
   /**
-   * Read finite number values, canonicalize negative zero to zero, and skip every other input.
+   * Convert finite numbers and non-blank numeric strings to stored numbers and canonicalize negative zero to zero.
    *
    * `null` is skipped until `.nullable()` or `.nullDefault()` is applied.
    *
    * @returns A field spec that stores `number`.
    */
-  num: (): FieldSpec<unknown, number> => valueField('num', readNumber, readNullableNumber),
+  num: (): FieldSpec<unknown, number> => valueField('num', scalarFieldCodecs.num.read),
+  /**
+   * Convert safe integer numbers and integer strings to stored numbers.
+   *
+   * Fractional, blank, non-finite, and unsafe values are skipped.
+   *
+   * @returns A field spec that stores a safe integer.
+   */
+  int: (): FieldSpec<unknown, number> => valueField('int', scalarFieldCodecs.int.read),
   /**
    * ISO-8601 date-time string field. Strings are kept as-is when parseable; `Date` instances and
    * epoch-milliseconds numbers are stored as `toISOString()`; unparseable values are dropped.
    * Stored as a string, so codepoint ordering (orderBy, DbWhereOp gt/lt) is chronological for
    * same-format ISO values.
    */
-  date: (): FieldSpec<unknown, string> => valueField<string>('date', readIsoDate),
+  date: (): FieldSpec<unknown, string> => valueField<string>('date', scalarFieldCodecs.date.read),
   /**
-   * Read boolean values and skip every other input type.
+   * Convert boolean values and the strings `"true"`/`"false"` to stored booleans.
    *
    * `null` is skipped until `.nullable()` is applied.
    *
    * @returns A field spec that stores `boolean`.
    */
-  bool: (): FieldSpec<unknown, boolean> => valueField('bool', readBoolean),
+  bool: (): FieldSpec<unknown, boolean> => valueField('bool', scalarFieldCodecs.bool.read),
   /**
    * Read string or number ids and normalize them to strings.
    *
@@ -110,7 +116,7 @@ export const f = {
    *
    * @returns A field spec that stores a string id.
    */
-  id: (): FieldSpec<unknown, string> => valueField('id', readId),
+  id: (): FieldSpec<unknown, string> => valueField('id', scalarFieldCodecs.id.read),
   /**
    * Enum field with runtime validation: only the declared string values are stored; any other value
    * is dropped like other unreadable values. The stored type is the union of the declared literals -
@@ -118,7 +124,7 @@ export const f = {
    */
   enum: <TValue extends string>(values: readonly TValue[]): FieldSpec<unknown, TValue> => {
     const allowed = new Set<string>(values);
-    return valueField<TValue>('enum', value => (typeof value === 'string' && allowed.has(value) ? (value as TValue) : undefined));
+    return valueField<TValue>('enum', value => (allowed.has(value as string) ? (value as TValue) : undefined));
   },
   /**
    * Pass through any non-nullish raw value as the supplied TypeScript type.

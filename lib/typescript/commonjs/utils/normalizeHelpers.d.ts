@@ -11,37 +11,4 @@ export declare const isNonEmptyString: (value: unknown) => value is string;
 export declare const isNonNegativeSafeInteger: (value: unknown) => value is number;
 /** Narrow a value to a positive safe integer. */
 export declare const isPositiveSafeInteger: (value: unknown) => value is number;
-/**
- * Convert a value to string via `String(v)` while preserving explicit `null`/`undefined` as-is (they are
- * not stringified to `"null"`/`"undefined"`). Note this does not filter empty strings - `stringifyNullish('')` is `''`.
- *
- * @param v Value to stringify.
- * @returns `String(v)`, or `v` unchanged when it is `null`/`undefined`.
- */
-export declare const stringifyNullish: (v: unknown) => string | null | undefined;
-/** Read a string or return undefined for missing or malformed values. */
-export declare const readString: (value: unknown) => string | undefined;
-/** Read a string while preserving explicit null writes. */
-export declare const readNullableString: (value: unknown) => string | null | undefined;
-/** Read a number or return undefined for missing or malformed values. */
-export declare const readNumber: (value: unknown) => number | undefined;
-/** Read a finite number or non-empty numeric string; malformed, blank, and non-finite values return undefined. */
-export declare const readNumericLike: (value: unknown) => number | undefined;
-/** Read a number while preserving explicit null writes. */
-export declare const readNullableNumber: (value: unknown) => number | null | undefined;
-/** Read a boolean or return undefined for missing or malformed values. */
-export declare const readBoolean: (value: unknown) => boolean | undefined;
-/** Read an ISO date-time string from a string, `Date`, or epoch-milliseconds value; `undefined` for unparseable input. */
-export declare const readIsoDate: (value: unknown) => string | undefined;
-/** Read an id as a string; non-empty string/number pass through, anything else (empty string/boolean/object/array/null/undefined) returns undefined. */
-/**
- * Coerce a raw id value into the canonical stored string identity - the SAME coercion `f.id()`
- * applies inside `build`/`normalize`. Use it on ingest/subscription payload ids BEFORE comparing
- * them with stored rows or building scope values, so a numeric GraphQL id never misses a string
- * bucket. No trimming: stored identity is the untrimmed `String(value)`.
- *
- * @param value Raw id candidate (string or number; anything else is rejected).
- * @returns The string id, or `undefined` for non-id values and the empty string.
- */
-export declare const readId: (value: unknown) => string | undefined;
 //# sourceMappingURL=normalizeHelpers.d.ts.map

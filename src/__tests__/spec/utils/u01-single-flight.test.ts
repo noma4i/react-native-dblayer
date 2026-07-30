@@ -107,6 +107,20 @@ describe('createSingleFlight', () => {
 });
 
 describe('createThrottledSingleFlight', () => {
+  it('allows a new execution exactly at the success interval boundary', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    const fn = jest.fn(() => Promise.resolve('value'));
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 100 });
+    try {
+      await expect(throttled()).resolves.toBe('value');
+      nowSpy.mockReturnValue(1_100);
+      await expect(throttled()).resolves.toBe('value');
+      expect(fn).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('shares one in-flight execution and suppresses another call inside the success interval', async () => {
     const flight = deferred<string>();
     const fn = jest.fn(() => flight.promise);

@@ -28,8 +28,8 @@ notifications and always detach their listener.
 
 ## Scalar and id utility helpers
 
-`generateTempId` and `isTempId` own optimistic identity. `readId` normalizes supported id shapes.
-`stringifyNullish` provides deterministic nullish serialization. `pickDefined` and `pickPresent`
+`generateTempId` and `isTempId` own optimistic identity. Field codecs normalize supported scalar shapes.
+`pickDefined` and `pickPresent`
 build patches without accidental undefined or null values.
 
 ## Array and nested object patchers

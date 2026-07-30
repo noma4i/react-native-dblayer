@@ -1,5 +1,5 @@
 import { isRecord } from '../utils/normalizeHelpers';
-import type { FieldMode, FieldSpec, FieldSpecOptions, FieldValueReader, NullableMode, OptionalMode } from '../types';
+import type { FieldMode, FieldSpec, FieldSpecOptions, NullableMode, OptionalMode } from '../types';
 
 /** Select the raw source value for a field from an input object and key. */
 export const fieldSpecSparseRead = Symbol('fieldSpecSparseRead');
@@ -21,29 +21,26 @@ const nullableMode = <TMode extends FieldMode>(mode: TMode): NullableMode<TMode>
 
 const optionalMode = <TMode extends FieldMode>(mode: TMode): OptionalMode<TMode> => (mode === 'nullable' || mode === 'optionalNullable' ? 'optionalNullable' : 'optional') as OptionalMode<TMode>;
 
-/** Wrap a value reader so explicit null is preserved. */
-export const preserveNull = <TOut>(readValue: FieldValueReader<TOut>): FieldValueReader<TOut> => value => {
-  if (value === null) return null;
-  return readValue(value);
-};
-
 /** Create a chainable field spec from low-level reader functions. */
 export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefault extends boolean = false>(
   options: FieldSpecOptions<TInput, TOut, TMode>
 ): FieldSpec<TInput, TOut, TMode, THasDefault> => {
+  const acceptsNull = options.mode === 'nullable' || options.mode === 'optionalNullable';
   const spec = {
     kind: options.kind,
     mode: options.mode,
     hasDefault: options.defaultNull || Object.prototype.hasOwnProperty.call(options, 'factoryDefault'),
     derived: options.derived,
     readValue(value) {
-      const output = options.readValue(value);
+      if (value === null) return acceptsNull ? null : undefined;
+      const output = options.codec.read(value);
+      if (output === null) return acceptsNull ? null : undefined;
       if (output === undefined && options.defaultNull && value === undefined) return null;
       return output;
     },
     [fieldSpecSparseRead](input: TInput, key: string) {
       try {
-        return options.readValue(options.selectSource(input, key));
+        return spec.readValue(options.selectSource(input, key));
       } catch {
         return undefined;
       }
@@ -59,8 +56,7 @@ export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefau
     nullable() {
       return createFieldSpec<TInput, TOut, NullableMode<TMode>, THasDefault>({
         ...options,
-        mode: nullableMode(options.mode),
-        readValue: options.readNullableValue
+        mode: nullableMode(options.mode)
       });
     },
     optional() {
@@ -73,7 +69,6 @@ export const createFieldSpec = <TInput, TOut, TMode extends FieldMode, THasDefau
       return createFieldSpec<TInput, TOut, 'nullable', THasDefault>({
         ...options,
         mode: 'nullable',
-        readValue: options.readNullableValue,
         defaultNull: true
       });
     },

@@ -27,9 +27,9 @@ const configureManifestRuntime = (storage = createMemoryPlane(), dataVersion?: s
 describe('persistence schema manifest', () => {
   it('labels every field builder and preserves default metadata through modifiers', () => {
     const shape = defineShape()({ label: f.str() });
-    const fields = [f.str(), f.num(), f.date(), f.bool(), f.id(), f.enum(['draft'] as const), f.raw(), f.custom(value => value), f.object(shape), f.array(f.str())];
+    const fields = [f.str(), f.num(), f.int(), f.date(), f.bool(), f.id(), f.enum(['draft'] as const), f.raw(), f.custom(value => value), f.object(shape), f.array(f.str())];
 
-    expect(fields.map(field => field.kind)).toEqual(['str', 'num', 'date', 'bool', 'id', 'enum', 'raw', 'custom', 'object', 'array']);
+    expect(fields.map(field => field.kind)).toEqual(['str', 'num', 'int', 'date', 'bool', 'id', 'enum', 'raw', 'custom', 'object', 'array']);
     expect(f.str().hasDefault).toBe(false);
     expect(f.str().nullable().hasDefault).toBe(false);
     expect(f.str().nullDefault().hasDefault).toBe(true);

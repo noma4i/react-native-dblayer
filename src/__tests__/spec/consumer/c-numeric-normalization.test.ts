@@ -6,15 +6,6 @@ import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
   isRecord,
-  readBoolean,
-  readId,
-  readIsoDate,
-  readNullableNumber,
-  readNullableString,
-  readNumber,
-  readNumericLike,
-  readString,
-  stringifyNullish,
   toTimestamp
 } from '../../legacyTestApi';
 import { setupSpecRuntime } from '../helpers/harness';
@@ -33,6 +24,32 @@ describe('numeric field normalization', () => {
     expect(rows.normalize({ id: 'zero', value: -0, nullableValue: -0 })).toEqual({ id: 'zero', value: 0, nullableValue: 0 });
     expect(rows.normalize({ id: 'null', value: 1, nullableValue: null })).toEqual({ id: 'null', value: 1, nullableValue: null });
   });
+
+  it('converts numeric transport strings to stored numbers', () => {
+    setupSpecRuntime();
+    const rows = defineModel({
+      id: 'SpecNumericTransportNormalization',
+      name: 'SpecNumericTransportNormalization',
+      fields: { value: f.num() }
+    });
+
+    expect(rows.normalize({ id: 'decimal', value: '2.5' })).toEqual({ id: 'decimal', value: 2.5 });
+    expect(rows.normalize({ id: 'blank', value: '   ' })).toEqual({ id: 'blank' });
+  });
+
+  it('converts integer transport values and rejects fractional or unsafe values', () => {
+    setupSpecRuntime();
+    const rows = defineModel({
+      id: 'SpecIntegerTransportNormalization',
+      name: 'SpecIntegerTransportNormalization',
+      fields: { value: f.int() }
+    });
+
+    expect(rows.normalize({ id: 'string', value: '42' })).toEqual({ id: 'string', value: 42 });
+    expect(rows.normalize({ id: 'number', value: 42 })).toEqual({ id: 'number', value: 42 });
+    expect(rows.normalize({ id: 'fraction', value: '2.5' })).toEqual({ id: 'fraction' });
+    expect(rows.normalize({ id: 'unsafe', value: String(Number.MAX_SAFE_INTEGER + 1) })).toEqual({ id: 'unsafe' });
+  });
 });
 
 describe('normalization helpers', () => {
@@ -42,6 +59,7 @@ describe('normalization helpers', () => {
     expect(toTimestamp(123)).toBe(123);
     expect(toTimestamp('2026-01-02T03:04:05.000Z')).toBe(date.getTime());
     expect(toTimestamp(undefined)).toBeNaN();
+    expect(toTimestamp(null as never)).toBeNaN();
   });
 
   it('classifies records, strings, and safe integers at their boundaries', () => {
@@ -53,49 +71,10 @@ describe('normalization helpers', () => {
     expect(isNonEmptyString('')).toBe(false);
     expect(isNonNegativeSafeInteger(0)).toBe(true);
     expect(isNonNegativeSafeInteger(-1)).toBe(false);
+    expect(isNonNegativeSafeInteger(Number.MAX_SAFE_INTEGER + 1)).toBe(false);
     expect(isPositiveSafeInteger(1)).toBe(true);
     expect(isPositiveSafeInteger(0)).toBe(false);
+    expect(isPositiveSafeInteger(Number.MAX_SAFE_INTEGER + 1)).toBe(false);
   });
 
-  it('reads scalar values without coercing malformed inputs', () => {
-    expect(stringifyNullish(5)).toBe('5');
-    expect(stringifyNullish(null)).toBeNull();
-    expect(stringifyNullish(undefined)).toBeUndefined();
-    expect(readString('value')).toBe('value');
-    expect(readString(1)).toBeUndefined();
-    expect(readNullableString(null)).toBeNull();
-    expect(readNullableString(false)).toBeUndefined();
-    expect(readNumber(-0)).toBe(0);
-    expect(readNumber(Number.POSITIVE_INFINITY)).toBeUndefined();
-    expect(readNullableNumber(null)).toBeNull();
-    expect(readNullableNumber('1')).toBeUndefined();
-    expect(readBoolean(false)).toBe(false);
-    expect(readBoolean(0)).toBeUndefined();
-  });
-
-  it('reads finite numbers and numeric strings while rejecting blank and malformed values', () => {
-    expect(readNumericLike(2)).toBe(2);
-    expect(readNumericLike(Number.NaN)).toBeUndefined();
-    expect(readNumericLike(' 2.5 ')).toBe(2.5);
-    expect(readNumericLike('')).toBeUndefined();
-    expect(readNumericLike('   ')).toBeUndefined();
-    expect(readNumericLike('nope')).toBeUndefined();
-    expect(readNumericLike(null)).toBeUndefined();
-  });
-
-  it('reads ISO dates and ids across every accepted input kind', () => {
-    const iso = '2026-01-02T03:04:05.000Z';
-    const date = new Date(iso);
-    expect(readIsoDate(iso)).toBe(iso);
-    expect(readIsoDate('invalid')).toBeUndefined();
-    expect(readIsoDate(date)).toBe(iso);
-    expect(readIsoDate(new Date(Number.NaN))).toBeUndefined();
-    expect(readIsoDate(date.getTime())).toBe(iso);
-    expect(readIsoDate(Number.POSITIVE_INFINITY)).toBeUndefined();
-    expect(readIsoDate(null)).toBeUndefined();
-    expect(readId('id')).toBe('id');
-    expect(readId(7)).toBe('7');
-    expect(readId('')).toBeUndefined();
-    expect(readId(false)).toBeUndefined();
-  });
 });

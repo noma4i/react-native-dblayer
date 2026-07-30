@@ -15,7 +15,18 @@ describe('createKeyedArrayPatcher', () => {
 
   it('normalizes, replaces same-key entries and appends on upsert', () => {
     setupSpecRuntime();
-    expect(patcher.upsert([{ emoji: 'a', count: 1 }], { emoji: 'a', count: 2, extra: 'dropped' })).toEqual([{ emoji: 'a', count: 2 }]);
+    expect(
+      patcher.upsert(
+        [
+          { emoji: 'a', count: 1 },
+          { emoji: 'b', count: 3 }
+        ],
+        { emoji: 'a', count: 2, extra: 'dropped' }
+      )
+    ).toEqual([
+      { emoji: 'b', count: 3 },
+      { emoji: 'a', count: 2 }
+    ]);
     expect(patcher.upsert(null, { emoji: 'b', count: 1 })).toEqual([{ emoji: 'b', count: 1 }]);
   });
 
@@ -45,6 +56,7 @@ describe('createIdArrayPatcher', () => {
   it('dedupes and inserts at the requested edge on upsert', () => {
     setupSpecRuntime();
     expect(patcher.upsert(['a', 'b'], 'b', 'prepend')).toEqual(['b', 'a']);
+    expect(patcher.upsert(['a'], 'b', 'append')).toEqual(['a', 'b']);
     expect(patcher.upsert(null, 'x', 'append')).toEqual(['x']);
   });
 

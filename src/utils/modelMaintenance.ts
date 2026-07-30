@@ -3,7 +3,7 @@ import { toTimestamp } from './normalizeHelpers';
 import type { CreatedAtRow, DestroyManyModel, ResolveStaleTempRowsOptions, RowId, RowProtect } from '../types';
 import { withIdTieBreak } from '../core/ordering';
 
-const normalizeIdSet = (ids: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
+const normalizeIdSet = (ids?: ReadonlySet<string> | readonly string[]): ReadonlySet<string> => (ids instanceof Set ? ids : new Set(ids));
 
 const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel<TStored>, ids: string[]): number => {
   if (ids.length === 0) return 0;
@@ -12,7 +12,6 @@ const deleteManyForMaintenance = <TStored extends RowId>(model: DestroyManyModel
 };
 
 const toProtectPredicate = <TStored extends RowId>(protect?: RowProtect<TStored>): ((row: TStored) => boolean) => {
-  if (!protect) return () => false;
   if (typeof protect === 'function') return protect;
 
   const ids = normalizeIdSet(protect);

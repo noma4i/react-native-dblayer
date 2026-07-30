@@ -21,6 +21,27 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
 
   afterEach(removeAllDbKeys);
 
+  it('creates one MMKV wrapper and reuses it across adapter operations', async () => {
+    const storage = {
+      getString: jest.fn(() => undefined),
+      set: jest.fn(),
+      remove: jest.fn(),
+      getAllKeys: jest.fn(() => [])
+    };
+    const createMMKV = jest.fn(() => storage);
+    jest.doMock('react-native-mmkv', () => ({ createMMKV }));
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const isolated = await import('../../../utils/mmkvStorage');
+        expect(isolated.mmkvStorageAdapter.getItem('missing')).toBeNull();
+        expect(isolated.getDbStorageKeys()).toEqual([]);
+      });
+      expect(createMMKV).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.dontMock('react-native-mmkv');
+    }
+  });
+
   it('round-trips through the real mmkv-backed adapter (getItem/setItem/removeItem)', () => {
     expect(mmkvStorageAdapter.getItem('missing-key')).toBeNull();
 

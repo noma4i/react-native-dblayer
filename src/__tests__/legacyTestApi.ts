@@ -8,13 +8,6 @@ export {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
   isRecord,
-  readBoolean,
-  readIsoDate,
-  readNullableNumber,
-  readNullableString,
-  readNumber,
-  readNumericLike,
-  readString,
   toTimestamp
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
@@ -44,6 +37,8 @@ export { isFetchedResult } from '../queries/base/loadingState';
 export { registerActiveFetchReaders, refetchActiveFetchReaders, resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 export { computePhase } from '../queries/base/loadingState';
 export { readObjectField } from '../schema/fieldSpec';
+export { scalarFieldCodecs } from '../schema/fieldCodec';
+export { arraysShallowEqual } from '../utils/arrayEquality';
 export { compositeKey, firstCompositeKeyPart } from '../core/serialize';
 export { compositeStorageKey } from '../core/serialize';
 export { encodePersistence } from '../core/persistenceCodec';

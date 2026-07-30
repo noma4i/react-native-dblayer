@@ -84,6 +84,10 @@ export interface EmptyDefaultFieldSpec<TInput, TOut, TMode extends FieldMode = '
 }
 /** Read a selected raw value into a stored field value. */
 export type FieldValueReader<TOut> = (value: unknown) => TOut | null | undefined;
+/** Typed conversion boundary shared by every use of one field kind. */
+export type FieldCodec<TOut> = {
+    read: FieldValueReader<TOut>;
+};
 /** Field source selector: picks the raw input value for one declared field key. */
 export type FieldSourceSelector<TInput> = (input: TInput, key: string) => unknown;
 /** Internal construction options behind every `f.*` field spec. */
@@ -91,8 +95,7 @@ export type FieldSpecOptions<TInput, TOut, TMode extends FieldMode> = {
     kind: string;
     mode: TMode;
     selectSource: FieldSourceSelector<TInput>;
-    readValue: FieldValueReader<TOut>;
-    readNullableValue: FieldValueReader<TOut>;
+    codec: FieldCodec<TOut>;
     derived?: boolean;
     defaultNull: boolean;
     factoryDefault?: FieldDefault<TOut>;

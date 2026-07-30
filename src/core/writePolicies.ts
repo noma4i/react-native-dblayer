@@ -1,7 +1,8 @@
 import { isIncomingNewer } from './invariants';
 import { noteDataLoss } from './diagnostics';
 import { compareCodepoints } from './serialize';
-import { isNonArrayRecord, readIsoDate, readNumericLike } from '../utils/normalizeHelpers';
+import { scalarFieldCodecs } from '../schema/fieldCodec';
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import type { GuardedOrigin, MonotonicSpec, NestedKeyPolicy, WriteCtx, WriteGroup, WritePolicy, WriteOrigin } from '../types';
 
 const isPresent = (value: unknown): boolean => {
@@ -24,8 +25,8 @@ const readPath = (row: Record<string, unknown>, path: string): unknown => {
 const compareTupleValue = (incoming: unknown, current: unknown): number => {
   if (incoming == null) return current == null ? 0 : -1;
   if (current == null) return 1;
-  const incomingNumber = readNumericLike(incoming);
-  const currentNumber = readNumericLike(current);
+  const incomingNumber = scalarFieldCodecs.num.read(incoming);
+  const currentNumber = scalarFieldCodecs.num.read(current);
   if (incomingNumber !== undefined && currentNumber !== undefined) return incomingNumber - currentNumber;
   return compareCodepoints(String(incoming), String(current));
 };
@@ -39,7 +40,7 @@ const isIncomingTupleNewer = (paths: readonly string[], incoming: Record<string,
 };
 
 const isIncomingNewerBy = (path: string, incoming: Record<string, unknown>, previous: Record<string, unknown>): boolean =>
-  isIncomingNewer(readIsoDate(readPath(previous, path)), readIsoDate(readPath(incoming, path)));
+  isIncomingNewer(scalarFieldCodecs.date.read(readPath(previous, path)), scalarFieldCodecs.date.read(readPath(incoming, path)));
 
 const ladderRank = (value: unknown, tiers: readonly (readonly string[])[]): number => tiers.findIndex(tier => tier.includes(String(value)));
 
@@ -71,8 +72,8 @@ const applyNestedKeyPolicy = (current: unknown, incoming: unknown, policy: Neste
   if (policy === 'server') return incoming;
   if (policy === 'continuity') return incoming == null ? current : incoming;
   if (policy === 'nonEmpty') return isPresent(incoming) ? incoming : current;
-  const currentNumber = readNumericLike(current);
-  const incomingNumber = readNumericLike(incoming);
+  const currentNumber = scalarFieldCodecs.num.read(current);
+  const incomingNumber = scalarFieldCodecs.num.read(incoming);
   return incomingNumber === undefined || incomingNumber <= 0 ? (currentNumber !== undefined && currentNumber > 0 ? current : incoming) : incoming;
 };
 
@@ -128,7 +129,7 @@ const applyPolicy = (
  * Monotonic policies run only for `snapshot` and `event` unless `on` narrows those origins; replace
  * remains authoritative. `server` uses incoming values, `continuity` retains nullish values,
  * `snapshot` shallow-folds objects, and nested-key policies protect declared object keys. `newerBy`
- * normalizes values through `readIsoDate` before `isIncomingNewer`.
+ * normalizes values through the date field codec before `isIncomingNewer`.
  */
 export const compileWritePolicies =
   <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[], modelId: string) =>

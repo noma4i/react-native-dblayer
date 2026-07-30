@@ -1,8 +1,18 @@
-import { generateTempId, isTempId, pickDefined, pickPresent, stringifyNullish } from '../../legacyTestApi';
+import { generateTempId, isTempId, pickDefined, pickPresent } from '../../legacyTestApi';
 
 // Named behavioral contracts for pure utility exports that previously had no direct tests.
 
 describe('generateTempId / isTempId', () => {
+  it('starts a new timestamp at counter zero and increments only repeated timestamps', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(8_000_000_000_000);
+    try {
+      expect(generateTempId('counter')).toBe('temp-counter-8000000000000-0');
+      expect(generateTempId('counter')).toBe('temp-counter-8000000000000-1');
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('never re-issues an id when the wall clock rolls backwards', () => {
     const nowSpy = jest.spyOn(Date, 'now');
     try {
@@ -37,20 +47,6 @@ describe('generateTempId / isTempId', () => {
     expect(isTempId('srv-1')).toBe(false);
     expect(isTempId(null)).toBe(false);
     expect(isTempId(undefined)).toBe(false);
-  });
-});
-
-describe('stringifyNullish', () => {
-  it('stringifies non-nullish values via String()', () => {
-    expect(stringifyNullish(5)).toBe('5');
-    expect(stringifyNullish('x')).toBe('x');
-    expect(stringifyNullish(false)).toBe('false');
-    expect(stringifyNullish('')).toBe('');
-  });
-
-  it('preserves null and undefined as-is', () => {
-    expect(stringifyNullish(null)).toBeNull();
-    expect(stringifyNullish(undefined)).toBeUndefined();
   });
 });
 

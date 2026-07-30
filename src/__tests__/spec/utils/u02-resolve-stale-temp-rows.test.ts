@@ -3,6 +3,18 @@ import { resolveStaleTempRows, trimRowsPerScope } from '../../../utils/modelMain
 type Row = { id: string; createdAt: string };
 
 describe('resolveStaleTempRows NaN safety', () => {
+  it('keeps a temp row whose age equals the configured threshold', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+    const onStale = jest.fn();
+    try {
+      const row: Row = { id: 'temp-boundary', createdAt: new Date(9_000).toISOString() };
+      expect(resolveStaleTempRows({ all: () => [row] }, { maxAgeMs: 1_000, onStale })).toBe(0);
+      expect(onStale).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('treats an unparseable createdAt as maximally stale instead of protecting the row indefinitely', () => {
     const onStale = jest.fn();
     const badRow: Row = { id: 'temp-bad', createdAt: 'not-a-date' };
@@ -29,6 +41,22 @@ describe('resolveStaleTempRows NaN safety', () => {
 });
 
 describe('model maintenance edges', () => {
+  it('keeps a scope whose row count equals the limit', () => {
+    const destroyMany = jest.fn();
+    const compare = jest.fn((left: { rank: number }, right: { rank: number }) => right.rank - left.rank);
+    const model = {
+      all: () => [
+        { id: 'a-1', scope: 'a', rank: 1 },
+        { id: 'a-2', scope: 'a', rank: 2 }
+      ],
+      destroyMany
+    };
+
+    expect(trimRowsPerScope(model, 'scope', 2, compare)).toBe(0);
+    expect(destroyMany).not.toHaveBeenCalled();
+    expect(compare).not.toHaveBeenCalled();
+  });
+
   it('trims grouped rows while excluding protected and null-scope rows', () => {
     const destroyed: string[][] = [];
     const rows = [

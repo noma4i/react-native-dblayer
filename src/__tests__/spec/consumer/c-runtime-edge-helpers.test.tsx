@@ -1,6 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import {
+  arraysShallowEqual,
   configureDb,
   compositeKey,
   computePhase,
@@ -31,6 +32,13 @@ import {
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('runtime edge helpers', () => {
+  it('short-circuits shallow array comparison when both references are identical', () => {
+    const rows = [{ id: 'same' }];
+    const equals = jest.fn(() => true);
+    expect(arraysShallowEqual(rows, rows, equals)).toBe(true);
+    expect(equals).not.toHaveBeenCalled();
+  });
+
   it('ignores loss notifications before runtime configuration', () => {
     expect(() => getDbRuntimeConfig()).toThrow('configureDb must be called');
     expect(() => suspendDb()).not.toThrow();

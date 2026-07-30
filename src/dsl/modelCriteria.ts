@@ -1,6 +1,6 @@
 import { isWhereOperatorValue, matchesDbWhere } from '../core/compileDbWhere';
 import type { DbWhere, ModelCriteria, ModelFieldSpecs } from '../types';
-import { stringifyNullish } from '../utils/normalizeHelpers';
+import { scalarFieldCodecs } from '../schema/fieldCodec';
 
 export const createModelCriteria = <TRow extends Record<string, unknown>>(fields: ModelFieldSpecs): ModelCriteria<TRow> => {
   const cache = new WeakMap<object, DbWhere<TRow>>();
@@ -15,7 +15,7 @@ export const createModelCriteria = <TRow extends Record<string, unknown>>(fields
       const fieldSpec = fields[key];
       const operand = (raw: unknown): unknown => {
         if (raw === undefined || raw === null) return raw;
-        if (key === 'id') return stringifyNullish(raw);
+        if (key === 'id') return scalarFieldCodecs.id.read(raw);
         const normalized = fieldSpec ? fieldSpec.readValue(raw) : undefined;
         return normalized === undefined || normalized === null ? raw : normalized;
       };

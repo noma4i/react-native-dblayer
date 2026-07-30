@@ -204,4 +204,13 @@ describe('spec import discipline', () => {
       expect(source).not.toMatch(/\bmedian\b/);
     }
   });
+
+  it('keeps nullable scalar conversion inside the shared field codec', () => {
+    const sourceRoot = path.resolve(specRoot, '../..');
+    const violations = sourceFiles(sourceRoot)
+      .filter(file => !file.includes(`${path.sep}__tests__${path.sep}`))
+      .flatMap(file => (/\breadNullable[A-Z]/.test(fs.readFileSync(file, 'utf8')) ? [path.relative(sourceRoot, file)] : []));
+
+    expect(violations).toEqual([]);
+  });
 });

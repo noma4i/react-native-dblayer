@@ -14,13 +14,21 @@ export declare const f: {
      */
     str: () => FieldSpec<unknown, string>;
     /**
-     * Read finite number values, canonicalize negative zero to zero, and skip every other input.
+     * Convert finite numbers and non-blank numeric strings to stored numbers and canonicalize negative zero to zero.
      *
      * `null` is skipped until `.nullable()` or `.nullDefault()` is applied.
      *
      * @returns A field spec that stores `number`.
      */
     num: () => FieldSpec<unknown, number>;
+    /**
+     * Convert safe integer numbers and integer strings to stored numbers.
+     *
+     * Fractional, blank, non-finite, and unsafe values are skipped.
+     *
+     * @returns A field spec that stores a safe integer.
+     */
+    int: () => FieldSpec<unknown, number>;
     /**
      * ISO-8601 date-time string field. Strings are kept as-is when parseable; `Date` instances and
      * epoch-milliseconds numbers are stored as `toISOString()`; unparseable values are dropped.
@@ -29,7 +37,7 @@ export declare const f: {
      */
     date: () => FieldSpec<unknown, string>;
     /**
-     * Read boolean values and skip every other input type.
+     * Convert boolean values and the strings `"true"`/`"false"` to stored booleans.
      *
      * `null` is skipped until `.nullable()` is applied.
      *
