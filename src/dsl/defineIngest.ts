@@ -51,9 +51,9 @@ export const defineModelIngest = (
       if (entry.guard === 'existing' && !model.find(idOf(payload))) return;
       if (typeof entry.guard === 'function' && !entry.guard(payload)) return;
       const runEffect = (): void => {
-        if (!entry.effect) return;
-        const effect = getDbSubscriptionEffect(entry.effect.name);
-        if (!effect) throw new Error(`Unknown subscription effect ${entry.effect.name}`);
+        const effectName = entry.effect!.name;
+        const effect = getDbSubscriptionEffect(effectName);
+        if (!effect) throw new Error(`Unknown subscription effect ${effectName}`);
         effect(payload);
       };
       if (entry.effect?.when === 'before') runEffect();

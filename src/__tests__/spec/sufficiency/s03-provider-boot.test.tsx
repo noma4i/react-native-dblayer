@@ -125,6 +125,34 @@ describe('provider-owned query runtime', () => {
     boot.mockRestore();
   });
 
+  it('restarts a stale successful boot after reset', async () => {
+    setupSpecRuntime();
+    let resolveFirstBoot!: () => void;
+    const firstBoot = new Promise<Awaited<ReturnType<typeof lifecycle.bootDb>>>(resolve => {
+      resolveFirstBoot = () => resolve({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+    });
+    const boot = jest
+      .spyOn(lifecycle, 'bootDb')
+      .mockReturnValueOnce(firstBoot)
+      .mockResolvedValueOnce({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
+    });
+    act(() => dbl.resetRuntime());
+    await act(async () => {
+      resolveFirstBoot();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(boot).toHaveBeenCalledTimes(2);
+    expect(root.toJSON()).toMatchObject({ type: 'screen' });
+    act(() => root.unmount());
+    boot.mockRestore();
+  });
+
   it('throws the boot rejection in render instead of gating children forever', async () => {
     setupSpecRuntime();
     registerBootValidation('s03-probe', () => {
@@ -161,7 +189,7 @@ describe('provider-owned query runtime', () => {
     registerBootValidation('s03-probe', () => {});
   });
 
-  it('flushes pending persistence on background and stays available on active', async () => {
+  it('flushes pending persistence on background and drains readers after background or inactive', async () => {
     const { storage } = setupSpecRuntime();
     const users = dbl.defineModel({ id: 'SpecProviderBackground', name: 'SpecProviderBackground', fields: { name: dbl.f.str() }, gc: 'exempt' });
     let root!: TestRenderer.ReactTestRenderer;
@@ -169,14 +197,44 @@ describe('provider-owned query runtime', () => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
     });
     await settle(2);
+    const refetch = jest.fn(async () => undefined);
+    const releaseReader = dbl.registerActiveFetchReaders({
+      queryKey: ['provider-app-state'],
+      markResumeStale: () => true,
+      refetch
+    });
     act(() => users.insert({ id: 'user', name: 'Pending' }));
     expect(storage.snapshotKeys().some(key => key.startsWith(compositeStorageKey('dbl:', 'row', 'SpecProviderBackground')))).toBe(false);
 
     act(() => appStateHandler?.('background'));
     expect(storage.snapshotKeys().some(key => key.startsWith(compositeStorageKey('dbl:', 'row', 'SpecProviderBackground')))).toBe(true);
     act(() => appStateHandler?.('active'));
+    await settle(2);
     expect(root.toJSON()).toMatchObject({ type: 'screen' });
+    act(() => appStateHandler?.('inactive'));
+    act(() => appStateHandler?.('active'));
+    await settle(2);
+    expect(refetch).toHaveBeenCalledTimes(2);
+    expect(root.toJSON()).toMatchObject({ type: 'screen' });
+    releaseReader();
     act(() => root.unmount());
+  });
+
+  it('rejects boot when the runtime generation changes during synchronous replay', async () => {
+    const storage = createMemoryPlane();
+    const keys = storage.keys;
+    let advanced = false;
+    storage.keys = prefix => {
+      const result = keys(prefix);
+      if (!advanced && prefix.includes('row')) {
+        advanced = true;
+        dbl.advanceRuntimeGeneration();
+      }
+      return result;
+    };
+    dbl.configureDb({ storage, transport: createMockTransport() } as never);
+
+    await expect(lifecycle.bootDb()).rejects.toThrow('runtime generation changed during boot');
   });
 
   it('clears query state so a remount hydrates only the fresh generation', async () => {

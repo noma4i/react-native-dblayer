@@ -136,18 +136,20 @@ describe('use.related', () => {
     const sources = defineModel({
       id: 'SpecRelEdgeSources',
       name: 'SpecRelEdgeSources',
-      fields: { parentId: f.str(), targetId: f.str() },
+      fields: { parentId: f.str(), targetId: f.str(), secondTargetId: f.str() },
       relations: () => ({
         parent: belongsTo(targets, { foreignKey: 'parentId' }),
         firstChild: hasOne(children, { foreignKey: 'parentId' }),
-        target: references(targets, { ids: (source: { targetId: string }) => source.targetId })
+        target: references(targets, { ids: (source: { targetId: string }) => source.targetId }),
+        targets: references(targets, { ids: (source: { targetId: string; secondTargetId: string }) => [source.targetId, source.secondTargetId, null] })
       })
     });
     targets.insert({ id: 'target-1', name: 'one' });
+    targets.insert({ id: 'target-2', name: 'two' });
     sources.insertMany([
-      { id: 'source-empty', parentId: '', targetId: '' },
-      { id: 'source-target', parentId: 'missing-parent', targetId: 'target-1' },
-      { id: 'source-missing-target', parentId: 'missing-parent', targetId: 'missing-target' }
+      { id: 'source-empty', parentId: '', targetId: '', secondTargetId: '' },
+      { id: 'source-target', parentId: 'missing-parent', targetId: 'target-1', secondTargetId: 'target-2' },
+      { id: 'source-missing-target', parentId: 'missing-parent', targetId: 'missing-target', secondTargetId: '' }
     ]);
     children.insert({ id: 'child-1', parentId: 'source-target', rank: 1 });
 
@@ -157,6 +159,7 @@ describe('use.related', () => {
     const nullChild = renderCounted(() => sources.use.related(null, 'firstChild'));
     const firstChild = renderCounted(() => sources.use.related('source-target', 'firstChild') as PostRow | undefined);
     const scalarRef = renderCounted(() => sources.use.related('source-target', 'target') as AuthorRow[]);
+    const arrayRef = renderCounted(() => sources.use.related('source-target', 'targets') as AuthorRow[]);
     const missingRef = renderCounted(() => sources.use.related('source-missing-target', 'target') as AuthorRow[]);
     const missingSource = renderCounted(() => sources.use.related('missing-source', 'target') as AuthorRow[]);
     const nullRef = renderCounted(() => sources.use.related(null, 'target') as AuthorRow[]);
@@ -167,9 +170,10 @@ describe('use.related', () => {
     expect(nullChild.result()).toBeUndefined();
     expect(firstChild.result()?.id).toBe('child-1');
     expect(scalarRef.result().map(row => row.id)).toEqual(['target-1']);
+    expect(arrayRef.result().map(row => row.id)).toEqual(['target-1', 'target-2']);
     expect(missingRef.result()).toEqual([]);
     expect(missingSource.result()).toEqual([]);
     expect(nullRef.result()).toEqual([]);
-    for (const reader of [nullField, absentParent, emptyChild, nullChild, firstChild, scalarRef, missingRef, missingSource, nullRef]) reader.unmount();
+    for (const reader of [nullField, absentParent, emptyChild, nullChild, firstChild, scalarRef, arrayRef, missingRef, missingSource, nullRef]) reader.unmount();
   });
 });

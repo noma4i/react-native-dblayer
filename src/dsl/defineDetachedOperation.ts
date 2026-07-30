@@ -111,9 +111,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
     retry: async operationId => {
       const current = getOperationState().get(operationId);
       if (!current || current.kind !== kind || current.status !== 'failed' || current.failedInput === undefined) return null;
-      const record = getOperationState().reopen(operationId);
-      if (!record) return null;
-      return resumeRecord(record);
+      return resumeRecord(getOperationState().reopen(operationId)!);
     },
     discard: operationId => {
       const operation = getOperationState().get(operationId);
@@ -137,7 +135,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
 };
 
 /** Invoke every hydrated detached declaration once before startup GC and pending-TTL maintenance. */
-export const reconcileDetachedOperationsAtBoot = async (generation = getRuntimeGeneration()): Promise<void> => {
+export const reconcileDetachedOperationsAtBoot = async (generation: number): Promise<void> => {
   const generationFence = createGenerationFence({ generation });
   if (!generationFence.isCurrent()) return;
   const pending = getOperationState().hydratedPending().filter(record => record.kind !== undefined);
@@ -145,7 +143,6 @@ export const reconcileDetachedOperationsAtBoot = async (generation = getRuntimeG
     if (!declarations.has(record.kind!)) throw new Error(`No detached operation declaration registered for ${record.kind}`);
   }
   for (const record of getOperationState().takeHydratedPending(record => record.kind !== undefined)) {
-    if (!generationFence.isCurrent()) return;
     await declarations.get(record.kind!)!.resume(record, generation);
     if (!generationFence.isCurrent()) return;
   }

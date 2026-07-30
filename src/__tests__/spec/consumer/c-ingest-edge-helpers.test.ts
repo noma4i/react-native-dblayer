@@ -1,4 +1,5 @@
 import {
+  belongsTo,
   configureDb,
   createDbSubscriptionEffects,
   defineIngest,
@@ -6,6 +7,7 @@ import {
   defineModelIngest,
   f,
   getOperationState,
+  registerMutationCorrelator,
   type ModelIngestTools
 } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
@@ -67,6 +69,7 @@ describe('model ingest edge helpers', () => {
         }
       },
       destroy: { document, apply: 'destroy' },
+      destroyMany: { document, handler: (payload: unknown) => ({ destroy: payload as string[] }) },
       upsert: { document },
       handler: { document, handler: (payload: unknown) => ({ upsert: payload }) }
     } as never);
@@ -84,6 +87,11 @@ describe('model ingest edge helpers', () => {
     compiled.apply('custom', {});
     compiled.apply('destroy', null);
     compiled.apply('destroy', 'destroy-id');
+    rows.insertMany([
+      { id: 'destroy-many-1', label: 'destroy many one' },
+      { id: 'destroy-many-2', label: 'destroy many two' }
+    ]);
+    compiled.apply('destroyMany', ['destroy-many-1', 'destroy-many-2']);
     compiled.apply('upsert', { id: 'upsert-id', label: 'upsert' });
     compiled.apply('handler', { id: 'handler-id', label: 'handler' });
     compiled.apply('missing-key', {});
@@ -101,9 +109,49 @@ describe('model ingest edge helpers', () => {
     ]);
     expect(invalidate).toHaveBeenCalled();
     expect(rows.find('destroy-id')).toBeUndefined();
+    expect(rows.find('destroy-many-1')).toBeUndefined();
+    expect(rows.find('destroy-many-2')).toBeUndefined();
     expect(rows.find('upsert-id')).toMatchObject({ label: 'upsert' });
     expect(rows.find('handler-id')).toMatchObject({ label: 'handler' });
-    expect(compiled.entries).toHaveLength(14);
+    expect(compiled.entries).toHaveLength(15);
+
+    const parents = defineModel({
+      id: 'BaseIngestEdgeParents',
+      name: 'BaseIngestEdgeParents',
+      fields: { childCount: f.num() }
+    });
+    const children = defineModel({
+      id: 'BaseIngestEdgeChildren',
+      name: 'BaseIngestEdgeChildren',
+      fields: { parentId: f.str() },
+      relations: () => ({
+        parent: belongsTo(parents, { foreignKey: 'parentId', counterCache: { field: 'childCount' } })
+      })
+    });
+    parents.insert({ id: 'parent-1', childCount: 0 });
+    const extracting = defineIngest(rows, {
+      relation: () => ({ extract: [{ into: children, rows: [{ id: 'child-1', parentId: 'parent-1' }] }] })
+    });
+    extracting.apply('relation', {});
+    expect(children.find('child-1')).toMatchObject({ parentId: 'parent-1' });
+    expect(parents.find('parent-1')).toMatchObject({ childCount: 1 });
+
+    registerMutationCorrelator(children.modelId, 'extract-child', { fields: ['parentId'] });
+    children.insert({ id: 'temp-extract-child', parentId: 'parent-1' });
+    getOperationState().begin({
+      operationId: 'extract-child-operation',
+      model: children.modelId,
+      tempIds: ['temp-extract-child'],
+      rowIds: ['temp-extract-child'],
+      intent: 'insert',
+      createdAt: 1
+    });
+    const correlatedExtract = defineIngest(rows, {
+      relation: () => ({ extract: [{ into: children, rows: [{ id: 'server-extract-child', parentId: 'parent-1' }] }] })
+    });
+    correlatedExtract.apply('relation', {});
+    expect(children.find('temp-extract-child')).toBeUndefined();
+    expect(children.find('server-extract-child')).toMatchObject({ parentId: 'parent-1' });
   });
 
   it('returns null for absent declarations and reports handler failures', () => {

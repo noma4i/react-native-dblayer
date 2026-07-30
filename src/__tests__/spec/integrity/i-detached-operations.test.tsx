@@ -1,7 +1,7 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { configureDb, defineModel, f, reconcileDetachedOperationsAtBoot, resetRuntime } from '../../legacyTestApi';
 import { collectGarbage } from '../../../core/gc';
-import { flushPersistence, getOperationState, replayJournal } from '../../../dsl/configure';
+import { flushPersistence, getOperationState, getRuntimeGeneration, replayJournal } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
@@ -31,6 +31,188 @@ const declare = (model: ReturnType<typeof defineRows>, kind: string, resume: (en
 const writeManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
 
 describe('detached operations', () => {
+  it('rejects missing maintenance and keeps terminal controls idempotent across invalid records', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const unmaintained = defineModel({
+      id: 'DetachedMissingMaintenance',
+      name: 'DetachedMissingMaintenance',
+      fields: { label: f.str() }
+    });
+    expect(() =>
+      unmaintained.detached<{ label: string }>('missing-maintenance', {
+        build: input => ({ label: input.label }),
+        resume: async () => 'continue',
+        failure: 'rollback'
+      })
+    ).toThrow('must declare maintenance.dropTempRowsAfterMs');
+
+    const rows = defineRows('DetachedControlGuards');
+    const handle = declare(rows, 'control-guards', async () => 'continue');
+    expect(() => handle.fail('missing', new Error('ignored'))).not.toThrow();
+    expect(() => handle.discard('missing')).not.toThrow();
+    await expect(handle.retry('missing')).resolves.toBeNull();
+
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    await expect(handle.retry(entry.operationId)).resolves.toBeNull();
+    handle.fail(entry.operationId, new Error('offline'));
+    expect(() => handle.fail(entry.operationId, new Error('repeated'))).not.toThrow();
+    expect(() =>
+      handle.complete(entry.operationId, { id: 'server-1', bucket: 'a', label: 'ignored', state: 'complete', createdAt: new Date().toISOString() })
+    ).not.toThrow();
+
+    getOperationState().begin({
+      operationId: 'wrong-kind',
+      kind: 'other-kind',
+      model: rows.modelId,
+      tempIds: [],
+      intent: 'insert',
+      failedInput: { bucket: 'a', label: 'wrong' },
+      createdAt: 1
+    });
+    expect(() => handle.fail('wrong-kind', new Error('ignored'))).not.toThrow();
+    expect(() => handle.discard('wrong-kind')).not.toThrow();
+    await expect(handle.retry('wrong-kind')).resolves.toBeNull();
+
+    getOperationState().begin({
+      operationId: 'discard-without-temp',
+      kind: 'control-guards',
+      model: rows.modelId,
+      tempIds: [],
+      intent: 'insert',
+      failedInput: { bucket: 'a', label: 'discard' },
+      createdAt: 2
+    });
+    handle.discard('discard-without-temp');
+    expect(getOperationState().get('discard-without-temp')).toBeUndefined();
+  });
+
+  it('fails hydrated detached records that lack a temp id or serializable input', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    const rows = defineRows('DetachedHydratedShapeGuards');
+    declare(rows, 'hydrated-shape', async () => 'continue');
+    getOperationState().begin({
+      operationId: 'missing-input',
+      kind: 'hydrated-shape',
+      model: rows.modelId,
+      tempIds: ['tmp:missing-input'],
+      intent: 'insert',
+      createdAt: 1
+    });
+    getOperationState().begin({
+      operationId: 'missing-temp',
+      kind: 'hydrated-shape',
+      model: rows.modelId,
+      tempIds: [],
+      intent: 'insert',
+      failedInput: { bucket: 'a', label: 'missing temp' },
+      createdAt: 2
+    });
+    writeManifest();
+    flushPersistence();
+
+    configureDb({ storage, transport: createMockTransport() });
+    const restarted = defineRows('DetachedHydratedShapeGuards');
+    declare(restarted, 'hydrated-shape', async () => 'continue');
+    writeManifest();
+    await bootDb();
+
+    expect(getOperationState().get('missing-input')).toMatchObject({ status: 'failed' });
+    expect(getOperationState().get('missing-temp')).toMatchObject({ status: 'failed' });
+  });
+
+  it('rejects a hydrated operation whose declaration is absent', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    const rows = defineRows('DetachedMissingDeclaration');
+    getOperationState().begin({
+      operationId: 'missing-declaration',
+      kind: 'not-declared',
+      model: rows.modelId,
+      tempIds: [],
+      intent: 'insert',
+      failedInput: { bucket: 'a', label: 'missing declaration' },
+      createdAt: 1
+    });
+    writeManifest();
+    flushPersistence();
+
+    configureDb({ storage, transport: createMockTransport() });
+    defineRows('DetachedMissingDeclaration');
+    writeManifest();
+
+    await expect(bootDb()).rejects.toThrow('No detached operation declaration registered for not-declared');
+  });
+
+  it('ignores stale boot reconciliation and stale rejected resume work', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const staleGeneration = getRuntimeGeneration();
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    await expect(reconcileDetachedOperationsAtBoot(staleGeneration)).resolves.toBeUndefined();
+
+    const rows = defineRows('DetachedRejectedResetFence');
+    let rejectResume!: (error: Error) => void;
+    const handle = declare(
+      rows,
+      'rejected-reset-fence',
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectResume = reject;
+        })
+    );
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    handle.fail(entry.operationId, new Error('offline'));
+    const retry = handle.retry(entry.operationId);
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    rejectResume(new Error('stale rejection'));
+
+    await expect(retry).resolves.toBe('continue');
+  });
+
+  it('ignores a journal key that disappears between listing and orphan reconciliation', () => {
+    const storage = createMemoryPlane();
+    const listKeys = storage.keys;
+    storage.keys = prefix => {
+      const keys = listKeys(prefix);
+      if (prefix.includes('journal:')) return [...keys, `${prefix}404`];
+      return keys;
+    };
+    configureDb({ storage, transport: createMockTransport() });
+
+    expect(replayJournal()).toBe(0);
+  });
+
+  it('closes a hydrated legacy operation whose model is no longer declared', () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    getOperationState().begin({
+      operationId: 'removed-model-operation',
+      model: 'RemovedModel',
+      tempIds: ['temp-removed-model'],
+      intent: 'insert',
+      createdAt: 1
+    });
+    flushPersistence();
+
+    configureDb({ storage, transport: createMockTransport() });
+    expect(replayJournal()).toBe(0);
+    expect(getOperationState().get('removed-model-operation')).toMatchObject({ status: 'rolledback' });
+  });
+
+  it('normalizes a non-Error resume rejection before applying failure', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineRows('DetachedNonErrorRejection');
+    const handle = declare(rows, 'non-error-rejection', async () => {
+      const failure: unknown = 'string failure';
+      throw failure;
+    });
+    const entry = handle.start({ bucket: 'a', label: 'first' });
+    handle.fail(entry.operationId, new Error('offline'));
+
+    await expect(handle.retry(entry.operationId)).resolves.toBe('orphaned');
+    expect(getOperationState().get(entry.operationId)).toMatchObject({ status: 'failed' });
+  });
+
   it('P1 starts its temp row and durable operation together', () => {
     const storage = createMemoryPlane();
     const set = storage.set;

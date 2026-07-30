@@ -1,4 +1,14 @@
-import { createModelReadEngine } from '../../../read/incrementalReadEngine';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
+import {
+  advanceRuntimeGeneration,
+  configureDb,
+  createModelReadEngine,
+  getCommitBus,
+  getRuntimeGeneration,
+  useIncrementalRead
+} from '../../legacyTestApi';
+import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type TestRow = { id: string; rank: number; label: string; visible: boolean };
 
@@ -67,8 +77,49 @@ describe('incremental model read engine', () => {
 
     engine.apply({ rows: [{ model: 'TestRow', id: 'row-1', fields: ['label'] }], scopes: [], mode: 'replace' });
     engine.apply({ rows: [{ model: 'TestRow', id: 'row-1', fields: ['label'] }], scopes: [], mode: 'bulk' });
+    engine.apply(null);
 
-    expect(initialCalls).toBe(3);
+    expect(initialCalls).toBe(4);
+  });
+
+  it('rejects a reset batch that belongs to an older runtime generation', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const apply = jest.fn(() => true);
+    let value: string | undefined;
+    const Reader = () => {
+      value = useIncrementalRead({
+        signature: 'incremental-generation-fence',
+        deps: [{ kind: 'model', model: 'IncrementalGenerationFence' }],
+        create: () => ({
+          signature: 'incremental-generation-fence',
+          generation: getRuntimeGeneration(),
+          value: 'current',
+          version: 0,
+          apply
+        })
+      });
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    act(() => {
+      getCommitBus().publish({
+        rows: [{ model: 'IncrementalGenerationFence', id: 'row-1', fields: null }],
+        scopes: [],
+        pending: [],
+        scopeChanges: [],
+        mode: 'delta'
+      });
+    });
+    expect(apply).toHaveBeenCalledTimes(1);
+    advanceRuntimeGeneration();
+    act(() => getCommitBus().publishAll());
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(value).toBe('current');
+    act(() => root.unmount());
   });
 
   it('updates in-place non-order rows without changing their order and preserves equal projections', () => {

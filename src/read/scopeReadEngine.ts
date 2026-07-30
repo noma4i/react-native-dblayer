@@ -46,23 +46,19 @@ const readRequireGate = (cache: { current: RequireGate }, source: RowRecord[], r
 
 const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta) => {
   const rowCache = new Map<string, RowRecord>();
-  const sourceCache = new WeakMap<RowRecord, RowRecord>();
   const source = scopeKey == null ? null : storeScopeCollection(modelId, scopeKey);
   let resolvedEntries: Array<{ source: StoreScopeRow & { id: string }; row: RowRecord }> = [];
   let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
   const resolveRow = (sourceRow: RowRecord, kind: keyof ScopeReadWorkSnapshot): RowRecord => {
-    const cached = sourceCache.get(sourceRow);
-    if (cached) return cached;
     const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;
     const current = rowCache.get(next.id);
     const resolved = current && rowsShallowEqual(current, next) ? current : next;
     if (resolved !== current) noteScopeReadWork(kind, 1);
     rowCache.set(next.id, resolved);
-    sourceCache.set(sourceRow, resolved);
     return resolved;
   };
   const compareEntries = (left: StoreScopeRow, right: StoreScopeRow): number =>
-    compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id ?? '', right.id ?? '');
+    compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id!, right.id!);
   const insertionIndex = (entry: StoreScopeRow): number => {
     let lower = 0;
     let upper = resolvedEntries.length;
@@ -82,7 +78,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     const nextRow = resolveRow(entry as RowRecord, kind);
     const nextIndex = insertionIndex(entry);
     resolvedEntries.splice(nextIndex, 0, { source: entry, row: nextRow });
-    return previous?.source.orderKey !== entry.orderKey || previous.row !== nextRow || currentIndex !== nextIndex;
+    return previous?.source.orderKey !== entry.orderKey || previous.row !== nextRow;
   };
   const removeValue = (key: string | number): boolean => {
     const index = resolvedEntries.findIndex(entry => entry.source.id === String(key));
@@ -182,7 +178,7 @@ export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRe
   scopeKey: string | null,
   sortMeta: ScopeSortMeta,
   isResolved: () => boolean,
-  options: ScopeProjectionOptions<TOutput> = {}
+  options: ScopeProjectionOptions<TOutput>
 ): TOutput[] {
   validateProjectionOptions(options, `${modelId}.scope.use`);
   const optionsRef = useRef(options);
@@ -211,7 +207,7 @@ export function useScopeReadWindowRows(
   sortMeta: ScopeSortMeta,
   windowSize: number,
   isResolved: () => boolean,
-  options: ScopeProjectionOptions<Record<string, unknown>> = {}
+  options: ScopeProjectionOptions<Record<string, unknown>>
 ): ScopeWindowSnapshot {
   validateProjectionOptions(options, `${modelId}.scope.useWindow`);
   const optionsRef = useRef(options);

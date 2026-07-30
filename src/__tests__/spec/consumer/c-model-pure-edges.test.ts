@@ -280,6 +280,14 @@ describe('model write planning edges', () => {
     expect(() => filtered.noteAccess(scopeValue)).not.toThrow();
     expect(filtered.planPlacement(scopeValue, 'prepend', 'prepend')).toHaveLength(1);
     expect(filtered.planPlacement(scopeValue, 'append', 'append')).toHaveLength(1);
+    const scopeKey = target.readAllScopeKeys()[0]!;
+    const ghostPlacement = filtered.planPlacement(scopeValue, 'ghost', 'append')[0]!;
+    if (ghostPlacement.kind !== 'scope-delta') throw new Error('Expected scope delta placement');
+    target.scopeDelta(scopeKey, { append: ghostPlacement.append as Array<{ id: string; orderKey: string }>, detach: [] });
+    expect(() => filtered.planApply(scopeValue, [{ row: { id: 'new-anchor', bucket: 'a', rank: 3, label: 'anchor' } }], 'delta')).toThrow(
+      'Invalid scope index value'
+    );
+    target.scopeDelta(scopeKey, { append: [], detach: ['ghost'] });
     const filteredPlan = filtered.planApply(
       scopeValue,
       [
@@ -292,7 +300,15 @@ describe('model write planning edges', () => {
     expect(filteredPlan.flatMap(op => (op.kind === 'scope' ? op.next.entries.map(entry => entry.id) : []))).toEqual(['old-1', 'old-2']);
 
     target.destroy(['old-1']);
-    filtered.apply(scopeValue, [{ id: 'new-3', bucket: 'a', rank: 3, label: 'three' }], 'page', { resetOrder: true });
+    filtered.apply(
+      scopeValue,
+      [
+        { id: 'old-2', bucket: 'a', rank: 2, label: 'two' },
+        { id: 'new-3', bucket: 'a', rank: 3, label: 'three' }
+      ],
+      'page',
+      { resetOrder: true }
+    );
     filtered.apply(
       scopeValue,
       [

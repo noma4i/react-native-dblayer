@@ -225,7 +225,7 @@ export const replayJournal = (): number => {
     const record = readJournalRecord(storage, getStoragePrefix(), key);
     for (const operation of record?.ops ?? []) {
       if (operation.kind !== 'upsert') continue;
-      for (const row of operation.rows) noteCandidate(operation.model, typeof row === 'object' && row !== null ? (row as { id?: unknown }).id : undefined);
+      for (const row of operation.rows) noteCandidate(operation.model, row.id);
     }
   }
   const openTempIds = new Set(operations.open().flatMap(operation => operation.tempIds.map(id => compositeKey(operation.model, id))));

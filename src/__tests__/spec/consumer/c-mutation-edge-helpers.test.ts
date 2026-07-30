@@ -171,6 +171,7 @@ describe('mutation correlation edges', () => {
       { operationId: 'field', tempIds: ['temp-field'], createdAt: 3 },
       { operationId: 'match', tempIds: ['temp-match'], createdAt: 4 },
       { operationId: 'time', tempIds: ['temp-time'], createdAt: 5 },
+      { operationId: 'time-object', tempIds: ['temp-time-object'], createdAt: 5 },
       { operationId: 'z-valid', tempIds: ['temp-z'], createdAt: 6 },
       { operationId: 'a-valid', tempIds: ['temp-a'], createdAt: 6 }
     ];
@@ -189,6 +190,7 @@ describe('mutation correlation edges', () => {
       { id: 'temp-field', text: 'different', createdAt: 100, allowed: true },
       { id: 'temp-match', text: 'same', createdAt: 100, allowed: false },
       { id: 'temp-time', text: 'same', createdAt: 'invalid', allowed: true },
+      { id: 'temp-time-object', text: 'same', createdAt: {}, allowed: true },
       { id: 'temp-z', text: 'same', createdAt: new Date(100).toISOString(), allowed: true },
       { id: 'temp-a', text: 'same', createdAt: 100, allowed: true }
     ]);
@@ -281,5 +283,9 @@ describe('mutation responder edges', () => {
         optimistic as never
       )
     ).toContainEqual(expect.objectContaining({ model: rows.modelId }));
+
+    const responderWithoutExtract = createMutationResponder({ document, result: 'save', optimistic } as never);
+    expect(responderWithoutExtract.planFromRespond({ save: { row: null } } as never, context, optimistic as never, {})).toEqual([]);
+    expect(responderWithoutExtract.inverseFromRespond({ save: { row: null } } as never, context, optimistic as never)).toEqual([]);
   });
 });

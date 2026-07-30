@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f } from '../../legacyTestApi';
+import { createCommitEnvelope, defineModel, f, getApplyRuntime, getApplyTarget } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
@@ -99,6 +99,32 @@ describe('scope window resolved state', () => {
     });
 
     expect({ resolved: reader.result().resolved, rows: reader.result().rows.map(row => row.id) }).toEqual({ resolved: true, rows: ['story-1'] });
+    reader.unmount();
+  });
+
+  it('orders equal scope keys by row id during an incremental insert', () => {
+    setupSpecRuntime();
+    const stories = createStories();
+    stories.scopes.byBucket.seed({ bucket: 'equal' }, []);
+    stories.insertMany([
+      { id: 'story-b', bucket: 'other', title: 'Second' },
+      { id: 'story-a', bucket: 'other', title: 'First' }
+    ]);
+    const target = getApplyTarget(stories.modelId);
+    const scopeKey = target.readAllScopeKeys().find(key => key.includes('equal'))!;
+    getApplyRuntime().commit(
+      createCommitEnvelope([{ kind: 'scope-delta', model: stories.modelId, scopeKey, append: [{ id: 'story-a', orderKey: 'V' }], detach: [] }])
+    );
+    const reader = renderCounted(() => stories.scopes.byBucket.use({ bucket: 'equal' }));
+    expect(reader.result().map(row => row.id)).toEqual(['story-a']);
+
+    act(() => {
+      getApplyRuntime().commit(
+        createCommitEnvelope([{ kind: 'scope-delta', model: stories.modelId, scopeKey, append: [{ id: 'story-b', orderKey: 'V' }], detach: [] }])
+      );
+    });
+
+    expect(reader.result().map(row => row.id)).toEqual(['story-a', 'story-b']);
     reader.unmount();
   });
 
