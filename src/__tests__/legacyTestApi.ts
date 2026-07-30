@@ -32,3 +32,7 @@ export { isFetchedResult } from '../queries/base/loadingState';
 export { registerActiveFetchReaders, refetchActiveFetchReaders, resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 export { computePhase } from '../queries/base/loadingState';
 export { compositeKey } from '../core/serialize';
+export { compositeStorageKey } from '../core/serialize';
+export { encodePersistence } from '../core/persistenceCodec';
+export { createEntityPlane } from '../core/storeEntities';
+export { runInApplyBatch } from '../core/storeSync';
