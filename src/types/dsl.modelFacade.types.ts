@@ -206,9 +206,9 @@ export type RelationSpec<TStored, TRemote = GraphqlConnectionDefinition<any, any
   remote?: TRemote;
 };
 
-export type SideloadEdge = {
+export type SideloadEdge<TInput = unknown> = {
   model: { key: string };
-  select(input: unknown): unknown | readonly unknown[] | null | undefined;
+  select(input: TInput): unknown | readonly unknown[] | null | undefined;
 };
 
 export type ModelFacadeConfig<
@@ -224,7 +224,7 @@ export type ModelFacadeConfig<
   relations?: TRelations;
   actions?: TActions;
   events?: TEvents;
-  sideloads?: () => Record<string, SideloadEdge>;
+  sideloads?: () => Record<string, SideloadEdge<ModelBuildInput<TShape>>>;
   defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
   rowId?: (input: ModelBuildInput<TShape>) => unknown;
   guard?: (input: ModelBuildInput<TShape>) => boolean;

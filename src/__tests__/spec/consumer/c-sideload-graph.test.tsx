@@ -52,7 +52,7 @@ const UserSchema = defineShape<UserInput>()({
   username: f.str()
 });
 
-const ChatSchema = defineShape<ChatInput>()({
+const ChatSchema = defineShape<ChatPayload>()({
   ownerId: f.id(),
   title: f.str()
 });
@@ -90,11 +90,11 @@ const createGraphModels = (suffix: string) => {
     sideloads: () => ({
       owner: {
         model: User,
-        select: input => (isChatPayload(input) ? input.owner : null)
+        select: input => input.owner
       },
       duplicateOwner: {
         model: User,
-        select: input => (isChatPayload(input) ? input.owner : null)
+        select: input => input.owner
       }
     }),
     maintenance: { dropTempRowsAfterMs: 1000 }
@@ -133,7 +133,7 @@ describe('sideload graph', () => {
       owner: { username: 'missing-id' }
     };
 
-    expect(() => Chat.insert(payload)).toThrow('requires id');
+    expect(() => (Chat.insert as (input: unknown) => void)(payload)).toThrow('requires id');
     expect(Chat.find('chat-invalid')).toBeUndefined();
     expect(User.where({ username: 'missing-id' }).count()).toBe(0);
     expect(diagnostics().snapshot().commits).toBe(0);
@@ -144,13 +144,13 @@ describe('sideload graph', () => {
     diagnostics().reset();
     const key = 'SpecGraphCategoryCycle';
     const Category = defineModel(key, {
-      schema: defineShape<{ id: string; name: string }>()({
+      schema: defineShape<CategoryPayload>()({
         name: f.str()
       }),
       sideloads: () => ({
         parent: {
           model: { key },
-          select: input => (isCategoryPayload(input) ? input.parent : null)
+          select: input => input.parent
         }
       })
     });
@@ -238,17 +238,11 @@ describe('sideload graph', () => {
   });
 });
 
-const isChatPayload = (input: unknown): input is ChatPayload =>
-  typeof input === 'object' && input !== null && 'owner' in input;
-
 type CategoryPayload = {
   id: string;
   name: string;
   parent: CategoryPayload | null;
 };
-
-const isCategoryPayload = (input: unknown): input is CategoryPayload =>
-  typeof input === 'object' && input !== null && 'parent' in input;
 
 const configureRuntime = (transport: ReturnType<typeof createMockTransport>): void => {
   configureDb({ storage: createMemoryPlane(), transport });
