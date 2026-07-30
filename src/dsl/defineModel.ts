@@ -1,226 +1,44 @@
 import type {
-  DbWhere,
-  InferBuildInput,
-  InferStoredFields,
-  ModelFieldSpecs,
+  ModelBuildInput,
+  ModelFacade,
+  ModelFacadeConfig,
+  ModelStoredValue,
+  AnyFields,
+  DbShape,
+  GraphqlActionDefinition,
   ModelConfig,
-  ModelCore,
-  QueryScopeReads,
-  QueryScopeSpec,
-  RequiredReadUse,
-  ScopeHandle,
-  ScopeSpec
+  RelationDecl,
+  RelationSpec
 } from '../types';
-import { registerRelationHost } from '../core/relations';
-import { registerKeyedReset } from '../core/reset';
-import { createModelNormalization } from './modelNormalization';
-import { createModelScopeKeys } from './modelScopeKeys';
-import { createModelCriteria } from './modelCriteria';
-import { createModelContext } from './modelContext';
-import { createModelMembership } from './modelMembership';
-import { createModelWrites } from './modelWrites';
-import { createModelApplyTarget } from './modelApplyTarget';
-import { createModelReadAccess } from './modelReadAccess';
-import { createModelReactiveReads } from './modelReactiveReads';
-import { createModelScopeHandle } from './modelScopeHandle';
-import { createModelDefinitions } from './modelDefinitions';
-import { createModelDirectAccess } from './modelDirectAccess';
-import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
+import { defineModelFacade } from './defineModelFacade';
+import { defineModelRuntime } from './defineModelRuntime';
+
 /**
- * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
- * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
- * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
+ * Define one class-like persistent model.
  *
- * @param config Field specs, id/guard resolution, optional relations/scopes, gc/write policy, and statics.
- * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `update`/`destroy`/`insert`, `related`)
- * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
+ * @param key Stable model identity used by storage, dependencies, and diagnostics.
+ * @param config Schema, associations, named relations, actions, sideloads, policies, and statics.
+ * @returns A model singleton with local reads/writes, flat relations, and model-owned actions.
  */
-export const defineModel = <
-  const TFields extends ModelFieldSpecs,
+export function defineModel<
+  const TKey extends string,
+  TShape extends DbShape<any, AnyFields>,
+  const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
+  const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  const TAssociations extends Record<string, RelationDecl>,
+  TStatics extends Record<string, unknown>
+>(
+  key: TKey,
+  config: ModelFacadeConfig<TShape, TRelations, TActions, TAssociations, TStatics>
+): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TStatics>;
+export function defineModel<
+  const TFields extends import('../types').ModelFieldSpecs,
   TScopeNames extends string = never,
   TExt extends Record<string, unknown> = {},
   TQueryScopeNames extends string = never
 >(
   config: ModelConfig<TFields, TScopeNames, TExt, TQueryScopeNames>
-): Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
-  use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
-    QueryScopeReads<InferStoredFields<TFields>, TQueryScopeNames>;
-  scopes: { [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields>, Record<string, unknown>, InferBuildInput<TFields>> };
-} & TExt => {
-  const { applyWriteGate, isPlanRow, normalize } = createModelNormalization(config);
-  const context = createModelContext<InferStoredFields<TFields> & Record<string, unknown>>({
-    modelId: config.id,
-    scopeNames: Object.keys(config.scopes ?? {}),
-    relations: () => config.relations?.() ?? {},
-    applyWriteGate
-  });
-  const { planes, resolvedRelations } = context;
-
-  const scopeSpecs = (config.scopes ?? {}) as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>>;
-  const membershipScopes = Object.entries(scopeSpecs).flatMap(([name, spec]) => (spec.by ? [[name, { ...spec, by: spec.by }] as const] : []));
-
-  const scopeByFieldMap = new Map(membershipScopes.map(([name, spec]) => [name, spec.by] as const));
-  const { keyForScope, scopeValueFromRow } = createModelScopeKeys(config, scopeByFieldMap);
-  const { matches: matchesCriteria } = createModelCriteria<InferStoredFields<TFields> & Record<string, unknown>>(config.fields);
-
-  const { membershipForUpsert, detachForDestroy } = createModelMembership<InferStoredFields<TFields> & Record<string, unknown>>({
-    membershipScopes,
-    keyForScope,
-    scopeValueFromRow,
-    isScopeMember: (scopeKey, id) => planes().scopeIndex.has(scopeKey, id),
-    scopeKeysOf: id => planes().scopeIndex.keysOf(id)
-  });
-
-  registerRelationHost(config.id, {
-    relations: resolvedRelations,
-    has: id => planes().entityState.read(id) !== undefined,
-    read: id => planes().entityState.read(id),
-    normalize: input => {
-      try {
-        return normalize(input);
-      } catch {
-        return null;
-      }
-    },
-    membershipForUpsert,
-    detachForDestroy
-  });
-
-  const captureMembership = (id: string): Array<{ id: string; scopeKey: string; orderKey: string }> =>
-    planes()
-      .scopeIndex.keysOf(id)
-      .flatMap(scopeKey => {
-        const entry = planes()
-          .scopeIndex.read(scopeKey)
-          .entries.find(candidate => candidate.id === id);
-        return entry ? [{ id, scopeKey, orderKey: entry.orderKey }] : [];
-      });
-  const { prepareRow, preparePatch, putRows, planRows, planReplace, planRestore, splitCorrelatedRows } = createModelWrites<
-    InferStoredFields<TFields> & Record<string, unknown>
-  >({
-    modelId: config.id,
-    modelName: config.name,
-    entityState: () => planes().entityState,
-    normalize,
-    isPlanRow,
-    bumpRevision: context.bumpRevision,
-    captureMembership
-  });
-
-  const { rowDep, modelDep, scopeDep, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<
-    InferStoredFields<TFields> & Record<string, unknown>
-  >({
-    modelId: config.id,
-    context,
-    scopes: config.scopes as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>> | undefined,
-    defaultOrder: config.defaultOrder,
-    keyForScope,
-    matchesCriteria
-  });
-  const { applyTarget, applySnapshot, applyEvent } = createModelApplyTarget<InferStoredFields<TFields> & Record<string, unknown>>({
-    modelId: config.id,
-    scopes: config.scopes as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>> | undefined,
-    context,
-    scopeSortedRows,
-    prepareRow,
-    preparePatch,
-    putRows
-  });
-  registerModelSchemaAndGc<InferStoredFields<TFields> & Record<string, unknown>>({
-    modelId: config.id,
-    modelName: config.name,
-    fields: config.fields,
-    scopes: config.scopes as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>> | undefined,
-    gc: config.gc,
-    dropIdleScopesAfterMs: config.maintenance?.dropIdleScopesAfterMs,
-    context
-  });
-
-  const makeScopeHandle = createModelScopeHandle<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>>({
-    modelId: config.id,
-    modelName: config.name,
-    context,
-    scopes: config.scopes as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>> | undefined,
-    keyForScope,
-    scopeValueFromRow,
-    isPlanRow,
-    normalize,
-    applyTarget,
-    scopeDep,
-    useScopeAccess,
-    scopeSortedRows,
-    splitCorrelatedRows,
-    applySnapshot,
-    applyEvent
-  });
-
-  let consumerResetSequence = 0;
-  const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
-    [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields> & Record<string, unknown>, Record<string, unknown>, InferBuildInput<TFields>>;
-  };
-
-  const model: ModelCore<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>> & { scopes: typeof scopeHandles } = {
-    modelId: config.id,
-    ...createModelDefinitions<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>>({ modelId: config.id, context }),
-    ...createModelDirectAccess<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>>({
-      modelId: config.id,
-      context,
-      defaultOrder: config.defaultOrder,
-      matchesCriteria,
-      applyEvent,
-      planRows,
-      planReplace,
-      normalize
-    }),
-    use: createModelReactiveReads<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>>({
-      modelId: config.id,
-      modelName: config.name,
-      context,
-      defaultOrder: config.defaultOrder,
-      matchesCriteria,
-      rowDep,
-      modelDep,
-      whereRead
-    }),
-    scopes: scopeHandles,
-    registerReset: fn => {
-      registerKeyedReset(`model-consumer:${config.id}:${(consumerResetSequence += 1)}`, fn);
-    }
-  };
-  context.setModel(model);
-  registerModelRuntime<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>>({
-    modelId: config.id,
-    modelName: config.name,
-    context,
-    maintenance: config.maintenance,
-    applySnapshot,
-    planRows,
-    planReplace,
-    captureMembership,
-    planRestore
-  });
-
-  const queryScopeSpecs = (config.queryScopes ?? {}) as Record<string, QueryScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>>;
-  for (const [scopeName, spec] of Object.entries(queryScopeSpecs)) {
-    if (scopeName in model.use) throw new Error(`${config.name} queryScope '${scopeName}' collides with a built-in use key`);
-    (model.use as Record<string, unknown>)[scopeName] = (extra?: DbWhere<InferStoredFields<TFields> & Record<string, unknown>>) => {
-      const criteria = extra ? ({ and: [spec.where, extra] } as DbWhere<InferStoredFields<TFields> & Record<string, unknown>>) : spec.where;
-      let builder = whereRead(criteria);
-      if (spec.orderBy) builder = builder.orderBy(spec.orderBy.field as never, spec.orderBy.direction);
-      if (spec.limit !== undefined) builder = builder.limit(spec.limit);
-      return builder;
-    };
-  }
-
-  const statics = config.statics?.(model);
-  if (statics) {
-    for (const key of Object.keys(statics)) {
-      if (key in model) throw new Error(`${config.name} statics collide with base model key ${key}`);
-    }
-  }
-  return Object.assign(model, statics) as Omit<ModelCore<InferStoredFields<TFields>, InferBuildInput<TFields>>, 'use' | 'scopes'> & {
-    use: RequiredReadUse<InferStoredFields<TFields>, Extract<keyof TFields, keyof InferStoredFields<TFields> & string> | 'id'> &
-      QueryScopeReads<InferStoredFields<TFields>, TQueryScopeNames>;
-    scopes: { [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields>, Record<string, unknown>, InferBuildInput<TFields>> };
-  } & TExt;
-};
+): ReturnType<typeof defineModelRuntime<TFields, TScopeNames, TExt, TQueryScopeNames>>;
+export function defineModel(first: string | ModelConfig<any, any, any, any>, second?: ModelFacadeConfig<any, any, any, any, any>): unknown {
+  return typeof first === 'string' ? defineModelFacade(first, second!) : defineModelRuntime(first);
+}

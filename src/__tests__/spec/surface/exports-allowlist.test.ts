@@ -21,6 +21,7 @@ const runtimeExportAllowlist = [
   'f',
   'fromNodes',
   'generateTempId',
+  'gql',
   'hasMany',
   'hasOne',
   'intoIf',

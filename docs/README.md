@@ -63,6 +63,7 @@ somewhere under `docs/`.
 | Export        | Kind  | Home                                       |
 | ------------- | ----- | ------------------------------------------ |
 | `defineModel` | value | [models.md](./models.md#definemodelconfig) |
+| `gql`         | value | [models.md](./models.md#graphql-declarations) |
 | `ScopeHandle` | type  | [models.md](./models.md#scopes)            |
 | `ScopeWindowResult` | type | [reading.md](./reading.md#scope-reads) |
 | `ScopeSpec`   | type  | [models.md](./models.md#scopespec)         |

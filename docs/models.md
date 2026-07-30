@@ -19,6 +19,7 @@ that belongs to a chat and lives in a per-chat `thread` scope.
 ## Contents
 
 - [`defineModel(config)`](#definemodelconfig)
+- [GraphQL declarations](#graphql-declarations)
 - [Fields (`f`)](#fields-f)
 - [Write policy](#write-policy)
 - [Writes](#writes)
@@ -63,6 +64,13 @@ const MessageModel = defineModel({
   })
 });
 ```
+
+## GraphQL declarations
+
+`gql.connection(document, options)` declares one typed remote relation. `gql.action(document,
+options)` declares one typed model-owned mutation. Both helpers infer transport data and variables
+from `TypedDocumentNode`; the model owns landing, invalidation, loading, pagination, optimistic
+state, retry, and discard behavior.
 
 ### `ModelConfig`
 

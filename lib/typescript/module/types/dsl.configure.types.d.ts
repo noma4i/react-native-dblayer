@@ -22,7 +22,7 @@ export interface DbDefaults {
      * inactive cache entries refetch on next mount). `null` disables resume invalidation. Default 60000.
      */
     resumeStaleTime?: number | null;
-    /** Foreground-resume refetch pacing. Active db queries invalidated on resume refetch in sequential chunks of chunkSize (default 4) awaited one after another, instead of one synchronous burst. Inactive cache entries are only marked stale and refetch on next mount. */
+    /** Foreground-resume refetch pacing. Mounted db queries invalidated on resume refetch in sequential chunks of chunkSize (default 4) awaited one after another, instead of one synchronous burst. Unmounted cache entries are only marked stale and refetch on next mount. */
     resumeRefetch?: {
         chunkSize?: number;
     };

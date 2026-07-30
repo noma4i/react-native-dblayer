@@ -8,6 +8,7 @@ export { resetRuntime, registerReset } from './core/reset';
 export { setFetchNetworkOnline } from './core/fetch/networkState';
 export type { StoragePlane } from './types';
 export { defineModel } from './dsl/defineModel';
+export { gql } from './dsl/graphql';
 export type { GuardedOrigin, ModelConfig, MonotonicSpec, NestedKeyPolicy, ScopeHandle, ScopeWindowResult, WriteCtx, WriteGroup, WriteOrigin, WritePolicy } from './types';
 export type { ViewConfig, ViewIncludeModel, ViewIncludeSpec } from './types';
 export type { ScopeSpec, ScopeCoverage } from './types';

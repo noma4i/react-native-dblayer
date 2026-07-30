@@ -206,7 +206,7 @@ payload and `null` to keep polling. The phase machine is:
 | Phase     | Reason               | Meaning                                             |
 | --------- | -------------------- | --------------------------------------------------- |
 | `idle`    | omitted or `stopped` | Never attached, reset, or already detached.         |
-| `polling` | omitted              | Active, with attempt budget remaining.              |
+| `polling` | omitted              | Running, with attempt budget remaining.             |
 | `ready`   | `terminal-payload`   | `classify` reported successful completion.          |
 | `failed`  | `terminal-payload`   | `classify` reported terminal failure.               |
 | `stalled` | `budget-exhausted`   | `maxAttempts` completed without a terminal payload. |

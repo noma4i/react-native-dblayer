@@ -50,3 +50,44 @@ export const useLoadMore = (target: LoadMoreTarget, options?: LoadMoreOptions): 
   useEffect(() => () => debouncerRef.current?.cancel(), []);
   return useCallback(() => debouncerRef.current?.maybeExecute(), []);
 };
+
+/**
+ * Advance one relation page in one call. Locally available rows are revealed first. When the local
+ * window is exhausted, the next server page is fetched and the newly landed local page is revealed
+ * immediately after the scope total grows.
+ *
+ * @param window Current local scope window.
+ * @param query Current network pagination state.
+ * @param options Debounce and enabled options for the list-footer callback.
+ * @returns Stable one-call relation advance.
+ */
+export const useRelationLoadMore = <T>(
+  window: ScopeWindowResult<T>,
+  query: Pick<QueryResult<unknown>, 'hasNextPage' | 'isFetchingNextPage' | 'fetchNextPage'>,
+  options?: LoadMoreOptions
+): (() => void) => {
+  const revealAfterFetchCountRef = useRef<number | null>(null);
+  const { fetchNextPage: revealNextPage, hasMore: hasLocalMore, totalCount } = window;
+  useEffect(() => {
+    const previousCount = revealAfterFetchCountRef.current;
+    if (previousCount === null || totalCount <= previousCount) return;
+    revealAfterFetchCountRef.current = null;
+    if (hasLocalMore) revealNextPage();
+  }, [hasLocalMore, revealNextPage, totalCount]);
+
+  return useLoadMore(
+    {
+      hasNextPage: hasLocalMore || query.hasNextPage,
+      isFetchingNextPage: query.isFetchingNextPage,
+      fetchNextPage: () => {
+        if (hasLocalMore) {
+          revealNextPage();
+          return;
+        }
+        revealAfterFetchCountRef.current = totalCount;
+        query.fetchNextPage();
+      }
+    },
+    options
+  );
+};

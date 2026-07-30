@@ -21,4 +21,15 @@ export declare const bridgeWindowPagination: <T>(window: ScopeWindowResult<T>, q
  * @returns Stable callback for the list footer; safe to call on every end-reached event.
  */
 export declare const useLoadMore: (target: LoadMoreTarget, options?: LoadMoreOptions) => (() => void);
+/**
+ * Advance one relation page in one call. Locally available rows are revealed first. When the local
+ * window is exhausted, the next server page is fetched and the newly landed local page is revealed
+ * immediately after the scope total grows.
+ *
+ * @param window Current local scope window.
+ * @param query Current network pagination state.
+ * @param options Debounce and enabled options for the list-footer callback.
+ * @returns Stable one-call relation advance.
+ */
+export declare const useRelationLoadMore: <T>(window: ScopeWindowResult<T>, query: Pick<QueryResult<unknown>, "hasNextPage" | "isFetchingNextPage" | "fetchNextPage">, options?: LoadMoreOptions) => (() => void);
 //# sourceMappingURL=pagination.d.ts.map
