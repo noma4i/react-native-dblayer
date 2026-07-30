@@ -2,6 +2,11 @@ import type { GraphqlDsl } from '../types';
 
 /** Typed GraphQL declarations for model relations and actions. */
 export const gql: GraphqlDsl = {
+  live: (document, options) => ({
+    type: 'live',
+    document,
+    ...options
+  }),
   single: (document, options) => ({
     type: 'single',
     document,

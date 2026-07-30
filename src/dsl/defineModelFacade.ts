@@ -22,6 +22,7 @@ import type {
   FacadeRuntimeModel,
   DbWhere,
   GraphqlActionDefinition,
+  GraphqlLiveDefinition,
   LoadingState,
   QueryHandle,
   RelationSpec,
@@ -386,12 +387,13 @@ export const defineModelFacade = <
   TShape extends DbShape<any, AnyFields>,
   const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
   const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  const TEvents extends Record<string, { type: 'live' }>,
   const TAssociations extends Record<string, RelationDecl<unknown>>,
   TStatics extends Record<string, unknown>
 >(
   key: TKey,
-  config: ModelFacadeConfig<TShape, TRelations, TActions, TAssociations, TStatics>
-): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations, TStatics> => {
+  config: ModelFacadeConfig<TShape, TRelations, TActions, TEvents, TAssociations, TStatics>
+): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TStatics> => {
   let associationCache: TAssociations | undefined;
   const associations = (): TAssociations => {
     associationCache ??= config.associations?.() ?? ({} as TAssociations);
@@ -466,7 +468,22 @@ export const defineModelFacade = <
   for (const [name, definition] of Object.entries(config.actions ?? {})) {
     Reflect.set(actions, name, createAction(runtime, `${key}:${name}`, definition));
   }
-  const base: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TActions> = {
+  const events = runtime.ingest(
+    Object.fromEntries(
+      Object.entries(config.events ?? {}).map(([name, definition]) => {
+        const live = definition as GraphqlLiveDefinition<any, any>;
+        return [
+          name,
+          {
+            document: live.document,
+            debounce: live.debounce,
+            handler: live.handler
+          }
+        ];
+      })
+    )
+  );
+  const base: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TActions, TEvents> = {
     key,
     find: runtime.find,
     useFind: runtime.use.find,
@@ -481,9 +498,10 @@ export const defineModelFacade = <
     destroyAll: runtime.destroyAll,
     build: (input: ModelBuildInput<TShape>) => runtime.build(input),
     operation: (id: string | null | undefined) => createOperation(runtime, id),
-    actions
+    actions,
+    events
   };
-  const modelBase: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations> = Object.assign(
+  const modelBase: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations> = Object.assign(
     base,
     relationMethods,
     Object.create(null) as ModelAssociationMethods<TAssociations>

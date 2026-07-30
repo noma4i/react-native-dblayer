@@ -43,9 +43,16 @@ type MessageVariables = {
   id: string;
 };
 
+type MessageCreatedData = {
+  messageCreated: {
+    message: MessageInput;
+  };
+};
+
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
 const sendDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<SendData, SendVariables>;
 const messageDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageData, MessageVariables>;
+const messageCreatedDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageCreatedData, never>;
 
 const MessageSchema = defineShape<MessageInput>()({
   chatId: f.id(),
@@ -87,6 +94,11 @@ const createMessageModel = (suffix: string) =>
             status: 'sending'
           })
         }
+      })
+    },
+    events: {
+      messageCreated: gql.live(messageCreatedDocument, {
+        handler: payload => ({ upsert: payload.message })
       })
     },
     maintenance: { dropTempRowsAfterMs: 1000 }
@@ -200,6 +212,24 @@ describe('v10 model surface', () => {
     expect(reader.result().isPending).toBe(false);
     expect(reader.result().error).toBeNull();
     reader.unmount();
+  });
+
+  it('owns typed subscription landing through its event handle', () => {
+    configureRuntime(createMockTransport());
+    const Message = createMessageModel('Event');
+
+    Message.events.apply('messageCreated', {
+      message: { id: 'm-live', chatId: 'chat-1', body: 'delivered', status: 'sent' }
+    });
+
+    expect(Message.find('m-live')).toEqual({
+      id: 'm-live',
+      chatId: 'chat-1',
+      body: 'delivered',
+      status: 'sent'
+    });
+    expect(Message.events.entries).toHaveLength(1);
+    expect(Message.events.entries[0]?.key).toBe('messageCreated');
   });
 });
 

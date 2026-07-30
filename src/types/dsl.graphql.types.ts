@@ -4,6 +4,8 @@ import type {
   GraphqlActionOptions,
   GraphqlConnectionDefinition,
   GraphqlConnectionOptions,
+  GraphqlLiveDefinition,
+  GraphqlLiveOptions,
   GraphqlSingleDefinition,
   GraphqlSingleOptions,
   TypedDocumentData,
@@ -12,6 +14,10 @@ import type {
 } from './dsl.modelFacade.types';
 
 export type GraphqlDsl = {
+  live<TData, TVariables>(
+    document: TypedDocumentNode<TData, TVariables>,
+    options: GraphqlLiveOptions<TData>
+  ): GraphqlLiveDefinition<TData, TVariables>;
   single<TDocument extends TypedDocumentNode<any, any>, TParams, TNode>(
     document: TDocument,
     options: GraphqlSingleOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>

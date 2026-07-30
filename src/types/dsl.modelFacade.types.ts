@@ -1,10 +1,12 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { RelationDecl } from './core.relations.types';
 import type { DbReadOptions, DbWhere, LoadingState } from './db.types';
+import type { IngestDecl } from './dsl.ingest.types';
 import type { ClientSort } from './dsl.ordering.types';
 import type { DbShape } from './schema.shape.types';
 import type { AnyFields, InferBuildInput, InferStoredFields } from './schema.infer.types';
 import type { ModelCore, ScopeHandle } from './dsl.model.types';
+import type { DbSubscriptionEntry } from './subscription.types';
 import type { ModelStatusPollerPhase } from './utils.modelStatusPoller.types';
 
 export type TypedDocumentData<TDocument> = TDocument extends TypedDocumentNode<infer TData, any> ? TData : never;
@@ -84,6 +86,18 @@ export type GraphqlSingleOptions<TData, TVariables, TParams, TNode> = {
 
 export type GraphqlSingleDefinition<TData, TVariables, TParams, TNode> = GraphqlSingleOptions<TData, TVariables, TParams, TNode> & {
   type: 'single';
+  document: TypedDocumentNode<TData, TVariables>;
+};
+
+export type GraphqlLivePayload<TData> = TData[keyof TData];
+
+export type GraphqlLiveOptions<TData> = {
+  handler(payload: GraphqlLivePayload<TData>): IngestDecl | null;
+  debounce?: DbSubscriptionEntry<GraphqlLivePayload<TData>>['debounce'];
+};
+
+export type GraphqlLiveDefinition<TData, TVariables> = GraphqlLiveOptions<TData> & {
+  type: 'live';
   document: TypedDocumentNode<TData, TVariables>;
 };
 
@@ -197,6 +211,7 @@ export type ModelFacadeConfig<
   TShape extends DbShape<any, AnyFields>,
   TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
   TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  TEvents extends Record<string, { type: 'live' }>,
   TAssociations extends Record<string, RelationDecl<unknown>>,
   TStatics extends Record<string, unknown>
 > = {
@@ -204,6 +219,7 @@ export type ModelFacadeConfig<
   associations?: () => TAssociations;
   relations?: TRelations;
   actions?: TActions;
+  events?: TEvents;
   sideloads?: () => Record<string, SideloadEdge>;
   defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
   rowId?: (input: unknown) => string;
@@ -226,7 +242,7 @@ export type ModelFacadeConfig<
       policy: import('./core.writePolicies.types').WritePolicy | readonly import('./core.writePolicies.types').WritePolicy[];
     }>;
   };
-  statics?: (model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations>) => TStatics;
+  statics?: (model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations>) => TStatics;
 };
 
 type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStored & string>
@@ -307,10 +323,16 @@ export type ModelActionMethods<TActions extends Record<string, GraphqlActionDefi
       : ModelAction<ActionInput<TActions[K]>, ActionPayload<TActions[K]>>;
 };
 
+export type ModelEventHandle<TEvents extends Record<string, { type: 'live' }>> = {
+  entries: DbSubscriptionEntry[];
+  apply<K extends keyof TEvents & string>(key: K, payload: TEvents[K] extends { handler(payload: infer TPayload): IngestDecl | null } ? TPayload : never): void;
+};
+
 export type ModelFacadeCore<
   TStored extends { id: string },
   TInput,
-  TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>
+  TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  TEvents extends Record<string, { type: 'live' }>
 > = {
   key: string;
   find(id: string | null | undefined): TStored | undefined;
@@ -330,6 +352,7 @@ export type ModelFacadeCore<
   build(input: TInput): TStored;
   operation(id: string | null | undefined): RowOperation<TStored>;
   actions: ModelActionMethods<TActions>;
+  events: ModelEventHandle<TEvents>;
 };
 
 export type ModelFacadeBase<
@@ -337,14 +360,16 @@ export type ModelFacadeBase<
   TInput,
   TRelations extends Record<string, RelationSpec<TStored, any>>,
   TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  TEvents extends Record<string, { type: 'live' }>,
   TAssociations extends Record<string, RelationDecl<unknown>>
-> = ModelFacadeCore<TStored, TInput, TActions> & ModelRelationMethods<TStored, TRelations> & ModelAssociationMethods<TAssociations>;
+> = ModelFacadeCore<TStored, TInput, TActions, TEvents> & ModelRelationMethods<TStored, TRelations> & ModelAssociationMethods<TAssociations>;
 
 export type ModelFacade<
   TStored extends { id: string },
   TInput,
   TRelations extends Record<string, RelationSpec<TStored, any>>,
   TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  TEvents extends Record<string, { type: 'live' }>,
   TAssociations extends Record<string, RelationDecl<unknown>>,
   TStatics extends Record<string, unknown>
-> = ModelFacadeBase<TStored, TInput, TRelations, TActions, TAssociations> & TStatics;
+> = ModelFacadeBase<TStored, TInput, TRelations, TActions, TEvents, TAssociations> & TStatics;

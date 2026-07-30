@@ -25,12 +25,13 @@ export function defineModel<
   TShape extends DbShape<any, AnyFields>,
   const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
   const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
+  const TEvents extends Record<string, { type: 'live' }>,
   const TAssociations extends Record<string, RelationDecl<unknown>>,
   TStatics extends Record<string, unknown>
 >(
   key: TKey,
-  config: ModelFacadeConfig<TShape, TRelations, TActions, TAssociations, TStatics>
-): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TAssociations, TStatics>;
+  config: ModelFacadeConfig<TShape, TRelations, TActions, TEvents, TAssociations, TStatics>
+): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TStatics>;
 export function defineModel<
   const TFields extends import('../types').ModelFieldSpecs,
   TScopeNames extends string = never,
@@ -39,6 +40,6 @@ export function defineModel<
 >(
   config: ModelConfig<TFields, TScopeNames, TExt, TQueryScopeNames>
 ): ReturnType<typeof defineModelRuntime<TFields, TScopeNames, TExt, TQueryScopeNames>>;
-export function defineModel(first: string | ModelConfig<any, any, any, any>, second?: ModelFacadeConfig<any, any, any, any, any>): unknown {
+export function defineModel(first: string | ModelConfig<any, any, any, any>, second?: ModelFacadeConfig<any, any, any, any, any, any>): unknown {
   return typeof first === 'string' ? defineModelFacade(first, second!) : defineModelRuntime(first);
 }
