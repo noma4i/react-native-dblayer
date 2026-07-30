@@ -49,13 +49,14 @@ const planLandingGraph = (
       const values = Array.isArray(selected) ? selected : [selected];
       for (const value of values) {
         if (value == null) continue;
-        const target = hosts.get(edge.model.key);
-        if (!target) throw new Error(`Model landing target ${edge.model.key} is not defined`);
+        const targetKey = 'key' in edge.model ? edge.model.key : edge.model.modelId;
+        const target = hosts.get(targetKey);
+        if (!target) throw new Error(`Model landing target ${targetKey} is not defined`);
         const targetId = target.normalize(value).id;
-        const edgeKey = compositeKey(entry.model, id, edgeName, edge.model.key, targetId);
+        const edgeKey = compositeKey(entry.model, id, edgeName, targetKey, targetId);
         if (expandedEdges.has(edgeKey)) continue;
         expandedEdges.add(edgeKey);
-        queue.push({ model: edge.model.key, input: value, id: targetId });
+        queue.push({ model: targetKey, input: value, id: targetId });
       }
     }
   }

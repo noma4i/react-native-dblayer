@@ -48,6 +48,12 @@ describe('public type regressions', () => {
         associations: () => ({
           chat: belongsTo<Message, Chat>(modelRef<Chat>('lazy-chats'), { foreignKey: 'chatId' }),
           reply: references<Message, Message>(modelRef<Message>('lazy-messages'), { ids: row => row.replyToId })
+        }),
+        sideloads: () => ({
+          chat: {
+            model: modelRef<Chat>('lazy-chats'),
+            select: message => ({ id: message.chatId, title: 'chat' })
+          }
         })
       });
       const chat: Chat | undefined = messages.chat('message-1').read();

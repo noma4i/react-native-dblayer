@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type { ScopeCoverage } from './core.planes.scopeIndex.types';
-import type { RelationDecl } from './core.relations.types';
+import type { ModelRef, RelationDecl } from './core.relations.types';
 import type { DbReadOptions, DbWhere, LoadingState } from './db.types';
 import type { IngestDecl } from './dsl.ingest.types';
 import type { ClientSort } from './dsl.ordering.types';
@@ -254,7 +254,7 @@ export type RelationSpec<
 };
 
 export type SideloadEdge<TInput = unknown> = {
-  model: { key: string };
+  model: { key: string } | ModelRef<unknown>;
   select(input: TInput): unknown | readonly unknown[] | null | undefined;
 };
 
