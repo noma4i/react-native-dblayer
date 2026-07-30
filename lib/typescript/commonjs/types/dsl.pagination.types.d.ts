@@ -20,8 +20,12 @@ export type WindowPaginationBridge<T> = {
     /** The backing query's last error, or null. */
     error: Error | null;
 };
-/** Minimal pagination surface `useLoadMore` advances - a bridge, window, or query result carrying these three fields. */
+/** Pagination surface `useLoadMore` advances. */
 export type LoadMoreTarget = {
+    hasMore: boolean;
+    isFetchingMore: boolean;
+    loadMore: () => void;
+} | {
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
     fetchNextPage: () => void;

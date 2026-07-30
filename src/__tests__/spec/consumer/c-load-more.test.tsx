@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { useLoadMore, useRelationLoadMore } from '../../testApi';
-import type { LoadMoreTarget, LoadMoreOptions, QueryResult, ScopeWindowResult } from '../../testApi';
+import type { LoadMoreTarget, LoadMoreOptions, QueryResult, RelationResult, ScopeWindowResult } from '../../testApi';
 
 const renderLoadMore = (initial: { target: LoadMoreTarget; options?: LoadMoreOptions }) => {
   let latest: () => void = () => {};
@@ -113,6 +113,35 @@ describe('useLoadMore', () => {
     probe.unmount();
     act(() => jest.advanceTimersByTime(500));
     expect(fetchNextPage).not.toHaveBeenCalled();
+  });
+
+  it('advances a relation result without an app-side pagination adapter', () => {
+    const loadMore = jest.fn();
+    const target: RelationResult<Row[]> = {
+      data: [],
+      loadingState: { phase: 'ready' } as never,
+      error: null,
+      hasMore: true,
+      isFetchingMore: false,
+      isPreviousData: false,
+      loadMore,
+      refresh: async () => {}
+    };
+    let advance: () => void = () => {};
+    const Probe = () => {
+      advance = useLoadMore(target, { debounceMs: 1 });
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Probe));
+    });
+    act(() => {
+      advance();
+      jest.advanceTimersByTime(1);
+    });
+    expect(loadMore).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
   });
 });
 

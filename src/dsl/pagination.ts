@@ -43,7 +43,12 @@ export const bridgeWindowPagination = <T>(
 export const useLoadMore = (target: LoadMoreTarget, options?: LoadMoreOptions): (() => void) => {
   const advanceRef = useRef<() => void>(null!);
   advanceRef.current = () => {
-    if ((options?.enabled ?? true) && target.hasNextPage && !target.isFetchingNextPage) target.fetchNextPage();
+    if (!(options?.enabled ?? true)) return;
+    if ('hasMore' in target) {
+      if (target.hasMore && !target.isFetchingMore) target.loadMore();
+      return;
+    }
+    if (target.hasNextPage && !target.isFetchingNextPage) target.fetchNextPage();
   };
   const debouncerRef = useRef<Debouncer<() => void> | null>(null);
   debouncerRef.current ??= new Debouncer(() => advanceRef.current(), { wait: options?.debounceMs ?? 160 });
