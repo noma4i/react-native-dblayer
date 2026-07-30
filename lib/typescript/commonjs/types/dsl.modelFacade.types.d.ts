@@ -304,7 +304,7 @@ export type RowOperation<TStored> = {
     use(): RowOperationState<TStored>;
 };
 export type ModelRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>, TInput = TStored> = {
-    [K in keyof TRelations]: (params: RelationParams<TStored, TRelations[K]>) => Relation<TStored, TRelations[K] extends {
+    [K in keyof TRelations]: (params: RelationParams<TStored, TRelations[K]> | null) => Relation<TStored, TRelations[K] extends {
         remote: GraphqlSingleDefinition<any, any, any, any>;
     } ? TStored | undefined : TStored[], TInput>;
 };

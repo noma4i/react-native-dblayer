@@ -69,7 +69,7 @@ const createLocalResult = <TData>(data: TData, hasData: boolean, hasMore: boolea
 const createNamedRelation = <TStored extends { id: string }, TInput>(
   runtime: FacadeRuntimeModel<TStored, TInput>,
   name: string,
-  params: Record<string, unknown>,
+  params: Record<string, unknown> | null,
   query: ScopeQueryHandle<TStored, Record<string, unknown>> | QueryHandle<TStored, Record<string, unknown>, TStored | undefined> | undefined,
   remoteType: 'connection' | 'list' | 'single' | undefined
 ): Relation<TStored, TStored[] | TStored | undefined, TInput> => {
@@ -100,25 +100,33 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
       },
       count: () => (read() === undefined ? 0 : 1),
       useCount: () => (single.use(params).data === undefined ? 0 : 1),
-      invalidate: () => single.invalidate(params),
+      invalidate: () => {
+        if (params !== null) single.invalidate(params);
+      },
       issueSequence: () => {
         throw new Error('issueSequence requires an ordered relation');
       }
     };
   }
   const base = {
-    read: () => scope.read(params),
+    read: () => (params === null ? [] : scope.read(params)),
     fetch: async () => {
       if (query) await query.fetch(params);
     },
-    seed: (rows: TInput[]) => scope.seed(params, rows),
-    count: () => scope.read(params).length,
+    seed: (rows: TInput[]) => {
+      if (params !== null) scope.seed(params, rows);
+    },
+    count: () => (params === null ? 0 : scope.read(params).length),
     useCount: () => scope.useCount(params),
     invalidate: () => {
+      if (params === null) return;
       if (query) query.invalidate(params);
       else scope.invalidate(params);
     },
-    issueSequence: (field: keyof TStored & string) => scope.issueSequence(params, field)
+    issueSequence: (field: keyof TStored & string) => {
+      if (params === null) throw new Error('issueSequence requires an active relation');
+      return scope.issueSequence(params, field);
+    }
   };
   if (query) {
     return {
@@ -522,7 +530,7 @@ export const defineModelFacade = <
   );
   const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>> = Object.create(null);
   for (const name of Object.keys(config.relations ?? {})) {
-    Reflect.set(relationMethods, name, (params: Record<string, unknown>) =>
+    Reflect.set(relationMethods, name, (params: Record<string, unknown> | null) =>
       createNamedRelation(runtime, name, params, compiledRelations[name], config.relations?.[name]?.remote?.type)
     );
   }

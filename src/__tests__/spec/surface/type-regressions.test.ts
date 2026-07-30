@@ -308,8 +308,10 @@ describe('public type regressions', () => {
       catalog.seed([{ id: 'seed', groupId: '1', title: 'seed' }]);
       void catalog.fetch();
       const pageResult = rows.page({ groupId: '1' }).use();
+      const inactiveData: RowInput[] = rows.page(null).use().data;
       const fetching: boolean = pageResult.isFetchingMore;
       const previous: boolean = pageResult.isPreviousData;
+      void inactiveData;
       void fetching;
       void previous;
     `);
