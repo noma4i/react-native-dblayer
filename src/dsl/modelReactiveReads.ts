@@ -2,11 +2,11 @@ import type { DbReadOptions, DbWhere, Dependency, ModelContext, ModelCore, Proje
 import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
-import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
-import { useCallback, useRef, useSyncExternalStore } from 'react';
-import { getCommitBus, getOperationState } from './configure';
+import { useLiveRead } from '../read/useLiveRead';
+import { useRef } from 'react';
 import { withIdTieBreak } from '../core/ordering';
 import { arraysShallowEqual } from '../utils/arrayEquality';
+import { useRowOperationState } from './rowOperationState';
 
 const EMPTY_ROWS: never[] = [];
 
@@ -23,57 +23,13 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
   const { planes, resolvedRelations } = options.context;
   return {
     pending: function usePending(id) {
-      const key = id == null ? null : String(id);
-      const readPending = useCallback(() => key != null && getOperationState().pendingForRow(options.modelId, key).length > 0, [key]);
-      const subscribePending = useCallback(
-        (listener: () => void) => {
-          if (key == null) return () => {};
-          const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: options.modelId, id: key }]);
-          return () => subscription.unsubscribe();
-        },
-        [key]
-      );
-      return useSyncExternalStore(subscribePending, readPending, readPending);
+      return useRowOperationState<TStored>(options.modelId, id).pending;
     },
     failed: function useFailed(id) {
-      const key = id == null ? null : String(id);
-      const readFailed = useCallback(() => key != null && getOperationState().failedFor(options.modelId, key) !== undefined, [key]);
-      const subscribeFailed = useCallback(
-        (listener: () => void) => {
-          if (key == null) return () => {};
-          const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: options.modelId, id: key }]);
-          return () => subscription.unsubscribe();
-        },
-        [key]
-      );
-      return useSyncExternalStore(subscribeFailed, readFailed, readFailed);
+      return useRowOperationState<TStored>(options.modelId, id).failed;
     },
     unsyncedChanges: function useUnsyncedChanges(id) {
-      const key = id == null ? null : String(id);
-      const cacheRef = useRef<Partial<TStored> | undefined>(undefined);
-      const readChanges = useCallback(() => {
-        if (key == null) return undefined;
-        let merged: Record<string, unknown> | undefined;
-        for (const operation of getOperationState().pendingForRow(options.modelId, key)) {
-          if (operation.intent !== 'patch') continue;
-          if (!operation.patchedValues) continue;
-          merged = { ...(merged ?? {}), ...operation.patchedValues };
-        }
-        const next = merged as Partial<TStored> | undefined;
-        const previous = cacheRef.current;
-        if (previous && next && rowsShallowEqual(previous, next)) return previous;
-        cacheRef.current = next;
-        return next;
-      }, [key]);
-      const subscribeChanges = useCallback(
-        (listener: () => void) => {
-          if (key == null) return () => {};
-          const subscription = getCommitBus().subscribe(listener, [{ kind: 'pending', model: options.modelId, id: key }]);
-          return () => subscription.unsubscribe();
-        },
-        [key]
-      );
-      return useSyncExternalStore(subscribeChanges, readChanges, readChanges);
+      return useRowOperationState<TStored>(options.modelId, id).unsyncedChanges;
     },
     find: ((id: string | null | undefined, readOptions: { require?: readonly string[] } & ProjectionOptions<TStored, Record<string, unknown>> = {}) => {
       const required = readOptions?.require ?? [];

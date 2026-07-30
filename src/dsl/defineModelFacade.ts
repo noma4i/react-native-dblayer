@@ -30,6 +30,7 @@ import { defineModelRuntime } from './defineModelRuntime';
 import { useRelationLoadMore } from './pagination';
 import { readModelRelation } from '../core/relations';
 import { registerBootValidation } from './bootValidations';
+import { readRowOperationState, useRowOperationState } from './rowOperationState';
 
 const localLoadingState = (hasData: boolean): LoadingState => ({
   phase: 'ready',
@@ -191,16 +192,8 @@ const createOperation = <TStored extends { id: string; updatedAt?: string | null
   runtime: FacadeRuntimeModel<TStored, TInput>,
   id: string | null | undefined
 ): RowOperation<TStored> => ({
-  read: () => ({
-    pending: false,
-    failed: false,
-    unsyncedChanges: undefined
-  }),
-  use: () => ({
-    pending: runtime.use.pending(id),
-    failed: runtime.use.failed(id),
-    unsyncedChanges: runtime.use.unsyncedChanges(id)
-  })
+  read: () => readRowOperationState<TStored>(runtime.modelId, id),
+  use: () => useRowOperationState<TStored>(runtime.modelId, id)
 });
 
 const createAction = <TStored extends { id: string; updatedAt?: string | null }, TInput, TDefinition extends GraphqlActionDefinition<any, any, any, any, any>>(
@@ -211,26 +204,58 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
   if ((definition.mode ?? 'request') !== 'request') {
     throw new Error(`${name}: durable and poll action modes require their dedicated runtime compiler`);
   }
-  const optimistic = definition.optimistic
-    ? {
+  const optimistic = (() => {
+    if (definition.kind === 'insert' && definition.optimistic) {
+      const insert = definition.optimistic;
+      return {
         model: runtime,
         build: (input: Parameters<TDefinition['variables']>[0], context: { tempId: string | null; operationId: string }) => {
           if (context.tempId === null) throw new Error(`${name}: insert action requires a temp id`);
-          return definition.optimistic!.build(input, { ...context, tempId: context.tempId });
+          return insert.build(input, { ...context, tempId: context.tempId });
         },
-        selectServerNode: definition.optimistic.select,
-        existingTempId: definition.optimistic.existingTempId,
-        failure: definition.optimistic.failure,
-        onFailurePatch: definition.optimistic.onFailurePatch,
-        onRetryPatch: definition.optimistic.onRetryPatch,
-        correlate: definition.optimistic.correlate
-      }
-    : undefined;
+        selectServerNode: definition.select,
+        existingTempId: insert.existingTempId,
+        failure: insert.failure,
+        onFailurePatch: insert.onFailurePatch,
+        onRetryPatch: insert.onRetryPatch,
+        correlate: insert.correlate
+      };
+    }
+    if (definition.kind === 'update' && definition.optimistic) {
+      return {
+        method: 'patch' as const,
+        model: runtime,
+        selectId: definition.optimistic.id,
+        selectPatch: definition.optimistic.patch
+      };
+    }
+    if (definition.kind === 'destroy' && definition.optimistic === true) {
+      return {
+        method: 'destroy' as const,
+        model: runtime,
+        selectId: definition.id
+      };
+    }
+    return undefined;
+  })();
+  const extract =
+    definition.kind === 'update'
+      ? ({ data }: { data: Parameters<typeof definition.select>[0] }) => {
+          const row = definition.select(data);
+          return row == null ? [] : [{ into: runtime, rows: [row] }];
+        }
+      : definition.kind === 'custom' && definition.select
+        ? ({ data }: { data: Parameters<NonNullable<typeof definition.select>>[0] }) => {
+            const row = definition.select?.(data);
+            return row == null ? [] : [{ into: runtime, rows: [row] }];
+          }
+        : undefined;
   const mutation = runtime.mutation(name, {
     document: definition.document,
     result: definition.result,
     mapInput: definition.variables,
     optimistic,
+    extract,
     dedupe: definition.dedupe,
     once: definition.once,
     invalidate: definition.invalidate,

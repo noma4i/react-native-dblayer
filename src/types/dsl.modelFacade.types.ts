@@ -76,14 +76,21 @@ export type ActionMode = 'request' | 'durable' | 'poll';
 export type ActionContext = { tempId: string | null; operationId: string };
 export type OptimisticContext = { tempId: string; operationId: string };
 
-export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = {
+type GraphqlActionBase<TData, TVariables, TInput, TResultKey extends keyof TData & string> = {
   result: TResultKey;
   variables(input: TInput, context: ActionContext): TVariables;
-  kind: ActionKind;
   mode?: ActionMode;
+  dedupe?: false | { key(input: TInput): string | null };
+  once?: boolean;
+  invalidate?(context: { input: TInput; data: TData }): void;
+  track?(context: { input: TInput; data: TData }): void;
+};
+
+type InsertAction<TData, TInput, TNode> = {
+  kind: 'insert';
+  select(data: TData): TNode | null | undefined;
   optimistic?: {
     build(input: TInput, context: OptimisticContext): Record<string, unknown> & { id: string };
-    select(data: TData): TNode | null | undefined;
     existingTempId?(input: TInput): string | null;
     failure?: 'keep' | 'rollback';
     onFailurePatch?(input: TInput): Record<string, unknown>;
@@ -94,11 +101,35 @@ export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends k
       createdAtWindowMs?: number;
     };
   };
-  dedupe?: false | { key(input: TInput): string | null };
-  once?: boolean;
-  invalidate?(context: { input: TInput; data: TData }): void;
-  track?(context: { input: TInput; data: TData }): void;
 };
+
+type UpdateAction<TData, TInput, TNode> = {
+  kind: 'update';
+  select(data: TData): TNode | null | undefined;
+  optimistic?: {
+    id(input: TInput): string;
+    patch(input: TInput): Record<string, unknown>;
+  };
+};
+
+type DestroyAction<TInput> = {
+  kind: 'destroy';
+  id(input: TInput): string;
+  optimistic?: boolean;
+};
+
+type CustomAction<TData, TNode> = {
+  kind: 'custom';
+  select?(data: TData): TNode | null | undefined;
+};
+
+export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionBase<
+  TData,
+  TVariables,
+  TInput,
+  TResultKey
+> &
+  (InsertAction<TData, TInput, TNode> | UpdateAction<TData, TInput, TNode> | DestroyAction<TInput> | CustomAction<TData, TNode>);
 
 export type GraphqlActionDefinition<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionOptions<
   TData,

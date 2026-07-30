@@ -62,14 +62,14 @@ const createMessageModel = (suffix: string) =>
         result: 'send',
         variables: input => ({ input }),
         kind: 'insert',
+        select: data => data.send.message,
         optimistic: {
           build: (input, context) => ({
             id: context.tempId,
             chatId: input.chatId,
             body: input.body,
             status: 'sending'
-          }),
-          select: data => data.send.message
+          })
         }
       })
     },

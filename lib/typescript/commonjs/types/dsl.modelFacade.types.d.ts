@@ -79,26 +79,10 @@ export type OptimisticContext = {
     tempId: string;
     operationId: string;
 };
-export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = {
+type GraphqlActionBase<TData, TVariables, TInput, TResultKey extends keyof TData & string> = {
     result: TResultKey;
     variables(input: TInput, context: ActionContext): TVariables;
-    kind: ActionKind;
     mode?: ActionMode;
-    optimistic?: {
-        build(input: TInput, context: OptimisticContext): Record<string, unknown> & {
-            id: string;
-        };
-        select(data: TData): TNode | null | undefined;
-        existingTempId?(input: TInput): string | null;
-        failure?: 'keep' | 'rollback';
-        onFailurePatch?(input: TInput): Record<string, unknown>;
-        onRetryPatch?(input: TInput): Record<string, unknown>;
-        correlate?: {
-            fields: readonly string[];
-            match?: (candidate: Record<string, unknown>, incoming: Record<string, unknown>) => boolean;
-            createdAtWindowMs?: number;
-        };
-    };
     dedupe?: false | {
         key(input: TInput): string | null;
     };
@@ -112,6 +96,42 @@ export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends k
         data: TData;
     }): void;
 };
+type InsertAction<TData, TInput, TNode> = {
+    kind: 'insert';
+    select(data: TData): TNode | null | undefined;
+    optimistic?: {
+        build(input: TInput, context: OptimisticContext): Record<string, unknown> & {
+            id: string;
+        };
+        existingTempId?(input: TInput): string | null;
+        failure?: 'keep' | 'rollback';
+        onFailurePatch?(input: TInput): Record<string, unknown>;
+        onRetryPatch?(input: TInput): Record<string, unknown>;
+        correlate?: {
+            fields: readonly string[];
+            match?: (candidate: Record<string, unknown>, incoming: Record<string, unknown>) => boolean;
+            createdAtWindowMs?: number;
+        };
+    };
+};
+type UpdateAction<TData, TInput, TNode> = {
+    kind: 'update';
+    select(data: TData): TNode | null | undefined;
+    optimistic?: {
+        id(input: TInput): string;
+        patch(input: TInput): Record<string, unknown>;
+    };
+};
+type DestroyAction<TInput> = {
+    kind: 'destroy';
+    id(input: TInput): string;
+    optimistic?: boolean;
+};
+type CustomAction<TData, TNode> = {
+    kind: 'custom';
+    select?(data: TData): TNode | null | undefined;
+};
+export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionBase<TData, TVariables, TInput, TResultKey> & (InsertAction<TData, TInput, TNode> | UpdateAction<TData, TInput, TNode> | DestroyAction<TInput> | CustomAction<TData, TNode>);
 export type GraphqlActionDefinition<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionOptions<TData, TVariables, TInput, TResultKey, TNode> & {
     type: 'action';
     document: TypedDocumentNode<TData, TVariables>;

@@ -73,13 +73,13 @@ const createGraphModels = (suffix: string) => {
         result: 'createChat',
         variables: input => ({ input }),
         kind: 'insert',
+        select: data => data.createChat.chat,
         optimistic: {
           build: (input, context) => ({
             id: context.tempId,
             ownerId: input.ownerId,
             title: input.title
-          }),
-          select: data => data.createChat.chat
+          })
         }
       })
     },
