@@ -147,6 +147,38 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('accepts codegen-shaped nullable relay arrays on the connection shorthand', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, f } from '${entry}';
+      type Node = { id: string; label: string };
+      type CodegenConnection = {
+        nodes: (Node | null)[] | null;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null } | null;
+      };
+      type CodegenEdges = {
+        edges: ({ node: Node | null } | null)[] | null;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null } | null;
+      };
+      const rows = defineModel({
+        id: 'nullable-connection',
+        name: 'NullableConnection',
+        fields: { id: f.id(), label: f.str() },
+        scopes: { list: { sort: 'server-order' } }
+      });
+      rows.query<{ list: CodegenConnection; alt: CodegenEdges }, Record<string, never>, { group: string }, { id: string; label: string }>('nullable-connection', {
+        document: {} as never,
+        connection: data => data.list,
+        into: rows.scopes.list
+      });
+      rows.query<{ list: CodegenConnection; alt: CodegenEdges }, Record<string, never>, { group: string }, { id: string; label: string }>('nullable-edges', {
+        document: {} as never,
+        connection: data => data.alt,
+        into: rows.scopes.list
+      });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('accepts null as a disabled query scope for reactive and imperative reads', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';

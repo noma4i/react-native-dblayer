@@ -11,11 +11,11 @@ export type PageInfoLike = {
 };
 /** A relay-style connection or plain node list, as tolerated by the query `page`/`select` seams. */
 export type ConnectionLike = {
-    nodes?: unknown[];
-    edges?: Array<{
+    nodes?: ReadonlyArray<unknown> | null;
+    edges?: ReadonlyArray<({
         node?: unknown;
-    } & Record<string, unknown>>;
-    pageInfo?: PageInfoLike;
+    } & Record<string, unknown>) | null | undefined> | null;
+    pageInfo?: PageInfoLike | null;
 };
 /** Scope landing destination for query results. */
 export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & {

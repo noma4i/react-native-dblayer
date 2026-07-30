@@ -6,7 +6,11 @@ import type { WindowPaginationBridge } from './dsl.pagination.types';
 /** GraphQL pageInfo subset the query DSL understands, in both pagination directions. */
 export type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
 /** A relay-style connection or plain node list, as tolerated by the query `page`/`select` seams. */
-export type ConnectionLike = { nodes?: unknown[]; edges?: Array<{ node?: unknown } & Record<string, unknown>>; pageInfo?: PageInfoLike };
+export type ConnectionLike = {
+  nodes?: ReadonlyArray<unknown> | null;
+  edges?: ReadonlyArray<({ node?: unknown } & Record<string, unknown>) | null | undefined> | null;
+  pageInfo?: PageInfoLike | null;
+};
 /** Scope landing destination for query results. */
 export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: string }, TScope>;
 /** Model landing destination for query results (row reads only, no scope membership). */

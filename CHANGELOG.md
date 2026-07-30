@@ -1,5 +1,12 @@
 # Changelog
 
+## 9.0.0-beta.14 - 2026-07-30
+
+### Fixed
+
+- `ConnectionLike` accepts codegen-shaped nullable relay payloads - `nodes: (T | null)[] | null`, `edges: (Edge | null)[] | null`, `pageInfo: ... | null` - so the `connection:` shorthand types against generated GraphQL responses without casts; a nullable edge element no longer crashes node extraction.
+
+
 ## 9.0.0-beta.13 - 2026-07-30
 
 ### Added

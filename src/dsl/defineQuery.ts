@@ -63,8 +63,8 @@ const nodesOf = (value: unknown): unknown[] => {
   if (Array.isArray(value)) return value;
   if (!isRecord(value)) return value == null ? [] : [value];
   const connection = value as ConnectionLike;
-  if (connection.nodes) return connection.nodes;
-  if (connection.edges) return connection.edges.flatMap(edge => (edge.node == null ? [] : [edge.node]));
+  if (connection.nodes) return [...connection.nodes];
+  if (connection.edges) return connection.edges.flatMap(edge => (edge?.node == null ? [] : [edge.node]));
   return [value];
 };
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
