@@ -325,10 +325,12 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
           if (!refs.has(id)) inputs.delete(id);
         }
       },
-      use: (input: ActionInput<TDefinition>) => {
-        const id = idFor(input);
-        inputs.set(id, input);
+      use: (input: ActionInput<TDefinition> | null) => {
+        const id = input == null ? null : idFor(input);
+        if (id) inputs.set(id, input!);
+        const phase = poller.usePhase(id ?? `${name}:inactive`);
         useEffect(() => {
+          if (!id) return;
           retain(id);
           const detach = poller.attach(id);
           return () => {
@@ -337,8 +339,9 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
           };
         }, [id]);
         return {
-          ...poller.usePhase(id),
+          ...(id ? phase : { phase: 'idle' as const, attempts: 0 }),
           refresh: async () => {
+            if (!id || input == null) return;
             inputs.set(id, input);
             await poller.refresh(id, { resetBudget: true });
           }

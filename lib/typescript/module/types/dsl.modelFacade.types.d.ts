@@ -290,7 +290,7 @@ export type DurableModelAction<TInput> = {
 };
 export type PollModelAction<TInput> = {
     run(input: TInput): Promise<void>;
-    use(input: TInput): ModelStatusPollerPhase & {
+    use(input: TInput | null): ModelStatusPollerPhase & {
         refresh(): Promise<void>;
     };
 };

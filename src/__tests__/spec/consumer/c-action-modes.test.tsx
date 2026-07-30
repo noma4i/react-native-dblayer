@@ -223,6 +223,11 @@ describe('action modes', () => {
     });
     Job.insert({ id: 'job-1', label: 'render', status: 'pending' });
 
+    const inactive = renderCounted(() => Job.actions.status.use(null));
+    expect(inactive.result()).toMatchObject({ phase: 'idle', attempts: 0 });
+    expect(transport.calls).toHaveLength(0);
+    inactive.unmount();
+
     const reader = renderCounted(() => Job.actions.status.use({ id: 'job-1' }));
     const sibling = renderCounted(() => Job.actions.status.use({ id: 'job-1' }));
     await settle();

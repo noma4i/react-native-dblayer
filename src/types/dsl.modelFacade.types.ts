@@ -345,7 +345,7 @@ export type DurableModelAction<TInput> = {
 
 export type PollModelAction<TInput> = {
   run(input: TInput): Promise<void>;
-  use(input: TInput): ModelStatusPollerPhase & { refresh(): Promise<void> };
+  use(input: TInput | null): ModelStatusPollerPhase & { refresh(): Promise<void> };
 };
 
 export type RowOperationState<TStored> = {
