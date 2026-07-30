@@ -1,6 +1,7 @@
 import type { DbGraphQLDocument } from './db.types';
 import type { WriteOp } from './core.apply.journal.types';
 import type { ExtractSink } from './dsl.query.types';
+import type { exactMutationVariables } from '../dsl/mutationVariables';
 /** Non-null payload selected by a mutation's declared top-level `result` field. */
 export type MutationPayload<TData> = NonNullable<TData[keyof TData]>;
 export type DefinedMutation<TData, TInput> = {
@@ -100,6 +101,8 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
     result: Extract<keyof TData, string>;
     /** Build transport variables from the mutation input and its optimistic operation context. */
     mapInput?: (input: TInput, ctx: OptimisticCtx) => Record<string, unknown>;
+    /** Internal model-action builder for an exact generated GraphQL variables object. */
+    [exactMutationVariables]?: (input: TInput, ctx: OptimisticCtx) => Record<string, unknown>;
     /** Optimistic local write applied before the network call, undone on error/rollback. */
     optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | RespondOptimistic<TData, TInput, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
     /** Cross-model sideloads from the response, applied in the same transaction as the commit. */

@@ -50,7 +50,14 @@ type MessageCreatedData = {
 };
 
 type CatalogData = {
-  catalog: MessageInput[];
+  catalog: Array<MessageInput | null>;
+};
+
+type EdgeThreadData = {
+  messages: {
+    edges: Array<{ node?: MessageInput | null } | null> | null;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
 };
 
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
@@ -58,6 +65,7 @@ const sendDocument = { kind: 'Document', definitions: [] } as unknown as TypedDo
 const messageDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageData, MessageVariables>;
 const messageCreatedDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageCreatedData, never>;
 const catalogDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<CatalogData, Record<string, never>>;
+const edgeThreadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<EdgeThreadData, ThreadVariables>;
 
 const MessageSchema = defineShape<MessageInput>()({
   chatId: f.id(),
@@ -85,7 +93,7 @@ const createMessageModel = (suffix: string) =>
         })
       }
     },
-    actions: {
+    actions: () => ({
       send: gql.action(sendDocument, {
         result: 'send',
         variables: input => ({ input }),
@@ -100,7 +108,7 @@ const createMessageModel = (suffix: string) =>
           })
         }
       })
-    },
+    }),
     events: {
       messageCreated: gql.live(messageCreatedDocument, {
         handler: payload => ({ upsert: payload.message })
@@ -149,7 +157,7 @@ describe('model surface', () => {
     reader.unmount();
   });
 
-  it('uses the same Relation contract for local named, where, and id-list reads', () => {
+  it('uses the same Relation contract for local named, where, and id-list reads', async () => {
     configureRuntime(createMockTransport());
     const Message = createMessageModel('LocalMatrix');
     const built = Message.build({ id: 'built', chatId: 'chat-1', body: 'built', status: 'sent' });
@@ -163,6 +171,11 @@ describe('model surface', () => {
     ]);
 
     const thread = Message.thread({ chatId: 'chat-1' });
+    const inactiveThread = Message.thread(null);
+    expect(inactiveThread.read()).toEqual([]);
+    expect(inactiveThread.count()).toBe(0);
+    inactiveThread.invalidate();
+    expect(() => inactiveThread.issueSequence('body')).toThrow('requires an active relation');
     expect(thread.count()).toBe(2);
     expect(Message.where({ chatId: 'chat-1' }).count()).toBe(2);
     expect(Message.byIds(['missing', 'm1']).read().map(row => row.id)).toEqual(['m1']);
@@ -192,6 +205,10 @@ describe('model surface', () => {
       Message.where({ chatId: 'chat-1' }).invalidate();
       Message.byIds(['m1', 'm2']).invalidate();
       thread.invalidate();
+      await expect(Message.where({ chatId: 'chat-3' }).fetch()).resolves.toBeUndefined();
+      await expect(Message.byIds([]).fetch()).resolves.toBeUndefined();
+      Message.where({ chatId: 'chat-3' }).seed([{ id: 'm4', chatId: 'chat-3', body: 'fourth', status: 'sent' }]);
+      Message.byIds([]).seed([{ id: 'm5', chatId: 'chat-4', body: 'fifth', status: 'sent' }]);
     } finally {
       whereReader.unmount();
       whereCount.unmount();
@@ -249,6 +266,7 @@ describe('model surface', () => {
         data: {
           catalog: [
             { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' },
+            null,
             { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' }
           ]
         } as TData
@@ -262,7 +280,8 @@ describe('model surface', () => {
           sort: 'server-order',
           remote: gql.list(catalogDocument, {
             variables: () => ({}),
-            select: data => data.catalog
+            select: data => data.catalog,
+            map: node => ({ ...node, body: node.body.toUpperCase() })
           })
         }
       }
@@ -271,7 +290,107 @@ describe('model surface', () => {
 
     await relation.fetch();
 
-    expect(relation.read().map(row => row.id)).toEqual(['m1', 'm2']);
+    expect(relation.read().map(row => row.body)).toEqual(['FIRST', 'SECOND']);
+  });
+
+  it('keeps a null remote list empty', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: { catalog: [{ id: 'plain-1', chatId: 'chat-1', body: 'plain', status: 'sent' }] } as TData
+      })
+    });
+    configureRuntime(transport);
+    const Message = defineModel('SpecNullMessageCatalog', {
+      schema: MessageSchema,
+      relations: {
+        catalog: {
+          remote: gql.list(catalogDocument, {
+            variables: () => ({}),
+            select: () => null
+          })
+        },
+        plain: {
+          remote: gql.list(catalogDocument, {
+            variables: () => ({}),
+            select: data => data.catalog
+          })
+        }
+      }
+    });
+
+    await Message.catalog({}).fetch();
+    await Message.plain({}).fetch();
+
+    expect(Message.catalog({}).read()).toEqual([]);
+    expect(Message.plain({}).read().map(row => row.id)).toEqual(['plain-1']);
+  });
+
+  it('lands mapped connection edges and advances with a declared cursor', async () => {
+    let page = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        page += 1;
+        return {
+          data: {
+            messages:
+              page === 1
+                ? {
+                    edges: [
+                      null,
+                      { node: null },
+                      { node: { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' } }
+                    ],
+                    pageInfo: { hasNextPage: true, endCursor: 'edge-1' }
+                  }
+                : {
+                    edges: [{ node: { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' } }],
+                    pageInfo: { hasNextPage: false, endCursor: null }
+                  }
+          } as TData
+        };
+      }
+    });
+    configureRuntime(transport);
+    const Message = defineModel('SpecEdgeConnectionMessage', {
+      schema: MessageSchema,
+      relations: {
+        thread: {
+          by: { chatId: 'chatId' },
+          sort: 'server-order',
+          remote: gql.connection(edgeThreadDocument, {
+            variables: (params: { chatId: string; after?: string | null }) => params,
+            connection: data => data.messages,
+            map: node => ({ ...node, body: node.body.toUpperCase() }),
+            cursor: (_data, connection) => connection.pageInfo.endCursor
+          })
+        }
+      }
+    });
+    const reader = renderCountedInProvider(() => Message.thread({ chatId: 'chat-1' }).use({ loadMoreDebounceMs: 0 }));
+
+    await settleUntil(() => reader.result() !== undefined && reader.result().loadingState.isReady);
+    expect(reader.result().data.map(row => row.body)).toEqual(['FIRST']);
+    act(() => reader.result().loadMore());
+    await settleUntil(() => reader.result().data.length === 2, 50, { macro: true });
+    expect(reader.result().data.map(row => row.body)).toEqual(['FIRST', 'SECOND']);
+    reader.unmount();
+
+    const EmptyMessage = defineModel('SpecEmptyEdgeConnectionMessage', {
+      schema: MessageSchema,
+      relations: {
+        thread: {
+          remote: gql.connection(edgeThreadDocument, {
+            variables: (params: { chatId: string }) => params,
+            connection: () => ({
+              edges: null,
+              pageInfo: { hasNextPage: false, endCursor: null }
+            })
+          })
+        }
+      }
+    });
+    await EmptyMessage.thread({ chatId: 'chat-1' }).fetch();
+    expect(EmptyMessage.thread({ chatId: 'chat-1' }).read()).toEqual([]);
   });
 
   it('exposes one immutable relation for snapshot and reactive local reads', () => {
@@ -353,6 +472,8 @@ describe('model surface', () => {
     expect(reader.result().data).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
     expect(details.read()).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
     expect(details.count()).toBe(1);
+    await details.fetch();
+    details.seed([{ id: 'm2', chatId: 'chat-2', body: 'seeded', status: 'sent' }]);
     expect(() => details.issueSequence('body')).toThrow('requires an ordered relation');
     expect(reader.result().hasMore).toBe(false);
     reader.result().loadMore();

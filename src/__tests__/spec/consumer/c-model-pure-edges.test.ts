@@ -123,12 +123,13 @@ describe('model landing graph edges', () => {
     const root = 'LandingGraphRootEdges';
     const child = 'LandingGraphChildEdges';
     const shared = { id: 'child-1' };
+    const childRef = { modelId: child, find: () => undefined, all: () => [], where: () => [] };
     registerModelLandingHost(child, createLandingHost(child));
     registerModelLandingHost(
       root,
       createLandingHost(root, () => ({
         many: { model: { key: child }, select: input => (typeof input === 'string' ? null : [shared, shared, null]) },
-        one: { model: { key: child }, select: () => shared }
+        one: { model: childRef, select: () => shared }
       }))
     );
     const planRoot = jest.fn(

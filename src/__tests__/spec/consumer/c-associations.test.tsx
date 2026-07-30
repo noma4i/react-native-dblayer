@@ -104,6 +104,8 @@ describe('associations', () => {
     expect(Reflect.get(Message, Symbol.toStringTag)).toBeUndefined();
     expect(Reflect.get(Message, 'missingAssociation')).toBeUndefined();
     Message.author('message-1').invalidate();
+    void Message.author('message-1').fetch();
+    expect(() => Message.author('message-1').seed([])).toThrow('seed requires a model relation');
     expect(() => Message.author('message-1').issueSequence('username')).toThrow('requires a named relation');
 
     const messages = renderCounted(() => Chat.messages('chat-1').use());
@@ -153,5 +155,21 @@ describe('associations', () => {
         statics: () => ({ find: () => undefined })
       })
     ).toThrow('static find collides with the model surface');
+  });
+
+  it('resolves every lazy target read and rejects an unregistered target', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const User = defineModel('SpecLazyTargetReads', {
+      schema: UserSchema
+    });
+    User.insertMany([
+      { id: 'user-1', username: 'one' },
+      { id: 'user-2', username: 'two' }
+    ]);
+    const target = modelRef<UserInput>('SpecLazyTargetReads');
+
+    expect(target.all().map(row => row.id)).toEqual(['user-1', 'user-2']);
+    expect(target.where({ username: 'two' }).map(row => row.id)).toEqual(['user-2']);
+    expect(() => modelRef<UserInput>('SpecMissingLazyTarget').find('user-1')).toThrow('No model registered for SpecMissingLazyTarget');
   });
 });

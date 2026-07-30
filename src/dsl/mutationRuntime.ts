@@ -15,6 +15,7 @@ import { getApplyRuntime, getDbRuntimeConfig, getOperationState } from './config
 import { isMethodOptimistic, isRespondOptimistic } from './mutationConfiguration';
 import { registerMutationCorrelator } from './mutationCorrelation';
 import { createMutationResponder } from './mutationResponder';
+import { exactMutationVariables } from './mutationVariables';
 
 /** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
@@ -27,6 +28,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
   config: MutationConfig<TData, TInput, TStored, TNode>,
   definitionId: string
 ): Pick<DefinedMutation<TData, TInput>, 'run' | 'retry' | 'discard'> => {
+  const mapExactVariables = config[exactMutationVariables];
   const runtime: MutationRuntimeContext<TData, TInput, TStored, TNode> = { config, optimisticConfig: config.optimistic, ...createMutationResponder(config) };
   if (config.optimistic && !isMethodOptimistic(config.optimistic) && !isRespondOptimistic(config.optimistic) && config.optimistic.correlate) {
     registerMutationCorrelator(config.optimistic.model.modelId, definitionId, config.optimistic.correlate);
@@ -173,7 +175,12 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       while (true) {
         if (!generationFence.isCurrent()) return null;
         try {
-          data = responseDataOrThrow(await getDbRuntimeConfig().transport.mutation({ mutation: config.document, variables: { input: config.mapInput?.(input, operationContext) ?? input } }));
+          data = responseDataOrThrow(
+            await getDbRuntimeConfig().transport.mutation({
+              mutation: config.document,
+              variables: mapExactVariables ? mapExactVariables(input, operationContext) : { input: config.mapInput?.(input, operationContext) ?? input }
+            })
+          );
           break;
         } catch (error) {
           if (!generationFence.isCurrent()) return null;

@@ -47,8 +47,9 @@ describe('action modes', () => {
     const calls: string[] = [];
     const transport = createMockTransport({
       mutation: async <TData,>(operation: Parameters<DbTransport['mutation']>[0]) => {
-        const variables = operation.variables as { input: StartVariables['input'] | StartVariables };
-        const input = 'input' in variables.input ? variables.input.input : variables.input;
+        const variables = operation.variables as StartVariables;
+        expect(variables).toEqual({ input: { label: expect.any(String) } });
+        const input = variables.input;
         if (input.label === 'fail') throw new Error('rejected');
         return {
           data: {
@@ -226,6 +227,7 @@ describe('action modes', () => {
     const inactive = renderCounted(() => Job.actions.status.use(null));
     expect(inactive.result()).toMatchObject({ phase: 'idle', attempts: 0 });
     expect(transport.calls).toHaveLength(0);
+    await inactive.result().refresh();
     inactive.unmount();
 
     const reader = renderCounted(() => Job.actions.status.use({ id: 'job-1' }));
@@ -250,5 +252,28 @@ describe('action modes', () => {
     expect(transport.calls).toHaveLength(3);
     reader.unmount();
     sibling.unmount();
+  });
+
+  it('rejects a poll action without a readable id', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const Job = defineModel('SpecPollMissingIdJob', {
+      schema: JobSchema,
+      actions: {
+        status: gql.action(statusDocument, {
+          result: 'jobStatus',
+          variables: input => input,
+          kind: 'update',
+          mode: 'poll',
+          id: () => undefined as never,
+          select: data => ({ status: data.jobStatus.status }),
+          poll: {
+            intervalMs: 10,
+            maxAttempts: 1
+          }
+        })
+      }
+    });
+
+    await expect(Job.actions.status.run({ id: 'missing' })).rejects.toThrow('action requires id');
   });
 });

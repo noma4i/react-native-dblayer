@@ -39,6 +39,7 @@ import { readRowOperationState, useRowOperationState } from './rowOperationState
 import { getInternalModelHandle, registerInternalModelHandle } from '../core/internalHandles';
 import { scalarFieldCodecs } from '../schema/fieldCodec';
 import { useEffect } from 'react';
+import { exactMutationVariables } from './mutationVariables';
 
 const localLoadingState = (hasData: boolean): LoadingState => ({
   phase: 'ready',
@@ -394,20 +395,24 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
             return row == null ? [] : [{ into: runtime, rows: [row] }];
           }
         : undefined;
-  const mutation = runtime.mutation(name, {
+  const mutationConfig = {
     document: definition.document,
     result: definition.result,
-    mapInput: definition.variables,
+    [exactMutationVariables]: definition.variables,
     optimistic,
     extract,
     dedupe: definition.dedupe,
     once: definition.once,
     onMutate: definition.before,
-    onCommit: definition.after ? (data, context) => definition.after?.({ input: context.input, data }) : undefined,
+    onCommit: definition.after
+      ? (data: Parameters<NonNullable<TDefinition['after']>>[0]['data'], context: { input: ActionInput<TDefinition> }) =>
+          definition.after?.({ input: context.input, data })
+      : undefined,
     onError: definition.error,
     invalidate: definition.invalidate,
     track: definition.track
-  });
+  };
+  const mutation = runtime.mutation(name, mutationConfig);
   return {
     run: (input: ActionInput<TDefinition>) => mutation.run(input) as Promise<ActionPayload<TDefinition> | null>,
     retry: tempId => mutation.retry(tempId) as Promise<ActionPayload<TDefinition> | null>,

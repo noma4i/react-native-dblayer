@@ -105,6 +105,18 @@ describe('waitForRow', () => {
     await expect(waitForRow(Rows, 'r-1', { timeoutMs: 1000 })).resolves.toMatchObject({ id: 'r-1', label: 'here' });
   });
 
+  it('keys a deferred public model waiter by the facade key', async () => {
+    setupSpecRuntime();
+    const Rows = defineModel('facade-deferred-waiter-rows', {
+      schema: defineShape<{ id: string; label: string }>()({ label: f.str() })
+    });
+    const pending = waitForRow(Rows, 'r-1', { timeoutMs: 1000 });
+
+    Rows.insert({ id: 'r-1', label: 'arrived' });
+
+    await expect(pending).resolves.toMatchObject({ id: 'r-1', label: 'arrived' });
+  });
+
   it('resolves once the row appears later', async () => {
     setupSpecRuntime();
     const rows = createRows('Later');
