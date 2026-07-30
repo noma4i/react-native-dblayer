@@ -41,7 +41,7 @@ export const bridgeWindowPagination = <T>(
  * @returns Stable callback for the list footer; safe to call on every end-reached event.
  */
 export const useLoadMore = (target: LoadMoreTarget, options?: LoadMoreOptions): (() => void) => {
-  const advanceRef = useRef<() => void>(() => {});
+  const advanceRef = useRef<() => void>(null!);
   advanceRef.current = () => {
     if ((options?.enabled ?? true) && target.hasNextPage && !target.isFetchingNextPage) target.fetchNextPage();
   };

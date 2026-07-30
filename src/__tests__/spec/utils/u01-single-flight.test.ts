@@ -107,6 +107,60 @@ describe('createSingleFlight', () => {
 });
 
 describe('createThrottledSingleFlight', () => {
+  it('shares one in-flight execution and suppresses another call inside the success interval', async () => {
+    const flight = deferred<string>();
+    const fn = jest.fn(() => flight.promise);
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 60_000 });
+
+    const first = throttled();
+    const second = throttled();
+    expect(second).toBe(first);
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    flight.resolve('value');
+    await expect(first).resolves.toBe('value');
+    await expect(throttled()).resolves.toBeUndefined();
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the default force flag to bypass the success interval', async () => {
+    const fn = jest.fn((_options: { force: boolean }) => Promise.resolve('value'));
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 60_000 });
+
+    await expect(throttled({ force: false })).resolves.toBe('value');
+    await expect(throttled({ force: false })).resolves.toBeUndefined();
+    await expect(throttled({ force: true })).resolves.toBe('value');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses a custom force predicate for non-record arguments', async () => {
+    const fn = jest.fn((force: boolean) => Promise.resolve(force));
+    const isForced = jest.fn((force: boolean) => force);
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 60_000, isForced });
+
+    await expect(throttled(false)).resolves.toBe(false);
+    await expect(throttled(false)).resolves.toBeUndefined();
+    await expect(throttled(true)).resolves.toBe(true);
+    expect(isForced).toHaveBeenCalledTimes(3);
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('swallows asynchronous and synchronous failures and permits a later retry', async () => {
+    const fn = jest
+      .fn<Promise<string>, []>()
+      .mockRejectedValueOnce(new Error('async failure'))
+      .mockImplementationOnce(() => {
+        throw new Error('sync failure');
+      })
+      .mockResolvedValueOnce('recovered');
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 60_000 });
+
+    await expect(throttled()).resolves.toBeUndefined();
+    await expect(throttled()).resolves.toBeUndefined();
+    await expect(throttled()).resolves.toBe('recovered');
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
   it('resetOnRuntimeReset: a runtime reset clears the throttle window and the in-flight slot', async () => {
     const storage = createMemoryPlane();
     const transport = createMockTransport();
@@ -122,5 +176,16 @@ describe('createThrottledSingleFlight', () => {
 
     await expect(throttled()).resolves.toBe('value');
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('without reset registration, a runtime reset preserves the current throttle window', async () => {
+    setupSpecRuntime();
+    const fn = jest.fn(() => Promise.resolve('value'));
+    const throttled = createThrottledSingleFlight(fn, { minIntervalMs: 60_000 });
+
+    await expect(throttled()).resolves.toBe('value');
+    resetRuntime();
+    await expect(throttled()).resolves.toBeUndefined();
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });

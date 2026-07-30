@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { useLoadMore } from '../../legacyTestApi';
-import type { LoadMoreTarget, LoadMoreOptions } from '../../legacyTestApi';
+import { useLoadMore, useRelationLoadMore } from '../../legacyTestApi';
+import type { LoadMoreTarget, LoadMoreOptions, QueryResult, ScopeWindowResult } from '../../legacyTestApi';
 
 const renderLoadMore = (initial: { target: LoadMoreTarget; options?: LoadMoreOptions }) => {
   let latest: () => void = () => {};
@@ -20,6 +20,40 @@ const renderLoadMore = (initial: { target: LoadMoreTarget; options?: LoadMoreOpt
     unmount: () => act(() => root.unmount())
   };
 };
+
+type Row = { id: string };
+type RelationProps = {
+  window: ScopeWindowResult<Row>;
+  query: Pick<QueryResult<unknown>, 'hasNextPage' | 'isFetchingNextPage' | 'fetchNextPage'>;
+  options?: LoadMoreOptions;
+};
+
+const renderRelationLoadMore = (initial: RelationProps) => {
+  let latest: () => void = () => {};
+  const Probe = ({ window, query, options }: RelationProps) => {
+    latest = useRelationLoadMore(window, query, options);
+    return null;
+  };
+  let root!: TestRenderer.ReactTestRenderer;
+  act(() => {
+    root = TestRenderer.create(React.createElement(Probe, initial));
+  });
+  return {
+    loadMore: () => latest(),
+    update: (next: RelationProps) => act(() => root.update(React.createElement(Probe, next))),
+    unmount: () => act(() => root.unmount())
+  };
+};
+
+const makeWindow = (overrides: Partial<ScopeWindowResult<Row>> = {}): ScopeWindowResult<Row> => ({
+  rows: [],
+  totalCount: 0,
+  hasMore: false,
+  fetchNextPage: jest.fn(),
+  isPreviousData: false,
+  resolved: true,
+  ...overrides
+});
 
 describe('useLoadMore', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -79,5 +113,82 @@ describe('useLoadMore', () => {
     probe.unmount();
     act(() => jest.advanceTimersByTime(500));
     expect(fetchNextPage).not.toHaveBeenCalled();
+  });
+});
+
+describe('useRelationLoadMore', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('reveals a local page without starting a network request', () => {
+    const revealNextPage = jest.fn();
+    const fetchNextPage = jest.fn();
+    const probe = renderRelationLoadMore({
+      window: makeWindow({ hasMore: true, fetchNextPage: revealNextPage }),
+      query: { hasNextPage: true, isFetchingNextPage: false, fetchNextPage },
+      options: { debounceMs: 1 }
+    });
+
+    act(() => {
+      probe.loadMore();
+      jest.advanceTimersByTime(1);
+    });
+    expect(revealNextPage).toHaveBeenCalledTimes(1);
+    expect(fetchNextPage).not.toHaveBeenCalled();
+    probe.unmount();
+  });
+
+  it('fetches the server page and reveals it after the local total grows', () => {
+    const revealNextPage = jest.fn();
+    const fetchNextPage = jest.fn();
+    const query = { hasNextPage: true, isFetchingNextPage: false, fetchNextPage };
+    const probe = renderRelationLoadMore({
+      window: makeWindow({ totalCount: 2, fetchNextPage: revealNextPage }),
+      query,
+      options: { debounceMs: 1 }
+    });
+
+    act(() => {
+      probe.loadMore();
+      jest.advanceTimersByTime(1);
+    });
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    expect(revealNextPage).not.toHaveBeenCalled();
+
+    probe.update({
+      window: makeWindow({ totalCount: 3, hasMore: true, fetchNextPage: revealNextPage }),
+      query,
+      options: { debounceMs: 1 }
+    });
+    expect(revealNextPage).toHaveBeenCalledTimes(1);
+    probe.unmount();
+  });
+
+  it('does not reveal after an unchanged total or when no local page remains', () => {
+    const revealNextPage = jest.fn();
+    const fetchNextPage = jest.fn();
+    const query = { hasNextPage: true, isFetchingNextPage: false, fetchNextPage };
+    const probe = renderRelationLoadMore({
+      window: makeWindow({ totalCount: 2, fetchNextPage: revealNextPage }),
+      query,
+      options: { debounceMs: 1 }
+    });
+
+    act(() => {
+      probe.loadMore();
+      jest.advanceTimersByTime(1);
+    });
+    probe.update({
+      window: makeWindow({ totalCount: 2, hasMore: true, fetchNextPage: revealNextPage }),
+      query,
+      options: { debounceMs: 1 }
+    });
+    probe.update({
+      window: makeWindow({ totalCount: 3, hasMore: false, fetchNextPage: revealNextPage }),
+      query,
+      options: { debounceMs: 1 }
+    });
+    expect(revealNextPage).not.toHaveBeenCalled();
+    probe.unmount();
   });
 });
