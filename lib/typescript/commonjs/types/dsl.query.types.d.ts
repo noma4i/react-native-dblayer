@@ -97,6 +97,8 @@ export type ChainMeta = {
 };
 export type PlanRowsSink = {
     modelId: string;
+} | {
+    key: string;
 };
 export type ExtractSink = {
     into: PlanRowsSink;

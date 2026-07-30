@@ -7,10 +7,9 @@ export type PatchModel<TStored extends RowId> = {
 };
 export type SingletonModel<TStored extends RowId> = PatchModel<TStored> & {
     insert(item: TStored): void;
-    use: {
-        find(id: string | null | undefined): TStored | undefined;
-        field<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
-    };
+    useFind(id: string | null | undefined, options?: {
+        renderKeys?: readonly (keyof TStored & string)[];
+    }): TStored | undefined;
 };
 export type NumericField<TStored> = {
     [K in keyof TStored]: TStored[K] extends number ? K : never;

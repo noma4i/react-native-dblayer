@@ -66,7 +66,7 @@ export type RequestState = {
 };
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
 export type ChainMeta = { lastCount: number; cursor: string | null; pages: number; hasNextPage: boolean; ids: string[]; resultKind: 'one' | 'many' };
-export type PlanRowsSink = { modelId: string };
+export type PlanRowsSink = { modelId: string } | { key: string };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
 

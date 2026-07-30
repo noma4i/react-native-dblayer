@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, defineModel, defineShape, f, gql } from '../../../index';
+import { configureDb, defineCommand, defineModel, defineShape, f, gql, intoIf } from '../../../index';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type UserInput = {
@@ -43,6 +43,10 @@ type CreateChatVariables = {
 
 const chatsDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ChatsData, ChatsVariables>;
 const createChatDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<CreateChatData, CreateChatVariables>;
+const refreshUserDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<
+  { refreshUser: { user: UserInput } },
+  { input: { id: string } }
+>;
 
 const UserSchema = defineShape<UserInput>()({
   username: f.str()
@@ -207,6 +211,30 @@ describe('v10 sideload graph', () => {
     expect(User.find('user-action')).toEqual({ id: 'user-action', username: 'action-owner' });
     expect(diagnostics().snapshot().commits).toBe(3);
     reader.unmount();
+  });
+
+  it('lands cross-model command extracts through public model facades', async () => {
+    const transport = createMockTransport({
+      mutation: async <TData,>() => ({
+        data: {
+          refreshUser: {
+            user: { id: 'user-command', username: 'command-owner' }
+          }
+        } as TData
+      })
+    });
+    configureRuntime(transport);
+    const { User } = createGraphModels('Command');
+    const refreshUser = defineCommand<{ refreshUser: { user: UserInput } }, { id: string }>('refreshUser', {
+      document: refreshUserDocument,
+      result: 'refreshUser',
+      mapInput: input => ({ input }),
+      extract: ({ data }) => intoIf(User, data.refreshUser.user)
+    });
+
+    await refreshUser.run({ id: 'user-command' });
+
+    expect(User.find('user-command')).toEqual({ id: 'user-command', username: 'command-owner' });
   });
 });
 

@@ -1,6 +1,35 @@
+import { createSingletonStatics as createPublicSingletonStatics } from '../utils/singletonStatics';
+import type { RowId, SingletonStatics } from '../types';
+
 export * from '../index';
 export type * from '../types';
 export { defineModelRuntime as defineModel } from '../dsl/defineModelRuntime';
+
+type LegacySingletonModel<TStored extends RowId> = {
+  find(id: string): TStored | undefined;
+  update(id: string, updates: Partial<TStored>): boolean | void;
+  insert(item: TStored): void;
+  use: {
+    find(id: string | null | undefined, options?: { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined;
+    field?<TField extends keyof TStored & string>(id: string | null | undefined, field: TField): TStored[TField] | undefined;
+  };
+};
+
+export const createSingletonStatics = <TStored extends RowId>(
+  model: LegacySingletonModel<TStored>,
+  recordId: string,
+  defaults: TStored
+): SingletonStatics<TStored> =>
+  createPublicSingletonStatics(
+    {
+      find: model.find,
+      update: model.update,
+      insert: model.insert,
+      useFind: model.use.find
+    },
+    recordId,
+    defaults
+  );
 export { bridgeWindowPagination, useLoadMore, useRelationLoadMore } from '../dsl/pagination';
 export {
   isNonArrayRecord,

@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, gql, type ModelInput, type ModelStored } from '../../../index';
+import { configureDb, createSingletonStatics, defineModel, defineShape, f, gql, type ModelInput, type ModelStored } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type MessageInput = {
@@ -114,6 +114,22 @@ const assertModelUtilityTypes = (stored: ModelStored<MessageModelType>, input: M
 void assertModelUtilityTypes;
 
 describe('v10 model surface', () => {
+  it('builds singleton statics from the public model facade', () => {
+    configureRuntime(createMockTransport());
+    const Counters = defineModel('SpecV10SingletonCounters', {
+      schema: defineShape<{ id: string; unread: number }>()({
+        unread: f.int()
+      }),
+      statics: model => createSingletonStatics(model, 'counters', { id: 'counters', unread: 0 })
+    });
+    const reader = renderCounted(() => Counters.useCurrentField('unread'));
+
+    expect(reader.result()).toBe(0);
+    act(() => Counters.upsertCurrent({ unread: 2 }));
+    expect(reader.result()).toBe(2);
+    reader.unmount();
+  });
+
   it('uses the same Relation contract for local named, where, and id-list reads', () => {
     configureRuntime(createMockTransport());
     const Message = createMessageModel('LocalMatrix');
