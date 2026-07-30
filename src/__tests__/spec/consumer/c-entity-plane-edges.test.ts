@@ -1,6 +1,7 @@
 import {
   compositeStorageKey,
   createEntityPlane,
+  createRowCleaner,
   encodePersistence,
   runInApplyBatch,
   type StoragePlane
@@ -25,6 +26,18 @@ const createPlane = (storage: StoragePlane = createMemoryPlane(), now: () => num
 };
 
 describe('entity plane edges', () => {
+  it('removes virtual collection properties from an enriched row', () => {
+    const clean = createRowCleaner();
+    const enriched = { id: 'row-1', label: 'clean', $meta: { source: 'collection' } };
+    const first = clean(enriched);
+
+    expect(first).toEqual({
+      id: 'row-1',
+      label: 'clean'
+    });
+    expect(clean(enriched)).toBe(first);
+  });
+
   it('updates and deletes committed rows while ignoring a repeated delete', () => {
     const { plane } = createPlane();
     plane.put({ id: 'row-1', label: 'first' });

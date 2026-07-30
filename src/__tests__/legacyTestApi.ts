@@ -34,5 +34,5 @@ export { computePhase } from '../queries/base/loadingState';
 export { compositeKey } from '../core/serialize';
 export { compositeStorageKey } from '../core/serialize';
 export { encodePersistence } from '../core/persistenceCodec';
-export { createEntityPlane } from '../core/storeEntities';
+export { createEntityPlane, createRowCleaner } from '../core/storeEntities';
 export { runInApplyBatch } from '../core/storeSync';

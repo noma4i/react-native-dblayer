@@ -33,6 +33,16 @@ const isStoredRow = (value: unknown): value is RowRecord => isNonArrayRecord(val
 const isTombstoneRecord = (value: unknown): value is Record<string, Tombstone> =>
   isNonArrayRecord(value) && Object.entries(value).every(([id, tombstone]) => isNonEmptyString(id) && isNonArrayRecord(tombstone) && isNonNegativeSafeInteger(tombstone.at));
 
+export const createRowCleaner = (cleanRows = new WeakMap<object, RowRecord>()): ((enriched: object) => RowRecord) => {
+  return enriched => {
+    const cached = cleanRows.get(enriched);
+    if (cached) return cached;
+    const clean = Object.fromEntries(Object.entries(enriched).filter(([key]) => !key.startsWith('$'))) as RowRecord;
+    cleanRows.set(enriched, clean);
+    return clean;
+  };
+};
+
 export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
   const { modelId, storeId, now, storage, prefix } = options;
   const { previewUpsert } = createUpsertResolver(options);
@@ -61,13 +71,7 @@ export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
   const rowsPrefix = () => compositeStorageKey(prefix(), 'row', modelId);
   const tombstonesKey = () => compositeStorageKey(prefix(), 'tombstones', modelId);
 
-  const cleanOf = (enriched: object): RowRecord => {
-    const cached = cleanRows.get(enriched);
-    if (cached) return cached;
-    const clean = Object.fromEntries(Object.entries(enriched).filter(([key]) => !key.startsWith('$'))) as RowRecord;
-    cleanRows.set(enriched, clean);
-    return clean;
-  };
+  const cleanOf = createRowCleaner(cleanRows);
 
   const readCommitted = (id: string): RowRecord | undefined => {
     const enriched = entities.get(id);
