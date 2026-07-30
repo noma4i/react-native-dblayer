@@ -56,7 +56,7 @@ export type AcceptedRow = {
     before: StoredRow | undefined;
     after: StoredRow;
     origin?: 'event' | 'replace';
-    changedFields?: string[] | null;
+    changedFields: string[] | null;
 };
 export type DestroyedRow = {
     model: string;

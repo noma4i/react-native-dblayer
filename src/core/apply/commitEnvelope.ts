@@ -163,7 +163,7 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
     for (const scopeKey of target.reactiveScopes?.([row.id]) ?? []) {
       if (planTouched.has(compositeKey(row.model, scopeKey, row.id))) continue;
       if (target.scopeSortMeta(scopeKey).kind === 'server-order') continue;
-      if (!target.scopeOrderAffected(scopeKey, row.id, row.changedFields ?? null)) continue;
+      if (!target.scopeOrderAffected(scopeKey, row.id, row.changedFields)) continue;
       const groupKey = compositeKey(row.model, scopeKey);
       const group = repositionGroups.get(groupKey) ?? { model: row.model, scopeKey, ids: new Set<string>() };
       group.ids.add(row.id);

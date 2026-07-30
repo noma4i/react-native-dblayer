@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
-import { createScopeIndex } from '../../../core/planes/scopeIndex';
-import { compositeKey } from '../../../core/serialize';
+import { createScopeIndex, isScopeIndexValue } from '../../../core/planes/scopeIndex';
+import { compositeKey, compositeStorageKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ScopeRow = { id: string; bucket: string; rank: number; label: string };
@@ -227,5 +227,68 @@ describe('scope order cache reset contract', () => {
     );
 
     expect(index.read(scopeKey).entries).toEqual([{ id: 'row-1', orderKey: 'W' }]);
+  });
+
+  it('validates generated scope values and rejects malformed reconciliation input', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeValidation', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeKey = compositeKey('byBucket', '{"bucket":"invalid"}');
+
+    expect(isScopeIndexValue(null)).toBe(false);
+    expect(() => index.reconcileNext(scopeKey, 'complete', [{ id: '' }])).toThrow(
+      `Invalid scope index value for SpecIntegrityScopeValidation:${scopeKey}`
+    );
+  });
+
+  it('enforces staged apply lifecycle and projects staged writes and removals', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeStaging', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const removedKey = compositeKey('byBucket', '{"bucket":"removed"}');
+    const retainedKey = compositeKey('byBucket', '{"bucket":"retained"}');
+    index.write(removedKey, index.reconcileNext(removedKey, 'complete', [{ id: 'row-1' }]).next);
+
+    index.beginApply();
+    expect(() => index.beginApply()).toThrow('Scope apply already active for SpecIntegrityScopeStaging');
+    index.remove(removedKey);
+    index.write(retainedKey, index.reconcileNext(retainedKey, 'complete', [{ id: 'row-2' }]).next);
+    expect(index.read(removedKey).entries).toEqual([]);
+    expect(new Set(index.keys())).toEqual(new Set([retainedKey]));
+    index.commitApply();
+
+    expect(index.keys()).toEqual([retainedKey]);
+    expect(index.keysOf('row-1')).toEqual([]);
+    expect(index.keysOf('row-2')).toEqual([retainedKey]);
+    expect(() => index.commitApply()).toThrow('Scope apply is not active for SpecIntegrityScopeStaging');
+  });
+
+  it('keeps no-op trims and missing-scope detaches empty', () => {
+    const index = createScopeIndex({ modelId: 'SpecIntegrityScopeNoops', storage: createMemoryPlane(), prefix: () => 'dbl:' });
+    const scopeKey = compositeKey('byBucket', '{"bucket":"noop"}');
+    const value = index.reconcileNext(scopeKey, 'complete', [{ id: 'row-1' }]).next;
+    index.write(scopeKey, value);
+
+    expect(index.trimValue(value, 2)).toEqual({ next: value, trimmedIds: [] });
+    expect(index.detach('missing', ['row-1']).entries).toEqual([]);
+    expect(index.applyDelta(scopeKey, [], ['row-1']).entries).toEqual([]);
+  });
+
+  it('drops malformed persisted keys and skips vanished storage values during hydrate', () => {
+    const modelId = 'SpecIntegrityScopeHydrateEdges';
+    const storage = createMemoryPlane();
+    const scopeKey = compositeKey('byBucket', '{"bucket":"stale"}');
+    const staleKey = compositeStorageKey('dbl:', 'scope', modelId, 'not-a-scope-key');
+    const malformedKey = `${compositeStorageKey('dbl:', 'scope', modelId)}not-encoded`;
+    storage.set([
+      { key: staleKey, value: 'corrupt' },
+      { key: malformedKey, value: 'corrupt' }
+    ]);
+    const originalKeys = storage.keys.bind(storage);
+    const vanishedKey = `${compositeStorageKey('dbl:', 'scope', modelId)}vanished`;
+    storage.keys = prefix => [...originalKeys(prefix), vanishedKey];
+    const index = createScopeIndex({ modelId, scopeNames: ['byBucket'], storage, prefix: () => 'dbl:' });
+
+    index.hydrate();
+
+    expect(storage.get(staleKey)).toBeUndefined();
+    expect(storage.get(malformedKey)).toBeUndefined();
+    expect(index.read(scopeKey).entries).toEqual([]);
   });
 });

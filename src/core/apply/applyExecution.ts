@@ -7,24 +7,28 @@ import { getApplyTarget } from './applyTargetRegistry';
 const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
   const scopeChanges = new Map<string, IncrementalScopeChange>();
-  const noteScope = (model: string, scopeKey: string, change: Omit<IncrementalScopeChange, 'model' | 'scopeKey'>): void => {
+  const noteScope = (
+    model: string,
+    scopeKey: string,
+    change:
+      | { entries: Array<{ id: string; orderKey: string }> }
+      | { upserts: Array<{ id: string; orderKey: string }>; detachIds: string[] }
+  ): void => {
     const key = compositeKey(model, scopeKey);
     const current = scopeChanges.get(key) ?? { model, scopeKey };
-    if (change.entries) {
+    if ('entries' in change) {
       // A full entry set is the authoritative snapshot at this point of the op sequence: delta
       // state accumulated BEFORE it is already contained in (or superseded by) the snapshot.
       scopeChanges.set(key, { model, scopeKey, entries: change.entries, upserts: undefined, detachIds: undefined });
       return;
     }
-    const mergeUpserts = (left?: Array<{ id: string; orderKey: string }>, right?: Array<{ id: string; orderKey: string }>) => {
-      if (!left && !right) return undefined;
-      return uniqBy([...(right ?? []), ...(left ?? [])], entry => entry.id);
-    };
+    const mergeUpserts = (left: Array<{ id: string; orderKey: string }> | undefined, right: Array<{ id: string; orderKey: string }>) =>
+      uniqBy([...right, ...(left ?? [])], entry => entry.id);
     scopeChanges.set(key, {
       ...current,
       entries: current.entries,
       upserts: mergeUpserts(current.upserts, change.upserts),
-      detachIds: current.detachIds || change.detachIds ? uniq([...(current.detachIds ?? []), ...(change.detachIds ?? [])]) : undefined
+      detachIds: uniq([...(current.detachIds ?? []), ...change.detachIds])
     });
   };
   const noteRows = (model: string, target: ApplyTarget, ids: string[]): void => {

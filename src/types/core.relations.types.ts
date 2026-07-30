@@ -47,7 +47,7 @@ export type RelationDecl<TStored = StoredRow> = BelongsToDecl<TStored> | HasMany
 
 export type MembershipDelta = { scopeKey: string; append?: string[]; detach?: string[] };
 
-export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace'; changedFields?: string[] | null };
+export type AcceptedRow = { model: string; id: string; before: StoredRow | undefined; after: StoredRow; origin?: 'event' | 'replace'; changedFields: string[] | null };
 export type DestroyedRow = { model: string; id: string; before: StoredRow; origin?: 'replace' };
 
 /** Model surface relation effects read and plan against. */

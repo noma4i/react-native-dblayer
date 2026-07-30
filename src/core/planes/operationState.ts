@@ -95,8 +95,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   };
   const unindexRecordRows = (record: OperationRecord): void => {
     for (const key of rowKeysFor(record)) {
-      const bucket = opsByRowKey.get(key);
-      if (!bucket) continue;
+      const bucket = opsByRowKey.get(key)!;
       bucket.delete(record);
       if (bucket.size === 0) opsByRowKey.delete(key);
     }
@@ -246,11 +245,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       storage.set(persistEntries());
       notify?.(operation);
     },
-    hydratedPending: () =>
-      [...hydratedPendingIds].flatMap(operationId => {
-        const operation = operations.get(operationId);
-        return operation?.status === 'pending' ? [operation] : [];
-      }),
+    hydratedPending: () => [...hydratedPendingIds].map(operationId => operations.get(operationId)!),
     takeHydratedPending: matches => {
       const pending: OperationRecord[] = [];
       for (const operationId of [...hydratedPendingIds]) {
@@ -282,7 +277,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       for (const operation of bucket) {
         if (operation.status !== 'pending' || operation.intent !== 'patch' || !operation.patchedFields || operation.patchedFields.length === 0) continue;
         if (operation.operationId === excludeOpId) continue;
-        if (operation.model !== model || !(operation.rowIds ?? []).includes(rowId)) continue;
+        if (!(operation.rowIds ?? []).includes(rowId)) continue;
         owned ??= new Set<string>();
         for (const field of operation.patchedFields) owned.add(field);
       }
@@ -295,7 +290,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       let result: { found: boolean; value: unknown } = { found: false, value: undefined };
       for (const operation of bucket) {
         if (operation.status !== 'pending' || operation.intent !== 'patch' || operation.operationId === excludeOpId) continue;
-        if (operation.model !== model || !(operation.rowIds ?? []).includes(rowId)) continue;
+        if (!(operation.rowIds ?? []).includes(rowId)) continue;
         if (operation.patchedValues && field in operation.patchedValues) result = { found: true, value: operation.patchedValues[field] };
       }
       return result;

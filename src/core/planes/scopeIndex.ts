@@ -61,8 +61,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     const members = memberSets.get(key);
     if (members) {
       for (const id of members) {
-        const keys = keysByRow.get(id);
-        if (!keys) continue;
+        const keys = keysByRow.get(id)!;
         keys.delete(key);
         if (keys.size === 0) keysByRow.delete(id);
       }
@@ -79,8 +78,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     if (previous) {
       for (const entry of previous.entries) {
         if (nextIds.has(entry.id)) continue;
-        const keys = keysByRow.get(entry.id);
-        if (!keys) continue;
+        const keys = keysByRow.get(entry.id)!;
         keys.delete(key);
         if (keys.size === 0) keysByRow.delete(entry.id);
       }
@@ -240,7 +238,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       append = deduplicateScopeEntriesById(append);
       const removal = new Set(detach);
       const base = removal.size > 0 ? previous.entries.filter(entry => !removal.has(entry.id)) : previous.entries;
-      const members = stagedScopes ? new Set(previous.entries.map(entry => entry.id)) : (memberSets.get(key) ?? new Set(previous.entries.map(entry => entry.id)));
+      const members = stagedScopes ? new Set(previous.entries.map(entry => entry.id)) : (memberSets.get(key) ?? new Set<string>());
       const pureAppend =
         removal.size === 0 &&
         append.every(entry => !members.has(entry.id)) &&
@@ -290,7 +288,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       return [...touched];
     },
     persistEntries: () => {
-      const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: encodePersistence(scopes.get(key) ?? empty()) }));
+      const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: encodePersistence(scopes.get(key)!) }));
       for (const key of removed) entries.push({ key: storageKey(key), value: null });
       return entries;
     },

@@ -300,13 +300,29 @@ describe('journal corruption policy', () => {
     expect(storage.get(key)).toBeUndefined();
   });
 
-  it.each(['not-an-epoch', '0', '1.5', '2'])('rejects a WAL storage key that does not identify the payload epoch: %s', keyEpoch => {
+  it.each(['not-an-epoch', '0', '1.5', '2', '9007199254740992'])('rejects a WAL storage key that does not identify the payload epoch: %s', keyEpoch => {
     const { storage } = setup();
     const key = `${PREFIX}journal:${keyEpoch}`;
     storage.set([{ key, value: encodePersistedRecord() }]);
 
     expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
     expect(storage.get(key)).toBeUndefined();
+  });
+
+  it('does not interpret an unsafe journal-key integer as an epoch', () => {
+    const storage = createMemoryPlane();
+    const logger = { debug: jest.fn(), error: jest.fn() };
+    configureDb({ storage, transport: createMockTransport(), logger });
+    diagnostics().reset();
+    const key = `${PREFIX}journal:9007199254740992`;
+    storage.set([{ key, value: encodePersistedRecord() }]);
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(logger.error).toHaveBeenCalledWith('unrecoverable WAL corruption', {
+      key,
+      epoch: undefined,
+      lastCheckpointEpoch: 0
+    });
   });
 
   it('refuses an unsupported nested operation schema version without deleting the record', () => {

@@ -1,4 +1,4 @@
-import { configureDb, resetRuntime } from '../../legacyTestApi';
+import { configureDb, registerRelationHost, resetRuntime } from '../../legacyTestApi';
 import { registerApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createApplyRuntime } from '../../../core/apply/transaction';
@@ -6,7 +6,7 @@ import { createCommitBus } from '../../../core/apply/commitBus';
 import { createJournal } from '../../../core/apply/journal';
 import { encodePersistence } from '../../../core/persistenceCodec';
 import { createModelStore, registerModelStoreFactory } from '../../../core/store';
-import type { ApplyTarget, CheckpointScheduler, IncrementalCommitBatch, JournalRecord, StoredRow, WriteOp } from '../../../types';
+import type { ApplyTarget, CheckpointScheduler, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../../types';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -117,6 +117,28 @@ describe('apply pipeline batching', () => {
 
     expect(() => runtime.commit(envelope)).toThrow(`Stale commit envelope ${envelope.txId}`);
     expect(storage.keys(`${PREFIX}journal:`)).toEqual([]);
+  });
+
+  it('rejects an envelope with an unsupported schema before writing WAL', () => {
+    const { storage, bus } = setup();
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
+    const envelope = createCommitEnvelope([]);
+
+    expect(() => runtime.commit({ ...envelope, schemaVersion: 2 } as never)).toThrow('Unsupported commit envelope schema version 2');
+    expect(storage.keys(`${PREFIX}journal:`)).toEqual([]);
+  });
+
+  it('subscribes with an empty dependency set when dependencies are omitted', () => {
+    setup();
+    const bus = createCommitBus();
+    const notify = jest.fn();
+
+    const subscription = bus.subscribe(notify);
+
+    expect(bus.subscriberCount()).toBe(1);
+    expect(bus.activeDependencies()).toEqual([]);
+    subscription.unsubscribe();
+    expect(bus.subscriberCount()).toBe(0);
   });
 
   it('applies entity work before scope membership inside one commit', () => {
@@ -239,6 +261,100 @@ describe('apply pipeline batching', () => {
       { kind: 'upsert', model: MODEL, rows: [{ id: 'row-1', likes: 15, views: 94 }] },
       { kind: 'upsert', model: MODEL, rows: [{ id: 'row-1', likes: 15, views: 99 }] }
     ]);
+  });
+
+  it('normalizes nullable, numeric-string, and nonnumeric counter bases', () => {
+    const { mock } = setup();
+    mock.rows.set('null-row', { id: 'null-row', score: null });
+    mock.rows.set('string-row', { id: 'string-row', score: '4' });
+    mock.rows.set('invalid-row', { id: 'invalid-row', score: 'invalid' });
+
+    const envelope = createCommitEnvelope([
+      { kind: 'counter', model: MODEL, id: 'null-row', field: 'score', delta: 2 },
+      { kind: 'counter', model: MODEL, id: 'string-row', field: 'score', delta: 3 },
+      { kind: 'counter', model: MODEL, id: 'invalid-row', field: 'score', delta: 5 }
+    ]);
+
+    expect(envelope.entityOps).toEqual([
+      { kind: 'upsert', model: MODEL, rows: [{ id: 'null-row', score: 2 }] },
+      { kind: 'upsert', model: MODEL, rows: [{ id: 'string-row', score: 7 }] },
+      { kind: 'upsert', model: MODEL, rows: [{ id: 'invalid-row', score: 5 }] }
+    ]);
+  });
+
+  it('rejects a prepared upsert without a string id', () => {
+    const { mock } = setup();
+    mock.target.prepareUpsert = () => ({ row: { id: '' }, changedFields: null });
+
+    expect(() => createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }])).toThrow(
+      `Prepared row for ${MODEL} has no string id`
+    );
+  });
+
+  it('passes invalid raw upsert shapes to model normalization without an overlay identity', () => {
+    const { mock } = setup();
+    const previousRows: Array<StoredRow | undefined> = [];
+    mock.target.prepareUpsert = (_incoming, previous) => {
+      previousRows.push(previous);
+      return null;
+    };
+
+    expect(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [null, {}] }]).entityOps).toEqual([]);
+    expect(previousRows).toEqual([undefined, undefined]);
+  });
+
+  it('plans dependent destroys against the row overlay and ignores malformed stored identities', () => {
+    const parentModel = 'SpecApplyParent';
+    const childModel = 'SpecApplyChild';
+    const parent = createTargetMock();
+    const child = createTargetMock();
+    parent.rows.set('parent-1', { id: 'parent-1' });
+    child.rows.set('old-child', { id: 'old-child', parentId: 'parent-1' });
+    child.rows.set('malformed-child', { id: 42, parentId: 'parent-1' });
+    registerApplyTarget(parentModel, parent.target);
+    registerApplyTarget(childModel, child.target);
+    const childRef = {
+      modelId: childModel,
+      find: (id: string | null | undefined) => (id == null ? undefined : child.rows.get(String(id))),
+      all: () => [...child.rows.values()],
+      where: (where: Record<string, unknown>) => [...child.rows.values()].filter(row => Object.entries(where).every(([key, value]) => row[key] === value))
+    };
+    const host: RelationHost = {
+      relations: () => ({ children: { kind: 'hasMany', model: childRef, foreignKey: 'parentId', dependent: 'destroy' } }),
+      has: id => parent.rows.has(id),
+      read: id => parent.rows.get(id),
+      normalize: input => (typeof input === 'object' && input !== null ? (input as StoredRow) : null),
+      membershipForUpsert: () => [],
+      detachForDestroy: () => []
+    };
+    registerRelationHost(parentModel, host);
+
+    const envelope = createCommitEnvelope([
+      { kind: 'upsert', model: childModel, rows: [{ id: 'new-child', parentId: 'parent-1' }] },
+      { kind: 'destroy', model: childModel, ids: ['old-child'] },
+      { kind: 'destroy', model: parentModel, ids: ['parent-1'] }
+    ]);
+
+    expect(envelope.entityOps).toContainEqual({ kind: 'destroy', model: childModel, ids: ['new-child'] });
+    expect(envelope.entityOps.flatMap(op => (op.kind === 'destroy' ? op.ids : []))).not.toContain('42');
+  });
+
+  it('commits a target that does not expose reactive scopes', () => {
+    const model = 'SpecApplyWithoutReactiveScopes';
+    const mock = createTargetMock();
+    delete mock.target.reactiveScopes;
+    registerApplyTarget(model, mock.target);
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    registerApplyTarget(model, mock.target);
+    registerModelStoreFactory(model, () =>
+      createModelStore({ modelId: model, now: () => Date.now(), storage, prefix: () => PREFIX, applyWriteGate: (_previous, incoming) => incoming })
+    );
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus: createCommitBus() });
+
+    runtime.commit(createCommitEnvelope([{ kind: 'upsert', model, rows: [{ id: 'row-1' }] }]));
+
+    expect(mock.rows.get('row-1')).toEqual({ id: 'row-1' });
   });
 
   it('treats a garbage applied-epoch marker as zero and replays the record', () => {

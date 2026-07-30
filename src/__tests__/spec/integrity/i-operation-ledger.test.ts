@@ -212,6 +212,21 @@ describe('operation lifecycle and idempotency keys', () => {
     expect(state.get('op-1')).toBeUndefined();
     expect(state.failedForRow('SpecLedgerModel', 'row-op-1')).toEqual([]);
   });
+
+  it('keeps transition no-ops inert and supports a begin without row ids', () => {
+    const { state } = setup();
+    const operation = baseRecord('op-transition', { rowIds: undefined, tempIds: ['temp-transition'] });
+
+    state.applyTransitions([{ kind: 'begin', operation }]);
+    expect(state.get('op-transition')).toMatchObject({ status: 'pending', rowIds: undefined });
+
+    state.applyTransitions([{ kind: 'close', operationId: 'missing', status: 'committed' }]);
+    state.applyTransitions([{ kind: 'close', operationId: 'op-transition', status: 'committed' }]);
+    state.applyTransitions([{ kind: 'close', operationId: 'op-transition', status: 'failed' }]);
+    state.remove('missing');
+
+    expect(state.get('op-transition')?.status).toBe('committed');
+  });
 });
 
 describe('row buckets and patch ownership', () => {
@@ -256,6 +271,24 @@ describe('row buckets and patch ownership', () => {
     expect(state.latestPendingValue('SpecLedgerModel', 'row-1', 'status')).toEqual({ found: true, value: 'second' });
     expect(state.latestPendingValue('SpecLedgerModel', 'row-1', 'status', 'op-2')).toEqual({ found: true, value: 'first' });
     expect(state.latestPendingValue('SpecLedgerModel', 'row-1', 'missing')).toEqual({ found: false, value: undefined });
+  });
+
+  it('filters nonowners from row buckets and restores a patch owner after a no-op transition', () => {
+    const { state } = setup();
+    expect(state.latestPendingValue('SpecLedgerModel', 'row-1', 'status')).toEqual({ found: false, value: undefined });
+
+    state.begin(baseRecord('patch-owner', { intent: 'patch', rowIds: ['row-1'], patchedFields: ['status'], patchedValues: { status: 'owned' } }));
+    state.begin(baseRecord('insert-peer', { intent: 'insert', rowIds: ['row-1'] }));
+    state.begin(baseRecord('temp-only-patch', { intent: 'patch', rowIds: undefined, tempIds: ['row-1'], patchedFields: ['body'], patchedValues: { body: 'draft' } }));
+
+    expect(state.ownedFields('SpecLedgerModel', 'missing')).toEqual(new Set());
+    expect(state.ownedFields('SpecLedgerModel', 'row-1')).toEqual(new Set(['status']));
+    expect(state.latestPendingValue('SpecLedgerModel', 'missing', 'status')).toEqual({ found: false, value: undefined });
+
+    state.applyTransitions([{ kind: 'remove', operationId: 'patch-owner', expectedStatus: 'failed' }]);
+
+    expect(state.ownedFields('SpecLedgerModel', 'row-1')).toEqual(new Set(['status']));
+    expect(state.latestPendingValue('SpecLedgerModel', 'row-1', 'status', 'patch-owner')).toEqual({ found: false, value: undefined });
   });
 });
 
@@ -307,6 +340,20 @@ describe('hydrate key retention', () => {
     const taken = fresh.takeHydratedPending(operation => operation.operationId === 'op-pending');
     expect(taken.map(operation => operation.operationId)).toEqual(['op-pending']);
     expect(fresh.hydratedPending()).toEqual([]);
+  });
+
+  it('hydrates valid pending destroy and empty patch-field records without counting patch ownership', () => {
+    const { storage, state } = setup();
+    state.begin(baseRecord('destroy-pending', { intent: 'destroy' }));
+    state.begin(baseRecord('patch-empty', { intent: 'patch', patchedFields: [] }));
+    state.begin(baseRecord('patch-owned', { intent: 'patch', patchedFields: ['status'], patchedValues: { status: 'pending' } }));
+
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    fresh.hydrate();
+
+    expect(fresh.pending().map(operation => operation.operationId).sort()).toEqual(['destroy-pending', 'patch-empty', 'patch-owned']);
+    expect(fresh.ownedFields('SpecLedgerModel', 'row-patch-empty')).toEqual(new Set());
+    expect(fresh.ownedFields('SpecLedgerModel', 'row-patch-owned')).toEqual(new Set(['status']));
   });
 
   it('keeps the hydrated-pending resume mark when a transition is a no-op', () => {
