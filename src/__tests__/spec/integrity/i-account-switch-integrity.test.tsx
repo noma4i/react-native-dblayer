@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { flushPersistence, replayJournal } from '../../../dsl/configure';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 

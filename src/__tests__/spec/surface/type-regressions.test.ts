@@ -26,18 +26,17 @@ const compileFixture = (source: string): readonly ts.Diagnostic[] => {
 };
 
 describe('public type regressions', () => {
-  it('accepts server-order, field-sort, and comparator model scopes', () => {
+  it('accepts server-order, field-sort, and comparator model relations', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f } from '${entry}';
+      import { defineModel, defineShape, f } from '${entry}';
       type Row = { id: string; rank: number };
-      defineModel({
-        id: 'scope-types',
-        name: 'ScopeTypes',
-        fields: { id: f.id(), rank: f.num() },
-        scopes: {
-          serverOrder: ({ sort: 'server-order' }),
-          fieldSort: ({ sort: { field: 'rank', dir: 'asc' } }),
-          comparator: ({ sort: { comparator: (left, right) => left.rank - right.rank } })
+      const RowSchema = defineShape<Row>()({ rank: f.num() });
+      defineModel('scope-types', {
+        schema: RowSchema,
+        relations: {
+          serverOrder: { sort: 'server-order' },
+          fieldSort: { sort: { field: 'rank', dir: 'asc' } },
+          comparator: { sort: { comparator: (left, right) => left.rank - right.rank } }
         }
       });
     `);
@@ -46,28 +45,26 @@ describe('public type regressions', () => {
 
   it('keeps the full model type when an inferred scope comparator reads a row subset', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f } from '${entry}';
+      import { defineModel, defineShape, f } from '${entry}';
       type Row = { id: string; userId: string; createdAt: string; rank: number };
       const compareRows = (
         left: Pick<Row, 'createdAt' | 'rank'>,
         right: Pick<Row, 'createdAt' | 'rank'>
       ): number => right.rank - left.rank || right.createdAt.localeCompare(left.createdAt);
       const isUserRow = (row: Pick<Row, 'userId'>): boolean => row.userId.length > 0;
-      const rows = defineModel({
-        id: 'inferred-comparator',
-        name: 'InferredComparator',
-        fields: {
-          id: f.id(),
+      const RowSchema = defineShape<Row>()({
           userId: f.str(),
           createdAt: f.str(),
           rank: f.num()
-        },
-        scopes: {
-          byUser: ({ by: { userId: 'userId' }, member: isUserRow, sort: { comparator: compareRows } })
+      });
+      const rows = defineModel('inferred-comparator', {
+        schema: RowSchema,
+        relations: {
+          byUser: { by: { userId: 'userId' }, member: isUserRow, sort: { comparator: compareRows } }
         },
         statics: model => ({ readUser: (id: string) => model.find(id)?.userId })
       });
-      rows.scopes.byUser.read({ userId: 'u1' });
+      rows.byUser({ userId: 'u1' }).read();
       rows.readUser('row-1');
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
@@ -75,56 +72,27 @@ describe('public type regressions', () => {
 
   it('rejects non-orderable fields on typed field-sort surfaces', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f } from '${entry}';
-      import type { ScopeSpec } from '${entry}';
+      import { defineModel, defineShape, f } from '${entry}';
       type Row = { id: string; rank: number; meta: { rank: number }; tags: string[]; when: Date; count: bigint };
-      const rows = defineModel({
-        id: 'orderable-fields',
-        name: 'OrderableFields',
-        fields: {
-          id: f.id(),
+      const RowSchema = defineShape<Row>()({
           rank: f.num(),
           meta: f.raw<{ rank: number }>(),
           tags: f.raw<string[]>()
-        }
       });
-      // @ts-expect-error object fields require a comparator
-      rows.use.where({}).orderBy('meta');
+      const rows = defineModel('orderable-fields', { schema: RowSchema });
       // @ts-expect-error array fields require a comparator
       rows.where({}, { orderBy: { field: 'tags', direction: 'asc' } });
-      // @ts-expect-error object fields require a comparator
-      ({ sort: { field: 'meta', dir: 'asc' } } satisfies ScopeSpec<Row>);
-      // @ts-expect-error Date fields are not stable across JSON persistence
-      ({ sort: { field: 'when', dir: 'asc' } } satisfies ScopeSpec<Row>);
-      // @ts-expect-error bigint fields are not JSON serializable
-      ({ sort: { field: 'count', dir: 'asc' } } satisfies ScopeSpec<Row>);
-      defineModel({
-        id: 'invalid-default-order',
-        name: 'InvalidDefaultOrder',
-        fields: { id: f.id(), meta: f.raw<{ rank: number }>() },
+      defineModel('invalid-default-order', {
+        schema: RowSchema,
         // @ts-expect-error object fields require a comparator
         defaultOrder: { field: 'meta', direction: 'asc' }
       });
-      defineModel({
-        id: 'invalid-query-scope-order',
-        name: 'InvalidQueryScopeOrder',
-        fields: { id: f.id(), tags: f.raw<string[]>() },
-        queryScopes: {
+      defineModel('invalid-relation-order', {
+        schema: RowSchema,
+        relations: {
           invalid: {
-            where: {},
             // @ts-expect-error array fields require a comparator
-            orderBy: { field: 'tags', direction: 'asc' }
-          }
-        }
-      });
-      defineModel({
-        id: 'invalid-inline-scope-order',
-        name: 'InvalidInlineScopeOrder',
-        fields: { id: f.id(), meta: f.raw<{ rank: number }>() },
-        scopes: {
-          invalid: {
-            // @ts-expect-error object fields require a comparator
-            sort: { field: 'meta', dir: 'asc' }
+            sort: { field: 'tags', dir: 'asc' }
           }
         }
       });
@@ -135,13 +103,21 @@ describe('public type regressions', () => {
   it('accepts concrete codegen variables across typed document entry surfaces', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-      import { defineDbSubscriptionEntry, defineFetch, defineModel, f } from '${entry}';
+      import { defineDbSubscriptionEntry, defineFetch, defineModel, defineShape, f, gql } from '${entry}';
       type CounterData = { userCounters: { unread: number } };
       type ExactVariables = { __brand?: 'Exact<{}>' };
       declare const counterDocument: TypedDocumentNode<CounterData, ExactVariables>;
       defineDbSubscriptionEntry({ key: 'userCounters', query: counterDocument, onData: payload => payload.unread });
-      const counters = defineModel({ id: 'counter-types', name: 'CounterTypes', fields: { id: f.id(), unread: f.num() } });
-      counters.ingest({ userCounters: { document: counterDocument, apply: 'upsert' } });
+      const CounterSchema = defineShape<{ id: string; unread: number }>()({ unread: f.num() });
+      const counters = defineModel('counter-types', {
+        schema: CounterSchema,
+        events: {
+          userCounters: gql.live(counterDocument, {
+            handler: payload => ({ upsert: { id: 'current', unread: payload.unread } })
+          })
+        }
+      });
+      counters.events.apply('userCounters', { unread: 1 });
       defineFetch<CounterData, void, number>({ key: 'counter-fetch', document: counterDocument, select: data => data.userCounters.unread });
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
@@ -149,7 +125,8 @@ describe('public type regressions', () => {
 
   it('accepts codegen-shaped nullable relay arrays on the connection shorthand', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f } from '${entry}';
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
       type Node = { id: string; label: string };
       type CodegenConnection = {
         nodes: (Node | null)[] | null;
@@ -159,22 +136,31 @@ describe('public type regressions', () => {
         edges: ({ node: Node | null } | null)[] | null;
         pageInfo: { hasNextPage: boolean; endCursor: string | null } | null;
       };
-      const rows = defineModel({
-        id: 'nullable-connection',
-        name: 'NullableConnection',
-        fields: { id: f.id(), label: f.str() },
-        scopes: { list: { sort: 'server-order' } }
+      type Data = { list: CodegenConnection; alt: CodegenEdges };
+      type Variables = { group: string };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const NodeSchema = defineShape<Node>()({ label: f.str() });
+      const rows = defineModel('nullable-connection', {
+        schema: NodeSchema,
+        relations: {
+          list: {
+            sort: 'server-order',
+            remote: gql.connection(document, {
+              variables: (params: Variables) => params,
+              connection: data => data.list
+            })
+          },
+          alt: {
+            sort: 'server-order',
+            remote: gql.connection(document, {
+              variables: (params: Variables) => params,
+              connection: data => data.alt
+            })
+          }
+        }
       });
-      rows.query<{ list: CodegenConnection; alt: CodegenEdges }, Record<string, never>, { group: string }, { id: string; label: string }>('nullable-connection', {
-        document: {} as never,
-        connection: data => data.list,
-        into: rows.scopes.list
-      });
-      rows.query<{ list: CodegenConnection; alt: CodegenEdges }, Record<string, never>, { group: string }, { id: string; label: string }>('nullable-edges', {
-        document: {} as never,
-        connection: data => data.alt,
-        into: rows.scopes.list
-      });
+      rows.list({ group: 'one' }).read();
+      rows.alt({ group: 'one' }).read();
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
@@ -182,58 +168,61 @@ describe('public type regressions', () => {
   it('accepts null as a disabled query scope for reactive and imperative reads', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-      import { defineModel, f } from '${entry}';
+      import { defineModel, defineShape, f, gql } from '${entry}';
       type Row = { id: string; accountId: string };
       type Data = { rows: Row[] };
       type Variables = { accountId: string };
       declare const document: TypedDocumentNode<Data, Variables>;
-      const rows = defineModel({
-        id: 'null-query-scope',
-        name: 'NullQueryScope',
-        fields: { id: f.id(), accountId: f.str() },
-        scopes: { byAccount: ({ by: { accountId: 'accountId' } }) }
+      const RowSchema = defineShape<Row>()({ accountId: f.str() });
+      const rows = defineModel('null-query-scope', {
+        schema: RowSchema,
+        relations: {
+          byAccount: {
+            by: { accountId: 'accountId' },
+            remote: gql.connection(document, {
+              variables: (params: { accountId: string | null | undefined }) => ({ accountId: params.accountId ?? '' }),
+              connection: data => ({ nodes: data.rows }),
+              required: ['accountId']
+            })
+          }
+        }
       });
-      const query = rows.query<Data, Variables, { accountId: string }, Row>('byAccount', {
-        document,
-        vars: scopeValue => ({ accountId: scopeValue.accountId }),
-        select: data => data.rows,
-        into: rows.scopes.byAccount
-      });
-      query.use(null);
-      void query.fetch(null);
+      rows.byAccount({ accountId: null }).use();
+      void rows.byAccount({ accountId: undefined }).use().refresh();
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
   it('types query data by destination: scope reads land as arrays, point model reads as one row', () => {
     const diagnostics = compileFixture(`
-      import { defineModel, f } from '${entry}';
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
       type Row = { id: string; groupId: string; title: string };
-      const rows = defineModel({
-        id: 'query-data-typing',
-        name: 'QueryDataTyping',
-        fields: { id: f.id(), groupId: f.str(), title: f.str() },
-        scopes: { byGroup: ({ by: { groupId: 'groupId' } }) }
+      type Data = { items: Row[]; row: Row };
+      type Variables = { groupId: string };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const RowSchema = defineShape<Row>()({ groupId: f.str(), title: f.str() });
+      const rows = defineModel('query-data-typing', {
+        schema: RowSchema,
+        relations: {
+          list: {
+            by: { groupId: 'groupId' },
+            remote: gql.connection(document, {
+              variables: (params: Variables) => params,
+              connection: data => ({ nodes: data.items })
+            })
+          },
+          detail: {
+            remote: gql.single(document, {
+              variables: (params: Variables) => params,
+              select: data => data.row
+            })
+          }
+        }
       });
-      const listQuery = rows.query<{ items: Row[] }, Record<string, never>, { groupId: string }, Row>('list', {
-        document: {} as never,
-        into: rows.scopes.byGroup,
-        page: data => ({ nodes: data.items })
-      });
-      const listData: Row[] = listQuery.use({ groupId: 'group-1' }).data;
+      const listData: Row[] = rows.list({ groupId: 'group-1' }).use().data;
       void listData;
-      const pagedQuery = rows.query<{ items: Row[] }, { cursor?: string }, { groupId: string }, Row>('paged', {
-        document: {} as never,
-        page: data => ({ nodes: data.items })
-      });
-      const pagedData: Row[] = pagedQuery.use({ groupId: 'group-1' }).data;
-      void pagedData;
-      const pointQuery = rows.query<{ row: Row }, { id: string }, { id: string }, Row>('detail', {
-        document: {} as never,
-        vars: value => value,
-        select: data => data.row
-      });
-      const pointData: Row | undefined = pointQuery.use({ id: 'row-1' }).data;
+      const pointData: Row | undefined = rows.detail({ groupId: 'group-1' }).use().data;
       void pointData;
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);

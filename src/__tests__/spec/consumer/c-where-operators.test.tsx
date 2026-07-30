@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f, resetRuntime } from '../../../index';
+import { defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // DbWhere leaf operators: local predicates over stored rows, one call shape with equality leaves.

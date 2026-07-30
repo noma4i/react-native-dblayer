@@ -1,4 +1,4 @@
-import { configureDb, defineCommand, defineFetch, defineModel, f } from '../../../index';
+import { configureDb, defineCommand, defineFetch, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, settle, renderCountedInProvider } from '../helpers/harness';
 
 type UserRow = { id: string; balance: number };

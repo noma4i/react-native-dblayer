@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type GroupRow = { id: string; groupId: string; label: string };

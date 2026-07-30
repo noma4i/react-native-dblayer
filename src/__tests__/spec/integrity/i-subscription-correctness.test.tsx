@@ -1,4 +1,4 @@
-import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime, resetRuntime } from '../../../index';
+import { configureDb, createDbSubscriptionEffects, createDbSubscriptionRuntime, resetRuntime } from '../../legacyTestApi';
 import { setFetchNetworkOnline } from '../../../core/fetch/networkState';
 import * as networkState from '../../../core/fetch/networkState';
 import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';

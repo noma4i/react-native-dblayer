@@ -146,7 +146,10 @@ describe('docs coverage gate', () => {
   });
 
   it('references only actual ModelCore members in public docs', () => {
-    const modelMembers = new Set(typeLiteralMembers(path.join(root, 'src/types/dsl.model.types.ts'), 'ModelCore'));
+    const modelMembers = new Set([
+      ...typeLiteralMembers(path.join(root, 'src/types/dsl.model.types.ts'), 'ModelCore'),
+      ...typeLiteralMembers(path.join(root, 'src/types/dsl.modelFacade.types.ts'), 'ModelFacadeCore')
+    ]);
     const referencedMembers = [...publicDocsText().matchAll(/\bModel\.([A-Za-z_][A-Za-z0-9_]*)/g)].map(match => match[1]!);
 
     expect([...new Set(referencedMembers.filter(member => !modelMembers.has(member)))].sort()).toEqual([]);

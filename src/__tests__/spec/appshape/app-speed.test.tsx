@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, resetRuntime } from '../../../index';
+import { configureDb, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { createAppModels } from './appModels';
 

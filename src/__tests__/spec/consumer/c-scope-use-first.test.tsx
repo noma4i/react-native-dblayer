@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f } from '../../../index';
+import { defineModel, f } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // ScopeHandle.useFirst: nullable single-row scope reads.

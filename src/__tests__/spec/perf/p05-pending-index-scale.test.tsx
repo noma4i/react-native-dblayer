@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f, resetRuntime } from '../../../index';
+import { defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
 import type { OperationRecord, OperationTransition } from '../../../types';

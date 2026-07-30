@@ -1,4 +1,4 @@
-import { resetRuntime } from '../../../index';
+import { resetRuntime } from '../../legacyTestApi';
 
 // Kill-switch lifecycle contract: an unconfigured runtime is trivially clean.
 

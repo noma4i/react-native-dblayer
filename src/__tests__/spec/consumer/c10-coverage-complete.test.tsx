@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type FriendState = { userId: string; id: string; kind: string; fullName: string };

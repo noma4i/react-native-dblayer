@@ -8,12 +8,12 @@ the [project README](../README.md).
 | #   | Page                                       | Covers                                                                                                                                                                                                                  |
 | --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | [getting-started.md](./getting-started.md) | Boot sequence: register models, `configureDb`, `DbProvider`, the internal boot sequence and automatic background suspension, storage/transport seams, runtime prerequisites. Start here.                                                           |
-| 2   | [models.md](./models.md)                   | `defineModel` itself: the `f`/`defineShape` field DSL, writes, scopes (`sort`/`server-order`/`coverage`/`retention`), relations (`touch`/`counterCache`/`dependent`).                                                   |
-| 3   | [reading.md](./reading.md)                 | Every read surface: `use.row`/`field`/`first`/`where`/`byIds`/`count`/`related`, `select`/`renderKeys` projections and their identity guarantees, scope `use`/`useWindow`, `keepPrevious`, `use.pending`, `Model.view`. |
-| 4   | [queries.md](./queries.md)                 | `Model.query` (network reads into a model/scope, pagination, coverage semantics, loading state), `defineFetch` (`document`\|`fetcher`, `remove()`), `Model.fetch`.                                                      |
-| 5   | [mutations.md](./mutations.md)             | `Model.mutation` and `Model.detached` (optimistic or durable lifecycle, temp-id replace, rollback, retry), `defineCommand`, mutation error policy.                                           |
-| 6   | [ingest-live.md](./ingest-live.md)         | `Model.ingest`, the subscription runtime (`createDbSubscriptionRuntime`/`defineDbSubscriptionEntry`/`createDbSubscriptionEffects`), `Model.query`'s live colocation, echo semantics.                                    |
-| 7   | [runtime.md](./runtime.md)                 | Maintenance, garbage collection, `resetRuntime`/`registerReset`, the persistence/journal model, `Model.poller`, row waiters, and the small cleanup/patcher/scalar helpers.                                              |
+| 2   | [models.md](./models.md)                   | `defineModel(key, config)`, schema, associations, named relations, actions, events, sideloads, writes, maintenance, and statics. |
+| 3   | [reading.md](./reading.md)                 | `find`, `useFind`, `where`, `byIds`, named `Relation` reads, counts, invalidation, pagination, and operation state. |
+| 4   | [queries.md](./queries.md)                 | `gql.single`, `gql.connection`, relation loading state, and service-only `defineFetch`. |
+| 5   | [mutations.md](./mutations.md)             | `gql.action`, request/durable/poll modes, and service-only `defineCommand`. |
+| 6   | [ingest-live.md](./ingest-live.md)         | `gql.live`, `Model.events`, and the shared subscription runtime. |
+| 7   | [runtime.md](./runtime.md)                 | Reset, persistence, row waiters, patchers, ids, and concurrency helpers. |
 
 Every export below has exactly one home page - the doc where its full contract is documented. Where
 a symbol is used from another doc's example (e.g. `belongsTo` inside a `Model.query` extract sink),
@@ -21,18 +21,17 @@ that doc links back to the symbol's home instead of re-documenting it.
 
 ## The model-centric surface
 
-Every network-facing capability is a method on the model it belongs to. There are no standalone
-`defineQuery`/`defineMutation`/`defineView`/`defineIngest` constructors.
+Every model-bound capability is declared once in `defineModel(key, config)`. Named relations become
+flat model methods, actions live under `Model.actions`, and subscriptions live under `Model.events`.
+There are no public model-bound query, mutation, view, ingest, poller, detached-operation, scope, or
+`use.*` constructors.
 
-| Method                         | Role                                                                                      | Home                                                    |
-| ------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `Model.query(name, config)`    | Network reads into a model/scope.                                                         | [queries.md](./queries.md#modelqueryname-config)        |
-| `Model.mutation(name, config)` | Optimistic network writes.                                                                | [mutations.md](./mutations.md#modelmutationname-config) |
-| `Model.detached(kind, config)` | Durable local operation with a consumer-owned background executor.                        | [mutations.md](./mutations.md#modeldetachedkind-config) |
-| `Model.fetch(name, config)`    | Ephemeral, store-free reads scoped to a model.                                            | [queries.md](./queries.md#modelfetchname-config)        |
-| `Model.poller(name, config)`   | Refcounted async status polling.                                                          | [runtime.md](./runtime.md#modelpollername-config)       |
-| `Model.view(name, config)`     | Reactive joined projection over a scope.                                                  | [reading.md](./reading.md#modelviewname-config)         |
-| `Model.ingest(entries)`        | Subscription event declarations.                                                          | [ingest-live.md](./ingest-live.md#modelingestentries)   |
+| Surface | Role | Home |
+| --- | --- | --- |
+| Named relation method | Local or GraphQL-backed immutable relation. | [queries.md](./queries.md) |
+| `Model.actions.name` | Request, durable, or poll action. | [mutations.md](./mutations.md) |
+| `Model.events` | Typed subscription entries and manual delivery. | [ingest-live.md](./ingest-live.md) |
+| `Model.operation(id)` | Snapshot or reactive row operation state. | [reading.md](./reading.md) |
 
 `defineFetch` (model-less reads) and `defineCommand` (model-less RPC) remain standalone
 constructors for capabilities that do not belong to any single model.
@@ -51,7 +50,6 @@ somewhere under `docs/`.
 | `DbDefaults`        | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryClass`      | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
 | `DbRetryPolicy`     | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `MaintenanceReport` | type  | [getting-started.md](./getting-started.md#bootdb)            |
 | `DbProvider`        | value | [getting-started.md](./getting-started.md#dbprovider)               |
 | `DbProviderProps`   | type  | [getting-started.md](./getting-started.md#dbprovider)               |
 | `StoragePlane`      | type  | [getting-started.md](./getting-started.md#storage-seam)             |
@@ -64,22 +62,16 @@ somewhere under `docs/`.
 | ------------- | ----- | ------------------------------------------ |
 | `defineModel` | value | [models.md](./models.md#definemodelconfig) |
 | `gql`         | value | [models.md](./models.md#graphql-declarations) |
-| `ScopeHandle` | type  | [models.md](./models.md#scopes)            |
-| `ScopeWindowResult` | type | [reading.md](./reading.md#scope-reads) |
-| `ScopeSpec`   | type  | [models.md](./models.md#scopespec)         |
 | `ModelInput`  | type  | [models.md](./models.md#fields-f)          |
 | `ModelStored` | type  | [models.md](./models.md#fields-f)          |
-| `ModelConfig` | type  | [models.md](./models.md#modelconfig)       |
-| `GuardedOrigin` | type | [models.md](./models.md#write-policy)     |
-| `MonotonicSpec` | type | [models.md](./models.md#write-policy)     |
-| `NestedKeyPolicy` | type | [models.md](./models.md#write-policy)    |
-| `WriteCtx` | type | [models.md](./models.md#write-policy)             |
-| `WriteGroup` | type | [models.md](./models.md#write-policy)           |
-| `WriteOrigin` | type | [models.md](./models.md#write-policy)         |
-| `WritePolicy` | type | [models.md](./models.md#write-policy)         |
-| `ViewConfig` | type | [reading.md](./reading.md#modelviewname-config) |
-| `ViewIncludeModel` | type | [reading.md](./reading.md#modelviewname-config) |
-| `ViewIncludeSpec` | type | [reading.md](./reading.md#modelviewname-config) |
+| `ModelAction` | type | [mutations.md](./mutations.md) |
+| `ModelActionHook` | type | [mutations.md](./mutations.md) |
+| `ModelEventHandle` | type | [ingest-live.md](./ingest-live.md) |
+| `Relation` | type | [reading.md](./reading.md) |
+| `RelationOptions` | type | [reading.md](./reading.md) |
+| `RelationResult` | type | [reading.md](./reading.md) |
+| `RowOperation` | type | [reading.md](./reading.md) |
+| `RowOperationState` | type | [reading.md](./reading.md) |
 
 ### Schema DSL
 
@@ -108,7 +100,6 @@ somewhere under `docs/`.
 | `DbWhere`      | type | [reading.md](./reading.md#snapshot-vs-reactive-reads) |
 | `DbWhereOp`    | type | [reading.md](./reading.md#snapshot-vs-reactive-reads) |
 | `LoadingState` | type | [queries.md](./queries.md#loading-state)              |
-| `EnsuredRowResult` | type | [reading.md](./reading.md#ensured-point-reads) |
 | `useMergedScopeRows` | value | [reading.md](./reading.md#usemergedscoperowsbaserows-extrarows-options) |
 
 `use.*`, `Model.view`, and `ScopeHandle.use`/`useWindow` are methods, not separate barrel exports -
@@ -126,13 +117,9 @@ see [reading.md](./reading.md).
 | `ExtractSink`     | type  | [queries.md](./queries.md#modelqueryname-config)        |
 | `fromNodes`       | value | [queries.md](./queries.md#connection-and-extract-helpers) |
 | `intoIf`          | value | [queries.md](./queries.md#connection-and-extract-helpers) |
-| `bridgeWindowPagination` | value | [queries.md](./queries.md#queryresult) |
 | `useLoadMore` | value | [queries.md](./queries.md#queryresult) |
 | `LoadMoreTarget` | type | [queries.md](./queries.md#queryresult) |
 | `LoadMoreOptions` | type | [queries.md](./queries.md#queryresult) |
-| `WindowPaginationBridge` | type | [queries.md](./queries.md#queryresult) |
-| `LiveQueryHandle` | type  | [queries.md](./queries.md#live-subscription-colocation) |
-| `ScopeCoverage`   | type  | [queries.md](./queries.md#scopecoverage-semantics)      |
 
 `Model.query`/`Model.fetch` themselves are methods, not separate barrel exports - see
 [queries.md](./queries.md).
@@ -167,7 +154,6 @@ see [reading.md](./reading.md).
 | `resetRuntime`                | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
 | `registerReset`               | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
 | `setFetchNetworkOnline`       | value | [runtime.md](./runtime.md#setfetchnetworkonlineonline)                          |
-| `GcReport`                    | type  | [runtime.md](./runtime.md#garbage-collection)                                   |
 | `updateWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md#createthrottledsingleflightfn-options) |

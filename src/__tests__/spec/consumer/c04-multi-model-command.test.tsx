@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineCommand, defineModel, f } from '../../../index';
+import { configureDb, defineCommand, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/mutations/walletMutations.ts sendGift: one model-less defineCommand whose

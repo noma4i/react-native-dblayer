@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { belongsTo, defineModel, f, hasMany, hasOne } from '../../../index';
+import { belongsTo, defineModel, f, hasMany, hasOne } from '../../legacyTestApi';
 import { getCommitBus } from '../../../dsl/configure';
 import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createScopeIndex } from '../../../core/planes/scopeIndex';
 import { compositeKey } from '../../../core/serialize';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';

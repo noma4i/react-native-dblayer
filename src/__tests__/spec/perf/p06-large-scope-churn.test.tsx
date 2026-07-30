@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { configureDb, createSingletonStatics, defineModel, f } from '../../../index';
+import { configureDb, createSingletonStatics, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 // App-shaped stress: a large field-sorted chat-list scope, one mounted `useWindow`, one mounted `use.where`,

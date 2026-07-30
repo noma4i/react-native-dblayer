@@ -1,4 +1,4 @@
-import type { StoragePlane } from '../../../index';
+import type { StoragePlane } from '../../legacyTestApi';
 import { createMemoryPlane } from './harness';
 
 /** Creates a synchronous storage plane that can inject one-shot write faults for persistence specs. */

@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { useLoadMore } from '../../../index';
-import type { LoadMoreTarget, LoadMoreOptions } from '../../../index';
+import { useLoadMore } from '../../legacyTestApi';
+import type { LoadMoreTarget, LoadMoreOptions } from '../../legacyTestApi';
 
 const renderLoadMore = (initial: { target: LoadMoreTarget; options?: LoadMoreOptions }) => {
   let latest: () => void = () => {};

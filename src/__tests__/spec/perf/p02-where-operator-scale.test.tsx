@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, type DbWhere } from '../../../index';
+import { defineModel, f, type DbWhere } from '../../legacyTestApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 type ScaleRow = { id: string; score: number; status: string };

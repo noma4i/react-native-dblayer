@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb } from '../../../index';
+import { configureDb } from '../../legacyTestApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { flushPersistence } from '../../../dsl/configure';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';

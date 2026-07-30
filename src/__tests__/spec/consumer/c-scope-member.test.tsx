@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 type ChatRow = { id: string; inboxId: string; premium: boolean; kind: string };

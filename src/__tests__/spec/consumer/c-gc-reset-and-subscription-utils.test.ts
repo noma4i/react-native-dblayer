@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../../index';
+import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../legacyTestApi';
 import { collectGarbage, registerGcHost } from '../../../core/gc';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 

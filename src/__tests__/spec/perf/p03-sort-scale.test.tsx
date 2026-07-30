@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f } from '../../../index';
+import { defineModel, f } from '../../legacyTestApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 

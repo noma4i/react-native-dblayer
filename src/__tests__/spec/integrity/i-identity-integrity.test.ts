@@ -1,4 +1,4 @@
-import { belongsTo, configureDb, createDbSubscriptionRuntime, defineModel, f } from '../../../index';
+import { belongsTo, configureDb, createDbSubscriptionRuntime, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('identity integrity red-first', () => {

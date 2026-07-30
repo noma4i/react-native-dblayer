@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };

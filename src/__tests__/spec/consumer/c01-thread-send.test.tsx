@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { belongsTo, configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/MessageModel.ts: thread scope by chatId, custom comparator

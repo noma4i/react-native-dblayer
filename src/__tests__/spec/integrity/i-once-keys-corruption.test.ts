@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { DB_FORMAT_VERSION } from '../../../core/schemaManifest';
 import { encodePersistence } from '../../../core/persistenceCodec';

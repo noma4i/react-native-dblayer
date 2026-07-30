@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModel, f } from '../../../index';
+import { DbProvider, configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, recordTimeline, settle } from '../helpers/harness';
 
 type ChatRow = { id: string; groupId: string; pinned: boolean; muted: boolean; read: boolean; rev: number };

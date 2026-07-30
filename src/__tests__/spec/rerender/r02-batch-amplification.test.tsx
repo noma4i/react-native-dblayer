@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f } from '../../../index';
+import { configureDb, defineModel, defineShape, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type BulkRow = { id: string; name: string; status: string; score: number };

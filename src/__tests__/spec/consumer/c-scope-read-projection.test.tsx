@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../../index';
+import { defineModel, f } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, createDbSubscriptionRuntime, createThrottledSingleFlight, defineModel, f } from '../../../index';
+import { configureDb, createDbSubscriptionRuntime, createThrottledSingleFlight, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/ChatModel.ts: throttled single-flight sync mutation, and

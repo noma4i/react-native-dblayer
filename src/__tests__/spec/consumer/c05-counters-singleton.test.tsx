@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { createSingletonStatics, defineModel, f, pickPresent, resetRuntime } from '../../../index';
+import { createSingletonStatics, defineModel, f, pickPresent, resetRuntime } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/models/UserCountersModel.ts: a single-record singleton built on

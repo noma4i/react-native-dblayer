@@ -1,4 +1,4 @@
-import { belongsTo, defineModel, f } from '../../../index';
+import { belongsTo, defineModel, f } from '../../legacyTestApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 /**

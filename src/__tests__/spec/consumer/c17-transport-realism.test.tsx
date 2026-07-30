@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type ScopeValue = { userId: string };

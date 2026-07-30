@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createModelStatusPoller } from '../../../utils/modelStatusPoller';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 

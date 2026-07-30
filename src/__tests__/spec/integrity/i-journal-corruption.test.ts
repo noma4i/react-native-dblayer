@@ -1,4 +1,4 @@
-import { configureDb } from '../../../index';
+import { configureDb } from '../../legacyTestApi';
 import { createJournal, readJournalRecord } from '../../../core/apply/journal';
 import { encodePersistence, versionPersistenceValue } from '../../../core/persistenceCodec';
 import type { JournalRecord } from '../../../types';

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MediaRow = { id: string; chatId: string; mediaBucket: string; sequenceNumber: number; label: string };

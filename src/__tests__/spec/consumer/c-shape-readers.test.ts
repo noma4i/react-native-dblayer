@@ -1,4 +1,4 @@
-import { defineShape, f, projectShape, readShape, readShapeOrThrow } from '../../../index';
+import { defineShape, f, projectShape, readShape, readShapeOrThrow } from '../../legacyTestApi';
 
 // Named behavioral contracts for the shape boundary readers.
 

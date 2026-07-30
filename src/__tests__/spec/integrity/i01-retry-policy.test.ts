@@ -1,4 +1,4 @@
-import { configureDb, defineFetch, defineModel, f, resetRuntime, setFetchNetworkOnline } from '../../../index';
+import { configureDb, defineFetch, defineModel, f, resetRuntime, setFetchNetworkOnline } from '../../legacyTestApi';
 import { backoffDelayMs } from '../../../core/fetch/retryPolicy';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 

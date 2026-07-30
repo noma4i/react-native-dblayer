@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f } from '../../../index';
+import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
 import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 

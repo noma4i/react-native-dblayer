@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime } from '../../../index';
+import { DbProvider, configureDb, defineFetch, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { collectGarbage } from '../../../core/gc';
 import { registerActiveFetchReaders } from '../../../core/fetch/fetchReaderRegistry';
 import { compositeKey } from '../../../core/serialize';

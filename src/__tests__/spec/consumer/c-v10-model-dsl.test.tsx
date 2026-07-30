@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, gql } from '../../../index';
+import { configureDb, defineModel, defineShape, f, gql, type ModelInput, type ModelStored } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type MessageInput = {
@@ -103,6 +103,15 @@ const createMessageModel = (suffix: string) =>
     },
     maintenance: { dropTempRowsAfterMs: 1000 }
   });
+
+type MessageModelType = ReturnType<typeof createMessageModel>;
+const assertModelUtilityTypes = (stored: ModelStored<MessageModelType>, input: ModelInput<MessageModelType>): void => {
+  const storedStatus: MessageInput['status'] = stored.status;
+  const inputStatus: MessageInput['status'] = input.status;
+  void storedStatus;
+  void inputStatus;
+};
+void assertModelUtilityTypes;
 
 describe('v10 model surface', () => {
   it('exposes one immutable relation for snapshot and reactive local reads', () => {

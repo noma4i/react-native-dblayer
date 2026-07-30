@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type TestRow = { id: string; name: string; status: string; score: number };

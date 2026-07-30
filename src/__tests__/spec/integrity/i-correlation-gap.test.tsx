@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f } from '../../../index';
+import { belongsTo, configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // Channel-agnostic temp correlation (G1, closed in 9.0): a mutation that declares

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineFetch, defineModel, f } from '../../../index';
+import { configureDb, defineFetch, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestFocused, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type FetchPayload = { value: string };

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, hasMany, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, hasMany, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { act } from 'react';
 

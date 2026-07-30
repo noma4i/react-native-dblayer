@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { getApplyRuntime } from '../../../dsl/configure';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createJournal } from '../../../core/apply/journal';

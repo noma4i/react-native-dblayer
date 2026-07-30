@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f, hasMany } from '../../../index';
+import { belongsTo, configureDb, defineModel, f, hasMany } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

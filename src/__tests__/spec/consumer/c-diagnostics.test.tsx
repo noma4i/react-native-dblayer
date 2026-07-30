@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f, resetRuntime } from '../../../index';
+import { defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 const createItems = (suffix: string) =>

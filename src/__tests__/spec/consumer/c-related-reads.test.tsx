@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, defineModel, f, hasMany, hasOne } from '../../../index';
+import { belongsTo, defineModel, f, hasMany, hasOne } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // use.related contracts: belongsTo/hasMany/hasOne reactive reads through declared relations.

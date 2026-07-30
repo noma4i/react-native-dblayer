@@ -1,4 +1,4 @@
-import { createIdArrayPatcher, createKeyedArrayPatcher, createNestedObjectPatcher, defineModel, defineShape, f } from '../../../index';
+import { createIdArrayPatcher, createKeyedArrayPatcher, createNestedObjectPatcher, defineModel, defineShape, f } from '../../legacyTestApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for the runtime patch helpers.

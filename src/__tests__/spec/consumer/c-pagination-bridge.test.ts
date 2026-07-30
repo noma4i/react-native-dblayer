@@ -1,4 +1,4 @@
-import { bridgeWindowPagination, type ScopeWindowResult } from '../../../index';
+import { bridgeWindowPagination, type ScopeWindowResult } from '../../legacyTestApi';
 
 // Pure combiner contracts: window-first pagination bridge.
 

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('sorted scope batch reposition integrity', () => {

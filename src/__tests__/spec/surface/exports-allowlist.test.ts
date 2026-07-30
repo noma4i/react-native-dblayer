@@ -1,9 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import * as barrel from '../../../index';
 
 const runtimeExportAllowlist = [
   'DbProvider',
   'belongsTo',
-  'bridgeWindowPagination',
   'configureDb',
   'createDbSubscriptionEffects',
   'createDbSubscriptionRuntime',
@@ -43,8 +44,42 @@ const runtimeExportAllowlist = [
   'waitForRow'
 ];
 
+const assertRemovedModelConfig = (): void => {
+  // @ts-expect-error the public model constructor requires a key and the v10 config
+  barrel.defineModel({ id: 'RemovedModel', name: 'RemovedModel', fields: {} });
+};
+void assertRemovedModelConfig;
+
 describe('public barrel exports', () => {
   it('matches the reviewed runtime export allowlist', () => {
     expect(Object.keys(barrel).sort()).toEqual(runtimeExportAllowlist);
+  });
+
+  it('does not export removed model compiler types', () => {
+    const entry = fs.readFileSync(path.resolve(__dirname, '../../../index.ts'), 'utf8');
+    const removed = [
+      'EnsuredRowResult',
+      'GcReport',
+      'GuardedOrigin',
+      'LiveQueryHandle',
+      'MaintenanceReport',
+      'ModelConfig',
+      'MonotonicSpec',
+      'NestedKeyPolicy',
+      'ScopeCoverage',
+      'ScopeHandle',
+      'ScopeSpec',
+      'ScopeWindowResult',
+      'ViewConfig',
+      'ViewIncludeModel',
+      'ViewIncludeSpec',
+      'WindowPaginationBridge',
+      'WriteCtx',
+      'WriteGroup',
+      'WriteOrigin',
+      'WritePolicy'
+    ];
+
+    for (const name of removed) expect(entry).not.toMatch(new RegExp(`\\b${name}\\b`));
   });
 });

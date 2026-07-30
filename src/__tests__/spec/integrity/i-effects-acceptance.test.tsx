@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, f } from '../../../index';
+import { belongsTo, configureDb, defineModel, f } from '../../legacyTestApi';
 import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
 import { flushPersistence, getOperationState } from '../../../dsl/configure';
 import { bootDb } from '../../../dsl/lifecycle';

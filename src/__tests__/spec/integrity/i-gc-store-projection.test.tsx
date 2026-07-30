@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../../index';
+import { defineModel, f } from '../../legacyTestApi';
 import { collectGarbage } from '../../../core/gc';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 

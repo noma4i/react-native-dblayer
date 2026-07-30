@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f, registerReset, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, registerReset, resetRuntime } from '../../legacyTestApi';
 import { collectGarbage } from '../../../core/gc';
 import { createOperationState } from '../../../core/planes/operationState';
 import type { OperationStatus } from '../../../types';

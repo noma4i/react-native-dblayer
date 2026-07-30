@@ -1,4 +1,4 @@
-import { defineModel, defineShape, f, readShape } from '../../../index';
+import { defineModel, defineShape, f, readShape } from '../../legacyTestApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 // Runtime contracts for the enum and date field readers.

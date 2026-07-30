@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { getInternalModelHandle } from '../../../core/internalHandles';
 import { compositeKey } from '../../../core/serialize';

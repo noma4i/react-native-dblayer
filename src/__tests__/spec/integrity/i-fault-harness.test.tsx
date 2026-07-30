@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { flushPersistence } from '../../../dsl/configure';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createApplyRuntime } from '../../../core/apply/transaction';

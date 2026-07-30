@@ -1,5 +1,5 @@
 import type { UsedMmkvMethods } from '../../../../__mocks__/mmkvMockFactory';
-import { configureDb } from '../../../index';
+import { configureDb } from '../../legacyTestApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { mmkvStoragePlane } from '../../../core/planes/storagePlane';
 import { mmkvStorageAdapter, getDbStorageKeys, removeDbStorageKey } from '../../../utils/mmkvStorage';

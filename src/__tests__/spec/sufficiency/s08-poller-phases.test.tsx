@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f, resetRuntime } from '../../../index';
+import { configureDb, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type Result = { status: 'processing' | 'ready' | 'failed' };

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f } from '../../../index';
+import { defineModel, f } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // A2 audit guards: equal-sort-key ordering is deterministic and identical across read surfaces.

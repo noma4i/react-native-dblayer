@@ -1,4 +1,4 @@
-import { configureDb } from '../../../index';
+import { configureDb } from '../../legacyTestApi';
 import { createOperationState, readCommittedOnceKeys, serializeOperationInput } from '../../../core/planes/operationState';
 import { encodePersistence } from '../../../core/persistenceCodec';
 import type { OperationRecord } from '../../../types';

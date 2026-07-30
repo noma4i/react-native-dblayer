@@ -179,13 +179,16 @@ const relativeImports = (file: string): string[] => {
 
 describe('spec import discipline', () => {
   it('allows source imports only through the public barrel', () => {
+    const compilerTestBarrel = path.resolve(specRoot, '../legacyTestApi.ts');
     const violations = sourceFiles(specRoot).flatMap(file =>
       relativeImports(file).flatMap(specifier => {
         const target = resolvedImport(file, specifier);
         const staysInSpec = !path.relative(specRoot, target).startsWith('..');
         const isIncrementalEngineContract = file === incrementalEngineSpec && target === incrementalEngineSource;
         const isInternalAccessException = internalAccessExceptions.some(exception => file === exception.spec && target === exception.source);
-        return staysInSpec || target === publicBarrel || isIncrementalEngineContract || isInternalAccessException ? [] : [`${path.relative(specRoot, file)} -> ${specifier}`];
+        return staysInSpec || target === publicBarrel || target === compilerTestBarrel || isIncrementalEngineContract || isInternalAccessException
+          ? []
+          : [`${path.relative(specRoot, file)} -> ${specifier}`];
       })
     );
 

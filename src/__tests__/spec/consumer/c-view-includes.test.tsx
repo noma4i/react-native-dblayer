@@ -1,5 +1,5 @@
-import { belongsTo, bridgeWindowPagination, defineModel, f, hasOne, references } from '../../../index';
-import type { LoadingState } from '../../../index';
+import { belongsTo, bridgeWindowPagination, defineModel, f, hasOne, references } from '../../legacyTestApi';
+import type { LoadingState } from '../../legacyTestApi';
 import { act } from 'react';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 

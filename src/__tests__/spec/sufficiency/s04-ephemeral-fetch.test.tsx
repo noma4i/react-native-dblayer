@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import * as dbl from '../../../index';
+import * as dbl from '../../legacyTestApi';
 import { setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (

@@ -1,6 +1,6 @@
 import React, { act, useState } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModel, f, resetRuntime } from '../../../index';
+import { defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopeReadWork = { fullRows: number; incrementalRows: number };

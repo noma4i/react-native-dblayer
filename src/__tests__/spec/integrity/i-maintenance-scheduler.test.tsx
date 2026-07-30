@@ -1,6 +1,6 @@
 jest.mock('../../../core/gc', () => ({ ...jest.requireActual('../../../core/gc'), collectGarbage: jest.fn() }));
 
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { collectGarbage } from '../../../core/gc';
 import { startMaintenanceScheduler } from '../../../core/maintenanceScheduler';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';

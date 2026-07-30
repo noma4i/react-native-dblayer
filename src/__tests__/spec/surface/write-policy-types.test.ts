@@ -1,4 +1,4 @@
-import { defineModel, f } from '../../../index';
+import { defineModel, f } from '../../legacyTestApi';
 
 describe('write policy public types', () => {
   it('keeps consumer functions out of the closed write policy set', () => {

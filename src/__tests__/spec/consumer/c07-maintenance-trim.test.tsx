@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModel, f } from '../../../index';
+import { configureDb, defineModel, f } from '../../legacyTestApi';
 import { bootDb } from '../../../dsl/lifecycle';
 import { collectGarbage } from '../../../core/gc';
 import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';

@@ -1,4 +1,4 @@
-import { defineModel, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../../index';
+import { defineModel, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../legacyTestApi';
 import { getCommitBus } from '../../../dsl/configure';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 

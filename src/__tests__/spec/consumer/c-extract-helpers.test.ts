@@ -1,4 +1,4 @@
-import { fromNodes, intoIf } from '../../../index';
+import { fromNodes, intoIf } from '../../legacyTestApi';
 
 // Pure extract/unwrap helper contracts.
 

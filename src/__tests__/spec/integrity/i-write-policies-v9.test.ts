@@ -1,4 +1,4 @@
-import { belongsTo, configureDb, defineModel, f } from '../../../index';
+import { belongsTo, configureDb, defineModel, f } from '../../legacyTestApi';
 import { isIncomingNewer } from '../../../core/invariants';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 

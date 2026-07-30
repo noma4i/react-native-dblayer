@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModel, f } from '../../../index';
+import { DbProvider, configureDb, defineFetch, defineModel, f } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type Item = { id: string; bucket: string };

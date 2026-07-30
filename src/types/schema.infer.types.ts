@@ -32,5 +32,11 @@ export type InferStoredFields<TFields extends AnyFields> = Simplify<{ id: string
 export type InferBuildInput<TFields extends AnyFields> = Simplify<Partial<InferStoredFields<TFields>> & Pick<InferStoredFields<TFields>, BuildRequiredKeys<TFields>>>;
 export type AnyDbShape = DbShape<any, AnyFields>;
 export type InferShapeStored<S extends AnyDbShape> = S extends DbShape<any, infer TFields> ? InferFieldObject<TFields> : never;
-export type ModelStored<M> = M extends { all: () => Array<infer TStored> } ? TStored : never;
-export type ModelInput<M> = Simplify<Partial<ModelStored<M>> & { id: string }>;
+type MethodResult<TMethod> = TMethod extends (...args: never[]) => infer TResult ? TResult : never;
+
+export type ModelStored<M> = M extends { find: infer TFind }
+  ? NonNullable<MethodResult<TFind>>
+  : M extends { all: () => Array<infer TStored> }
+    ? TStored
+    : never;
+export type ModelInput<M> = M extends { insert(row: infer TInput): void } ? TInput : Simplify<Partial<ModelStored<M>> & { id: string }>;

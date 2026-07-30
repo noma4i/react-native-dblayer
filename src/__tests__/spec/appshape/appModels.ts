@@ -8,7 +8,7 @@ import {
   hasOne,
   projectShape,
   references
-} from '../../../index';
+} from '../../legacyTestApi';
 
 const mediaSchema = defineShape()({
   id: f.id(),
