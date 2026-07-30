@@ -1,4 +1,4 @@
-import type { ApplyTarget, Dependency, ModelContext, ScopeHandle, ScopeSpec, WriteOp } from '../types';
+import type { ApplyTarget, ModelContext, ScopeHandle, ScopeSpec, WriteOp } from '../types';
 export declare const createModelScopeHandle: <TStored extends {
     id: string;
 } & Record<string, unknown>, TInput>(options: {
@@ -11,7 +11,6 @@ export declare const createModelScopeHandle: <TStored extends {
     isPlanRow(input: unknown): boolean;
     normalize(input: unknown): TStored;
     applyTarget: Pick<ApplyTarget, "scopeSortMeta">;
-    scopeDep(scopeKey: string): Dependency;
     useScopeAccess(scopeKey: string | null): void;
     scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
     planRows(rows: unknown[]): WriteOp[];

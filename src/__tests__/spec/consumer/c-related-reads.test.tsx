@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, defineModel, f, hasMany, hasOne } from '../../legacyTestApi';
+import { belongsTo, defineModel, f, hasMany, hasOne, references } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // use.related contracts: belongsTo/hasMany/hasOne reactive reads through declared relations.
@@ -119,5 +119,57 @@ describe('use.related', () => {
     many.unmount();
     one.unmount();
     expect(() => renderCounted(() => hasPair.authors.use.related('u-1', 'nonexistent'))).toThrow('has no relation nonexistent');
+  });
+
+  it('covers absent parents, empty and unsorted single relations, scalar references, and null fields', () => {
+    setupSpecRuntime();
+    const targets = defineModel({
+      id: 'SpecRelEdgeTargets',
+      name: 'SpecRelEdgeTargets',
+      fields: { name: f.str() }
+    });
+    const children = defineModel({
+      id: 'SpecRelEdgeChildren',
+      name: 'SpecRelEdgeChildren',
+      fields: { parentId: f.str(), rank: f.num() }
+    });
+    const sources = defineModel({
+      id: 'SpecRelEdgeSources',
+      name: 'SpecRelEdgeSources',
+      fields: { parentId: f.str(), targetId: f.str() },
+      relations: () => ({
+        parent: belongsTo(targets, { foreignKey: 'parentId' }),
+        firstChild: hasOne(children, { foreignKey: 'parentId' }),
+        target: references(targets, { ids: (source: { targetId: string }) => source.targetId })
+      })
+    });
+    targets.insert({ id: 'target-1', name: 'one' });
+    sources.insertMany([
+      { id: 'source-empty', parentId: '', targetId: '' },
+      { id: 'source-target', parentId: 'missing-parent', targetId: 'target-1' },
+      { id: 'source-missing-target', parentId: 'missing-parent', targetId: 'missing-target' }
+    ]);
+    children.insert({ id: 'child-1', parentId: 'source-target', rank: 1 });
+
+    const nullField = renderCounted(() => sources.use.field(null, 'parentId'));
+    const absentParent = renderCounted(() => sources.use.related('source-empty', 'parent'));
+    const emptyChild = renderCounted(() => sources.use.related('source-empty', 'firstChild'));
+    const nullChild = renderCounted(() => sources.use.related(null, 'firstChild'));
+    const firstChild = renderCounted(() => sources.use.related('source-target', 'firstChild') as PostRow | undefined);
+    const scalarRef = renderCounted(() => sources.use.related('source-target', 'target') as AuthorRow[]);
+    const missingRef = renderCounted(() => sources.use.related('source-missing-target', 'target') as AuthorRow[]);
+    const missingSource = renderCounted(() => sources.use.related('missing-source', 'target') as AuthorRow[]);
+    const nullRef = renderCounted(() => sources.use.related(null, 'target') as AuthorRow[]);
+
+    expect(nullField.result()).toBeUndefined();
+    expect(absentParent.result()).toBeUndefined();
+    expect(emptyChild.result()).toBeUndefined();
+    expect(nullChild.result()).toBeUndefined();
+    expect(firstChild.result()?.id).toBe('child-1');
+    expect(scalarRef.result().map(row => row.id)).toEqual(['target-1']);
+    expect(missingRef.result()).toEqual([]);
+    expect(missingSource.result()).toEqual([]);
+    expect(nullRef.result()).toEqual([]);
+    for (const reader of [nullField, absentParent, emptyChild, nullChild, firstChild, scalarRef, missingRef, missingSource, nullRef]) reader.unmount();
   });
 });

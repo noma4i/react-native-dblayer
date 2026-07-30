@@ -18,8 +18,6 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
   const { planes } = options.context;
   const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: options.modelId, id, ...(fields ? { fields } : {}) });
   const modelDep: Dependency = { kind: 'model', model: options.modelId };
-  const scopeDep = (scopeKey: string): Dependency => ({ kind: 'scope', model: options.modelId, scopeKey });
-  const memberDeps = (scopeKey: string): Dependency[] => [scopeDep(scopeKey)];
   const useScopeAccess = (scopeKey: string | null): void => {
     useEffect(() => {
       if (scopeKey != null) planes().scopeIndex.noteAccess(scopeKey);
@@ -106,5 +104,5 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
       }
     });
   };
-  return { rowDep, modelDep, scopeDep, memberDeps, useScopeAccess, scopeSortedRows, whereRead };
+  return { rowDep, modelDep, useScopeAccess, scopeSortedRows, whereRead };
 };

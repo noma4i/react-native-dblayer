@@ -18,6 +18,61 @@ const createStories = () =>
   });
 
 describe('scope window resolved state', () => {
+  it('keeps null scope reads inactive and resets stale window callbacks to their own key', () => {
+    setupSpecRuntime();
+    const stories = createStories();
+    let windowResult!: ReturnType<typeof stories.scopes.byBucket.useWindow>;
+    let nullRows!: ReturnType<typeof stories.scopes.byBucket.use>;
+    let nullCount!: ReturnType<typeof stories.scopes.byBucket.useCount>;
+    let root!: TestRenderer.ReactTestRenderer;
+
+    const Reader = ({ bucket }: { bucket: string | null }) => {
+      const scopeValue = bucket === null ? null : { bucket };
+      nullRows = stories.scopes.byBucket.use(scopeValue);
+      nullCount = stories.scopes.byBucket.useCount(scopeValue);
+      windowResult = stories.scopes.byBucket.useWindow(scopeValue, { pageSize: 1 });
+      return null;
+    };
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader, { bucket: null }));
+    });
+    expect({ rows: nullRows, count: nullCount, window: windowResult.rows, resolved: windowResult.resolved }).toEqual({
+      rows: [],
+      count: 0,
+      window: [],
+      resolved: true
+    });
+
+    act(() => {
+      root.update(React.createElement(Reader, { bucket: 'A' }));
+      stories.scopes.byBucket.seed(
+        { bucket: 'A' },
+        [
+          { id: 'story-a1', bucket: 'A', title: 'First' },
+          { id: 'story-a2', bucket: 'A', title: 'Second' }
+        ]
+      );
+    });
+    const fetchNextForA = windowResult.fetchNextPage;
+
+    act(() => {
+      root.update(React.createElement(Reader, { bucket: 'B' }));
+      stories.scopes.byBucket.seed(
+        { bucket: 'B' },
+        [
+          { id: 'story-b1', bucket: 'B', title: 'First' },
+          { id: 'story-b2', bucket: 'B', title: 'Second' }
+        ]
+      );
+    });
+    act(() => {
+      fetchNextForA();
+    });
+    expect(windowResult.rows.map(row => row.id)).toEqual(['story-b1']);
+    act(() => root.unmount());
+  });
+
   it('flips resolved on an empty scope reconcile without adding rows', () => {
     setupSpecRuntime();
     const stories = createStories();

@@ -1,4 +1,4 @@
-import type { ApplyTarget, Dependency, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape, ProjectionOptions, WriteOp } from '../types';
+import type { ApplyTarget, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape, ProjectionOptions, WriteOp } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';
@@ -22,7 +22,6 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   isPlanRow(input: unknown): boolean;
   normalize(input: unknown): TStored;
   applyTarget: Pick<ApplyTarget, 'scopeSortMeta'>;
-  scopeDep(scopeKey: string): Dependency;
   useScopeAccess(scopeKey: string | null): void;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
   planRows(rows: unknown[]): WriteOp[];

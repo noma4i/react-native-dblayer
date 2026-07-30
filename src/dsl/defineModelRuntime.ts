@@ -118,7 +118,7 @@ export const defineModelRuntime = <
         planModelLandingWithRoot(config.id, [next], rows => planOwnReplace(oldId, rows[0]))
     : planOwnReplace;
 
-  const { rowDep, modelDep, scopeDep, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<
+  const { rowDep, modelDep, useScopeAccess, scopeSortedRows, whereRead } = createModelReadAccess<
     InferStoredFields<TFields> & Record<string, unknown>
   >({
     modelId: config.id,
@@ -157,7 +157,6 @@ export const defineModelRuntime = <
     isPlanRow,
     normalize,
     applyTarget,
-    scopeDep,
     useScopeAccess,
     scopeSortedRows,
     planRows,

@@ -133,4 +133,20 @@ describe('builder exists()', () => {
     expect(fresh.result()).toBe(true);
     fresh.unmount();
   });
+
+  it('keeps null criteria inactive across rows, pluck, and exists terminals', () => {
+    setupSpecRuntime();
+    const items = createItems('NullCriteria');
+    seedItems(items);
+    const rows = renderCounted(() => items.use.where(null).rows());
+    const names = renderCounted(() => items.use.where(null).pluck('name'));
+    const exists = renderCounted(() => items.use.where(null).exists());
+
+    expect(rows.result()).toEqual([]);
+    expect(names.result()).toEqual([]);
+    expect(exists.result()).toBe(false);
+    rows.unmount();
+    names.unmount();
+    exists.unmount();
+  });
 });

@@ -39,8 +39,6 @@ export type ModelReadAccess<TStored extends {
 } & Record<string, unknown>> = {
     rowDep(id: string, fields?: ReadonlyArray<string>): Dependency;
     modelDep: Dependency;
-    scopeDep(scopeKey: string): Dependency;
-    memberDeps(scopeKey: string): Dependency[];
     useScopeAccess(scopeKey: string | null): void;
     scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
     whereRead(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
