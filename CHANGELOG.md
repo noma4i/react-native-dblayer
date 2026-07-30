@@ -1,5 +1,20 @@
 # Changelog
 
+## 10.0.0-beta.1 - 2026-07-30
+
+### Breaking changes and migration
+
+- `defineModel(key, config)` is the only public model constructor. Models expose flat named relations, `actions`, `events`, local writes, point reads, operation state, and domain statics.
+- Model config uses `schema`, `associations`, `relations`, `actions`, `events`, and `sideloads`. The former `fields`, `scopes`, model query/mutation/view/ingest builders, detached operations, and pollers are internal compiler details.
+- `Relation` unifies snapshot reads, subscribed reads, counts, invalidation, local window growth, remote pagination, refresh, loading state, and errors.
+- `gql.single`, `gql.connection`, `gql.action`, and `gql.live` infer transport data and variables from `TypedDocumentNode`.
+- Scalar coercion belongs to typed field codecs. `f.num()` converts finite numeric transport strings, `f.int()` stores safe integers, and `f.bool()` converts boolean transport strings. Standalone `readId` and `stringifyNullish` exports are removed.
+
+### Integrity and testing
+
+- Sideload traversal plans every model write before one atomic envelope commit, deduplicates model/id destinations, and terminates cycles.
+- The executable source is held at 100% statement, branch, function, and line coverage.
+
 ## 9.0.0-beta.14 - 2026-07-30
 
 ### Fixed
