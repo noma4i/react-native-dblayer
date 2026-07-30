@@ -63,6 +63,7 @@ describe('field spec chains', () => {
     const factoryDefault = f.str().default('fallback');
     const selected = f.str().from<{ alias?: string }>(input => input.alias);
     const ownKey = f.str().fromKey<{ nested?: unknown }>('name', input => input.nested);
+    const primitiveKey = f.str().fromKey<{ nested?: unknown }>('0', input => input.nested);
 
     expect(nullDefault.read({}, 'missing')).toBeNull();
     expect(nullDefault.hasDefault).toBe(true);
@@ -73,6 +74,7 @@ describe('field spec chains', () => {
     expect(ownKey.read({ nested: { name: 'nested' } }, 'ignored')).toBe('nested');
     expect(ownKey.read({ nested: Object.create({ name: 'inherited' }) }, 'ignored')).toBeUndefined();
     expect(ownKey.read({ nested: null }, 'ignored')).toBeUndefined();
+    expect(primitiveKey.read({ nested: 'primitive' }, 'ignored')).toBeUndefined();
   });
 
   it('contains selector failures and normalizes object and array fields', () => {

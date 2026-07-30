@@ -1,4 +1,4 @@
-import { defineShape, f, projectShape, readShape, readShapeOrThrow } from '../../legacyTestApi';
+import { defineShape, f, projectShape, readObjectField, readShape, readShapeOrThrow } from '../../legacyTestApi';
 
 // Named behavioral contracts for the shape boundary readers.
 
@@ -18,7 +18,12 @@ describe('readShape', () => {
   });
 
   it('reads declared fields and drops unreadable values and undeclared keys', () => {
-    expect(readShape(snapshotShape, { id: 'u-1', name: 'Ann', age: 'not-a-number', extra: true })).toEqual({ id: 'u-1', name: 'Ann' });
+    expect(readShape(snapshotShape, { id: 'u-1', name: 'Ann', age: 'not-a-number', extra: true })).toStrictEqual({ id: 'u-1', name: 'Ann' });
+  });
+
+  it('keeps low-level object reads total for non-object input', () => {
+    expect(readObjectField(null, 'name')).toBeUndefined();
+    expect(readObjectField(['not', 'an', 'object'], 'name')).toBeUndefined();
   });
 });
 
@@ -36,5 +41,11 @@ describe('projectShape', () => {
   it('projects a wider source down to shape fields with overrides winning last', () => {
     const source = { id: 'u-1', name: 'Ann', age: 30, unrelated: 'dropped' };
     expect(projectShape(snapshotShape, source, { name: 'Override' })).toEqual({ id: 'u-1', name: 'Override', age: 30 });
+  });
+});
+
+describe('field defaults', () => {
+  it('does not attach a factory default key when no default is declared', () => {
+    expect(Object.prototype.hasOwnProperty.call(f.str(), 'factoryDefault')).toBe(false);
   });
 });

@@ -43,6 +43,7 @@ export { reconcileDetachedOperationsAtBoot } from '../dsl/defineDetachedOperatio
 export { isFetchedResult } from '../queries/base/loadingState';
 export { registerActiveFetchReaders, refetchActiveFetchReaders, resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 export { computePhase } from '../queries/base/loadingState';
+export { readObjectField } from '../schema/fieldSpec';
 export { compositeKey, firstCompositeKeyPart } from '../core/serialize';
 export { compositeStorageKey } from '../core/serialize';
 export { encodePersistence } from '../core/persistenceCodec';
