@@ -17,6 +17,9 @@ export type ConnectionLike = {
     } & Record<string, unknown>) | null | undefined> | null;
     pageInfo?: PageInfoLike | null;
 };
+export type RelationCursorPage = ConnectionLike & {
+    relationCursor?: string | null;
+};
 /** Scope landing destination for query results. */
 export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & {
     id: string;

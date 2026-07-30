@@ -22,9 +22,12 @@ import type {
   FacadeRuntimeModel,
   DbWhere,
   GraphqlActionDefinition,
+  GraphqlConnectionDefinition,
+  GraphqlListDefinition,
   GraphqlLiveDefinition,
   LoadingState,
   QueryHandle,
+  RelationCursorPage,
   RelationSpec,
   ScopeQueryHandle
 } from '../types';
@@ -57,6 +60,8 @@ const createLocalResult = <TData>(data: TData, hasData: boolean, hasMore: boolea
   loadingState: localLoadingState(hasData),
   error: null,
   hasMore,
+  isFetchingMore: false,
+  isPreviousData: false,
   loadMore,
   refresh: async () => {}
 });
@@ -66,14 +71,18 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
   name: string,
   params: Record<string, unknown>,
   query: ScopeQueryHandle<TStored, Record<string, unknown>> | QueryHandle<TStored, Record<string, unknown>, TStored | undefined> | undefined,
-  remoteType: 'connection' | 'single' | undefined
-): Relation<TStored, TStored[] | TStored | undefined> => {
+  remoteType: 'connection' | 'list' | 'single' | undefined
+): Relation<TStored, TStored[] | TStored | undefined, TInput> => {
   const scope = runtime.scopes[name]!;
   if (query && remoteType === 'single') {
     const single = query as QueryHandle<TStored, Record<string, unknown>, TStored | undefined>;
     const read = (): TStored | undefined => single.read(params);
     return {
       read,
+      fetch: async () => {
+        await single.fetch(params);
+      },
+      seed: rows => runtime.seed(rows),
       use: options => {
         const result = single.use(params, { enabled: options?.enabled });
         return {
@@ -81,6 +90,8 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
           loadingState: result.loadingState,
           error: result.error,
           hasMore: false,
+          isFetchingMore: false,
+          isPreviousData: false,
           loadMore: () => {},
           refresh: async () => {
             await single.fetch(params);
@@ -97,6 +108,10 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
   }
   const base = {
     read: () => scope.read(params),
+    fetch: async () => {
+      if (query) await query.fetch(params);
+    },
+    seed: (rows: TInput[]) => scope.seed(params, rows),
     count: () => scope.read(params).length,
     useCount: () => scope.useCount(params),
     invalidate: () => {
@@ -126,6 +141,8 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
           loadingState: queryResult.loadingState,
           error: queryResult.error,
           hasMore: window.hasMore || queryResult.hasNextPage,
+          isFetchingMore: queryResult.isFetchingNextPage,
+          isPreviousData: window.isPreviousData,
           loadMore,
           refresh: async () => {
             await query.fetch(params);
@@ -153,8 +170,10 @@ const createWhereRelation = <TStored extends { id: string; updatedAt?: string | 
   runtime: FacadeRuntimeModel<TStored, TInput>,
   where: DbWhere<TStored>,
   options?: DbReadOptions<TStored>
-): Relation<TStored> => ({
+): Relation<TStored, TStored[], TInput> => ({
   read: () => runtime.where(where, options),
+  fetch: async () => {},
+  seed: rows => runtime.seed(rows),
   use: () => {
     let builder = runtime.use.where(where);
     const order = options?.orderBy;
@@ -174,11 +193,13 @@ const createWhereRelation = <TStored extends { id: string; updatedAt?: string | 
 const createByIdsRelation = <TStored extends { id: string; updatedAt?: string | null }, TInput>(
   runtime: FacadeRuntimeModel<TStored, TInput>,
   ids: readonly string[] | null | undefined
-): Relation<TStored> => ({
+): Relation<TStored, TStored[], TInput> => ({
   read: () => (ids ?? []).flatMap(id => {
     const row = runtime.find(id);
     return row ? [row] : [];
   }),
+  fetch: async () => {},
+  seed: rows => runtime.seed(rows),
   use: () => {
     const rows = runtime.use.byIds(ids).rows;
     return createLocalResult(rows, rows.length > 0, false, () => {});
@@ -205,6 +226,10 @@ const createAssociationRelation = <
   const count = (data: AssociationData<TDefinition>): number => (Array.isArray(data) ? data.length : data === undefined ? 0 : 1);
   return {
     read,
+    fetch: async () => {},
+    seed: () => {
+      throw new Error('seed requires a model relation');
+    },
     use: () => {
       const data = use();
       return createLocalResult(data, count(data) > 0, false, () => {});
@@ -445,25 +470,57 @@ export const defineModelFacade = <
               emptyStaleTime: remote.emptyStaleTime,
               refetchOnMount: remote.refetchOnMount
             }) as QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined>)
-          : (runtime.query(name, {
-              document: remote.document,
-              vars: remote.variables,
-              connection: remote.connection,
-              into: runtime.scopes[name] as never,
-              requiredScope: remote.required,
-              staleTime: remote.staleTime,
-              resumeStaleTime: remote.resumeStaleTime,
-              emptyStaleTime: remote.emptyStaleTime,
-              refetchOnMount: remote.refetchOnMount,
-              maxPages: remote.maxPages,
-              direction: remote.direction,
-              cursorVar: remote.cursorVar
-            }) as ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>)
+          : remote.type === 'list'
+            ? (() => {
+                const list = remote as GraphqlListDefinition<any, any, any, any, any>;
+                return runtime.query(name, {
+                  document: list.document,
+                  vars: list.variables,
+                  select: (data: unknown) => (list.select(data) ?? []).flatMap(node => (node == null ? [] : [list.map ? list.map(node) : node])),
+                  into: runtime.scopes[name] as never,
+                  coverage: 'complete',
+                  requiredScope: list.required,
+                  staleTime: list.staleTime,
+                  resumeStaleTime: list.resumeStaleTime,
+                  emptyStaleTime: list.emptyStaleTime,
+                  refetchOnMount: list.refetchOnMount
+                }) as ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>;
+              })()
+            : (() => {
+                const connection = remote as GraphqlConnectionDefinition<any, any, any, any, any, any>;
+                return runtime.query(name, {
+                  document: connection.document,
+                  vars: connection.variables,
+                  page: (data: unknown): RelationCursorPage => {
+                    const value = connection.connection(data);
+                    const nodes = value?.nodes
+                      ? [...value.nodes].filter((node: unknown) => node != null)
+                      : (value?.edges ?? []).flatMap((edge: { node?: unknown } | null | undefined) => (edge?.node == null ? [] : [edge.node]));
+                    return {
+                      nodes: connection.map ? nodes.map((node: unknown) => connection.map!(node)) : nodes,
+                      pageInfo: value?.pageInfo,
+                      relationCursor: value && connection.cursor ? connection.cursor(data, value) : undefined
+                    };
+                  },
+                  into: runtime.scopes[name] as never,
+                  coverage: connection.coverage,
+                  requiredScope: connection.required,
+                  staleTime: connection.staleTime,
+                  resumeStaleTime: connection.resumeStaleTime,
+                  emptyStaleTime: connection.emptyStaleTime,
+                  refetchOnMount: connection.refetchOnMount,
+                  maxPages: connection.maxPages,
+                  direction: connection.direction,
+                  cursorVar: connection.cursorVar,
+                  getCursor: connection.cursor ? page => (page as RelationCursorPage).relationCursor ?? null : undefined,
+                  mapCursor: connection.mapCursor
+                }) as ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>;
+              })()
         : undefined;
       return [name, query] as const;
     })
   );
-  const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations> = Object.create(null);
+  const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>> = Object.create(null);
   for (const name of Object.keys(config.relations ?? {})) {
     Reflect.set(relationMethods, name, (params: Record<string, unknown>) =>
       createNamedRelation(runtime, name, params, compiledRelations[name], config.relations?.[name]?.remote?.type)
@@ -514,7 +571,7 @@ export const defineModelFacade = <
     Record<string, never>,
     Record<string, never>
   > &
-    ModelRelationMethods<ModelStoredValue<TShape>, TRelations>;
+    ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>>;
   const actionDefinitions = (typeof config.actions === 'function' ? config.actions(actionOwner) : config.actions) ?? ({} as TActions);
   for (const [name, definition] of Object.entries(actionDefinitions)) {
     Reflect.set(actions, name, createAction(runtime, `${key}:${name}`, definition));

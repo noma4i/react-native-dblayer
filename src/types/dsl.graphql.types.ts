@@ -4,7 +4,10 @@ import type {
   GraphqlActionDefinition,
   GraphqlActionOptions,
   GraphqlConnectionDefinition,
+  GraphqlConnectionNode,
   GraphqlConnectionOptions,
+  GraphqlListDefinition,
+  GraphqlListOptions,
   GraphqlLiveDefinition,
   GraphqlLiveOptions,
   GraphqlSingleDefinition,
@@ -34,10 +37,29 @@ export type GraphqlDsl = {
     document: TDocument,
     options: GraphqlSingleOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>
   ): GraphqlSingleDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>;
-  connection<TDocument extends TypedDocumentNode<any, any>, TParams>(
+  connection<
+    TDocument extends TypedDocumentNode<any, any>,
+    TParams,
+    TConnection extends {
+      nodes?: ReadonlyArray<unknown> | null;
+      edges?: ReadonlyArray<({ node?: unknown } & Record<string, unknown>) | null | undefined> | null;
+      pageInfo?: {
+        hasNextPage?: boolean;
+        endCursor?: string | null;
+        hasPreviousPage?: boolean;
+        startCursor?: string | null;
+      } | null;
+    },
+    TNode = GraphqlConnectionNode<TConnection>,
+    TMapped = TNode
+  >(
     document: TDocument,
-    options: GraphqlConnectionOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams>
-  ): GraphqlConnectionDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams>;
+    options: GraphqlConnectionOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TConnection, TNode, TMapped>
+  ): GraphqlConnectionDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TConnection, TNode, TMapped>;
+  list<TDocument extends TypedDocumentNode<any, any>, TParams, TNode, TMapped = TNode>(
+    document: TDocument,
+    options: GraphqlListOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TMapped>
+  ): GraphqlListDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TMapped>;
   action<
     TDocument extends TypedDocumentNode<any, any>,
     TInput,

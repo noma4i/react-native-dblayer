@@ -262,6 +262,60 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('types complete lists, node mapping, custom cursors, and imperative relation methods', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
+      type TransportRow = { id: number; groupId: number; title: string };
+      type RowInput = { id: string | number; groupId: string | number; title: string; flagged?: boolean };
+      type Data = {
+        catalog: TransportRow[];
+        page: {
+          nodes: TransportRow[];
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+          nextSequence: number | null;
+        };
+      };
+      type Variables = { groupId: number; afterSequence?: number };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const RowSchema = defineShape<RowInput>()({ groupId: f.id(), title: f.str(), flagged: f.bool().optional() });
+      const rows = defineModel('relation-complete-list', {
+        schema: RowSchema,
+        relations: {
+          catalog: {
+            sort: 'server-order',
+            remote: gql.list(document, {
+              variables: () => ({ groupId: 1 }),
+              select: data => data.catalog,
+              map: node => ({ ...node, flagged: true })
+            })
+          },
+          page: {
+            by: { groupId: 'groupId' },
+            sort: 'server-order',
+            remote: gql.connection(document, {
+              variables: (params: { groupId: string }) => ({ groupId: Number(params.groupId) }),
+              connection: data => data.page,
+              map: node => ({ ...node, flagged: true }),
+              cursor: data => data.page.nextSequence == null ? null : String(data.page.nextSequence),
+              mapCursor: cursor => Number(cursor),
+              coverage: 'page'
+            })
+          }
+        }
+      });
+      const catalog = rows.catalog({});
+      catalog.seed([{ id: 'seed', groupId: '1', title: 'seed' }]);
+      void catalog.fetch();
+      const pageResult = rows.page({ groupId: '1' }).use();
+      const fetching: boolean = pageResult.isFetchingMore;
+      const previous: boolean = pageResult.isPreviousData;
+      void fetching;
+      void previous;
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('infers model action input separately from generated transport variables', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';

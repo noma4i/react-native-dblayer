@@ -49,10 +49,15 @@ type MessageCreatedData = {
   };
 };
 
+type CatalogData = {
+  catalog: MessageInput[];
+};
+
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
 const sendDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<SendData, SendVariables>;
 const messageDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageData, MessageVariables>;
 const messageCreatedDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageCreatedData, never>;
+const catalogDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<CatalogData, Record<string, never>>;
 
 const MessageSchema = defineShape<MessageInput>()({
   chatId: f.id(),
@@ -212,23 +217,61 @@ describe('model surface', () => {
       { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' }
     ]);
     const relation = Message.thread({ chatId: 'chat-1' });
+    relation.seed([
+      { id: 'm3', chatId: 'chat-1', body: 'third', status: 'sent' },
+      { id: 'm4', chatId: 'chat-1', body: 'fourth', status: 'sent' }
+    ]);
     const reader = renderCounted(() => relation.use({ pageSize: 1, keepPrevious: true }));
     const defaultReader = renderCounted(() => relation.use());
     const countReader = renderCounted(() => relation.useCount());
-    expect(reader.result().data.map(row => row.id)).toEqual(['m1']);
-    expect(defaultReader.result().data.map(row => row.id)).toEqual(['m1', 'm2']);
+    expect(reader.result().data.map(row => row.id)).toEqual(['m4']);
+    expect(defaultReader.result().data.map(row => row.id)).toEqual(['m4', 'm3']);
     expect(reader.result().loadingState.isReady).toBe(true);
+    expect(reader.result().isFetchingMore).toBe(false);
+    expect(reader.result().isPreviousData).toBe(false);
     expect(reader.result().hasMore).toBe(true);
     expect(relation.count()).toBe(2);
     expect(countReader.result()).toBe(2);
     relation.invalidate();
     expect(relation.issueSequence('body')).toEqual(expect.any(Number));
     act(() => reader.result().loadMore());
-    expect(reader.result().data.map(row => row.id)).toEqual(['m1', 'm2']);
+    expect(reader.result().data.map(row => row.id)).toEqual(['m4', 'm3']);
+    await expect(relation.fetch()).resolves.toBeUndefined();
     await expect(reader.result().refresh()).resolves.toBeUndefined();
     countReader.unmount();
     defaultReader.unmount();
     reader.unmount();
+  });
+
+  it('lands a complete remote list without a pagination bridge', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          catalog: [
+            { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' },
+            { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' }
+          ]
+        } as TData
+      })
+    });
+    configureRuntime(transport);
+    const Message = defineModel('SpecMessageCatalog', {
+      schema: MessageSchema,
+      relations: {
+        catalog: {
+          sort: 'server-order',
+          remote: gql.list(catalogDocument, {
+            variables: () => ({}),
+            select: data => data.catalog
+          })
+        }
+      }
+    });
+    const relation = Message.catalog({});
+
+    await relation.fetch();
+
+    expect(relation.read().map(row => row.id)).toEqual(['m1', 'm2']);
   });
 
   it('exposes one immutable relation for snapshot and reactive local reads', () => {

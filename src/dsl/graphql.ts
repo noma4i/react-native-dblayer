@@ -12,6 +12,11 @@ export const gql: GraphqlDsl = {
     document,
     ...options
   }),
+  list: (document, options) => ({
+    type: 'list',
+    document,
+    ...options
+  }),
   connection: (document, options) => ({
     type: 'connection',
     document,

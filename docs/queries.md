@@ -1,7 +1,7 @@
 # Queries
 
-Model reads are declared as named relations. A relation can be local-only, a GraphQL connection,
-or a GraphQL single-row read.
+Model reads are declared as named relations. A relation can be local-only, a complete GraphQL
+list, a GraphQL connection, or a GraphQL single-row read.
 
 ## `gql.connection(document, options)`
 
@@ -27,6 +27,8 @@ const Message = defineModel('Message', {
 | --- | --- |
 | `variables` | Maps relation parameters to GraphQL variables. |
 | `connection` | Selects Relay nodes, edges, and page info. |
+| `coverage` | Selects complete or paged membership reconciliation. |
+| `cursor` | Selects a custom cursor from the response. |
 | `required` | Disables transport until all named parameters are non-nullish. |
 | `staleTime` | Sets filled-result freshness. |
 | `resumeStaleTime` | Overrides foreground invalidation age. |
@@ -35,6 +37,14 @@ const Message = defineModel('Message', {
 | `maxPages` | Bounds retained remote pages. |
 | `direction` | Selects forward or backward cursor traversal. |
 | `cursorVar` | Overrides the cursor variable name. |
+| `map` | Maps each selected transport node before model normalization. |
+| `mapCursor` | Maps the stored cursor into the transport variable type. |
+
+## `gql.list(document, options)`
+
+`gql.list` selects a complete, non-paginated array. Its optional `map` callback transforms each
+transport node before model normalization. The remaining freshness and required-parameter options
+match `gql.single`.
 
 ## `gql.single(document, options)`
 
@@ -63,7 +73,7 @@ details: {
 ## `QueryResult`
 
 `Relation.use()` returns `RelationResult`: `data`, `loadingState`, `error`, `hasMore`,
-`loadMore()`, and `refresh()`. `QueryResult` is the lower-level service result used by
+`isFetchingMore`, `isPreviousData`, `loadMore()`, and `refresh()`. `QueryResult` is the lower-level service result used by
 `defineFetch`. `useLoadMore(target, options)` adapts a model-less paginated result to a stable,
 debounced advance callback through `LoadMoreTarget` and `LoadMoreOptions`.
 

@@ -15,6 +15,8 @@ Named methods, `Model.where(where, options)`, `Model.byIds(ids)`, and associatio
 | Method | Contract |
 | --- | --- |
 | `read()` | Returns a local snapshot. |
+| `fetch()` | Fetches the remote relation or resolves immediately for a local relation. |
+| `seed(rows)` | Normalizes rows and replaces named relation membership. |
 | `use(options)` | Subscribes and optionally loads remote data. |
 | `count()` | Returns a snapshot count. |
 | `useCount()` | Subscribes to count changes. |
@@ -32,8 +34,8 @@ Named methods, `Model.where(where, options)`, `Model.byIds(ids)`, and associatio
 | `enabled` | Enables remote work. |
 | `loadMoreDebounceMs` | Debounces pagination advances. |
 
-`RelationResult` contains `data`, `loadingState`, `error`, `hasMore`, `loadMore()`, and
-`refresh()`.
+`RelationResult` contains `data`, `loadingState`, `error`, `hasMore`, `isFetchingMore`,
+`isPreviousData`, `loadMore()`, and `refresh()`.
 
 ## Snapshot and subscribed reads
 

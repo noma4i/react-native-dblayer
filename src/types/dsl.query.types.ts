@@ -11,6 +11,7 @@ export type ConnectionLike = {
   edges?: ReadonlyArray<({ node?: unknown } & Record<string, unknown>) | null | undefined> | null;
   pageInfo?: PageInfoLike | null;
 };
+export type RelationCursorPage = ConnectionLike & { relationCursor?: string | null };
 /** Scope landing destination for query results. */
 export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: string }, TScope>;
 /** Model landing destination for query results (row reads only, no scope membership). */

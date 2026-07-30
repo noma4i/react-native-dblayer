@@ -72,7 +72,7 @@ const current = Message.useFind(messageId);
 
 const relation = Message.thread({ chatId });
 const snapshot = relation.read();
-const { data, loadingState, error, hasMore, loadMore, refresh } = relation.use({
+const { data, loadingState, error, hasMore, isFetchingMore, loadMore, refresh } = relation.use({
   pageSize: 20
 });
 ```

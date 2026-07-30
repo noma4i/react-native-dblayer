@@ -1,4 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { RelationDecl } from './core.relations.types';
 import type { DbReadOptions, DbWhere, LoadingState } from './db.types';
 import type { IngestDecl } from './dsl.ingest.types';
@@ -34,31 +35,35 @@ export type RelationResult<TData> = {
     loadingState: LoadingState;
     error: Error | null;
     hasMore: boolean;
+    isFetchingMore: boolean;
+    isPreviousData: boolean;
     loadMore(): void;
     refresh(): Promise<void>;
 };
-export type Relation<TStored, TData = TStored[]> = {
+export type Relation<TStored, TData = TStored[], TInput = TStored> = {
     read(): TData;
+    fetch(): Promise<void>;
+    seed(rows: TInput[]): void;
     use(options?: RelationOptions<TStored>): RelationResult<TData>;
     count(): number;
     useCount(): number;
     invalidate(): void;
     issueSequence(field: keyof TStored & string): number;
 };
-export type GraphqlConnectionOptions<TData, TVariables, TParams> = {
+export type GraphqlConnectionNode<TConnection> = NonNullable<TConnection> extends {
+    nodes?: ReadonlyArray<infer TNode> | null;
+} ? NonNullable<TNode> : NonNullable<TConnection> extends {
+    edges?: ReadonlyArray<infer TEdge> | null;
+} ? NonNullable<TEdge> extends {
+    node?: infer TNode;
+} ? NonNullable<TNode> : never : never;
+export type GraphqlConnectionOptions<TData, TVariables, TParams, TConnection, TNode, TMapped> = {
     variables(params: TParams): TVariables;
-    connection(data: TData): {
-        nodes?: ReadonlyArray<unknown> | null;
-        edges?: ReadonlyArray<({
-            node?: unknown;
-        } & Record<string, unknown>) | null | undefined> | null;
-        pageInfo?: {
-            hasNextPage?: boolean;
-            endCursor?: string | null;
-            hasPreviousPage?: boolean;
-            startCursor?: string | null;
-        } | null;
-    } | null | undefined;
+    connection(data: TData): TConnection | null | undefined;
+    map?(node: TNode): TMapped;
+    cursor?(data: TData, connection: TConnection): string | null;
+    mapCursor?(cursor: string): unknown;
+    coverage?: ScopeCoverage;
     required?: readonly (keyof TParams & string)[];
     staleTime?: number | string;
     resumeStaleTime?: number | null;
@@ -68,8 +73,22 @@ export type GraphqlConnectionOptions<TData, TVariables, TParams> = {
     direction?: 'forward' | 'backward';
     cursorVar?: string;
 };
-export type GraphqlConnectionDefinition<TData, TVariables, TParams> = GraphqlConnectionOptions<TData, TVariables, TParams> & {
+export type GraphqlConnectionDefinition<TData, TVariables, TParams, TConnection = any, TNode = any, TMapped = TNode> = GraphqlConnectionOptions<TData, TVariables, TParams, TConnection, TNode, TMapped> & {
     type: 'connection';
+    document: TypedDocumentNode<TData, TVariables>;
+};
+export type GraphqlListOptions<TData, TVariables, TParams, TNode, TMapped> = {
+    variables(params: TParams): TVariables;
+    select(data: TData): ReadonlyArray<TNode | null | undefined> | null | undefined;
+    map?(node: TNode): TMapped;
+    required?: readonly (keyof TParams & string)[];
+    staleTime?: number | string;
+    resumeStaleTime?: number | null;
+    emptyStaleTime?: number | string;
+    refetchOnMount?: boolean;
+};
+export type GraphqlListDefinition<TData, TVariables, TParams, TNode, TMapped = TNode> = GraphqlListOptions<TData, TVariables, TParams, TNode, TMapped> & {
+    type: 'list';
     document: TypedDocumentNode<TData, TVariables>;
 };
 export type GraphqlSingleOptions<TData, TVariables, TParams, TNode> = {
@@ -187,7 +206,7 @@ export type GraphqlActionDefinition<TData, TVariables, TInput, TResultKey extend
     type: 'action';
     document: TypedDocumentNode<TData, TVariables>;
 };
-export type RelationSpec<TStored, TRemote = GraphqlConnectionDefinition<any, any, any> | GraphqlSingleDefinition<any, any, any, any>> = {
+export type RelationSpec<TStored, TRemote = GraphqlConnectionDefinition<any, any, any> | GraphqlListDefinition<any, any, any, any> | GraphqlSingleDefinition<any, any, any, any>> = {
     by?: Record<string, keyof TStored & string>;
     member?: (row: TStored) => boolean;
     sort?: ClientSort<TStored> | 'server-order';
@@ -208,7 +227,7 @@ export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations
     schema: TShape;
     associations?: () => TAssociations;
     relations?: TRelations;
-    actions?: TActions | ((model: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, Record<string, never>, Record<string, never>> & ModelRelationMethods<ModelStoredValue<TShape>, TRelations>) => TActions);
+    actions?: TActions | ((model: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, Record<string, never>, Record<string, never>> & ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>>) => TActions);
     events?: TEvents;
     sideloads?: () => Record<string, SideloadEdge<ModelBuildInput<TShape>>>;
     defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
@@ -239,6 +258,8 @@ type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStor
 } : Record<string, never>;
 export type RelationParams<TStored, TDefinition> = TDefinition extends {
     remote: GraphqlConnectionDefinition<any, any, infer TParams>;
+} ? TParams : TDefinition extends {
+    remote: GraphqlListDefinition<any, any, infer TParams, any>;
 } ? TParams : TDefinition extends {
     remote: GraphqlSingleDefinition<any, any, infer TParams, any>;
 } ? TParams : TDefinition extends {
@@ -282,10 +303,10 @@ export type RowOperation<TStored> = {
     read(): RowOperationState<TStored>;
     use(): RowOperationState<TStored>;
 };
-export type ModelRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>> = {
+export type ModelRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>, TInput = TStored> = {
     [K in keyof TRelations]: (params: RelationParams<TStored, TRelations[K]>) => Relation<TStored, TRelations[K] extends {
         remote: GraphqlSingleDefinition<any, any, any, any>;
-    } ? TStored | undefined : TStored[]>;
+    } ? TStored | undefined : TStored[], TInput>;
 };
 export type AssociationStored<TDefinition> = TDefinition extends RelationDecl<infer TStored> ? TStored : never;
 export type AssociationData<TDefinition> = TDefinition extends {
@@ -320,8 +341,8 @@ export type ModelFacadeCore<TStored extends {
         renderKeys?: readonly (keyof TStored & string)[];
         require?: readonly (keyof TStored & string)[];
     }): TStored | undefined;
-    where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored>;
-    byIds(ids: readonly string[] | null | undefined): Relation<TStored>;
+    where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored, TStored[], TInput>;
+    byIds(ids: readonly string[] | null | undefined): Relation<TStored, TStored[], TInput>;
     insert(row: TInput): void;
     insertMany(rows: TInput[]): void;
     update(id: string, patch: Partial<TStored>): void;
@@ -338,7 +359,7 @@ export type ModelFacadeBase<TStored extends {
     id: string;
 }, TInput, TRelations extends Record<string, RelationSpec<TStored, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TEvents extends Record<string, {
     type: 'live';
-}>, TAssociations extends Record<string, RelationDecl<unknown>>> = ModelFacadeCore<TStored, TInput, TActions, TEvents> & ModelRelationMethods<TStored, TRelations> & ModelAssociationMethods<TAssociations>;
+}>, TAssociations extends Record<string, RelationDecl<unknown>>> = ModelFacadeCore<TStored, TInput, TActions, TEvents> & ModelRelationMethods<TStored, TRelations, TInput> & ModelAssociationMethods<TAssociations>;
 export type ModelFacade<TStored extends {
     id: string;
 }, TInput, TRelations extends Record<string, RelationSpec<TStored, any>>, TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, TEvents extends Record<string, {
