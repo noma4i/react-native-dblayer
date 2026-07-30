@@ -2,8 +2,8 @@
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "testRunner": "jest",
   "coverageAnalysis": "perTest",
-  "ignoreStatic": false,
-  "incremental": true,
+  "ignoreStatic": true,
+  "incremental": false,
   "mutate": [
     "src/**/*.{ts,tsx}",
     "!src/__tests__/**",
@@ -36,7 +36,7 @@
   "jsonReporter": {
     "fileName": "reports/mutation/full.json"
   },
-  "concurrency": 6,
-  "timeoutMS": 10000,
+  "concurrency": 12,
+  "timeoutMS": 60000,
   "logLevel": "error"
 }
