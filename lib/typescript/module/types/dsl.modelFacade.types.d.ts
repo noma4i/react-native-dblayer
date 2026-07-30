@@ -5,6 +5,7 @@ import type { ClientSort } from './dsl.ordering.types';
 import type { DbShape } from './schema.shape.types';
 import type { AnyFields, InferBuildInput, InferStoredFields } from './schema.infer.types';
 import type { ModelCore, ScopeHandle } from './dsl.model.types';
+import type { ModelStatusPollerPhase } from './utils.modelStatusPoller.types';
 export type TypedDocumentData<TDocument> = TDocument extends TypedDocumentNode<infer TData, any> ? TData : never;
 export type TypedDocumentVariables<TDocument> = TDocument extends TypedDocumentNode<any, infer TVariables> ? TVariables : never;
 export type TypedMutationInput<TVariables> = TVariables extends {
@@ -82,7 +83,6 @@ export type OptimisticContext = {
 type GraphqlActionBase<TData, TVariables, TInput, TResultKey extends keyof TData & string> = {
     result: TResultKey;
     variables(input: TInput, context: ActionContext): TVariables;
-    mode?: ActionMode;
     dedupe?: false | {
         key(input: TInput): string | null;
     };
@@ -116,9 +116,9 @@ type InsertAction<TData, TInput, TNode> = {
 };
 type UpdateAction<TData, TInput, TNode> = {
     kind: 'update';
+    id(input: TInput): string;
     select(data: TData): TNode | null | undefined;
     optimistic?: {
-        id(input: TInput): string;
         patch(input: TInput): Record<string, unknown>;
     };
 };
@@ -131,7 +131,26 @@ type CustomAction<TData, TNode> = {
     kind: 'custom';
     select?(data: TData): TNode | null | undefined;
 };
-export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionBase<TData, TVariables, TInput, TResultKey> & (InsertAction<TData, TInput, TNode> | UpdateAction<TData, TInput, TNode> | DestroyAction<TInput> | CustomAction<TData, TNode>);
+type RequestMode = {
+    mode?: 'request';
+};
+type DurableMode<TInput> = {
+    mode: 'durable';
+    resume(entry: {
+        operationId: string;
+        tempId: string;
+        input: TInput;
+    }): Promise<'continue' | 'orphaned'>;
+};
+type PollMode<TData> = {
+    mode: 'poll';
+    poll: {
+        intervalMs: number;
+        maxAttempts: number;
+        classify?(data: TData): 'ready' | 'failed' | null;
+    };
+};
+export type GraphqlActionOptions<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionBase<TData, TVariables, TInput, TResultKey> & ((InsertAction<TData, TInput, TNode> & (RequestMode | DurableMode<TInput>)) | (UpdateAction<TData, TInput, TNode> & (RequestMode | PollMode<TData>)) | (DestroyAction<TInput> & RequestMode) | (CustomAction<TData, TNode> & RequestMode));
 export type GraphqlActionDefinition<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionOptions<TData, TVariables, TInput, TResultKey, TNode> & {
     type: 'action';
     document: TypedDocumentNode<TData, TVariables>;
@@ -201,6 +220,22 @@ export type ModelAction<TInput, TResult> = {
     discard(tempId: string): void;
     use(): ModelActionHook<TInput, TResult>;
 };
+export type DurableModelAction<TInput> = {
+    run(input: TInput): {
+        operationId: string;
+        tempId: string;
+    };
+    complete(operationId: string, serverNode: unknown): void;
+    fail(operationId: string, error: Error): void;
+    retry(operationId: string): Promise<'continue' | 'orphaned' | null>;
+    discard(operationId: string): void;
+};
+export type PollModelAction<TInput> = {
+    run(input: TInput): Promise<void>;
+    use(input: TInput): ModelStatusPollerPhase & {
+        refresh(): Promise<void>;
+    };
+};
 export type RowOperationState<TStored> = {
     pending: boolean;
     failed: boolean;
@@ -221,7 +256,11 @@ export type ModelAssociationMethods<TAssociations extends Record<string, Relatio
     [K in keyof TAssociations]: (id: string | null | undefined) => Relation<AssociationStored<TAssociations[K]>, AssociationData<TAssociations[K]>>;
 };
 export type ModelActionMethods<TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>> = {
-    [K in keyof TActions]: ModelAction<ActionInput<TActions[K]>, ActionPayload<TActions[K]>>;
+    [K in keyof TActions]: TActions[K] extends {
+        mode: 'durable';
+    } ? DurableModelAction<ActionInput<TActions[K]>> : TActions[K] extends {
+        mode: 'poll';
+    } ? PollModelAction<ActionInput<TActions[K]>> : ModelAction<ActionInput<TActions[K]>, ActionPayload<TActions[K]>>;
 };
 export type ModelFacadeCore<TStored extends {
     id: string;

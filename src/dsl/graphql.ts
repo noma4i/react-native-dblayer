@@ -7,10 +7,10 @@ export const gql: GraphqlDsl = {
     document,
     ...options
   }),
-  action: (document, options) => ({
-    type: 'action',
-    document,
-    mode: 'request',
-    ...options
-  })
+  action: (document, options) =>
+    ({
+      type: 'action',
+      document,
+      ...options
+    }) as never
 };

@@ -1,6 +1,6 @@
 import type { OperationRecord } from './core.planes.operationState.types';
 export type DetachedOperationConfig<TInput, TStored extends { id: string }> = {
-  build: (input: TInput, ctx: { tempId: string }) => Omit<TStored, 'id'> | TStored;
+  build: (input: TInput, ctx: { operationId: string; tempId: string }) => Omit<TStored, 'id'> | TStored;
   resume: (entry: { operationId: string; tempId: string; input: TInput }) => Promise<'continue' | 'orphaned'>;
   failure?: 'rollback' | 'keep';
   onFailurePatch?: (input: TInput) => Partial<TStored>;

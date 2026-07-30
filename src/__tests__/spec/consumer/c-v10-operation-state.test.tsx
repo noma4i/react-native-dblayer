@@ -88,9 +88,9 @@ describe('v10 operation state', () => {
           result: 'updateUser',
           variables: input => ({ input }),
           kind: 'update',
+          id: input => input.id,
           select: data => data.updateUser.user,
           optimistic: {
-            id: input => input.id,
             patch: input => ({ username: input.username })
           }
         })

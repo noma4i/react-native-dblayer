@@ -3,6 +3,7 @@ export type DetachedOperationConfig<TInput, TStored extends {
     id: string;
 }> = {
     build: (input: TInput, ctx: {
+        operationId: string;
         tempId: string;
     }) => Omit<TStored, 'id'> | TStored;
     resume: (entry: {

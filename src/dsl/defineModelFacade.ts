@@ -1,6 +1,6 @@
 import type {
-  ModelAction,
   ActionPayload,
+  ActionInput,
   AssociationData,
   AssociationStored,
   ModelBuildInput,
@@ -31,6 +31,7 @@ import { useRelationLoadMore } from './pagination';
 import { readModelRelation } from '../core/relations';
 import { registerBootValidation } from './bootValidations';
 import { readRowOperationState, useRowOperationState } from './rowOperationState';
+import { useEffect } from 'react';
 
 const localLoadingState = (hasData: boolean): LoadingState => ({
   phase: 'ready',
@@ -200,9 +201,85 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
   runtime: FacadeRuntimeModel<TStored, TInput>,
   name: string,
   definition: TDefinition
-): ModelAction<Parameters<TDefinition['variables']>[0], ActionPayload<TDefinition>> => {
-  if ((definition.mode ?? 'request') !== 'request') {
-    throw new Error(`${name}: durable and poll action modes require their dedicated runtime compiler`);
+): ModelActionMethods<Record<'defined', TDefinition>>['defined'] => {
+  if (definition.mode === 'durable') {
+    if (!definition.optimistic) throw new Error(`${name}: durable insert requires optimistic build`);
+    const insert = definition.optimistic;
+    const handle = runtime.detached<ActionInput<TDefinition>>(name, {
+      build: (input, context) => insert.build(input, context) as TStored,
+      resume: definition.resume,
+      failure: insert.failure,
+      onFailurePatch: insert.onFailurePatch ? input => insert.onFailurePatch!(input) as Partial<TStored> : undefined
+    });
+    return {
+      run: handle.start,
+      complete: handle.complete,
+      fail: handle.fail,
+      retry: handle.retry,
+      discard: handle.discard
+    } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
+  }
+  if (definition.mode === 'poll') {
+    const inputs = new Map<string, ActionInput<TDefinition>>();
+    const refs = new Map<string, number>();
+    const poller = runtime.poller<Parameters<typeof definition.select>[0]>(name, {
+      document: definition.document,
+      vars: id => {
+        const input = inputs.get(id);
+        if (!input) throw new Error(`${name}: missing poll input for ${id}`);
+        return definition.variables(input, { tempId: null, operationId: '' });
+      },
+      apply: (_id, data) => {
+        const row = definition.select(data);
+        if (row != null) runtime.insert(row as TStored);
+      },
+      classify: definition.poll.classify,
+      intervalMs: definition.poll.intervalMs,
+      maxAttempts: definition.poll.maxAttempts
+    });
+    const idFor = (input: ActionInput<TDefinition>): string => String(definition.id(input));
+    const retain = (id: string): void => {
+      refs.set(id, (refs.get(id) ?? 0) + 1);
+    };
+    const release = (id: string): void => {
+      const next = (refs.get(id) ?? 1) - 1;
+      if (next > 0) {
+        refs.set(id, next);
+        return;
+      }
+      refs.delete(id);
+      inputs.delete(id);
+    };
+    return {
+      run: async (input: ActionInput<TDefinition>) => {
+        const id = idFor(input);
+        inputs.set(id, input);
+        try {
+          await poller.refresh(id);
+        } finally {
+          if (!refs.has(id)) inputs.delete(id);
+        }
+      },
+      use: (input: ActionInput<TDefinition>) => {
+        const id = idFor(input);
+        inputs.set(id, input);
+        useEffect(() => {
+          retain(id);
+          const detach = poller.attach(id);
+          return () => {
+            detach();
+            release(id);
+          };
+        }, [id]);
+        return {
+          ...poller.usePhase(id),
+          refresh: async () => {
+            inputs.set(id, input);
+            await poller.refresh(id, { resetBudget: true });
+          }
+        };
+      }
+    } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
   }
   const optimistic = (() => {
     if (definition.kind === 'insert' && definition.optimistic) {
@@ -225,7 +302,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       return {
         method: 'patch' as const,
         model: runtime,
-        selectId: definition.optimistic.id,
+        selectId: definition.id,
         selectPatch: definition.optimistic.patch
       };
     }
@@ -262,18 +339,18 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
     track: definition.track
   });
   return {
-    run: input => mutation.run(input) as Promise<ActionPayload<TDefinition> | null>,
+    run: (input: ActionInput<TDefinition>) => mutation.run(input) as Promise<ActionPayload<TDefinition> | null>,
     retry: tempId => mutation.retry(tempId) as Promise<ActionPayload<TDefinition> | null>,
     discard: tempId => mutation.discard(tempId),
     use: () => {
       const handle = mutation.use();
       return {
-        run: input => handle.mutateAsync(input) as Promise<ActionPayload<TDefinition> | null>,
+        run: (input: ActionInput<TDefinition>) => handle.mutateAsync(input) as Promise<ActionPayload<TDefinition> | null>,
         isPending: handle.isPending,
         error: handle.error
       };
     }
-  };
+  } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
 };
 
 export const defineModelFacade = <

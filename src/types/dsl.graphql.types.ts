@@ -17,21 +17,23 @@ export type GraphqlDsl = {
   action<
     TDocument extends TypedDocumentNode<any, any>,
     TResultKey extends keyof TypedDocumentData<TDocument> & string,
-    TNode
-  >(
-    document: TDocument,
-    options: GraphqlActionOptions<
+    TNode,
+    const TOptions extends GraphqlActionOptions<
       TypedDocumentData<TDocument>,
       TypedDocumentVariables<TDocument>,
       TypedMutationInput<TypedDocumentVariables<TDocument>>,
       TResultKey,
       TNode
     >
+  >(
+    document: TDocument,
+    options: TOptions
   ): GraphqlActionDefinition<
     TypedDocumentData<TDocument>,
     TypedDocumentVariables<TDocument>,
     TypedMutationInput<TypedDocumentVariables<TDocument>>,
     TResultKey,
     TNode
-  >;
+  > &
+    NoInfer<TOptions>;
 };

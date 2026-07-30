@@ -79,7 +79,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
       const operationId = generateTempId('op');
       const tempId = generateTempId('row');
       const serialized = serializeOperationInput(input);
-      const row = { ...(config.build(input, { tempId }) as Record<string, unknown>), id: tempId };
+      const row = { ...(config.build(input, { operationId, tempId }) as Record<string, unknown>), id: tempId };
       const ops: WriteOp[] = getInternalModelHandle(model).planRows([row]);
       const beginFields: Omit<OperationRecord, 'status'> = {
         operationId,
