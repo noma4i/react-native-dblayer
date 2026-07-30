@@ -1,6 +1,7 @@
 import type { EntityState, ModelMembership, ModelWriteResult, ModelWrites, OperationRecord, OperationTransition, WriteOp, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
+import { diffTopLevelFields } from '../core/storeUpsertResolver';
 import { correlateIncomingRow, modelHasCorrelators } from './mutationCorrelation';
 import { getOperationState } from './configure';
 
@@ -28,12 +29,15 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
       ctx: { origin: origin ?? 'snapshot', operationId }
     });
   };
-  const preparePatch = (id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string) => {
+  const preparePatch = (id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string, remove: readonly string[] = []) => {
     if (!previous) return null;
-    return options.entityState().previewUpsert({ ...patch, id: String(id) } as TStored, {
+    const prepared = options.entityState().previewUpsert({ ...patch, id: String(id) } as TStored, {
       previous,
       ctx: { origin: 'patch', operationId }
     });
+    const row = { ...prepared.row };
+    for (const key of remove) delete row[key];
+    return { row, changedFields: diffTopLevelFields(previous, row) };
   };
   const putRows = (rows: TStored[]): ModelWriteResult[] => {
     const changes: ModelWriteResult[] = [];

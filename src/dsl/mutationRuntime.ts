@@ -161,7 +161,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
           tempIds: [],
           rowIds: [],
           intent: 'patch',
-          idempotencyKey: dedupeKey ?? operationId,
+          idempotencyKey: dedupeKey!,
           once: config.once === true,
           createdAt: Date.now()
         });
@@ -226,20 +226,20 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch' && isRecord(previous)) {
         const previousRecord = previous as Record<string, unknown>;
         const patchValues = optimistic.selectPatch(input) as Record<string, unknown>;
-        const current = optimistic.model.find(optimistic.selectId(input)) as Record<string, unknown> | undefined;
         const rowId = String(optimistic.selectId(input));
         const operationsRead = getOperationState();
         const restore: Record<string, unknown> = {};
+        const remove: string[] = [];
         for (const key of Object.keys(patchValues)) {
           const other = operationsRead.latestPendingValue(optimistic.model.modelId, rowId, key, operationId);
           if (other.found) {
             restore[key] = other.value;
             continue;
           }
-          if (current && !Object.is(current[key], patchValues[key])) continue;
-          restore[key] = key in previousRecord ? previousRecord[key] : undefined;
+          if (key in previousRecord) restore[key] = previousRecord[key];
+          else remove.push(key);
         }
-        if (Object.keys(restore).length > 0) rollbackOps.push({ kind: 'patch', model: optimistic.model.modelId, id: rowId, patch: restore, operationId });
+        rollbackOps.push({ kind: 'patch', model: optimistic.model.modelId, id: rowId, patch: restore, remove, operationId });
       }
       if (optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'destroy' && isRecord(previous)) {
         rollbackOps.push(...getInternalModelHandle(optimistic.model).planRestore(previous, previousMemberships));

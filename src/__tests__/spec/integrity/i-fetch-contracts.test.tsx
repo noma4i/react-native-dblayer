@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineFetch, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineFetch, defineModel, f, resetRuntime } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestFocused, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type FetchPayload = { value: string };
@@ -21,6 +21,158 @@ const createFetch = (key: string, calls: { count: number }) =>
   });
 
 describe('fetch lifecycle contracts', () => {
+  it('assigns independent generated keys and serves a sequential fresh cache hit', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    let firstCalls = 0;
+    let secondCalls = 0;
+    const first = defineFetch<FetchPayload, string, string>({
+      fetcher: async input => ({ value: `${input}-${++firstCalls}` }),
+      select: data => data.value,
+      staleTime: Infinity
+    });
+    const second = defineFetch<FetchPayload, string, string>({
+      fetcher: async input => ({ value: `${input}-${++secondCalls}` }),
+      select: data => data.value,
+      staleTime: Infinity
+    });
+
+    await expect(first.fetch('first')).resolves.toBe('first-1');
+    await expect(first.fetch('first')).resolves.toBe('first-1');
+    await expect(second.fetch('first')).resolves.toBe('first-1');
+    expect({ firstCalls, secondCalls }).toEqual({ firstCalls: 1, secondCalls: 1 });
+  });
+
+  it('normalizes a non-Error imperative failure', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const request = defineFetch<FetchPayload, void, string>({
+      key: 'fetch-non-error-failure',
+      fetcher: async () => Promise.reject('string failure'),
+      select: data => data.value
+    });
+
+    await expect(request.fetch(undefined)).rejects.toThrow('string failure');
+  });
+
+  it('drops a response when selection advances the runtime generation', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const request = defineFetch<FetchPayload, void, string>({
+      key: 'fetch-select-reset-fence',
+      fetcher: async () => ({ value: 'stale' }),
+      select: data => {
+        resetRuntime();
+        return data.value;
+      }
+    });
+
+    await expect(request.fetch(undefined)).rejects.toThrow('runtime was reset before it resolved');
+  });
+
+  it('normalizes a non-Error reader failure and observes the rejected mount run', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const request = defineFetch<FetchPayload, void, string>({
+      key: 'fetch-reader-non-error',
+      fetcher: async () => Promise.reject('reader string failure'),
+      select: data => data.value
+    });
+    const reader = renderCountedInProvider(() => request.use(undefined));
+
+    await settle(6, { macro: true });
+
+    expect(reader.result().error).toBeInstanceOf(Error);
+    expect(reader.result().error?.message).toBe('reader string failure');
+    reader.unmount();
+  });
+
+  it('observes a rejected reconnect run after an offline mount', async () => {
+    const wasOnline = isTestNetworkOnline();
+    try {
+      setTestNetworkOnline(false);
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      const request = defineFetch<FetchPayload, void, string>({
+        key: 'fetch-reconnect-rejection',
+        fetcher: async () => {
+          throw new Error('reconnect failure');
+        },
+        select: data => data.value
+      });
+      const reader = renderCountedInProvider(() => request.use(undefined));
+      await settle();
+      expect(reader.result().loadingState.isOffline).toBe(true);
+
+      act(() => setTestNetworkOnline(true));
+      await settle(6, { macro: true });
+
+      expect(reader.result().error?.message).toBe('reconnect failure');
+      reader.unmount();
+    } finally {
+      setTestNetworkOnline(wasOnline);
+    }
+  });
+
+  it('keeps only the latest of consecutive reader restarts', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const pending: Array<(value: FetchPayload) => void> = [];
+    const request = defineFetch<FetchPayload, void, string>({
+      key: 'fetch-consecutive-restarts',
+      fetcher: () =>
+        new Promise(resolve => {
+          pending.push(resolve);
+        }),
+      select: data => data.value
+    });
+    const reader = renderCountedInProvider(() => request.use(undefined));
+    await settle(2);
+    expect(pending).toHaveLength(1);
+
+    act(() => reader.result().refetch());
+    await settle(2);
+    expect(pending).toHaveLength(2);
+    act(() => reader.result().refetch());
+    await settle(2);
+    expect(pending).toHaveLength(3);
+
+    pending[0]!({ value: 'first' });
+    pending[1]!({ value: 'second' });
+    pending[2]!({ value: 'latest' });
+    await settle(6, { macro: true });
+
+    expect(reader.result().data).toBe('latest');
+    reader.unmount();
+  });
+
+  it('drops a rejected reader restart after the runtime generation changes', async () => {
+    let calls = 0;
+    let rejectRestart!: (error: Error) => void;
+    const onSyncError = jest.fn();
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport(), defaults: { onSyncError } });
+    const request = defineFetch<FetchPayload, void, string>({
+      key: 'fetch-reader-reset-rejection',
+      enabled: () => false,
+      fetcher: async () => {
+        calls += 1;
+        if (calls === 1) return { value: 'cached' };
+        return await new Promise((_resolve, reject) => {
+          rejectRestart = reject;
+        });
+      },
+      select: data => data.value,
+      staleTime: Infinity
+    });
+    await expect(request.fetch(undefined)).resolves.toBe('cached');
+    const reader = renderCountedInProvider(() => request.use(undefined));
+    await settle(2);
+    expect(reader.result().data).toBe('cached');
+
+    act(() => reader.result().refetch());
+    await settle(2);
+    resetRuntime();
+    rejectRestart(new Error('stale reader restart'));
+    await settle(2);
+
+    expect(onSyncError).not.toHaveBeenCalled();
+    reader.unmount();
+  });
+
   it('F1 coalesces two concurrent fetches for one input into one transport call', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const calls = { count: 0 };

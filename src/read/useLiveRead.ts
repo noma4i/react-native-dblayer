@@ -35,19 +35,24 @@ export const rowsShallowEqual = (left: object, right: object): boolean => {
  * a pure function of committed DB state plus dependency-encoded inputs. Constant hook topology -
  * always the same hooks in the same order.
  */
-export const useLiveRead = <T>(compute: () => T, deps: ReadonlyArray<Dependency>, isEqual: (a: T, b: T) => boolean = Object.is): T => {
+export const useLiveRead = <T>(
+  compute: () => T,
+  deps: ReadonlyArray<Dependency>,
+  isEqual: (a: T, b: T) => boolean = Object.is,
+  inputSignature = ''
+): T => {
   const bus = getCommitBus();
   const stateRef = useRef<LiveReadState<T> | null>(null);
   const subscriptionRef = useRef<CommitSubscription | null>(null);
   if (stateRef.current === null) {
-    stateRef.current = { value: compute(), version: 0, signature: depsSignature(deps), compute, isEqual, deps };
+    stateRef.current = { value: compute(), version: 0, signature: compositeKey(inputSignature, depsSignature(deps)), compute, isEqual, deps };
   }
   const state = stateRef.current;
   state.compute = compute;
   state.isEqual = isEqual;
   state.deps = deps;
 
-  const nextSignature = depsSignature(deps);
+  const nextSignature = compositeKey(inputSignature, depsSignature(deps));
   if (nextSignature !== state.signature) {
     state.signature = nextSignature;
     const next = compute();

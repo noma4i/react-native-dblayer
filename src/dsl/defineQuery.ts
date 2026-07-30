@@ -61,7 +61,8 @@ const operationKey = (document: DbGraphQLDocument<any, any>, override?: string):
 };
 const nodesOf = (value: unknown): unknown[] => {
   if (Array.isArray(value)) return value;
-  if (!isRecord(value)) return value == null ? [] : [value];
+  if (value == null) return [];
+  if (!isRecord(value)) throw new Error('defineQuery select/page must return rows, a row, or a connection');
   const connection = value as ConnectionLike;
   if (connection.nodes) return [...connection.nodes];
   if (connection.edges) return connection.edges.flatMap(edge => (edge?.node == null ? [] : [edge.node]));
@@ -90,7 +91,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const keyName = operationKey(config.document, config.key);
   const registeredScopes = new Map<string, TScope>();
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
-  const destinationModelId = (config.into as { modelId?: string }).modelId ?? keyName;
+  const destinationModelId = config.into.modelId;
   /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
   const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false });
   const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => localState.set(key, next);
@@ -113,8 +114,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (!isNonArrayRecord(scope)) return false;
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
   };
-  const pageMetaOf = (connection: ConnectionLike | null): PageMeta => {
-    if (!connection) return { endCursor: null, hasNextPage: false, count: 0 };
+  const pageMetaOf = (connection: ConnectionLike): PageMeta => {
     const info = connection.pageInfo ?? {};
     const backward = config.direction === 'backward';
     return {
@@ -138,7 +138,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     for (const sink of config.extract?.({ data, nodes }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
     if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
     const committedRows = isScopeDestination(config.into) ? rows.map(entry => entry.row) : nodes;
-    const ids = committedRows.flatMap(row => (isRecord(row) && row.id != null ? [compositeKey(destinationModelId, String(row.id))] : []));
+    const ids = committedRows.map(row => compositeKey(destinationModelId, String((row as { id: unknown }).id)));
     const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false, count: nodes.length };
     return { meta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };
@@ -151,7 +151,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const scopeKey = buildScopeKey(scope);
     const guardKey = isScopeDestination(config.into) ? compositeKey(destinationModelId, getInternalScopeHandle(config.into).key(scope)) : compositeKey(keyName, scopeKey);
     const reset = context.cursor === null;
-    const issued = reset ? (issuedResetSeqByBucket.get(guardKey) ?? 0) + 1 : (issuedResetSeqByBucket.get(guardKey) ?? 0);
+    const issued = reset ? (issuedResetSeqByBucket.get(guardKey) ?? 0) + 1 : issuedResetSeqByBucket.get(guardKey)!;
     if (reset) issuedResetSeqByBucket.set(guardKey, issued);
     let data: TResponse;
     try {
@@ -163,7 +163,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     }
     if (!context.isCurrent()) return null;
     const applied = appliedResetSeqByBucket.get(guardKey) ?? 0;
-    if ((reset && issued < applied) || (!reset && issued < (issuedResetSeqByBucket.get(guardKey) ?? 0))) return null;
+    if ((reset && issued < applied) || (!reset && issued < issuedResetSeqByBucket.get(guardKey)!)) return null;
     if (reset) appliedResetSeqByBucket.set(guardKey, issued);
     const result = applyResponse(scope, data, reset, resurrectDestroyed);
     const previous = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
@@ -176,7 +176,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       cursor: config.page && hasNextPage ? result.meta.endCursor : null,
       pages,
       hasNextPage,
-      ids: reset ? result.ids : union(previous?.ids ?? [], result.ids),
+      ids: reset ? result.ids : union(previous!.ids, result.ids),
       resultKind: result.resultKind
     };
   };
@@ -218,7 +218,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
                 pages: 0,
                 hasNextPage: false,
                 ids: [],
-                resultKind: config.page ? 'many' : 'one'
+                resultKind: 'one'
               }
             );
           }
@@ -329,7 +329,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       const release = registerActiveFetchReaders({
         queryKey,
         markResumeStale,
-        refetch: () => run(scope, { restart: false, resurrectDestroyed }).catch(() => {})
+        refetch: () => run(scope, { restart: false, resurrectDestroyed })
       });
       const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
@@ -337,15 +337,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       const canRefetch = !firstMount || !state.isFetched || (config.refetchOnMount ?? getDbRuntimeConfig().defaults.refetchOnMount) !== false;
       const shouldFetch = firstMount && canRefetch;
       if (shouldFetch && !isFresh && !state.isFetching) {
-        void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
+        void run(scope, { restart: false, resurrectDestroyed });
       }
       if (forceAbsentRefetch && state.isFetched && !state.isFetching && !forcedRefetch.current) {
         forcedRefetch.current = true;
-        void run(scope, { restart: true, resurrectDestroyed }).catch(() => {});
+        void run(scope, { restart: true, resurrectDestroyed });
       }
       const unsubscribeOnline = subscribeFetchNetwork(() => {
         if (!isFetchNetworkOnline()) return;
-        if (!isQueryFresh(client, queryKey, staleTimeOf(key))) void run(scope, { restart: false, resurrectDestroyed }).catch(() => {});
+        if (!isQueryFresh(client, queryKey, staleTimeOf(key))) void run(scope, { restart: false, resurrectDestroyed });
       });
       return () => {
         unsubscribeOnline();
@@ -375,7 +375,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       hasNextPage: config.page ? state.hasNextPage : false,
       isFetchingNextPage: config.page ? state.isFetchingNextPage : false,
       fetchNextPage: () => {
-        if (scope !== null && config.page && state.hasNextPage && !state.isFetching) void run(scope, { restart: false, nextPage: true }).catch(() => {});
+        if (scope !== null && config.page && state.hasNextPage && !state.isFetching) void run(scope, { restart: false, nextPage: true });
       },
       refetch: async () => {
         if (scope !== null) await run(scope, { restart: true });
@@ -388,22 +388,14 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (isScopeDestination(config.into)) return config.into.read(scope);
     const destination = config.into as ModelDestination<TStored>;
     const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta | undefined;
-    const rows = (meta?.ids ?? []).flatMap(id => {
-      const parts = parseCompositeKey(id);
-      if (parts?.length !== 2 || parts[0] !== destination.modelId) return [];
-      const row = destination.find(parts[1]);
-      return row === undefined ? [] : [row];
-    });
+    const rows = (meta?.ids ?? []).map(id => destination.find(parseCompositeKey(id)![1]!)!);
     return meta?.resultKind === 'many' ? rows : rows[0];
   };
   const useDestinationRows: (scope: TScope | null, state: RequestState) => TStored[] | TStored | undefined = isScopeDestination(config.into)
     ? scope => (config.into as ScopeDestination<TStored, TScope>).use(scope) as TStored[]
     : (_scope, state) => {
         const destination = config.into as ModelDestination<TStored>;
-        const rowIds = state.ids.flatMap(id => {
-          const parts = parseCompositeKey(id);
-          return parts?.length === 2 && parts[0] === destination.modelId ? [parts[1]!] : [];
-        });
+        const rowIds = state.ids.map(id => parseCompositeKey(id)![1]!);
         const rows = destination.use.byIds(rowIds).rows;
         return state.resultKind === 'many' ? rows : rows[0];
       };

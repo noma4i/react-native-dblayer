@@ -49,7 +49,7 @@ export type ApplyTarget = {
     mergeBase?: StoredRow,
     operationId?: string
   ): PreparedRowWrite | null;
-  preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string): PreparedRowWrite | null;
+  preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string, remove?: readonly string[]): PreparedRowWrite | null;
   /** Begin, publish, or discard the target's apply-owned scope overlay. */
   beginApply(): void;
   commitApply(): void;

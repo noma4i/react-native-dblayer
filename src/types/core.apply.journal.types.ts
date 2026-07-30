@@ -9,7 +9,7 @@ export type WriteOp =
   /** Replace carries the prior row only through planning so write groups observe the same commit semantics. */
   | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown; operationId?: string }
   /** `operationId` lets a pending optimistic method-patch plan its own rollback while foreign patches keep its owned fields. */
-  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; operationId?: string }
+  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; remove?: string[]; operationId?: string }
   /** `replace` marks the destroy half of an identity swap during relation planning. */
   | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; operationTransitions?: OperationTransition[] }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }

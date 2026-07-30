@@ -26,6 +26,7 @@ export type WriteOp = {
     model: string;
     id: string;
     patch: Record<string, unknown>;
+    remove?: string[];
     operationId?: string;
 }
 /** `replace` marks the destroy half of an identity swap during relation planning. */

@@ -34,9 +34,8 @@ const foreignKeyIndexes = new Map<string, ViewForeignKeyIndex>();
 
 const foreignKeyIndexKey = (targetModelId: string, foreignKey: string): string => compositeKey(targetModelId, foreignKey);
 
-const removeIndexedRow = (index: ViewForeignKeyIndex, foreignKey: string, id: string): void => {
-  const bucket = index.rowsByForeignKey.get(foreignKey);
-  if (!bucket) return;
+const removeIndexedRow = (index: Pick<ViewForeignKeyIndex, 'rowsByForeignKey'>, foreignKey: string, id: string): void => {
+  const bucket = index.rowsByForeignKey.get(foreignKey)!;
   const position = bucket.findIndex(row => row.id === id);
   if (position >= 0) bucket.splice(position, 1);
   if (bucket.length === 0) index.rowsByForeignKey.delete(foreignKey);
@@ -56,30 +55,31 @@ const foreignKeyIndexFor = (target: ViewIncludeModel, foreignKey: string): ViewF
     rowsByForeignKey.set(value, bucket);
     fkById.set(row.id, value);
   }
-  const index: ViewForeignKeyIndex = { rowsByForeignKey, fkById, unsubscribe: () => undefined };
-  index.unsubscribe = getCommitBus().subscribeAll(batch => {
+  const indexData = { rowsByForeignKey, fkById };
+  const unsubscribe = getCommitBus().subscribeAll(batch => {
     let updates = 0;
     for (const change of batch.rows) {
       if (change.model !== target.modelId) continue;
-      const previousForeignKey = index.fkById.get(change.id);
+      const previousForeignKey = indexData.fkById.get(change.id);
       const next = target.find(change.id) as RowRecord | null | undefined;
       const nextForeignKey = typeof next?.[foreignKey] === 'string' ? (next[foreignKey] as string) : undefined;
-      if (previousForeignKey && previousForeignKey !== nextForeignKey) removeIndexedRow(index, previousForeignKey, change.id);
+      if (previousForeignKey && previousForeignKey !== nextForeignKey) removeIndexedRow(indexData, previousForeignKey, change.id);
       if (!nextForeignKey || !next) {
-        index.fkById.delete(change.id);
+        indexData.fkById.delete(change.id);
         updates += 1;
         continue;
       }
-      const bucket = index.rowsByForeignKey.get(nextForeignKey) ?? [];
+      const bucket = indexData.rowsByForeignKey.get(nextForeignKey) ?? [];
       const position = bucket.findIndex(row => row.id === change.id);
       if (position >= 0) bucket[position] = next;
       else bucket.push(next);
-      index.rowsByForeignKey.set(nextForeignKey, bucket);
-      index.fkById.set(change.id, nextForeignKey);
+      indexData.rowsByForeignKey.set(nextForeignKey, bucket);
+      indexData.fkById.set(change.id, nextForeignKey);
       updates += 1;
     }
     if (updates > 0) noteFkIndex('incremental', updates);
   });
+  const index: ViewForeignKeyIndex = { ...indexData, unsubscribe };
   foreignKeyIndexes.set(key, index);
   noteFkIndex('full', rowsByForeignKey.size);
   return index;
@@ -93,19 +93,15 @@ registerReset(() => {
 const idsOf = (value: string | string[] | null): string[] =>
   (Array.isArray(value) ? value : value == null ? [] : [value]).filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-const resolveRelation = (row: RowRecord, relation: RelationDecl, rowsFor: (foreignKey: string, id: string) => RowRecord[]): unknown => {
+const resolveRelation = (row: RowRecord, relation: Exclude<RelationDecl, { kind: 'references' }>, rowsFor: (foreignKey: string, id: string) => RowRecord[]): unknown => {
   if (relation.kind === 'belongsTo') {
     const id = row[relation.foreignKey];
     return typeof id === 'string' ? (relation.model.find(id) ?? null) : null;
   }
-  if (relation.kind === 'references') throw new Error(`Model.view does not support ${relation.kind} includes`);
   const rows = rowsFor(relation.foreignKey, row.id);
   if (relation.kind === 'hasMany') return rows;
-  if (relation.kind === 'hasOne') {
-    if (rows.length === 0) return null;
-    return relation.comparator ? rows.reduce((best, candidate) => (relation.comparator!(candidate, best) < 0 ? candidate : best)) : rows[0];
-  }
-  return null;
+  if (rows.length === 0) return null;
+  return relation.comparator ? rows.reduce((best, candidate) => (relation.comparator!(candidate, best) < 0 ? candidate : best)) : rows[0];
 };
 
 /** Normalize the public generic contract once; runtime view evaluation intentionally remains row-shape agnostic. */
@@ -187,7 +183,7 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
           if (relationName) {
             const relation = relations[relationName]!;
             const required = typeof include === 'object' && !Array.isArray(include) ? include.require : undefined;
-            const resolved = resolveRelation(row, relation, (foreignKey, id) => rowsFor(relation, foreignKey, id));
+            const resolved = resolveRelation(row, relation as Exclude<RelationDecl, { kind: 'references' }>, (foreignKey, id) => rowsFor(relation, foreignKey, id));
             included[alias] = Array.isArray(resolved)
               ? resolved.filter(candidate => hasRequiredFields(candidate as RowRecord | null, required ?? [])).map(candidate => projectIncludedRow(alias, candidate as RowRecord, includeRenderKeys))
               : hasRequiredFields(resolved as RowRecord | null, required ?? [])
@@ -253,7 +249,8 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
         return snapshot;
       },
       evaluatedRef.current.deps,
-      (left, right) => left.resolved === right.resolved && left.totalCount === right.totalCount && arraysShallowEqual(left.items, right.items)
+      (left, right) => left.resolved === right.resolved && left.totalCount === right.totalCount && arraysShallowEqual(left.items, right.items),
+      compositeKey(scopeKey ?? '', limit === null ? 'all' : String(limit))
     );
   };
 
@@ -268,7 +265,6 @@ export const defineView = <TRow extends RowRecord, TIncluded extends Record<stri
       const scopeKey = scopeValue == null ? null : sourceInternal.key(scopeValue);
       const [state, setState] = useState({ scopeKey, size: pageSize });
       const size = state.scopeKey === scopeKey ? state.size : pageSize;
-      if (state.scopeKey !== scopeKey) setState({ scopeKey, size: pageSize });
       const windowRef = useRef<ViewWindowCache<TItem> | null>(null);
       const snapshot = useItems(scopeValue, size);
       const items = snapshot.items;

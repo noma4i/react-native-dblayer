@@ -9,5 +9,5 @@ export declare const rowsShallowEqual: (left: object, right: object) => boolean;
  * a pure function of committed DB state plus dependency-encoded inputs. Constant hook topology -
  * always the same hooks in the same order.
  */
-export declare const useLiveRead: <T>(compute: () => T, deps: ReadonlyArray<Dependency>, isEqual?: (a: T, b: T) => boolean) => T;
+export declare const useLiveRead: <T>(compute: () => T, deps: ReadonlyArray<Dependency>, isEqual?: (a: T, b: T) => boolean, inputSignature?: string) => T;
 //# sourceMappingURL=useLiveRead.d.ts.map

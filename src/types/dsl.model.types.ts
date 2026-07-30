@@ -55,7 +55,13 @@ export type ModelWrites<TStored extends { id: string } & Record<string, unknown>
     mergeBase?: TStored,
     operationId?: string
   ): import('./core.apply.transaction.types').PreparedRowWrite | null;
-  preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string): import('./core.apply.transaction.types').PreparedRowWrite | null;
+  preparePatch(
+    id: string,
+    patch: Record<string, unknown>,
+    previous: TStored | undefined,
+    operationId?: string,
+    remove?: readonly string[]
+  ): import('./core.apply.transaction.types').PreparedRowWrite | null;
   putRows(rows: TStored[]): ModelWriteResult[];
   planRows(rows: unknown[], planOptions?: { origin?: 'event' }): WriteOp[];
   splitCorrelatedRows(accepted: unknown[]): { plain: unknown[]; replaceOps: WriteOp[] };

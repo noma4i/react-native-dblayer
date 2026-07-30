@@ -1,4 +1,4 @@
-import { CancelledError, QueryObserver } from '@tanstack/react-query';
+import { QueryObserver } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { FetchConfig, FetchData, FetchHandle, FetchResult, FetchState } from '../types';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
@@ -77,9 +77,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       const data = await client.fetchQuery<FetchData<TSelected>>({
         queryKey,
         queryFn: async () => {
-          const result = await execute(input, generationFence.isCurrent);
-          if (!generationFence.isCurrent()) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined) ?? result;
-          return result;
+          return await execute(input, generationFence.isCurrent);
         },
         staleTime: options.restart ? 0 : staleTimeOf(key)
       });
@@ -89,8 +87,6 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
         if (options.propagateFailure) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
         return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
       }
-      // A newer restart cancelled this fetch; the superseding run now owns key state and outcome.
-      if (error instanceof CancelledError) return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
       if (!isFetchNetworkOnline()) {
         setPaused(key, true);
         return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
@@ -167,9 +163,9 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
       const canRefetch = !firstMount || !state.isFetched || getDbRuntimeConfig().defaults.refetchOnMount !== false;
-      if (firstMount && canRefetch && !isFreshKey(key) && !state.isFetching) void run(input, { restart: false }).catch(() => {});
+      if (firstMount && canRefetch && !isFreshKey(key) && !state.isFetching) void run(input, { restart: false });
       const unsubscribeOnline = subscribeFetchNetwork(() => {
-        if (isFetchNetworkOnline() && !isFreshKey(key)) void run(input, { restart: false }).catch(() => {});
+        if (isFetchNetworkOnline() && !isFreshKey(key)) void run(input, { restart: false });
       });
       return () => {
         unsubscribeOnline();

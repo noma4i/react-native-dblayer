@@ -12,7 +12,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   context: ModelContext<TStored>;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
   prepareRow(row: unknown, previous: TStored | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): PreparedRowWrite | null;
-  preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string): PreparedRowWrite | null;
+  preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string, remove?: readonly string[]): PreparedRowWrite | null;
   putRows(rows: TStored[]): Array<{ id: string; changedFields: string[] | null }>;
 }): ModelApplyTargetResult => {
   const { planes } = options.context;
@@ -92,7 +92,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     prepareUpsert: (row, previous, origin, mergeBase, operationId) =>
       options.prepareRow(row, previous as TStored | undefined, origin, mergeBase as TStored | undefined, operationId),
-    preparePatch: (id, patch, previous, operationId) => options.preparePatch(id, patch, previous as TStored | undefined, operationId),
+    preparePatch: (id, patch, previous, operationId, remove) => options.preparePatch(id, patch, previous as TStored | undefined, operationId, remove),
     beginApply: () => {
       planes().scopeIndex.beginApply();
     },
