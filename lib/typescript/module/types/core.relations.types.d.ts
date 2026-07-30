@@ -69,7 +69,6 @@ export type RelationHost = {
     relations(): Record<string, RelationDecl>;
     has(id: string): boolean;
     read(id: string): StoredRow | undefined;
-    normalize(input: unknown): StoredRow | null;
     membershipForUpsert(before: StoredRow | undefined, after: StoredRow): MembershipDelta[];
     detachForDestroy(id: string): MembershipDelta[];
 };

@@ -79,13 +79,6 @@ export const defineModelRuntime = <
     relations: resolvedRelations,
     has: id => planes().entityState.read(id) !== undefined,
     read: id => planes().entityState.read(id),
-    normalize: input => {
-      try {
-        return normalize(input);
-      } catch {
-        return null;
-      }
-    },
     membershipForUpsert,
     detachForDestroy
   });
@@ -93,12 +86,13 @@ export const defineModelRuntime = <
   const captureMembership = (id: string): Array<{ id: string; scopeKey: string; orderKey: string }> =>
     planes()
       .scopeIndex.keysOf(id)
-      .flatMap(scopeKey => {
-        const entry = planes()
+      .map(scopeKey => ({
+        id,
+        scopeKey,
+        orderKey: planes()
           .scopeIndex.read(scopeKey)
-          .entries.find(candidate => candidate.id === id);
-        return entry ? [{ id, scopeKey, orderKey: entry.orderKey }] : [];
-      });
+          .entries.find(candidate => candidate.id === id)!.orderKey
+      }));
   const { prepareRow, preparePatch, putRows, planRows: planOwnRows, planReplace: planOwnReplace, planRestore } = createModelWrites<
     InferStoredFields<TFields> & Record<string, unknown>
   >({

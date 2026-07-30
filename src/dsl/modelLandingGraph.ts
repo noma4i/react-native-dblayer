@@ -61,8 +61,7 @@ const planLandingGraph = (
   }
 
   return [...planned.entries()].flatMap(([modelKey, modelRows]) => {
-    const host = hosts.get(modelKey);
-    if (!host) throw new Error(`Model landing target ${modelKey} is not defined`);
+    const host = hosts.get(modelKey)!;
     const values = [...modelRows.values()];
     return modelKey === model && planRoot ? planRoot(values, options) : host.planOwnRows(values, options);
   });

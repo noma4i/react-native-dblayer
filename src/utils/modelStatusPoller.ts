@@ -43,7 +43,7 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   const getOrCreateSession = (id: string): PollerSession => {
     const existing = sessions.get(id);
     if (existing) return existing;
-    const session: PollerSession = { refs: 0, intervalId: null, attempts: 0, phase: 'idle', runTick: () => Promise.resolve() };
+    const session = { refs: 0, intervalId: null, attempts: 0, phase: 'idle' } as PollerSession;
     session.runTick = createSingleFlight(() => runFetch(id, session));
     sessions.set(id, session);
     return session;
@@ -70,7 +70,6 @@ export const createModelStatusPoller = <TResult>(config: ModelStatusPollerConfig
   };
 
   const stopTerminal = (id: string, session: PollerSession, phase: 'ready' | 'failed' | 'stalled'): void => {
-    if (sessions.get(id) !== session || session.phase !== 'polling') return;
     clearTimer(session);
     session.phase = phase;
     const reason = phase === 'stalled' ? 'budget-exhausted' : 'terminal-payload';

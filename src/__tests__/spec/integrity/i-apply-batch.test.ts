@@ -323,7 +323,6 @@ describe('apply pipeline batching', () => {
       relations: () => ({ children: { kind: 'hasMany', model: childRef, foreignKey: 'parentId', dependent: 'destroy' } }),
       has: id => parent.rows.has(id),
       read: id => parent.rows.get(id),
-      normalize: input => (typeof input === 'object' && input !== null ? (input as StoredRow) : null),
       membershipForUpsert: () => [],
       detachForDestroy: () => []
     };

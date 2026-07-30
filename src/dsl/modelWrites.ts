@@ -46,13 +46,6 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     return changes;
   };
   const restoreMembership = (nextId: string, memberships: ModelMembership[]): WriteOp[] => memberships.map(membership => ({ kind: 'scope-delta', model: options.modelId, scopeKey: membership.scopeKey, append: [{ id: nextId, orderKey: membership.orderKey }], detach: [membership.id] }));
-  const replacementId = (next: unknown): string | null => {
-    try {
-      return options.normalize(next).id;
-    } catch {
-      return null;
-    }
-  };
   const planReplace = (oldId: string, next: unknown, correlatedOperation?: OperationRecord): WriteOp[] => {
     let normalized: TStored;
     try {
@@ -114,7 +107,6 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
   };
   return { prepareRow, preparePatch, putRows, planRows, planReplace, splitCorrelatedRows, planRestore: (next: unknown, memberships: ModelMembership[]): WriteOp[] => {
     const normalized = options.normalize(next);
-    const nextId = replacementId(next);
-    return [{ kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace' }, ...(nextId == null ? [] : restoreMembership(nextId, memberships))];
+    return [{ kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace' }, ...restoreMembership(normalized.id, memberships)];
   } };
 };
