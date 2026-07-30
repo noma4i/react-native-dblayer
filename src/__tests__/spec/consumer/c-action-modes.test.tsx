@@ -22,7 +22,7 @@ type StartVariables = {
 };
 
 type StatusData = {
-  jobStatus: JobInput;
+  jobStatus: Pick<JobInput, 'status'>;
 };
 
 type StatusVariables = {
@@ -158,8 +158,6 @@ describe('action modes', () => {
       query: async <TData,>() => ({
         data: {
           jobStatus: {
-            id: 'job-1',
-            label: 'render',
             status: 'done'
           }
         } as TData
@@ -175,7 +173,7 @@ describe('action modes', () => {
           kind: 'update',
           mode: 'poll',
           id: input => input.id,
-          select: data => data.jobStatus,
+          select: data => ({ status: data.jobStatus.status }),
           poll: {
             intervalMs: 10,
             maxAttempts: 3,
@@ -191,7 +189,7 @@ describe('action modes', () => {
     await settle();
 
     expect(reader.result().phase).toBe('ready');
-    expect(Job.find('job-1')?.status).toBe('done');
+    expect(Job.find('job-1')).toEqual({ id: 'job-1', label: 'render', status: 'done' });
     expect(transport.calls).toHaveLength(1);
     await act(async () => {
       await reader.result().refresh();

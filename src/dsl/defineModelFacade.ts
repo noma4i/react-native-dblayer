@@ -255,9 +255,9 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       vars: id => {
         return definition.variables(inputs.get(id)!, { tempId: null, operationId: '' });
       },
-      apply: (_id, data) => {
-        const row = definition.select(data);
-        if (row != null) runtime.insert(row as TStored);
+      apply: (id, data) => {
+        const patch = definition.select(data);
+        if (patch != null) runtime.update(id, patch as Partial<TStored>);
       },
       classify: definition.poll.classify,
       intervalMs: definition.poll.intervalMs,
