@@ -297,6 +297,41 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('types model reads and named relations inside the action factory', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
+      type Row = { id: string; groupId: string; title: string };
+      type Data = { updateRow: { row: Row } };
+      type Variables = { input: { rowId: string; title: string } };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const RowSchema = defineShape<Row>()({ groupId: f.str(), title: f.str() });
+      const rows = defineModel('action-owner-factory', {
+        schema: RowSchema,
+        relations: {
+          byGroup: { by: { groupId: 'groupId' } }
+        },
+        actions: model => ({
+          update: gql.action(document, {
+            result: 'updateRow',
+            variables: (input: Variables['input']) => ({ input }),
+            kind: 'update',
+            id: input => input.rowId,
+            select: data => data.updateRow.row,
+            optimistic: {
+              patch: input => ({
+                title: model.find(input.rowId)?.title ?? input.title,
+                groupId: model.byGroup({ groupId: 'one' }).read()[0]?.groupId
+              })
+            }
+          })
+        })
+      });
+      void rows.actions.update.run({ rowId: '1', title: 'typed' });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects the historical invalidate: true boolean on an ingest declaration', () => {
     const diagnostics = compileFixture(`
       import type { IngestDecl } from '${entry}';

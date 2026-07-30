@@ -1,6 +1,8 @@
 # Actions
 
 Model commands are declared with `gql.action` and exposed under `Model.actions`.
+When an action reads or changes its owning model, declare `actions` as a factory and use its typed
+model argument.
 
 ## `gql.action(document, options)`
 

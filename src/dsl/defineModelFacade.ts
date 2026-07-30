@@ -470,9 +470,6 @@ export const defineModelFacade = <
     );
   }
   const actions: ModelActionMethods<TActions> = Object.create(null);
-  for (const [name, definition] of Object.entries(config.actions ?? {})) {
-    Reflect.set(actions, name, createAction(runtime, `${key}:${name}`, definition));
-  }
   const events = runtime.ingest(
     Object.fromEntries(
       Object.entries(config.events ?? {}).map(([name, definition]) => {
@@ -511,12 +508,23 @@ export const defineModelFacade = <
     relationMethods,
     Object.create(null) as ModelAssociationMethods<TAssociations>
   );
+  const actionOwner = modelBase as ModelFacadeCore<
+    ModelStoredValue<TShape>,
+    ModelBuildInput<TShape>,
+    Record<string, never>,
+    Record<string, never>
+  > &
+    ModelRelationMethods<ModelStoredValue<TShape>, TRelations>;
+  const actionDefinitions = (typeof config.actions === 'function' ? config.actions(actionOwner) : config.actions) ?? ({} as TActions);
+  for (const [name, definition] of Object.entries(actionDefinitions)) {
+    Reflect.set(actions, name, createAction(runtime, `${key}:${name}`, definition));
+  }
   const associationMethods = new Map<string, (id: string | null | undefined) => Relation<any, any>>();
   let associationsValidated = false;
   const validateAssociations = (): void => {
     if (associationsValidated) return;
     for (const name of Object.keys(associations())) {
-      if (Reflect.has(modelBase, name) || name in (config.actions ?? {})) {
+      if (Reflect.has(modelBase, name) || name in actionDefinitions) {
         throw new Error(`${key}: association ${name} collides with the model surface`);
       }
     }

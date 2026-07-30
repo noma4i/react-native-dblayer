@@ -225,7 +225,12 @@ export type ModelFacadeConfig<
   schema: TShape;
   associations?: () => TAssociations;
   relations?: TRelations;
-  actions?: TActions;
+  actions?:
+    | TActions
+    | ((
+        model: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, Record<string, never>, Record<string, never>> &
+          ModelRelationMethods<ModelStoredValue<TShape>, TRelations>
+      ) => TActions);
   events?: TEvents;
   sideloads?: () => Record<string, SideloadEdge<ModelBuildInput<TShape>>>;
   defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
