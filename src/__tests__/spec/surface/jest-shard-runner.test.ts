@@ -5,6 +5,10 @@ import { spawnSync } from 'node:child_process';
 
 const runnerPath = resolve(process.cwd(), 'scripts/run-jest-shards.mjs');
 const fakeJestPath = resolve(process.cwd(), 'scripts/__fixtures__/fake-jest-shard.mjs');
+const jestConfig = require(resolve(process.cwd(), 'jest.config.js')) as {
+  collectCoverageFrom?: string[];
+  coverageThreshold?: { global?: Record<string, number> };
+};
 const testFiles = ['alpha.test.ts', 'beta.test.tsx', 'gamma.test.ts', 'delta.test.tsx'].map((file) =>
   resolve(process.cwd(), 'src/__tests__/spec/surface', file)
 );
@@ -57,5 +61,20 @@ describe('Jest shard runner', () => {
     const { calls, result } = runFake();
     expect(result.status).toBe(0);
     expect(calls).toHaveLength(2);
+  });
+
+  it('measures every production source file at 100 percent', () => {
+    expect(jestConfig.collectCoverageFrom).toEqual([
+      'src/**/*.{ts,tsx}',
+      '!src/**/*.types.ts',
+      '!src/**/__tests__/**',
+      '!src/index.ts'
+    ]);
+    expect(jestConfig.coverageThreshold?.global).toEqual({
+      statements: 100,
+      branches: 100,
+      functions: 100,
+      lines: 100
+    });
   });
 });

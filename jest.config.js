@@ -3,6 +3,12 @@ module.exports = {
   restoreMocks: true,
   resetMocks: true,
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.ts', '<rootDir>/src/**/__tests__/**/*.test.tsx'],
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.types.ts',
+    '!src/**/__tests__/**',
+    '!src/index.ts'
+  ],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   transform: {
     '^.+\\.js$': [
@@ -23,10 +29,10 @@ module.exports = {
   },
   coverageThreshold: {
     global: {
-      statements: 93,
-      branches: 83,
-      functions: 92,
-      lines: 95
+      statements: 100,
+      branches: 100,
+      functions: 100,
+      lines: 100
     }
   },
   moduleNameMapper: {
