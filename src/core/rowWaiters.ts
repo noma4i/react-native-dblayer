@@ -31,15 +31,12 @@ export const updateWhenRowExists = <TStored extends { id: string }>(
     return;
   }
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let active = true;
   /** Shared teardown for the terminal cases (applied, stale generation, TTL) - unsubscribes immediately instead of leaving a dead subscriber on the commit bus until the TTL timer sweeps it. */
   const stop = (): void => {
-    active = false;
     if (timer) clearTimeout(timer);
     subscription.unsubscribe();
   };
   const subscription = getCommitBus().subscribe(() => {
-    if (!active) return;
     if (!generationFence.isCurrent()) {
       stop();
       return;
@@ -74,11 +71,8 @@ export const waitForRow = <TStored extends { id: string }>(
   const existing = model.find(id);
   if (existing) return Promise.resolve(existing);
   return new Promise(resolve => {
-    let done = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const finish = (value: TStored | undefined): void => {
-      if (done) return;
-      done = true;
       if (timer) clearTimeout(timer);
       options.signal?.removeEventListener('abort', onAbort);
       subscription.unsubscribe();

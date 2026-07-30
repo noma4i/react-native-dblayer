@@ -56,11 +56,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
   };
 
   const scopeMembers = (scopeKey: string): StoreMembershipRow[] =>
-    [...membershipsByScope.equalityLookup(scopeKey)].flatMap(key => {
-      if (typeof key !== 'string') return [];
-      const row = memberships.get(key);
-      return row ? [row] : [];
-    });
+    [...membershipsByScope.equalityLookup(scopeKey)].map(key => memberships.get(key as string)!);
 
   const writeMemberships = (messages: ReadonlyArray<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>>): void => {
     if (messages.length === 0) return;

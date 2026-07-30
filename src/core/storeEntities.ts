@@ -81,7 +81,6 @@ export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
   const flushBuffer = (): void => {
     bufferQueued = false;
     batchUndo = null;
-    if (buffer.size === 0) return;
     const written: Array<[string, RowRecord]> = [];
     entityFeed.start();
     for (const [id, entry] of buffer) {
@@ -103,16 +102,16 @@ export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
   const abortBuffer = (): void => {
     bufferQueued = false;
     buffer.clear();
-    if (!batchUndo) return;
-    for (const [id, value] of batchUndo.dirty) {
+    const undo = batchUndo!;
+    for (const [id, value] of undo.dirty) {
       if (value === undefined) dirty.delete(id);
       else dirty.set(id, value);
     }
-    for (const [id, value] of batchUndo.tombstones) {
+    for (const [id, value] of undo.tombstones) {
       if (value === undefined) tombstones.delete(id);
       else tombstones.set(id, value);
     }
-    tombstonesDirty = batchUndo.tombstonesDirty;
+    tombstonesDirty = undo.tombstonesDirty;
     batchUndo = null;
   };
 

@@ -1,5 +1,5 @@
 import { SyncFeed } from '../../legacyTestApi';
-import { createModelStore, runInApplyBatch } from '../../../core/store';
+import { createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection } from '../../../core/store';
 import { keysForSequence } from '../../../core/orderKey';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';
 
@@ -298,6 +298,39 @@ describe('model store', () => {
     expect(seen).toEqual([]);
     expect(diagnostics().snapshot().membershipWrites).toBe(0);
     unsubscribe();
+  });
+
+  it('forwards tombstone pruning and rejects reads for an unregistered model', () => {
+    let now = 0;
+    const store = createModelStore<Row>({
+      modelId: `SpecStorePrune${(storeTag += 1)}`,
+      now: () => now,
+      storage: createMemoryPlane(),
+      prefix: () => 'spec-store:',
+      applyWriteGate: (_previous, incoming) => incoming
+    });
+    store.upsert({ id: 'row-1' });
+    store.destroy('row-1');
+    now = 24 * 60 * 60 * 1000 + 1;
+
+    expect(store.pruneTombstones()).toBe(1);
+    expect(() => storeScopeCollection('SpecStoreMissing', 'scope-1')).toThrow('No store registered for model SpecStoreMissing');
+  });
+
+  it('publishes a row-only batch without allocating scope changes', () => {
+    const modelId = `SpecStoreContract${storeTag + 1}`;
+    buildStore();
+    const publish = jest.fn();
+    publishProjectedBatch(
+      { publish },
+      {
+        rows: [{ model: modelId, id: 'row-1', fields: null, kind: 'upsert' }],
+        scopes: [],
+        mode: 'delta'
+      }
+    );
+
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 });
 

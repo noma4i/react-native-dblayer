@@ -1,5 +1,16 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModel, f, registerReset, resetRuntime } from '../../legacyTestApi';
+import {
+  configureDb,
+  createDbSubscriptionEffects,
+  createModelStore,
+  defineDbSubscriptionEntry,
+  defineModel,
+  f,
+  getOperationState,
+  registerApplyTarget,
+  registerReset,
+  resetRuntime
+} from '../../legacyTestApi';
 import { collectGarbage, registerGcHost } from '../../../core/gc';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
@@ -119,6 +130,130 @@ describe('collectGarbage', () => {
       expect(referenceReads).toBe(size);
     } finally {
       unregister();
+    }
+  });
+
+  it('detaches missing scope members and preserves recently accessed scopes', () => {
+    setupSpecRuntime();
+    const store = createModelStore({
+      modelId: 'SpecGcMissingMembership',
+      now: () => Date.now(),
+      storage: createMemoryPlane(),
+      prefix: () => 'gc-missing-membership:',
+      applyWriteGate: (_previous, incoming) => incoming
+    });
+    const unregisterTarget = registerApplyTarget(
+      'SpecGcMissingMembership',
+      {
+        persistEntries: () => [],
+        ackPersist: () => undefined
+      } as never
+    );
+    const detached: Array<{ scopeKey: string; ids: string[] }> = [];
+    const removed: string[] = [];
+    const unregister = registerGcHost('SpecGcMissingMembership', {
+      modelId: 'SpecGcMissingMembership',
+      exempt: false,
+      rowIds: () => [],
+      hasRow: () => false,
+      scopeKeys: () => ['recent'],
+      scopeEntryIds: () => ['missing'],
+      detachScopeEntries: (scopeKey, ids) => detached.push({ scopeKey, ids }),
+      scopeEntryCount: () => 1,
+      removeScope: scopeKey => removed.push(scopeKey),
+      evict: () => false,
+      referencesOf: () => [],
+      idleScopeAfterMs: () => 60_000,
+      scopeLastAccess: () => Date.now()
+    });
+
+    try {
+      collectGarbage();
+      expect(detached).toEqual([{ scopeKey: 'recent', ids: ['missing'] }]);
+      expect(removed).toEqual([]);
+      expect(diagnostics().snapshot().dataLossEvents).toContainEqual({
+        mechanism: 'gc-scope-membership-detach',
+        model: 'SpecGcMissingMembership',
+        count: 1
+      });
+    } finally {
+      unregister();
+      unregisterTarget();
+      store.dispose();
+    }
+  });
+
+  it('preserves a scope while a reader declares it as a live dependency', () => {
+    setupSpecRuntime();
+    const rows = defineModel({
+      id: 'SpecGcLiveScope',
+      name: 'SpecGcLiveScope',
+      fields: { bucket: f.str(), label: f.str() },
+      scopes: { feed: ({ by: { bucket: 'bucket' } }) },
+      maintenance: { dropIdleScopesAfterMs: 0 }
+    });
+    rows.scopes.feed.seed({ bucket: 'a' }, [{ id: 'row-1', bucket: 'a', label: 'kept' }]);
+    const reader = renderCounted(() => rows.scopes.feed.use({ bucket: 'a' }));
+
+    collectGarbage();
+
+    expect(reader.result()).toMatchObject([{ id: 'row-1', label: 'kept' }]);
+    reader.unmount();
+  });
+
+  it('accepts operations without rowIds as roots with an empty row-id set', () => {
+    setupSpecRuntime();
+    getOperationState().begin({
+      operationId: 'gc-no-row-ids',
+      model: 'SpecGcNoRowIds',
+      tempIds: [],
+      intent: 'insert',
+      idempotencyKey: 'gc-no-row-ids',
+      createdAt: 1
+    });
+
+    expect(() => collectGarbage()).not.toThrow();
+    getOperationState().close('gc-no-row-ids', 'committed');
+  });
+
+  it('skips a queued reference whose model unregisters during the sweep', () => {
+    setupSpecRuntime();
+    let unregisterReferenced = (): void => undefined;
+    const unregisterRoot = registerGcHost('SpecGcUnregisterRoot', {
+      modelId: 'SpecGcUnregisterRoot',
+      exempt: true,
+      rowIds: () => ['root'],
+      hasRow: () => true,
+      scopeKeys: () => [],
+      scopeEntryIds: () => [],
+      detachScopeEntries: () => undefined,
+      scopeEntryCount: () => 0,
+      removeScope: () => undefined,
+      evict: () => false,
+      referencesOf: () => [{ model: 'SpecGcUnregisterReferenced', id: 'child' }]
+    });
+    unregisterReferenced = registerGcHost('SpecGcUnregisterReferenced', {
+      modelId: 'SpecGcUnregisterReferenced',
+      exempt: false,
+      rowIds: () => [],
+      hasRow: () => {
+        unregisterReferenced();
+        return true;
+      },
+      scopeKeys: () => [],
+      scopeEntryIds: () => [],
+      detachScopeEntries: () => undefined,
+      scopeEntryCount: () => 0,
+      removeScope: () => undefined,
+      evict: () => false,
+      referencesOf: () => []
+    });
+
+    try {
+      expect(() => collectGarbage()).not.toThrow();
+    } finally {
+      unregisterRoot();
+      unregisterReferenced();
     }
   });
 });
