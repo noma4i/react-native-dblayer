@@ -181,6 +181,9 @@ describe('v10 operation state', () => {
       failed: true,
       unsyncedChanges: undefined
     });
+    await expect(User.actions.create.retry(tempId!)).rejects.toThrow('create failed');
+    User.actions.create.discard(tempId!);
+    expect(User.find(tempId)).toBeUndefined();
   });
 
   it('executes destroy and custom request actions through the owning model', async () => {
@@ -189,6 +192,15 @@ describe('v10 operation state', () => {
       transport: createMockTransport({
         mutation: async <TData,>(operation: Parameters<DbTransport['mutation']>[0]) => {
           if (operation.mutation === deleteDocument) return { data: { deleteUser: { success: true } } as TData };
+          if (operation.mutation === updateDocument) {
+            return {
+              data: {
+                updateUser: {
+                  user: { id: 'user-2', username: 'landed' }
+                }
+              } as TData
+            };
+          }
           return {
             data: {
               refreshUser: {
@@ -214,6 +226,19 @@ describe('v10 operation state', () => {
           variables: input => ({ input }),
           kind: 'custom',
           select: data => data.refreshUser.user
+        }),
+        noUpdate: gql.action(updateDocument, {
+          result: 'updateUser',
+          variables: input => ({ input }),
+          kind: 'update',
+          id: input => input.id,
+          select: () => null
+        }),
+        noRefresh: gql.action(refreshDocument, {
+          result: 'refreshUser',
+          variables: input => ({ input }),
+          kind: 'custom',
+          select: () => null
         })
       }
     });
@@ -226,5 +251,13 @@ describe('v10 operation state', () => {
       user: { id: 'user-2', username: 'landed' }
     });
     expect(User.find('user-2')).toEqual({ id: 'user-2', username: 'landed' });
+
+    await expect(User.actions.noUpdate.run({ id: 'user-2', username: 'ignored' })).resolves.toEqual({
+      user: { id: 'user-2', username: 'landed' }
+    });
+    await expect(User.actions.noRefresh.run({ id: 'user-3' })).resolves.toEqual({
+      user: { id: 'user-2', username: 'landed' }
+    });
+    expect(User.find('user-3')).toBeUndefined();
   });
 });

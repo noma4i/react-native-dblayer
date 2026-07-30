@@ -93,6 +93,65 @@ describe('v10 action modes', () => {
     expect(Job.operation('job-1').read().pending).toBe(false);
   });
 
+  it('fails, resumes, and discards durable work through one handle', async () => {
+    const transport = createMockTransport();
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Job = defineModel('SpecV10DurableLifecycleJob', {
+      schema: JobSchema,
+      actions: {
+        start: gql.action(startDocument, {
+          result: 'startJob',
+          variables: input => ({ input }),
+          kind: 'insert',
+          mode: 'durable',
+          select: data => data.startJob.job,
+          optimistic: {
+            build: (input, context) => ({
+              id: context.tempId,
+              label: input.label,
+              status: 'pending'
+            }),
+            failure: 'keep',
+            onFailurePatch: () => ({ status: 'pending' })
+          },
+          resume: async entry => (entry.input.label === 'orphan' ? 'orphaned' : 'continue')
+        })
+      },
+      maintenance: { dropTempRowsAfterMs: 1000 }
+    });
+
+    const continued = Job.actions.start.run({ label: 'continue' });
+    Job.actions.start.fail(continued.operationId, new Error('failed'));
+    expect(Job.operation(continued.tempId).read().failed).toBe(true);
+    await expect(Job.actions.start.retry(continued.operationId)).resolves.toBe('continue');
+    Job.actions.start.discard(continued.operationId);
+    expect(Job.find(continued.tempId)).toBeUndefined();
+
+    const orphaned = Job.actions.start.run({ label: 'orphan' });
+    Job.actions.start.fail(orphaned.operationId, new Error('failed'));
+    await expect(Job.actions.start.retry(orphaned.operationId)).resolves.toBe('orphaned');
+    Job.actions.start.discard(orphaned.operationId);
+  });
+
+  it('rejects a durable insert without an optimistic row', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    expect(() =>
+      defineModel('SpecV10InvalidDurableJob', {
+        schema: JobSchema,
+        actions: {
+          start: gql.action(startDocument, {
+            result: 'startJob',
+            variables: input => ({ input }),
+            kind: 'insert',
+            mode: 'durable',
+            select: data => data.startJob.job,
+            resume: async () => 'continue'
+          })
+        }
+      })
+    ).toThrow('durable insert requires optimistic build');
+  });
+
   it('owns a refcounted poll lifecycle and lands each status response', async () => {
     jest.useFakeTimers();
     const transport = createMockTransport({
@@ -128,17 +187,26 @@ describe('v10 action modes', () => {
     Job.insert({ id: 'job-1', label: 'render', status: 'pending' });
 
     const reader = renderCounted(() => Job.actions.status.use({ id: 'job-1' }));
+    const sibling = renderCounted(() => Job.actions.status.use({ id: 'job-1' }));
     await settle();
 
     expect(reader.result().phase).toBe('ready');
     expect(Job.find('job-1')?.status).toBe('done');
     expect(transport.calls).toHaveLength(1);
+    await act(async () => {
+      await reader.result().refresh();
+    });
+    expect(transport.calls).toHaveLength(2);
+    Job.insert({ id: 'job-2', label: 'second', status: 'pending' });
+    await Job.actions.status.run({ id: 'job-2' });
+    expect(transport.calls).toHaveLength(3);
 
     act(() => {
       jest.advanceTimersByTime(100);
     });
     await settle();
-    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls).toHaveLength(3);
     reader.unmount();
+    sibling.unmount();
   });
 });

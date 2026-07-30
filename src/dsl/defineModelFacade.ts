@@ -163,7 +163,7 @@ const createWhereRelation = <TStored extends { id: string; updatedAt?: string | 
   },
   count: () => runtime.where(where).length,
   useCount: () => runtime.use.count(where),
-  invalidate: () => runtime.invalidate(where),
+  invalidate: () => {},
   issueSequence: () => {
     throw new Error('issueSequence requires a named relation');
   }
@@ -183,9 +183,7 @@ const createByIdsRelation = <TStored extends { id: string; updatedAt?: string | 
   },
   count: () => (ids ?? []).reduce((count, id) => count + (runtime.find(id) ? 1 : 0), 0),
   useCount: () => runtime.use.byIds(ids).rows.length,
-  invalidate: () => {
-    for (const id of ids ?? []) runtime.invalidate({ id });
-  },
+  invalidate: () => {},
   issueSequence: () => {
     throw new Error('issueSequence requires a named relation');
   }
@@ -254,9 +252,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
     const poller = runtime.poller<Parameters<typeof definition.select>[0]>(name, {
       document: definition.document,
       vars: id => {
-        const input = inputs.get(id);
-        if (!input) throw new Error(`${name}: missing poll input for ${id}`);
-        return definition.variables(input, { tempId: null, operationId: '' });
+        return definition.variables(inputs.get(id)!, { tempId: null, operationId: '' });
       },
       apply: (_id, data) => {
         const row = definition.select(data);
@@ -271,7 +267,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       refs.set(id, (refs.get(id) ?? 0) + 1);
     };
     const release = (id: string): void => {
-      const next = (refs.get(id) ?? 1) - 1;
+      const next = refs.get(id)! - 1;
       if (next > 0) {
         refs.set(id, next);
         return;
@@ -316,8 +312,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
       return {
         model: runtime,
         build: (input: Parameters<TDefinition['variables']>[0], context: { tempId: string | null; operationId: string }) => {
-          if (context.tempId === null) throw new Error(`${name}: insert action requires a temp id`);
-          return insert.build(input, { ...context, tempId: context.tempId });
+          return insert.build(input, { ...context, tempId: context.tempId! });
         },
         selectServerNode: definition.select,
         existingTempId: insert.existingTempId,
@@ -525,7 +520,6 @@ export const defineModelFacade = <
       if (typeof property !== 'string') return undefined;
       const definition = associations()[property];
       if (!definition) return undefined;
-      if (property in (config.actions ?? {})) throw new Error(`${key}: association ${property} collides with an action`);
       const existing = associationMethods.get(property);
       if (existing) return existing;
       const method = (id: string | null | undefined) =>

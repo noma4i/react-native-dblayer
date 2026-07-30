@@ -114,6 +114,93 @@ const assertModelUtilityTypes = (stored: ModelStored<MessageModelType>, input: M
 void assertModelUtilityTypes;
 
 describe('v10 model surface', () => {
+  it('uses the same Relation contract for local named, where, and id-list reads', () => {
+    configureRuntime(createMockTransport());
+    const Message = createMessageModel('LocalMatrix');
+    const built = Message.build({ id: 'built', chatId: 'chat-1', body: 'built', status: 'sent' });
+    expect(built).toEqual({ id: 'built', chatId: 'chat-1', body: 'built', status: 'sent' });
+    expect(Message.find('built')).toBeUndefined();
+
+    Message.insertMany([
+      { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' },
+      { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' },
+      { id: 'm3', chatId: 'chat-2', body: 'third', status: 'sent' }
+    ]);
+
+    const thread = Message.thread({ chatId: 'chat-1' });
+    expect(thread.count()).toBe(2);
+    expect(Message.where({ chatId: 'chat-1' }).count()).toBe(2);
+    expect(Message.byIds(['missing', 'm1']).read().map(row => row.id)).toEqual(['m1']);
+    expect(thread.issueSequence('body')).toEqual(expect.any(Number));
+    expect(() => Message.where({ chatId: 'chat-1' }).issueSequence('body')).toThrow('requires a named relation');
+    expect(() => Message.byIds(['m1']).issueSequence('body')).toThrow('requires a named relation');
+
+    const whereReader = renderCounted(() =>
+      Message.where({ chatId: 'chat-1' }, { orderBy: { field: 'body', direction: 'desc' }, limit: 1 }).use()
+    );
+    const whereCount = renderCounted(() => Message.where({ chatId: 'chat-1' }).useCount());
+    const byIdsReader = renderCounted(() => Message.byIds(['missing', 'm2', 'm1']).use());
+    const byIdsCount = renderCounted(() => Message.byIds(['missing', 'm2', 'm1']).useCount());
+    const threadCount = renderCounted(() => thread.useCount());
+    try {
+      expect(whereReader.result().data.map(row => row.id)).toEqual(['m2']);
+      whereReader.result().loadMore();
+      expect(whereCount.result()).toBe(2);
+      expect(Message.byIds(undefined).read()).toEqual([]);
+      expect(Message.byIds(undefined).count()).toBe(0);
+      expect(byIdsReader.result().data.map(row => row.id)).toEqual(['m2', 'm1']);
+      byIdsReader.result().loadMore();
+      expect(Message.byIds(['missing', 'm2', 'm1']).count()).toBe(2);
+      expect(byIdsCount.result()).toBe(2);
+      expect(threadCount.result()).toBe(2);
+
+      Message.where({ chatId: 'chat-1' }).invalidate();
+      Message.byIds(['m1', 'm2']).invalidate();
+      thread.invalidate();
+    } finally {
+      whereReader.unmount();
+      whereCount.unmount();
+      byIdsReader.unmount();
+      byIdsCount.unmount();
+      threadCount.unmount();
+    }
+  });
+
+  it('uses one complete Relation result for a local-only named relation', async () => {
+    configureRuntime(createMockTransport());
+    const Message = defineModel('SpecV10LocalOnlyMessage', {
+      schema: MessageSchema,
+      relations: {
+        thread: {
+          by: { chatId: 'chatId' },
+          sort: { field: 'body', dir: 'asc' }
+        }
+      }
+    });
+    Message.insertMany([
+      { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' },
+      { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' }
+    ]);
+    const relation = Message.thread({ chatId: 'chat-1' });
+    const reader = renderCounted(() => relation.use({ pageSize: 1, keepPrevious: true }));
+    const defaultReader = renderCounted(() => relation.use());
+    const countReader = renderCounted(() => relation.useCount());
+    expect(reader.result().data.map(row => row.id)).toEqual(['m1']);
+    expect(defaultReader.result().data.map(row => row.id)).toEqual(['m1', 'm2']);
+    expect(reader.result().loadingState.isReady).toBe(true);
+    expect(reader.result().hasMore).toBe(true);
+    expect(relation.count()).toBe(2);
+    expect(countReader.result()).toBe(2);
+    relation.invalidate();
+    expect(relation.issueSequence('body')).toEqual(expect.any(Number));
+    act(() => reader.result().loadMore());
+    expect(reader.result().data.map(row => row.id)).toEqual(['m1', 'm2']);
+    await expect(reader.result().refresh()).resolves.toBeUndefined();
+    countReader.unmount();
+    defaultReader.unmount();
+    reader.unmount();
+  });
+
   it('exposes one immutable relation for snapshot and reactive local reads', () => {
     configureRuntime(createMockTransport());
     const Message = createMessageModel('Local');
@@ -168,6 +255,9 @@ describe('v10 model surface', () => {
     await settleUntil(() => reader.result().data.length === 2, 50, { macro: true });
     expect(reader.result().data.map(row => row.id)).toEqual(['m1', 'm2']);
     expect(reader.result().hasMore).toBe(false);
+    await act(async () => {
+      await reader.result().refresh();
+    });
     reader.unmount();
   });
 
@@ -190,7 +280,34 @@ describe('v10 model surface', () => {
     expect(reader.result().data).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
     expect(details.read()).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
     expect(details.count()).toBe(1);
+    expect(() => details.issueSequence('body')).toThrow('requires an ordered relation');
     expect(reader.result().hasMore).toBe(false);
+    reader.result().loadMore();
+    await act(async () => {
+      await reader.result().refresh();
+    });
+    const countReader = renderCounted(() => details.useCount());
+    expect(countReader.result()).toBe(1);
+    details.invalidate();
+    countReader.unmount();
+    reader.unmount();
+  });
+
+  it('keeps an absent single relation empty across every read surface', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { message: null } as TData })
+    });
+    configureRuntime(transport);
+    const Message = createMessageModel('SingleMissing');
+    const details = Message.details({ id: 'missing' });
+    const reader = renderCountedInProvider(() => details.use());
+    await settleUntil(() => reader.result() !== undefined && reader.result().loadingState.isReady);
+    const countReader = renderCountedInProvider(() => details.useCount());
+    await settleUntil(() => countReader.result() !== undefined);
+    expect(details.read()).toBeUndefined();
+    expect(details.count()).toBe(0);
+    expect(countReader.result()).toBe(0);
+    countReader.unmount();
     reader.unmount();
   });
 

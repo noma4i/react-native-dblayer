@@ -73,13 +73,20 @@ describe('v10 associations', () => {
       { id: 'user-2', username: 'two' }
     ]);
     expect(Message.author('message-1').count()).toBe(1);
+    expect(Message.author('missing').count()).toBe(0);
     expect(Chat.messages('chat-1').count()).toBe(1);
     expect(Chat.members('chat-1').count()).toBe(2);
+    expect(Message.author).toBe(Message.author);
+    expect(Reflect.get(Message, Symbol.toStringTag)).toBeUndefined();
+    expect(Reflect.get(Message, 'missingAssociation')).toBeUndefined();
+    Message.author('message-1').invalidate();
+    expect(() => Message.author('message-1').issueSequence('username')).toThrow('requires a named relation');
 
     const messages = renderCounted(() => Chat.messages('chat-1').use());
     const latest = renderCounted(() => Chat.latest('chat-1').use());
     const author = renderCounted(() => Message.author('message-1').use());
     const members = renderCounted(() => Chat.members('chat-1').use());
+    const authorCount = renderCounted(() => Message.author('message-1').useCount());
     try {
       act(() => {
         Message.insert({ id: 'message-2', chatId: 'chat-1', authorId: 'user-2', sequence: 2 });
@@ -89,12 +96,15 @@ describe('v10 associations', () => {
       expect(messages.result().data.map(row => row.id)).toEqual(['message-1', 'message-2']);
       expect(latest.result().data?.id).toBe('message-2');
       expect(author.result().data?.username).toBe('updated');
+      author.result().loadMore();
       expect(members.result().data.map(row => row.id)).toEqual(['user-2']);
+      expect(authorCount.result()).toBe(1);
     } finally {
       messages.unmount();
       latest.unmount();
       author.unmount();
       members.unmount();
+      authorCount.unmount();
     }
   });
 
@@ -110,5 +120,14 @@ describe('v10 associations', () => {
     });
 
     expect(() => Message.find).toThrow('association find collides with the model surface');
+  });
+
+  it('rejects statics that collide with the model surface', () => {
+    expect(() =>
+      defineModel('SpecV10StaticCollisionUser', {
+        schema: UserSchema,
+        statics: () => ({ find: () => undefined })
+      })
+    ).toThrow('static find collides with the model surface');
   });
 });
