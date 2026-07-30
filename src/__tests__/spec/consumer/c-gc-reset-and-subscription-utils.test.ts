@@ -13,6 +13,28 @@ const createRows = (suffix: string, gc?: 'exempt') =>
     ...(gc ? { gc } : {})
   });
 
+describe('resetRuntime logout wipe', () => {
+  it('deletes every persisted key - rows, scopes, journal, ledger, manifest - in one synchronous call', () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    const rows = defineModel({
+      id: 'SpecConsumerLogoutWipe',
+      name: 'SpecConsumerLogoutWipe',
+      fields: { id: f.str(), label: f.str() },
+      scopes: { all: { sort: 'server-order' } }
+    });
+    rows.scopes.all.seed({}, [{ id: 'row-1', label: 'persisted' }]);
+    rows.insert({ id: 'row-2', label: 'written' });
+    expect(storage.keys('').length).toBeGreaterThan(0);
+
+    resetRuntime();
+
+    expect(storage.keys('')).toEqual([]);
+    expect(rows.find('row-1')).toBeUndefined();
+    expect(rows.find('row-2')).toBeUndefined();
+  });
+});
+
 describe('collectGarbage', () => {
   it('evicts rows of a non-exempt model that have no scope, reader or operation roots', () => {
     setupSpecRuntime();
