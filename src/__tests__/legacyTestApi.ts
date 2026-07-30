@@ -20,4 +20,15 @@ export {
 export { noteDataLoss } from '../core/diagnostics';
 export { SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';
-export { getCommitBus } from '../dsl/configure';
+export { getCommitBus, getDbQueryClient } from '../dsl/configure';
+export { defineQuery } from '../dsl/defineQuery';
+export { suspendDb } from '../dsl/lifecycle';
+export { createModelContext } from '../dsl/modelContext';
+export { createModelCriteria } from '../dsl/modelCriteria';
+export { createModelScopeKeys } from '../dsl/modelScopeKeys';
+export { isTempRowProtectedByModel } from '../dsl/maintenanceRegistry';
+export { createProjectionGate } from '../read/projectionGate';
+export { isFetchedResult } from '../queries/base/loadingState';
+export { registerActiveFetchReaders, refetchActiveFetchReaders, resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
+export { computePhase } from '../queries/base/loadingState';
+export { compositeKey } from '../core/serialize';
