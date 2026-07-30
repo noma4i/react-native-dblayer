@@ -262,6 +262,41 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('infers model action input separately from generated transport variables', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
+      type Row = { id: string; title: string };
+      type Data = { updateRow: { row: Row } };
+      type Variables = { input: { rowId: number; title: string } };
+      type Input = { rowId: string; title: string; source: 'screen' | 'sync' };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const RowSchema = defineShape<Row>()({ title: f.str() });
+      const rows = defineModel('action-input-mapping', {
+        schema: RowSchema,
+        actions: {
+          update: gql.action(document, {
+            result: 'updateRow',
+            variables: (input: Input) => ({
+              input: { rowId: Number(input.rowId), title: input.title }
+            }),
+            kind: 'update',
+            id: input => input.rowId,
+            select: data => data.updateRow.row,
+            before: input => {
+              const source: Input['source'] = input.source;
+              void source;
+            }
+          })
+        }
+      });
+      void rows.actions.update.run({ rowId: '1', title: 'typed', source: 'screen' });
+      // @ts-expect-error source is part of the model action input
+      void rows.actions.update.run({ rowId: '1', title: 'typed' });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects the historical invalidate: true boolean on an ingest declaration', () => {
     const diagnostics = compileFixture(`
       import type { IngestDecl } from '${entry}';

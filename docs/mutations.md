@@ -21,7 +21,7 @@ send: gql.action(SendMessageDocument, {
 | Option | Purpose |
 | --- | --- |
 | `result` | Selects the top-level mutation payload. |
-| `variables` | Maps command input and operation context to GraphQL variables. |
+| `variables` | Defines the model action input and maps it to generated GraphQL variables. |
 | `dedupe` | Declares an idempotency key or disables deduplication. |
 | `once` | Persists successful one-time execution. |
 | `before` | Runs before the request with the input and operation context. |

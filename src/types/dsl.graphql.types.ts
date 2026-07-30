@@ -1,5 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type {
+  ActionContext,
   GraphqlActionDefinition,
   GraphqlActionOptions,
   GraphqlConnectionDefinition,
@@ -9,9 +10,20 @@ import type {
   GraphqlSingleDefinition,
   GraphqlSingleOptions,
   TypedDocumentData,
-  TypedDocumentVariables,
-  TypedMutationInput
+  TypedDocumentVariables
 } from './dsl.modelFacade.types';
+
+type ActionOptionsWithoutVariables<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionOptions<
+  TData,
+  TVariables,
+  TInput,
+  TResultKey,
+  TNode
+> extends infer TOptions
+  ? TOptions extends unknown
+    ? Omit<TOptions, 'variables'>
+    : never
+  : never;
 
 export type GraphqlDsl = {
   live<TData, TVariables>(
@@ -28,24 +40,30 @@ export type GraphqlDsl = {
   ): GraphqlConnectionDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams>;
   action<
     TDocument extends TypedDocumentNode<any, any>,
+    TInput,
     TResultKey extends keyof TypedDocumentData<TDocument> & string,
     TNode,
-    const TOptions extends GraphqlActionOptions<
+    const TRest extends ActionOptionsWithoutVariables<
       TypedDocumentData<TDocument>,
       TypedDocumentVariables<TDocument>,
-      TypedMutationInput<TypedDocumentVariables<TDocument>>,
+      TInput,
       TResultKey,
       TNode
     >
   >(
     document: TDocument,
-    options: TOptions
+    options: {
+      variables(input: TInput, context: ActionContext): TypedDocumentVariables<TDocument>;
+    } & TRest
   ): GraphqlActionDefinition<
     TypedDocumentData<TDocument>,
     TypedDocumentVariables<TDocument>,
-    TypedMutationInput<TypedDocumentVariables<TDocument>>,
+    TInput,
     TResultKey,
     TNode
   > &
-    NoInfer<TOptions>;
+    {
+      variables(input: TInput, context: ActionContext): TypedDocumentVariables<TDocument>;
+    } &
+    NoInfer<TRest>;
 };
