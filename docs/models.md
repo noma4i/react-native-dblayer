@@ -1,321 +1,89 @@
 # Models
 
-`defineModel` builds a persistent, reactive collection: a durable row store, optional named
-scopes, declarative relations, and a full read/write surface, all backed by the shared journalled
-apply pipeline. This doc covers `defineModel` itself - fields, writes, scopes, and relations.
+`defineModel(key, config)` creates one class-like singleton. The key is the stable storage and
+diagnostic identity. The config declares every model-owned capability.
 
-Every network-facing capability (queries, mutations, ephemeral fetches, status polling, joined
-views, and subscription ingest) is a method on the model it belongs to (`Model.query`,
-`Model.mutation`, `Model.fetch`, `Model.poller`, `Model.view`, `Model.ingest`). There are no
-standalone `defineQuery`/`defineMutation`/`defineView`/`defineIngest` constructors - those methods
-and every read surface (`use.find`, `use.where`, scope `use`/`useWindow`, `Model.view`, ...) have
-their own doc pages: [reading.md](./reading.md), [queries.md](./queries.md),
-[mutations.md](./mutations.md), [ingest-live.md](./ingest-live.md),
-[runtime.md](./runtime.md#modelpollername-config).
-
-Every example below shares one small domain: a `UserModel`, a `ChatModel`, and a `MessageModel`
-that belongs to a chat and lives in a per-chat `thread` scope.
-
-## Contents
-
-- [`defineModel(config)`](#definemodelconfig)
-- [GraphQL declarations](#graphql-declarations)
-- [Fields (`f`)](#fields-f)
-- [Write policy](#write-policy)
-- [Writes](#writes)
-- [Scopes](#scopes)
-- [Relations](#relations)
-
-## `defineModel(config)`
+## `defineModel(key, config)`
 
 ```ts
-import { belongsTo, defineModel, defineShape, f, scope } from '@noma4i/react-native-dblayer';
-
-const MessageSchema = defineShape<MessageNode>()({
-  id: f.id(),
-  chatId: f.id(),
-  text: f.str(),
-  kind: f.enum<MessageKind>(Object.values(MessageKind)),
-  createdAt: f.str(),
-  localEcho: f.bool().optional()
-});
-
-const MessageModel = defineModel({
-  id: 'messages',
-  name: 'MessageModel',
-  fields: MessageSchema.fields,
-  scopes: {
-    thread: { by: { chatId: 'chatId' }, sort: { field: 'createdAt', dir: 'asc' } }
-  },
-  relations: () => ({
-    chat: belongsTo(ChatModel, {
-      foreignKey: 'chatId',
-      touch: (message, chat) => ({ lastMessageText: message.text }),
-      counterCache: { field: 'unreadCount', filter: message => message.kind !== 'system' }
-    })
-  }),
-  gc: 'exempt',
-  maintenance: {
-    maxRowsPerScope: [{ scopeField: 'chatId', limit: 500, compare: (a, b) => Number(b.createdAt) - Number(a.createdAt) }]
-  },
-  write: { groups: [{ fields: ['localEcho'], policy: 'continuity' }] },
+const User = defineModel('User', {
+  schema: UserSchema,
+  relations: {},
+  actions: {},
+  events: {},
   statics: model => ({
-    forChat: (chatId: string) => model.where({ chatId })
+    findByUuid: (uuid: string) => model.where({ uuid }).read()[0]
   })
 });
 ```
 
-## GraphQL declarations
+Object-only construction is not public. Model capabilities are declared in the config and exposed
+through the returned singleton.
 
-`gql.connection(document, options)` declares one typed remote relation. `gql.action(document,
-options)` declares one typed model-owned mutation. Both helpers infer transport data and variables
-from `TypedDocumentNode`; the model owns landing, invalidation, loading, pagination, optimistic
-state, retry, and discard behavior.
+## `ModelFacadeConfig`
 
-### `ModelConfig`
+| Option | Purpose |
+| --- | --- |
+| `schema` | Defines stored fields and input coercion. |
+| `associations` | Lazily declares `belongsTo`, `hasOne`, and `hasMany` relationships. |
+| `relations` | Declares flat local or GraphQL-backed relation methods. |
+| `actions` | Declares model-owned GraphQL commands. |
+| `events` | Declares typed subscription event handlers. |
+| `sideloads` | Declares nested payload paths landed into other models. |
+| `defaultOrder` | Sets the default local ordering. |
+| `rowId` | Extracts an id from non-standard input. |
+| `guard` | Rejects invalid model input. |
+| `gc` | Marks rows as garbage-collection roots when set to `exempt`. |
+| `maintenance` | Declares bounded row and temporary-row cleanup. |
+| `write` | Declares field-group merge policy. |
+| `statics` | Adds domain methods without exposing storage internals. |
 
-| Option                  | Type                                           | Description                                                                                                                                                                                                                             |
-| ----------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                    | `string`                                       | Unique model id. Namespaces storage keys, dependency tracking, and cross-model relation targets.                                                                                                                                        |
-| `name`                  | `string`                                       | Human-readable name; prefixes normalize/apply error and log messages, and is the key `Model.ingest`'s fused custom handlers use to look up other models (see [ingest-live.md](./ingest-live.md)).                                       |
-| `fields`                | field spec map                                 | Field specs (built with `f.*`, typically via `defineShape`) that drive every normalize/build read.                                                                                                                                      |
-| `defaultOrder`          | `{ field, direction }`                         | Implicit order for order-less reads over a scalar stored field. An explicit `orderBy` fully replaces it; tied or missing values use the implicit codepoint id tie-break.                                                                 |
-| `queryScopes`           | `Record<string, { where, orderBy?, limit? }>`  | Named reusable local predicates exposed as `model.use.<name>(extra?)` builders. They are not membership scopes; `extra` composes with `where` via `and`, and built-in `use` key collisions throw at define time. |
-| `rowId`                 | `(input: unknown) => string`                   | Derive the row id from raw input. Defaults to `input.id`. Returning anything other than a non-empty string makes `normalize` throw `${name} requires id`.                                                                               |
-| `guard`                 | `(input: unknown) => boolean`                  | Row-level filter run before id resolution. Returning `false` throws `${name} rejected input`, handled the same way as an unresolved `rowId`.                                                                                            |
-| `relations`             | `() => Record<string, RelationDecl>`           | Lazily-evaluated relation declarations (`belongsTo`/`hasMany`/`hasOne`/`references`). Evaluated once on first access, so relation targets defined later in the same module do not need to exist yet at `defineModel` call time.         |
-| `scopes`                | `Record<string, ScopeSpec>`                    | Named `ScopeSpec` object literals. Each entry becomes a `model.scopes.<name>` handle.                                                                                                                               |
-| `gc`                    | `'exempt'`                                     | Keeps this model's rows out of garbage-collection sweeps even when unreferenced by any scope. See [runtime.md](./runtime.md#garbage-collection).                                                                                        |
-| `maintenance`           | `{ maxRowsPerScope?, dropIdleScopesAfterMs?, dropTempRowsAfterMs?, protectTempRows? }` | Boot-time and in-session retention declarations. See [runtime.md](./runtime.md#maintenance).                                                                                                      |
-| `write`                 | `{ groups?: { fields, policy }[] }`             | Closed per-field policies. Fields outside groups use incoming server values, including explicit null. A field may appear in only one group.                                                                                  |
-| `statics`               | `(model: ModelCore) => TExt`                   | Build extra static members merged onto the returned model. Receives the base model so statics can call back into `get`/`patch`/`use`/etc. Throws at `defineModel` time if a returned key collides with a base model key.                |
+## `RelationSpec`
 
-`normalize`/`build` read every configured field from raw input on every write; invalid rows
-(a failed `guard`, an unresolved `rowId`, or a field that throws) are rejected and logged, never
-thrown into the apply pipeline - a single bad row in a batch never fails the rest of the batch.
-
-## Write policy
-
-`write` controls field protection for every existing-row entity write: query rows and extracts,
-ingest, sync, relation touches, mutation commits, replace, and sparse `patch`. New rows bypass write
-rules. `'server'` is the explicit incoming-wins default, `'continuity'` keeps current for nullish
-incoming values but accepts `''`, and `{ snapshot: true }` shallow-folds objects. `{ monotonic }`
-accepts `newerBy`, `tuple`, `nonEmpty`, `ladder`, `present`, `equal`, `all`, and `any` predicates;
-paths may address nested object values with dots. `{ keys }` shallow-folds an object and applies
-`server`, `continuity`, `nonEmpty`, or `positive` handling per declared key. A group policy may be
-an ordered array: a rejected guard restores current group fields before the next policy runs.
-`rest` selects `server` or `continuity` handling for unlisted incoming keys and defaults to
-`server`.
-Monotonic policies run for snapshot/event by default and replace remains server-authoritative.
-
-```ts
-import { defineModel, f } from '@noma4i/react-native-dblayer';
-
-const BlobModel = defineModel({
-  id: 'blobs',
-  name: 'BlobModel',
-  fields: {
-    blob: f.raw<Record<string, unknown>>(),
-    headId: f.str().nullable(),
-    headAt: f.num(),
-    headSeq: f.num()
-  },
-  write: {
-    groups: [
-      {
-        fields: ['blob'],
-        policy: [
-          {
-            monotonic: {
-              all: [
-                { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } },
-                { tuple: ['blob.progress'] }
-              ]
-            }
-          },
-          { keys: { w: 'positive', h: 'positive', url: 'nonEmpty', alt: 'nonEmpty' } }
-        ]
-      },
-      {
-        fields: ['headId', 'headAt', 'headSeq'],
-        policy: {
-          monotonic: {
-            all: [
-              { present: 'headId' },
-              { any: [{ equal: 'headId' }, { tuple: ['headAt', 'headSeq'] }] }
-            ]
-          }
-        }
-      }
-    ]
-  }
-});
-```
-
-This prevents an older snapshot from regressing a declared record after a newer event or relation
-touch. Each group must contain at least one declared schema field, and a field can
-appear in only one group; invalid or overlapping declarations throw at `defineModel` time.
+| Option | Purpose |
+| --- | --- |
+| `by` | Maps relation parameters to stored fields. |
+| `member` | Applies a local membership predicate. |
+| `sort` | Uses client ordering or authoritative server order. |
+| `retention` | Bounds retained relation members. |
+| `remote` | Attaches `gql.connection` or `gql.single`. |
 
 ## Fields (`f`)
 
-Field specs describe how one stored field is read from raw input. Build them with `f.*`, chain
-modifiers, and group them into a reusable shape with `defineShape`.
+`defineShape` combines field declarations from `f`. `ModelStored<TModel>` infers the stored row,
+`ModelInput<TModel>` infers accepted input, and `InferShapeStored<TShape>` infers directly from a
+shape. `projectShape`, `readShape`, and `readShapeOrThrow` implement typed nested projection and
+reading.
 
-| Builder           | Reads                                                                                                                  | Stores                             |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `f.str()`         | string values only                                                                                                     | `string`                           |
-| `f.num()`         | finite number values only; negative zero is stored as zero                                                            | `number`                           |
-| `f.bool()`        | boolean values only                                                                                                    | `boolean`                          |
-| `f.id()`          | string or number ids, normalized to string; empty/nullish/non-scalar skipped                                           | `string`                           |
-| `f.enum(values)`  | declared string values only; other values are dropped. For codegen enums use `f.enum<GqlKind>(Object.values(GqlKind))` | declared string-literal union      |
-| `f.date()`        | parseable ISO strings as-is; `Date` and epoch-milliseconds values as ISO strings; unparseable values are dropped       | ISO-8601 `string`                  |
-| `f.raw<T>()`      | non-nullish JSON-compatible values passed through as `T`; durable writes reject lossy JSON values                      | `T`                                |
-| `f.custom(read)`  | `read(input)` over the whole input object                                                                              | the selector's return type         |
-| `f.object(shape)` | a nested object read through a `defineShape` shape                                                                     | the shape's stored object type     |
-| `f.array(item)`   | an array of shapes or scalar field specs; unreadable elements are dropped                                              | an array of the item's stored type |
-
-Every builder reads `input[key]` by default. Chain these modifiers to change presence, nullability,
-or the read source:
-
-| Modifier                         | Effect                                                                                                                                                         |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.nullable()`                    | Preserves an explicit `null` during normalize instead of skipping it. `build` fills an omitted nullable field with `null` unless `.default(...)` is set. |
-| `.optional()`                    | Lets normalize and `build` omit this key entirely; no implicit value is filled in.                                                                       |
-| `.nullDefault()`                 | Converts a missing/undefined normalize input to `null` (implies `.nullable()` behavior).                                                                       |
-| `.default(value \| () => value)` | Provides a `build`-only default for an omitted field; normalize is unaffected. The factory runs once per `build` call.                             |
-| `.from(selector)`                | Reads this field from `selector(input)` instead of `input[key]`.                                                                                               |
-| `.fromKey(key, source?)`         | Reads an own property `key` off `input` (or `source(input)` when given), instead of the field's own key.                                                       |
+## Associations
 
 ```ts
-const UserSchema = defineShape<UserNode>()({
-  id: f.id(),
-  name: f.str(),
-  avatarUrl: f.str().nullable(),
-  role: f.enum<UserRole>(Object.values(UserRole)).default('member'),
-  bio: f.str().optional()
-});
-```
-
-`defineShape<TInput>()(fields)` brands a field map with its raw input type so it can be passed
-straight to `defineModel({ fields })`, reused as a nested object field (`f.object(shape)`), or used
-standalone:
-
-| Function           | Signature                                | Role                                                                                    |
-| ------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| `defineShape`      | `<TInput>() => (fields) => DbShape`      | Define a reusable field group for model fields, object fields, and array items.         |
-| `readShape`        | `(shape, input) => TStored \| undefined` | Read an unknown payload through a shape; `undefined` when the payload is not an object. |
-| `readShapeOrThrow` | `(shape, input, label) => TStored`       | Same as `readShape`, throwing `${label}: invalid shape payload` on an unreadable input. |
-| `projectShape`     | `(shape, source, overrides?) => TStored` | Project a wider source object into a shape's field set, applying `overrides` last.      |
-
-`ModelInput<M>`, `ModelStored<M>`, and `InferShapeStored<TShape>` are the corresponding inference
-types: `ModelStored<typeof MessageModel>` is the row type returned by every read on that model,
-`ModelInput<typeof MessageModel>` is a partial row with a required `id` (the shape accepted by
-`patch`/`replace`-style callers), and `InferShapeStored<typeof MessageSchema>` is the plain
-object type a standalone `defineShape` shape reads into.
-
-## Writes
-
-| Method             | Signature                                                      | Behavior                                                                                                                                                                                                                             |
-| ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `insert`     | `(row: TStored) => void`                                       | Normalize and upsert one row as an event write.                                                                                                                                                                                      |
-| `insertMany` | `(rows: TStored[]) => void`                                    | Insert a batch as ONE plan - one journal record, one apply transaction, one commit publish. A `belongsTo` `counterCache` increments once by the batch's full count rather than once per row.                                         |
-| `seed`             | `(rows: TInput[]) => void`                                     | Dev/test-only batch seed through the normal journalled apply pipeline. Normalizes inputs, applies automatic scope membership, and publishes at most one commit wave. Production data flows should use queries, mutations, or ingest. |
-| `patch`            | `(id: string, patch: Partial<TStored>) => void`                | Apply a partial update as an event write. No-ops if the row does not exist.                                                                                                                                                          |
-| `updateAll`       | `(where: DbWhere<TStored>, patch: Partial<TStored>) => number` | Patch every snapshot-matched row in one journal plan / one commit; return the matched count.                                                                                                                                         |
-| `destroy`          | `(id: string) => void`                                         | Destroy one row as an event write. Cascades to `hasMany` `dependent: 'destroy'` children in the same plan.                                                                                                                           |
-| `destroyMany`      | `(ids: string[]) => void`                                      | Destroy several rows in one plan.                                                                                                                                                                                                    |
-| `destroyAll`     | `(where: DbWhere<TStored>) => number`                          | Destroy every snapshot-matched row in one journal plan / one commit; return the destroyed count.                                                                                                                                     |
-| `replace`       | `(oldId: string, next: unknown) => void`                       | Destroy `oldId` and insert `next` (which may resolve to a different id) as one plan, carrying `oldId`'s scope memberships onto the new row. Used to replace a temp row identity outside the standard mutation temp-id-replace path.  |
-
-`insert`/`insertMany`/`patch`/`updateAll`/`destroy`/`destroyMany`/`destroyAll`/`replace` are all **event**
-writes: they run through `expandPlan`, so declared relation side effects (`touch`, `counterCache`,
-`dependent: 'destroy'` cascades) and declarative scope membership (`by` scopes) apply in the
-same transaction. `Model.query`/`Model.mutation` server-response writes apply as **snapshot**
-writes instead (verbatim, no relation expansion - server data already carries derived state); see
-[queries.md](./queries.md) and [mutations.md](./mutations.md).
-
-**Event-origin tombstone semantics.** `destroy` marks a tombstone for the destroyed id. A later
-**snapshot** write for that same id (a query page or entity refresh that still contains the row,
-e.g. a stale cached response) is silently dropped while the tombstone is live - a passive server
-sync can never resurrect a row the app explicitly destroyed. An **event** write for that id
-(`insert`, an ingest upsert, a mutation's optimistic insert or temp-id commit) is not subject
-to the tombstone check and writes through normally - an explicit action can still recreate the row
-under the same id. Garbage-collection eviction (`collectGarbage`, see
-[runtime.md](./runtime.md#garbage-collection)) never tombstones: an evicted row is simply absent,
-and any later write (snapshot or event) resurrects it.
-
-**Tombstone retention.** Tombstones are not kept forever - a per-model tombstone map decays on a
-three-tier policy, checked on every checkpoint/flush cycle: any tombstone older than 24h is pruned
-unconditionally; once a model's tombstone count exceeds 10,000, tombstones already older than a
-10-minute minimum age are pruned oldest-first back down to that cap (the floor protects the
-delete-before-create race window a fresh destroy needs, so cap pressure alone cannot cut it short);
-if a burst pushes the count past 20,000 (twice the cap) in one tick, an overflow valve prunes
-oldest-first straight down to the cap, ignoring the 10-minute floor entirely for the overflow - an
-extreme burst is a bigger memory/storage risk than the narrow race window the floor exists to
-protect. Decay runs for every model on each flush (`flushPersistence`/automatic background
-suspension/background checkpoint), including a quiescent model with no new writes since the last flush - tombstones age
-out even without fresh activity on that model.
-
-## Scopes
-
-A scope is a named, ordered subset of a model's rows, declared as a plain `ScopeSpec` literal in
-`scopes:` and consumed
-through `model.scopes.<name>`. Every read/write member on the returned handle (`use`, `useWindow`,
-`useCount`, `invalidate`, `read`, `seed`) is documented in [reading.md](./reading.md#scope-reads).
-
-```ts
-scopes: {
-  thread: {
-    by: { chatId: 'chatId' },
-    sort: { field: 'createdAt', dir: 'asc' },
-    retention: { maxRows: 500 }
-  }
-}
-```
-
-### `ScopeSpec`
-
-| Field       | Type                                                 | Description                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `by`        | `Record<string, keyof TStored>`                      | Automatic membership mapping from scope-value fields to stored row fields (e.g. `{ chatId: 'chatId' }`). When set, a row's membership is derived from its field values on every event write - it joins the scope instance matching its current values and leaves any instance it no longer matches, in the same apply transaction as the write. Omit for scopes populated only by a `Model.query` destination or explicit `ScopeHandle.seed` calls. |
-| `member`    | `(row: TStored) => boolean`                          | Additional membership predicate for a `by` scope. A matching row joins only while the predicate is true and leaves atomically when a write makes it false. Requires `by`; query-destination scopes ignore it.                                                                                                                                            |
-| `sort`      | `{ field, dir } \| Array<{ field, dir }> \| { comparator } \| 'server-order'` | Member ordering: sort by a scalar stored field (`asc`/`desc`), a declared key LIST (keys compare left to right, each with its own direction - e.g. `[{ field: 'sequenceNumber', dir: 'desc' }, { field: 'createdAt', dir: 'desc' }]`), a custom row comparator for composite values, or `'server-order'` (default). Missing values sort last per key; field and comparator ties use the codepoint `id` tie-break. |
-| `retention` | `{ maxRows: number }`                                | Membership cap enforced on first-page refetch (`resetOrder`) and `'complete'` coverage (see [queries.md](./queries.md#scopecoverage-semantics)); trimmed ids fall to garbage collection.                                                                                                                                                                                                                                                            |
-
-## Relations
-
-Relations are declared lazily in `relations: () => ({ ... })` and resolved by `expandPlan` for
-**event** plans only (imperative writes, mutations, ingest) - snapshot plans (query pages, entity
-refreshes) apply verbatim, since server data already carries derived state.
-
-| Builder                                                   | Direction           | Side effects                                                                                                                                                                                                                                                                                                                                                            |
-| --------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `belongsTo(model, { foreignKey, touch?, counterCache? })` | child -> parent     | `touch` derives a partial parent update from the child and current parent view, folded per parent so several children in one plan compose (last patch per field wins), emitted as a `patch` op in the same plan. `counterCache` increments `field` on the parent when a NEW child first references it (filtered by `filter`, if given) and decrements on child destroy. |
-| `hasMany(model, { foreignKey, dependent? })`              | parent -> children  | `dependent: 'destroy'` cascades a parent destroy to its live children in the same plan; omit for a query-only relation with no cascade. Optimistic destroy on the parent throws if this is set (a cascaded destroy cannot be rolled back).                                                                                                                              |
-| `hasOne(model, { foreignKey, comparator? })`              | parent -> one child | Query-only, read through `use.related` - not resolved by `expandPlan`. `comparator` picks the best-sorting child when several match; equal or `NaN` results use the codepoint `id` tie-break. Omit to use the first match in read order.                                                                                                                                    |
-| `references(model, { ids })`                              | GC-only edge        | Not resolved by `expandPlan`. `ids(row)` extracts the referenced id(s); those rows are kept alive during garbage-collection sweeps (see [runtime.md](./runtime.md#garbage-collection)). Not supported as a `Model.view` include (see [reading.md](./reading.md#modelviewname-config)).                                                                                  |
-
-```ts
-relations: () => ({
-  chat: belongsTo(ChatModel, {
-    foreignKey: 'chatId',
-    touch: (message, chat) => ({ lastMessageText: message.text }),
-    counterCache: { field: 'unreadCount', filter: message => message.kind !== 'system' }
-  })
-});
-
-// on ChatModel:
-relations: () => ({
-  messages: hasMany(MessageModel, { foreignKey: 'chatId', dependent: 'destroy' }),
-  lastMessage: hasOne(MessageModel, {
-    foreignKey: 'chatId',
-    comparator: (a, b) => Number(b.createdAt) - Number(a.createdAt)
+const Message = defineModel('Message', {
+  schema: MessageSchema,
+  associations: () => ({
+    chat: belongsTo(Chat, { foreignKey: 'chatId' }),
+    author: belongsTo(User, { foreignKey: 'authorId' })
   })
 });
 ```
 
-Read a relation reactively with `use.related(id, 'chat')` (`belongsTo`/`hasOne`) or
-`use.related(id, 'messages')` (`hasMany`, returns an array) - see
-[reading.md](./reading.md#snapshot-vs-reactive-reads). Projection options apply only to `hasMany`;
-single-row relations return the target row as-is, and a `hasMany` select callback receives a generic
-record that callers narrow to the target stored type.
+`belongsTo`, `hasOne`, `hasMany`, and `references` compile association reads and write effects.
+An association becomes a flat method such as `Message.chat(messageId)`, returning a `Relation`.
+Dependent destruction, touch projection, and counter caches execute inside the owning write plan.
+
+## GraphQL declarations
+
+`gql.connection` and `gql.single` attach reads to relations. `gql.action` declares commands.
+`gql.live` declares subscription events. These declarations do not create a second cache or public
+query builder.
+
+## Sideloads
+
+`sideloads` maps nested payload paths to destination models. The ingest planner walks the graph,
+deduplicates destinations, and commits all rows with the root row in one transaction.
+
+## Local writes
+
+`insert`, `insertMany`, `update`, `updateAll`, `destroy`, `destroyMany`, and `destroyAll` are
+synchronous model methods. `build` applies schema defaults without persisting. All writes use the
+same plan and persistence pipeline as network results.

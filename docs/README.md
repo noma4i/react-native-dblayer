@@ -15,9 +15,7 @@ the [project README](../README.md).
 | 6   | [ingest-live.md](./ingest-live.md)         | `gql.live`, `Model.events`, and the shared subscription runtime. |
 | 7   | [runtime.md](./runtime.md)                 | Reset, persistence, row waiters, patchers, ids, and concurrency helpers. |
 
-Every export below has exactly one home page - the doc where its full contract is documented. Where
-a symbol is used from another doc's example (e.g. `belongsTo` inside a `Model.query` extract sink),
-that doc links back to the symbol's home instead of re-documenting it.
+Every export below has one home page. The reference table is checked against `src/index.ts`.
 
 ## The model-centric surface
 
@@ -31,7 +29,7 @@ There are no public model-bound query, mutation, view, ingest, poller, detached-
 | Named relation method | Local or GraphQL-backed immutable relation. | [queries.md](./queries.md) |
 | `Model.actions.name` | Request, durable, or poll action. | [mutations.md](./mutations.md) |
 | `Model.events` | Typed subscription entries and manual delivery. | [ingest-live.md](./ingest-live.md) |
-| `Model.operation(id)` | Snapshot or reactive row operation state. | [reading.md](./reading.md) |
+| `Model.operation(id)` | Snapshot or subscribed row operation state. | [reading.md](./reading.md) |
 
 `defineFetch` (model-less reads) and `defineCommand` (model-less RPC) remain standalone
 constructors for capabilities that do not belong to any single model.
@@ -46,24 +44,24 @@ somewhere under `docs/`.
 
 | Export              | Kind  | Home                                                                |
 | ------------------- | ----- | ------------------------------------------------------------------- |
-| `configureDb`       | value | [getting-started.md](./getting-started.md#configuredboptions)       |
-| `DbDefaults`        | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `DbRetryClass`      | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `DbRetryPolicy`     | type  | [getting-started.md](./getting-started.md#dbdefaults)               |
-| `DbProvider`        | value | [getting-started.md](./getting-started.md#dbprovider)               |
-| `DbProviderProps`   | type  | [getting-started.md](./getting-started.md#dbprovider)               |
-| `StoragePlane`      | type  | [getting-started.md](./getting-started.md#storage-seam)             |
-| `DbTransport`       | type  | [getting-started.md](./getting-started.md#transport-seam)           |
-| `DbTransportError`  | type  | [getting-started.md](./getting-started.md#transport-seam)           |
+| `configureDb`       | value | [getting-started.md](./getting-started.md)       |
+| `DbDefaults`        | type  | [getting-started.md](./getting-started.md)               |
+| `DbRetryClass`      | type  | [getting-started.md](./getting-started.md)               |
+| `DbRetryPolicy`     | type  | [getting-started.md](./getting-started.md)               |
+| `DbProvider`        | value | [getting-started.md](./getting-started.md)               |
+| `DbProviderProps`   | type  | [getting-started.md](./getting-started.md)               |
+| `StoragePlane`      | type  | [getting-started.md](./getting-started.md)             |
+| `DbTransport`       | type  | [getting-started.md](./getting-started.md)           |
+| `DbTransportError`  | type  | [getting-started.md](./getting-started.md)           |
 
 ### Model DSL
 
 | Export        | Kind  | Home                                       |
 | ------------- | ----- | ------------------------------------------ |
-| `defineModel` | value | [models.md](./models.md#definemodelconfig) |
-| `gql`         | value | [models.md](./models.md#graphql-declarations) |
-| `ModelInput`  | type  | [models.md](./models.md#fields-f)          |
-| `ModelStored` | type  | [models.md](./models.md#fields-f)          |
+| `defineModel` | value | [models.md](./models.md) |
+| `gql`         | value | [models.md](./models.md) |
+| `ModelInput`  | type  | [models.md](./models.md)          |
+| `ModelStored` | type  | [models.md](./models.md)          |
 | `ModelAction` | type | [mutations.md](./mutations.md) |
 | `ModelActionHook` | type | [mutations.md](./mutations.md) |
 | `ModelEventHandle` | type | [ingest-live.md](./ingest-live.md) |
@@ -77,102 +75,87 @@ somewhere under `docs/`.
 
 | Export             | Kind  | Home                              |
 | ------------------ | ----- | --------------------------------- |
-| `f`                | value | [models.md](./models.md#fields-f) |
-| `defineShape`      | value | [models.md](./models.md#fields-f) |
-| `projectShape`     | value | [models.md](./models.md#fields-f) |
-| `readShape`        | value | [models.md](./models.md#fields-f) |
-| `readShapeOrThrow` | value | [models.md](./models.md#fields-f) |
-| `InferShapeStored` | type  | [models.md](./models.md#fields-f) |
+| `f`                | value | [models.md](./models.md) |
+| `defineShape`      | value | [models.md](./models.md) |
+| `projectShape`     | value | [models.md](./models.md) |
+| `readShape`        | value | [models.md](./models.md) |
+| `readShapeOrThrow` | value | [models.md](./models.md) |
+| `InferShapeStored` | type  | [models.md](./models.md) |
 
 ### Relations
 
 | Export       | Kind  | Home                               |
 | ------------ | ----- | ---------------------------------- |
-| `belongsTo`  | value | [models.md](./models.md#relations) |
-| `hasMany`    | value | [models.md](./models.md#relations) |
-| `hasOne`     | value | [models.md](./models.md#relations) |
-| `references` | value | [models.md](./models.md#relations) |
+| `belongsTo`  | value | [models.md](./models.md) |
+| `hasMany`    | value | [models.md](./models.md) |
+| `hasOne`     | value | [models.md](./models.md) |
+| `references` | value | [models.md](./models.md) |
 
 ### Reading
 
 | Export         | Kind | Home                                                  |
 | -------------- | ---- | ----------------------------------------------------- |
-| `DbWhere`      | type | [reading.md](./reading.md#snapshot-vs-reactive-reads) |
-| `DbWhereOp`    | type | [reading.md](./reading.md#snapshot-vs-reactive-reads) |
-| `LoadingState` | type | [queries.md](./queries.md#loading-state)              |
-| `useMergedScopeRows` | value | [reading.md](./reading.md#usemergedscoperowsbaserows-extrarows-options) |
-
-`use.*`, `Model.view`, and `ScopeHandle.use`/`useWindow` are methods, not separate barrel exports -
-see [reading.md](./reading.md).
+| `DbWhere`      | type | [reading.md](./reading.md) |
+| `DbWhereOp`    | type | [reading.md](./reading.md) |
+| `LoadingState` | type | [queries.md](./queries.md)              |
+| `useMergedScopeRows` | value | [reading.md](./reading.md) |
 
 ### Queries
 
 | Export            | Kind  | Home                                                    |
 | ----------------- | ----- | ------------------------------------------------------- |
-| `defineFetch`     | value | [queries.md](./queries.md#definefetchconfig)            |
-| `FetchConfig`     | type  | [queries.md](./queries.md#definefetchconfig)            |
-| `FetchHandle`     | type  | [queries.md](./queries.md#definefetchconfig)            |
-| `FetchResult`     | type  | [queries.md](./queries.md#fetchresult)                  |
-| `QueryResult`     | type  | [queries.md](./queries.md#queryresult)                  |
-| `ExtractSink`     | type  | [queries.md](./queries.md#modelqueryname-config)        |
-| `fromNodes`       | value | [queries.md](./queries.md#connection-and-extract-helpers) |
-| `intoIf`          | value | [queries.md](./queries.md#connection-and-extract-helpers) |
-| `useLoadMore` | value | [queries.md](./queries.md#queryresult) |
-| `LoadMoreTarget` | type | [queries.md](./queries.md#queryresult) |
-| `LoadMoreOptions` | type | [queries.md](./queries.md#queryresult) |
-
-`Model.query`/`Model.fetch` themselves are methods, not separate barrel exports - see
-[queries.md](./queries.md).
+| `defineFetch`     | value | [queries.md](./queries.md)            |
+| `FetchConfig`     | type  | [queries.md](./queries.md)            |
+| `FetchHandle`     | type  | [queries.md](./queries.md)            |
+| `FetchResult`     | type  | [queries.md](./queries.md)                  |
+| `QueryResult`     | type  | [queries.md](./queries.md)                  |
+| `ExtractSink`     | type  | [queries.md](./queries.md)        |
+| `fromNodes`       | value | [queries.md](./queries.md) |
+| `intoIf`          | value | [queries.md](./queries.md) |
+| `useLoadMore` | value | [queries.md](./queries.md) |
+| `LoadMoreTarget` | type | [queries.md](./queries.md) |
+| `LoadMoreOptions` | type | [queries.md](./queries.md) |
 
 ### Mutations
 
 | Export                    | Kind  | Home                                                     |
 | ------------------------- | ----- | -------------------------------------------------------- |
-| `defineCommand`           | value | [mutations.md](./mutations.md#definecommandname-config)  |
-| `MutateCallbacks`         | type  | [mutations.md](./mutations.md#use-result-shape)          |
-| `ScopePlacement`          | type  | [mutations.md](./mutations.md#optimistic-write-variants) |
-
-`Model.mutation`/`Model.detached` themselves are methods, not separate barrel exports - see
-[mutations.md](./mutations.md).
+| `defineCommand`           | value | [mutations.md](./mutations.md)  |
+| `MutateCallbacks`         | type  | [mutations.md](./mutations.md)          |
+| `ScopePlacement`          | type  | [mutations.md](./mutations.md) |
 
 ### Ingest and subscriptions
 
 | Export                        | Kind  | Home                                                                      |
 | ----------------------------- | ----- | ------------------------------------------------------------------------- |
-| `createDbSubscriptionRuntime` | value | [ingest-live.md](./ingest-live.md#createdbsubscriptionruntimeentries)     |
-| `createDbSubscriptionEffects` | value | [ingest-live.md](./ingest-live.md#createdbsubscriptioneffectsnoopeffects) |
-| `defineDbSubscriptionEntry`   | value | [ingest-live.md](./ingest-live.md#definedbsubscriptionentryentry)         |
-| `IngestDecl`                  | type  | [ingest-live.md](./ingest-live.md#modelingestentries)                     |
-
-`Model.ingest` itself is a method, not a separate barrel export - see
-[ingest-live.md](./ingest-live.md#modelingestentries).
+| `createDbSubscriptionRuntime` | value | [ingest-live.md](./ingest-live.md)     |
+| `createDbSubscriptionEffects` | value | [ingest-live.md](./ingest-live.md) |
+| `defineDbSubscriptionEntry`   | value | [ingest-live.md](./ingest-live.md)         |
+| `IngestDecl`                  | type  | [ingest-live.md](./ingest-live.md)                     |
 
 ### Runtime
 
 | Export                        | Kind  | Home                                                                            |
 | ----------------------------- | ----- | ------------------------------------------------------------------------------- |
-| `resetRuntime`                | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
-| `registerReset`               | value | [runtime.md](./runtime.md#resetruntime-kill-switch)                             |
-| `setFetchNetworkOnline`       | value | [runtime.md](./runtime.md#setfetchnetworkonlineonline)                          |
-| `updateWhenRowExists`          | value | [runtime.md](./runtime.md#row-waiters)                                          |
-| `waitForRow`                  | value | [runtime.md](./runtime.md#row-waiters)                                          |
-| `createThrottledSingleFlight` | value | [runtime.md](./runtime.md#createthrottledsingleflightfn-options) |
-| `createSingleFlight`          | value | [runtime.md](./runtime.md#createsingleflightfn-options)          |
-| `createKeyedArrayPatcher`     | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |
-| `createIdArrayPatcher`        | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |
-| `createNestedObjectPatcher`   | value | [runtime.md](./runtime.md#array-and-nested-object-patchers)                     |
-| `createSingletonStatics`      | value | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
-| `NumericField`                | type  | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
-| `PatchModel`                  | type  | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
-| `RowId`                       | type  | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
-| `SingletonModel`              | type  | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
-| `SingletonStatics`            | type  | [runtime.md](./runtime.md#createsingletonstaticsmodel-recordid-defaults)        |
-| `generateTempId`              | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-| `isTempId`                    | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-| `stringifyNullish`            | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-| `readId`                      | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-| `pickDefined`                 | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-| `pickPresent`                 | value | [runtime.md](./runtime.md#scalar-and-id-utility-helpers)                        |
-
-`Model.poller` itself is a method, not a separate barrel export - see
-[runtime.md](./runtime.md#modelpollername-config).
+| `resetRuntime`                | value | [runtime.md](./runtime.md)                             |
+| `registerReset`               | value | [runtime.md](./runtime.md)                             |
+| `setFetchNetworkOnline`       | value | [runtime.md](./runtime.md)                          |
+| `updateWhenRowExists`          | value | [runtime.md](./runtime.md)                                          |
+| `waitForRow`                  | value | [runtime.md](./runtime.md)                                          |
+| `createThrottledSingleFlight` | value | [runtime.md](./runtime.md) |
+| `createSingleFlight`          | value | [runtime.md](./runtime.md)          |
+| `createKeyedArrayPatcher`     | value | [runtime.md](./runtime.md)                     |
+| `createIdArrayPatcher`        | value | [runtime.md](./runtime.md)                     |
+| `createNestedObjectPatcher`   | value | [runtime.md](./runtime.md)                     |
+| `createSingletonStatics`      | value | [runtime.md](./runtime.md)        |
+| `NumericField`                | type  | [runtime.md](./runtime.md)        |
+| `PatchModel`                  | type  | [runtime.md](./runtime.md)        |
+| `RowId`                       | type  | [runtime.md](./runtime.md)        |
+| `SingletonModel`              | type  | [runtime.md](./runtime.md)        |
+| `SingletonStatics`            | type  | [runtime.md](./runtime.md)        |
+| `generateTempId`              | value | [runtime.md](./runtime.md)                        |
+| `isTempId`                    | value | [runtime.md](./runtime.md)                        |
+| `stringifyNullish`            | value | [runtime.md](./runtime.md)                        |
+| `readId`                      | value | [runtime.md](./runtime.md)                        |
+| `pickDefined`                 | value | [runtime.md](./runtime.md)                        |
+| `pickPresent`                 | value | [runtime.md](./runtime.md)                        |

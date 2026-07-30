@@ -193,45 +193,52 @@ describe('docs coverage gate', () => {
       extra: []
     },
     {
-      doc: 'queries.md',
-      heading: '`QueryConfig`',
-      source: 'src/types/dsl.query.types.ts',
-      type: 'QueryConfig',
-      extra: ['live']
-    },
-    {
-      doc: 'queries.md',
-      heading: '`FetchConfig`',
-      source: 'src/types/dsl.fetch.types.ts',
-      type: 'FetchConfig',
+      doc: 'models.md',
+      heading: '`ModelFacadeConfig`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'ModelFacadeConfig',
       extra: []
     },
     {
       doc: 'models.md',
-      heading: '`ModelConfig`',
-      source: 'src/types/dsl.model.types.ts',
-      type: 'ModelConfig',
+      heading: '`RelationSpec`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'RelationSpec',
       extra: []
     },
     {
-      doc: 'models.md',
-      heading: '`ScopeSpec`',
-      source: 'src/types/dsl.scope.types.ts',
-      type: 'ScopeSpec',
+      doc: 'queries.md',
+      heading: '`GraphqlConnectionOptions`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'GraphqlConnectionOptions',
+      extra: []
+    },
+    {
+      doc: 'queries.md',
+      heading: '`GraphqlSingleOptions`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'GraphqlSingleOptions',
       extra: []
     },
     {
       doc: 'mutations.md',
-      heading: '`MutationConfig`',
-      source: 'src/types/dsl.mutation.types.ts',
-      type: 'MutationConfig',
+      heading: '`GraphqlActionOptions`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'GraphqlActionOptions',
+      extra: []
+    },
+    {
+      doc: 'ingest-live.md',
+      heading: '`GraphqlLiveOptions`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'GraphqlLiveOptions',
       extra: []
     },
     {
       doc: 'reading.md',
-      heading: '`Model.view(name, config)`',
-      source: 'src/types/dsl.view.types.ts',
-      type: 'ViewConfig',
+      heading: '`RelationOptions`',
+      source: 'src/types/dsl.modelFacade.types.ts',
+      type: 'RelationOptions',
       extra: []
     }
   ])('keeps $heading option rows equal to $type properties', ({ doc, heading, source, type, extra }) => {
