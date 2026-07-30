@@ -64,6 +64,12 @@ describe('order key primitives', () => {
 });
 
 describe('order key sequences', () => {
+  it('returns no keys for a non-positive count and rejects malformed bounds', () => {
+    expect(keysForSequence(0)).toEqual([]);
+    expect(keysForSequence(-1)).toEqual([]);
+    expect(() => keysForSequence(1, '!')).toThrow('Invalid fractional order bounds');
+  });
+
   it('generates n strictly increasing keys with no bounds', () => {
     const keys = keysForSequence(1000);
     expect(keys).toHaveLength(1000);

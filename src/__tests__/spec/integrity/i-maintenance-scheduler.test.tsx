@@ -1,6 +1,6 @@
 jest.mock('../../../core/gc', () => ({ ...jest.requireActual('../../../core/gc'), collectGarbage: jest.fn() }));
 
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModel, f, getCommitBus } from '../../legacyTestApi';
 import { collectGarbage } from '../../../core/gc';
 import { startMaintenanceScheduler } from '../../../core/maintenanceScheduler';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
@@ -50,6 +50,28 @@ describe('maintenance scheduler', () => {
       rows.destroy('row-2');
       jest.advanceTimersByTime(10);
       expect(collect).toHaveBeenCalledTimes(2);
+      stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ignores a disappearance-shaped row for an unregistered model', () => {
+    jest.useFakeTimers();
+    try {
+      const collect = collectGarbage as jest.MockedFunction<typeof collectGarbage>;
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      const stop = startMaintenanceScheduler({ threshold: 1, debounceMs: 10 });
+
+      getCommitBus().publish({
+        rows: [{ model: 'MissingModel', id: 'row-1', fields: null, kind: 'destroy' }],
+        scopes: [],
+        pending: [],
+        scopeChanges: []
+      });
+      jest.advanceTimersByTime(10);
+
+      expect(collect).not.toHaveBeenCalled();
       stop();
     } finally {
       jest.useRealTimers();

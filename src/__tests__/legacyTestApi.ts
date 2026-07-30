@@ -17,3 +17,7 @@ export {
   readString,
   toTimestamp
 } from '../utils/normalizeHelpers';
+export { noteDataLoss } from '../core/diagnostics';
+export { SyncFeed } from '../core/storeSync';
+export { reportSyncError } from '../core/syncError';
+export { getCommitBus } from '../dsl/configure';

@@ -1,4 +1,4 @@
-import { compareCodepoints, compositeKey, firstCompositeKeyPart, semanticValue, stableSerialize } from '../../../core/serialize';
+import { compareCodepoints, compositeKey, firstCompositeKeyPart, parseCompositeKey, semanticValue, stableSerialize } from '../../../core/serialize';
 
 /**
  * Identity backbone contracts: every scope key, dedupe key, and composite key in the runtime is
@@ -116,6 +116,11 @@ describe('semanticValue identity tokens', () => {
     expect(semanticValue(exotic)).not.toBe(semanticValue(new Map([['a', 1]])));
     expect(semanticValue(new Map())).not.toBe(semanticValue({}));
   });
+
+  it('stringifies non-record exotic scalars through their native spelling', () => {
+    const value = Symbol.for('value');
+    expect(semanticValue(value)).toBe('Symbol(value)');
+  });
 });
 
 describe('compositeKey segment boundaries', () => {
@@ -128,5 +133,12 @@ describe('compositeKey segment boundaries', () => {
     const key = compositeKey('a\0b', 'c');
     expect(key).not.toBe(compositeKey('a', 'b\0c'));
     expect(firstCompositeKeyPart(key)).toBe('a\0b');
+  });
+
+  it('rejects malformed and truncated composite keys', () => {
+    expect(parseCompositeKey('missing-colon')).toBeUndefined();
+    expect(parseCompositeKey('x:value')).toBeUndefined();
+    expect(parseCompositeKey('5:abc')).toBeUndefined();
+    expect(() => firstCompositeKeyPart('broken')).toThrow('Invalid composite key');
   });
 });

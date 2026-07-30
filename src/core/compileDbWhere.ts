@@ -48,8 +48,7 @@ export const matchesDbWhere = <TStored>(row: TStored, where: DbWhere<TStored> | 
   return !matchesDbWhere(row, where.not);
 };
 
-const normalizeDbCondition = <TStored>(condition?: Partial<TStored>): Partial<TStored> | undefined => {
-  if (!condition) return undefined;
+const normalizeDbCondition = <TStored>(condition: Partial<TStored>): Partial<TStored> | undefined => {
   const entries = Object.entries(condition).filter(([, value]) => value !== undefined) as Array<[keyof TStored & string, unknown]>;
   if (entries.length === 0) return undefined;
   entries.sort(([a], [b]) => compareCodepoints(a, b));

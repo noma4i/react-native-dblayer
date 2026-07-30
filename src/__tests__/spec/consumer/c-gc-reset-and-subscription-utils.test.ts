@@ -157,6 +157,29 @@ describe('registerReset', () => {
       unregister();
     }
   });
+
+  it('rejects a function thenable returned by a JavaScript resetter', () => {
+    setupSpecRuntime();
+    const thenable = Object.assign(() => undefined, { then: () => undefined });
+    const unregister = registerReset((() => thenable) as unknown as () => void);
+    try {
+      expect(() => resetRuntime()).toThrow(AggregateError);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('reports resetter failures during runtime reconfiguration', () => {
+    setupSpecRuntime();
+    const unregister = registerReset(() => {
+      throw new Error('reset failed');
+    });
+    try {
+      expect(() => configureDb({ storage: createMemoryPlane(), transport: createMockTransport() })).toThrow(AggregateError);
+    } finally {
+      unregister();
+    }
+  });
 });
 
 describe('createDbSubscriptionEffects', () => {

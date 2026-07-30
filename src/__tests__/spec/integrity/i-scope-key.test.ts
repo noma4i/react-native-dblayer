@@ -35,6 +35,15 @@ describe('operator record detection', () => {
 });
 
 describe('ordered comparison type safety', () => {
+  it('accepts a missing filter and ignores undefined leaf values', () => {
+    expect(matchesDbWhere({ v: 5 }, undefined)).toBe(true);
+    expect(matchesDbWhere({ v: 5 }, { v: undefined })).toBe(true);
+  });
+
+  it('treats non-record filters as non-matching leaf conditions', () => {
+    expect(matchesDbWhere({ v: 5 }, 'invalid' as never)).toBe(false);
+  });
+
   it('never matches ordered operators across incomparable or NaN operands', () => {
     expect(matchesDbWhere({ v: 5 }, { v: { gt: '1' } } as never)).toBe(false);
     expect(matchesDbWhere({ v: 'b' }, { v: { gt: 1 } } as never)).toBe(false);

@@ -1,4 +1,4 @@
-import { configureDb, defineModel, f } from '../../legacyTestApi';
+import { configureDb, defineModel, f, reportSyncError } from '../../legacyTestApi';
 import { getApplyRuntime } from '../../../dsl/configure';
 import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
 import { createJournal } from '../../../core/apply/journal';
@@ -38,6 +38,49 @@ describe('apply honesty (D5): mid-plan throw', () => {
 });
 
 describe('ingest honesty (D11): failed apply is reported, not silently acknowledged', () => {
+  it('normalizes a thrown non-error value before reporting it', () => {
+    const onSyncError = jest.fn();
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport(),
+      defaults: { onSyncError }
+    });
+    reportSyncError('ingest failed', { source: 'ingest', model: 'Rows', event: 'remoteUpdate' }, 'defineIngest');
+    expect(onSyncError).toHaveBeenCalledWith(expect.objectContaining({ message: 'ingest failed' }), expect.any(Object));
+  });
+
+  it('contains both observer and logger failures', () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport(),
+      logger: {
+        debug: () => {},
+        error: () => {
+          throw new Error('logger exploded');
+        }
+      },
+      defaults: {
+        onSyncError: () => {
+          throw new Error('observer exploded');
+        }
+      }
+    });
+    const rows = defineModel({
+      id: 'IngestObserverAndLoggerIsolationD11',
+      name: 'IngestObserverAndLoggerIsolationD11',
+      fields: { label: f.str() }
+    });
+    const ingest = rows.ingest({
+      remoteUpdate: {
+        apply: () => {
+          throw new Error('ingest apply exploded');
+        }
+      }
+    });
+
+    expect(() => ingest.apply('remoteUpdate', {})).not.toThrow();
+  });
+
   it('isolates an onSyncError observer failure and reports it through the configured logger', () => {
     const logger = { debug: jest.fn(), error: jest.fn() };
     configureDb({

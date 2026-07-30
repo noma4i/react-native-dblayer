@@ -1,6 +1,6 @@
 import { configureDb } from '../../legacyTestApi';
 import { createOperationState, readCommittedOnceKeys, serializeOperationInput } from '../../../core/planes/operationState';
-import { encodePersistence } from '../../../core/persistenceCodec';
+import { encodePersistence, jsonRoundTrip } from '../../../core/persistenceCodec';
 import type { OperationRecord } from '../../../types';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
@@ -130,6 +130,20 @@ describe('persistence JSON safety', () => {
 
     expect(encoded).toContain('"left":{"flag":true}');
     expect(encoded).toContain('"right":{"flag":true}');
+  });
+
+  it('reports a stringify failure after structural validation without leaking the exception', () => {
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value: () => {
+        throw new Error('stringify failed');
+      }
+    });
+    try {
+      expect(jsonRoundTrip({ value: 1 })).toEqual({ serializable: false, value: undefined });
+    } finally {
+      delete (Object.prototype as { toJSON?: unknown }).toJSON;
+    }
   });
 });
 

@@ -27,4 +27,18 @@ describe('generation registry', () => {
     unregisterStale();
     expect(registry.get('owner')).toBe(replacement);
   });
+
+  it('exposes membership and iteration and removes the current registration', () => {
+    const registry = createGenerationRegistry<object>(() => 1);
+    const value = {};
+    expect(() => registry.assertCanRegister('owner', 'duplicate owner')).not.toThrow();
+    const unregister = registry.register('owner', value, 'duplicate owner');
+    expect(() => registry.assertCanRegister('owner', 'duplicate owner')).toThrow('duplicate owner');
+    expect(registry.has('owner')).toBe(true);
+    expect([...registry.entries()]).toEqual([['owner', value]]);
+    expect([...registry.values()]).toEqual([value]);
+
+    unregister();
+    expect(registry.has('owner')).toBe(false);
+  });
 });

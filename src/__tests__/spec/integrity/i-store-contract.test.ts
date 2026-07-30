@@ -1,3 +1,4 @@
+import { SyncFeed } from '../../legacyTestApi';
 import { createModelStore, runInApplyBatch } from '../../../core/store';
 import { keysForSequence } from '../../../core/orderKey';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';
@@ -297,5 +298,41 @@ describe('model store', () => {
     expect(seen).toEqual([]);
     expect(diagnostics().snapshot().membershipWrites).toBe(0);
     unsubscribe();
+  });
+});
+
+describe('sync feed', () => {
+  const methods = () => ({
+    begin: jest.fn(),
+    write: jest.fn(),
+    commit: jest.fn(),
+    truncate: jest.fn(),
+    markReady: jest.fn()
+  });
+
+  it('requires a connection and keeps a newer connection when an older disposer runs', () => {
+    const feed = new SyncFeed<Row>();
+    expect(() => feed.start()).toThrow('Store sync feed is not connected');
+
+    const first = methods();
+    const second = methods();
+    const disconnectFirst = feed.sync(first);
+    const disconnectSecond = feed.sync(second);
+    disconnectFirst();
+
+    feed.start();
+    feed.pushMessage({ type: 'insert', value: { id: 'row-1' } } as never);
+    feed.finish();
+    feed.truncate();
+    feed.markReady();
+
+    expect(second.begin).toHaveBeenCalledTimes(1);
+    expect(second.write).toHaveBeenCalledTimes(1);
+    expect(second.commit).toHaveBeenCalledTimes(1);
+    expect(second.truncate).toHaveBeenCalledTimes(1);
+    expect(second.markReady).toHaveBeenCalledTimes(1);
+
+    disconnectSecond();
+    expect(() => feed.finish()).toThrow('Store sync feed is not connected');
   });
 });

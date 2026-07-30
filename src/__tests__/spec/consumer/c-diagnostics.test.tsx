@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { defineModel, f, resetRuntime } from '../../legacyTestApi';
+import { defineModel, f, noteDataLoss, resetRuntime } from '../../legacyTestApi';
 import { renderCounted, setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 const createItems = (suffix: string) =>
@@ -102,5 +102,17 @@ describe('read diagnostics', () => {
 
     expect((globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__).toBeDefined();
     expect(diagnostics().snapshot().commits).not.toBe(999);
+  });
+
+  it('ignores empty loss reports and retains only the newest one hundred events', () => {
+    setupSpecRuntime();
+    diagnostics().reset();
+    noteDataLoss('gc-row-eviction', 'Rows', 0);
+    for (let index = 0; index < 105; index += 1) noteDataLoss('gc-row-eviction', `Rows${index}`, 1);
+
+    const events = diagnostics().snapshot().dataLossEvents;
+    expect(events).toHaveLength(100);
+    expect(events[0]).toEqual({ mechanism: 'gc-row-eviction', model: 'Rows5', count: 1 });
+    expect(events.at(-1)).toEqual({ mechanism: 'gc-row-eviction', model: 'Rows104', count: 1 });
   });
 });
