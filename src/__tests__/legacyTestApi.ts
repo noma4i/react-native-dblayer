@@ -18,9 +18,10 @@ export {
   toTimestamp
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
+export { collectGarbage } from '../core/gc';
 export { SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';
-export { getCommitBus, getDbQueryClient } from '../dsl/configure';
+export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, purgeForeignStorageKeys } from '../dsl/configure';
 export { defineQuery } from '../dsl/defineQuery';
 export { suspendDb } from '../dsl/lifecycle';
 export { createModelContext } from '../dsl/modelContext';

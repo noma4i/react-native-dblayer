@@ -1,5 +1,6 @@
 import {
   configureDb,
+  collectGarbage,
   createModelNormalization,
   createModelScopeKeys,
   defineModel,
@@ -144,6 +145,23 @@ describe('model landing graph edges', () => {
 });
 
 describe('model write planning edges', () => {
+  it('detaches stale scope members during garbage collection', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const model = defineModel({
+      id: 'ModelGcStaleScopeMember',
+      name: 'ModelGcStaleScopeMember',
+      fields: { bucket: f.str() },
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
+    });
+    model.scopes.byBucket.seed({ bucket: 'a' }, [{ id: 'row-1', bucket: 'a' }]);
+    const target = getApplyTarget(model.modelId);
+    target.destroy(['row-1']);
+
+    collectGarbage();
+
+    expect(target.readAllScopeKeys()).toEqual([]);
+  });
+
   it('restores captured memberships under the normalized replacement id and ignores a missing patch row', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const model = defineModel({

@@ -32,7 +32,6 @@ export const useMergedScopeRows = <TRow extends { id: string }>(
   const previousRef = useRef<{ base: ReadonlyArray<TRow>; extras: ReadonlyArray<TRow>; comparator: MergeOptions<TRow>['comparator']; result: ReadonlyArray<TRow> } | null>(null);
   return useMemo(() => {
     const previous = previousRef.current;
-    if (previous && previous.base === baseRows && previous.extras === extraRows && previous.comparator === comparator) return previous.result;
     const seen = new Set(baseRows.map(row => row.id));
     const appended = extraRows.filter(row => !seen.has(row.id));
     let result: ReadonlyArray<TRow>;

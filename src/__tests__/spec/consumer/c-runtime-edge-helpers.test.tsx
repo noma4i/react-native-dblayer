@@ -9,8 +9,10 @@ import {
   createModelCriteria,
   createModelScopeKeys,
   createProjectionGate,
+  defineModel,
   f,
   getCommitBus,
+  getDbRuntimeConfig,
   getDbQueryClient,
   isFetchedResult,
   limitRows,
@@ -20,14 +22,17 @@ import {
   resetRuntime,
   rowsShallowEqual,
   resumeFetchReaders,
+  purgeForeignStorageKeys,
   suspendDb,
   sortModelReadRows,
+  useLiveRead,
   useMergedScopeRows
 } from '../../legacyTestApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('runtime edge helpers', () => {
   it('ignores loss notifications before runtime configuration', () => {
+    expect(() => getDbRuntimeConfig()).toThrow('configureDb must be called');
     expect(() => suspendDb()).not.toThrow();
     expect(() =>
       getCommitBus().publish({
@@ -37,6 +42,37 @@ describe('runtime edge helpers', () => {
         scopeChanges: []
       })
     ).not.toThrow();
+  });
+
+  it('purges foreign storage keys and executes model-owned fetch definitions', async () => {
+    const storage = createMemoryPlane();
+    storage.set([{ key: 'foreign', value: 'value' }]);
+    configureDb({ storage, transport: createMockTransport() });
+    const model = defineModel({
+      id: 'RuntimeEdgeFetchModel',
+      name: 'RuntimeEdgeFetchModel',
+      fields: { label: f.str() }
+    });
+    const defaultKey = model.fetch<{ value: string }, string, string>('default', {
+      fetcher: async input => ({ value: input }),
+      select: data => data.value
+    });
+    const explicitKey = model.fetch<{ value: string }, string, string>('explicit', {
+      key: 'runtime-edge-explicit-fetch',
+      fetcher: async input => ({ value: input }),
+      select: data => data.value
+    });
+
+    expect(purgeForeignStorageKeys()).toBe(1);
+    expect(storage.get('foreign')).toBeUndefined();
+    await expect(defaultKey.fetch('default-value')).resolves.toBe('default-value');
+    await expect(explicitKey.fetch('explicit-value')).resolves.toBe('explicit-value');
+    expect(getDbQueryClient().getQueryCache().getAll().map(query => query.queryKey)).toEqual(
+      expect.arrayContaining([
+        [`fetch:${compositeKey(model.modelId, 'default')}`, expect.any(String)],
+        ['fetch:runtime-edge-explicit-fetch', expect.any(String)]
+      ])
+    );
   });
 
   it('memoizes model relations after their first resolution', () => {
@@ -77,15 +113,52 @@ describe('runtime edge helpers', () => {
 
   it('reuses projected rows when equivalent render-key arrays are recreated', () => {
     const gate = createProjectionGate<{ id: string; label: string }, { id: string; label: string }>();
-    const row = { id: 'row-1', label: 'first' };
-    const first = gate.projectRows([row], { renderKeys: ['label'] });
-    const second = gate.projectRows([row], { renderKeys: ['label'] });
-    const withoutKeys = gate.projectRows([row], {});
-    const emptyKeys = gate.projectRows([row], { renderKeys: [] });
+    let labelReads = 0;
+    const row = {
+      id: 'row-1',
+      get label() {
+        labelReads += 1;
+        return 'first';
+      }
+    };
+    const rows = [row];
+    const keys = ['label'] as const;
+    const first = gate.projectRows(rows, { renderKeys: keys });
+    const readsAfterFirst = labelReads;
+    const second = gate.projectRows(rows, { renderKeys: keys });
+    const equalKeys = gate.projectRows(rows, { renderKeys: ['label'] });
 
     expect(second).toBe(first);
+    expect(equalKeys).toBe(first);
+    expect(labelReads).toBe(readsAfterFirst);
+
+    const withoutKeys = gate.projectRows(rows, {});
+    const emptyKeys = gate.projectRows(rows, { renderKeys: [] });
     expect(emptyKeys).toBe(withoutKeys);
-    expect(gate.projectRows([row], { renderKeys: ['label'] })).toBe(withoutKeys);
+    expect(gate.projectRows(rows, { renderKeys: ['label'] })).toBe(withoutKeys);
+  });
+
+  it('recomputes a live read between render and subscription and accepts pending dependencies', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    let calls = 0;
+    let latest = 0;
+    const Probe = () => {
+      latest = useLiveRead(
+        () => {
+          calls += 1;
+          return calls;
+        },
+        [{ kind: 'pending', model: 'RuntimeEdgeRows', id: 'row-1' }]
+      );
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Probe));
+    });
+    expect(latest).toBeGreaterThan(1);
+    act(() => root.unmount());
   });
 
   it('compares row arrays shallowly and applies bounded model read ordering', () => {

@@ -170,6 +170,41 @@ describe('model status poller', () => {
     reader.unmount();
   });
 
+  it('logs and rethrows a transport failure with default poller variables', async () => {
+    const failure = new Error('poll failed');
+    const error = jest.fn();
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async () => {
+          throw failure;
+        }
+      }),
+      logger: { debug: () => {}, error }
+    });
+    const messages = defineModel({
+      id: 'SpecConsumerPollerFailure',
+      name: 'SpecConsumerPollerFailure',
+      fields: { status: f.str() },
+      statics: model => ({
+        failedPoller: model.poller<{ status: string }>('failure', {
+          document,
+          apply: () => {},
+          classify: () => null,
+          intervalMs: 10,
+          maxAttempts: 1
+        })
+      })
+    });
+
+    await expect(messages.failedPoller.refresh('message-1')).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalledWith(
+      'Model.poller',
+      'fetch failed',
+      expect.objectContaining({ id: 'message-1', error: failure })
+    );
+  });
+
   it('stops applying and polling after runtime reset with generation fence', async () => {
     jest.useFakeTimers();
     let resolve!: (value: { data: PollPayload }) => void;

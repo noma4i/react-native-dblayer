@@ -85,11 +85,7 @@ export const useLiveRead = <T>(compute: () => T, deps: ReadonlyArray<Dependency>
     subscriptionRef.current?.setDeps(state.deps);
   });
 
-  useSyncExternalStore(
-    subscribe,
-    () => state.version,
-    () => state.version
-  );
+  useSyncExternalStore(subscribe, () => state.version);
 
   return state.value;
 };
