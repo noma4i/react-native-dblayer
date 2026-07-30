@@ -35,8 +35,17 @@ type SendVariables = {
   };
 };
 
+type MessageData = {
+  message: MessageInput | null;
+};
+
+type MessageVariables = {
+  id: string;
+};
+
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
 const sendDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<SendData, SendVariables>;
+const messageDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageData, MessageVariables>;
 
 const MessageSchema = defineShape<MessageInput>()({
   chatId: f.id(),
@@ -54,6 +63,13 @@ const createMessageModel = (suffix: string) =>
         remote: gql.connection(threadDocument, {
           variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
           connection: data => data.messages
+        })
+      },
+      details: {
+        remote: gql.single(messageDocument, {
+          variables: (params: { id: string }) => ({ id: params.id }),
+          select: data => data.message,
+          required: ['id']
         })
       }
     },
@@ -130,6 +146,29 @@ describe('v10 model surface', () => {
     act(() => reader.result().loadMore());
     await settleUntil(() => reader.result().data.length === 2, 50, { macro: true });
     expect(reader.result().data.map(row => row.id)).toEqual(['m1', 'm2']);
+    expect(reader.result().hasMore).toBe(false);
+    reader.unmount();
+  });
+
+  it('lands and reads one remote row through the same relation surface', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          message: { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' }
+        } as TData
+      })
+    });
+    configureRuntime(transport);
+    const Message = createMessageModel('Single');
+    const details = Message.details({ id: 'm1' });
+
+    expect(details.read()).toBeUndefined();
+    const reader = renderCountedInProvider(() => details.use());
+
+    await settleUntil(() => reader.result() !== undefined && reader.result().loadingState.isReady);
+    expect(reader.result().data).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
+    expect(details.read()).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
+    expect(details.count()).toBe(1);
     expect(reader.result().hasMore).toBe(false);
     reader.unmount();
   });

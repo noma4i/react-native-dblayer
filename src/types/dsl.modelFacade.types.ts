@@ -72,6 +72,21 @@ export type GraphqlConnectionDefinition<TData, TVariables, TParams> = GraphqlCon
   document: TypedDocumentNode<TData, TVariables>;
 };
 
+export type GraphqlSingleOptions<TData, TVariables, TParams, TNode> = {
+  variables(params: TParams): TVariables;
+  select(data: TData): TNode | null | undefined;
+  required?: readonly (keyof TParams & string)[];
+  staleTime?: number | string;
+  resumeStaleTime?: number | null;
+  emptyStaleTime?: number | string;
+  refetchOnMount?: boolean;
+};
+
+export type GraphqlSingleDefinition<TData, TVariables, TParams, TNode> = GraphqlSingleOptions<TData, TVariables, TParams, TNode> & {
+  type: 'single';
+  document: TypedDocumentNode<TData, TVariables>;
+};
+
 export type ActionKind = 'insert' | 'update' | 'destroy' | 'custom';
 export type ActionMode = 'request' | 'durable' | 'poll';
 export type ActionContext = { tempId: string | null; operationId: string };
@@ -165,7 +180,7 @@ export type GraphqlActionDefinition<TData, TVariables, TInput, TResultKey extend
   document: TypedDocumentNode<TData, TVariables>;
 };
 
-export type RelationSpec<TStored, TRemote = GraphqlConnectionDefinition<any, any, any>> = {
+export type RelationSpec<TStored, TRemote = GraphqlConnectionDefinition<any, any, any> | GraphqlSingleDefinition<any, any, any, any>> = {
   by?: Record<string, keyof TStored & string>;
   member?: (row: TStored) => boolean;
   sort?: ClientSort<TStored> | 'server-order';
@@ -222,6 +237,8 @@ export type RelationParams<TStored, TDefinition> = TDefinition extends {
   remote: GraphqlConnectionDefinition<any, any, infer TParams>;
 }
   ? TParams
+  : TDefinition extends { remote: GraphqlSingleDefinition<any, any, infer TParams, any> }
+    ? TParams
   : TDefinition extends { by: infer TBy }
     ? RelationParamsFromBy<TStored, TBy>
     : Record<string, never>;
@@ -269,7 +286,9 @@ export type RowOperation<TStored> = {
 };
 
 export type ModelRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>> = {
-  [K in keyof TRelations]: (params: RelationParams<TStored, TRelations[K]>) => Relation<TStored>;
+  [K in keyof TRelations]: (
+    params: RelationParams<TStored, TRelations[K]>
+  ) => Relation<TStored, TRelations[K] extends { remote: GraphqlSingleDefinition<any, any, any, any> } ? TStored | undefined : TStored[]>;
 };
 
 export type AssociationStored<TDefinition> = TDefinition extends RelationDecl<infer TStored> ? TStored : never;

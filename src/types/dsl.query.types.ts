@@ -16,7 +16,7 @@ export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & { id: stri
 /** Model landing destination for query results (row reads only, no scope membership). */
 export type ModelDestination<TStored> = {
   modelId: string;
-  get?: (id: string | null | undefined) => TStored | undefined;
+  find(id: string | null | undefined): TStored | undefined;
   use: {
     find(id: string | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] }): TStored | undefined;
     byIds(ids: readonly string[] | null | undefined, opts?: { renderKeys?: readonly (keyof TStored & string)[] }): { rows: TStored[]; byId: ReadonlyMap<string, TStored> };
@@ -80,7 +80,10 @@ export type EnsuredRowResult<TStored> = {
 };
 
 export type QueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined> = {
-  use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored, TData>; fetch(scope: TScope | null): Promise<void>; invalidate(scope?: TScope): void;
+  read(scope: TScope | null): TData;
+  use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored, TData>;
+  fetch(scope: TScope | null): Promise<void>;
+  invalidate(scope?: TScope): void;
 };
 
 /** Options for a scope query's bridged window read. */

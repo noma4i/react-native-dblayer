@@ -4,12 +4,18 @@ import type {
   GraphqlActionOptions,
   GraphqlConnectionDefinition,
   GraphqlConnectionOptions,
+  GraphqlSingleDefinition,
+  GraphqlSingleOptions,
   TypedDocumentData,
   TypedDocumentVariables,
   TypedMutationInput
 } from './dsl.modelFacade.types';
 
 export type GraphqlDsl = {
+  single<TDocument extends TypedDocumentNode<any, any>, TParams, TNode>(
+    document: TDocument,
+    options: GraphqlSingleOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>
+  ): GraphqlSingleDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>;
   connection<TDocument extends TypedDocumentNode<any, any>, TParams>(
     document: TDocument,
     options: GraphqlConnectionOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams>

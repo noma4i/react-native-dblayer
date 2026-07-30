@@ -382,6 +382,20 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       }
     };
   };
+  const readDestinationRows = (rawScope: TScope | null): TStored[] | TStored | undefined => {
+    const scope = scopeGate(rawScope);
+    if (scope === null) return isScopeDestination(config.into) ? [] : undefined;
+    if (isScopeDestination(config.into)) return config.into.read(scope);
+    const destination = config.into as ModelDestination<TStored>;
+    const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta | undefined;
+    const rows = (meta?.ids ?? []).flatMap(id => {
+      const parts = parseCompositeKey(id);
+      if (parts?.length !== 2 || parts[0] !== destination.modelId) return [];
+      const row = destination.find(parts[1]);
+      return row === undefined ? [] : [row];
+    });
+    return meta?.resultKind === 'many' ? rows : rows[0];
+  };
   const useDestinationRows: (scope: TScope | null, state: RequestState) => TStored[] | TStored | undefined = isScopeDestination(config.into)
     ? scope => (config.into as ScopeDestination<TStored, TScope>).use(scope) as TStored[]
     : (_scope, state) => {
@@ -400,7 +414,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const state = useReader(scope, enabled, false, false);
     return buildResult(useDestinationRows(scope, state), enabled, state, scope);
   };
-  const handle: QueryHandle<TStored, TScope> = { use, fetch, invalidate };
+  const handle: QueryHandle<TStored, TScope> = { read: readDestinationRows, use, fetch, invalidate };
   if (isScopeDestination(config.into)) {
     const scopeHandle = config.into as ScopeDestination<TStored & { id: string }, TScope> as {
       useWindow: (scope: TScope | null, opts: { pageSize?: number; renderKeys?: readonly string[]; require?: readonly string[]; keepPrevious?: boolean }) => ScopeWindowResult<TStored>;
@@ -433,7 +447,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     readOpts?: { renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
   ): EnsuredRowResult<TStored> => {
     registerScope(scope);
-    const storedData = destination.get?.(rowId);
+    const storedData = destination.find(rowId);
     const data = destination.use.find(rowId, readOpts);
     const enabled = data === undefined && rowId != null && (config.enabled?.(scope) ?? true);
     const state = useReader(scope, enabled, true, storedData === undefined);

@@ -23,6 +23,7 @@ import type {
   DbWhere,
   GraphqlActionDefinition,
   LoadingState,
+  QueryHandle,
   RelationSpec,
   ScopeQueryHandle
 } from '../types';
@@ -61,9 +62,36 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
   runtime: FacadeRuntimeModel<TStored, TInput>,
   name: string,
   params: Record<string, unknown>,
-  query: ScopeQueryHandle<TStored, Record<string, unknown>> | undefined
-): Relation<TStored> => {
+  query: ScopeQueryHandle<TStored, Record<string, unknown>> | QueryHandle<TStored, Record<string, unknown>, TStored | undefined> | undefined,
+  remoteType: 'connection' | 'single' | undefined
+): Relation<TStored, TStored[] | TStored | undefined> => {
   const scope = runtime.scopes[name]!;
+  if (query && remoteType === 'single') {
+    const single = query as QueryHandle<TStored, Record<string, unknown>, TStored | undefined>;
+    const read = (): TStored | undefined => single.read(params);
+    return {
+      read,
+      use: options => {
+        const result = single.use(params, { enabled: options?.enabled });
+        return {
+          data: result.data,
+          loadingState: result.loadingState,
+          error: result.error,
+          hasMore: false,
+          loadMore: () => {},
+          refresh: async () => {
+            await single.fetch(params);
+          }
+        };
+      },
+      count: () => (read() === undefined ? 0 : 1),
+      useCount: () => (single.use(params).data === undefined ? 0 : 1),
+      invalidate: () => single.invalidate(params),
+      issueSequence: () => {
+        throw new Error('issueSequence requires an ordered relation');
+      }
+    };
+  }
   const base = {
     read: () => scope.read(params),
     count: () => scope.read(params).length,
@@ -398,27 +426,41 @@ export const defineModelFacade = <
     Object.entries(config.relations ?? {}).map(([name, definition]) => {
       const remote = definition.remote;
       const query = remote
-        ? (runtime.query(name, {
-            document: remote.document,
-            vars: remote.variables,
-            connection: remote.connection,
-            into: runtime.scopes[name] as never,
-            requiredScope: remote.required,
-            staleTime: remote.staleTime,
-            resumeStaleTime: remote.resumeStaleTime,
-            emptyStaleTime: remote.emptyStaleTime,
-            refetchOnMount: remote.refetchOnMount,
-            maxPages: remote.maxPages,
-            direction: remote.direction,
-            cursorVar: remote.cursorVar
-          }) as ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>)
+        ? remote.type === 'single'
+          ? (runtime.query(name, {
+              document: remote.document,
+              vars: remote.variables,
+              select: remote.select,
+              into: runtime,
+              requiredScope: remote.required,
+              staleTime: remote.staleTime,
+              resumeStaleTime: remote.resumeStaleTime,
+              emptyStaleTime: remote.emptyStaleTime,
+              refetchOnMount: remote.refetchOnMount
+            }) as QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined>)
+          : (runtime.query(name, {
+              document: remote.document,
+              vars: remote.variables,
+              connection: remote.connection,
+              into: runtime.scopes[name] as never,
+              requiredScope: remote.required,
+              staleTime: remote.staleTime,
+              resumeStaleTime: remote.resumeStaleTime,
+              emptyStaleTime: remote.emptyStaleTime,
+              refetchOnMount: remote.refetchOnMount,
+              maxPages: remote.maxPages,
+              direction: remote.direction,
+              cursorVar: remote.cursorVar
+            }) as ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>)
         : undefined;
       return [name, query] as const;
     })
   );
   const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations> = Object.create(null);
   for (const name of Object.keys(config.relations ?? {})) {
-    Reflect.set(relationMethods, name, (params: Record<string, unknown>) => createNamedRelation(runtime, name, params, compiledRelations[name]));
+    Reflect.set(relationMethods, name, (params: Record<string, unknown>) =>
+      createNamedRelation(runtime, name, params, compiledRelations[name], config.relations?.[name]?.remote?.type)
+    );
   }
   const actions: ModelActionMethods<TActions> = Object.create(null);
   for (const [name, definition] of Object.entries(config.actions ?? {})) {

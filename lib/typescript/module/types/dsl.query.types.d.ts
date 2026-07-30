@@ -24,7 +24,7 @@ export type ScopeDestination<TStored, TScope> = ScopeHandle<TStored & {
 /** Model landing destination for query results (row reads only, no scope membership). */
 export type ModelDestination<TStored> = {
     modelId: string;
-    get?: (id: string | null | undefined) => TStored | undefined;
+    find(id: string | null | undefined): TStored | undefined;
     use: {
         find(id: string | null | undefined, opts?: {
             renderKeys?: readonly (keyof TStored & string)[];
@@ -118,6 +118,7 @@ export type EnsuredRowResult<TStored> = {
     refetch: () => Promise<void>;
 };
 export type QueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined> = {
+    read(scope: TScope | null): TData;
     use(scope: TScope | null, options?: {
         enabled?: boolean;
     }): QueryResult<TStored, TData>;
