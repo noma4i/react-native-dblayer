@@ -89,6 +89,7 @@ somewhere under `docs/`.
 | `belongsTo`  | value | [models.md](./models.md) |
 | `hasMany`    | value | [models.md](./models.md) |
 | `hasOne`     | value | [models.md](./models.md) |
+| `modelRef`   | value | [models.md](./models.md) |
 | `references` | value | [models.md](./models.md) |
 
 ### Reading

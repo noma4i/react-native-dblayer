@@ -67,7 +67,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(73);
+    expect(first.split('\n')).toHaveLength(74);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -129,6 +129,7 @@ hasMany: <_TParent, TChild>(model: import("<root>/src/types/core.relations.types
 hasOne: <_TParent, TChild>(model: import("<root>/src/types/core.relations.types").RelationTarget<TChild>, options: { foreignKey: keyof TChild & string; comparator?: ((left: TChild, right: TChild) => number) | undefined; }) => import("<root>/src/types/core.relations.types").HasOneDecl<TChild>
 intoIf: (into: import("<root>/src/types/dsl.query.types").PlanRowsSink, row: unknown) => import("<root>/src/types/dsl.query.types").ExtractSink[]
 isTempId: (id: string | null | undefined) => boolean
+modelRef: <TStored>(key: string) => import("<root>/src/types/core.relations.types").ModelRef<TStored>
 pickDefined: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<Pick<TSource, TKey>>
 pickPresent: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<{ [K in TKey]: NonNullable<TSource[K]>; }>
 projectShape: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<root>/src/types/schema.shape.types").DbShape<TInput, TFields>, source: object, overrides?: Partial<{ [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }> | undefined) => { [K in keyof ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })]: ({ [K in RequiredKeys<TFields>]: RequiredFieldValue<TFields[K]>; } & { [K in OptionalKeys<TFields>]?: OptionalFieldValue<TFields[K]> | undefined; })[K]; }

@@ -1,4 +1,4 @@
-import type { AcceptedRow, BelongsToDecl, DestroyedRow, HasManyDecl, HasOneDecl, ReferencesDecl, RelationHost, RelationPlanReader, RelationTarget, WriteOp } from '../types';
+import type { AcceptedRow, BelongsToDecl, DestroyedRow, FacadeRelationTarget, HasManyDecl, HasOneDecl, ModelRef, ReferencesDecl, RelationHost, RelationPlanReader, RelationTarget, WriteOp } from '../types';
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
@@ -65,6 +65,15 @@ export declare const hasOne: <_TParent, TChild>(model: RelationTarget<TChild>, o
 export declare const references: <TChild, TRef>(model: RelationTarget<TRef>, options: {
     ids: (child: TChild) => ReadonlyArray<string | null | undefined> | string | null | undefined;
 }) => ReferencesDecl<TRef>;
+export declare const registerRelationTarget: <TStored>(key: string, target: FacadeRelationTarget<TStored>) => void;
+/**
+ * Creates a deferred, typed association target for a model identified by its persisted key.
+ * Use this target when direct facade references would form a circular module or type dependency.
+ *
+ * @param key The target model key passed to `defineModel`.
+ * @returns A model reference resolved when an association reads or plans a write.
+ */
+export declare const modelRef: <TStored>(key: string) => ModelRef<TStored>;
 export declare const registerRelationHost: (modelId: string, host: RelationHost) => (() => void);
 /**
  * Read one declared association through the same registered relation graph used by write effects.

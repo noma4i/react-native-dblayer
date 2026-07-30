@@ -70,6 +70,8 @@ const Message = defineModel('Message', {
 `belongsTo`, `hasOne`, `hasMany`, and `references` compile association reads and write effects.
 An association becomes a flat method such as `Message.chat(messageId)`, returning a `Relation`.
 Dependent destruction, touch projection, and counter caches execute inside the owning write plan.
+Use `modelRef<TStored>(key)` instead of a facade target when model associations form a cycle. The
+key is the target model's persisted identity and the generic keeps the association result typed.
 
 ## GraphQL declarations
 

@@ -27,6 +27,7 @@ const runtimeExportAllowlist = [
   'hasOne',
   'intoIf',
   'isTempId',
+  'modelRef',
   'pickDefined',
   'pickPresent',
   'projectShape',

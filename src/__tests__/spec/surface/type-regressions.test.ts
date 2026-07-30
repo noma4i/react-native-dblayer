@@ -26,6 +26,40 @@ const compileFixture = (source: string): readonly ts.Diagnostic[] => {
 };
 
 describe('public type regressions', () => {
+  it('preserves exact stored types across lazy cyclic association targets', () => {
+    const diagnostics = compileFixture(`
+      import { belongsTo, defineModel, defineShape, f, hasMany, modelRef, references } from '${entry}';
+      type Chat = { id: string; title: string };
+      type Message = { id: string; chatId: string; replyToId: string | null; body: string };
+      const ChatSchema = defineShape<Chat>()({ title: f.str() });
+      const MessageSchema = defineShape<Message>()({
+        chatId: f.id(),
+        replyToId: f.id().nullable(),
+        body: f.str()
+      });
+      const chats = defineModel('lazy-chats', {
+        schema: ChatSchema,
+        associations: () => ({
+          messages: hasMany<Chat, Message>(modelRef<Message>('lazy-messages'), { foreignKey: 'chatId' })
+        })
+      });
+      const messages = defineModel('lazy-messages', {
+        schema: MessageSchema,
+        associations: () => ({
+          chat: belongsTo<Message, Chat>(modelRef<Chat>('lazy-chats'), { foreignKey: 'chatId' }),
+          reply: references<Message, Message>(modelRef<Message>('lazy-messages'), { ids: row => row.replyToId })
+        })
+      });
+      const chat: Chat | undefined = messages.chat('message-1').read();
+      const thread: Message[] = chats.messages('chat-1').read();
+      const replies: Message[] = messages.reply('message-1').read();
+      void chat;
+      void thread;
+      void replies;
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('accepts server-order, field-sort, and comparator model relations', () => {
     const diagnostics = compileFixture(`
       import { defineModel, defineShape, f } from '${entry}';

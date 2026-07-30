@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, defineShape, f, hasMany, hasOne, references } from '../../../index';
+import { belongsTo, configureDb, defineModel, defineShape, f, hasMany, hasOne, modelRef, references } from '../../../index';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type UserInput = {
@@ -36,6 +36,30 @@ const ChatSchema = defineShape<ChatInput>()({
 });
 
 describe('associations', () => {
+  it('resolves lazy targets across a cyclic model graph', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const Chat = defineModel('SpecLazyAssociationChat', {
+      schema: ChatSchema,
+      associations: () => ({
+        messages: hasMany<ChatInput, MessageInput>(modelRef<MessageInput>('SpecLazyAssociationMessage'), { foreignKey: 'chatId' })
+      })
+    });
+    const Message = defineModel('SpecLazyAssociationMessage', {
+      schema: MessageSchema,
+      associations: () => ({
+        chat: belongsTo<MessageInput, ChatInput>(modelRef<ChatInput>('SpecLazyAssociationChat'), { foreignKey: 'chatId' }),
+        replies: references<MessageInput, MessageInput>(modelRef<MessageInput>('SpecLazyAssociationMessage'), { ids: message => message.id })
+      })
+    });
+
+    Chat.insert({ id: 'chat-1', ownerId: 'user-1', memberIds: [] });
+    Message.insert({ id: 'message-1', chatId: 'chat-1', authorId: 'user-1', sequence: 1 });
+
+    expect(Chat.messages('chat-1').read().map(row => row.id)).toEqual(['message-1']);
+    expect(Message.chat('message-1').read()?.id).toBe('chat-1');
+    expect(Message.replies('message-1').read().map(row => row.id)).toEqual(['message-1']);
+  });
+
   it('exposes every association kind as a flat Relation method', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const User = defineModel('SpecAssociationUser', {

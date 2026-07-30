@@ -30,7 +30,7 @@ import type {
 } from '../types';
 import { defineModelRuntime } from './defineModelRuntime';
 import { useRelationLoadMore } from './pagination';
-import { readModelRelation } from '../core/relations';
+import { readModelRelation, registerRelationTarget } from '../core/relations';
 import { registerBootValidation } from './bootValidations';
 import { readRowOperationState, useRowOperationState } from './rowOperationState';
 import { getInternalModelHandle, registerInternalModelHandle } from '../core/internalHandles';
@@ -535,6 +535,7 @@ export const defineModelFacade = <
       return method;
     }
   });
+  registerRelationTarget(key, model);
   registerInternalModelHandle(model, getInternalModelHandle(runtime));
   const statics = config.statics?.(model) ?? ({} as TStatics);
   for (const name of Object.keys(statics)) {

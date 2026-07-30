@@ -5,6 +5,7 @@ import type {
   BelongsToDecl,
   CounterRef,
   DestroyedRow,
+  FacadeRelationTarget,
   HasManyDecl,
   HasOneDecl,
   MembershipDelta,
@@ -118,6 +119,32 @@ export const references = <TChild, TRef>(
  * leave their scopes in the SAME plan (same-tick visibility for optimistic/ingest rows).
  */
 const hosts = createGenerationRegistry<RelationHost>();
+const facadeTargets = new Map<string, FacadeRelationTarget<unknown>>();
+
+export const registerRelationTarget = <TStored>(key: string, target: FacadeRelationTarget<TStored>): void => {
+  facadeTargets.set(key, target as FacadeRelationTarget<unknown>);
+};
+
+/**
+ * Creates a deferred, typed association target for a model identified by its persisted key.
+ * Use this target when direct facade references would form a circular module or type dependency.
+ *
+ * @param key The target model key passed to `defineModel`.
+ * @returns A model reference resolved when an association reads or plans a write.
+ */
+export const modelRef = <TStored>(key: string): ModelRef<TStored> => {
+  const resolve = (): FacadeRelationTarget<TStored> => {
+    const target = facadeTargets.get(key);
+    if (!target) throw new Error(`No model registered for ${key}`);
+    return target as FacadeRelationTarget<TStored>;
+  };
+  return {
+    modelId: key,
+    find: id => resolve().find(id),
+    all: () => resolve().where({}).read(),
+    where: where => resolve().where(where).read()
+  };
+};
 
 export const registerRelationHost = (modelId: string, host: RelationHost): (() => void) => {
   return hosts.register(modelId, host, `Relation host already registered for model ${modelId}`);
