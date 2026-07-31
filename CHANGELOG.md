@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.0.0-beta.4 - 2026-07-31
+
+### Fixed
+
+- Named relation parameters require every mapped `by` key even when a transport callback declares that key optional, keeping the public type aligned with runtime relation identity.
+
 ## 10.0.0-beta.3 - 2026-07-31
 
 ### Added
