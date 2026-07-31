@@ -1,5 +1,12 @@
 # Changelog
 
+## 10.0.0-beta.2 - 2026-07-31
+
+### Fixed
+
+- `Model.invalidate(partialValue)` invalidates relations covered by the supplied fields and skips relations whose `by` keys are not covered, without throwing.
+- Relation scope values pass through their field codecs before query identity, GraphQL variables, registration, matching, and response landing, so equivalent typed inputs share one request and cache entry.
+
 ## 10.0.0-beta.1 - 2026-07-30
 
 ### Breaking changes and migration
