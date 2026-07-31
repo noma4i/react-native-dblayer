@@ -69,6 +69,23 @@ describe('committed once-key persistence format', () => {
 
     expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 1 });
   });
+
+  it('rejects a once-key record that carries no key list at all', () => {
+    const { storage } = setup();
+    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ notKeys: ['k1'] }) }]);
+
+    // A record shaped like anything else is not a key list: reading it must report corruption,
+    // never reach into a missing array.
+    expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 1 });
+  });
+
+  it('keeps one valid once key while a sibling entry of the same record is invalid', () => {
+    const { storage } = setup();
+    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['valid', 7] }) }]);
+
+    // One bad entry invalidates the LIST: a partially decoded key set would silently lose identity.
+    expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 1 });
+  });
 });
 
 describe('operation input serialization', () => {
@@ -420,7 +437,11 @@ describe('hydrate key retention', () => {
     ['empty operation id', { ...baseRecord(''), status: 'pending' }],
     ['empty model id', { ...baseRecord('op-1'), model: '', status: 'pending' }],
     ['empty temporary id', { ...baseRecord('op-1'), tempIds: [''], status: 'pending' }],
+    ['one empty temporary id beside a valid one', { ...baseRecord('op-1'), tempIds: ['temp-ok', ''], status: 'pending' }],
     ['empty row id', { ...baseRecord('op-1'), rowIds: [''], status: 'pending' }],
+    ['one empty row id beside a valid one', { ...baseRecord('op-1'), rowIds: ['row-ok', ''], status: 'pending' }],
+    ['unknown status', { ...baseRecord('op-1'), status: 'weird' }],
+    ['missing status', { ...baseRecord('op-1') }],
     ['invalid kind', { ...baseRecord('op-1'), kind: 7, status: 'pending' }],
     ['invalid idempotency key', { ...baseRecord('op-1'), idempotencyKey: 7, status: 'pending' }],
     ['invalid once flag', { ...baseRecord('op-1'), once: 'yes', status: 'pending' }],
