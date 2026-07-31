@@ -268,3 +268,93 @@ describe('restored chain metadata guard', () => {
     act(() => secondRoot.unmount());
   });
 });
+
+/**
+ * Declaration fingerprint discrimination: a persisted query record written under one declaration
+ * must not restore under a declaration that differs in any pagination-identity property. Each pair
+ * changes exactly one property across the restart; the same-declaration baseline lives in the
+ * round-trip test above.
+ */
+describe('declaration fingerprint discrimination', () => {
+  let pairSeq = 0;
+  type Overrides = { direction?: 'forward' | 'backward'; cursorVar?: string; maxPages?: number; paged?: boolean };
+  const pairs: Array<[string, Overrides, Overrides]> = [
+    ['pagination direction', { direction: 'forward' }, { direction: 'backward' }],
+    ['cursor variable name', { cursorVar: 'afterA' }, { cursorVar: 'afterB' }],
+    ['page limit', { maxPages: 2 }, { maxPages: 3 }],
+    ['paged shape', { paged: true }, { paged: false }]
+  ];
+
+  it.each(pairs)('refetches after a restart when the declaration changed its %s', async (_label, base, changed) => {
+    const storage = createMemoryPlane();
+    let calls = 0;
+    const respond = <TData,>(): Promise<{ data: TData }> => {
+      calls += 1;
+      return Promise.resolve({ data: { rows: [{ id: `m-${calls}`, chatId: 'chat-1', seq: calls, text: `page-${calls}` }] } as TData });
+    };
+    const modelId = `SpecFingerprint${++pairSeq}`;
+    const buildRuntime = (overrides: Overrides) => {
+      configureDb({ storage, transport: createMockTransport({ query: respond }) });
+      const messages = defineModelRuntime({
+        id: modelId,
+        name: modelId,
+        fields: { chatId: f.str(), seq: f.num(), text: f.str() },
+        scopes: { thread: ({ by: { chatId: 'chatId' } }) }
+      });
+      const { paged, ...pagination } = overrides;
+      const shape =
+        paged === false
+          ? { select: (data: Response) => data.rows }
+          : {
+              page: (data: Response) => ({ nodes: data.rows, pageInfo: { hasNextPage: false, endCursor: null } }),
+              ...(paged === true ? { coverage: 'complete' as const } : { coverage: 'page' as const })
+            };
+      return messages.query<Response, { chatId: string }, { chatId: string }, Row>('thread', {
+        document,
+        vars: scopeValue => ({ chatId: scopeValue.chatId }),
+        into: messages.scopes.thread,
+        staleTime: 60_000,
+        ...shape,
+        ...pagination
+      });
+    };
+
+    const firstQuery = buildRuntime(base);
+    await act(async () => {
+      await bootDb();
+    });
+    const FirstReader = () => {
+      firstQuery.use({ chatId: 'chat-1' });
+      return null;
+    };
+    let firstRoot!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      firstRoot = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(FirstReader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+    expect(calls).toBe(1);
+    act(() => firstRoot.unmount());
+
+    const secondQuery = buildRuntime(changed);
+    await act(async () => {
+      await bootDb();
+    });
+    const SecondReader = () => {
+      secondQuery.use({ chatId: 'chat-1' });
+      return null;
+    };
+    let secondRoot!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      secondRoot = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(SecondReader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+
+    // The old record must not satisfy the changed declaration: the reader goes back to the network.
+    expect(calls).toBe(2);
+    act(() => secondRoot.unmount());
+  });
+});
