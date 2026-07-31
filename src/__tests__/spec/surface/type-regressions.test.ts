@@ -110,6 +110,34 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('requires every by key even when remote params declare it optional', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
+      type Row = { id: string; status: string };
+      type Data = { rows: { nodes: Row[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } };
+      type Variables = { status?: string };
+      const document = {} as TypedDocumentNode<Data, Variables>;
+      const RowSchema = defineShape<Row>()({ status: f.str() });
+      const rows = defineModel('required-by-params', {
+        schema: RowSchema,
+        relations: {
+          byStatus: {
+            by: { statusFilter: 'status' },
+            remote: gql.connection(document, {
+              variables: (params: { statusFilter?: string }) => ({ status: params.statusFilter }),
+              connection: data => data.rows
+            })
+          }
+        }
+      });
+      rows.byStatus({ statusFilter: 'open' });
+      // @ts-expect-error mapped relation keys are required even when remote params make them optional
+      rows.byStatus({});
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects non-orderable fields on typed field-sort surfaces', () => {
     const diagnostics = compileFixture(`
       import { defineModel, defineShape, f } from '${entry}';
@@ -205,7 +233,7 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
-  it('accepts null as a disabled query scope for reactive and imperative reads', () => {
+  it('accepts null as the disabled relation identity and rejects nullish required by fields', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
       import { defineModel, defineShape, f, gql } from '${entry}';
@@ -220,15 +248,19 @@ describe('public type regressions', () => {
           byAccount: {
             by: { accountId: 'accountId' },
             remote: gql.connection(document, {
-              variables: (params: { accountId: string | null | undefined }) => ({ accountId: params.accountId ?? '' }),
+              variables: (params: { accountId: string }) => ({ accountId: params.accountId }),
               connection: data => ({ nodes: data.rows }),
               required: ['accountId']
             })
           }
         }
       });
+      rows.byAccount(null).use();
+      void rows.byAccount(null).use().refresh();
+      // @ts-expect-error use null as the whole inactive relation identity
       rows.byAccount({ accountId: null }).use();
-      void rows.byAccount({ accountId: undefined }).use().refresh();
+      // @ts-expect-error use null as the whole inactive relation identity
+      rows.byAccount({ accountId: undefined }).use();
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });

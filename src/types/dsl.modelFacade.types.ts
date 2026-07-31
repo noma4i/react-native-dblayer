@@ -305,14 +305,16 @@ type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStor
   ? { [K in keyof TBy]: TBy[K] extends keyof TStored ? TStored[TBy[K]] : never }
   : Record<string, never>;
 
+type RelationRemoteParams<TStored, TDefinition, TParams> = TDefinition extends { by: infer TBy } ? TParams & RelationParamsFromBy<TStored, TBy> : TParams;
+
 export type RelationParams<TStored, TDefinition> = TDefinition extends {
   remote: GraphqlConnectionDefinition<any, any, infer TParams>;
 }
-  ? TParams
+  ? RelationRemoteParams<TStored, TDefinition, TParams>
   : TDefinition extends { remote: GraphqlListDefinition<any, any, infer TParams, any> }
-    ? TParams
+    ? RelationRemoteParams<TStored, TDefinition, TParams>
   : TDefinition extends { remote: GraphqlSingleDefinition<any, any, infer TParams, any> }
-    ? TParams
+    ? RelationRemoteParams<TStored, TDefinition, TParams>
   : TDefinition extends { by: infer TBy }
     ? RelationParamsFromBy<TStored, TBy>
     : Record<string, never>;

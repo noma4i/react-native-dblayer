@@ -256,13 +256,16 @@ export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations
 type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStored & string> ? {
     [K in keyof TBy]: TBy[K] extends keyof TStored ? TStored[TBy[K]] : never;
 } : Record<string, never>;
+type RelationRemoteParams<TStored, TDefinition, TParams> = TDefinition extends {
+    by: infer TBy;
+} ? TParams & RelationParamsFromBy<TStored, TBy> : TParams;
 export type RelationParams<TStored, TDefinition> = TDefinition extends {
     remote: GraphqlConnectionDefinition<any, any, infer TParams>;
-} ? TParams : TDefinition extends {
+} ? RelationRemoteParams<TStored, TDefinition, TParams> : TDefinition extends {
     remote: GraphqlListDefinition<any, any, infer TParams, any>;
-} ? TParams : TDefinition extends {
+} ? RelationRemoteParams<TStored, TDefinition, TParams> : TDefinition extends {
     remote: GraphqlSingleDefinition<any, any, infer TParams, any>;
-} ? TParams : TDefinition extends {
+} ? RelationRemoteParams<TStored, TDefinition, TParams> : TDefinition extends {
     by: infer TBy;
 } ? RelationParamsFromBy<TStored, TBy> : Record<string, never>;
 export type ActionInput<TDefinition> = TDefinition extends GraphqlActionDefinition<any, any, infer TInput, any, any> ? TInput : never;
