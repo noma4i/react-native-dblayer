@@ -358,3 +358,92 @@ describe('declaration fingerprint discrimination', () => {
     act(() => secondRoot.unmount());
   });
 });
+
+/**
+ * Persistence window rules: only a finite positive freshness window writes a durable query record;
+ * an empty result falls back through the declared empty-window chain. The finite-window baseline
+ * lives in the round-trip test above.
+ */
+describe('persistence window rules', () => {
+  let windowSeq = 0;
+  const landOnce = async (staleTime: number | undefined, rows: Row[], defaults?: { emptyStaleTime?: number }) => {
+    const storage = createMemoryPlane();
+    let calls = 0;
+    const respond = <TData,>(): Promise<{ data: TData }> => {
+      calls += 1;
+      return Promise.resolve({ data: { rows } as TData });
+    };
+    const modelId = `SpecWindow${++windowSeq}`;
+    const buildRuntime = () => {
+      configureDb({ storage, transport: createMockTransport({ query: respond }), ...(defaults ? { defaults } : {}) });
+      const messages = defineModelRuntime({
+        id: modelId,
+        name: modelId,
+        fields: { chatId: f.str(), seq: f.num(), text: f.str() },
+        scopes: { thread: ({ by: { chatId: 'chatId' } }) }
+      });
+      return messages.query<Response, { chatId: string }, { chatId: string }, Row>('thread', {
+        document,
+        vars: scopeValue => ({ chatId: scopeValue.chatId }),
+        select: data => data.rows,
+        into: messages.scopes.thread,
+        coverage: 'complete',
+        ...(staleTime === undefined ? {} : { staleTime })
+      });
+    };
+    const query = buildRuntime();
+    await act(async () => {
+      await bootDb();
+    });
+    const Reader = () => {
+      query.use({ chatId: 'chat-1' });
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+    expect(calls).toBe(1);
+    act(() => root.unmount());
+    return { storage, buildRuntime, callCount: () => calls };
+  };
+  const queryRecordKeys = (storage: { snapshotKeys: () => string[] }): string[] => storage.snapshotKeys().filter(key => key.startsWith('dbl:query'));
+
+  it('writes no durable record for an infinite freshness window', async () => {
+    const { storage } = await landOnce(Infinity, [{ id: 'm-1', chatId: 'chat-1', seq: 1, text: 'kept in memory' }]);
+    expect(queryRecordKeys(storage)).toEqual([]);
+  });
+
+  it('writes no durable record for a zero freshness window', async () => {
+    const { storage } = await landOnce(0, [{ id: 'm-1', chatId: 'chat-1', seq: 1, text: 'never fresh' }]);
+    expect(queryRecordKeys(storage)).toEqual([]);
+  });
+
+  it('persists an empty result under the default empty window and restores it without a refetch', async () => {
+    const { storage, buildRuntime, callCount } = await landOnce(undefined, [], { emptyStaleTime: 60_000 });
+    expect(queryRecordKeys(storage)).toHaveLength(1);
+
+    const secondQuery = buildRuntime();
+    await act(async () => {
+      await bootDb();
+    });
+    const Reader = () => {
+      secondQuery.use({ chatId: 'chat-1' });
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+
+    // The restored empty chain is fresh inside the empty window: no second network call.
+    expect(callCount()).toBe(1);
+    act(() => root.unmount());
+  });
+});
