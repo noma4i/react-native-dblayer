@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, gql, type DbTransport } from '../../../index';
+import { configureDb, defineModel, defineShape, f, gql, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type UserInput = {

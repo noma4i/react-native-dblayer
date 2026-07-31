@@ -1,6 +1,4 @@
-import { afterStoreTransaction, runInStoreTransaction, SyncFeed } from '../../testApi';
-import { createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection } from '../../../core/store';
-import { keysForSequence } from '../../../core/orderKey';
+import { afterStoreTransaction, runInStoreTransaction, SyncFeed , createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection , keysForSequence } from '../../testApi';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';
 
 type Row = { id: string } & Record<string, unknown>;

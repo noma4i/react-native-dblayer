@@ -1,6 +1,5 @@
-import { computeSchemaFingerprint, registerSchemaDeclaration } from '../../../core/schemaManifest';
-import type { SchemaDeclaration } from '../../../types';
-import { stableSerialize } from '../../../core/serialize';
+import { computeSchemaFingerprint, registerSchemaDeclaration , stableSerialize } from '../../testApi';
+import type { SchemaDeclaration } from '../../testApi';
 
 const declaration = (id: string): SchemaDeclaration => ({
   id,

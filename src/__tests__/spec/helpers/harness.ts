@@ -1,8 +1,8 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, resetRuntime, type DbTransport, type StoragePlane } from '../../testApi';
-import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../../core/fetch/networkState';
-export { compositeStorageKey } from '../../../core/serialize';
+import { isFetchNetworkOnline, setFetchNetworkOnline } from '../../testApi';
+export { compositeStorageKey } from '../../testApi';
 
 export function createMemoryPlane(): StoragePlane & { snapshotKeys: () => string[] } {
   const values = new Map<string, string>();

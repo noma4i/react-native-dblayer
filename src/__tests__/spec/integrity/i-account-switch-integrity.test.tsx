@@ -1,5 +1,4 @@
-import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { flushPersistence, replayJournal } from '../../../dsl/configure';
+import { configureDb, defineModelRuntime, f, resetRuntime , flushPersistence, replayJournal } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; accountId: string; label: string };

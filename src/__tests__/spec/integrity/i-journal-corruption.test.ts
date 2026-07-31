@@ -1,7 +1,5 @@
-import { configureDb } from '../../testApi';
-import { createJournal, readJournalRecord } from '../../../core/apply/journal';
-import { encodePersistence, versionPersistenceValue } from '../../../core/persistenceCodec';
-import type { JournalRecord } from '../../../types';
+import { configureDb , createJournal, readJournalRecord , encodePersistence, versionPersistenceValue } from '../../testApi';
+import type { JournalRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**

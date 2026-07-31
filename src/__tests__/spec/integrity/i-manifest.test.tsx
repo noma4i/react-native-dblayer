@@ -1,7 +1,5 @@
-import { configureDb, defineCommand, defineShape, f } from '../../testApi';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, registerSchemaDeclaration, writePersistenceManifest } from '../../../core/schemaManifest';
-import type { SchemaDeclaration } from '../../../types';
-import { bootDb } from '../../../dsl/lifecycle';
+import { configureDb, defineCommand, defineShape, f , DB_FORMAT_VERSION, computeSchemaFingerprint, registerSchemaDeclaration, writePersistenceManifest , bootDb } from '../../testApi';
+import type { SchemaDeclaration } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const declaration = (

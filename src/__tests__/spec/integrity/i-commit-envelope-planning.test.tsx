@@ -1,8 +1,4 @@
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
-import { getInternalModelHandle } from '../../../core/internalHandles';
-import { compositeKey } from '../../../core/serialize';
-import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
+import { configureDb, defineModelRuntime, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; chatId: string; body: string };

@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, defineCommand, defineModel, defineShape, f, gql, intoIf } from '../../../index';
+import { configureDb, defineCommand, defineModel, defineShape, f, gql, intoIf } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type UserInput = {

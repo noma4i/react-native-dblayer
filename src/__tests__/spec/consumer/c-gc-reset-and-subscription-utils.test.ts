@@ -10,8 +10,7 @@ import {
   registerApplyTarget,
   registerReset,
   resetRuntime
-} from '../../testApi';
-import { collectGarbage, registerGcHost } from '../../../core/gc';
+, collectGarbage, registerGcHost } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for GC roots/exemption, reset registration, and subscription utilities.

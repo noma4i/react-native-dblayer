@@ -1,8 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, defineModelRuntime, f, resetRuntime } from '../../testApi';
+import { DbProvider, defineModelRuntime, f, resetRuntime , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
 
 const createStories = (suffix: string) =>

@@ -13,7 +13,7 @@ import {
   type QueryPersistenceRecord,
   suspendDb
 } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
+import { bootDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type FetchPayload = { value: string };

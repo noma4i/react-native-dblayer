@@ -1,6 +1,5 @@
-import { encodePersistence } from '../../testApi';
-import { createCheckpointScheduler } from '../../../core/apply/checkpoint';
-import type { CheckpointTarget } from '../../../types';
+import { encodePersistence , createCheckpointScheduler } from '../../testApi';
+import type { CheckpointTarget } from '../../testApi';
 import { createMemoryPlane } from '../helpers/harness';
 
 const setup = (maxPendingPlans = 10) => {

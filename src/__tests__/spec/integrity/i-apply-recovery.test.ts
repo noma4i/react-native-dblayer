@@ -1,8 +1,4 @@
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
-import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
-import { createJournal } from '../../../core/apply/journal';
-import { getApplyRuntime, getCommitBus } from '../../../dsl/configure';
+import { configureDb, defineModelRuntime, f , getApplyTarget , createCommitEnvelope , createJournal , getApplyRuntime, getCommitBus } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const createModels = () => {

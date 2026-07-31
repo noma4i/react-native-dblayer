@@ -126,7 +126,7 @@ describe('counters singleton consumer contracts', () => {
     const singleton = createSingletonStatics<CountersRow>(
       {
         find: () => row,
-        use: { find: () => row, field: (_id, field) => row[field] },
+        use: { find: () => row },
         insert: next => {
           row = next;
         },

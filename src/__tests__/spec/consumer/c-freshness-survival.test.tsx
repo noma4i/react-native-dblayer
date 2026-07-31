@@ -1,10 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { collectGarbage } from '../../../core/gc';
-import { registerActiveFetchReaders } from '../../../core/fetch/fetchReaderRegistry';
-import { compositeKey } from '../../../core/serialize';
+import { DbProvider, configureDb, defineFetch, defineModelRuntime, f, resetRuntime , collectGarbage , registerActiveFetchReaders , compositeKey } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };

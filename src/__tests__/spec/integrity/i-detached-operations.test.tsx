@@ -1,9 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime } from '../../testApi';
-import { collectGarbage } from '../../../core/gc';
-import { flushPersistence, getOperationState, getRuntimeGeneration, replayJournal } from '../../../dsl/configure';
-import { bootDb } from '../../../dsl/lifecycle';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime , collectGarbage , flushPersistence, getOperationState, getRuntimeGeneration, replayJournal , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { attemptWithLastWriteFaulted, createFaultStorage } from '../helpers/faultStorage';
 

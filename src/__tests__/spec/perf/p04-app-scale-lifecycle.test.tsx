@@ -1,9 +1,8 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModelRuntime, f } from '../../testApi';
+import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 
 type ChatRow = { id: string; status: string; kind: string; lastActivityAt: string; memberIds: string[] };
 type MessageRow = { id: string; chatId: string; sequenceNumber: number; body: string };

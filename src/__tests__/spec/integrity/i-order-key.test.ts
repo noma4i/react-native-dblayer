@@ -1,5 +1,4 @@
-import { compareCodepoints } from '../../../core/serialize';
-import { keyAfter, keyBefore, keyBetween, keysForSequence } from '../../../core/orderKey';
+import { compareCodepoints , keyAfter, keyBefore, keyBetween, keysForSequence } from '../../testApi';
 
 /**
  * Lexical fractional order-key contracts: the single home for every scope order key. Keys are

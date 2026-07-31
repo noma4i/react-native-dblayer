@@ -1,8 +1,4 @@
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { bootDb } from '../../../dsl/lifecycle';
-import { encodePersistence } from '../../../core/persistenceCodec';
-import { compositeKey } from '../../../core/serialize';
+import { configureDb, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , bootDb , encodePersistence , compositeKey } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 

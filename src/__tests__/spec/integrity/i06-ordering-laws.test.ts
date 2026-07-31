@@ -1,4 +1,4 @@
-import { compareOrderValues, createFieldOrderComparator, withIdTieBreak } from '../../../core/ordering';
+import { compareOrderValues, createFieldOrderComparator, withIdTieBreak } from '../../testApi';
 
 const sign = (value: number): number => (value === 0 ? 0 : value < 0 ? -1 : 1);
 

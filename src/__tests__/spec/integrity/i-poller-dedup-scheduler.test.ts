@@ -1,5 +1,4 @@
-import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { createModelStatusPoller } from '../../../utils/modelStatusPoller';
+import { configureDb, defineModelRuntime, f, resetRuntime , createModelStatusPoller } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('poller reset and complete scope deduplication', () => {

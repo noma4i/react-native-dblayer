@@ -1,4 +1,4 @@
-import { createGenerationRegistry } from '../../../core/generationRegistry';
+import { createGenerationRegistry } from '../../testApi';
 
 describe('generation registry', () => {
   it('rejects a duplicate registration in the same runtime generation', () => {

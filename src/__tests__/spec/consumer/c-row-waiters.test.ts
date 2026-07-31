@@ -1,5 +1,4 @@
-import { advanceRuntimeGeneration, defineModel, defineModelRuntime, defineShape, f, updateWhenRowExists, resetRuntime, waitForRow } from '../../testApi';
-import { getCommitBus } from '../../../dsl/configure';
+import { advanceRuntimeGeneration, defineModel, defineModelRuntime, defineShape, f, updateWhenRowExists, resetRuntime, waitForRow , getCommitBus } from '../../testApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for commit-bus row waiters.

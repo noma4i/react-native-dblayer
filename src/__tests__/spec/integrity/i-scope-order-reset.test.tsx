@@ -1,7 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { createScopeIndex, isScopeIndexValue } from '../../../core/planes/scopeIndex';
-import { compositeKey, compositeStorageKey } from '../../../core/serialize';
+import { configureDb, defineModelRuntime, f, resetRuntime , createScopeIndex, isScopeIndexValue , compositeKey, compositeStorageKey } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ScopeRow = { id: string; bucket: string; rank: number; label: string };

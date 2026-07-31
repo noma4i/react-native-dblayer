@@ -1,7 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { belongsTo, defineModelRuntime, f, hasMany, hasOne } from '../../testApi';
-import { getCommitBus } from '../../../dsl/configure';
+import { belongsTo, defineModelRuntime, f, hasMany, hasOne , getCommitBus } from '../../testApi';
 import { setupSpecRuntime, diagnostics } from '../helpers/harness';
 
 type ScopeRow = { id: string; groupId: string; title: string };

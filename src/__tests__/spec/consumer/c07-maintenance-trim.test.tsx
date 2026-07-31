@@ -1,9 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { collectGarbage } from '../../../core/gc';
-import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { configureDb, defineModelRuntime, f , bootDb , collectGarbage , clearFailedOptimisticMutation , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };

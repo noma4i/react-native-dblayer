@@ -1,8 +1,4 @@
-import { configureDb, defineCommand, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { flushPersistence } from '../../../dsl/configure';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { compositeKey } from '../../../core/serialize';
+import { configureDb, defineCommand, defineModelRuntime, f, resetRuntime , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , compositeKey } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Result = { action: { ok: true } };

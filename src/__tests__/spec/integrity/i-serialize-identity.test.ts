@@ -1,4 +1,4 @@
-import { compareCodepoints, compositeKey, firstCompositeKeyPart, parseCompositeKey, semanticValue, stableSerialize } from '../../../core/serialize';
+import { compareCodepoints, compositeKey, firstCompositeKeyPart, parseCompositeKey, semanticValue, stableSerialize } from '../../testApi';
 
 /**
  * Identity backbone contracts: every scope key, dedupe key, and composite key in the runtime is

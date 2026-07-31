@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, createSingletonStatics, defineModel, defineShape, f, gql, type ModelInput, type ModelStored } from '../../../index';
+import { configureDb, createSingletonStatics, defineModel, defineShape, f, gql, type ModelInput, type ModelStored } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type MessageInput = {

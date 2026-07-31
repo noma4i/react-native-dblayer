@@ -1,9 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
-import { getApplyTarget } from '../../../core/apply/applyTargetRegistry';
-import { flushPersistence, getOperationState } from '../../../dsl/configure';
-import { bootDb } from '../../../dsl/lifecycle';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { belongsTo, configureDb, defineModelRuntime, f , getApplyTarget , flushPersistence, getOperationState , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Chat = { id: string; unreadCount: number; lastMessageId: string | null; lastActivityAt: number };

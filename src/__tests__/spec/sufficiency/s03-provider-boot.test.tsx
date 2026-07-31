@@ -2,9 +2,7 @@ import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
 import * as dbl from '../../testApi';
-import * as lifecycle from '../../../dsl/lifecycle';
-import { registerBootValidation } from '../../../dsl/bootValidations';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { registerBootValidation , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
@@ -75,7 +73,7 @@ describe('provider-owned query runtime', () => {
   it('does not attach AppState maintenance before boot completes', async () => {
     setupSpecRuntime();
     let resolveBoot!: () => void;
-    const boot = jest.spyOn(lifecycle, 'bootDb').mockReturnValue(
+    const boot = jest.spyOn(dbl.lifecycleModule, 'bootDb').mockReturnValue(
       new Promise(resolve => {
         resolveBoot = () => resolve({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
       })
@@ -104,7 +102,7 @@ describe('provider-owned query runtime', () => {
       rejectFirstBoot = reject;
     });
     const boot = jest
-      .spyOn(lifecycle, 'bootDb')
+      .spyOn(dbl.lifecycleModule, 'bootDb')
       .mockReturnValueOnce(firstBoot)
       .mockResolvedValueOnce({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
     let root!: TestRenderer.ReactTestRenderer;
@@ -128,11 +126,11 @@ describe('provider-owned query runtime', () => {
   it('restarts a stale successful boot after reset', async () => {
     setupSpecRuntime();
     let resolveFirstBoot!: () => void;
-    const firstBoot = new Promise<Awaited<ReturnType<typeof lifecycle.bootDb>>>(resolve => {
+    const firstBoot = new Promise<Awaited<ReturnType<typeof dbl.bootDb>>>(resolve => {
       resolveFirstBoot = () => resolve({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
     });
     const boot = jest
-      .spyOn(lifecycle, 'bootDb')
+      .spyOn(dbl.lifecycleModule, 'bootDb')
       .mockReturnValueOnce(firstBoot)
       .mockResolvedValueOnce({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
     let root!: TestRenderer.ReactTestRenderer;
@@ -234,7 +232,7 @@ describe('provider-owned query runtime', () => {
     };
     dbl.configureDb({ storage, transport: createMockTransport() } as never);
 
-    await expect(lifecycle.bootDb()).rejects.toThrow('runtime generation changed during boot');
+    await expect(dbl.bootDb()).rejects.toThrow('runtime generation changed during boot');
   });
 
   it('clears query state so a remount hydrates only the fresh generation', async () => {

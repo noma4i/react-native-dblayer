@@ -1,8 +1,5 @@
-import type { UsedMmkvMethods } from '../../../../__mocks__/mmkvMockFactory';
-import { configureDb } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { mmkvStoragePlane } from '../../../core/planes/storagePlane';
-import { mmkvStorageAdapter, getDbStorageKeys, removeDbStorageKey } from '../../../utils/mmkvStorage';
+import type { UsedMmkvMethods } from '../../testApi';
+import { configureDb , bootDb , mmkvStoragePlane , mmkvStorageAdapter, getDbStorageKeys, removeDbStorageKey } from '../../testApi';
 import { createMockTransport } from '../helpers/harness';
 
 // Type-only import: pulls the real-package-bound mock factory (__mocks__/mmkvMockFactory.ts) into this
@@ -32,7 +29,7 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
     jest.doMock('react-native-mmkv', () => ({ createMMKV }));
     try {
       await jest.isolateModulesAsync(async () => {
-        const isolated = await import('../../../utils/mmkvStorage');
+        const isolated = await import('../../testApi');
         expect(isolated.mmkvStorageAdapter.getItem('missing')).toBeNull();
         expect(isolated.getDbStorageKeys()).toEqual([]);
       });

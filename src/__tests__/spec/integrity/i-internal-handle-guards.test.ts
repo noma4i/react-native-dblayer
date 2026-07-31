@@ -4,7 +4,7 @@ import {
   getInternalModelHandle,
   getInternalScopeHandle,
   hasInternalScopeHandle
-} from '../../../core/internalHandles';
+} from '../../testApi';
 
 describe('internal handle registry guards', () => {
   it('throws "Unknown model handle" for an object that was never registered', () => {

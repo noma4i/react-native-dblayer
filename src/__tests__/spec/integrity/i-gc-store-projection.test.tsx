@@ -1,5 +1,4 @@
-import { defineModelRuntime, f } from '../../testApi';
-import { collectGarbage } from '../../../core/gc';
+import { defineModelRuntime, f , collectGarbage } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 

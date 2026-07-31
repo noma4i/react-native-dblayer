@@ -1,8 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { collectGarbage } from '../../../core/gc';
-import { clearFailedOptimisticMutation } from '../../../dsl/mutationRuntime';
-import { runPendingTempRowMaintenance } from '../../../dsl/maintenanceRegistry';
+import { configureDb, defineModelRuntime, f , collectGarbage , clearFailedOptimisticMutation , runPendingTempRowMaintenance } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; body: string };

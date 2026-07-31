@@ -1,9 +1,5 @@
 import { act } from 'react';
-import { configureDb } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { flushPersistence } from '../../../dsl/configure';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { stableSerialize } from '../../../core/serialize';
+import { configureDb , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , stableSerialize } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 import { createAppModels } from './appModels';
 

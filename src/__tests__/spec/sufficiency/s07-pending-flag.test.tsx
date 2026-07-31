@@ -1,8 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { encodePersistence } from '../../../core/persistenceCodec';
+import { configureDb, defineModelRuntime, f, resetRuntime , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , encodePersistence } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

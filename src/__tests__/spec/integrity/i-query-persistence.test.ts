@@ -9,7 +9,7 @@ import {
   readPersistedQuery,
   readPersistedQueryFamily,
   writePersistedQuery
-} from '../../../core/queryPersistence';
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const declaration = {

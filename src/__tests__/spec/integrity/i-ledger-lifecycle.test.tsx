@@ -1,7 +1,5 @@
-import { configureDb, defineModelRuntime, f, registerReset, resetRuntime } from '../../testApi';
-import { collectGarbage } from '../../../core/gc';
-import { createOperationState } from '../../../core/planes/operationState';
-import type { OperationStatus } from '../../../types';
+import { configureDb, defineModelRuntime, f, registerReset, resetRuntime , collectGarbage , createOperationState } from '../../testApi';
+import type { OperationStatus } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

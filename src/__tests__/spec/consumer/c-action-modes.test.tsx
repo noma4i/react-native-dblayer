@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, gql } from '../../../index';
-import type { DbTransport } from '../../../index';
+import { configureDb, defineModel, defineShape, f, gql } from '../../testApi';
+import type { DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
 
 type JobInput = {

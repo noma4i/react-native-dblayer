@@ -1,4 +1,4 @@
-import { getDbTransport, setDbTransport } from '../../../core/transport';
+import { getDbTransport, setDbTransport } from '../../testApi';
 
 // This file must run before any other spec configures a transport, so it imports core/transport.ts
 // directly (no configureDb/harness helpers) to observe the module's pristine never-configured state.

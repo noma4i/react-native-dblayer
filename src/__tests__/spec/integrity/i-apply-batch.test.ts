@@ -1,12 +1,5 @@
-import { configureDb, registerRelationHost, resetRuntime } from '../../testApi';
-import { registerApplyTarget } from '../../../core/apply/applyTargetRegistry';
-import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
-import { createApplyRuntime } from '../../../core/apply/transaction';
-import { createCommitBus } from '../../../core/apply/commitBus';
-import { createJournal } from '../../../core/apply/journal';
-import { encodePersistence } from '../../../core/persistenceCodec';
-import { createModelStore, registerModelStoreFactory } from '../../../core/store';
-import type { ApplyTarget, CheckpointScheduler, Dependency, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../../types';
+import { configureDb, registerRelationHost, resetRuntime , registerApplyTarget , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , createModelStore, registerModelStoreFactory } from '../../testApi';
+import type { ApplyTarget, CheckpointScheduler, Dependency, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**

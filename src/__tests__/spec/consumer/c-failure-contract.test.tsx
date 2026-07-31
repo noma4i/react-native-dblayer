@@ -1,8 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
-import { flushPersistence } from '../../../dsl/configure';
+import { configureDb, defineModelRuntime, f, resetRuntime , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , flushPersistence } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };

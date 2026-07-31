@@ -1,5 +1,4 @@
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { getOperationState, replayJournal } from '../../../dsl/configure';
+import { configureDb, defineModelRuntime, f , getOperationState, replayJournal } from '../../testApi';
 import { attemptAsyncWithLastWriteFaulted, attemptWithLastWriteFaulted, createFaultStorage, failAfterSettledBatches, snapshotAfterBatches } from '../helpers/faultStorage';
 import { createMockTransport } from '../helpers/harness';
 

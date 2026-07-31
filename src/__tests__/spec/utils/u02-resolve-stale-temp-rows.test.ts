@@ -1,4 +1,4 @@
-import { resolveStaleTempRows, trimRowsPerScope } from '../../../utils/modelMaintenance';
+import { resolveStaleTempRows, trimRowsPerScope } from '../../testApi';
 
 type Row = { id: string; createdAt: string };
 

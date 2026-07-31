@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, defineShape, f, hasMany, hasOne, modelRef, references } from '../../../index';
+import { belongsTo, configureDb, defineModel, defineShape, f, hasMany, hasOne, modelRef, references } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type UserInput = {

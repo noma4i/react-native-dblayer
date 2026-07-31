@@ -1,5 +1,4 @@
-import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime, setFetchNetworkOnline } from '../../testApi';
-import { backoffDelayMs } from '../../../core/fetch/retryPolicy';
+import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime, setFetchNetworkOnline , backoffDelayMs } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

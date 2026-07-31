@@ -1,4 +1,4 @@
-import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../../../core/compileDbWhere';
+import { buildScopeKey, isWhereOperatorValue, matchesDbWhere } from '../../testApi';
 
 /**
  * Scope-key and where-leaf primitive contracts (mutation-audit survivors): one filter always maps

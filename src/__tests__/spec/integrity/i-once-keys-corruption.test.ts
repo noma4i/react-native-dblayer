@@ -1,7 +1,4 @@
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { bootDb } from '../../../dsl/lifecycle';
-import { DB_FORMAT_VERSION } from '../../../core/schemaManifest';
-import { encodePersistence } from '../../../core/persistenceCodec';
+import { configureDb, defineModelRuntime, f , bootDb , DB_FORMAT_VERSION , encodePersistence } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**

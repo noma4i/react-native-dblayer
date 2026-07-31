@@ -3,12 +3,12 @@ import {
   configureDb,
   createDbSubscriptionEffects,
   createDbSubscriptionRuntime,
+  getDbSubscriptionEffect,
+  networkStateModule as networkState,
   registerReset,
-  resetRuntime
+  resetRuntime,
+  setFetchNetworkOnline
 } from '../../testApi';
-import { setFetchNetworkOnline } from '../../../core/fetch/networkState';
-import * as networkState from '../../../core/fetch/networkState';
-import { getDbSubscriptionEffect } from '../../../core/subscriptionRuntime';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;

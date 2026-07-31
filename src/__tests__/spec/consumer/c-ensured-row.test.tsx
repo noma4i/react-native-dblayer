@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
+import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 
 type Row = { id: string; name: string; status: string; updatedAt: string; shareUrl?: string };
 type Response = { detail: Row | null };

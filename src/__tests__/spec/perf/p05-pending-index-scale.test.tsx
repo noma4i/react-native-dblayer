@@ -1,8 +1,6 @@
 import { act } from 'react';
-import { defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
-import { getApplyRuntime, getOperationState } from '../../../dsl/configure';
-import type { OperationRecord, OperationTransition } from '../../../types';
+import { defineModelRuntime, f, resetRuntime , createCommitEnvelope , getApplyRuntime, getOperationState } from '../../testApi';
+import type { OperationRecord, OperationTransition } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 const TARGET_MODEL = 'SpecPendingIndexTarget';

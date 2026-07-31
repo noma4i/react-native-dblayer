@@ -1,12 +1,5 @@
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { flushPersistence } from '../../../dsl/configure';
-import { createCommitEnvelope } from '../../../core/apply/commitEnvelope';
-import { createApplyRuntime } from '../../../core/apply/transaction';
-import { createCommitBus } from '../../../core/apply/commitBus';
-import { createJournal } from '../../../core/apply/journal';
-import { encodePersistence } from '../../../core/persistenceCodec';
+import { configureDb, defineModelRuntime, f , flushPersistence , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createFaultStorage } from '../helpers/faultStorage';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../../core/schemaManifest';
 import { compositeStorageKey, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
 type FaultRow = { id: string; label: string };

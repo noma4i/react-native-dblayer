@@ -1,5 +1,4 @@
-import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
-import { isIncomingNewer } from '../../../core/invariants';
+import { belongsTo, configureDb, defineModelRuntime, f , isIncomingNewer } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 describe('model-owned write policies', () => {

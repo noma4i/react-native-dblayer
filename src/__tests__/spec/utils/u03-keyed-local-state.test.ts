@@ -1,4 +1,4 @@
-import { createKeyedLocalState } from '../../../core/fetch/keyedLocalState';
+import { createKeyedLocalState } from '../../testApi';
 
 /**
  * Contracts of the one reader-local state home shared by defineQuery/defineFetch: a merge that
