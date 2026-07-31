@@ -20,6 +20,7 @@ import {
   isTempRowProtectedByModel,
   refetchActiveFetchReaders,
   registerActiveFetchReaders,
+  registerMaterializationReconciler,
   resetRuntime,
   rowsShallowEqual,
   resumeFetchReaders,
@@ -302,6 +303,12 @@ describe('runtime edge helpers', () => {
       throw new Error('loss refetch failed');
     });
     const release = registerActiveFetchReaders({ queryKey, markResumeStale: () => false, refetch });
+    // Materialization loss is judged per registered chain: an unregistered cache entry that merely
+    // looks like a chain is never pruned, so the reader is reached through its own registration.
+    const releaseChain = registerMaterializationReconciler({
+      modelId: 'Rows',
+      chains: () => [{ queryKey, scopeKey: null, materialized: () => new Set<string>() }]
+    });
 
     getCommitBus().publish({
       rows: [{ model: 'Rows', id: 'row-1', fields: null, kind: 'destroy' }],
@@ -313,6 +320,7 @@ describe('runtime edge helpers', () => {
     await Promise.resolve();
 
     expect(refetch).toHaveBeenCalledTimes(1);
+    releaseChain();
     release();
   });
 });

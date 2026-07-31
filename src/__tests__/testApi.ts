@@ -63,7 +63,7 @@ export { registerBootValidation, runBootValidations } from '../dsl/bootValidatio
 export { defineIngest, defineModelIngest } from '../dsl/defineIngest';
 export { reconcileDetachedOperationsAtBoot } from '../dsl/defineDetachedOperation';
 export { isFetchedResult } from '../queries/base/loadingState';
-export { registerActiveFetchReaders, refetchActiveFetchReaders, resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
+export { registerActiveFetchReaders, refetchActiveFetchReaders, registerMaterializationReconciler, resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 export { computePhase } from '../queries/base/loadingState';
 export { readObjectField } from '../schema/fieldSpec';
 export { scalarFieldCodecs } from '../schema/fieldCodec';

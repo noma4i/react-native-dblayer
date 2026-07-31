@@ -9,6 +9,7 @@ import type {
   EnsuredRowQueryHandle,
   EnsuredRowResult,
   ExtractSink,
+  MaterializedChain,
   ModelDestination,
   PageMeta,
   QueryConfig,
@@ -30,7 +31,7 @@ import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
-import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
+import { refetchActiveFetchReaders, registerActiveFetchReaders, registerMaterializationReconciler } from '../core/fetch/fetchReaderRegistry';
 import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
@@ -182,6 +183,29 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       throw new Error('react-native-dblayer: persisted query model row is missing');
     }
   };
+  /** Composite ids this chain still materializes: scope membership for a scope destination, row presence otherwise. */
+  const materializedIds = (scope: TScope): ReadonlySet<string> => {
+    if (destinationScope) {
+      if (!destinationScope.isResolved(scope)) return new Set();
+      return new Set(destinationScope.readRows(scope).map(row => compositeKey(destinationModelId, destinationScope.normalizeRowId(row))));
+    }
+    const destination = config.into as ModelDestination<TStored>;
+    return new Set(
+      ((getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta | undefined)?.ids ?? [])
+        .filter(id => destination.find(parseCompositeKey(id)?.[1] ?? '') !== undefined)
+    );
+  };
+  /** Every registered chain with the destination it depends on; the registry owns selection and pruning. */
+  const materializationChains = function* (): Iterable<MaterializedChain> {
+    for (const scope of registeredScopes.values()) {
+      yield {
+        queryKey: queryKeyOf(bucketKeyOf(scope)),
+        scopeKey: destinationScope ? destinationScope.key(scope) : null,
+        materialized: () => materializedIds(scope)
+      };
+    }
+  };
+  registerMaterializationReconciler({ modelId: destinationModelId, chains: materializationChains });
   const restore = (scope: TScope): ChainMeta | undefined => {
     const identity = bucketKeyOf(scope);
     const client = getDbQueryClient();

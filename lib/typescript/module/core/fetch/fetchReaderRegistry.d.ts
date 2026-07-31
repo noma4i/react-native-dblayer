@@ -1,5 +1,7 @@
 import type { QueryKey } from '@tanstack/react-query';
-import type { ActiveFetchReader } from '../../types';
+import type { ActiveFetchReader, MaterializationReconciler } from '../../types';
+/** Register one query so committed materialization loss can prune its chain; returns the release callback. */
+export declare const registerMaterializationReconciler: (reconciler: MaterializationReconciler) => (() => void);
 /** Register one live query/fetch reader for loss-driven refetch and foreground resume; returns the release callback. */
 export declare const registerActiveFetchReaders: (reader: ActiveFetchReader) => (() => void);
 /** Refetch every active reader of one query key: invalidation stays lazy for keys nobody is reading. */

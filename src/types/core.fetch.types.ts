@@ -9,6 +9,23 @@ export type ActiveFetchReader = {
   refetch(): Promise<void>;
 };
 
+/**
+ * One query registered for committed materialization loss. Freshness is only valid while the applied
+ * result is still materialized: ids whose row was destroyed, and ids whose row survived but left the
+ * destination scope, are both pruned from the chain, and a chain that keeps nothing goes stale.
+ */
+export type MaterializationReconciler = {
+  modelId: string;
+  /** Every registered chain of this query, each able to report what its destination still materializes. */
+  chains(): Iterable<MaterializedChain>;
+};
+
+/**
+ * One registered scope of a query: its cache key, the destination scope it depends on (`null` for a
+ * model destination, which depends on row presence alone) and the composite row ids still held.
+ */
+export type MaterializedChain = { queryKey: QueryKey; scopeKey: string | null; materialized(): ReadonlySet<string> };
+
 /** Query-invalidation callback registered per model. */
 export type InvalidateFn = (scope?: unknown) => void;
 
