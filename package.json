@@ -41,6 +41,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-jest-shards.mjs",
     "test:coverage": "node scripts/run-jest-shards.mjs --coverage",
+    "test:mutation": "gtimeout 180 stryker run",
     "lint": "eslint .",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
     "clean": "rm -rf lib",

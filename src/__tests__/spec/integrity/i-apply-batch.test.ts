@@ -6,7 +6,7 @@ import { createCommitBus } from '../../../core/apply/commitBus';
 import { createJournal } from '../../../core/apply/journal';
 import { encodePersistence } from '../../../core/persistenceCodec';
 import { createModelStore, registerModelStoreFactory } from '../../../core/store';
-import type { ApplyTarget, CheckpointScheduler, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../../types';
+import type { ApplyTarget, CheckpointScheduler, Dependency, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../../types';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -139,6 +139,62 @@ describe('apply pipeline batching', () => {
     expect(bus.activeDependencies()).toEqual([]);
     subscription.unsubscribe();
     expect(bus.subscriberCount()).toBe(0);
+  });
+
+  it('matches every commit dependency dimension without cross-notifying', () => {
+    setup();
+    const bus = createCommitBus();
+    const notified: string[] = [];
+    const allBatches = jest.fn();
+    const subscribe = (name: string, dependency: Dependency) =>
+      bus.subscribe(() => notified.push(name), [dependency]);
+    const publish = (batch: IncrementalCommitBatch, expected: string[]) => {
+      notified.length = 0;
+      allBatches.mockClear();
+      bus.publish(batch);
+      expect(notified.sort()).toEqual([...expected].sort());
+      expect(allBatches).toHaveBeenCalledTimes(batch.rows.length || batch.scopes.length || batch.pending?.length ? 1 : 0);
+    };
+
+    bus.subscribeAll(allBatches);
+    subscribe('row-all', { kind: 'row', model: MODEL, id: 'row-1' });
+    subscribe('row-body', { kind: 'row', model: MODEL, id: 'row-1', fields: ['body'] });
+    subscribe('row-title', { kind: 'row', model: MODEL, id: 'row-1', fields: ['title'] });
+    subscribe('model', { kind: 'model', model: MODEL });
+    subscribe('scope', { kind: 'scope', model: MODEL, scopeKey: 'scope-1' });
+    subscribe('pending', { kind: 'pending', model: MODEL, id: 'row-1' });
+
+    publish({ rows: [], scopes: [] }, []);
+    publish({ rows: [{ model: 'OtherModel', id: 'row-1', fields: null }], scopes: [] }, []);
+    publish({ rows: [{ model: MODEL, id: 'row-2', fields: null }], scopes: [] }, ['model']);
+    publish({ rows: [{ model: MODEL, id: 'row-1', fields: ['body'] }], scopes: [] }, ['model', 'row-all', 'row-body']);
+    publish({ rows: [{ model: MODEL, id: 'row-1', fields: null }], scopes: [] }, ['model', 'row-all', 'row-body', 'row-title']);
+    publish({ rows: [], scopes: [{ model: MODEL, scopeKey: 'other-scope' }] }, ['model']);
+    publish({ rows: [], scopes: [{ model: 'OtherModel', scopeKey: 'scope-1' }] }, []);
+    publish({ rows: [], scopes: [{ model: MODEL, scopeKey: 'scope-1' }] }, ['model', 'scope']);
+    publish({ rows: [], scopes: [], pending: [{ model: MODEL, id: 'row-2' }] }, []);
+    publish({ rows: [], scopes: [], pending: [{ model: 'OtherModel', id: 'row-1' }] }, []);
+    publish({ rows: [], scopes: [], pending: [{ model: MODEL, id: 'row-1' }] }, ['pending']);
+  });
+
+  it('keeps a sibling model subscriber indexed while dependencies and subscriptions change', () => {
+    setup();
+    const bus = createCommitBus();
+    const first = jest.fn();
+    const second = jest.fn();
+    const firstSubscription = bus.subscribe(first, [{ kind: 'model', model: MODEL }]);
+    const secondSubscription = bus.subscribe(second, [{ kind: 'model', model: MODEL }]);
+
+    firstSubscription.unsubscribe();
+    bus.publish({ rows: [{ model: MODEL, id: 'row-1', fields: null }], scopes: [] });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+
+    secondSubscription.setDeps([{ kind: 'model', model: 'OtherModel' }]);
+    bus.publish({ rows: [{ model: MODEL, id: 'row-2', fields: null }], scopes: [] });
+    expect(second).toHaveBeenCalledTimes(1);
+    bus.publish({ rows: [{ model: 'OtherModel', id: 'row-2', fields: null }], scopes: [] });
+    expect(second).toHaveBeenCalledTimes(2);
   });
 
   it('applies entity work before scope membership inside one commit', () => {
@@ -299,8 +355,24 @@ describe('apply pipeline batching', () => {
       return null;
     };
 
-    expect(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [null, {}] }]).entityOps).toEqual([]);
-    expect(previousRows).toEqual([undefined, undefined]);
+    expect(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [null, {}, 17, 'raw'] }]).entityOps).toEqual([]);
+    expect(previousRows).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('passes a merge base only for replacement upserts', () => {
+    const { mock } = setup();
+    const mergeBases: Array<StoredRow | undefined> = [];
+    mock.target.prepareUpsert = (_incoming, _previous, _origin, mergeBase) => {
+      mergeBases.push(mergeBase);
+      return null;
+    };
+
+    createCommitEnvelope([
+      { kind: 'upsert', model: MODEL, rows: [{ id: 'event-row' }], origin: 'event', mergeBase: { id: 'wrong-base' } } as unknown as WriteOp,
+      { kind: 'upsert', model: MODEL, rows: [{ id: 'replace-row' }], origin: 'replace', mergeBase: { id: 'right-base' } }
+    ]);
+
+    expect(mergeBases).toEqual([undefined, { id: 'right-base' }]);
   });
 
   it('plans dependent destroys against the row overlay and ignores malformed stored identities', () => {

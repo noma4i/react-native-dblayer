@@ -1,3 +1,4 @@
+import { encodePersistence } from '../../testApi';
 import { createCheckpointScheduler } from '../../../core/apply/checkpoint';
 import type { CheckpointTarget } from '../../../types';
 import { createMemoryPlane } from '../helpers/harness';
@@ -20,6 +21,49 @@ const setup = (maxPendingPlans = 10) => {
 };
 
 describe('checkpoint scheduler pacing', () => {
+  it('writes nothing without a model or when maintenance produces no entries', () => {
+    const storage = createMemoryPlane();
+    const write = jest.spyOn(storage, 'set');
+    const scheduler = createCheckpointScheduler({
+      storage,
+      prefix: () => 'checkpoint:',
+      getTarget: () => ({ persistEntries: () => [], ackPersist: jest.fn() }),
+      delayMs: 10_000,
+      maxPendingPlans: 100
+    });
+
+    scheduler.flushNow();
+    scheduler.noteMaintenance(['Rows']);
+    scheduler.flushNow();
+
+    expect(write).not.toHaveBeenCalled();
+    expect(scheduler.pendingPlans()).toBe(0);
+  });
+
+  it('preserves a dirty epoch through maintenance and writes marker-only checkpoints', () => {
+    const storage = createMemoryPlane();
+    const write = jest.spyOn(storage, 'set');
+    const target: CheckpointTarget = { persistEntries: () => [], ackPersist: jest.fn() };
+    const scheduler = createCheckpointScheduler({
+      storage,
+      prefix: () => 'checkpoint:',
+      getTarget: () => target,
+      delayMs: 10_000,
+      maxPendingPlans: 100
+    });
+
+    scheduler.notePlan(['Rows'], 7);
+    scheduler.noteMaintenance(['Rows']);
+    scheduler.flushNow();
+
+    expect(write).toHaveBeenCalledWith([
+      { key: 'checkpoint:applied:Rows', value: encodePersistence(7) },
+      { key: 'checkpoint:meta', value: encodePersistence({ lastCheckpointEpoch: 7 }) }
+    ]);
+    expect(target.ackPersist).toHaveBeenCalledTimes(1);
+    expect(scheduler.flushedEpoch()).toBe(7);
+  });
+
   it('keeps the pending-plan backlog when a flush write fails', () => {
     const storage = createMemoryPlane();
     const scheduler = createCheckpointScheduler({

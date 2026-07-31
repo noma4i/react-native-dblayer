@@ -32,7 +32,10 @@
   "ignorePatterns": ["example", "lib", "docs", "reports", ".yarn", ".githooks", "coverage", "*.log"],
   "tempDirName": ".stryker-tmp",
   "cleanTempDir": true,
-  "reporters": ["progress", "json"],
+  "reporters": ["progress", "json", "event-recorder"],
+  "eventReporter": {
+    "baseDir": "reports/mutation/events"
+  },
   "jsonReporter": {
     "fileName": "reports/mutation/full.json"
   },
