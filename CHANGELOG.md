@@ -1,5 +1,20 @@
 # Changelog
 
+## 10.0.0-beta.5 - 2026-07-31
+
+### Added
+
+- Write groups accept `policy: 'local'` for fields that may be created and patched locally but must survive every server snapshot and optimistic identity replacement. This replaces consumer continuity and monotonic workarounds for client-owned fields.
+
+### Fixed
+
+- Entity rows and relation memberships publish as one store transition, so live relations observe only the final identity after optimistic replacement instead of an intermediate missing row.
+- Replace transitions apply local, continuity, snapshot, and nested-key write policies before removing the prior identity.
+- Insert actions without an optimistic builder commit the row selected from the server response.
+- Custom `rowId` extraction normalizes query results, relation landings, mutation responses, and inverse plans through the model field codecs.
+- Relation `by` keys reject both missing and null mapped values before creating an incomplete scope identity.
+- Empty page connections resolve to an empty result instead of being interpreted as a model row.
+
 ## 10.0.0-beta.4 - 2026-07-31
 
 ### Fixed
