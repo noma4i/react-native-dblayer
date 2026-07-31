@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.0.0-beta.3 - 2026-07-31
+
+### Added
+
+- `scalar.<kind>.read(value)` and `scalar.<kind>.require(value, label)` expose the model field codecs for individual transport values, including `scalar.enum(values)`, and replace consumer-owned one-field shape wrappers such as yupi_v2 `transportScalars.ts`.
+
 ## 10.0.0-beta.2 - 2026-07-31
 
 ### Fixed
