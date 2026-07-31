@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, bootDb, configureDb, defineModelRuntime, encodePersistence, f } from '../../testApi';
+import { DbProvider, bootDb, compositeKey, configureDb, defineModelRuntime, encodePersistence, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -178,7 +178,7 @@ describe('reader-level reboot round-trip', () => {
  */
 describe('restored chain metadata guard', () => {
   let variantSeq = 0;
-  const violations: Array<[string, (payload: Record<string, unknown>) => unknown]> = [
+  const violations: Array<[string, (payload: Record<string, unknown>, modelId: string) => unknown]> = [
     ['a string lastCount', payload => ({ ...payload, lastCount: '1' })],
     ['a fractional lastCount', payload => ({ ...payload, lastCount: 1.5 })],
     ['a negative lastCount', payload => ({ ...payload, lastCount: -1 })],
@@ -190,7 +190,11 @@ describe('restored chain metadata guard', () => {
     ['a non-array ids value', payload => ({ ...payload, ids: 'r-1' })],
     ['a numeric ids entry', payload => ({ ...payload, ids: [...(payload.ids as string[]), 7] })],
     ['an unknown resultKind', payload => ({ ...payload, resultKind: 'weird' })],
-    ['a non-record payload', () => 7]
+    ['a non-record payload', () => 7],
+    // Mixed valid + invalid ids: one surviving id must not carry a chain whose other id is broken.
+    // The foreign entry reuses a LIVE row id, so only the model-prefix check can reject it.
+    ['one id beside a foreign-model id', (payload, modelId) => ({ ...payload, ids: [...(payload.ids as string[]), compositeKey(`${modelId}Foreign`, 'm-1')] })],
+    ['one id beside a ghost-membership id', (payload, modelId) => ({ ...payload, ids: [...(payload.ids as string[]), compositeKey(modelId, 'ghost-1')] })]
   ];
 
   it.each(violations)('refetches instead of restoring a record whose chain metadata has %s', async (_label, corrupt) => {
@@ -241,7 +245,7 @@ describe('restored chain metadata guard', () => {
     const [recordKey, ...extraKeys] = storage.snapshotKeys().filter(key => key.startsWith('dbl:query'));
     expect(extraKeys).toEqual([]);
     const envelope = JSON.parse(storage.get(recordKey!)!) as { schemaVersion: number; payload: Record<string, unknown> };
-    const corrupted = { ...envelope.payload, payload: corrupt(envelope.payload.payload as Record<string, unknown>) };
+    const corrupted = { ...envelope.payload, payload: corrupt(envelope.payload.payload as Record<string, unknown>, modelId) };
     storage.set([{ key: recordKey!, value: encodePersistence(corrupted, envelope.schemaVersion) }]);
 
     const secondQuery = buildRuntime();
