@@ -37,6 +37,18 @@ export class SyncFeed<T extends object> {
   }
 }
 
+/**
+ * Lifetime of every collection this package creates. The store that created a collection is the
+ * only thing that ends its life: rows leave memory when the store evicts them - GC, reset, or
+ * dispose - and at no other moment.
+ *
+ * The collection library otherwise runs its own retention timer and clears a collection that spent
+ * `gcTime` with no subscriber. Two things break when that fires behind the store: the rows are gone
+ * while the app still holds them, and every index built over the collection keeps its keys, so a
+ * lookup then names rows the collection no longer holds.
+ */
+export const OWNED_COLLECTION_LIFETIME = { gcTime: Infinity } as const;
+
 let applyBatchDepth = 0;
 let applyBatchFailed = false;
 let storeReadsPoisoned = false;

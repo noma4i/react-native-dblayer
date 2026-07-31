@@ -2,7 +2,7 @@ import { BasicIndex, createCollection, createLiveQueryCollection, eq, type Chang
 import { compareCodepoints, compositeKey } from './serialize';
 import { noteMembershipWrites } from './diagnostics';
 import type { ScopePlane, ScopePlaneOptions, StoreMembershipRow, StoreScopeChange, StoreScopeSyncChange } from '../types';
-import { afterStoreTransaction, isInStoreTransaction, SyncFeed, assertStoreReadable } from './storeSync';
+import { afterStoreTransaction, isInStoreTransaction, OWNED_COLLECTION_LIFETIME, SyncFeed, assertStoreReadable } from './storeSync';
 
 const membershipKey = (scopeKey: string, entityId: string): string => compositeKey(scopeKey, entityId);
 
@@ -16,6 +16,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
   const { modelId, storeId, entities, readCommitted, isReady } = options;
   const membershipFeed = new SyncFeed<StoreMembershipRow>();
   const memberships = createCollection<StoreMembershipRow>({
+    ...OWNED_COLLECTION_LIFETIME,
     id: `dblayer-${modelId}-memberships-${storeId}`,
     getKey: row => membershipKey(row.scopeKey, row.entityId),
     startSync: true,
@@ -26,6 +27,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
   const scopeCollections = new Map<string, { collection: ReturnType<typeof buildScopeCollection>; consumers: number }>();
   const buildScopeCollection = (scopeKey: string) =>
     createLiveQueryCollection({
+      ...OWNED_COLLECTION_LIFETIME,
       id: `dblayer-${modelId}-scope-${storeId}-${scopeKey}`,
       startSync: true,
       query: q =>

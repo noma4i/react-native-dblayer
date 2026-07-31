@@ -4,7 +4,7 @@ import { noteDataLoss, noteEntityUpsertGuardHit } from './diagnostics';
 import type { EntityPlane, EntityPlaneOptions, RowRecord, Tombstone } from '../types';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../utils/normalizeHelpers';
-import { SyncFeed, assertStoreReadable, enqueueBatchParticipant, isInApplyBatch, removeBatchParticipant } from './storeSync';
+import { OWNED_COLLECTION_LIFETIME, SyncFeed, assertStoreReadable, enqueueBatchParticipant, isInApplyBatch, removeBatchParticipant } from './storeSync';
 import { createUpsertResolver, diffTopLevelFields, isSerializedNoop } from './storeUpsertResolver';
 
 /**
@@ -48,6 +48,7 @@ export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
   const { previewUpsert } = createUpsertResolver(options);
   const entityFeed = new SyncFeed<RowRecord>();
   const entities = createCollection<RowRecord>({
+    ...OWNED_COLLECTION_LIFETIME,
     id: `dblayer-${modelId}-entities-${storeId}`,
     getKey: row => row.id,
     startSync: true,
