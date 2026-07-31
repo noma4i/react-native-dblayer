@@ -95,6 +95,7 @@ export const readPersistedQueryFamily = (
     if (
       decoded.kind !== 'ok' ||
       decoded.value.family !== declaration.family ||
+      key !== recordKey(declaration.family, decoded.value.identity) ||
       decoded.value.persistenceVersion !== declaration.persistenceVersion ||
       decoded.value.fingerprint !== declaration.fingerprint
     ) {

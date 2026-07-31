@@ -103,6 +103,26 @@ describe('query persistence records', () => {
     ]);
   });
 
+  it('removes a family record whose declared identity does not match its storage key', () => {
+    const storage = createMemoryPlane();
+    configureDb({
+      storage,
+      transport: createMockTransport(),
+      defaults: { inSessionGc: false }
+    });
+    const forgedKey = keyOf(declaration.family, 'physical-identity');
+    storage.set([
+      {
+        key: forgedKey,
+        value: encodePersistence(record({ identity: 'declared-identity' }))
+      }
+    ]);
+
+    expect(readPersistedQueryFamily(declaration)).toEqual([]);
+    expect(storage.get(forgedKey)).toBeUndefined();
+    expect(storage.get(keyOf(declaration.family, 'declared-identity'))).toBeUndefined();
+  });
+
   it('ignores a disappeared family key and rejects non-JSON scope and payload values', () => {
     const base = createMemoryPlane();
     const ghostKey = keyOf(declaration.family, 'ghost');

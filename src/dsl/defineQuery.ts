@@ -89,6 +89,7 @@ const isChainMeta = (value: unknown): value is ChainMeta =>
   Array.isArray(value.ids) &&
   value.ids.every(id => typeof id === 'string') &&
   (value.resultKind === 'one' || value.resultKind === 'many');
+const isEmptyChain = (value: ChainMeta): boolean => value.ids.length === 0;
 /** Fail fast at define time, then rewrite the `connection` shorthand into the one `page` seam - dense nodes, pageInfo passthrough. */
 const normalizeQueryConfig = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>): QueryConfig<TResponse, TVars, TScope, TStored> => {
   const readConnection = config.connection;
@@ -206,7 +207,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   };
   const persist = (scope: TScope, meta: ChainMeta): void => {
     const identity = bucketKeyOf(scope);
-    const empty = meta.lastCount === 0;
+    const empty = isEmptyChain(meta);
     if (persistenceWindow(empty) === null) {
       removePersistedQuery(persistenceDeclaration, identity);
       return;
@@ -293,7 +294,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const staleTimeOf = (key: string): number => {
     const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
     const defaults = getDbRuntimeConfig().defaults;
-    return meta?.lastCount === 0 && (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime) != null
+    return meta !== undefined && isEmptyChain(meta) && (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime) != null
       ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime)!
       : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };

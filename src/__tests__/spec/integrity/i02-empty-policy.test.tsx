@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineFetch, defineModelRuntime, f } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, setupSpecRuntime, settle } from '../helpers/harness';
 
 type Item = { id: string; bucket: string };
 type QueryResponse = { items: { nodes: Item[]; pageInfo: { hasNextPage: false; endCursor: null } } };
@@ -101,6 +101,55 @@ describe('empty result freshness policy', () => {
     await mountTwice(testCase.Reader);
 
     expect(testCase.calls()).toBe(1);
+  });
+
+  it('keeps an accumulated connection fresh when only its final page is empty', async () => {
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async () => {
+        calls += 1;
+        return {
+          data: {
+            items:
+              calls === 1
+                ? { nodes: [{ id: 'item-1', bucket: 'A' }], pageInfo: { hasNextPage: true, endCursor: 'next' } }
+                : { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } }
+          }
+        } as never;
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const items = defineModelRuntime({
+      id: 'SpecEmptyQueryAccumulatedConnection',
+      name: 'SpecEmptyQueryAccumulatedConnection',
+      fields: { bucket: f.str() },
+      scopes: { byBucket: ({ sort: 'server-order' }) }
+    });
+    const query = items.query<QueryResponse, { after?: string }, { bucket: string }, Item>('list', {
+      document,
+      vars: () => ({}),
+      page: data => data.items,
+      into: items.scopes.byBucket,
+      coverage: 'page',
+      staleTime: 60 * 60 * 1000,
+      emptyStaleTime: 0
+    });
+    const first = renderCountedInProvider(() => query.use({ bucket: 'A' }));
+    await settle();
+    await settle(1, { macro: true });
+    act(() => {
+      first.result().fetchNextPage();
+    });
+    await settle();
+    await settle(1, { macro: true });
+    first.unmount();
+
+    const second = renderCountedInProvider(() => query.use({ bucket: 'A' }));
+    await settle();
+    await settle(1, { macro: true });
+    second.unmount();
+
+    expect(calls).toBe(2);
   });
 
   it('refetches an empty direct-model query immediately on the next mount', async () => {
