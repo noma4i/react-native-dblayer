@@ -99,4 +99,74 @@ describe('reader-level reboot round-trip', () => {
     expect(calls).toBe(1);
     act(() => secondRoot.unmount());
   });
+
+  it('carries an invalidate issued before the restart into a refetch after it', async () => {
+    const storage = createMemoryPlane();
+    let calls = 0;
+    const respond = <TData,>(): Promise<{ data: TData }> => {
+      calls += 1;
+      return Promise.resolve({ data: { rows: [{ id: `m-${calls}`, chatId: 'chat-1', seq: calls, text: `page-${calls}` }] } as TData });
+    };
+    const buildRuntime = () => {
+      configureDb({ storage, transport: createMockTransport({ query: respond }) });
+      const messages = defineModelRuntime({
+        id: 'SpecRebootInvalidate',
+        name: 'SpecRebootInvalidate',
+        fields: { chatId: f.str(), seq: f.num(), text: f.str() },
+        scopes: { thread: ({ by: { chatId: 'chatId' } }) }
+      });
+      const threadQuery = messages.query<Response, { chatId: string }, { chatId: string }, Row>('thread', {
+        document,
+        vars: scopeValue => ({ chatId: scopeValue.chatId }),
+        select: data => data.rows,
+        into: messages.scopes.thread,
+        coverage: 'page',
+        staleTime: 60_000
+      });
+      return { threadQuery };
+    };
+
+    const first = buildRuntime();
+    await act(async () => {
+      await bootDb();
+    });
+    const FirstReader = () => {
+      first.threadQuery.use({ chatId: 'chat-1' });
+      return null;
+    };
+    let firstRoot!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      firstRoot = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(FirstReader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+    expect(calls).toBe(1);
+    act(() => firstRoot.unmount());
+
+    // Nobody is mounted: the invalidate can only reach the durable record.
+    act(() => {
+      first.threadQuery.invalidate({ chatId: 'chat-1' });
+    });
+
+    const second = buildRuntime();
+    await act(async () => {
+      await bootDb();
+    });
+    const SecondReader = () => {
+      second.threadQuery.use({ chatId: 'chat-1' });
+      return null;
+    };
+    let secondRoot!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      secondRoot = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(SecondReader)));
+    });
+    await act(async () => {
+      await settle();
+    });
+
+    // The persisted record restored as invalidated, so the fresh window did not silence the refetch.
+    expect(calls).toBe(2);
+    act(() => secondRoot.unmount());
+  });
 });
