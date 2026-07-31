@@ -1,4 +1,4 @@
-import { SyncFeed } from '../../testApi';
+import { afterStoreTransaction, runInStoreTransaction, SyncFeed } from '../../testApi';
 import { createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection } from '../../../core/store';
 import { keysForSequence } from '../../../core/orderKey';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';
@@ -323,14 +323,26 @@ describe('model store', () => {
     const publish = jest.fn();
     publishProjectedBatch(
       { publish },
-      {
+      () => ({
         rows: [{ model: modelId, id: 'row-1', fields: null, kind: 'upsert' }],
         scopes: [],
         mode: 'delta'
-      }
+      })
     );
 
     expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs store completion immediately outside a boundary and after the outermost boundary', () => {
+    const order: string[] = [];
+    afterStoreTransaction(() => order.push('outside'));
+    runInStoreTransaction(() => {
+      afterStoreTransaction(() => order.push('outer'));
+      runInStoreTransaction(() => afterStoreTransaction(() => order.push('nested')));
+      order.push('body');
+    });
+
+    expect(order).toEqual(['outside', 'body', 'outer', 'nested']);
   });
 });
 

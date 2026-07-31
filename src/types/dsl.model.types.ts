@@ -141,6 +141,7 @@ export type ModelRuntimeRegistrationOptions<TStored extends { id: string; update
       protect?: () => (row: TStored) => boolean;
     }>;
   };
+  normalize(input: unknown): TStored;
   applySnapshot(ops: WriteOp[]): void;
   planRows(rows: unknown[]): WriteOp[];
   planReplace(oldId: string, next: unknown): WriteOp[];

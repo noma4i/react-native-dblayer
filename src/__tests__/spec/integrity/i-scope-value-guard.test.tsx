@@ -27,7 +27,7 @@ const createQuery = (rows: ReturnType<typeof createRows>, vars: (scopeValue: { a
   });
 
 describe('by-scope value guard', () => {
-  it('rejects missing and undefined by fields synchronously at every scope entry point', () => {
+  it('rejects missing and nullish by fields synchronously at every scope entry point', () => {
     setupSpecRuntime();
     const rows = createRows('Invalid');
 
@@ -36,6 +36,7 @@ describe('by-scope value guard', () => {
     expect(() => renderCounted(() => rows.scopes.byAccount.useWindow({ accountId: undefined } as never))).toThrow(
       'ScopeValueGuardInvalid.byAccount: scope value must provide accountId'
     );
+    expect(() => rows.scopes.byAccount.read({ accountId: null } as never)).toThrow('ScopeValueGuardInvalid.byAccount: scope value must provide accountId');
   });
 
   it('keeps null reads disabled without reading the root bucket', () => {

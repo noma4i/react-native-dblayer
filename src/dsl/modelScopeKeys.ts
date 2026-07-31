@@ -34,7 +34,7 @@ export const createModelScopeKeys = (
     const by = scopeByFieldMap.get(scopeName);
     if (!by || scopeValue === null) return true;
     if (!isRecord(scopeValue)) return false;
-    return Object.keys(by).every(field => scopeValue[field] !== undefined);
+    return Object.keys(by).every(field => scopeValue[field] !== undefined && scopeValue[field] !== null);
   };
   const isScopeValueComplete = (scopeName: string, scopeValue: unknown): boolean =>
     isNormalizedScopeValueComplete(scopeName, normalizeScopeValue(scopeName, scopeValue));
@@ -42,7 +42,7 @@ export const createModelScopeKeys = (
     const normalized = normalizeScopeValue(scopeName, scopeValue);
     if (!isNormalizedScopeValueComplete(scopeName, normalized)) {
       const by = scopeByFieldMap.get(scopeName)!;
-      const missing = Object.keys(by).find(field => !isRecord(normalized) || normalized[field] === undefined)!;
+      const missing = Object.keys(by).find(field => !isRecord(normalized) || normalized[field] === undefined || normalized[field] === null)!;
       throw new Error(`${config.name}.${scopeName}: scope value must provide ${missing}`);
     }
     return compositeKey(scopeName, buildScopeKey(normalized));

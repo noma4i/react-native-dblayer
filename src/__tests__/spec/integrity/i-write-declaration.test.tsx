@@ -84,7 +84,7 @@ describe('model-owned write declarations', () => {
     expect(chats.find('chat-1')?.pinned).toBe(false);
   });
 
-  it('keeps media guards for event ingest but lets commit replacement use server values', async () => {
+  it('keeps media guards for event ingest and commit replacement', async () => {
     const server = { id: 'server-1', body: 'server body', media: { width: 0, height: 0, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' } };
     const optimistic = { body: 'optimistic body', media: { width: 320, height: 240, fileUrl: 'file:///local.mp4', blurHash: null } };
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: server } } as TData }) });
@@ -108,7 +108,7 @@ describe('model-owned write declarations', () => {
     evented.insert({ id: 'event-1', ...optimistic });
     evented.ingest({ received: { handler: () => ({ upsert: { ...server, id: 'event-1' } }) } }).apply('received', {});
 
-    expect(committed.find('server-1')?.media).toEqual({ width: 0, height: 0, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' });
+    expect(committed.find('server-1')?.media).toEqual({ width: 320, height: 240, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' });
     expect(evented.find('event-1')?.media).toEqual({ width: 320, height: 240, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' });
   });
 

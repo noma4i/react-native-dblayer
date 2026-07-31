@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, defineShape, f } from '../../testApi';
+import { configureDb, defineModelRuntime, defineShape, f, getInternalScopeHandle, storeScopeCollection } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -115,5 +115,64 @@ describe('replace atomicity and merge-gate contracts', () => {
     expect(messages.find('message-server')).toMatchObject({ body: 'server body', media: { fileUrl: 'https://cdn/file.mp4' } });
     expect(reader.result().map((row: any) => row.id)).toEqual(['message-server']);
     reader.unmount();
+  });
+
+  it('publishes identity replacement to the live scope as one final-state tick', async () => {
+    let resolveResponse!: (value: { data: unknown }) => void;
+    const response = new Promise<{ data: unknown }>(resolve => {
+      resolveResponse = resolve;
+    });
+    const transport = createMockTransport({
+      mutation: async <TData,>() => (await response) as { data: TData }
+    });
+    const serverResponse = {
+      data: {
+        send: {
+          message: {
+            id: 'message-server',
+            chatId: 'chat-1',
+            body: 'server body',
+            media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'https://cdn/file.mp4' }
+          }
+        }
+      }
+    };
+    configureDb({ storage: createMemoryPlane(), transport });
+    const messages = createThreadMessages('ReplaceSingleTick');
+    let tempId = '';
+    const send = messages.mutation('send-single-tick', {
+      document,
+      result: 'send',
+      optimistic: {
+        model: messages,
+        build: (_input: Record<string, never>, context: { tempId: string | null }) => {
+          tempId = context.tempId!;
+          return {
+            id: tempId,
+            chatId: 'chat-1',
+            body: 'optimistic body',
+            media: { id: 'media-1', transcodeStatus: 'processing', fileUrl: 'file:///spool.mp4' }
+          };
+        },
+        selectServerNode: (data: any) => data.send.message
+      }
+    });
+    await act(async () => {
+      const pending = send.run({});
+      await Promise.resolve();
+      const scope = messages.scopes.thread;
+      const scopeKey = getInternalScopeHandle(scope).key({ chatId: 'chat-1' });
+      const source = storeScopeCollection(messages.modelId, scopeKey);
+      const ticks: string[][] = [];
+      const unsubscribe = source.subscribe(() => ticks.push(source.toArray().flatMap(row => (typeof row.id === 'string' ? [row.id] : []))));
+      try {
+        resolveResponse(serverResponse);
+        await pending;
+      } finally {
+        unsubscribe();
+      }
+
+      expect(ticks).toEqual([['message-server']]);
+    });
   });
 });

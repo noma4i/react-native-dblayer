@@ -1,1 +1,1 @@
-{"version":3,"file":"storeScopeCollections.d.ts","sourceRoot":"","sources":["../../../../src/core/storeScopeCollections.ts"],"names":[],"mappings":"AAGA,OAAO,KAAK,EAAE,UAAU,EAAE,iBAAiB,EAA8D,MAAM,UAAU,CAAC;AAW1H,eAAO,MAAM,gBAAgB,GAAI,SAAS,iBAAiB,KAAG,UA0H7D,CAAC"}
+{"version":3,"file":"storeScopeCollections.d.ts","sourceRoot":"","sources":["../../../../src/core/storeScopeCollections.ts"],"names":[],"mappings":"AAGA,OAAO,KAAK,EAAE,UAAU,EAAE,iBAAiB,EAA8D,MAAM,UAAU,CAAC;AAW1H,eAAO,MAAM,gBAAgB,GAAI,SAAS,iBAAiB,KAAG,UAiJ7D,CAAC"}

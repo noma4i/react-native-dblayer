@@ -2,7 +2,7 @@ import { BasicIndex, createCollection, createLiveQueryCollection, eq, type Chang
 import { compareCodepoints, compositeKey } from './serialize';
 import { noteMembershipWrites } from './diagnostics';
 import type { ScopePlane, ScopePlaneOptions, StoreMembershipRow, StoreScopeChange, StoreScopeSyncChange } from '../types';
-import { SyncFeed, assertStoreReadable } from './storeSync';
+import { afterStoreTransaction, isInStoreTransaction, SyncFeed, assertStoreReadable } from './storeSync';
 
 const membershipKey = (scopeKey: string, entityId: string): string => compositeKey(scopeKey, entityId);
 
@@ -110,8 +110,31 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
       subscribe: listener => {
         const entry = getScopeCollection(scopeKey);
         entry.consumers += 1;
-        const subscription = entry.collection.subscribeChanges(changes => listener(changes as StoreScopeChange[]), { includeInitialState: false });
+        let released = false;
+        let scheduled = false;
+        let pending: StoreScopeChange[] = [];
+        const subscription = entry.collection.subscribeChanges(
+          changes => {
+            const next = changes as StoreScopeChange[];
+            if (!isInStoreTransaction()) {
+              listener(next);
+              return;
+            }
+            pending.push(...next);
+            if (scheduled) return;
+            scheduled = true;
+            afterStoreTransaction(() => {
+              scheduled = false;
+              const batch = pending;
+              pending = [];
+              if (!released && batch.length > 0) listener(batch);
+            });
+          },
+          { includeInitialState: false }
+        );
         return () => {
+          released = true;
+          pending = [];
           subscription.unsubscribe();
           releaseScopeCollection(scopeKey, entry);
         };

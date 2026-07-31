@@ -2,7 +2,7 @@ import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
 import { isIncomingNewer } from '../../../core/invariants';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
-describe('v9 model-owned write policies', () => {
+describe('model-owned write policies', () => {
   beforeEach(() => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
   });
@@ -32,8 +32,8 @@ describe('v9 model-owned write policies', () => {
 
   it('rejects an invalid or older newerBy timestamp and accepts a newer timestamp', () => {
     const rows = defineModelRuntime({
-      id: 'V9NewerBy',
-      name: 'V9NewerBy',
+      id: 'PolicyNewerBy',
+      name: 'PolicyNewerBy',
       fields: { updatedAt: f.str(), body: f.str() },
       write: { groups: [{ fields: ['updatedAt', 'body'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
     });
@@ -49,8 +49,8 @@ describe('v9 model-owned write policies', () => {
 
   it('restores a field the previous row never had by omission on monotonic rejection', () => {
     const rows = defineModelRuntime({
-      id: 'V9RejectMissingField',
-      name: 'V9RejectMissingField',
+      id: 'PolicyRejectMissingField',
+      name: 'PolicyRejectMissingField',
       fields: { updatedAt: f.str(), body: f.str().optional(), label: f.str() },
       write: { groups: [{ fields: ['updatedAt', 'body'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
     });
@@ -64,8 +64,8 @@ describe('v9 model-owned write policies', () => {
 
   it('restores a field the previous row never had by omission under continuity', () => {
     const rows = defineModelRuntime({
-      id: 'V9ContinuityMissingField',
-      name: 'V9ContinuityMissingField',
+      id: 'PolicyContinuityMissingField',
+      name: 'PolicyContinuityMissingField',
       fields: { body: f.str().nullable().optional(), label: f.str() },
       write: { groups: [{ fields: ['body'] as const, policy: 'continuity' }] }
     });
@@ -79,8 +79,8 @@ describe('v9 model-owned write policies', () => {
 
   it('restores a nested key the previous object never had by omission under a nested continuity policy', () => {
     const rows = defineModelRuntime({
-      id: 'V9NestedMissingKey',
-      name: 'V9NestedMissingKey',
+      id: 'PolicyNestedMissingKey',
+      name: 'PolicyNestedMissingKey',
       fields: { meta: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['meta'] as const, policy: { keys: { count: 'continuity' } } }] }
     });
@@ -94,8 +94,8 @@ describe('v9 model-owned write policies', () => {
 
   it('accepts both-missing newerBy values but rejects an unparseable incoming value against a valid one', () => {
     const rows = defineModelRuntime({
-      id: 'V9NewerByMissing',
-      name: 'V9NewerByMissing',
+      id: 'PolicyNewerByMissing',
+      name: 'PolicyNewerByMissing',
       fields: { updatedAt: f.raw<string | null>(), body: f.str() },
       write: { groups: [{ fields: ['updatedAt', 'body'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
     });
@@ -110,8 +110,8 @@ describe('v9 model-owned write policies', () => {
 
   it('compares tuple fields numerically before using codepoint ordering', () => {
     const rows = defineModelRuntime({
-      id: 'V9Tuple',
-      name: 'V9Tuple',
+      id: 'PolicyTuple',
+      name: 'PolicyTuple',
       fields: { sequence: f.raw<number | string | null>(), messageId: f.str() },
       write: { groups: [{ fields: ['sequence', 'messageId'] as const, policy: { monotonic: { tuple: ['sequence', 'messageId'] } } }] }
     });
@@ -124,8 +124,8 @@ describe('v9 model-owned write policies', () => {
 
   it('keeps prior values for nullish or empty nonEmpty writes', () => {
     const rows = defineModelRuntime({
-      id: 'V9NonEmpty',
-      name: 'V9NonEmpty',
+      id: 'PolicyNonEmpty',
+      name: 'PolicyNonEmpty',
       fields: { clientId: f.str().nullable() },
       write: { groups: [{ fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }] }
     });
@@ -136,10 +136,10 @@ describe('v9 model-owned write policies', () => {
     expect(rows.find('row-1')?.clientId).toBe('client-1');
   });
 
-  it('preserves media dimensions and sources during events but never during replace', () => {
+  it('preserves guarded media values during events and replace', () => {
     const media = defineModelRuntime({
-      id: 'V9Media',
-      name: 'V9Media',
+      id: 'PolicyMedia',
+      name: 'PolicyMedia',
       fields: { media: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['media'] as const, policy: [{ monotonic: { all: [{ ladder: { path: 'media.status', tiers: [['processing'], ['ready', 'failed', 'completed']] } }, { tuple: ['media.progress'] }] } }, { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty' } }] }] }
     });
@@ -151,12 +151,24 @@ describe('v9 model-owned write policies', () => {
     media.ingest({ received: { handler: () => ({ upsert: { id: 'row-1', media: { width: 2, height: 2, fileUrl: 'https://cdn/regression.mp4', status: 'processing', progress: 99 } } }) } }).apply('received', {});
 
     expect(media.find('row-1')?.media).toMatchObject({ width: 1, height: 1, fileUrl: 'https://cdn/server.mp4', status: 'ready', progress: 100 });
+    media.replace('row-1', {
+      id: 'row-server',
+      media: { width: 0, height: 0, fileUrl: '', status: 'processing', progress: 99 }
+    });
+
+    expect(media.find('row-server')?.media).toMatchObject({
+      width: 1,
+      height: 1,
+      fileUrl: 'https://cdn/server.mp4',
+      status: 'processing',
+      progress: 99
+    });
   });
 
   it('shallow-folds snapshot object fields but lets scalar and null snapshot values replace', () => {
     const rows = defineModelRuntime({
-      id: 'V9Snapshot',
-      name: 'V9Snapshot',
+      id: 'PolicySnapshot',
+      name: 'PolicySnapshot',
       fields: { payload: f.raw<Record<string, unknown>>().nullable() },
       write: { groups: [{ fields: ['payload'] as const, policy: { snapshot: true } }] }
     });
@@ -169,8 +181,8 @@ describe('v9 model-owned write policies', () => {
 
   it('folds the replaced row into a new id when the model has no write groups', () => {
     const rows = defineModelRuntime({
-      id: 'V9ReplaceWithoutPolicies',
-      name: 'V9ReplaceWithoutPolicies',
+      id: 'PolicyReplaceWithoutPolicies',
+      name: 'PolicyReplaceWithoutPolicies',
       fields: { body: f.str(), localUri: f.raw<string | undefined>() }
     });
     rows.insert({ id: 'temporary-id', body: 'optimistic', localUri: 'file:///local.mp4' });
@@ -179,12 +191,13 @@ describe('v9 model-owned write policies', () => {
     expect(rows.find('server-id')).toMatchObject({ body: 'server', localUri: 'file:///local.mp4' });
   });
 
-  it('uses server values for every policy on replace', () => {
+  it('applies structural and local policies while leaving monotonic replace authoritative', () => {
     const rows = defineModelRuntime({
-      id: 'V9ReplacePolicyMatrix',
-      name: 'V9ReplacePolicyMatrix',
+      id: 'PolicyReplacePolicyMatrix',
+      name: 'PolicyReplacePolicyMatrix',
       fields: {
         continuity: f.str().nullable(),
+        local: f.str().nullable(),
         sequence: f.num(),
         payload: f.raw<Record<string, unknown>>(),
         media: f.raw<Record<string, unknown>>()
@@ -192,22 +205,60 @@ describe('v9 model-owned write policies', () => {
       write: {
         groups: [
           { fields: ['continuity'] as const, policy: 'continuity' },
+          { fields: ['local'] as const, policy: 'local' },
           { fields: ['sequence'] as const, policy: { monotonic: { tuple: ['sequence'] } } },
           { fields: ['payload'] as const, policy: { snapshot: true } },
           { fields: ['media'] as const, policy: { keys: { width: 'positive', url: 'nonEmpty' } } }
         ]
       }
     });
-    rows.insert({ id: 'temporary-id', continuity: 'local', sequence: 9, payload: { local: true }, media: { width: 320, url: 'file:///local.mp4' } });
-    rows.replace('temporary-id', { id: 'server-id', continuity: null, sequence: 1, payload: { server: true }, media: { width: 0, url: 'https://cdn/server.mp4' } });
+    rows.insert({
+      id: 'temporary-id',
+      continuity: 'local continuity',
+      local: 'local identity',
+      sequence: 9,
+      payload: { local: true },
+      media: { width: 320, url: 'file:///local.mp4' }
+    });
+    rows.replace('temporary-id', {
+      id: 'server-id',
+      continuity: null,
+      local: null,
+      sequence: 1,
+      payload: { server: true },
+      media: { width: 0, url: '' }
+    });
 
-    expect(rows.find('server-id')).toMatchObject({ continuity: null, sequence: 1, payload: { server: true }, media: { width: 0, url: 'https://cdn/server.mp4' } });
+    expect(rows.find('server-id')).toMatchObject({
+      continuity: 'local continuity',
+      local: 'local identity',
+      sequence: 1,
+      payload: { local: true, server: true },
+      media: { width: 320, url: 'file:///local.mp4' }
+    });
+  });
+
+  it('changes a local field only through a local patch after first insert', () => {
+    const rows = defineModelRuntime({
+      id: 'LocalFieldOwnership',
+      name: 'LocalFieldOwnership',
+      fields: { localKey: f.str().nullable(), body: f.str() },
+      write: { groups: [{ fields: ['localKey'] as const, policy: 'local' }] }
+    });
+    rows.insert({ id: 'row-1', localKey: 'first', body: 'initial' });
+    rows.insert({ id: 'row-1', localKey: 'server', body: 'snapshot' });
+    expect(rows.find('row-1')).toMatchObject({ localKey: 'first', body: 'snapshot' });
+
+    rows.update('row-1', { localKey: 'patched' });
+    rows.ingest({ updated: { handler: () => ({ upsert: { id: 'row-1', localKey: null, body: 'event' } }) } }).apply('updated', {});
+
+    expect(rows.find('row-1')).toMatchObject({ localKey: 'patched', body: 'event' });
   });
 
   it('lets a ladder abstain when either nested stage is absent', () => {
     const rows = defineModelRuntime({
-      id: 'V9LadderAbstain',
-      name: 'V9LadderAbstain',
+      id: 'PolicyLadderAbstain',
+      name: 'PolicyLadderAbstain',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } } } }] }
     });
@@ -220,8 +271,8 @@ describe('v9 model-owned write policies', () => {
 
   it('lets a ladder abstain when the stage is explicitly null, matching the null-as-absent convention', () => {
     const rows = defineModelRuntime({
-      id: 'V9LadderNullAbstain',
-      name: 'V9LadderNullAbstain',
+      id: 'PolicyLadderNullAbstain',
+      name: 'PolicyLadderNullAbstain',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } } } }] }
     });
@@ -232,8 +283,8 @@ describe('v9 model-owned write policies', () => {
 
   it('rejects a lower ladder tier and accepts movement within its current tier', () => {
     const rows = defineModelRuntime({
-      id: 'V9LadderTiers',
-      name: 'V9LadderTiers',
+      id: 'PolicyLadderTiers',
+      name: 'PolicyLadderTiers',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } } } }] }
     });
@@ -246,8 +297,8 @@ describe('v9 model-owned write policies', () => {
 
   it('reports an unknown incoming ladder tier but not an absent incoming tier', () => {
     const rows = defineModelRuntime({
-      id: 'V9LadderUnknown',
-      name: 'V9LadderUnknown',
+      id: 'PolicyLadderUnknown',
+      name: 'PolicyLadderUnknown',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } } } }] }
     });
@@ -266,8 +317,8 @@ describe('v9 model-owned write policies', () => {
 
   it('composes ladder and tuple guards over nested paths', () => {
     const rows = defineModelRuntime({
-      id: 'V9LadderTuple',
-      name: 'V9LadderTuple',
+      id: 'PolicyLadderTuple',
+      name: 'PolicyLadderTuple',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { all: [{ ladder: { path: 'blob.stage', tiers: [['a', 'b'], ['c', 'd', 'e']] } }, { tuple: ['blob.progress'] }] } } }] }
     });
@@ -280,8 +331,8 @@ describe('v9 model-owned write policies', () => {
 
   it('accepts one any branch but rejects an all composition with a failed branch', () => {
     const rows = defineModelRuntime({
-      id: 'V9AnyAll',
-      name: 'V9AnyAll',
+      id: 'PolicyAnyAll',
+      name: 'PolicyAnyAll',
       fields: { blob: f.raw<Record<string, unknown>>(), headId: f.str().nullable(), headAt: f.num(), headSeq: f.num() },
       write: { groups: [{ fields: ['blob', 'headId', 'headAt', 'headSeq'] as const, policy: { monotonic: { all: [{ present: 'headId' }, { any: [{ equal: 'headId' }, { tuple: ['headAt', 'headSeq'] }] }] } } }] }
     });
@@ -294,8 +345,8 @@ describe('v9 model-owned write policies', () => {
 
   it('preserves positive and non-empty nested keys', () => {
     const rows = defineModelRuntime({
-      id: 'V9NestedKeys',
-      name: 'V9NestedKeys',
+      id: 'PolicyNestedKeys',
+      name: 'PolicyNestedKeys',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { keys: { w: 'positive', h: 'positive', url: 'nonEmpty', alt: 'nonEmpty' } } }] }
     });
@@ -308,8 +359,8 @@ describe('v9 model-owned write policies', () => {
 
   it('applies a policy list left to right after a rejected guard restores the group', () => {
     const rows = defineModelRuntime({
-      id: 'V9PolicySequence',
-      name: 'V9PolicySequence',
+      id: 'PolicyPolicySequence',
+      name: 'PolicyPolicySequence',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: {
         groups: [
@@ -327,8 +378,8 @@ describe('v9 model-owned write policies', () => {
 
   it('reads nested paths in newerBy, tuple, present, and equal predicates', () => {
     const newerRows = defineModelRuntime({
-      id: 'V9PathNewer',
-      name: 'V9PathNewer',
+      id: 'PolicyPathNewer',
+      name: 'PolicyPathNewer',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { newerBy: 'blob.updatedAt' } } }] }
     });
@@ -337,8 +388,8 @@ describe('v9 model-owned write policies', () => {
     expect(newerRows.find('row-1')?.blob).toEqual({ updatedAt: '2026-01-02T00:00:00Z' });
 
     const tupleRows = defineModelRuntime({
-      id: 'V9PathTuple',
-      name: 'V9PathTuple',
+      id: 'PolicyPathTuple',
+      name: 'PolicyPathTuple',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { tuple: ['blob.seq'] } } }] }
     });
@@ -347,8 +398,8 @@ describe('v9 model-owned write policies', () => {
     expect(tupleRows.find('row-1')?.blob).toEqual({ seq: 2 });
 
     const predicateRows = defineModelRuntime({
-      id: 'V9PathPredicates',
-      name: 'V9PathPredicates',
+      id: 'PolicyPathPredicates',
+      name: 'PolicyPathPredicates',
       fields: { blob: f.raw<Record<string, unknown>>() },
       write: { groups: [{ fields: ['blob'] as const, policy: { monotonic: { all: [{ present: 'blob.headId' }, { any: [{ equal: 'blob.headId' }, { tuple: ['blob.headAt', 'blob.headSeq'] }] }] } } }] }
     });
@@ -361,14 +412,14 @@ describe('v9 model-owned write policies', () => {
 
   it('routes relation counter decrements through the patch write gate', () => {
     const parents = defineModelRuntime({
-      id: 'V9CounterParent',
-      name: 'V9CounterParent',
+      id: 'PolicyCounterParent',
+      name: 'PolicyCounterParent',
       fields: { childCount: f.num() },
       write: { groups: [{ fields: ['childCount'] as const, policy: { monotonic: { tuple: ['childCount'] }, on: ['patch'] } }] }
     });
     const children = defineModelRuntime({
-      id: 'V9CounterChild',
-      name: 'V9CounterChild',
+      id: 'PolicyCounterChild',
+      name: 'PolicyCounterChild',
       fields: { parentId: f.str() },
       relations: () => ({ parent: belongsTo(parents, { foreignKey: 'parentId', counterCache: { field: 'childCount' } }) })
     });
@@ -382,15 +433,15 @@ describe('v9 model-owned write policies', () => {
   });
 });
 
-describe('v9 policy primitive edges', () => {
+describe('policy primitive edges', () => {
   beforeEach(() => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
   });
 
   it('rejects a nonEmpty group when the guarded field is absent from the payload', () => {
     const rows = defineModelRuntime({
-      id: 'V9NonEmptyAbsent',
-      name: 'V9NonEmptyAbsent',
+      id: 'PolicyNonEmptyAbsent',
+      name: 'PolicyNonEmptyAbsent',
       fields: { clientId: f.str(), body: f.str() },
       write: { groups: [{ fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }] }
     });
@@ -402,8 +453,8 @@ describe('v9 policy primitive edges', () => {
 
   it('treats numeric zero as a present nonEmpty value', () => {
     const rows = defineModelRuntime({
-      id: 'V9NonEmptyZero',
-      name: 'V9NonEmptyZero',
+      id: 'PolicyNonEmptyZero',
+      name: 'PolicyNonEmptyZero',
       fields: { rank: f.num() },
       write: { groups: [{ fields: ['rank'] as const, policy: { monotonic: { nonEmpty: true } } }] }
     });
@@ -415,8 +466,8 @@ describe('v9 policy primitive edges', () => {
 
   it('compares numeric-like tuple parts numerically and falls through equal parts', () => {
     const rows = defineModelRuntime({
-      id: 'V9TupleNumeric',
-      name: 'V9TupleNumeric',
+      id: 'PolicyTupleNumeric',
+      name: 'PolicyTupleNumeric',
       fields: { headAt: f.str(), headSeq: f.str(), body: f.str() },
       write: { groups: [{ fields: ['headAt', 'headSeq', 'body'] as const, policy: { monotonic: { tuple: ['headAt', 'headSeq'] } } }] }
     });
@@ -433,8 +484,8 @@ describe('v9 policy primitive edges', () => {
 
   it('restores the whole rejected group so a stale partial can never tear paired fields', () => {
     const rows = defineModelRuntime({
-      id: 'V9GroupAtomic',
-      name: 'V9GroupAtomic',
+      id: 'PolicyGroupAtomic',
+      name: 'PolicyGroupAtomic',
       fields: { updatedAt: f.str(), body: f.str(), unguarded: f.str() },
       write: { groups: [{ fields: ['updatedAt', 'body'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
     });

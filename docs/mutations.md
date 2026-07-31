@@ -46,6 +46,10 @@ send: gql.action(SendMessageDocument, {
 `discard` for failed optimistic inserts. The write lifecycle is optimistic plan, transport,
 atomic correlation or rollback, then invalidation and tracking.
 
+An insert action always lands the row selected by `select`. An optimistic declaration may create a
+temporary row before transport; without one, the selected server row still enters the owning model
+and its declared scopes during the commit.
+
 `MutateCallbacks` describes optional call-site callbacks. `ScopePlacement` describes explicit
 placement when a service adapter must target a relation.
 

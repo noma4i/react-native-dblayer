@@ -43,7 +43,7 @@ export type MonotonicSpec = {
 /** Nested-key policy applied to object-valued write fields. */
 export type NestedKeyPolicy = 'server' | 'continuity' | 'nonEmpty' | 'positive';
 /** Policy shape accepted by a grouped write declaration. */
-export type WritePolicy = 'server' | 'continuity' | {
+export type WritePolicy = 'server' | 'local' | 'continuity' | {
     monotonic: MonotonicSpec;
     on?: readonly GuardedOrigin[];
 } | {

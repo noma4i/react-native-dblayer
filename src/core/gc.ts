@@ -1,5 +1,5 @@
 import { union } from 'es-toolkit';
-import { publishProjectedBatch } from './store';
+import { publishProjectedBatch, runInStoreTransaction } from './store';
 import { flushPersistence, getCommitBus, getOperationState, noteMaintenancePersistence } from '../dsl/configure';
 import { compositeKey } from './serialize';
 import { noteDataLoss } from './diagnostics';
@@ -25,7 +25,7 @@ export const registerGcHost = (modelId: string, host: GcHost): (() => void) => {
  *
  * @returns Reachability report with evicted row and removed scope counts by model.
  */
-export const collectGarbage = (): GcReport => {
+const collectGarbagePass = (): GcReport => {
   const marked = new Map<string, Set<string>>();
   const queue: Array<{ model: string; id: string }> = [];
   const maintainedModels = new Set<string>();
@@ -140,9 +140,11 @@ export const collectGarbage = (): GcReport => {
   if (maintainedModels.size > 0) {
     const models = [...maintainedModels];
     noteMaintenancePersistence(models);
-    publishProjectedBatch(getCommitBus(), { rows, scopes, mode: 'maintenance', scopeChanges, maintenanceModels: models });
+    publishProjectedBatch(getCommitBus(), () => ({ rows, scopes, mode: 'maintenance', scopeChanges, maintenanceModels: models }));
   }
 
   flushPersistence();
   return report;
 };
+
+export const collectGarbage = (): GcReport => runInStoreTransaction(collectGarbagePass);

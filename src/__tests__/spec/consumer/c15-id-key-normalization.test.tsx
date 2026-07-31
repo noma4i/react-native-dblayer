@@ -25,6 +25,70 @@ const createMoments = () =>
   });
 
 describe('id-key normalization contracts (LC20)', () => {
+  it('uses rowId normalization for scope membership when the transport row has no id field', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        return { data: { rows: [{ sourceId: 77, userId: 54, status: 'active' }] } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModelRuntime({
+      id: 'SpecConsumerScopeRowId',
+      name: 'SpecConsumerScopeRowId',
+      fields: { userId: f.id(), status: f.str() },
+      rowId: input => (input as { sourceId: string | number }).sourceId,
+      scopes: { byUser: { by: { userId: 'userId' } } }
+    });
+    const query = rows.query<{ rows: Array<{ sourceId: number; userId: number; status: string }> }, ScopeValue, ScopeValue, { id: string; userId: string; status: string }>(
+      'scope-row-id',
+      {
+        document,
+        vars: value => value,
+        select: data => data.rows,
+        into: rows.scopes.byUser
+      }
+    );
+    const reader = renderCountedInProvider(() => query.use({ userId: '54' }));
+
+    await settle();
+
+    expect(reader.result().data.map(row => row.id)).toEqual(['77']);
+    expect(rows.find('77')?.status).toBe('active');
+    reader.unmount();
+  });
+
+  it('uses rowId normalization for point query result identity when the transport row has no id field', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        return { data: { row: { sourceId: 77, userId: 54, status: 'active' } } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModelRuntime({
+      id: 'SpecConsumerPointRowId',
+      name: 'SpecConsumerPointRowId',
+      fields: { userId: f.id(), status: f.str() },
+      rowId: input => (input as { sourceId: string | number }).sourceId
+    });
+    const query = rows.query<
+      { row: { sourceId: number; userId: number; status: string } },
+      ScopeValue,
+      ScopeValue,
+      { id: string; userId: string; status: string }
+    >('point-row-id', {
+      document,
+      vars: value => value,
+      select: data => data.row,
+      into: rows
+    });
+    const reader = renderCountedInProvider(() => query.use({ userId: '54' }));
+
+    await settle();
+
+    expect(reader.result().data).toEqual({ id: '77', userId: '54', status: 'active' });
+    reader.unmount();
+  });
+
   it('files a numeric-transport userId into the same scope bucket a string read key resolves', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => {

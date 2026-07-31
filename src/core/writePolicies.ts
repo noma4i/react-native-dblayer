@@ -103,6 +103,12 @@ const applyPolicy = (
   modelId: string
 ): void => {
   if (policy === 'server') return;
+  if (policy === 'local') {
+    if (ctx.origin !== 'patch') {
+      for (const field of fields) restoreField(effective, previous, field);
+    }
+    return;
+  }
   if (policy === 'continuity') {
     for (const field of fields) if (field in effective && effective[field] == null) restoreField(effective, previous, field);
     return;
@@ -127,15 +133,15 @@ const applyPolicy = (
  * Compile a closed, model-owned write declaration into the sole entity write gate.
  *
  * Monotonic policies run only for `snapshot` and `event` unless `on` narrows those origins; replace
- * remains authoritative. `server` uses incoming values, `continuity` retains nullish values,
- * `snapshot` shallow-folds objects, and nested-key policies protect declared object keys. `newerBy`
- * normalizes values through the date field codec before `isIncomingNewer`.
+ * remains authoritative for monotonic groups. `server` uses incoming values, `local` changes only
+ * through a patch, `continuity` retains nullish values, `snapshot` shallow-folds objects, and
+ * nested-key policies protect declared object keys. `newerBy` normalizes values through the date
+ * field codec before `isIncomingNewer`.
  */
 export const compileWritePolicies =
   <TRow extends Record<string, unknown>>(groups: readonly WriteGroup[], modelId: string) =>
   (previous: TRow, incoming: TRow, ctx: WriteCtx): TRow => {
     const effective: Record<string, unknown> = { ...previous, ...incoming };
-    if (ctx.origin === 'replace') return effective as TRow;
     for (const group of groups) {
       const policies = Array.isArray(group.policy) ? group.policy : [group.policy];
       for (const policy of policies) applyPolicy(policy, group.fields, previous, effective, ctx, modelId);

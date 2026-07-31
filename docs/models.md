@@ -96,3 +96,14 @@ deduplicates destinations, and commits all rows with the root row in one transac
 `insert`, `insertMany`, `update`, `updateAll`, `destroy`, `destroyMany`, and `destroyAll` are
 synchronous model methods. `build` applies schema defaults without persisting. All writes use the
 same plan and persistence pipeline as network results.
+
+## Write policies
+
+`write` groups stored fields under one model-owned merge policy. `server` accepts incoming values.
+After the first insert, `local` changes fields only through local patch writes. `continuity`
+preserves prior values when an incoming value is nullish. `snapshot` shallow-merges object
+snapshots. Nested-key policies protect declared object keys. Monotonic policies accept only newer
+snapshot and event values.
+
+Replace transitions apply local, continuity, snapshot, and nested-key policies before the old
+identity is removed. Monotonic groups remain authoritative on replace.

@@ -206,6 +206,62 @@ describe('mutation correlation edges', () => {
 });
 
 describe('mutation responder edges', () => {
+  it('uses model rowId normalization for replacement and inverse identities', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineModelRuntime({
+      id: 'MutationResponderCustomIds',
+      name: 'MutationResponderCustomIds',
+      fields: { label: f.str() },
+      rowId: input => (input as { sourceId: string | number }).sourceId,
+      guard: input => (input as { label?: string }).label !== 'guarded',
+      maintenance: { dropTempRowsAfterMs: 1000 }
+    });
+    const extracted = defineModelRuntime({
+      id: 'MutationResponderCustomExtractedIds',
+      name: 'MutationResponderCustomExtractedIds',
+      fields: { label: f.str() },
+      rowId: input => (input as { sourceId: string | number }).sourceId
+    });
+    const optimistic = {
+      model: rows,
+      respond: () => ({}),
+      selectServerNode: (data: { save: { row: { sourceId: number; label: string } } }) => data.save.row
+    };
+    const responder = createMutationResponder({
+      document,
+      result: 'save',
+      optimistic,
+      extract: ({ data }: { data: { extra: { sourceId: number; label: string } } }) => [{ into: extracted, rows: [data.extra] }]
+    } as never);
+    const context = { tempId: 'temp-1', operationId: 'operation-1' };
+    rows.insert({ sourceId: 'temp-1', label: 'temporary' } as never);
+
+    expect(() =>
+      responder.planFromRespond(
+        { save: { row: { sourceId: null, label: 'invalid' } }, extra: { sourceId: 88, label: 'extra' } } as never,
+        { tempId: null, operationId: 'invalid-operation' },
+        optimistic as never,
+        {}
+      )
+    ).toThrow('MutationResponderCustomIds requires id');
+    expect(() =>
+      responder.planFromRespond(
+        { save: { row: { id: 'wrong-field', sourceId: 77, label: 'guarded' } }, extra: { sourceId: 88, label: 'extra' } } as never,
+        context,
+        optimistic as never,
+        {}
+      )
+    ).toThrow('MutationResponderCustomIds rejected input');
+
+    const response = { save: { row: { sourceId: 77, label: 'server' } }, extra: { sourceId: 88, label: 'extra' } };
+    const plan = responder.planFromRespond(response as never, context, optimistic as never, {});
+    const inverse = responder.inverseFromRespond(response as never, context, optimistic as never);
+
+    expect(plan).toContainEqual({ kind: 'destroy', model: rows.modelId, ids: ['temp-1'], origin: 'replace' });
+    expect(inverse).toContainEqual({ kind: 'destroy', model: rows.modelId, ids: ['77'], tombstone: false });
+    expect(inverse).toContainEqual({ kind: 'destroy', model: extracted.modelId, ids: ['88'], tombstone: false });
+  });
+
   it('plans absent payload errors, temp placement, replacement, extraction, and inverse writes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineModelRuntime({

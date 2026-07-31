@@ -384,7 +384,7 @@ const createAction = <TStored extends { id: string; updatedAt?: string | null },
     return undefined;
   })();
   const extract =
-    definition.kind === 'update'
+    definition.kind === 'update' || (definition.kind === 'insert' && !definition.optimistic)
       ? ({ data }: { data: Parameters<typeof definition.select>[0] }) => {
           const row = definition.select(data);
           return row == null ? [] : [{ into: runtime, rows: [row] }];

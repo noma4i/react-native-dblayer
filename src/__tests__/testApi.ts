@@ -41,7 +41,7 @@ export {
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
 export { collectGarbage } from '../core/gc';
-export { SyncFeed } from '../core/storeSync';
+export { afterStoreTransaction, runInStoreTransaction, SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';
 export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, purgeForeignStorageKeys } from '../dsl/configure';
 export { getApplyRuntime } from '../dsl/configure';
@@ -77,7 +77,7 @@ export { createCommitBus } from '../core/apply/commitBus';
 export { createUpsertResolver, diffTopLevelFields, isSerializedNoop } from '../core/storeUpsertResolver';
 export { compileWritePolicies } from '../core/writePolicies';
 export { retryDelayMs } from '../core/fetch/retryPolicy';
-export { createModelStore } from '../core/store';
+export { createModelStore, storeScopeCollection } from '../core/store';
 export { registerApplyTarget } from '../core/apply/applyTargetRegistry';
 export { getApplyTarget } from '../core/apply/applyTargetRegistry';
 export { advanceRuntimeGeneration, getOperationState, getRuntimeGeneration } from '../dsl/configure';

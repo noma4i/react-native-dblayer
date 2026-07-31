@@ -254,7 +254,7 @@ export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations
     statics?: (model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations>) => TStatics;
 };
 type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStored & string> ? {
-    [K in keyof TBy]: TBy[K] extends keyof TStored ? TStored[TBy[K]] : never;
+    [K in keyof TBy]: TBy[K] extends keyof TStored ? NonNullable<TStored[TBy[K]]> : never;
 } : Record<string, never>;
 type RelationRemoteParams<TStored, TDefinition, TParams> = TDefinition extends {
     by: infer TBy;

@@ -138,6 +138,27 @@ describe('public type regressions', () => {
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
 
+  it('rejects nullish mapped by values even when the stored field is nullable', () => {
+    const diagnostics = compileFixture(`
+      import { defineModel, defineShape, f } from '${entry}';
+      type Row = { id: string; bucket: string | null };
+      const RowSchema = defineShape<Row>()({ bucket: f.str().nullable() });
+      const rows = defineModel('required-by-values', {
+        schema: RowSchema,
+        relations: {
+          byBucket: { by: { bucket: 'bucket' } }
+        }
+      });
+      rows.byBucket({ bucket: 'visual' });
+      rows.byBucket(null);
+      // @ts-expect-error mapped relation values are non-nullish
+      rows.byBucket({ bucket: null });
+      // @ts-expect-error mapped relation values are non-nullish
+      rows.byBucket({ bucket: undefined });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
   it('rejects non-orderable fields on typed field-sort surfaces', () => {
     const diagnostics = compileFixture(`
       import { defineModel, defineShape, f } from '${entry}';

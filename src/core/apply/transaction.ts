@@ -60,34 +60,39 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         ops
       };
       storage.set([...journal.pendingEntry(record), ...envelope.operationEntries]);
-      let batch: IncrementalCommitBatch;
-      try {
-        batch = applyAtomically(ops);
-      } catch (firstError) {
-        poisonStoreReads();
-        try {
-          restoreStoreReads();
-          batch = applyAtomically(ops);
-        } catch (error) {
-          poisonStoreReads();
-          noteApplyFailure();
-          getDbLogger().error('apply failed after recovery replay', { epoch, firstError, error });
-          reportSyncError(error, { source: 'apply' }, 'apply');
-          throw error;
-        }
-      }
-      if (envelope.operationTransitions.length > 0) getOperationState().applyTransitions(envelope.operationTransitions);
-      if (checkpoint) {
-        const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
-        storage.set(commitPlan.entries);
-        commitPlan.commit();
-        checkpoint.notePlan(touchedModelsOf(ops), epoch);
-      } else {
-        persistImmediate(ops, record);
-      }
-      noteCommit();
-      publishProjectedBatch(bus, batch, { readyAfterApply: true });
-      return batch;
+      return publishProjectedBatch(
+        bus,
+        () => {
+          let batch: IncrementalCommitBatch;
+          try {
+            batch = applyAtomically(ops);
+          } catch (firstError) {
+            poisonStoreReads();
+            try {
+              restoreStoreReads();
+              batch = applyAtomically(ops);
+            } catch (error) {
+              poisonStoreReads();
+              noteApplyFailure();
+              getDbLogger().error('apply failed after recovery replay', { epoch, firstError, error });
+              reportSyncError(error, { source: 'apply' }, 'apply');
+              throw error;
+            }
+          }
+          if (envelope.operationTransitions.length > 0) getOperationState().applyTransitions(envelope.operationTransitions);
+          if (checkpoint) {
+            const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
+            storage.set(commitPlan.entries);
+            commitPlan.commit();
+            checkpoint.notePlan(touchedModelsOf(ops), epoch);
+          } else {
+            persistImmediate(ops, record);
+          }
+          noteCommit();
+          return batch;
+        },
+        { readyAfterApply: true }
+      );
     },
     replay: () => {
       let replayed = 0;
@@ -110,24 +115,26 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           }
           continue;
         }
-        let batch: IncrementalCommitBatch;
-        try {
-          restoreStoreReads();
-          batch = applyAtomically(ops);
-        } catch (error) {
-          poisonStoreReads();
-          throw error;
-        }
-        if (checkpoint) {
-          const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
-          storage.set(commitPlan.entries);
-          commitPlan.commit();
-          checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
-        } else {
-          persistImmediate(ops, record);
-        }
-        noteCommit();
-        publishProjectedBatch(bus, batch);
+        publishProjectedBatch(bus, () => {
+          let batch: IncrementalCommitBatch;
+          try {
+            restoreStoreReads();
+            batch = applyAtomically(ops);
+          } catch (error) {
+            poisonStoreReads();
+            throw error;
+          }
+          if (checkpoint) {
+            const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
+            storage.set(commitPlan.entries);
+            commitPlan.commit();
+            checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
+          } else {
+            persistImmediate(ops, record);
+          }
+          noteCommit();
+          return batch;
+        });
         replayed += 1;
       }
       return replayed;

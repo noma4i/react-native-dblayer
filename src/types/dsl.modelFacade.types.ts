@@ -302,7 +302,7 @@ export type ModelFacadeConfig<
 };
 
 type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStored & string>
-  ? { [K in keyof TBy]: TBy[K] extends keyof TStored ? TStored[TBy[K]] : never }
+  ? { [K in keyof TBy]: TBy[K] extends keyof TStored ? NonNullable<TStored[TBy[K]]> : never }
   : Record<string, never>;
 
 type RelationRemoteParams<TStored, TDefinition, TParams> = TDefinition extends { by: infer TBy } ? TParams & RelationParamsFromBy<TStored, TBy> : TParams;

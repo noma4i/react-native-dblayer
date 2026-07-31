@@ -11,6 +11,13 @@ export declare class SyncFeed<T extends object> {
     private requireMethods;
 }
 /**
+ * Group every collection feed touched by one store transition. Nested callers join the same
+ * package-owned boundary, and completion callbacks run only after every feed reached final state.
+ */
+export declare const runInStoreTransaction: <T>(run: () => T) => T;
+export declare const isInStoreTransaction: () => boolean;
+export declare const afterStoreTransaction: (complete: () => void) => void;
+/**
  * Run one apply pass with batched collection flushes: every store write inside `run` lands in a
  * per-store transactional buffer (readable through the store immediately) and is committed to the
  * collections as one sync-feed transaction per store when the pass ends, so live queries observe

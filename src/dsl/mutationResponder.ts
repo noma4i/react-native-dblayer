@@ -2,6 +2,16 @@ import { getInternalModelHandle, getInternalScopeHandle } from '../core/internal
 import { isRecord } from '../utils/normalizeHelpers';
 import type { MutationConfig, MutationModel, MutationResponder, OptimisticCtx, RespondOptimistic, WriteOp } from '../types';
 
+const normalizeResponseId = (model: MutationModel, row: Record<string, unknown>, fallbackId?: string | null): string => {
+  const internal = getInternalModelHandle(model);
+  try {
+    return internal.normalizeRowId(row);
+  } catch (error) {
+    if (!fallbackId || (row.id !== '' && row.id != null)) throw error;
+    return internal.normalizeRowId({ ...row, id: fallbackId });
+  }
+};
+
 export const createMutationResponder = <TData, TInput, TStored, TNode>(config: MutationConfig<TData, TInput, TStored, TNode>): MutationResponder<TData, TInput, TNode> => {
   const planFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>, input: TInput): WriteOp[] => {
     const payload = (data as Record<string, unknown> | null | undefined)?.[config.result];
@@ -10,8 +20,8 @@ export const createMutationResponder = <TData, TInput, TStored, TNode>(config: M
     const ops: WriteOp[] = [];
     if (node != null) {
       const raw = node as Record<string, unknown>;
-      const id = raw.id === '' || raw.id == null ? context.tempId : String(raw.id);
-      const row = { ...raw, id };
+      const id = normalizeResponseId(optimistic.model, raw, context.tempId);
+      const row = raw.id === '' || raw.id == null ? { ...raw, id } : raw;
       if (context.tempId && id !== context.tempId && optimistic.model.find(context.tempId) !== undefined) {
         ops.push(...getInternalModelHandle(optimistic.model).planReplace(context.tempId, row));
       } else {
@@ -29,10 +39,10 @@ export const createMutationResponder = <TData, TInput, TStored, TNode>(config: M
   const inverseFromRespond = (data: TData, context: OptimisticCtx, optimistic: RespondOptimistic<TData, TInput, TNode>): WriteOp[] => {
     const targets: Array<{ model: MutationModel; id: string }> = [];
     const node = optimistic.selectServerNode(data) as Record<string, unknown> | null | undefined;
-    if (node) targets.push({ model: optimistic.model, id: node.id === '' || node.id == null ? context.tempId! : String(node.id) });
+    if (node) targets.push({ model: optimistic.model, id: normalizeResponseId(optimistic.model, node, context.tempId) });
     for (const sink of config.extract?.({ data }) ?? []) {
       const model = sink.into as MutationModel;
-      for (const row of sink.rows) if (isRecord(row) && row.id != null) targets.push({ model, id: String(row.id) });
+      for (const row of sink.rows) if (isRecord(row)) targets.push({ model, id: normalizeResponseId(model, row) });
     }
     return targets.flatMap(({ model, id }) => {
       const previous = model.find(id);

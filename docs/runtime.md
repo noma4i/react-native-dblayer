@@ -9,6 +9,9 @@ One logical plan persists the pending journal record before data, then persists 
 committed marker. Boot replays an incomplete record. Cross-model sideloads, association effects,
 relation membership, and optimistic correlation commit under one epoch.
 
+Entity rows and relation membership publish as one store transition. Live scope readers observe
+only the final joined state, and the commit bus fires after all collection feeds reach that state.
+
 ## `resetRuntime()` kill-switch
 
 `resetRuntime()` deletes persisted package state, clears every in-memory plane and registry, stops

@@ -88,9 +88,9 @@ describe('optimistic commit preserve semantics', () => {
     const committed = messages.find('message-1')!;
     expect(committed.media.fileUrl).toBe('https://cdn/full.jpg');
     expect(committed.media.blurHash).toBe('LKO2?U%2');
-    expect(committed.media.width).toBeNull();
-    expect(committed.media.height).toBeNull();
-    expect(committed.localPreviewUrl).toBeNull();
+    expect(committed.media.width).toBe(320);
+    expect(committed.media.height).toBe(240);
+    expect(committed.localPreviewUrl).toBe('file:///spool/1.jpg');
     expect(committed.body).toBe('server body');
   });
 });

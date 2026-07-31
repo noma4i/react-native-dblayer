@@ -1,5 +1,5 @@
 import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
-export { runInApplyBatch, poisonStoreReads, restoreStoreReads } from './storeSync';
+export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransaction } from './storeSync';
 export declare const registerModelStoreFactory: <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>) => void;
 /**
  * Per-model primary store facade: composes the entity plane (rows, transactional buffer,
@@ -21,9 +21,9 @@ export declare const createModelStore: <T extends RowRecord>(options: {
  */
 export declare const publishProjectedBatch: (bus: {
     publish(batch: IncrementalCommitBatch): void;
-}, batch: IncrementalCommitBatch, options?: {
+}, build: () => IncrementalCommitBatch, options?: {
     readyAfterApply?: boolean;
-}) => void;
+}) => IncrementalCommitBatch;
 /** Boot-time projection: rebuild every persisted scope's membership rows straight from persisted entries. */
 export declare const hydrateStoreScopes: (sources: ReadonlyArray<readonly [string, {
     readScopeEntries(scopeKey: string): Array<{

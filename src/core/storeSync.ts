@@ -41,6 +41,40 @@ let applyBatchDepth = 0;
 let applyBatchFailed = false;
 let storeReadsPoisoned = false;
 const pendingBatchFlushes = new Set<{ flush(): void; abort(): void }>();
+let storeTransactionDepth = 0;
+let storeTransactionCompletions: Array<() => void> = [];
+
+/**
+ * Group every collection feed touched by one store transition. Nested callers join the same
+ * package-owned boundary, and completion callbacks run only after every feed reached final state.
+ */
+export const runInStoreTransaction = <T>(run: () => T): T => {
+  if (storeTransactionDepth > 0) return run();
+  let result!: T;
+  storeTransactionDepth = 1;
+  try {
+    result = run();
+  } catch (error) {
+    storeTransactionCompletions = [];
+    throw error;
+  } finally {
+    storeTransactionDepth = 0;
+  }
+  const completions = storeTransactionCompletions;
+  storeTransactionCompletions = [];
+  for (const complete of completions) complete();
+  return result;
+};
+
+export const isInStoreTransaction = (): boolean => storeTransactionDepth > 0;
+
+export const afterStoreTransaction = (complete: () => void): void => {
+  if (storeTransactionDepth > 0) {
+    storeTransactionCompletions.push(complete);
+    return;
+  }
+  complete();
+};
 
 /**
  * Run one apply pass with batched collection flushes: every store write inside `run` lands in a

@@ -205,6 +205,7 @@ export const defineModelRuntime = <
     modelName: config.name,
     context,
     maintenance: config.maintenance,
+    normalize,
     applySnapshot,
     planRows,
     planReplace,

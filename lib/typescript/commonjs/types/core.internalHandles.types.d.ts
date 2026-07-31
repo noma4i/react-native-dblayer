@@ -4,6 +4,7 @@ import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { RowRecord } from './db.types';
 /** Opaque per-model capabilities exposed to query/mutation seams without widening the public model type. */
 export type InternalModelHandle = {
+    normalizeRowId(row: unknown): string;
     readRow(id: string): RowRecord | undefined;
     applyRows(rows: unknown[]): void;
     applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
@@ -27,6 +28,7 @@ export type InternalModelHandle = {
 };
 /** Opaque per-scope capabilities: apply plans, keying, order semantics, and resolution. */
 export type InternalScopeHandle = {
+    normalizeRowId(row: unknown): string;
     apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: {
         resetOrder?: boolean;
     }): void;

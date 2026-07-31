@@ -1,9 +1,9 @@
 import type { EntityPlane, IncrementalCommitBatch, ModelStore, PreparedUpsert, RowRecord, ScopePlane, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
 import { createEntityPlane } from './storeEntities';
-import { restoreStoreReads } from './storeSync';
+import { afterStoreTransaction, restoreStoreReads, runInStoreTransaction } from './storeSync';
 import { createScopePlane } from './storeScopeCollections';
 
-export { runInApplyBatch, poisonStoreReads, restoreStoreReads } from './storeSync';
+export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransaction } from './storeSync';
 
 /** Store factories are a definition registry (registered at defineModel time, replaced per generation); active stores die on reset. */
 const storeFactories = new Map<string, () => ModelStore<RowRecord>>();
@@ -95,15 +95,22 @@ export const createModelStore = <T extends RowRecord>(options: {
  * publish on the commit bus. Every scope-carrying batch - commit, replay, and GC - goes through
  * here, so a scope-plane mutation can never bypass the store projection.
  */
-export const publishProjectedBatch = (bus: { publish(batch: IncrementalCommitBatch): void }, batch: IncrementalCommitBatch, options?: { readyAfterApply?: boolean }): void => {
-  const models = new Set([...batch.rows.map(change => change.model), ...batch.scopes.map(change => change.model), ...(batch.scopeChanges ?? []).map(change => change.model)]);
-  for (const model of models) {
-    const store = ensureModelStore(model);
-    store.applyScopeChanges((batch.scopeChanges ?? []).filter(change => change.model === model));
-    if (options?.readyAfterApply) store.markReady();
-  }
-  bus.publish(batch);
-};
+export const publishProjectedBatch = (
+  bus: { publish(batch: IncrementalCommitBatch): void },
+  build: () => IncrementalCommitBatch,
+  options?: { readyAfterApply?: boolean }
+): IncrementalCommitBatch =>
+  runInStoreTransaction(() => {
+    const batch = build();
+    const models = new Set([...batch.rows.map(change => change.model), ...batch.scopes.map(change => change.model), ...(batch.scopeChanges ?? []).map(change => change.model)]);
+    for (const model of models) {
+      const store = ensureModelStore(model);
+      store.applyScopeChanges((batch.scopeChanges ?? []).filter(change => change.model === model));
+      if (options?.readyAfterApply) store.markReady();
+    }
+    afterStoreTransaction(() => bus.publish(batch));
+    return batch;
+  });
 
 /** Boot-time projection: rebuild every persisted scope's membership rows straight from persisted entries. */
 export const hydrateStoreScopes = (

@@ -59,7 +59,10 @@ describe('app-shaped loss contracts', () => {
     });
 
     expect(models.messages.find(tempId)).toBeUndefined();
-    expect(models.messages.find('message-server')).toMatchObject({ localPreviewUrl: 'file:///spool/preview.jpg', media: { fileUrl: 'https://cdn/media.jpg', blurHash: 'server-blur', width: null, height: null } });
+    expect(models.messages.find('message-server')).toMatchObject({
+      localPreviewUrl: 'file:///spool/preview.jpg',
+      media: { fileUrl: 'https://cdn/media.jpg', blurHash: 'server-blur', width: 320, height: 240 }
+    });
     expect(reader.result().rows.map((row: any) => row.id)).toEqual(['message-server']);
     reader.unmount();
   });

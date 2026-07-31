@@ -59,13 +59,14 @@ const operationKey = (document: DbGraphQLDocument<any, any>, override?: string):
   if (!name) throw new Error('defineQuery requires a named operation or an explicit key');
   return name;
 };
-const nodesOf = (value: unknown): unknown[] => {
+const nodesOf = (value: unknown, connectionExpected: boolean): unknown[] => {
   if (Array.isArray(value)) return value;
   if (value == null) return [];
   if (!isRecord(value)) throw new Error('defineQuery select/page must return rows, a row, or a connection');
   const connection = value as ConnectionLike;
   if (connection.nodes) return [...connection.nodes];
   if (connection.edges) return connection.edges.flatMap(edge => (edge?.node == null ? [] : [edge.node]));
+  if (connectionExpected) return [];
   return [value];
 };
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
@@ -133,7 +134,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     resurrectDestroyed: boolean
   ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
-    const nodes = nodesOf(selected);
+    const nodes = nodesOf(selected, config.page !== undefined);
     const ops: WriteOp[] = [];
     const rows = isScopeDestination(config.into) ? nodes.map(node => ({ row: node as TStored & { id: string } })) : [];
     if (isScopeDestination(config.into)) ops.push(...getInternalScopeHandle(config.into).planApply(scope, rows, coverage, { resetOrder }));
@@ -141,7 +142,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     for (const sink of config.extract?.({ data, nodes }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
     if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
     const committedRows = isScopeDestination(config.into) ? rows.map(entry => entry.row) : nodes;
-    const ids = committedRows.map(row => compositeKey(destinationModelId, String((row as { id: unknown }).id)));
+    const normalizeRowId = isScopeDestination(config.into)
+      ? (row: unknown) => getInternalScopeHandle(config.into).normalizeRowId(row)
+      : (row: unknown) => getInternalModelHandle(config.into).normalizeRowId(row);
+    const ids = committedRows.map(row => compositeKey(destinationModelId, normalizeRowId(row)));
     const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false, count: nodes.length };
     return { meta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };

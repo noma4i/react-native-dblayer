@@ -39,7 +39,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp => {
-      let incoming = liveRows.map(({ row }) => ({ id: String(row.id) }) as { id: string; orderKey?: string });
+      let incoming = liveRows.map(({ row }) => ({ id: options.normalize(row).id }) as { id: string; orderKey?: string });
       if (spec?.sort && spec.sort !== 'server-order') {
         /** Sorted scopes: order keys are born HERE, on planning - the plane and the store only carry them. */
         const compare = compareRowsBySpec(spec.sort);
@@ -104,7 +104,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp[] => {
-      const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(String(row.id)));
+      const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(options.normalize(row).id));
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
       const rowOps = options.planRows(liveRows.map(({ row }) => row));
       if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
@@ -202,7 +202,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       seed: (scopeValue: unknown, rows: TInput[]) => {
         const liveRows = rows
           .filter(options.isPlanRow)
-          .filter(row => !planes().entityState.isTombstoned(String((row as { id: unknown }).id)))
+          .filter(row => !planes().entityState.isTombstoned(options.normalize(row).id))
           .map(row => ({ row: row as Record<string, unknown> }));
         options.applyEvent([
           ...options.planRows(liveRows.map(entry => entry.row)),
@@ -211,6 +211,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       }
     } as ScopeHandle<TStored, Record<string, unknown>, TInput>;
     registerInternalScopeHandle(scopeHandle, {
+      normalizeRowId: row => options.normalize(row).id,
       apply: (scopeValue, rows, coverage, planOptions) => {
         options.applySnapshot(
           planApply(

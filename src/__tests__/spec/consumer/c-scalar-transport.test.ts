@@ -16,6 +16,13 @@ describe('scalar transport boundary', () => {
   it('returns typed required values and rejects unreadable transport values', () => {
     expect(scalar.id.require(42, 'Message id')).toBe('42');
     expect(scalar.int.require('42', 'Message sequence')).toBe(42);
+    expect(() => scalar.str.require(42, 'Message body')).toThrow('Message body must be a string');
+    expect(() => scalar.num.require('NaN', 'Message score')).toThrow('Message score must be a finite number');
+    expect(() => scalar.date.require('invalid', 'Message date')).toThrow('Message date must be a valid date');
+    expect(() => scalar.bool.require('maybe', 'Message flag')).toThrow('Message flag must be a boolean');
+    expect(() => scalar.enum(['draft', 'sent'] as const).require('unknown', 'Message status')).toThrow(
+      'Message status must be one of the declared values'
+    );
     expect(() => scalar.id.require('', 'Message id')).toThrow('Message id is required');
     expect(() => scalar.int.require('2.5', 'Message sequence')).toThrow('Message sequence must be a safe integer');
   });

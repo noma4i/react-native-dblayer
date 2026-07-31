@@ -79,6 +79,7 @@ describe('action modes', () => {
     await Job.actions.start.run({ label: 'pass' });
     await expect(Job.actions.start.run({ label: 'fail' })).rejects.toThrow('rejected');
 
+    expect(Job.find('job-1')).toEqual({ id: 'job-1', label: 'pass', status: 'done' });
     expect(calls).toEqual(['before:pass', 'after:pass:job-1', 'before:fail', 'error:fail:rejected']);
   });
 
