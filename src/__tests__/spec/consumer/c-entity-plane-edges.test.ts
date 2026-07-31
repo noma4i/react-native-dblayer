@@ -199,6 +199,72 @@ describe('entity plane edges', () => {
     expect(plane.pruneTombstones()).toBe(1);
   });
 
+  it('keeps every tombstone while the map sits exactly at the cap', () => {
+    let now = 0;
+    const storage = createMemoryPlane();
+    const { modelId, plane } = createPlane(storage, () => now);
+    const tombstones = Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [`row-${index}`, { at: 0 }]));
+    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    plane.hydrate();
+    now = 700_000;
+
+    // The cap is a ceiling, not a target: at the ceiling nothing is evicted.
+    expect(plane.pruneTombstones()).toBe(0);
+    expect(plane.isTombstoned('row-0')).toBe(true);
+  });
+
+  it('evicts the oldest tombstones first and protects the young ones above the cap', () => {
+    let now = 0;
+    const storage = createMemoryPlane();
+    const { modelId, plane } = createPlane(storage, () => now);
+    // Three ages, inserted NEWEST-FIRST so insertion order contradicts age order: only an
+    // age-ordered eviction can pick the right victims.
+    const tombstones: Record<string, { at: number }> = {};
+    for (let index = 0; index < 3; index += 1) tombstones[`young-${index}`] = { at: 699_000 };
+    for (let index = 0; index < 5_000; index += 1) tombstones[`mid-${index}`] = { at: 50_000 };
+    for (let index = 0; index < 5_000; index += 1) tombstones[`ancient-${index}`] = { at: index };
+    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    plane.hydrate();
+    now = 700_000;
+
+    expect(plane.pruneTombstones()).toBe(3);
+    // Oldest-first: the three lowest timestamps go, regardless of where they sit in the map.
+    expect(plane.isTombstoned('ancient-0')).toBe(false);
+    expect(plane.isTombstoned('ancient-1')).toBe(false);
+    expect(plane.isTombstoned('ancient-2')).toBe(false);
+    expect(plane.isTombstoned('ancient-3')).toBe(true);
+    expect(plane.isTombstoned('mid-0')).toBe(true);
+    expect(plane.isTombstoned('young-0')).toBe(true);
+  });
+
+  it('keeps a tombstone that is younger than the protection window even above the cap', () => {
+    let now = 0;
+    const storage = createMemoryPlane();
+    const { modelId, plane } = createPlane(storage, () => now);
+    const tombstones = Object.fromEntries(Array.from({ length: 10_003 }, (_, index) => [`row-${index}`, { at: 699_500 }]));
+    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    plane.hydrate();
+    now = 700_000;
+
+    // Every entry is inside the protection window: the cap alone may not evict a fresh delete,
+    // because a young tombstone is what keeps a late server row from resurrecting.
+    expect(plane.pruneTombstones()).toBe(0);
+    expect(plane.isTombstoned('row-0')).toBe(true);
+  });
+
+  it('keeps a tombstone whose age has exactly reached the absolute lifetime', () => {
+    let now = 0;
+    const storage = createMemoryPlane();
+    const { modelId, plane } = createPlane(storage, () => now);
+    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence({ 'row-1': { at: 0 } }) }]);
+    plane.hydrate();
+    now = 24 * 60 * 60 * 1000;
+
+    // Expiry is strict: at the boundary the protection still holds.
+    expect(plane.pruneTombstones()).toBe(0);
+    expect(plane.isTombstoned('row-1')).toBe(true);
+  });
+
   it('uses the overflow valve for a large young tombstone burst', () => {
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => 1_000);
@@ -207,5 +273,23 @@ describe('entity plane edges', () => {
     plane.hydrate();
 
     expect(plane.pruneTombstones()).toBe(10_001);
+  });
+
+  it('evicts the oldest entries first when the overflow valve fires', () => {
+    const storage = createMemoryPlane();
+    const { modelId, plane } = createPlane(storage, () => 1_000);
+    // Newest generation FIRST in the map: an unordered valve would shed exactly the wrong entries.
+    const tombstones: Record<string, { at: number }> = {};
+    for (let index = 0; index < 10_000; index += 1) tombstones[`newer-${index}`] = { at: 900 };
+    for (let index = 0; index < 10_001; index += 1) tombstones[`older-${index}`] = { at: 500 };
+    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    plane.hydrate();
+
+    expect(plane.pruneTombstones()).toBe(10_001);
+    // The valve sheds pressure oldest-first: every survivor is from the newer generation.
+    expect(plane.isTombstoned('older-0')).toBe(false);
+    expect(plane.isTombstoned('older-10000')).toBe(false);
+    expect(plane.isTombstoned('newer-0')).toBe(true);
+    expect(plane.isTombstoned('newer-9999')).toBe(true);
   });
 });
