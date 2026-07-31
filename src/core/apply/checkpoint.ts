@@ -28,10 +28,6 @@ export const createCheckpointScheduler = (options: {
 
   function flushNow(): void {
     checkpointDeadline.cancel();
-    if (knownModels.size === 0) {
-      plans = 0;
-      return;
-    }
     const checkpointEpoch = latestEpoch;
     const entries: Array<{ key: string; value: string | null }> = [];
     const markers: Array<{ key: string; value: string | null }> = [];
@@ -78,7 +74,6 @@ export const createCheckpointScheduler = (options: {
     },
     noteMaintenance: models => {
       for (const model of models) {
-        if (!dirty.has(model)) dirty.set(model, undefined);
         knownModels.add(model);
       }
       schedule();

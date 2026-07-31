@@ -64,6 +64,31 @@ describe('checkpoint scheduler pacing', () => {
     expect(scheduler.flushedEpoch()).toBe(7);
   });
 
+  it('writes maintenance-only entries without an applied marker', () => {
+    const storage = createMemoryPlane();
+    const write = jest.spyOn(storage, 'set');
+    const target: CheckpointTarget = {
+      persistEntries: () => [{ key: 'checkpoint:row:Rows:1', value: 'row' }],
+      ackPersist: jest.fn()
+    };
+    const scheduler = createCheckpointScheduler({
+      storage,
+      prefix: () => 'checkpoint:',
+      getTarget: () => target,
+      delayMs: 10_000,
+      maxPendingPlans: 100
+    });
+
+    scheduler.noteMaintenance(['Rows']);
+    scheduler.flushNow();
+
+    expect(write).toHaveBeenCalledWith([
+      { key: 'checkpoint:row:Rows:1', value: 'row' },
+      { key: 'checkpoint:meta', value: encodePersistence({ lastCheckpointEpoch: 0 }) }
+    ]);
+    expect(target.ackPersist).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the pending-plan backlog when a flush write fails', () => {
     const storage = createMemoryPlane();
     const scheduler = createCheckpointScheduler({

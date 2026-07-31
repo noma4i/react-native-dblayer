@@ -36,6 +36,7 @@ export const createCommitBus = (): CommitBus => {
       const bucket = subscribersByModel.get(model);
       if (!bucket) continue;
       bucket.delete(subscriber);
+      // Stryker disable next-line ConditionalExpression: retaining an empty private bucket is observably equivalent.
       if (bucket.size === 0) subscribersByModel.delete(model);
     }
   };

@@ -177,6 +177,56 @@ describe('apply pipeline batching', () => {
     publish({ rows: [], scopes: [], pending: [{ model: MODEL, id: 'row-1' }] }, ['pending']);
   });
 
+  it('keeps dependency model identity isolated inside mixed commit batches', () => {
+    setup();
+    const observe = (dependency: Dependency, batch: IncrementalCommitBatch): number => {
+      const bus = createCommitBus();
+      const notify = jest.fn();
+      bus.subscribe(notify, [dependency]);
+      bus.publish(batch);
+      return notify.mock.calls.length;
+    };
+
+    expect({
+      row: observe(
+        { kind: 'row', model: MODEL, id: 'row-1' },
+        {
+          rows: [
+            { model: MODEL, id: 'row-2', fields: null },
+            { model: 'OtherModel', id: 'row-1', fields: null }
+          ],
+          scopes: []
+        }
+      ),
+      modelFromRow: observe(
+        { kind: 'model', model: MODEL },
+        { rows: [{ model: 'OtherModel', id: 'row-2', fields: null }], scopes: [], pending: [{ model: MODEL, id: 'row-2' }] }
+      ),
+      modelFromScope: observe(
+        { kind: 'model', model: MODEL },
+        { rows: [], scopes: [{ model: 'OtherModel', scopeKey: 'scope-1' }], pending: [{ model: MODEL, id: 'row-2' }] }
+      ),
+      scope: observe(
+        { kind: 'scope', model: MODEL, scopeKey: 'scope-1' },
+        { rows: [], scopes: [{ model: 'OtherModel', scopeKey: 'scope-1' }], pending: [{ model: MODEL, id: 'row-2' }] }
+      ),
+      pending: observe(
+        { kind: 'pending', model: MODEL, id: 'row-1' },
+        {
+          rows: [{ model: MODEL, id: 'row-2', fields: null }],
+          scopes: [],
+          pending: [{ model: 'OtherModel', id: 'row-1' }]
+        }
+      )
+    }).toEqual({
+      row: 0,
+      modelFromRow: 0,
+      modelFromScope: 0,
+      scope: 0,
+      pending: 0
+    });
+  });
+
   it('keeps a sibling model subscriber indexed while dependencies and subscriptions change', () => {
     setup();
     const bus = createCommitBus();
