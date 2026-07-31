@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModelRuntime, f } from '../../testApi';
+import { DbProvider, collectGarbage, configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -119,6 +119,48 @@ describe('freshness follows scope membership, not only row survival', () => {
 
     expect(calls.filter(group => group === 'kept')).toHaveLength(1);
     expect(calls.filter(group => group === 'emptied')).toHaveLength(2);
+    act(() => root.unmount());
+  });
+
+  it('roots the rows of a mounted reader against a garbage collection sweep', async () => {
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          return { data: { rows: [{ id: `gc-${calls}`, name: 'Collected', group: null }] } as TData };
+        }
+      })
+    });
+    const rows = createRowsModel('MembershipFreshnessMaintenance');
+    const query = rows.query<Response, void, void, Row>('detail', {
+      document,
+      key: 'membership-freshness-maintenance',
+      select: data => data.rows,
+      staleTime: Infinity
+    });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+
+    // A mounted reader roots its rows: a sweep may not evict them, so the screen keeps its data,
+    // the chain stays materialized, and no network call fires.
+    act(() => {
+      collectGarbage();
+    });
+    await settle();
+    expect(rows.find('gc-1')).toMatchObject({ name: 'Collected' });
+    expect(calls).toBe(1);
     act(() => root.unmount());
   });
 
