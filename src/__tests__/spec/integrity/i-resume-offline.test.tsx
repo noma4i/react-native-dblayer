@@ -76,4 +76,54 @@ describe('foreground resume while offline', () => {
     expect(calls).toBe(2);
     act(() => root.unmount());
   });
+
+  it('replays exactly one follow-up when resume staleness lands during an in-flight fetch', async () => {
+    const pending: Array<(value: { data: FetchResponse }) => void> = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: <TData,>() =>
+          new Promise<{ data: TData }>(resolve => {
+            pending.push(resolve as (value: { data: FetchResponse }) => void);
+          })
+      }),
+      defaults: { resumeStaleTime: 1000 }
+    });
+    const fetch = defineFetch<FetchResponse, void, string>({ document, key: 'resume-inflight-fetch', select: data => data.value, staleTime: Infinity });
+    let latest: string | undefined;
+    const Reader = () => {
+      latest = fetch.use(undefined).data;
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    expect(pending).toHaveLength(1);
+
+    // Resume staleness lands while the first fetch is still in flight: the response predates it.
+    act(() => {
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+
+    await act(async () => {
+      pending[0]!({ data: { value: 'stale-response' } });
+      await settle();
+    });
+    await act(async () => {
+      pending[1]?.({ data: { value: 'fresh-response' } });
+      await settle();
+    });
+
+    // The landing owes exactly one follow-up request and its response wins.
+    expect(pending).toHaveLength(2);
+    expect(latest).toBe('fresh-response');
+    await settle();
+    expect(pending).toHaveLength(2);
+    act(() => root.unmount());
+  });
 });

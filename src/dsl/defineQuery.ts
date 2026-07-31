@@ -183,17 +183,19 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       throw new Error('react-native-dblayer: persisted query model row is missing');
     }
   };
-  /** Composite ids this chain still materializes: scope membership for a scope destination, row presence otherwise. */
+  /**
+   * Composite ids this chain still materializes: scope membership for a scope destination, row
+   * presence otherwise. The registry calls it only after reading landed non-empty chain ids for
+   * this key, so the model branch reads the same cached meta unconditionally.
+   */
   const materializedIds = (scope: TScope): ReadonlySet<string> => {
     if (destinationScope) {
       if (!destinationScope.isResolved(scope)) return new Set();
       return new Set(destinationScope.readRows(scope).map(row => compositeKey(destinationModelId, destinationScope.normalizeRowId(row))));
     }
     const destination = config.into as ModelDestination<TStored>;
-    return new Set(
-      ((getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta | undefined)?.ids ?? [])
-        .filter(id => destination.find(parseCompositeKey(id)?.[1] ?? '') !== undefined)
-    );
+    const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta;
+    return new Set(meta.ids.filter(id => destination.find(parseCompositeKey(id)![1]!) !== undefined));
   };
   /** Every registered chain with the destination it depends on; the registry owns selection and pruning. */
   const materializationChains = function* (): Iterable<MaterializedChain> {

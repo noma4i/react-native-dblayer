@@ -318,6 +318,27 @@ describe('prune retention', () => {
   });
 });
 
+describe('open row protection source', () => {
+  it('unions rowIds and tempIds of open operations only, tolerating a record without rowIds', () => {
+    const { storage, state } = setup();
+    state.begin(baseRecord('op-open', { tempIds: ['temp-open'] }));
+    state.begin(baseRecord('op-closed'));
+    state.close('op-closed', 'committed');
+    const { rowIds: _omitted, ...bare } = baseRecord('op-bare', { tempIds: ['temp-bare'] });
+    state.begin(bare);
+    state.begin(baseRecord('op-failed'));
+    state.close('op-failed', 'failed');
+
+    const held = ['row-op-failed', 'row-op-open', 'temp-bare', 'temp-open'];
+    expect([...state.openRowIdsFor('SpecLedgerModel')].sort()).toEqual(held);
+    expect([...state.openRowIdsFor('OtherModel')]).toEqual([]);
+
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    fresh.hydrate();
+    expect([...fresh.openRowIdsFor('SpecLedgerModel')].sort()).toEqual(held);
+  });
+});
+
 describe('hydrate key retention', () => {
   it('retains keys for pending and committed-once records, drops the rest, and tracks hydrated pending', () => {
     const { storage, state } = setup();
