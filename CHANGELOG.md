@@ -1,5 +1,12 @@
 # Changelog
 
+## 10.0.0-beta.6 - 2026-07-31
+
+### Fixed
+
+- Query freshness follows result materialization, not row survival alone. A row that stays alive while leaving its destination scope - through a complete-coverage snapshot, retention trim, or garbage-collected membership - is pruned from the chain that landed it, and a chain that keeps nothing goes stale. A reader whose scope emptied this way refetches instead of serving the empty result for the rest of the freshness window.
+- Committed row destruction and committed membership loss reconcile through one feed instead of two mechanisms, and only registered chains are pruned, so a cached payload that merely looks like a chain is never touched. Identity replacement stays materialized and leaves freshness intact.
+
 ## 10.0.0-beta.5 - 2026-07-31
 
 ### Added
