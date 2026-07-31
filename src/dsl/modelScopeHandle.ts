@@ -18,6 +18,8 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   context: ModelContext<TStored>;
   scopes: Record<string, ScopeSpec<TStored>> | undefined;
   keyForScope(scopeName: string, scopeValue: unknown): string;
+  normalizeScopeValue(scopeName: string, scopeValue: unknown): unknown;
+  isScopeValueComplete(scopeName: string, scopeValue: unknown): boolean;
   scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
   isPlanRow(input: unknown): boolean;
   normalize(input: unknown): TStored;
@@ -220,6 +222,8 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         );
       },
       planApply,
+      normalize: scopeValue => options.normalizeScopeValue(scopeName, scopeValue),
+      isComplete: scopeValue => options.isScopeValueComplete(scopeName, scopeValue),
       key: scopeValue => options.keyForScope(scopeName, scopeValue),
       isServerOrder: () => !spec?.sort || spec.sort === 'server-order',
       planPlacement: (scopeValue, id, position) => {

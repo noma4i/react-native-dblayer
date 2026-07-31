@@ -21,6 +21,8 @@ export type InternalModelHandle = {
 export type InternalScopeHandle = {
   apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: { resetOrder?: boolean }): void;
   planApply(scopeValue: unknown, rows: Array<{ row: unknown }>, coverage: ScopeCoverage, options?: { resetOrder?: boolean }): WriteOp[];
+  normalize(scopeValue: unknown): unknown;
+  isComplete(scopeValue: unknown): boolean;
   key(scopeValue: unknown): string;
   isServerOrder(): boolean;
   planPlacement(scopeValue: unknown, id: string, position: 'prepend' | 'append'): WriteOp[];

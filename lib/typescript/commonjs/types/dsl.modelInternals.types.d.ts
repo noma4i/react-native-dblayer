@@ -10,6 +10,8 @@ export type ModelMembershipPlanner<TStored extends {
 /** Internal scope-key derivation for one model's declared scopes. */
 export type ModelScopeKeys = {
     keyForScope(scopeName: string, scopeValue: unknown): string;
+    normalizeScopeValue(scopeName: string, scopeValue: unknown): unknown;
+    isScopeValueComplete(scopeName: string, scopeValue: unknown): boolean;
     scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
 };
 /** Internal `DbWhere` matcher compiled per model. */

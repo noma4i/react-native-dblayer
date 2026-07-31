@@ -18,7 +18,7 @@ export const createModelScopeKeys = (
     }
     return value;
   };
-  const coerceScopeValueForKey = (scopeName: string, scopeValue: unknown): unknown => {
+  const normalizeScopeValue = (scopeName: string, scopeValue: unknown): unknown => {
     if (!isRecord(scopeValue)) return scopeValue;
     const by = scopeByFieldMap.get(scopeName);
     if (!by) return scopeValue;
@@ -30,14 +30,22 @@ export const createModelScopeKeys = (
     }
     return out;
   };
-  const keyForScope = (scopeName: string, scopeValue: unknown): string => {
+  const isNormalizedScopeValueComplete = (scopeName: string, scopeValue: unknown): boolean => {
     const by = scopeByFieldMap.get(scopeName);
-    if (by && scopeValue !== null) {
-      for (const field of Object.keys(by)) {
-        if (!isRecord(scopeValue) || scopeValue[field] === undefined) throw new Error(`${config.name}.${scopeName}: scope value must provide ${field}`);
-      }
-    }
-    return compositeKey(scopeName, buildScopeKey(coerceScopeValueForKey(scopeName, scopeValue)));
+    if (!by || scopeValue === null) return true;
+    if (!isRecord(scopeValue)) return false;
+    return Object.keys(by).every(field => scopeValue[field] !== undefined);
   };
-  return { keyForScope, scopeValueFromRow };
+  const isScopeValueComplete = (scopeName: string, scopeValue: unknown): boolean =>
+    isNormalizedScopeValueComplete(scopeName, normalizeScopeValue(scopeName, scopeValue));
+  const keyForScope = (scopeName: string, scopeValue: unknown): string => {
+    const normalized = normalizeScopeValue(scopeName, scopeValue);
+    if (!isNormalizedScopeValueComplete(scopeName, normalized)) {
+      const by = scopeByFieldMap.get(scopeName)!;
+      const missing = Object.keys(by).find(field => !isRecord(normalized) || normalized[field] === undefined)!;
+      throw new Error(`${config.name}.${scopeName}: scope value must provide ${missing}`);
+    }
+    return compositeKey(scopeName, buildScopeKey(normalized));
+  };
+  return { keyForScope, normalizeScopeValue, isScopeValueComplete, scopeValueFromRow };
 };

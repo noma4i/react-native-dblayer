@@ -7,6 +7,8 @@ export declare const createModelScopeHandle: <TStored extends {
     context: ModelContext<TStored>;
     scopes: Record<string, ScopeSpec<TStored>> | undefined;
     keyForScope(scopeName: string, scopeValue: unknown): string;
+    normalizeScopeValue(scopeName: string, scopeValue: unknown): unknown;
+    isScopeValueComplete(scopeName: string, scopeValue: unknown): boolean;
     scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
     isPlanRow(input: unknown): boolean;
     normalize(input: unknown): TStored;

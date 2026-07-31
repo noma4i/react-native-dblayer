@@ -92,6 +92,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const registeredScopes = new Map<string, TScope>();
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
   const destinationModelId = config.into.modelId;
+  const destinationScope = isScopeDestination(config.into) ? getInternalScopeHandle(config.into) : null;
   /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
   const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false });
   const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => localState.set(key, next);
@@ -103,11 +104,13 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   });
   const bucketKeyOf = (scope: TScope): string => compositeKey(keyName, buildScopeKey(scope));
   const queryKeyOf = (key: string): [string, string] => [keyName, key];
-  const registerScope = (scope: TScope | null): scope is TScope => {
-    if (scope === null) return false;
-    if (isScopeDestination(config.into)) getInternalScopeHandle(config.into).key(scope);
+  const normalizeScope = (scope: TScope): TScope => (destinationScope ? (destinationScope.normalize(scope) as TScope) : scope);
+  const registerScope = (rawScope: TScope | null): TScope | null => {
+    if (rawScope === null) return null;
+    const scope = normalizeScope(rawScope);
+    destinationScope?.key(scope);
     registeredScopes.set(buildScopeKey(scope), scope);
-    return true;
+    return scope;
   };
   const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
     if (!isNonArrayRecord(partial)) return Object.is(scope, partial);
@@ -248,27 +251,45 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const scopeGate = (scope: TScope | null): TScope | null =>
     scope !== null && config.requiredScope?.some(key => (scope as Record<string, unknown>)[key] == null) ? null : scope;
   const fetch = async (rawScope: TScope | null): Promise<void> => {
-    const scope = scopeGate(rawScope);
-    if (!registerScope(scope)) return;
+    const scope = registerScope(scopeGate(rawScope));
+    if (scope === null) return;
     await run(scope, { restart: true, propagateFailure: true });
   };
-  const invalidate = (scope?: TScope): void => {
+  const invalidateRegisteredScope = (registered: TScope): void => {
     const client = getDbQueryClient();
-    const invalidateScope = (registered: TScope) => {
-      const queryKey = queryKeyOf(bucketKeyOf(registered));
-      // Invalidation is lazy: freshness drops for everyone, but only mounted readers refetch now.
-      void client.invalidateQueries({ queryKey, refetchType: 'none' }).then(() => {
-        refetchActiveFetchReaders(queryKey);
-      });
-    };
+    const queryKey = queryKeyOf(bucketKeyOf(registered));
+    // Invalidation is lazy: freshness drops for everyone, but only mounted readers refetch now.
+    void client.invalidateQueries({ queryKey, refetchType: 'none' }).then(() => {
+      refetchActiveFetchReaders(queryKey);
+    });
+  };
+  const invalidateMatching = (partial: TScope): void => {
+    for (const registered of registeredScopes.values()) {
+      if (!matchesPartialScope(registered, partial)) continue;
+      invalidateRegisteredScope(registered);
+    }
+  };
+  const invalidateAll = (): void => {
+    for (const registered of registeredScopes.values()) invalidateRegisteredScope(registered);
+  };
+  const invalidate = (scope?: TScope): void => {
     if (scope === undefined) {
-      for (const registered of registeredScopes.values()) invalidateScope(registered);
+      invalidateAll();
       return;
     }
-    registerScope(scope);
-    for (const registered of registeredScopes.values()) if (matchesPartialScope(registered, scope)) invalidateScope(registered);
+    const normalized = registerScope(scope);
+    if (normalized !== null) invalidateMatching(normalized);
   };
-  if (destinationModelId) registerModelInvalidation(destinationModelId, keyName, scope => invalidate(scope as TScope | undefined));
+  if (destinationModelId) {
+    registerModelInvalidation(destinationModelId, keyName, scope => {
+      if (scope === undefined) {
+        invalidateAll();
+        return;
+      }
+      if (destinationScope && !destinationScope.isComplete(scope)) return;
+      invalidateMatching(normalizeScope(scope as TScope));
+    });
+  }
   const useObservedState = (key: string): RequestState => {
     const client = getDbQueryClient();
     const generation = getRuntimeGeneration();
@@ -383,7 +404,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     };
   };
   const readDestinationRows = (rawScope: TScope | null): TStored[] | TStored | undefined => {
-    const scope = scopeGate(rawScope);
+    const gatedScope = scopeGate(rawScope);
+    const scope = gatedScope === null ? null : normalizeScope(gatedScope);
     if (scope === null) return isScopeDestination(config.into) ? [] : undefined;
     if (isScopeDestination(config.into)) return config.into.read(scope);
     const destination = config.into as ModelDestination<TStored>;
@@ -400,8 +422,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         return state.resultKind === 'many' ? rows : rows[0];
       };
   const use = (rawScope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
-    const scope = scopeGate(rawScope);
-    registerScope(scope);
+    const scope = registerScope(scopeGate(rawScope));
     const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const state = useReader(scope, enabled, false, false);
     return buildResult(useDestinationRows(scope, state), enabled, state, scope);
@@ -415,8 +436,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       rawScope: TScope | null,
       options?: { pageSize?: number; renderKeys?: readonly string[]; require?: readonly string[]; keepPrevious?: boolean; enabled?: boolean; loadMoreDebounceMs?: number }
     ) => {
-      const scope = scopeGate(rawScope);
-      registerScope(scope);
+      const scope = registerScope(scopeGate(rawScope));
       const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
       const state = useReader(scope, enabled, false, false);
       const window = scopeHandle.useWindow(scope, {
@@ -434,11 +454,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   }
   const destination = config.into as ModelDestination<TStored>;
   const useRowEnsured = (
-    scope: TScope,
+    rawScope: TScope,
     rowId: string | null | undefined,
     readOpts?: { renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
   ): EnsuredRowResult<TStored> => {
-    registerScope(scope);
+    const scope = registerScope(rawScope)!;
     const storedData = destination.find(rowId);
     const data = destination.use.find(rowId, readOpts);
     const enabled = data === undefined && rowId != null && (config.enabled?.(scope) ?? true);

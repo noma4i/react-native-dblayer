@@ -35,6 +35,8 @@ export type InternalScopeHandle = {
     }>, coverage: ScopeCoverage, options?: {
         resetOrder?: boolean;
     }): WriteOp[];
+    normalize(scopeValue: unknown): unknown;
+    isComplete(scopeValue: unknown): boolean;
     key(scopeValue: unknown): string;
     isServerOrder(): boolean;
     planPlacement(scopeValue: unknown, id: string, position: 'prepend' | 'append'): WriteOp[];
