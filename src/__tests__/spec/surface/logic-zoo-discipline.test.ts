@@ -88,6 +88,45 @@ describe('logic zoo discipline', () => {
     expect(violations.sort()).toEqual([]);
   });
 
+  it('decides pending patch ownership in exactly one place', () => {
+    // An enum validator lists alternatives with `||`; an ownership decision asserts one value.
+    // Only the latter counts, so the walk never descends into a disjunction.
+    const decidesOn = (node: ts.Node, literal: string): boolean => {
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.BarBarToken) return false;
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        [node.left, node.right].some((side) => ts.isStringLiteral(side) && side.text === literal)
+      ) {
+        return true;
+      }
+      let found = false;
+      ts.forEachChild(node, (child) => {
+        if (!found && decidesOn(child, literal)) found = true;
+      });
+      return found;
+    };
+
+    const owners: string[] = [];
+    for (const entry of parsedSources) {
+      const visit = (node: ts.Node): void => {
+        if (
+          ts.isBinaryExpression(node) &&
+          node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+          decidesOn(node, 'pending') &&
+          decidesOn(node, 'patch')
+        ) {
+          owners.push(`${entry.name}:${lineOf(entry.tree, node)}`);
+          return;
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(entry.tree);
+    }
+
+    expect(owners).toHaveLength(1);
+  });
+
   it('keeps shallow array equality in one dependency-neutral owner', () => {
     const definitions = parsedSources.filter((entry) => /\b(?:const|function) arraysShallowEqual\b/.test(entry.source)).map((entry) => entry.name);
     expect(definitions).toEqual(['utils/arrayEquality.ts']);
