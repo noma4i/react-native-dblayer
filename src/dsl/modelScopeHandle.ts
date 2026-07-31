@@ -93,11 +93,11 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       const reconciliation = planes().scopeIndex.reconcileNext(scopeKey, coverage, incoming, { ...planOptions, protectedIds });
       let { next } = reconciliation;
       const { detachedIds } = reconciliation;
-      if (detachedIds.length > 0) noteDataLoss('scope-complete-detach', options.modelId, detachedIds.length);
+      noteDataLoss('scope-complete-detach', options.modelId, detachedIds.length);
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (planOptions?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
         const trimmed = planes().scopeIndex.trimValue(next, maxRows, protectedIds);
-        if (trimmed.trimmedIds.length > 0) noteDataLoss('scope-retention-trim', options.modelId, trimmed.trimmedIds.length);
+        noteDataLoss('scope-retention-trim', options.modelId, trimmed.trimmedIds.length);
         next = trimmed.next;
       }
       return { kind: 'scope', model: options.modelId, scopeKey, next };
