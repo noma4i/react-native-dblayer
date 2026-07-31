@@ -1,4 +1,4 @@
-import { defineFieldCodec, scalarFieldCodecs } from './fieldCodec';
+import { createEnumFieldCodec, defineFieldCodec, scalarFieldCodecs } from './fieldCodec';
 import { createFieldSpec, readObjectField } from './fieldSpec';
 import type { AnyDbShape, ArrayItem, ArrayItemOut, EmptyDefaultFieldSpec, FieldSpec, FieldValueReader, InferShapeStored } from '../types';
 import { readShape } from './shape';
@@ -123,8 +123,7 @@ export const f = {
    * pass an explicit generic for codegen enums: `f.enum<GqlKind>(Object.values(GqlKind))`.
    */
   enum: <TValue extends string>(values: readonly TValue[]): FieldSpec<unknown, TValue> => {
-    const allowed = new Set<string>(values);
-    return valueField<TValue>('enum', value => (allowed.has(value as string) ? (value as TValue) : undefined));
+    return valueField<TValue>('enum', createEnumFieldCodec(values).read);
   },
   /**
    * Pass through any non-nullish raw value as the supplied TypeScript type.

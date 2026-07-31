@@ -1,0 +1,1 @@
+{"version":3,"file":"schema.scalar.types.d.ts","sourceRoot":"","sources":["../../../../src/types/schema.scalar.types.ts"],"names":[],"mappings":"AAAA,uFAAuF;AACvF,MAAM,MAAM,WAAW,CAAC,MAAM,IAAI;IAChC,sFAAsF;IACtF,IAAI,EAAE,CAAC,KAAK,EAAE,OAAO,KAAK,MAAM,GAAG,SAAS,CAAC;IAC7C,mGAAmG;IACnG,OAAO,EAAE,CAAC,KAAK,EAAE,OAAO,EAAE,KAAK,EAAE,MAAM,KAAK,MAAM,CAAC;CACpD,CAAC"}

@@ -40,6 +40,7 @@ export type * from './dsl.graphql.types';
 export type * from './dsl.scope.types';
 export type * from './schema.infer.types';
 export type * from './schema.fieldSpec.types';
+export type * from './schema.scalar.types';
 export type * from './schema.fields.types';
 export type * from './schema.shape.types';
 export type * from './core.store.types';

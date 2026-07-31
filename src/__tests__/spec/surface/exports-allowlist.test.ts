@@ -36,6 +36,7 @@ const runtimeExportAllowlist = [
   'references',
   'registerReset',
   'resetRuntime',
+  'scalar',
   'setFetchNetworkOnline',
   'updateWhenRowExists',
   'useLoadMore',

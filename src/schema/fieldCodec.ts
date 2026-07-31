@@ -3,6 +3,12 @@ import type { FieldCodec, FieldValueReader } from '../types';
 /** Create one typed conversion boundary for a field kind. */
 export const defineFieldCodec = <TOut>(read: FieldValueReader<TOut>): FieldCodec<TOut> => ({ read });
 
+/** Create a runtime-validating codec for one declared string enum. */
+export const createEnumFieldCodec = <TValue extends string>(values: readonly TValue[]): { read: (value: unknown) => TValue | undefined } => {
+  const allowed = new Set<string>(values);
+  return { read: value => (allowed.has(value as string) ? (value as TValue) : undefined) };
+};
+
 const readString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
 
 const readNumber = (value: unknown): number | undefined => {

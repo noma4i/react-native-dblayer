@@ -55,6 +55,13 @@ through the returned singleton.
 shape. `projectShape`, `readShape`, and `readShapeOrThrow` implement typed nested projection and
 reading.
 
+`scalar` exposes the same field codecs for individual transport values outside model and shape
+normalization. `scalar.id.read(value)` returns a normalized string id or `undefined`;
+`scalar.id.require(value, label)` returns the id or throws an error naming the input. The `str`,
+`num`, `int`, `date`, and `bool` members follow the same contract, while `scalar.enum(values)`
+creates a runtime-validating enum boundary. Consumers do not recreate scalar readers through
+single-field shapes.
+
 ## Associations
 
 ```ts

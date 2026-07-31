@@ -76,11 +76,13 @@ somewhere under `docs/`.
 | Export             | Kind  | Home                              |
 | ------------------ | ----- | --------------------------------- |
 | `f`                | value | [models.md](./models.md) |
+| `scalar`           | value | [models.md](./models.md) |
 | `defineShape`      | value | [models.md](./models.md) |
 | `projectShape`     | value | [models.md](./models.md) |
 | `readShape`        | value | [models.md](./models.md) |
 | `readShapeOrThrow` | value | [models.md](./models.md) |
 | `InferShapeStored` | type  | [models.md](./models.md) |
+| `ScalarValue`      | type  | [models.md](./models.md) |
 
 ### Relations
 

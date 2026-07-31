@@ -67,7 +67,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(74);
+    expect(first.split('\n')).toHaveLength(76);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -102,6 +102,7 @@ RelationResult: any
 RowId: any
 RowOperation: any
 RowOperationState: any
+ScalarValue: any
 ScopePlacement: any
 SingletonModel: any
 SingletonStatics: any
@@ -138,6 +139,7 @@ readShapeOrThrow: <TInput, TFields extends ShapeFields<TInput>>(shape: import("<
 references: <TChild, TRef>(model: import("<root>/src/types/core.relations.types").RelationTarget<TRef>, options: { ids: (child: TChild) => string | readonly (string | null | undefined)[] | null | undefined; }) => import("<root>/src/types/core.relations.types").ReferencesDecl<TRef>
 registerReset: <TReset extends Resetter>(reset: import("<root>/src/types/core.reset.types").SyncResetter<TReset>) => () => void
 resetRuntime: () => void
+scalar: { str: import("<root>/src/types/schema.scalar.types").ScalarValue<string>; num: import("<root>/src/types/schema.scalar.types").ScalarValue<number>; int: import("<root>/src/types/schema.scalar.types").ScalarValue<number>; date: import("<root>/src/types/schema.scalar.types").ScalarValue<string>; bool: import("<root>/src/types/schema.scalar.types").ScalarValue<boolean>; id: import("<root>/src/types/schema.scalar.types").ScalarValue<string>; enum: <TValue extends string>(values: readonly TValue[]) => import("<root>/src/types/schema.scalar.types").ScalarValue<TValue>; }
 setFetchNetworkOnline: (nextOnline: boolean) => void
 updateWhenRowExists: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, patch: import("<root>/src/types/core.rowWaiters.types").RowPatch<TStored>, options: import("<root>/src/types/core.rowWaiters.types").UpdateWhenRowExistsOptions) => void
 useLoadMore: (target: import("<root>/src/types/dsl.pagination.types").LoadMoreTarget, options?: import("<root>/src/types/dsl.pagination.types").LoadMoreOptions | undefined) => () => void
