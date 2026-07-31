@@ -22,7 +22,7 @@ import type {
 } from '../types';
 import { createGenerationRegistry } from './generationRegistry';
 import { noteRelationChildScan } from './diagnostics';
-import { withIdTieBreak } from './ordering';
+import { pickLowestRow } from './ordering';
 
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
@@ -172,11 +172,7 @@ export const readModelRelation = <TResult = unknown>(modelId: string, id: string
   if (relation.kind === 'hasMany') return relation.model.where({ [relation.foreignKey]: String(id) }) as TResult;
   if (relation.kind === 'hasOne') {
     const rows = relation.model.where({ [relation.foreignKey]: String(id) }) as Array<StoredRow & { id: string }>;
-    if (rows.length === 0) return undefined as TResult;
-    const comparator = relation.comparator
-      ? withIdTieBreak(relation.comparator as (left: StoredRow & { id: string }, right: StoredRow & { id: string }) => number)
-      : undefined;
-    return (comparator ? rows.reduce((best, row) => (comparator(row, best) < 0 ? row : best)) : rows[0]) as TResult;
+    return pickLowestRow(rows, relation.comparator as ((left: StoredRow & { id: string }, right: StoredRow & { id: string }) => number) | undefined) as TResult;
   }
   const selected = relation.ids(source);
   const ids = Array.isArray(selected) ? selected : [selected];

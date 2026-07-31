@@ -4,7 +4,7 @@ import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, valida
 import { hasRequiredFields } from '../read/requireFields';
 import { useLiveRead } from '../read/useLiveRead';
 import { useRef } from 'react';
-import { withIdTieBreak } from '../core/ordering';
+import { pickLowestRow } from '../core/ordering';
 import { arraysShallowEqual } from '../utils/arrayEquality';
 import { useRowOperationState } from './rowOperationState';
 
@@ -144,13 +144,10 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
         const parentId = parentIdOf();
         deps = id == null ? [] : [options.rowDep(id, [relation.foreignKey]), ...(parentId ? [{ kind: 'row' as const, model: relation.model.modelId, id: parentId }] : [])];
       } else if (relation.kind === 'hasOne') {
-        const comparator = relation.comparator;
-        const compare = comparator ? withIdTieBreak(comparator as (left: StoredRowShape, right: StoredRowShape) => number) : undefined;
+        const comparator = relation.comparator as ((left: StoredRowShape, right: StoredRowShape) => number) | undefined;
         compute = () => {
           if (id == null) return undefined;
-          const rows = relation.model.where({ [relation.foreignKey]: id }) as StoredRowShape[];
-          if (rows.length === 0) return undefined;
-          return compare ? rows.reduce((best, row) => (compare(row, best) < 0 ? row : best)) : rows[0];
+          return pickLowestRow(relation.model.where({ [relation.foreignKey]: id }) as StoredRowShape[], comparator);
         };
         deps = id == null ? [] : [options.rowDep(id), { kind: 'model', model: relation.model.modelId }];
       } else {

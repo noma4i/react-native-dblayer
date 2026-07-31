@@ -22,7 +22,7 @@ import { registerReset } from '../core/reset';
 import { compositeKey } from '../core/serialize';
 import { rowsShallowEqual, useLiveRead } from '../read/useLiveRead';
 import { arraysShallowEqual } from '../utils/arrayEquality';
-import { compareRowsBySpec } from '../core/ordering';
+import { compareRowsBySpec, pickLowestRow } from '../core/ordering';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { useScopeRetention } from '../read/scopeRetention';
 import { hasRequiredFields } from '../read/requireFields';
@@ -100,8 +100,7 @@ const resolveRelation = (row: RowRecord, relation: Exclude<RelationDecl, { kind:
   }
   const rows = rowsFor(relation.foreignKey, row.id);
   if (relation.kind === 'hasMany') return rows;
-  if (rows.length === 0) return null;
-  return relation.comparator ? rows.reduce((best, candidate) => (relation.comparator!(candidate, best) < 0 ? candidate : best)) : rows[0];
+  return pickLowestRow(rows, relation.comparator) ?? null;
 };
 
 /** Normalize the public generic contract once; runtime view evaluation intentionally remains row-shape agnostic. */
