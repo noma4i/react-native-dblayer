@@ -1,5 +1,17 @@
 # Changelog
 
+## 10.0.0-beta.7 - 2026-07-31
+
+### Fixed
+
+- Rows held by open operations (pending and failed-retryable) survive every planning cut, not only TTL and GC: a complete-coverage server snapshot keeps a held member it cannot confirm, retention-trim never cuts a held row and does not spend budget on it, and a held row keeps its comparator position among freshly landed snapshot rows. An optimistic send no longer disappears from a sorted thread while its confirmation is in flight.
+- An invalidate that lands while the same query or fetch is already in flight is no longer satisfied by that response: the run detects the newer invalidate after landing, restores the invalidated mark, and performs exactly one follow-up refetch. This covers model invalidation, scope invalidation, and foreground-resume staleness for both `defineQuery` and `defineFetch`.
+- Destroying an id whose row never existed is a no-op for relation effects: it does not cascade into orphan children that merely carry the id as a foreign key and does not touch parent counters.
+
+### Changed
+
+- The operation ledger exposes `openRowIdsFor(model)` - the single protection root projected for scope planning. Row-bucket lookups drop tautological model re-checks.
+
 ## 10.0.0-beta.6 - 2026-07-31
 
 ### Fixed
