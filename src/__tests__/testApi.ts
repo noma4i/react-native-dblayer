@@ -74,6 +74,7 @@ export { compositeKey, firstCompositeKeyPart } from '../core/serialize';
 export { compositeStorageKey } from '../core/serialize';
 export { decodePersistence, encodePersistence, jsonRoundTrip } from '../core/persistenceCodec';
 export { invalidatePersistedQuery, readPersistedQuery, removePersistedQuery, writePersistedQuery } from '../core/queryPersistence';
+export { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
 export { createEntityPlane, createRowCleaner } from '../core/storeEntities';
 export { runInApplyBatch } from '../core/storeSync';
 export { createCommitBus } from '../core/apply/commitBus';

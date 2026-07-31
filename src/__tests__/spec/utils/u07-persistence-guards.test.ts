@@ -1,6 +1,8 @@
 import {
+  buildScopeKey,
   configureDb,
   decodePersistence,
+  matchesDbWhere,
   encodePersistence,
   invalidatePersistedQuery,
   jsonRoundTrip,
@@ -87,6 +89,27 @@ describe('persisted query record guards', () => {
     expect(flipped.map(entry => entry.identity)).toEqual(['flip']);
     expect(readBack('flip')?.invalidated).toBe(true);
     expect(readBack('keep')?.invalidated).toBe(false);
+  });
+});
+
+describe('where operator matching', () => {
+  it('gates contains and ordered comparisons by operand types', () => {
+    expect(matchesDbWhere({ id: 'r', name: 'hello world' }, { name: { contains: 'lo wo' } } as never)).toBe(true);
+    expect(matchesDbWhere({ id: 'r', name: 'hello' }, { name: { contains: 'nope' } } as never)).toBe(false);
+    expect(matchesDbWhere({ id: 'r', name: 7 }, { name: { contains: '7' } } as never)).toBe(false);
+    expect(matchesDbWhere({ id: 'r', name: 'has 7' }, { name: { contains: 7 } } as never)).toBe(false);
+    // Ordered operators never coerce across types.
+    expect(matchesDbWhere({ id: 'r', seq: '5' }, { seq: { gt: 4 } } as never)).toBe(false);
+    expect(matchesDbWhere({ id: 'r', seq: 5 }, { seq: { gt: '4' } } as never)).toBe(false);
+    expect(matchesDbWhere({ id: 'r', seq: 5 }, { seq: { gt: Number.NaN } } as never)).toBe(false);
+    expect(matchesDbWhere({ id: 'r', name: 'b' }, { name: { gt: 'a', lt: 'c' } } as never)).toBe(true);
+    expect(matchesDbWhere({ id: 'r', name: 'a' }, { name: { gte: 'a' } } as never)).toBe(true);
+    expect(matchesDbWhere({ id: 'r', name: 'c' }, { name: { lte: 'b' } } as never)).toBe(false);
+  });
+
+  it('builds one deterministic scope key regardless of condition key order', () => {
+    expect(buildScopeKey({ beta: 1, alpha: 'x' })).toBe(buildScopeKey({ alpha: 'x', beta: 1 }));
+    expect(buildScopeKey({})).toBe(buildScopeKey(undefined as never));
   });
 });
 
