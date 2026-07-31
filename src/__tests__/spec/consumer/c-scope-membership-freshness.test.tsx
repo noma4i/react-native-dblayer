@@ -66,6 +66,62 @@ describe('freshness follows scope membership, not only row survival', () => {
     act(() => root.unmount());
   });
 
+  it('prunes only the emptied scope and leaves a sibling scope of the same model untouched', async () => {
+    const calls: string[] = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData, TVariables,>(operation: { variables?: TVariables }) => {
+          const group = String((operation.variables as { group?: string } | undefined)?.group);
+          calls.push(group);
+          return { data: { rows: [{ id: `${group}-${calls.filter(entry => entry === group).length}`, name: 'Scoped', group }] } as TData };
+        }
+      })
+    });
+    const rows = createRowsModel('MembershipFreshnessSiblingScopes');
+    const query = rows.query<Response, { group: string }, { group: string }, Row>('group', {
+      document,
+      key: 'membership-freshness-sibling',
+      vars: value => value,
+      select: data => data.rows,
+      into: rows.scopes.group,
+      staleTime: Infinity
+    });
+    const Reader = ({ group }: { group: string }) => {
+      query.use({ group });
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) =>
+      React.createElement(
+        DbProvider,
+        null,
+        React.createElement(Reader, { group: 'kept' }),
+        mounted ? React.createElement(Reader, { group: 'emptied' }) : null
+      );
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toEqual(['kept', 'emptied']);
+
+    act(() => rows.scopes.group.seed({ group: 'emptied' }, []));
+    await settle();
+
+    // The sibling scope never lost membership, so its chain stays fresh and its rows stay on screen.
+    expect(rows.scopes.group.read({ group: 'kept' }).map(row => row.id)).toEqual(['kept-1']);
+    expect(calls.filter(group => group === 'kept')).toHaveLength(1);
+
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+
+    expect(calls.filter(group => group === 'kept')).toHaveLength(1);
+    expect(calls.filter(group => group === 'emptied')).toHaveLength(2);
+    act(() => root.unmount());
+  });
+
   it('treats an identity replacement as materialized and leaves the chain fresh', async () => {
     let calls = 0;
     configureDb({
