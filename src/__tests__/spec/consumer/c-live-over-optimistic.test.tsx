@@ -167,6 +167,78 @@ describe('live push over an optimistic send', () => {
     reader.unmount();
   });
 
+  it('places a held row at its comparator position when a complete snapshot lands around it', async () => {
+    const pushHandlers: Array<{ next: (data: unknown) => void; error: (error: unknown) => void }> = [];
+    let resolveQuery!: () => void;
+    const transport = createMockTransport({
+      query: <TData,>() =>
+        new Promise<{ data: TData }>(resolve => {
+          resolveQuery = () =>
+            resolve({
+              data: { rows: [
+                { id: 'srv-10', chatId: 'chat-1', clientId: null, seq: 10, text: 'newest' },
+                { id: 'srv-8', chatId: 'chat-1', clientId: null, seq: 8, text: 'oldest' }
+              ] } as TData
+            });
+        }),
+      mutation: <TData,>() => new Promise<{ data: TData }>(() => {}),
+      subscribe: (_options, handlers) => {
+        pushHandlers.push(handlers);
+        return jest.fn();
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const messages = defineModelRuntime({
+      id: 'SpecLiveOverOptimisticHeldOrder',
+      name: 'SpecLiveOverOptimisticHeldOrder',
+      fields: { chatId: f.str(), clientId: f.str().nullable(), seq: f.num(), text: f.str() },
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      scopes: {
+        thread: ({
+          by: { chatId: 'chatId' },
+          sort: { comparator: (left: MessageRow, right: MessageRow) => right.seq - left.seq }
+        })
+      }
+    });
+    const threadQuery = messages.query<ThreadResponse, { chatId: string }, { chatId: string }, MessageRow>('held-order', {
+      document: QUERY_DOCUMENT,
+      vars: scopeValue => ({ chatId: scopeValue.chatId }),
+      select: data => data.rows,
+      into: messages.scopes.thread,
+      coverage: 'complete',
+      staleTime: Infinity
+    });
+    let capturedTempId = '';
+    const send = messages.mutation('send', {
+      document: QUERY_DOCUMENT,
+      result: 'send',
+      optimistic: {
+        model: messages,
+        build: (input: { seq: number }, context: { tempId: string | null }) => {
+          capturedTempId = context.tempId!;
+          return { id: capturedTempId, chatId: 'chat-1', clientId: 'client-o', seq: input.seq, text: 'mine' };
+        },
+        selectServerNode: (data: SendResponse) => data.send.row
+      }
+    });
+    let latest: MessageRow[] = [];
+    const reader = renderCounted(() => {
+      latest = threadQuery.use({ chatId: 'chat-1' }).data as MessageRow[];
+      return latest;
+    });
+    act(() => {
+      void send.run({ seq: 9 });
+    });
+    await act(async () => {
+      resolveQuery();
+      await Promise.resolve();
+    });
+
+    // The held send sits between the server rows exactly where its comparator rank puts it.
+    expect(latest.map(row => row.id)).toEqual(['srv-10', capturedTempId, 'srv-8']);
+    reader.unmount();
+  });
+
   it('keeps a row held by an open operation inside a retention-trimmed scope', async () => {
     const pushHandlers: Array<{ next: (data: unknown) => void; error: (error: unknown) => void }> = [];
     const transport = createMockTransport({
