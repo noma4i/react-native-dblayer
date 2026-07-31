@@ -83,6 +83,9 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
       fetch: async () => {
         await single.fetch(params);
       },
+      refresh: async () => {
+        await single.refresh(params);
+      },
       seed: rows => runtime.seed(rows),
       use: options => {
         const result = single.use(params, { enabled: options?.enabled });
@@ -95,7 +98,7 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
           isPreviousData: false,
           loadMore: () => {},
           refresh: async () => {
-            await single.fetch(params);
+            await single.refresh(params);
           }
         };
       },
@@ -113,6 +116,9 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
     read: () => (params === null ? [] : scope.read(params)),
     fetch: async () => {
       if (query) await query.fetch(params);
+    },
+    refresh: async () => {
+      if (query) await query.refresh(params);
     },
     seed: (rows: TInput[]) => {
       if (params !== null) scope.seed(params, rows);
@@ -154,7 +160,7 @@ const createNamedRelation = <TStored extends { id: string }, TInput>(
           isPreviousData: window.isPreviousData,
           loadMore,
           refresh: async () => {
-            await query.fetch(params);
+            await query.refresh(params);
           }
         };
       }
@@ -182,6 +188,7 @@ const createWhereRelation = <TStored extends { id: string; updatedAt?: string | 
 ): Relation<TStored, TStored[], TInput> => ({
   read: () => runtime.where(where, options),
   fetch: async () => {},
+  refresh: async () => {},
   seed: rows => runtime.seed(rows),
   use: () => {
     let builder = runtime.use.where(where);
@@ -208,6 +215,7 @@ const createByIdsRelation = <TStored extends { id: string; updatedAt?: string | 
     return row ? [row] : [];
   }),
   fetch: async () => {},
+  refresh: async () => {},
   seed: rows => runtime.seed(rows),
   use: () => {
     const rows = runtime.use.byIds(ids).rows;
@@ -236,6 +244,7 @@ const createAssociationRelation = <
   return {
     read,
     fetch: async () => {},
+    refresh: async () => {},
     seed: () => {
       throw new Error('seed requires a model relation');
     },
@@ -484,6 +493,7 @@ export const defineModelFacade = <
               staleTime: remote.staleTime,
               resumeStaleTime: remote.resumeStaleTime,
               emptyStaleTime: remote.emptyStaleTime,
+              persistenceVersion: remote.persistenceVersion,
               refetchOnMount: remote.refetchOnMount
             }) as QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined>)
           : remote.type === 'list'
@@ -499,6 +509,7 @@ export const defineModelFacade = <
                   staleTime: list.staleTime,
                   resumeStaleTime: list.resumeStaleTime,
                   emptyStaleTime: list.emptyStaleTime,
+                  persistenceVersion: list.persistenceVersion,
                   refetchOnMount: list.refetchOnMount
                 }) as ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>;
               })()
@@ -524,6 +535,7 @@ export const defineModelFacade = <
                   staleTime: connection.staleTime,
                   resumeStaleTime: connection.resumeStaleTime,
                   emptyStaleTime: connection.emptyStaleTime,
+                  persistenceVersion: connection.persistenceVersion,
                   refetchOnMount: connection.refetchOnMount,
                   maxPages: connection.maxPages,
                   direction: connection.direction,
@@ -538,9 +550,10 @@ export const defineModelFacade = <
   );
   const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>> = Object.create(null);
   for (const name of Object.keys(config.relations ?? {})) {
-    Reflect.set(relationMethods, name, (params: Record<string, unknown> | null) =>
-      createNamedRelation(runtime, name, params, compiledRelations[name], config.relations?.[name]?.remote?.type)
-    );
+    const method = (params: Record<string, unknown> | null) =>
+      createNamedRelation(runtime, name, params, compiledRelations[name], config.relations?.[name]?.remote?.type);
+    Reflect.set(method, 'invalidate', () => compiledRelations[name]?.invalidate());
+    Reflect.set(relationMethods, name, method);
   }
   const actions: ModelActionMethods<TActions> = Object.create(null);
   const events = runtime.ingest(

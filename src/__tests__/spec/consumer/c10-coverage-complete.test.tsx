@@ -70,7 +70,7 @@ describe('coverage complete and scope isolation', () => {
 
     const before = blockedReader.renders();
     await act(async () => {
-      await queryReader.result().refetch();
+      await queryReader.result().refresh();
     });
     await settle();
 

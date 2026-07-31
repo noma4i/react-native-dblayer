@@ -168,7 +168,7 @@ describe('loading machine timeline contracts', () => {
     expect((latest.data as Row).id).toBe('row-1');
 
     await act(async () => {
-      await latest.refetch();
+      await latest.refresh();
     });
     await settle();
 
@@ -197,7 +197,7 @@ describe('loading machine timeline contracts', () => {
     pending.shift()?.resolve({ row: { id: 'row-1', groupId: 'g', status: 'active' } });
     await settle();
 
-    void latest.refetch().catch(() => undefined);
+    void latest.refresh().catch(() => undefined);
     await settle();
     expect(pending).toHaveLength(1);
     pending.shift()?.reject(new Error('first failure'));
@@ -212,7 +212,7 @@ describe('loading machine timeline contracts', () => {
       throw new Error(`W-ERR-RETRY missing error banner: ${JSON.stringify(timeline.frames())}`);
     }
 
-    void latest.refetch().catch(() => undefined);
+    void latest.refresh().catch(() => undefined);
     await settle();
     expect(pending).toHaveLength(1);
     pending.shift()?.resolve({ row: { id: 'row-1', groupId: 'g', status: 'active' } });

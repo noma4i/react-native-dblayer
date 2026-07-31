@@ -146,7 +146,7 @@ describe('server-order visitor scope behavior', () => {
     const afterInitial = scopeReader.renders();
 
     act(() => {
-      void queryReader.result().refetch();
+      void queryReader.result().refresh();
     });
     await settle();
     expect(scopeReader.renders() - afterInitial).toBe(0);
@@ -154,7 +154,7 @@ describe('server-order visitor scope behavior', () => {
 
     const beforeChange = scopeReader.renders();
     act(() => {
-      void queryReader.result().refetch();
+      void queryReader.result().refresh();
     });
     await settle();
     expect(scopeReader.result().map(row => row.id)).toEqual(['u3', 'u1', 'u5']);

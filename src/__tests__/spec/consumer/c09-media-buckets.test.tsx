@@ -297,7 +297,7 @@ describe('media scope bucket behavior', () => {
     await settle();
     comparisons = 0;
     await act(async () => {
-      await queryReader.result().refetch();
+      await queryReader.result().refresh();
     });
 
     expect(media.scopes.media.read(scopeValue).map(row => row.id)).toEqual(['new-40', 'old-30', 'new-25', 'old-20', 'old-12', 'old-5']);

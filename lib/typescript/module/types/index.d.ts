@@ -4,6 +4,7 @@ export type * from './core.rowWaiters.types';
 export type * from './core.schemaManifest.types';
 export type * from './core.apply.journal.types';
 export type * from './core.persistenceCodec.types';
+export type * from './core.queryPersistence.types';
 export type * from './core.diagnostics.types';
 export type * from './core.apply.commitBus.types';
 export type * from './core.gc.types';

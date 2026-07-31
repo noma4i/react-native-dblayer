@@ -31,6 +31,7 @@ const Message = defineModel('Message', {
 | `cursor` | Selects a custom cursor from the response. |
 | `required` | Disables transport until all named parameters are non-nullish. |
 | `staleTime` | Sets filled-result freshness. |
+| `persistenceVersion` | Versions persisted query metadata when the declaration contract changes. |
 | `resumeStaleTime` | Overrides foreground invalidation age. |
 | `emptyStaleTime` | Sets empty-result freshness. |
 | `refetchOnMount` | Controls mount refetch of stale data. |
@@ -66,6 +67,7 @@ details: {
 | `select` | Selects one row or a nullish absence. |
 | `required` | Disables transport until all named parameters are non-nullish. |
 | `staleTime` | Sets filled-result freshness. |
+| `persistenceVersion` | Versions persisted query metadata when the declaration contract changes. |
 | `resumeStaleTime` | Overrides foreground invalidation age. |
 | `emptyStaleTime` | Sets empty-result freshness. |
 | `refetchOnMount` | Controls mount refetch of stale data. |
@@ -85,8 +87,9 @@ data, empty data, and errors. Local rows remain readable while a remote refresh 
 ## `defineFetch(config)`
 
 `defineFetch` is reserved for reads with no model destination. `FetchConfig` accepts a GraphQL
-document and selector or a custom fetcher. `FetchHandle` exposes `read`, `fetch`, `use`, and
-invalidation. `FetchResult` carries data, loading state, error, and refresh.
+document and selector or a custom fetcher. `FetchHandle` exposes `read`, freshness-aware `fetch`,
+forced `refresh`, `use`, and family `remove`. `validate` checks selected data after transport and
+durable restore. `FetchResult` carries data, loading state, error, and refresh.
 
 ## Connection and extract helpers
 

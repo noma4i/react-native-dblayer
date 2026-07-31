@@ -75,10 +75,16 @@ const snapshot = relation.read();
 const { data, loadingState, error, hasMore, isFetchingMore, loadMore, refresh } = relation.use({
   pageSize: 20
 });
+
+await relation.fetch();
+await relation.refresh();
+Message.thread.invalidate();
 ```
 
 The same immutable `Relation` object provides local snapshot reads, subscribed reads, loading
-state, invalidation, pagination, refresh, and counts. `where` and `byIds` return the same shape.
+state, invalidation, pagination, refresh, and counts. `fetch` respects freshness, `refresh` forces
+transport, and a named relation method invalidates its complete persisted family without touching
+sibling relations. `where` and `byIds` return the same shape.
 
 ## Run actions
 
@@ -119,7 +125,15 @@ Every write compiles into one plan, one write-ahead transaction, and one semanti
 Canonical rows, relation membership, ordering, optimistic identity, and operation state remain
 consistent under one epoch. `resetRuntime()` clears persisted and in-memory state on logout.
 
+Named queries with a finite positive freshness window persist query identity, selected data or
+pagination metadata, the original update timestamp, and invalidation state. A process restart
+therefore restores fresh data without transport and refreshes expired or invalidated data exactly
+once. Anonymous and zero-stale queries remain process-local. Increment `persistenceVersion` when a
+selected shape, destination, identity, or pagination contract changes.
+
 Standalone `defineFetch` and `defineCommand` remain available only for model-less service work.
+`defineFetch` exposes `read`, freshness-aware `fetch`, forced `refresh`, reactive `use`, and family
+`remove`; `validate` checks selected data after transport and durable restore.
 
 ## Verification
 

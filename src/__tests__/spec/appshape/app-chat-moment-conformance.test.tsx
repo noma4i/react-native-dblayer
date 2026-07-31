@@ -105,7 +105,7 @@ describe('app chat and moment conformance', () => {
     expect(feedReader.result().map((row: any) => row.id)).toEqual(['moment-3', 'moment-2', 'moment-1']);
     expect(models.moments.find('moment-2')).toBe(firstRow);
 
-    await act(async () => { await queryReader.result().refetch(); });
+    await act(async () => { await queryReader.result().refresh(); });
     expect(feedReader.result().map((row: any) => row.id)).toEqual(['moment-3', 'moment-2', 'moment-1']);
     expect(models.moments.find('moment-2')).toBe(firstRow);
 
@@ -155,7 +155,7 @@ describe('app chat and moment conformance', () => {
     await settle();
     await settle(1, { macro: true });
     await settleUntil(() => models.moments.scopes.feed.read({}).length === 1, 20, { macro: true });
-    await act(async () => { await queryReader.result().refetch(); });
+    await act(async () => { await queryReader.result().refresh(); });
     await settle();
     await settle(1, { macro: true });
 
@@ -179,7 +179,7 @@ describe('app chat and moment conformance', () => {
     await settle();
     await settle(1, { macro: true });
     await settleUntil(() => models.moments.scopes.feed.read({}).length === 1, 20, { macro: true });
-    await act(async () => { await queryReader.result().refetch(); });
+    await act(async () => { await queryReader.result().refresh(); });
     await settle();
     await settle(1, { macro: true });
 

@@ -43,6 +43,7 @@ export type RelationResult<TData> = {
 export type Relation<TStored, TData = TStored[], TInput = TStored> = {
     read(): TData;
     fetch(): Promise<void>;
+    refresh(): Promise<void>;
     seed(rows: TInput[]): void;
     use(options?: RelationOptions<TStored>): RelationResult<TData>;
     count(): number;
@@ -66,6 +67,7 @@ export type GraphqlConnectionOptions<TData, TVariables, TParams, TConnection, TN
     coverage?: ScopeCoverage;
     required?: readonly (keyof TParams & string)[];
     staleTime?: number | string;
+    persistenceVersion?: number;
     resumeStaleTime?: number | null;
     emptyStaleTime?: number | string;
     refetchOnMount?: boolean;
@@ -83,6 +85,7 @@ export type GraphqlListOptions<TData, TVariables, TParams, TNode, TMapped> = {
     map?(node: TNode): TMapped;
     required?: readonly (keyof TParams & string)[];
     staleTime?: number | string;
+    persistenceVersion?: number;
     resumeStaleTime?: number | null;
     emptyStaleTime?: number | string;
     refetchOnMount?: boolean;
@@ -96,6 +99,7 @@ export type GraphqlSingleOptions<TData, TVariables, TParams, TNode> = {
     select(data: TData): TNode | null | undefined;
     required?: readonly (keyof TParams & string)[];
     staleTime?: number | string;
+    persistenceVersion?: number;
     resumeStaleTime?: number | null;
     emptyStaleTime?: number | string;
     refetchOnMount?: boolean;
@@ -307,9 +311,12 @@ export type RowOperation<TStored> = {
     use(): RowOperationState<TStored>;
 };
 export type ModelRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>, TInput = TStored> = {
-    [K in keyof TRelations]: (params: RelationParams<TStored, TRelations[K]> | null) => Relation<TStored, TRelations[K] extends {
-        remote: GraphqlSingleDefinition<any, any, any, any>;
-    } ? TStored | undefined : TStored[], TInput>;
+    [K in keyof TRelations]: {
+        (params: RelationParams<TStored, TRelations[K]> | null): Relation<TStored, TRelations[K] extends {
+            remote: GraphqlSingleDefinition<any, any, any, any>;
+        } ? TStored | undefined : TStored[], TInput>;
+        invalidate(): void;
+    };
 };
 export type AssociationStored<TDefinition> = TDefinition extends RelationDecl<infer TStored> ? TStored : never;
 export type AssociationData<TDefinition> = TDefinition extends {

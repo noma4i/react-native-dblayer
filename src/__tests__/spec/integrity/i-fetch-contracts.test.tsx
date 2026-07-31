@@ -124,10 +124,10 @@ describe('fetch lifecycle contracts', () => {
     await settle(2);
     expect(pending).toHaveLength(1);
 
-    act(() => reader.result().refetch());
+    act(() => reader.result().refresh());
     await settle(2);
     expect(pending).toHaveLength(2);
-    act(() => reader.result().refetch());
+    act(() => reader.result().refresh());
     await settle(2);
     expect(pending).toHaveLength(3);
 
@@ -163,7 +163,7 @@ describe('fetch lifecycle contracts', () => {
     await settle(2);
     expect(reader.result().data).toBe('cached');
 
-    act(() => reader.result().refetch());
+    act(() => reader.result().refresh());
     await settle(2);
     resetRuntime();
     rejectRestart(new Error('stale reader restart'));

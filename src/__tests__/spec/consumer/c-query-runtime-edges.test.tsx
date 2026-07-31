@@ -323,7 +323,7 @@ describe('query runtime edges', () => {
     expect(reader.result().data?.label).toBe('first');
 
     await act(async () => {
-      await reader.result().refetch();
+      await reader.result().refresh();
     });
 
     expect(calls).toBe(2);

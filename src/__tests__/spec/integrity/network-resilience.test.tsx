@@ -127,7 +127,7 @@ describe('network resilience timelines', () => {
     await settle(6, { macro: true });
     const recoveryStart = timeline.frames().length;
     act(() => {
-      latest.refetch();
+      latest.refresh();
     });
     await settle(6, { macro: true });
     pending.shift()?.resolve({ value: 4 });

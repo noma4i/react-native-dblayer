@@ -3,7 +3,11 @@ import type { DbGraphQLDocument, LoadingState } from './db.types';
 type FetchConfigBase<TData, TInput, TSelected> = {
   /** Stable cache-key namespace for this handle; omitted keys fall back to a per-define sequence (stable for the process lifetime). */
   key?: string;
+  /** Version of the persisted selected shape. Increment when the selected contract changes. */
+  persistenceVersion?: number;
   select: (data: TData) => TSelected;
+  /** Validate or normalize selected data after transport and durable restore. */
+  validate?: (selected: TSelected) => TSelected;
   vars?: (input: TInput) => Record<string, unknown>;
   enabled?: (input: TInput) => boolean;
   /** Freshness window in ms, or the name of a class declared in `configureDb` `defaults.freshnessClasses`. */
@@ -21,13 +25,15 @@ export type FetchResult<TSelected> = {
   data: TSelected | undefined;
   loadingState: LoadingState;
   error: Error | null;
-  refetch(): void;
+  refresh(): void;
 };
 
 /** Imperative and reactive handles created by `defineFetch`. */
 export type FetchHandle<TInput, TSelected> = {
   use(input: TInput): FetchResult<TSelected>;
+  read(input: TInput): TSelected | undefined;
   fetch(input: TInput): Promise<TSelected>;
+  refresh(input: TInput): Promise<TSelected>;
   remove(): void;
 };
 

@@ -60,7 +60,7 @@ describe('associations', () => {
     expect(Message.replies('message-1').read().map(row => row.id)).toEqual(['message-1']);
   });
 
-  it('exposes every association kind as a flat Relation method', () => {
+  it('exposes every association kind as a flat Relation method', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const User = defineModel('SpecAssociationUser', {
       schema: UserSchema
@@ -104,7 +104,8 @@ describe('associations', () => {
     expect(Reflect.get(Message, Symbol.toStringTag)).toBeUndefined();
     expect(Reflect.get(Message, 'missingAssociation')).toBeUndefined();
     Message.author('message-1').invalidate();
-    void Message.author('message-1').fetch();
+    await Message.author('message-1').fetch();
+    await Message.author('message-1').refresh();
     expect(() => Message.author('message-1').seed([])).toThrow('seed requires a model relation');
     expect(() => Message.author('message-1').issueSequence('username')).toThrow('requires a named relation');
 

@@ -206,7 +206,9 @@ describe('model surface', () => {
       Message.byIds(['m1', 'm2']).invalidate();
       thread.invalidate();
       await expect(Message.where({ chatId: 'chat-3' }).fetch()).resolves.toBeUndefined();
+      await expect(Message.where({ chatId: 'chat-3' }).refresh()).resolves.toBeUndefined();
       await expect(Message.byIds([]).fetch()).resolves.toBeUndefined();
+      await expect(Message.byIds([]).refresh()).resolves.toBeUndefined();
       Message.where({ chatId: 'chat-3' }).seed([{ id: 'm4', chatId: 'chat-3', body: 'fourth', status: 'sent' }]);
       Message.byIds([]).seed([{ id: 'm5', chatId: 'chat-4', body: 'fifth', status: 'sent' }]);
     } finally {
@@ -473,6 +475,7 @@ describe('model surface', () => {
     expect(details.read()).toEqual({ id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' });
     expect(details.count()).toBe(1);
     await details.fetch();
+    await details.refresh();
     details.seed([{ id: 'm2', chatId: 'chat-2', body: 'seeded', status: 'sent' }]);
     expect(() => details.issueSequence('body')).toThrow('requires an ordered relation');
     expect(reader.result().hasMore).toBe(false);

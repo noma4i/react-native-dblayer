@@ -117,8 +117,8 @@ describe('transport realism blind-spot coverage', () => {
     pending.shift()?.resolve({ moments: [] });
     await settle();
 
-    const firstFetch = query.fetch({ userId: '54' });
-    const secondFetch = query.fetch({ userId: '54' });
+    const firstFetch = query.refresh({ userId: '54' });
+    const secondFetch = query.refresh({ userId: '54' });
     await settle();
     expect(pending).toHaveLength(2);
 
@@ -237,7 +237,7 @@ describe('transport realism blind-spot coverage', () => {
     expect(stalePage).toBeDefined();
 
     act(() => {
-      void queryReader.result().refetch();
+      void queryReader.result().refresh();
     });
     await settle();
     const reset = pending.shift();
@@ -289,7 +289,7 @@ describe('transport realism blind-spot coverage', () => {
     await settle();
     const stalePage = pending.shift();
     act(() => {
-      void queryReader.result().refetch();
+      void queryReader.result().refresh();
     });
     await settle();
     const reset = pending.shift();

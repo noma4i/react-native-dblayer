@@ -24,7 +24,7 @@ import { bridgeWindowPagination, useLoadMore } from './pagination';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { buildScopeKey } from '../core/compileDbWhere';
-import { compositeKey, parseCompositeKey } from '../core/serialize';
+import { compositeKey, parseCompositeKey, stableSerialize } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
 import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
@@ -38,6 +38,12 @@ import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { fromNodes } from '../queries/base/connection';
 import { reportSyncError } from '../core/syncError';
+import {
+  invalidatePersistedQuery,
+  readPersistedQuery,
+  removePersistedQuery,
+  writePersistedQuery
+} from '../core/queryPersistence';
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
  *
@@ -70,6 +76,19 @@ const nodesOf = (value: unknown, connectionExpected: boolean): unknown[] => {
   return [value];
 };
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
+const isChainMeta = (value: unknown): value is ChainMeta =>
+  isRecord(value) &&
+  typeof value.lastCount === 'number' &&
+  Number.isSafeInteger(value.lastCount) &&
+  value.lastCount >= 0 &&
+  (value.cursor === null || typeof value.cursor === 'string') &&
+  typeof value.pages === 'number' &&
+  Number.isSafeInteger(value.pages) &&
+  value.pages >= 0 &&
+  typeof value.hasNextPage === 'boolean' &&
+  Array.isArray(value.ids) &&
+  value.ids.every(id => typeof id === 'string') &&
+  (value.resultKind === 'one' || value.resultKind === 'many');
 /** Fail fast at define time, then rewrite the `connection` shorthand into the one `page` seam - dense nodes, pageInfo passthrough. */
 const normalizeQueryConfig = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>): QueryConfig<TResponse, TVars, TScope, TStored> => {
   const readConnection = config.connection;
@@ -94,6 +113,23 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const coverage = config.coverage ?? (config.page ? 'page' : 'complete');
   const destinationModelId = config.into.modelId;
   const destinationScope = isScopeDestination(config.into) ? getInternalScopeHandle(config.into) : null;
+  const persistenceVersion = config.persistenceVersion ?? 1;
+  const persistenceDeclaration = {
+    family: `query:${keyName}`,
+    persistenceVersion,
+    fingerprint: stableSerialize({
+      kind: 'query',
+      key: keyName,
+      persistenceVersion,
+      destinationModelId,
+      destinationKind: destinationScope ? 'scope' : 'model',
+      coverage,
+      paged: config.page !== undefined,
+      direction: config.direction ?? 'forward',
+      cursorVar: config.cursorVar ?? null,
+      maxPages: config.maxPages ?? null
+    })
+  };
   /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
   const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false });
   const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => localState.set(key, next);
@@ -117,6 +153,73 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (!isNonArrayRecord(partial)) return Object.is(scope, partial);
     if (!isNonArrayRecord(scope)) return false;
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
+  };
+  const persistenceWindow = (empty: boolean): number | null => {
+    const defaults = getDbRuntimeConfig().defaults;
+    const window = empty
+      ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime ?? resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0)
+      : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
+    return Number.isFinite(window) && window > 0 ? window : null;
+  };
+  const validateDestination = (scope: TScope, meta: ChainMeta): void => {
+    const parsedIds = meta.ids.map(id => parseCompositeKey(id));
+    if (parsedIds.some(parts => parts?.length !== 2 || parts[0] !== destinationModelId)) {
+      throw new Error('react-native-dblayer: persisted query row identity does not match its destination');
+    }
+    if (destinationScope) {
+      if (!destinationScope.isResolved(scope)) {
+        throw new Error('react-native-dblayer: persisted query scope destination is missing');
+      }
+      const rowIds = destinationScope.readRows(scope).map(row => destinationScope.normalizeRowId(row));
+      if (parsedIds.some(parts => !rowIds.includes(parts![1]!))) {
+        throw new Error('react-native-dblayer: persisted query scope row is missing');
+      }
+      return;
+    }
+    const destination = config.into as ModelDestination<TStored>;
+    if (parsedIds.some(parts => destination.find(parts![1]!) === undefined)) {
+      throw new Error('react-native-dblayer: persisted query model row is missing');
+    }
+  };
+  const restore = (scope: TScope): ChainMeta | undefined => {
+    const identity = bucketKeyOf(scope);
+    const client = getDbQueryClient();
+    const queryKey = queryKeyOf(identity);
+    const cached = client.getQueryData(queryKey) as ChainMeta | undefined;
+    if (cached !== undefined) return cached;
+    const record = readPersistedQuery<ChainMeta, TScope>(persistenceDeclaration, identity, candidate => {
+      const restoredScope = normalizeScope(candidate.scope as TScope);
+      if (bucketKeyOf(restoredScope) !== identity || !isChainMeta(candidate.payload)) {
+        throw new Error('react-native-dblayer: persisted query identity or metadata is invalid');
+      }
+      validateDestination(restoredScope, candidate.payload);
+      return { payload: candidate.payload, scope: restoredScope };
+    });
+    if (record === undefined) return undefined;
+    if (persistenceWindow(record.empty) === null) {
+      removePersistedQuery(persistenceDeclaration, identity);
+      return undefined;
+    }
+    client.setQueryData(queryKey, record.payload, { updatedAt: record.dataUpdatedAt });
+    if (record.invalidated) void client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
+    return record.payload;
+  };
+  const persist = (scope: TScope, meta: ChainMeta): void => {
+    const identity = bucketKeyOf(scope);
+    const empty = meta.lastCount === 0;
+    if (persistenceWindow(empty) === null) {
+      removePersistedQuery(persistenceDeclaration, identity);
+      return;
+    }
+    const dataUpdatedAt = getDbQueryClient().getQueryState(queryKeyOf(identity))!.dataUpdatedAt;
+    writePersistedQuery({
+      ...persistenceDeclaration,
+      identity,
+      scope,
+      payload: meta,
+      empty,
+      dataUpdatedAt
+    });
   };
   const pageMetaOf = (connection: ConnectionLike): PageMeta => {
     const info = connection.pageInfo ?? {};
@@ -201,6 +304,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const key = bucketKeyOf(scope);
     const client = getDbQueryClient();
     const queryKey = queryKeyOf(key);
+    restore(scope);
     if (!isFetchNetworkOnline()) {
       setLocalState(key, { isPaused: true });
       return;
@@ -211,7 +315,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     setLocalState(key, { isPaused: false, isFetchingNextPage: options.nextPage === true });
     const generationFence = createGenerationFence();
     try {
-      await client.fetchQuery<ChainMeta | null>({
+      const meta = await client.fetchQuery<ChainMeta | null>({
         queryKey,
         queryFn: async () => {
           const chainCursor = options.restart ? null : ((client.getQueryData(queryKey) as ChainMeta | undefined)?.cursor ?? null);
@@ -233,6 +337,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         },
         staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
       });
+      if (meta !== null) persist(scope, meta);
     } catch (error) {
       if (!generationFence.isCurrent()) {
         if (options.propagateFailure) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
@@ -257,6 +362,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   const fetch = async (rawScope: TScope | null): Promise<void> => {
     const scope = registerScope(scopeGate(rawScope));
     if (scope === null) return;
+    await run(scope, { restart: false, propagateFailure: true });
+  };
+  const refresh = async (rawScope: TScope | null): Promise<void> => {
+    const scope = registerScope(scopeGate(rawScope));
+    if (scope === null) return;
     await run(scope, { restart: true, propagateFailure: true });
   };
   const invalidateRegisteredScope = (registered: TScope): void => {
@@ -268,12 +378,22 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     });
   };
   const invalidateMatching = (partial: TScope): void => {
+    invalidatePersistedQuery(persistenceDeclaration, record => {
+      try {
+        const scope = normalizeScope(record.scope as TScope);
+        destinationScope?.key(scope);
+        return matchesPartialScope(scope, partial);
+      } catch {
+        return false;
+      }
+    });
     for (const registered of registeredScopes.values()) {
       if (!matchesPartialScope(registered, partial)) continue;
       invalidateRegisteredScope(registered);
     }
   };
   const invalidateAll = (): void => {
+    invalidatePersistedQuery(persistenceDeclaration, () => true);
     for (const registered of registeredScopes.values()) invalidateRegisteredScope(registered);
   };
   const invalidate = (scope?: TScope): void => {
@@ -402,15 +522,16 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       fetchNextPage: () => {
         if (scope !== null && config.page && state.hasNextPage && !state.isFetching) void run(scope, { restart: false, nextPage: true });
       },
-      refetch: async () => {
+      refresh: async () => {
         if (scope !== null) await run(scope, { restart: true });
       }
     };
   };
   const readDestinationRows = (rawScope: TScope | null): TStored[] | TStored | undefined => {
     const gatedScope = scopeGate(rawScope);
-    const scope = gatedScope === null ? null : normalizeScope(gatedScope);
+    const scope = registerScope(gatedScope);
     if (scope === null) return isScopeDestination(config.into) ? [] : undefined;
+    restore(scope);
     if (isScopeDestination(config.into)) return config.into.read(scope);
     const destination = config.into as ModelDestination<TStored>;
     const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta | undefined;
@@ -427,11 +548,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       };
   const use = (rawScope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored> => {
     const scope = registerScope(scopeGate(rawScope));
+    if (scope !== null) restore(scope);
     const enabled = scope !== null && (config.enabled?.(scope) ?? true) && (options?.enabled ?? true);
     const state = useReader(scope, enabled, false, false);
     return buildResult(useDestinationRows(scope, state), enabled, state, scope);
   };
-  const handle: QueryHandle<TStored, TScope> = { read: readDestinationRows, use, fetch, invalidate };
+  const handle: QueryHandle<TStored, TScope> = { read: readDestinationRows, use, fetch, refresh, invalidate };
   if (isScopeDestination(config.into)) {
     const scopeHandle = config.into as ScopeDestination<TStored & { id: string }, TScope> as {
       useWindow: (scope: TScope | null, opts: { pageSize?: number; renderKeys?: readonly string[]; require?: readonly string[]; keepPrevious?: boolean }) => ScopeWindowResult<TStored>;
@@ -484,7 +606,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       data,
       loadingState: computeLoadingState(computePhase(phaseInput), phaseInput),
       error: state.error,
-      refetch: async () => await run(scope, { restart: true, resurrectDestroyed: true })
+      refresh: async () => await run(scope, { restart: true, resurrectDestroyed: true })
     };
   };
   return { ...handle, useRowEnsured };

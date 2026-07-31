@@ -46,6 +46,8 @@ export type QueryDestination<TStored, TScope> = ScopeDestination<TStored, TScope
 export type QueryConfig<TResponse, TVars, TScope, TStored> = {
     document: DbGraphQLDocument<TResponse, TVars>;
     key?: string;
+    /** Version of the persisted query metadata contract. Increment when destination or pagination semantics change. */
+    persistenceVersion?: number;
     vars?: (scope: TScope) => TVars;
     page?: (data: TResponse) => ConnectionLike;
     /** Relay-connection shorthand: point at the connection object and the query pages it with DENSE nodes (`fromNodes` null-filtering applied). Mutually exclusive with `page`/`select`. */
@@ -114,13 +116,13 @@ export type QueryResult<T, TData = T[] | T | undefined> = {
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
     fetchNextPage: () => void;
-    refetch: () => Promise<void>;
+    refresh: () => Promise<void>;
 };
 export type EnsuredRowResult<TStored> = {
     data: TStored | undefined;
     loadingState: LoadingState;
     error: Error | null;
-    refetch: () => Promise<void>;
+    refresh: () => Promise<void>;
 };
 export type QueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined> = {
     read(scope: TScope | null): TData;
@@ -128,6 +130,7 @@ export type QueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined
         enabled?: boolean;
     }): QueryResult<TStored, TData>;
     fetch(scope: TScope | null): Promise<void>;
+    refresh(scope: TScope | null): Promise<void>;
     invalidate(scope?: TScope): void;
 };
 /** Options for a scope query's bridged window read. */

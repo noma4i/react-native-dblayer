@@ -28,7 +28,7 @@ describe('ephemeral fetch sufficiency', () => {
     });
     await settle(4, { macro: true });
     expect(result.data).toBe('value-1');
-    act(() => result.refetch());
+    act(() => result.refresh());
     await settle(4, { macro: true });
     expect(result.data).toBe('value-2');
     act(() => root.unmount());

@@ -12,6 +12,12 @@ import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { reportSyncError } from '../core/syncError';
+import {
+  readPersistedQuery,
+  removePersistedQuery,
+  writePersistedQuery
+} from '../core/queryPersistence';
+import { stableSerialize } from '../core/serialize';
 
 let fetchHandleSequence = 0;
 
@@ -26,6 +32,13 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const hasFetcher = config.fetcher !== undefined;
   if (hasDocument === hasFetcher) throw new Error('defineFetch requires exactly one of document or fetcher');
   const handleKey = `fetch:${config.key ?? (fetchHandleSequence += 1)}`;
+  const persistenceVersion = config.persistenceVersion ?? 1;
+  const persistenceDeclaration = {
+    family: handleKey,
+    persistenceVersion,
+    fingerprint: stableSerialize({ kind: 'fetch', key: config.key ?? null, persistenceVersion })
+  };
+  const persists = config.key !== undefined;
   const isEmpty = config.isEmpty ?? ((data: TSelected) => data == null || (Array.isArray(data) && data.length === 0));
   const keyOf = (input: TInput): string => buildScopeKey(input);
   const queryKeyOf = (key: string): [string, string] => [handleKey, key];
@@ -41,6 +54,54 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime)!
       : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };
+  const persistenceWindow = (empty: boolean): number | null => {
+    if (!persists) return null;
+    const defaults = getDbRuntimeConfig().defaults;
+    const window = empty
+      ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime ?? resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0)
+      : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
+    return Number.isFinite(window) && window > 0 ? window : null;
+  };
+  const restore = (input: TInput): FetchData<TSelected> | undefined => {
+    const key = keyOf(input);
+    const client = getDbQueryClient();
+    const queryKey = queryKeyOf(key);
+    const cached = client.getQueryData(queryKey) as FetchData<TSelected> | undefined;
+    if (cached !== undefined || !persists) return cached;
+    const record = readPersistedQuery<TSelected, TInput>(persistenceDeclaration, key, candidate => {
+      const voidInputMatches = input === undefined && candidate.scope === null;
+      if (!voidInputMatches && keyOf(candidate.scope as TInput) !== key) {
+        throw new Error('react-native-dblayer: persisted fetch input does not match its identity');
+      }
+      const selected = config.validate ? config.validate(candidate.payload as TSelected) : (candidate.payload as TSelected);
+      return { payload: selected, scope: input };
+    });
+    if (record === undefined) return undefined;
+    const restored = { selected: record.payload, empty: isEmpty(record.payload) };
+    if (persistenceWindow(restored.empty) === null) {
+      removePersistedQuery(persistenceDeclaration, key);
+      return undefined;
+    }
+    client.setQueryData(queryKey, restored, { updatedAt: record.dataUpdatedAt });
+    if (record.invalidated) void client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
+    return restored;
+  };
+  const persist = (input: TInput, data: FetchData<TSelected>): void => {
+    const key = keyOf(input);
+    if (persistenceWindow(data.empty) === null) {
+      if (persists) removePersistedQuery(persistenceDeclaration, key);
+      return;
+    }
+    const dataUpdatedAt = getDbQueryClient().getQueryState(queryKeyOf(key))!.dataUpdatedAt;
+    writePersistedQuery({
+      ...persistenceDeclaration,
+      identity: key,
+      scope: (input === undefined ? null : input) as TInput,
+      payload: data.selected,
+      empty: data.empty,
+      dataUpdatedAt
+    });
+  };
   const execute = async (input: TInput, isCurrent: () => boolean): Promise<FetchData<TSelected>> => {
     let data: TData;
     try {
@@ -51,7 +112,14 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       throw error;
     }
     if (!isCurrent()) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
-    const selected = config.select(data);
+    let selected: TSelected;
+    try {
+      const value = config.select(data);
+      selected = config.validate ? config.validate(value) : value;
+    } catch (error) {
+      reportSyncError(error, { source: 'query', key: config.key }, 'defineFetch');
+      throw error;
+    }
     return { selected, empty: isEmpty(selected) };
   };
   const isFreshKey = (key: string): boolean => {
@@ -64,6 +132,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     const key = keyOf(input);
     const client = getDbQueryClient();
     const queryKey = queryKeyOf(key);
+    restore(input);
     if (!isFetchNetworkOnline()) {
       setPaused(key, true);
       return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
@@ -81,6 +150,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
         },
         staleTime: options.restart ? 0 : staleTimeOf(key)
       });
+      persist(input, data);
       return data.selected;
     } catch (error) {
       if (!generationFence.isCurrent()) {
@@ -98,18 +168,23 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const fetch = async (input: TInput): Promise<TSelected> => {
     const generationFence = createGenerationFence();
     const key = keyOf(input);
-    const cached = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
+    const cached = restore(input);
     if (cached !== undefined && isFreshKey(key)) return cached.selected;
     const selected = await run(input, { restart: false, propagateFailure: true });
     if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineFetch response dropped - runtime was reset before it resolved');
     return selected;
   };
+  const refresh = async (input: TInput): Promise<TSelected> =>
+    await run(input, { restart: true, propagateFailure: true });
+  const read = (input: TInput): TSelected | undefined => restore(input)?.selected;
   const remove = (): void => {
     getDbQueryClient().removeQueries({ queryKey: [handleKey] });
+    removePersistedQuery(persistenceDeclaration);
     localState.clear();
   };
   const use = (input: TInput): FetchResult<TSelected> => {
     const key = keyOf(input);
+    restore(input);
     const enabled = config.enabled?.(input) ?? true;
     const client = getDbQueryClient();
     const generation = getRuntimeGeneration();
@@ -187,7 +262,10 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       hasFetchedData: state.isFetched
     };
     const loadingState = computeLoadingState(computePhase(phaseInput), phaseInput);
-    return useMemo(() => ({ data, loadingState, error: state.error, refetch: () => void run(input, { restart: true }) }), [data, loadingState, state.error, input]);
+    return useMemo(
+      () => ({ data, loadingState, error: state.error, refresh: () => void run(input, { restart: true }) }),
+      [data, loadingState, state.error, input]
+    );
   };
-  return { use, fetch, remove };
+  return { use, read, fetch, refresh, remove };
 };
