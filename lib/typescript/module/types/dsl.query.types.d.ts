@@ -73,11 +73,10 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
     getCursor?: (page: ConnectionLike) => string | null;
     mapCursor?: (cursor: string) => unknown;
 };
-/** One landed page summary: cursor for the next page, availability, and landed row count. */
+/** One landed page summary: cursor for the next page and availability. */
 export type PageMeta = {
     endCursor: string | null;
     hasNextPage: boolean;
-    count: number;
 };
 /** Derived per-key request state exposed to loading-state computation. */
 export type RequestState = {
@@ -93,7 +92,6 @@ export type RequestState = {
 };
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
 export type ChainMeta = {
-    lastCount: number;
     cursor: string | null;
     pages: number;
     hasNextPage: boolean;

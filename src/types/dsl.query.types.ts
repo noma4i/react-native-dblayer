@@ -53,8 +53,8 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
   getCursor?: (page: ConnectionLike) => string | null;
   mapCursor?: (cursor: string) => unknown;
 };
-/** One landed page summary: cursor for the next page, availability, and landed row count. */
-export type PageMeta = { endCursor: string | null; hasNextPage: boolean; count: number };
+/** One landed page summary: cursor for the next page and availability. */
+export type PageMeta = { endCursor: string | null; hasNextPage: boolean };
 /** Derived per-key request state exposed to loading-state computation. */
 export type RequestState = {
   isFetching: boolean;
@@ -68,7 +68,7 @@ export type RequestState = {
   resultKind: 'one' | 'many';
 };
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
-export type ChainMeta = { lastCount: number; cursor: string | null; pages: number; hasNextPage: boolean; ids: string[]; resultKind: 'one' | 'many' };
+export type ChainMeta = { cursor: string | null; pages: number; hasNextPage: boolean; ids: string[]; resultKind: 'one' | 'many' };
 export type PlanRowsSink = { modelId: string } | { key: string };
 
 export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };

@@ -179,9 +179,6 @@ describe('reader-level reboot round-trip', () => {
 describe('restored chain metadata guard', () => {
   let variantSeq = 0;
   const violations: Array<[string, (payload: Record<string, unknown>, modelId: string) => unknown]> = [
-    ['a string lastCount', payload => ({ ...payload, lastCount: '1' })],
-    ['a fractional lastCount', payload => ({ ...payload, lastCount: 1.5 })],
-    ['a negative lastCount', payload => ({ ...payload, lastCount: -1 })],
     ['a numeric cursor', payload => ({ ...payload, cursor: 7 })],
     ['a string pages count', payload => ({ ...payload, pages: '1' })],
     ['a fractional pages count', payload => ({ ...payload, pages: 1.5 })],

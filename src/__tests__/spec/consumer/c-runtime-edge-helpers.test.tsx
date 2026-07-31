@@ -293,7 +293,6 @@ describe('runtime edge helpers', () => {
     const queryKey = ['runtime-edge', 'loss'];
     getDbQueryClient().setQueryData(queryKey, {
       ids: [compositeKey('Rows', 'row-1')],
-      lastCount: 1,
       cursor: null,
       pages: 1,
       hasNextPage: false,

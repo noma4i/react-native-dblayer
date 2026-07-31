@@ -79,9 +79,6 @@ const nodesOf = (value: unknown, connectionExpected: boolean): unknown[] => {
 const isScopeDestination = (into: unknown): into is ScopeHandle<any, any> => isRecord(into) && hasInternalScopeHandle(into);
 const isChainMeta = (value: unknown): value is ChainMeta =>
   isRecord(value) &&
-  typeof value.lastCount === 'number' &&
-  Number.isSafeInteger(value.lastCount) &&
-  value.lastCount >= 0 &&
   (value.cursor === null || typeof value.cursor === 'string') &&
   typeof value.pages === 'number' &&
   Number.isSafeInteger(value.pages) &&
@@ -256,8 +253,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const backward = config.direction === 'backward';
     return {
       endCursor: config.getCursor ? config.getCursor(connection) : backward ? (info.startCursor ?? null) : (info.endCursor ?? null),
-      hasNextPage: backward ? (info.hasPreviousPage ?? false) : (info.hasNextPage ?? false),
-      count: connection.nodes?.length ?? connection.edges?.length ?? 0
+      hasNextPage: backward ? (info.hasPreviousPage ?? false) : (info.hasNextPage ?? false)
     };
   };
   const applyResponse = (
@@ -279,7 +275,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       ? (row: unknown) => getInternalScopeHandle(config.into).normalizeRowId(row)
       : (row: unknown) => getInternalModelHandle(config.into).normalizeRowId(row);
     const ids = committedRows.map(row => compositeKey(destinationModelId, normalizeRowId(row)));
-    const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false, count: nodes.length };
+    const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false };
     return { meta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
@@ -312,7 +308,6 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     /** maxPages is a hard ceiling: once reached, the chain reports exhaustion and fetchNextPage stops issuing requests. */
     const hasNextPage = result.meta.hasNextPage && (config.maxPages === undefined || pages < config.maxPages);
     return {
-      lastCount: result.meta.count,
       cursor: config.page && hasNextPage ? result.meta.endCursor : null,
       pages,
       hasNextPage,
@@ -356,7 +351,6 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
           if (meta === null) {
             return (
               (client.getQueryData(queryKey) as ChainMeta | undefined) ?? {
-                lastCount: 0,
                 cursor: null,
                 pages: 0,
                 hasNextPage: false,
