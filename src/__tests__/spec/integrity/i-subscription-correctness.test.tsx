@@ -620,4 +620,65 @@ describe('subscription attempt races', () => {
       jest.useRealTimers();
     }
   });
+
+  it('ignores a push delivered by a superseded attempt after a restart cycle', () => {
+    const captured: Array<{ next: (data: unknown) => void; error: (error: unknown) => void }> = [];
+    const transport = createMockTransport({
+      subscribe: (_options, handlers) => {
+        captured.push(handlers);
+        return jest.fn();
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const received: string[] = [];
+    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+
+    runtime.setActive(true);
+    expect(captured).toHaveLength(1);
+    runtime.setActive(false);
+    runtime.setActive(true);
+    expect(captured).toHaveLength(2);
+
+    // The first attempt is dead: its late push must not reach the store through the live entry.
+    captured[0]!.next({ event: { id: 'stale-push' } });
+    expect(received).toEqual([]);
+
+    captured[1]!.next({ event: { id: 'live-push' } });
+    expect(received).toEqual(['live-push']);
+    runtime.stop();
+  });
+
+  it('drops a late error from a superseded attempt without disturbing the live subscription', () => {
+    jest.useFakeTimers();
+    try {
+      const captured: Array<{ next: (data: unknown) => void; error: (error: unknown) => void }> = [];
+      let attempts = 0;
+      const transport = createMockTransport({
+        subscribe: (_options, handlers) => {
+          attempts += 1;
+          captured.push(handlers);
+          return jest.fn();
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      const received: string[] = [];
+      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+
+      runtime.setActive(true);
+      runtime.setActive(false);
+      runtime.setActive(true);
+      expect(attempts).toBe(2);
+
+      // A dead attempt reporting an error must not tear down or retry the live attempt.
+      captured[0]!.error(new Error('late failure of a dead attempt'));
+      jest.advanceTimersByTime(120000);
+      expect(attempts).toBe(2);
+
+      captured[1]!.next({ event: { id: 'still-live' } });
+      expect(received).toEqual(['still-live']);
+      runtime.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
