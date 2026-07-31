@@ -15,6 +15,175 @@ const configureRetry = (transport: ReturnType<typeof createMockTransport>, class
 };
 
 describe('query retry policy', () => {
+  it('rejects an offline model-less fetch when no data can be restored', async () => {
+    try {
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      const request = defineFetch<number, void, number>({
+        key: 'offline-empty-fetch',
+        document,
+        select: data => data
+      });
+      setFetchNetworkOnline(false);
+
+      await expect(request.fetch(undefined)).rejects.toThrow('offline');
+    } finally {
+      setFetchNetworkOnline(true);
+    }
+  });
+
+  it('rejects an offline model query when no data can be restored', async () => {
+    try {
+      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      const rows = defineModelRuntime({ id: 'OfflineEmptyQuery', name: 'OfflineEmptyQuery', fields: { label: f.str() } });
+      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('offline-empty', {
+        key: 'offline-empty-query',
+        document,
+        select: data => data.rows
+      });
+      setFetchNetworkOnline(false);
+
+      await expect(query.fetch(undefined)).rejects.toThrow('offline');
+    } finally {
+      setFetchNetworkOnline(true);
+    }
+  });
+
+  it('returns cached model-less and model data while offline', async () => {
+    try {
+      let calls = 0;
+      const transport = createMockTransport({
+        query: async <TData>() => {
+          calls += 1;
+          return { data: (calls === 1 ? 7 : { rows: [{ id: 'row-1', label: 'cached' }] }) as TData };
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      const request = defineFetch<number, void, number>({
+        key: 'offline-cached-fetch',
+        document,
+        select: data => data,
+        staleTime: 0
+      });
+      const rows = defineModelRuntime({ id: 'OfflineCachedQuery', name: 'OfflineCachedQuery', fields: { label: f.str() } });
+      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('offline-cached', {
+        key: 'offline-cached-query',
+        document,
+        select: data => data.rows,
+        staleTime: 0
+      });
+
+      await expect(request.fetch()).resolves.toBe(7);
+      await query.fetch();
+      setFetchNetworkOnline(false);
+
+      await expect(request.fetch()).resolves.toBe(7);
+      await expect(query.fetch()).resolves.toBeUndefined();
+      expect(rows.find('row-1')).toMatchObject({ label: 'cached' });
+      expect(calls).toBe(2);
+    } finally {
+      setFetchNetworkOnline(true);
+    }
+  });
+
+  it('keeps cached model-less and model data on a failed stale fetch but rejects refresh', async () => {
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData>() => {
+        calls += 1;
+        if (calls === 1) return { data: 7 as TData };
+        if (calls === 2) return { data: { rows: [{ id: 'row-1', label: 'cached' }] } as TData };
+        throw new Error('network failed');
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const request = defineFetch<number, void, number>({
+      key: 'failed-cached-fetch',
+      document,
+      select: data => data,
+      staleTime: 0
+    });
+    const rows = defineModelRuntime({ id: 'FailedCachedQuery', name: 'FailedCachedQuery', fields: { label: f.str() } });
+    const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('failed-cached', {
+      key: 'failed-cached-query',
+      document,
+      select: data => data.rows,
+      staleTime: 0
+    });
+
+    await request.fetch();
+    await query.fetch();
+
+    await expect(request.fetch()).resolves.toBe(7);
+    await expect(query.fetch()).resolves.toBeUndefined();
+    await expect(request.refresh()).rejects.toThrow('network failed');
+    await expect(query.refresh()).rejects.toThrow('network failed');
+    expect(rows.find('row-1')).toMatchObject({ label: 'cached' });
+  });
+
+  it('rejects a model-less request that loses connectivity before its first response', async () => {
+    let rejectRequest!: (error: Error) => void;
+    try {
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          query: () =>
+            new Promise((_resolve, reject) => {
+              rejectRequest = reject;
+            })
+        })
+      });
+      const request = defineFetch<number, void, number>({
+        key: 'offline-during-empty-fetch',
+        document,
+        select: data => data
+      });
+      const pending = request.fetch();
+      await Promise.resolve();
+      setFetchNetworkOnline(false);
+      rejectRequest(new Error('network dropped'));
+
+      await expect(pending).rejects.toThrow('offline');
+    } finally {
+      setFetchNetworkOnline(true);
+    }
+  });
+
+  it('keeps cached model data when connectivity drops during a stale request', async () => {
+    let rejectRequest!: (error: Error) => void;
+    let calls = 0;
+    try {
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          query: async <TData>() => {
+            calls += 1;
+            if (calls === 1) return { data: { rows: [{ id: 'row-1', label: 'cached' }] } as TData };
+            return await new Promise((_resolve, reject) => {
+              rejectRequest = reject;
+            });
+          }
+        })
+      });
+      const rows = defineModelRuntime({ id: 'OfflineDuringCachedQuery', name: 'OfflineDuringCachedQuery', fields: { label: f.str() } });
+      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('offline-during-cached', {
+        key: 'offline-during-cached-query',
+        document,
+        select: data => data.rows,
+        staleTime: 0
+      });
+      await query.fetch();
+      const pending = query.fetch();
+      await Promise.resolve();
+      setFetchNetworkOnline(false);
+      rejectRequest(new Error('network dropped'));
+
+      await expect(pending).resolves.toBeUndefined();
+      expect(rows.find('row-1')).toMatchObject({ label: 'cached' });
+    } finally {
+      setFetchNetworkOnline(true);
+    }
+  });
+
   it('doubles from the base delay and caps at the declared maximum', () => {
     expect([0, 1, 2, 3].map(attempt => backoffDelayMs(attempt, 100, 250))).toEqual([100, 200, 250, 250]);
   });

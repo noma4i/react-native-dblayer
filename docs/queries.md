@@ -91,6 +91,10 @@ document and selector or a custom fetcher. `FetchHandle` exposes `read`, freshne
 forced `refresh`, `use`, and family `remove`. `validate` checks selected data after transport and
 durable restore. `FetchResult` carries data, loading state, error, and refresh.
 
+Freshness-aware `fetch` keeps restored data when a stale network attempt fails. Offline `fetch`
+returns restored data and rejects when no memory or durable record exists. Forced `refresh`
+propagates request failures even when older data remains readable.
+
 ## Connection and extract helpers
 
 `fromNodes` normalizes Relay nodes and edges. `intoIf` conditionally returns an `ExtractSink`.

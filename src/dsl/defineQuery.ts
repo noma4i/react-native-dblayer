@@ -31,7 +31,7 @@ import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGenera
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
-import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
@@ -304,9 +304,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const key = bucketKeyOf(scope);
     const client = getDbQueryClient();
     const queryKey = queryKeyOf(key);
-    restore(scope);
+    const restored = restore(scope);
     if (!isFetchNetworkOnline()) {
       setLocalState(key, { isPaused: true });
+      if (restored === undefined && options.propagateFailure) throw createOfflineFetchError();
       return;
     }
     // Cancellation is synchronous; awaiting it would open a microtask window where a
@@ -347,9 +348,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       if (error instanceof CancelledError) return;
       if (!isFetchNetworkOnline()) {
         setLocalState(key, { isPaused: true, isFetchingNextPage: false });
+        const cached = client.getQueryData(queryKey) as ChainMeta | undefined;
+        if (cached === undefined && options.propagateFailure) throw createOfflineFetchError();
         return;
       }
       setLocalState(key, { isFetchingNextPage: false });
+      if (!options.restart && client.getQueryData(queryKey) !== undefined) return;
       if (options.propagateFailure) throw error instanceof Error ? error : new Error(String(error));
       return;
     }

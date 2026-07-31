@@ -5,6 +5,9 @@ let online = true;
 /** Read the coordinator-owned connectivity state used by every fetch path. */
 export const isFetchNetworkOnline = (): boolean => online;
 
+export const createOfflineFetchError = (): Error =>
+  new Error('react-native-dblayer: fetch is offline and no cached data exists');
+
 /**
  * Host connectivity input: the app reports reachability changes here (e.g. from a NetInfo
  * listener) and the coordinator pauses fetch paths and subscription retries while offline,

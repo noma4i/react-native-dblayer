@@ -82,7 +82,8 @@ Message.thread.invalidate();
 ```
 
 The same immutable `Relation` object provides local snapshot reads, subscribed reads, loading
-state, invalidation, pagination, refresh, and counts. `fetch` respects freshness, `refresh` forces
+state, invalidation, pagination, refresh, and counts. `fetch` respects freshness and preserves
+restored data across request failure, while no-cache offline calls reject. `refresh` forces
 transport, and a named relation method invalidates its complete persisted family without touching
 sibling relations. `where` and `byIds` return the same shape.
 

@@ -136,7 +136,7 @@ describe('query runtime edges', () => {
       const pending = query.fetch({ bucket: 'main' });
       setTestNetworkOnline(false);
       reject(new Error('offline'));
-      await expect(pending).resolves.toBeUndefined();
+      await expect(pending).rejects.toThrow('offline');
     } finally {
       setTestNetworkOnline(wasOnline);
     }

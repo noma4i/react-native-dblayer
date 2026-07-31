@@ -1,5 +1,6 @@
 /** Read the coordinator-owned connectivity state used by every fetch path. */
 export declare const isFetchNetworkOnline: () => boolean;
+export declare const createOfflineFetchError: () => Error;
 /**
  * Host connectivity input: the app reports reachability changes here (e.g. from a NetInfo
  * listener) and the coordinator pauses fetch paths and subscription retries while offline,

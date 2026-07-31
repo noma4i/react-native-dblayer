@@ -7,7 +7,7 @@ import { registerKeyedReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
-import { isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
@@ -135,7 +135,9 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     restore(input);
     if (!isFetchNetworkOnline()) {
       setPaused(key, true);
-      return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
+      const cached = client.getQueryData(queryKey) as FetchData<TSelected> | undefined;
+      if (cached === undefined && options.propagateFailure) throw createOfflineFetchError();
+      return cached?.selected as TSelected;
     }
     // Cancellation is synchronous; awaiting it would open a microtask window where a
     // concurrent restart dedupes into the fetch this one is about to supersede.
@@ -159,8 +161,12 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       }
       if (!isFetchNetworkOnline()) {
         setPaused(key, true);
-        return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
+        const cached = client.getQueryData(queryKey) as FetchData<TSelected> | undefined;
+        if (cached === undefined && options.propagateFailure) throw createOfflineFetchError();
+        return cached?.selected as TSelected;
       }
+      const cached = client.getQueryData(queryKey) as FetchData<TSelected> | undefined;
+      if (!options.restart && cached !== undefined) return cached.selected;
       if (options.propagateFailure) throw error instanceof Error ? error : new Error(String(error));
       return (client.getQueryData(queryKey) as FetchData<TSelected> | undefined)?.selected as TSelected;
     }

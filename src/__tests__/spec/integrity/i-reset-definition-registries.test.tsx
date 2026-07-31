@@ -25,7 +25,7 @@ describe('reset and definition registries', () => {
       /** No mount refetch: the paused flag is the only thing a reader would see. */
       enabled: () => false
     });
-    await offline.fetch();
+    await expect(offline.fetch()).rejects.toThrow('offline');
     const paused = renderCounted(() => offline.use(undefined));
     expect(paused.result().loadingState.isOffline).toBe(true);
     paused.unmount();
