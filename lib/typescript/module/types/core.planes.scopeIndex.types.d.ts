@@ -34,7 +34,9 @@ export type ScopeIndex = {
      * PLANNING-ONLY reconciliation of an incoming payload against the membership ledger; order keys
      * are computed here (or accepted from `IncomingScopeRow.orderKey`), never during apply.
      * - 'complete': incoming rows become the exact membership; an unchanged id sequence keeps every
-     *   existing key (zero downstream work); previous members absent from the payload are DETACHED.
+     *   existing key (zero downstream work); previous members absent from the payload are DETACHED,
+     *   except members in `opts.protectedIds` (rows held by open operations - a server snapshot can
+     *   neither confirm nor deny an unresolved local write), which keep their entries and keys.
      * - 'page' with opts.resetOrder: the caller supplies final reset order. Server-order callers pass
      *   the incoming head; declaratively sorted callers pass the globally sorted retained union.
      * - 'page'/'delta' merge: existing members keep their keys, rows carrying `orderKey` land on it,
@@ -42,11 +44,13 @@ export type ScopeIndex = {
      */
     reconcileNext(key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: {
         resetOrder?: boolean;
+        protectedIds?: ReadonlySet<string>;
     }): ReconcileResult;
     /** APPLY-side mechanical delta: upsert entries carrying final keys, then detach ids; no key computation. */
     applyDelta(key: string, append: ScopeEntry[], detach: string[]): ScopeIndexValue;
     detach(key: string, ids: string[]): ScopeIndexValue;
-    trimValue(value: ScopeIndexValue, maxRows: number): {
+    /** Cut entries past `maxRows`; entries in `protectedIds` are never cut and do not consume the budget. */
+    trimValue(value: ScopeIndexValue, maxRows: number, protectedIds?: ReadonlySet<string>): {
         next: ScopeIndexValue;
         trimmedIds: string[];
     };

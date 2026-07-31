@@ -64,11 +64,6 @@ export const setTestNetworkOnline = (online: boolean): void => {
 /** Test-only connectivity adapter state. */
 export const isTestNetworkOnline = (): boolean => isFetchNetworkOnline();
 
-/** Compatibility no-op after removing the client-owned focus manager. */
-export const setTestFocused = (focused: boolean): void => {
-  void focused;
-};
-
 export function renderCounted<T>(useHook: () => T) {
   let value!: T;
   let renderCount = 0;

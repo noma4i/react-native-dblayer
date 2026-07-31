@@ -1,4 +1,4 @@
-import { belongsTo, defineModelRuntime, f } from '../../testApi';
+import { belongsTo, defineModelRuntime, f, hasMany } from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 /**
@@ -124,5 +124,30 @@ describe('relation effect in-batch edges', () => {
     ingest.apply('removal', {});
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
+  });
+
+  it('treats a destroy of an absent parent as a no-op for orphan children carrying its key', () => {
+    setupSpecRuntime();
+    type Child = { id: string; parentId: string };
+    const children = defineModelRuntime({
+      id: 'SpecEffectsOrphanChildren',
+      name: 'SpecEffectsOrphanChildren',
+      fields: { parentId: f.str() }
+    });
+    const parents = defineModelRuntime({
+      id: 'SpecEffectsGhostParents',
+      name: 'SpecEffectsGhostParents',
+      fields: { label: f.str() },
+      relations: () => ({
+        children: hasMany<{ id: string; label: string }, Child>(children, { foreignKey: 'parentId', dependent: 'destroy' })
+      })
+    });
+    children.insert({ id: 'orphan-1', parentId: 'ghost' });
+
+    // The parent row never existed: destroying its id must not cascade into rows that merely
+    // reference it - only a live parent owns cascade authority.
+    parents.destroy('ghost');
+
+    expect(children.find('orphan-1')).toMatchObject({ parentId: 'ghost' });
   });
 });

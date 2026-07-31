@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime } from '../../testApi';
-import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestFocused, setTestNetworkOnline, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type FetchPayload = { value: string };
 type Row = { id: string; bucket: string; version: number };
@@ -287,7 +287,6 @@ describe('fetch lifecycle contracts', () => {
     const wasOnline = isTestNetworkOnline();
     const pending: Array<{ resolve: (value: FetchPayload) => void; reject: (error: Error) => void }> = [];
     try {
-      setTestFocused(true);
       setTestNetworkOnline(true);
       let calls = 0;
       const transport = createMockTransport({
@@ -314,7 +313,6 @@ describe('fetch lifecycle contracts', () => {
       await settle(6, { macro: true });
       expect(calls).toBe(1);
       act(() => {
-        setTestFocused(true);
         setTestNetworkOnline(false);
       });
       pending.shift()?.reject(new Error('offline'));
@@ -322,7 +320,6 @@ describe('fetch lifecycle contracts', () => {
 
       expect(calls).toBe(1);
       act(() => {
-        setTestFocused(true);
         setTestNetworkOnline(true);
       });
       await settle(6, { macro: true });

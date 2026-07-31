@@ -6,7 +6,7 @@ import { compositeKey } from '../core/serialize';
 import { useScopeReadCount, useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
 
 import { useRef, useState } from 'react';
-import { getDbRuntimeConfig } from './configure';
+import { getDbRuntimeConfig, getOperationState } from './configure';
 import { compareRowsBySpec } from '../core/ordering';
 import { keyAfter, keyBefore, keysForSequence } from '../core/orderKey';
 
@@ -86,13 +86,17 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
           });
         }
       }
-      const reconciliation = planes().scopeIndex.reconcileNext(scopeKey, coverage, incoming, planOptions);
+      // Rows held by open operations survive snapshot reconciliation and retention: the ledger is
+      // the one protection root (TTL, GC, replay cleanup, and both planning cuts below).
+      const heldRowIds = coverage === 'complete' || planOptions?.resetOrder === true ? getOperationState().openRowIdsFor(options.modelId) : undefined;
+      const protectedIds = heldRowIds !== undefined && heldRowIds.size > 0 ? heldRowIds : undefined;
+      const reconciliation = planes().scopeIndex.reconcileNext(scopeKey, coverage, incoming, { ...planOptions, protectedIds });
       let { next } = reconciliation;
       const { detachedIds } = reconciliation;
       if (detachedIds.length > 0) noteDataLoss('scope-complete-detach', options.modelId, detachedIds.length);
       const maxRows = spec?.retention?.maxRows;
       if (maxRows != null && (planOptions?.resetOrder === true || coverage === 'complete') && next.entries.length > maxRows) {
-        const trimmed = planes().scopeIndex.trimValue(next, maxRows);
+        const trimmed = planes().scopeIndex.trimValue(next, maxRows, protectedIds);
         if (trimmed.trimmedIds.length > 0) noteDataLoss('scope-retention-trim', options.modelId, trimmed.trimmedIds.length);
         next = trimmed.next;
       }

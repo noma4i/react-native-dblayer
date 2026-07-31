@@ -47,6 +47,8 @@ export type OperationState = {
     open(): OperationRecord[];
     /** Open (pending or failed) insert-intent operations of one model - the correlation candidate pool. */
     openInsertsFor(model: string): OperationRecord[];
+    /** Row ids (temp and confirmed) held by open operations of one model - the same protection root projected for scope planning. */
+    openRowIdsFor(model: string): ReadonlySet<string>;
     /** Pending operations touching one model row (rowIds falling back to tempIds), in creation order. */
     pendingForRow(model: string, rowId: string): OperationRecord[];
     /** Failed operations touching one model row (rowIds union tempIds). */

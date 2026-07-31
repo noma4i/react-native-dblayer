@@ -147,7 +147,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   };
   const scopeEntry = (id: string, orderKey: string): ScopeEntry => ({ id, orderKey });
 
-  const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean }): ReconcileResult => {
+  const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean; protectedIds?: ReadonlySet<string> }): ReconcileResult => {
     const previous = current(key) ?? empty();
     const generation = previous.generation + 1;
     const previousById = new Map(previous.entries.map(entry => [entry.id, entry] as const));
@@ -160,8 +160,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
 
     if (coverage === 'complete') {
       const incomingIds = new Set(deduplicated.map(row => row.id));
-      const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id)).map(entry => entry.id);
+      // A server snapshot can neither confirm nor deny a row an open operation still holds, so a
+      // held member missing from the payload keeps its entry (and key) instead of being detached.
+      const held = previous.entries.filter(entry => !incomingIds.has(entry.id) && (opts?.protectedIds?.has(entry.id) ?? false));
+      const detachedIds = previous.entries.filter(entry => !incomingIds.has(entry.id) && !opts?.protectedIds?.has(entry.id)).map(entry => entry.id);
       if (
+        held.length === 0 &&
         arraysShallowEqual(
           previous.entries,
           deduplicated.map(row => row.id),
@@ -173,7 +177,8 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       }
       const keys = keysForSequence(deduplicated.length);
       const entries = deduplicated.map((row, index) => scopeEntry(row.id, row.orderKey ?? keys[index]!));
-      return result({ generation, coverage, entries: [...entries].sort(compareEntries) }, detachedIds);
+      const merged = [...entries, ...held.map(entry => scopeEntry(entry.id, entry.orderKey))];
+      return result({ generation, coverage, entries: merged.sort(compareEntries) }, detachedIds);
     }
 
     if (coverage === 'page' && opts?.resetOrder) {
@@ -203,11 +208,29 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     return result({ generation, coverage: retainedCoverage, entries }, []);
   };
 
-  const trimValue = (value: ScopeIndexValue, maxRows: number): { next: ScopeIndexValue; trimmedIds: string[] } => {
+  const trimValue = (value: ScopeIndexValue, maxRows: number, protectedIds?: ReadonlySet<string>): { next: ScopeIndexValue; trimmedIds: string[] } => {
     if (value.entries.length <= maxRows) return { next: value, trimmedIds: [] };
+    const kept: ScopeEntry[] = [];
+    const trimmedIds: string[] = [];
+    let budget = maxRows;
+    for (const entry of value.entries) {
+      // A held row never trims and never consumes the budget: retention bounds server history, not
+      // the consumer's own unresolved writes.
+      if (protectedIds?.has(entry.id)) {
+        kept.push(entry);
+        continue;
+      }
+      if (budget > 0) {
+        kept.push(entry);
+        budget -= 1;
+        continue;
+      }
+      trimmedIds.push(entry.id);
+    }
+    if (trimmedIds.length === 0) return { next: value, trimmedIds: [] };
     return {
-      next: { generation: value.generation + 1, coverage: value.coverage, entries: value.entries.slice(0, maxRows) },
-      trimmedIds: value.entries.slice(maxRows).map(entry => entry.id)
+      next: { generation: value.generation + 1, coverage: value.coverage, entries: kept },
+      trimmedIds
     };
   };
 

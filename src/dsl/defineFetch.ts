@@ -42,10 +42,11 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
   const isEmpty = config.isEmpty ?? ((data: TSelected) => data == null || (Array.isArray(data) && data.length === 0));
   const keyOf = (input: TInput): string => buildScopeKey(input);
   const queryKeyOf = (key: string): [string, string] => [handleKey, key];
-  /** Offline pause is the one flag react-query's state machine does not carry in our vocabulary. */
-  const localState = createKeyedLocalState({ isPaused: false });
+  /** Flags react-query's state machine does not carry in our vocabulary: offline pause and the per-key invalidate sequence. */
+  const localState = createKeyedLocalState({ isPaused: false, invalidateSeq: 0 });
   registerKeyedReset(`fetch:${handleKey}`, () => localState.clear());
   const setPaused = (key: string, paused: boolean): void => localState.set(key, { isPaused: paused });
+  const bumpInvalidateSeq = (key: string): void => localState.set(key, { invalidateSeq: localState.get(key).invalidateSeq + 1 });
 
   const staleTimeOf = (key: string): number => {
     const data = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
@@ -144,6 +145,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     if (options.restart) void client.cancelQueries({ queryKey });
     setPaused(key, false);
     const generationFence = createGenerationFence();
+    const invalidateSeqAtStart = localState.get(key).invalidateSeq;
     try {
       const data = await client.fetchQuery<FetchData<TSelected>>({
         queryKey,
@@ -153,6 +155,12 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
         staleTime: options.restart ? 0 : staleTimeOf(key)
       });
       persist(input, data);
+      if (localState.get(key).invalidateSeq !== invalidateSeqAtStart) {
+        // An invalidate landed while this fetch was in flight. The response predates it, so it
+        // cannot satisfy it: restore the invalidated mark the landing cleared and run once more.
+        await client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
+        return await run(input, { restart: false, propagateFailure: options.propagateFailure });
+      }
       return data.selected;
     } catch (error) {
       if (!generationFence.isCurrent()) {
@@ -231,6 +239,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
         if (window === null || isQueryFresh(client, queryKey, window)) return false;
+        bumpInvalidateSeq(key);
         void client.invalidateQueries({ queryKey, refetchType: 'none' });
         return true;
       };

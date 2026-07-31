@@ -47,7 +47,7 @@ export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, purgeForeignStorage
 export { getApplyRuntime } from '../dsl/configure';
 export { createCommitEnvelope } from '../core/apply/commitEnvelope';
 export { defineQuery } from '../dsl/defineQuery';
-export { suspendDb } from '../dsl/lifecycle';
+export { bootDb, suspendDb } from '../dsl/lifecycle';
 export { createModelContext } from '../dsl/modelContext';
 export { createModelCriteria } from '../dsl/modelCriteria';
 export { createModelScopeKeys } from '../dsl/modelScopeKeys';

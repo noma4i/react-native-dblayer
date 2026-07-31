@@ -132,9 +132,9 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       maxPages: config.maxPages ?? null
     })
   };
-  /** Fields react-query cannot express in our vocabulary: offline pause and next-page distinction. */
-  const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false });
-  const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean }>): void => localState.set(key, next);
+  /** Fields react-query cannot express in our vocabulary: offline pause, next-page distinction, and the per-bucket invalidate sequence. */
+  const localState = createKeyedLocalState({ isPaused: false, isFetchingNextPage: false, invalidateSeq: 0 });
+  const setLocalState = (key: string, next: Partial<{ isPaused: boolean; isFetchingNextPage: boolean; invalidateSeq: number }>): void => localState.set(key, next);
   registerKeyedReset(`query:${keyName}`, () => {
     registeredScopes.clear();
     issuedResetSeqByBucket.clear();
@@ -340,6 +340,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (options.restart) void client.cancelQueries({ queryKey });
     setLocalState(key, { isPaused: false, isFetchingNextPage: options.nextPage === true });
     const generationFence = createGenerationFence();
+    const invalidateSeqAtStart = localState.get(key).invalidateSeq;
     try {
       const meta = await client.fetchQuery<ChainMeta | null>({
         queryKey,
@@ -364,6 +365,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
       });
       if (meta !== null) persist(scope, meta);
+      if (localState.get(key).invalidateSeq !== invalidateSeqAtStart) {
+        // An invalidate landed while this fetch was in flight. The response predates it, so it
+        // cannot satisfy it: restore the invalidated mark the landing cleared and run once more.
+        await client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
+        await run(scope, { restart: false, resurrectDestroyed: options.resurrectDestroyed, propagateFailure: options.propagateFailure });
+      }
     } catch (error) {
       if (!generationFence.isCurrent()) {
         if (options.propagateFailure) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
@@ -400,7 +407,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   };
   const invalidateRegisteredScope = (registered: TScope): void => {
     const client = getDbQueryClient();
-    const queryKey = queryKeyOf(bucketKeyOf(registered));
+    const key = bucketKeyOf(registered);
+    const queryKey = queryKeyOf(key);
+    // The sequence lets an in-flight run see that this invalidate outranks its response.
+    setLocalState(key, { invalidateSeq: localState.get(key).invalidateSeq + 1 });
     // Invalidation is lazy: freshness drops for everyone, but only mounted readers refetch now.
     void client.invalidateQueries({ queryKey, refetchType: 'none' }).then(() => {
       refetchActiveFetchReaders(queryKey);
@@ -497,6 +507,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       const markResumeStale = (): boolean => {
         const window = resumeWindow();
         if (window === null || isQueryFresh(client, queryKey, window)) return false;
+        setLocalState(key, { invalidateSeq: localState.get(key).invalidateSeq + 1 });
         void client.invalidateQueries({ queryKey, refetchType: 'none' });
         return true;
       };
