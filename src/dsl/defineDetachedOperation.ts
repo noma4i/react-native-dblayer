@@ -134,7 +134,7 @@ export const defineDetachedOperation = <TInput, TStored extends { id: string }>(
   return handle;
 };
 
-/** Invoke every hydrated detached declaration once before startup GC and pending-TTL maintenance. */
+/** Invoke every hydrated detached declaration once before startup maintenance. */
 export const reconcileDetachedOperationsAtBoot = async (generation: number): Promise<void> => {
   const generationFence = createGenerationFence({ generation });
   if (!generationFence.isCurrent()) return;

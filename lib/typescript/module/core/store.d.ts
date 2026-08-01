@@ -16,7 +16,7 @@ export declare const createModelStore: <T extends RowRecord>(options: {
 }) => ModelStore<T>;
 /**
  * THE publish seam: project this batch's scope changes into the membership collections, then
- * publish on the commit bus. Every scope-carrying batch - commit, replay, and GC - goes through
+ * publish on the commit bus. Every scope-carrying batch - commit, replay, and maintenance - goes through
  * here, so a scope-plane mutation can never bypass the store projection.
  */
 export declare const publishProjectedBatch: (bus: {

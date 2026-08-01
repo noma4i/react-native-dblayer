@@ -87,7 +87,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         }
       }
       // Rows held by open operations survive snapshot reconciliation and retention: the ledger is
-      // the one protection root (TTL, GC, replay cleanup, and both planning cuts below).
+      // the one protection root (TTL, replay cleanup, and both planning cuts below).
       const heldRowIds = coverage === 'complete' || planOptions?.resetOrder === true ? getOperationState().openRowIdsFor(options.modelId) : undefined;
       const protectedIds = heldRowIds !== undefined && heldRowIds.size > 0 ? heldRowIds : undefined;
       const reconciliation = planes().scopeIndex.reconcileNext(scopeKey, coverage, incoming, { ...planOptions, protectedIds });

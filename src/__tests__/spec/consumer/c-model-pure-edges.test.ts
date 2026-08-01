@@ -1,6 +1,6 @@
 import {
+  compositeKey,
   configureDb,
-  collectGarbage,
   createModelNormalization,
   createModelScopeKeys,
   defineModelRuntime,
@@ -146,7 +146,7 @@ describe('model landing graph edges', () => {
 });
 
 describe('model write planning edges', () => {
-  it('detaches stale scope members during garbage collection', () => {
+  it('empties a scope on destroy and keeps the scope itself declared', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const model = defineModelRuntime({
       id: 'ModelGcStaleScopeMember',
@@ -156,11 +156,16 @@ describe('model write planning edges', () => {
     });
     model.scopes.byBucket.seed({ bucket: 'a' }, [{ id: 'row-1', bucket: 'a' }]);
     const target = getApplyTarget(model.modelId);
-    target.destroy(['row-1']);
 
-    collectGarbage();
+    model.destroy('row-1');
 
-    expect(target.readAllScopeKeys()).toEqual([]);
+    // Destroy detaches membership in the same act, so no later pass has stale entries to sweep. The
+    // scope key stays: an empty scope the app has read means "known to hold nothing", which is not
+    // the same answer as a scope that was never fetched.
+    const scopeKey = compositeKey('byBucket', '{"bucket":"a"}');
+    expect(target.readAllScopeKeys()).toEqual([scopeKey]);
+    expect(target.readScopeEntries(scopeKey)).toEqual([]);
+    expect(model.all()).toEqual([]);
   });
 
   it('restores captured memberships under the normalized replacement id and ignores a missing patch row', () => {

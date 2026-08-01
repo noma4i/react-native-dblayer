@@ -78,7 +78,7 @@ export const createCommitBus = (): CommitBus => {
       retained.add(entry);
       return () => retained.delete(entry);
     },
-    /** Snapshot of live reader dependencies, used as garbage-collection roots. */
+    /** Snapshot of live reader dependencies. */
     activeDependencies: (): ReadonlyArray<Dependency> => [...subscribers, ...retained].flatMap(holder => holder.deps),
     publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length && !batch.pending?.length) return;

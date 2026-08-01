@@ -32,7 +32,7 @@ export type EntityState<T extends {
     destroy(id: string, options?: {
         tombstone?: boolean;
     }): void;
-    /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
+    /** Cache eviction - removes the row WITHOUT a tombstone; a later server row resurrects it. */
     evict(id: string): boolean;
     isTombstoned(id: string): boolean;
     pruneTombstones(): number;

@@ -44,7 +44,7 @@ export type ScopeIndex = {
   detach(key: string, ids: string[]): ScopeIndexValue;
   /** Cut entries past `maxRows`; entries in `protectedIds` are never cut and do not consume the budget. */
   trimValue(value: ScopeIndexValue, maxRows: number, protectedIds?: ReadonlySet<string>): { next: ScopeIndexValue; trimmedIds: string[] };
-  /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
+  /** Drop a scope key entirely; persisted entry is deleted on next flush. */
   remove(key: string): void;
   keys(): string[];
   /** Record an in-memory read timestamp for one scope key. */

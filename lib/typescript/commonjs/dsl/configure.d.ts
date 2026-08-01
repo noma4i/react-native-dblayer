@@ -51,7 +51,7 @@ export declare const noteMaintenancePersistence: (models: ReadonlyArray<string>)
  * module has been imported (apply targets registered) - records touching unregistered models throw.
  * Returns the number of replayed records.
  *
- * `bootDb` calls this before garbage collection and foreign-key cleanup and surfaces the result as
+ * `bootDb` calls this before foreign-key cleanup and surfaces the result as
  * `{ replayed }`.
  *
  * @returns The number of journal records replayed.

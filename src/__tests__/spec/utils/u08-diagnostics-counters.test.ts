@@ -98,16 +98,16 @@ describe('diagnostics counters', () => {
   });
 
   it('keeps a data loss record only for a positive count and bounds the log', () => {
-    diagnosticsModule.noteDataLoss('gc-row-eviction', 'Spec', 0);
+    diagnosticsModule.noteDataLoss('scope-retention-trim', 'Spec', 0);
     expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
 
-    diagnosticsModule.noteDataLoss('gc-row-eviction', 'Spec', 2);
-    expect(diagnostics().snapshot().dataLossEvents).toEqual([{ mechanism: 'gc-row-eviction', model: 'Spec', count: 2 }]);
+    diagnosticsModule.noteDataLoss('scope-retention-trim', 'Spec', 2);
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([{ mechanism: 'scope-retention-trim', model: 'Spec', count: 2 }]);
 
-    for (let index = 0; index < 120; index += 1) diagnosticsModule.noteDataLoss('gc-row-eviction', `Spec${index}`, 1);
+    for (let index = 0; index < 120; index += 1) diagnosticsModule.noteDataLoss('scope-retention-trim', `Spec${index}`, 1);
     const events = diagnostics().snapshot().dataLossEvents;
 
     expect(events).toHaveLength(100);
-    expect(events[events.length - 1]).toEqual({ mechanism: 'gc-row-eviction', model: 'Spec119', count: 1 });
+    expect(events[events.length - 1]).toEqual({ mechanism: 'scope-retention-trim', model: 'Spec119', count: 1 });
   });
 });

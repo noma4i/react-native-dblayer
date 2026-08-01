@@ -48,7 +48,7 @@ describe('provider-owned query runtime', () => {
 
   it('gates children until boot completes and then supports DSL reads', async () => {
     setupSpecRuntime();
-    const users = dbl.defineModelRuntime({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    const users = dbl.defineModelRuntime({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() } });
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
     users.insert({ id: 'user', name: 'Ready' });
     let renders = 0;
@@ -75,7 +75,7 @@ describe('provider-owned query runtime', () => {
     let resolveBoot!: () => void;
     const boot = jest.spyOn(dbl.lifecycleModule, 'bootDb').mockReturnValue(
       new Promise(resolve => {
-        resolveBoot = () => resolve({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+        resolveBoot = () => resolve({ replayed: 0, maintenance: [], reset: false });
       })
     );
     let root!: TestRenderer.ReactTestRenderer;
@@ -104,7 +104,7 @@ describe('provider-owned query runtime', () => {
     const boot = jest
       .spyOn(dbl.lifecycleModule, 'bootDb')
       .mockReturnValueOnce(firstBoot)
-      .mockResolvedValueOnce({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+      .mockResolvedValueOnce({ replayed: 0, maintenance: [], reset: false });
     let root!: TestRenderer.ReactTestRenderer;
 
     act(() => {
@@ -127,12 +127,12 @@ describe('provider-owned query runtime', () => {
     setupSpecRuntime();
     let resolveFirstBoot!: () => void;
     const firstBoot = new Promise<Awaited<ReturnType<typeof dbl.bootDb>>>(resolve => {
-      resolveFirstBoot = () => resolve({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+      resolveFirstBoot = () => resolve({ replayed: 0, maintenance: [], reset: false });
     });
     const boot = jest
       .spyOn(dbl.lifecycleModule, 'bootDb')
       .mockReturnValueOnce(firstBoot)
-      .mockResolvedValueOnce({ replayed: 0, gc: { evicted: {}, scopesRemoved: {} }, maintenance: [], reset: false });
+      .mockResolvedValueOnce({ replayed: 0, maintenance: [], reset: false });
     let root!: TestRenderer.ReactTestRenderer;
 
     act(() => {
@@ -189,7 +189,7 @@ describe('provider-owned query runtime', () => {
 
   it('flushes pending persistence on background and drains readers after background or inactive', async () => {
     const { storage } = setupSpecRuntime();
-    const users = dbl.defineModelRuntime({ id: 'SpecProviderBackground', name: 'SpecProviderBackground', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    const users = dbl.defineModelRuntime({ id: 'SpecProviderBackground', name: 'SpecProviderBackground', fields: { name: dbl.f.str() } });
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
@@ -244,7 +244,7 @@ describe('provider-owned query runtime', () => {
       }
     });
     dbl.configureDb({ storage: createMemoryPlane(), transport } as never);
-    const users = dbl.defineModelRuntime({ id: 'SpecProviderReset', name: 'SpecProviderReset', fields: { name: dbl.f.str() }, gc: 'exempt' });
+    const users = dbl.defineModelRuntime({ id: 'SpecProviderReset', name: 'SpecProviderReset', fields: { name: dbl.f.str() } });
     const query = users.query<{ rows: Array<{ id: string; name: string }> }, Record<string, never>, Record<string, never>, { id: string; name: string }>('screen', {
       document,
       key: 'spec-provider-reset',

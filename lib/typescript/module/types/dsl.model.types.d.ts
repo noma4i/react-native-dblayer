@@ -122,8 +122,6 @@ export type ModelSchemaRegistrationOptions<TStored extends {
     modelName: string;
     fields: ModelFieldSpecs;
     scopes: Record<string, ScopeSpec<TStored>> | undefined;
-    gc: 'exempt' | undefined;
-    dropIdleScopesAfterMs: number | undefined;
     context: ModelContext<TStored>;
 };
 export type ModelRuntimeRegistrationOptions<TStored extends {
@@ -570,12 +568,8 @@ export type ModelConfig<TFields extends ModelFieldSpecs, TScopeNames extends str
     scopes?: {
         [K in TScopeNames]: ScopeSpec<InferStoredFields<TFields>>;
     };
-    /** Set to `'exempt'` to keep this model's rows out of garbage-collection sweeps even when unreferenced. */
-    gc?: 'exempt';
     /** Boot maintenance declarations. Temp-row cleanup at boot is handled by the replay orphan sweep and needs no maintenance entry. */
     maintenance?: {
-        /** Opt-in idle scope collection: unread scopes are removed at the next GC sweep after this duration, then their rows follow normal reachability. */
-        dropIdleScopesAfterMs?: number;
         /** Opt-in age limit for unresolved temp-id rows. Pending operations remain protected. */
         dropTempRowsAfterMs?: number;
         /** Runtime source of temp ids protected from unresolved-row cleanup. */

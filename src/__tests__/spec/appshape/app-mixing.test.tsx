@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { configureDb, resetRuntime } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const setup = (tag: string) => {
@@ -31,6 +31,8 @@ const addAccount = (models: ReturnType<typeof createAppModels>, account: string)
 };
 
 describe('app-shaped data mixing contracts', () => {
+  guardDataLoss();
+
   it('S1 keeps feed byIds rows aligned to their actual ids when found and missing ids mix', () => {
     const { models } = setup('S1');
     writeMany(models.moments, [

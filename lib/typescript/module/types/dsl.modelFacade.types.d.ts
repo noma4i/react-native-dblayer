@@ -237,9 +237,7 @@ export type ModelFacadeConfig<TShape extends DbShape<any, AnyFields>, TRelations
     defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
     rowId?: (input: ModelBuildInput<TShape>) => unknown;
     guard?: (input: ModelBuildInput<TShape>) => boolean;
-    gc?: 'exempt';
     maintenance?: {
-        dropIdleScopesAfterMs?: number;
         dropTempRowsAfterMs?: number;
         protectTempRows?: () => ReadonlySet<string> | readonly string[];
         maxRowsPerScope?: Array<{

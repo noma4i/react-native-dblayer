@@ -1,5 +1,5 @@
 import type { ModelRuntimeRegistrationOptions, ModelSchemaRegistrationOptions } from '../types';
-export declare const registerModelSchemaAndGc: <TStored extends {
+export declare const registerModelSchema: <TStored extends {
     id: string;
 } & Record<string, unknown>>(options: ModelSchemaRegistrationOptions<TStored>) => void;
 export declare const registerModelRuntime: <TStored extends {

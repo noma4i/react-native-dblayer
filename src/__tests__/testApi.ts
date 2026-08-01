@@ -44,7 +44,6 @@ export {
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
 export { registerResidency, residencySnapshot } from '../core/residency';
-export { collectGarbage } from '../core/gc';
 export { afterStoreTransaction, OWNED_COLLECTION_LIFETIME, runInStoreTransaction, SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';
 export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, purgeForeignStorageKeys } from '../dsl/configure';
@@ -104,7 +103,6 @@ export { planModelLanding, planModelLandingWithRoot, registerModelLandingHost } 
 export * from '../core/schemaManifest';
 export * from '../core/serialize';
 export * from '../core/persistenceCodec';
-export * from '../core/gc';
 export * from '../core/apply/commitEnvelope';
 export * from '../core/apply/journal';
 export * from '../core/apply/transaction';
@@ -124,7 +122,6 @@ export * from '../core/internalHandles';
 export * from '../core/invalidationRegistry';
 export * from '../core/generationRegistry';
 export * from '../core/invariants';
-export * from '../core/maintenanceScheduler';
 export * from '../core/subscriptionRuntime';
 export * from '../dsl/mutationRuntime';
 export * from '../dsl/bootValidations';

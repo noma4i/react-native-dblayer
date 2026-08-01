@@ -64,7 +64,6 @@ export const defineModelFacade = <
     guard: config.guard,
     relations: associations,
     scopes: relationSpecs,
-    gc: config.gc,
     maintenance: config.maintenance,
     write: config.write
   } as never, { sideloads: config.sideloads }) as FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>>;

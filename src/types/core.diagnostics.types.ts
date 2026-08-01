@@ -1,8 +1,5 @@
 export type DataLossMechanism =
   | 'deferred-patch-timeout'
-  | 'gc-row-eviction'
-  | 'gc-scope-removal'
-  | 'gc-scope-membership-detach'
   | 'scope-retention-trim'
   | 'scope-complete-detach'
   | 'stale-temp-row-expiry'

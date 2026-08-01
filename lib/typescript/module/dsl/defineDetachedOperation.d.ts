@@ -3,6 +3,6 @@ import type { DetachedModel, DetachedOperationConfig, DetachedOperationHandle } 
 export declare const defineDetachedOperation: <TInput, TStored extends {
     id: string;
 }>(model: DetachedModel<TStored>, kind: string, config: DetachedOperationConfig<TInput, TStored>) => DetachedOperationHandle<TInput>;
-/** Invoke every hydrated detached declaration once before startup GC and pending-TTL maintenance. */
+/** Invoke every hydrated detached declaration once before startup maintenance. */
 export declare const reconcileDetachedOperationsAtBoot: (generation: number) => Promise<void>;
 //# sourceMappingURL=defineDetachedOperation.d.ts.map

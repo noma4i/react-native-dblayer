@@ -107,12 +107,12 @@ describe('read diagnostics', () => {
   it('ignores empty loss reports and retains only the newest one hundred events', () => {
     setupSpecRuntime();
     diagnostics().reset();
-    noteDataLoss('gc-row-eviction', 'Rows', 0);
-    for (let index = 0; index < 105; index += 1) noteDataLoss('gc-row-eviction', `Rows${index}`, 1);
+    noteDataLoss('scope-retention-trim', 'Rows', 0);
+    for (let index = 0; index < 105; index += 1) noteDataLoss('scope-retention-trim', `Rows${index}`, 1);
 
     const events = diagnostics().snapshot().dataLossEvents;
     expect(events).toHaveLength(100);
-    expect(events[0]).toEqual({ mechanism: 'gc-row-eviction', model: 'Rows5', count: 1 });
-    expect(events.at(-1)).toEqual({ mechanism: 'gc-row-eviction', model: 'Rows104', count: 1 });
+    expect(events[0]).toEqual({ mechanism: 'scope-retention-trim', model: 'Rows5', count: 1 });
+    expect(events.at(-1)).toEqual({ mechanism: 'scope-retention-trim', model: 'Rows104', count: 1 });
   });
 });

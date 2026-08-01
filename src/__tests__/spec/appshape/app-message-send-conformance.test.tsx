@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { configureDb } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -15,6 +15,8 @@ const insertChat = (models: ReturnType<typeof createAppModels>) => {
 const message = (id: string, overrides: Record<string, unknown> = {}) => ({ id, chatId: 'chat-1', userId: ownId, body: 'hello', kind: 'text', status: 'Sending' as const, createdAt: time, updatedAt: time, sequenceNumber: 1, mediaGroupId: null, replyToId: null, media: null, mediaBucket: null, localPreviewUrl: null, clientId: id, ...overrides });
 
 describe('app message send conformance', () => {
+  guardDataLoss();
+
   it('C1 text success keeps one UI row while replacing the optimistic id with the server id', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: message('server-1', { status: 'Sent', clientId: 'temp-1' }) } } as TData }) }) });
     const models = createAppModels('MessageConformanceSuccess');

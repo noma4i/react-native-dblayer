@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f , collectGarbage , clearFailedOptimisticMutation , runPendingTempRowMaintenance } from '../../testApi';
+import { clearFailedOptimisticMutation, configureDb, defineModelRuntime, f, runPendingTempRowMaintenance } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; body: string };
@@ -54,10 +54,10 @@ describe('durable temp row protection', () => {
     expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 
-  it('keeps a failed retryable temp row across a GC sweep', async () => {
+  it('keeps a failed retryable temp row when temp-row retention runs', async () => {
     const { rows, tempId } = await buildFailedInsert('Gc');
 
-    collectGarbage();
+    runPendingTempRowMaintenance();
 
     expect(rows.find(tempId)).toMatchObject({ body: 'not sent yet' });
   });

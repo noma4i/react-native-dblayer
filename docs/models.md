@@ -33,7 +33,6 @@ through the returned singleton.
 | `defaultOrder` | Sets the default local ordering. |
 | `rowId` | Extracts an id from non-standard input. |
 | `guard` | Rejects invalid model input. |
-| `gc` | Marks rows as garbage-collection roots when set to `exempt`. |
 | `maintenance` | Declares bounded row and temporary-row cleanup. |
 | `write` | Declares field-group merge policy. |
 | `statics` | Adds domain methods without exposing storage internals. |

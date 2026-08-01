@@ -1,6 +1,6 @@
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, collectGarbage, configureDb, defineModelRuntime, f } from '../../testApi';
+import { DbProvider, configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -153,11 +153,8 @@ describe('freshness follows scope membership, not only row survival', () => {
     await settle();
     expect(calls).toBe(1);
 
-    // A mounted reader roots its rows: a sweep may not evict them, so the screen keeps its data,
-    // the chain stays materialized, and no network call fires.
-    act(() => {
-      collectGarbage();
-    });
+    // Nothing reclaims rows, so the screen keeps its data, the chain stays materialized and no
+    // network call fires.
     await settle();
     expect(rows.find('gc-1')).toMatchObject({ name: 'Collected' });
     expect(calls).toBe(1);

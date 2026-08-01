@@ -54,7 +54,7 @@ export type ScopeIndex = {
         next: ScopeIndexValue;
         trimmedIds: string[];
     };
-    /** Drop a scope key entirely (GC of empty/dead scopes); persisted entry is deleted on next flush. */
+    /** Drop a scope key entirely; persisted entry is deleted on next flush. */
     remove(key: string): void;
     keys(): string[];
     /** Record an in-memory read timestamp for one scope key. */

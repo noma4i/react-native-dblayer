@@ -12,8 +12,8 @@ describe('fetch ownership discipline', () => {
     expect(readSource('core/fetch/queryFreshness.ts')).toContain('.isStaleByTime(');
   });
 
-  it('delegates scheduled checkpoint and maintenance pacing to TanStack Pacer', () => {
-    const rawTimers = ['core/apply/checkpoint.ts', 'core/maintenanceScheduler.ts'].filter(relativePath => /\bsetTimeout\s*\(/.test(readSource(relativePath)));
+  it('delegates scheduled checkpoint pacing to TanStack Pacer', () => {
+    const rawTimers = ['core/apply/checkpoint.ts'].filter(relativePath => /\bsetTimeout\s*\(/.test(readSource(relativePath)));
 
     expect(rawTimers).toEqual([]);
   });

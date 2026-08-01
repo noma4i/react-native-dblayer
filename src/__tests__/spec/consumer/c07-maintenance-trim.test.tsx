@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f , bootDb , collectGarbage , clearFailedOptimisticMutation , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f , bootDb , runPendingTempRowMaintenance , clearFailedOptimisticMutation , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
@@ -161,7 +161,7 @@ const createTempRows = (id: string, maxAgeMs?: number, protectTempRows?: () => R
   defineModelRuntime({
     id,
     name: id,
-    gc: 'exempt',
+    
     fields: { createdAt: f.str(), label: f.str() },
     ...(maxAgeMs === undefined ? {} : { maintenance: { dropTempRowsAfterMs: maxAgeMs, ...(protectTempRows ? { protectTempRows } : {}) } })
   });
@@ -175,7 +175,7 @@ describe('unresolved temp row retention', () => {
     const rows = createTempRows('PendingTtlOld', 1000);
     rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
     act(() => {
-      collectGarbage();
+      runPendingTempRowMaintenance();
     });
     expect(rows.find('temp-old')).toBeUndefined();
   });
@@ -197,7 +197,7 @@ describe('unresolved temp row retention', () => {
     });
     const pending = save.run();
     act(() => {
-      collectGarbage();
+      runPendingTempRowMaintenance();
     });
     expect(rows.all()).toHaveLength(1);
     resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
@@ -215,11 +215,11 @@ describe('unresolved temp row retention', () => {
     });
     await expect(save.run()).rejects.toThrow('offline');
 
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.all()).toHaveLength(1);
 
     clearFailedOptimisticMutation(rows.modelId, rows.all()[0]!.id);
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.all()).toEqual([]);
   });
 
@@ -227,7 +227,7 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlFresh', 1000);
     rows.insert({ id: 'temp-fresh', createdAt: fresh(), label: 'fresh' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('temp-fresh')).toBeTruthy();
   });
 
@@ -235,7 +235,7 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlInvalid', 1000);
     rows.insert({ id: 'temp-invalid', createdAt: 'invalid', label: 'invalid' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('temp-invalid')).toBeUndefined();
   });
 
@@ -243,7 +243,7 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlPermanent', 1000);
     rows.insert({ id: 'server-old', createdAt: old(), label: 'server' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('server-old')).toBeTruthy();
   });
 
@@ -251,7 +251,7 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlDisabled');
     rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('temp-old')).toBeTruthy();
   });
 
@@ -259,7 +259,7 @@ describe('unresolved temp row retention', () => {
     setupSpecRuntime();
     const rows = createTempRows('PendingTtlNoTombstone', 1000);
     rows.insert({ id: 'temp-old', createdAt: old(), label: 'old' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     rows.insert({ id: 'temp-old', createdAt: fresh(), label: 'authoritative' });
     expect(rows.find('temp-old')?.label).toBe('authoritative');
   });
@@ -274,7 +274,7 @@ describe('unresolved temp row retention', () => {
     const reader = renderCounted(() => rows.use.find('temp-a'));
     const before = reader.renders();
     act(() => {
-      collectGarbage();
+      runPendingTempRowMaintenance();
     });
     expect(reader.renders() - before).toBe(1);
     reader.unmount();
@@ -287,7 +287,7 @@ describe('unresolved temp row retention', () => {
       { id: 'temp-a', createdAt: old(), label: 'a' },
       { id: 'temp-b', createdAt: old(), label: 'b' }
     ]);
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'stale-temp-row-expiry', model: rows.modelId, count: 2 });
   });
 
@@ -296,7 +296,7 @@ describe('unresolved temp row retention', () => {
     const protectedIds = new Set(['temp-model']);
     const rows = createTempRows('PendingTtlModelProtected', 1000, () => protectedIds);
     rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('temp-model')).toBeTruthy();
   });
 
@@ -305,9 +305,9 @@ describe('unresolved temp row retention', () => {
     const protectedIds = new Set(['temp-model']);
     const rows = createTempRows('PendingTtlModelLive', 1000, () => protectedIds);
     rows.insert({ id: 'temp-model', createdAt: old(), label: 'protected' });
-    collectGarbage();
+    runPendingTempRowMaintenance();
     protectedIds.clear();
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('temp-model')).toBeUndefined();
   });
 
@@ -329,7 +329,7 @@ describe('unresolved temp row retention', () => {
       optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save }
     });
     const pending = save.run();
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.all()).toHaveLength(2);
     resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
     await pending;
@@ -343,7 +343,7 @@ describe('unresolved temp row retention', () => {
     persistCurrentManifest();
     await bootDb();
     expect(rows.find('temp-model')).toBeTruthy();
-    collectGarbage();
+    runPendingTempRowMaintenance();
     expect(rows.find('temp-model')).toBeTruthy();
   });
 });

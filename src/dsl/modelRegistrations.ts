@@ -1,6 +1,5 @@
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { isMultiFieldSort } from '../core/ordering';
-import { registerGcHost } from '../core/gc';
 import { noteDataLoss } from '../core/diagnostics';
 import { registerKeyedReset } from '../core/reset';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
@@ -12,8 +11,7 @@ import { registerModelMaintenance } from './maintenanceRegistry';
 import type { MaintenanceReport , ModelCore, ModelRuntimeRegistrationOptions, ModelSchemaRegistrationOptions } from '../types';
 import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
 
-export const registerModelSchemaAndGc = <TStored extends { id: string } & Record<string, unknown>>(options: ModelSchemaRegistrationOptions<TStored>): void => {
-  const { planes, resolvedRelations } = options.context;
+export const registerModelSchema = <TStored extends { id: string } & Record<string, unknown>>(options: ModelSchemaRegistrationOptions<TStored>): void => {
   registerSchemaDeclaration({
     id: options.modelId,
     name: options.modelName,
@@ -33,48 +31,6 @@ export const registerModelSchemaAndGc = <TStored extends { id: string } & Record
         return [name, { by, sort }];
       })
     )
-  });
-  registerGcHost(options.modelId, {
-    modelId: options.modelId,
-    exempt: options.gc === 'exempt',
-    rowIds: () =>
-      planes()
-        .entityState.values()
-        .map(row => String(row.id)),
-    hasRow: id => planes().entityState.read(id) !== undefined,
-    scopeKeys: () => planes().scopeIndex.keys(),
-    scopeEntryIds: key =>
-      planes()
-        .scopeIndex.read(key)
-        .entries.map(entry => entry.id),
-    detachScopeEntries: (key, ids) => {
-      planes().scopeIndex.detach(key, ids);
-    },
-    scopeEntryCount: key => planes().scopeIndex.read(key).entries.length,
-    removeScope: key => {
-      planes().scopeIndex.remove(key);
-    },
-    idleScopeAfterMs: () => options.dropIdleScopesAfterMs,
-    scopeLastAccess: key => planes().scopeIndex.lastAccess(key),
-    evict: id => planes().entityState.evict(id),
-    referencesOf: id => {
-      const row = planes().entityState.read(id)!;
-      const out: Array<{ model: string; id: string }> = [];
-      for (const relation of Object.values(resolvedRelations())) {
-        if (relation.kind === 'belongsTo') {
-          const value = row[relation.foreignKey];
-          if (typeof value === 'string' && value.length > 0) out.push({ model: relation.model.modelId, id: value });
-        }
-        if (relation.kind === 'references') {
-          const raw = relation.ids(row);
-          const list = Array.isArray(raw) ? raw : [raw];
-          for (const value of list) {
-            if (typeof value === 'string' && value.length > 0) out.push({ model: relation.model.modelId, id: value });
-          }
-        }
-      }
-      return out;
-    }
   });
 };
 

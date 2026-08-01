@@ -13,7 +13,7 @@ export type StorageAdapter = {
     setItem(key: string, value: string): void;
     /** Remove a persisted value synchronously. */
     removeItem(key: string): void;
-    /** Enumerate stored keys under a prefix (hydration, GC and stale-key cleanup). */
+    /** Enumerate stored keys under a prefix (hydration and stale-key cleanup). */
     allKeys(): string[];
 };
 export type DbLogger = {
@@ -148,7 +148,7 @@ export type ComputePhaseInput = {
     isInactive?: boolean;
     /** Whether a query request is in flight. */
     isFetching: boolean;
-    /** Whether the query's previously-committed destination rows have died locally (destroy/GC/trim) and a refetch is imminent - distinct from a genuinely empty completed fetch. */
+    /** Whether the query's previously-committed destination rows have died locally (destroy/trim) and a refetch is imminent - distinct from a genuinely empty completed fetch. */
     committedRowsDied: boolean;
     /** Whether the request is paused (offline): react-query fetchStatus === 'paused'. */
     isPaused: boolean;

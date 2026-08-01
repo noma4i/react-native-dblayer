@@ -161,6 +161,17 @@ type DiagnosticsGlobal = { snapshot: () => DiagnosticsSnapshot; reset: () => voi
 export const diagnostics = (): DiagnosticsGlobal => (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as DiagnosticsGlobal;
 
 /**
+ * Install the per-case check: an app-shaped flow ends having lost nothing. Twenty-five mechanisms can
+ * discard rows, each tested only for firing in its OWN scenario; nothing asserted that a normal flow
+ * fires none of them - which is the shape of the complaint that data randomly disappears.
+ */
+export const guardDataLoss = (): void => {
+  afterEach(() => {
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
+  });
+};
+
+/**
  * Record every rendered value of a hook in order, so a test can assert the FRAME SEQUENCE
  * (not just the final value). Use for transient-state contracts: e.g. a loading hook must never
  * emit an empty-state frame while a fetch is in flight.

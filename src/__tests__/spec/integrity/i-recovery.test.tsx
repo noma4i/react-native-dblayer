@@ -13,7 +13,7 @@ const defineRecoveryModel = (id: string) =>
   defineModelRuntime({
     id,
     name: id,
-    gc: 'exempt',
+    
     fields: { bucket: f.str(), label: f.str() },
     scopes: { feed: ({ by: { bucket: 'bucket' } }) }
   });

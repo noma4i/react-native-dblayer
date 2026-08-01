@@ -4,7 +4,7 @@ import type { InferBuildInput, InferStoredFields, ModelFieldSpecs, ModelLandingO
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
  * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
  *
- * @param config Field specs, id/guard resolution, optional relations/scopes, gc/write policy, and statics.
+ * @param config Field specs, id/guard resolution, optional relations/scopes, write policy, and statics.
  * @returns A `ModelCore` (snapshot reads, `use.*` reactive reads, `update`/`destroy`/`insert`, `related`)
  * plus a `scopes` map of `ScopeHandle`s (one per configured scope) and any `statics` the config builds.
  */

@@ -18,7 +18,7 @@ export type EntityState<T extends { id: string }> = {
   /** Returns changed top-level fields vs the previous row, or null when the row is new. */
   upsert(row: T, options?: { mergeBase?: T; ctx?: WriteCtx }): UpsertResult;
   destroy(id: string, options?: { tombstone?: boolean }): void;
-  /** Cache eviction (GC) - removes the row WITHOUT a tombstone; a later server row resurrects it. */
+  /** Cache eviction - removes the row WITHOUT a tombstone; a later server row resurrects it. */
   evict(id: string): boolean;
   isTombstoned(id: string): boolean;
   pruneTombstones(): number;

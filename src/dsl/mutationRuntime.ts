@@ -54,7 +54,9 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     let data!: TData;
     let result!: MutationPayload<TData>;
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
-    const persistedFailedInput = optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) ? serializeOperationInput(input) : null;
+    // A mutation declared without an input has nothing to persist for resume, so it can lose nothing.
+    const persistedFailedInput =
+      input !== undefined && optimistic && !isMethodOptimistic(optimistic) && !isRespondOptimistic(optimistic) ? serializeOperationInput(input) : null;
     const generationFence = createGenerationFence();
 
     try {

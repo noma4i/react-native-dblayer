@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { configureDb } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settle, settleUntil, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const moment = (id: string) => ({ id, uuid: 'moment-uuid-1', userId: 'user-1', createdAt: '2026-07-27T00:00:00Z', updatedAt: '2026-07-27T00:00:00Z', media: { id: 'media-1', kind: 'photo', fileUrl: 'file:///moment.jpg' } });
@@ -9,6 +9,8 @@ const chat = (id: string, lastActivityAt: string, overrides: Record<string, unkn
 const message = (id: string, chatId: string) => ({ id, chatId, userId: 'user-1', body: 'existing message', kind: 'text', status: 'Sent', createdAt: '2026-07-27T00:00:00Z', updatedAt: '2026-07-27T00:00:00Z', sequenceNumber: 1, mediaGroupId: null, replyToId: null, media: null, mediaBucket: null, localPreviewUrl: null, clientId: id });
 
 describe('app chat and moment conformance', () => {
+  guardDataLoss();
+
   it('CM1 local moment deletion removes every app scope membership and tombstone rejects a stale feed snapshot', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const models = createAppModels('ChatMomentDelete');

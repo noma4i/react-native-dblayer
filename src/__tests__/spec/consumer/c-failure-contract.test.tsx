@@ -10,7 +10,7 @@ const document = { kind: 'Document', definitions: [] } as never;
 
 const createMessages = (id: string, transport: ReturnType<typeof createMockTransport>, configure = true, onError?: (error: Error) => void, tempTtlMs = 1000) => {
   if (configure) configureDb({ storage: createMemoryPlane(), transport });
-  const messages = defineModelRuntime({ id, name: id, gc: 'exempt', fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: tempTtlMs } });
+  const messages = defineModelRuntime({ id, name: id,  fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() }, maintenance: { dropTempRowsAfterMs: tempTtlMs } });
   let latestTempId: string | null = null;
   const send = messages.mutation<SendResult, SendInput, MessageRow, MessageRow>('send', {
     document,
@@ -122,7 +122,7 @@ describe('optimistic failure contract', () => {
     const messages = defineModelRuntime({
       id: 'FailureRollback',
       name: 'FailureRollback',
-      gc: 'exempt',
+      
       fields: { text: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']), createdAt: f.str() },
       maintenance: { dropTempRowsAfterMs: 1000 }
     });

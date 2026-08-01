@@ -40,7 +40,7 @@ const configure = (storage: ReturnType<typeof createMemoryPlane>, transport = cr
     storage,
     transport,
     dataVersion: 'durable-freshness',
-    defaults: { staleTime: 1_000, emptyStaleTime: 5_000, inSessionGc: false }
+    defaults: { staleTime: 1_000, emptyStaleTime: 5_000 }
   });
 };
 
@@ -212,7 +212,7 @@ describe('durable freshness', () => {
     configureDb({
       storage,
       transport: createMockTransport(),
-      defaults: { staleTime: 1_000, inSessionGc: false, onSyncError }
+      defaults: { staleTime: 1_000, onSyncError }
     });
     const first = defineFetch<FetchPayload, void, string>({
       key: 'durable-fetch-invalidated',
@@ -226,7 +226,7 @@ describe('durable freshness', () => {
     configureDb({
       storage,
       transport: createMockTransport(),
-      defaults: { staleTime: 1_000, inSessionGc: false, onSyncError }
+      defaults: { staleTime: 1_000, onSyncError }
     });
     expect(first.read()).toBe('1');
     await expect(first.fetch()).resolves.toBe('2');
@@ -478,8 +478,7 @@ describe('durable freshness', () => {
       transport,
       dataVersion: 'durable-freshness',
       defaults: {
-        freshnessClasses: { durable: 1_000 },
-        inSessionGc: false
+        freshnessClasses: { durable: 1_000 }
       }
     });
     const Message = defineModel('DurableFreshnessDirectDestination', {
@@ -506,8 +505,7 @@ describe('durable freshness', () => {
       transport,
       dataVersion: 'durable-freshness',
       defaults: {
-        freshnessClasses: { durable: 1_000 },
-        inSessionGc: false
+        freshnessClasses: { durable: 1_000 }
       }
     });
     const MessageAfterRestart = defineModel('DurableFreshnessDirectDestination', {
@@ -547,8 +545,7 @@ describe('durable freshness', () => {
       transport,
       dataVersion: 'durable-freshness',
       defaults: {
-        freshnessClasses,
-        inSessionGc: false
+        freshnessClasses
       }
     });
     const Message = defineModel('DurableFreshnessProcessLocalPolicy', {

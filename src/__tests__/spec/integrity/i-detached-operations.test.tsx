@@ -1,16 +1,15 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime , collectGarbage , flushPersistence, getOperationState, getRuntimeGeneration, replayJournal , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime , runPendingTempRowMaintenance , flushPersistence, getOperationState, getRuntimeGeneration, replayJournal , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { attemptWithLastWriteFaulted, createFaultStorage } from '../helpers/faultStorage';
 
 type Row = { id: string; bucket: string; label: string; state: 'pending' | 'failed' | 'complete'; createdAt: string };
 type Input = { bucket: string; label: string };
 
-const defineRows = (id: string, options: { gc?: 'exempt'; maxAgeMs?: number } = {}) =>
+const defineRows = (id: string, options: { gc?: 'reclaimable'; maxAgeMs?: number } = {}) =>
   defineModelRuntime({
     id,
     name: id,
-    gc: options.gc,
     fields: { bucket: f.str(), label: f.str(), state: f.enum<Row['state']>(['pending', 'failed', 'complete']), createdAt: f.str() },
     scopes: { byBucket: ({ by: { bucket: 'bucket' } }) },
     maintenance: { dropTempRowsAfterMs: options.maxAgeMs ?? 60_000 }
@@ -262,8 +261,8 @@ describe('detached operations', () => {
   it('protects an open temp id only inside its owning model during orphan recovery', async () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport() });
-    const owner = defineRows('DetachedSharedTempOwner', { gc: 'exempt' });
-    const other = defineRows('DetachedSharedTempOther', { gc: 'exempt' });
+    const owner = defineRows('DetachedSharedTempOwner', {  });
+    const other = defineRows('DetachedSharedTempOther', {  });
     const handle = declare(owner, 'shared-temp', async () => 'continue');
     const entry = handle.start({ bucket: 'a', label: 'owned' });
     other.insert({ id: entry.tempId, bucket: 'b', label: 'orphan', state: 'pending', createdAt: new Date().toISOString() });
@@ -271,8 +270,8 @@ describe('detached operations', () => {
     flushPersistence();
 
     configureDb({ storage, transport: createMockTransport() });
-    const restartedOwner = defineRows('DetachedSharedTempOwner', { gc: 'exempt' });
-    const restartedOther = defineRows('DetachedSharedTempOther', { gc: 'exempt' });
+    const restartedOwner = defineRows('DetachedSharedTempOwner', {  });
+    const restartedOther = defineRows('DetachedSharedTempOther', {  });
     declare(restartedOwner, 'shared-temp', async () => 'continue');
     writeManifest();
     await bootDb();
@@ -403,7 +402,7 @@ describe('detached operations', () => {
     const entry = handle.start({ bucket: 'a', label: 'first' });
     rows.update(entry.tempId, { createdAt: new Date(0).toISOString() });
 
-    collectGarbage();
+    runPendingTempRowMaintenance();
 
     expect(rows.find(entry.tempId)).toBeDefined();
   });

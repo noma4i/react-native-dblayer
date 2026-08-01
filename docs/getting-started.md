@@ -45,7 +45,6 @@ installs the new seams.
 | `resumeStaleTime` | Controls foreground invalidation age. |
 | `resumeRefetch` | Bounds sequential foreground refetch chunks. |
 | `persistence` | Configures checkpoint delay and pending-plan pressure. |
-| `inSessionGc` | Configures or disables in-session garbage collection. |
 | `onSyncError` | Observes contained query, mutation, and ingest failures. |
 
 `DbRetryPolicy` uses `DbRetryClass` classification, retry budgets, and bounded exponential

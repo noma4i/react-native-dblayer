@@ -81,11 +81,11 @@ describe('effects derive from accepted rows', () => {
       throw new Error('relation callback ran during replay');
     });
     const defineRows = (replaying = false) => {
-      const chats = defineModelRuntime({ id: 'EffectsAcceptanceReplayChat', name: 'EffectsAcceptanceReplayChat', gc: 'exempt', fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() } });
+      const chats = defineModelRuntime({ id: 'EffectsAcceptanceReplayChat', name: 'EffectsAcceptanceReplayChat',  fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() } });
       const messages = defineModelRuntime({
         id: 'EffectsAcceptanceReplayMessage',
         name: 'EffectsAcceptanceReplayMessage',
-        gc: 'exempt',
+        
         fields: { chatId: f.str(), body: f.str(), createdAt: f.num() },
         relations: () => ({
           chat: belongsTo<Message, Chat>(chats, {

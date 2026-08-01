@@ -7,7 +7,6 @@ export type * from './core.persistenceCodec.types';
 export type * from './core.queryPersistence.types';
 export type * from './core.diagnostics.types';
 export type * from './core.apply.commitBus.types';
-export type * from './core.gc.types';
 export type * from './core.planes.operationState.types';
 export type * from './core.planes.scopeIndex.types';
 export type * from './core.planes.storagePlane.types';

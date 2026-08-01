@@ -173,7 +173,7 @@ describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
       { key: 'dbl:journal:1', value: JSON.stringify({ epoch: 1, status: 'pending', ops: [{ rows: [{ id: 'row-1' }] }] }) },
       { key: 'dbl:journal:2', value: encodedRecord(2, 'ReplayHonestyD15') }
     ]);
-    const rows = defineModelRuntime({ id: 'ReplayHonestyD15', name: 'ReplayHonestyD15', gc: 'exempt', fields: { label: f.str() } });
+    const rows = defineModelRuntime({ id: 'ReplayHonestyD15', name: 'ReplayHonestyD15',  fields: { label: f.str() } });
     writeMatchingManifest();
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });

@@ -44,7 +44,7 @@ describe('query persistence records', () => {
     configureDb({
       storage,
       transport: createMockTransport(),
-      defaults: { onSyncError, inSessionGc: false }
+      defaults: { onSyncError }
     });
 
     storage.set([{ key: keyOf(), value: 'corrupt' }]);
@@ -82,7 +82,7 @@ describe('query persistence records', () => {
     configureDb({
       storage,
       transport: createMockTransport(),
-      defaults: { onSyncError, inSessionGc: false }
+      defaults: { onSyncError }
     });
     storage.set([
       { key: keyOf(declaration.family, 'corrupt'), value: 'corrupt' },
@@ -108,7 +108,7 @@ describe('query persistence records', () => {
     configureDb({
       storage,
       transport: createMockTransport(),
-      defaults: { inSessionGc: false }
+      defaults: {}
     });
     const forgedKey = keyOf(declaration.family, 'physical-identity');
     storage.set([
@@ -135,7 +135,7 @@ describe('query persistence records', () => {
     configureDb({
       storage,
       transport: createMockTransport(),
-      defaults: { onSyncError, inSessionGc: false }
+      defaults: { onSyncError }
     });
 
     expect(readPersistedQueryFamily(declaration)).toEqual([]);

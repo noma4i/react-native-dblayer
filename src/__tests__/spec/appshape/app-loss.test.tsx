@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { configureDb , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , stableSerialize } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -23,6 +23,8 @@ const addAccount = (models: ReturnType<typeof createAppModels>, account: string,
 const allModels = (models: ReturnType<typeof createAppModels>) => [models.users, models.chats, models.messages, models.moments, models.currentUser, models.counters, models.vibes, models.walletTransactions];
 
 describe('app-shaped loss contracts', () => {
+  guardDataLoss();
+
   it('L1 replaces an optimistic media message without losing its thread membership or continuity fields', async () => {
     let resolve!: (value: { data: any }) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => new Promise<{ data: TData }>(nextResolve => { resolve = nextResolve as never; }) });

@@ -1,35 +1,6 @@
-import { configureDb, defineModelRuntime, f, registerReset, resetRuntime , collectGarbage , createOperationState } from '../../testApi';
+import { configureDb, createOperationState, registerReset, resetRuntime } from '../../testApi';
 import type { OperationStatus } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
-
-const document = { kind: 'Document', definitions: [] } as never;
-
-describe('pending operation GC roots', () => {
-  it('keeps a method-patch row alive while pending and collects it after commit', async () => {
-    let resolveMutation!: (value: { data: { pin: { ok: true } } }) => void;
-    const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModelRuntime({ id: 'LedgerLifecycleGcRows', name: 'LedgerLifecycleGcRows', fields: { pinned: f.bool() } });
-    rows.insert({ id: 'row-1', pinned: false });
-    const pin = rows.mutation<{ pin: { ok: true } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
-      document,
-      result: 'pin',
-      dedupe: false,
-      optimistic: { method: 'patch', model: rows, selectId: () => 'row-1', selectPatch: () => ({ pinned: true }) }
-    });
-
-    const pending = pin.run({});
-
-    expect(collectGarbage().evicted.LedgerLifecycleGcRows).toBeUndefined();
-    expect(rows.find('row-1')?.pinned).toBe(true);
-
-    resolveMutation({ data: { pin: { ok: true } } });
-    await pending;
-
-    expect(collectGarbage().evicted.LedgerLifecycleGcRows).toBe(1);
-    expect(rows.find('row-1')).toBeUndefined();
-  });
-});
 
 describe('resetRuntime failure isolation', () => {
   it('runs every resetter, clears storage, and rethrows resetter failures after the full pass', () => {

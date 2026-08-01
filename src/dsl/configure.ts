@@ -15,7 +15,6 @@ import { createOperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
 import { registerReset, resetInMemoryRuntime } from '../core/reset';
 import { registerResidency } from '../core/residency';
-import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
 import { compositeKey, compositeStorageKey, parseCompositeKey } from '../core/serialize';
@@ -27,8 +26,6 @@ let operationState: OperationState | null = null;
 let checkpointScheduler: CheckpointScheduler | null = null;
 let queryClient: QueryClient | null = null;
 const commitBus = createCommitBus();
-let stopMaintenanceScheduler: (() => void) | null = null;
-let maintenanceSchedulerResetRegistered = false;
 let storeResetRegistered = false;
 let queryClientResetRegistered = false;
 
@@ -64,15 +61,6 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
   getApplyRuntime();
-  stopMaintenanceScheduler?.();
-  stopMaintenanceScheduler = defaults.inSessionGc === false ? null : startMaintenanceScheduler(defaults.inSessionGc);
-  if (!maintenanceSchedulerResetRegistered) {
-    registerReset(() => {
-      stopMaintenanceScheduler?.();
-      stopMaintenanceScheduler = null;
-    });
-    maintenanceSchedulerResetRegistered = true;
-  }
   if (!storeResetRegistered) {
     registerReset(resetStores);
     storeResetRegistered = true;
@@ -180,7 +168,7 @@ export const noteMaintenancePersistence = (models: ReadonlyArray<string>): void 
  * module has been imported (apply targets registered) - records touching unregistered models throw.
  * Returns the number of replayed records.
  *
- * `bootDb` calls this before garbage collection and foreign-key cleanup and surfaces the result as
+ * `bootDb` calls this before foreign-key cleanup and surfaces the result as
  * `{ replayed }`.
  *
  * @returns The number of journal records replayed.

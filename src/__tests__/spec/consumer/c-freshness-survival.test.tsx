@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModelRuntime, f, resetRuntime , collectGarbage , registerActiveFetchReaders , compositeKey } from '../../testApi';
+import { DbProvider, configureDb, defineFetch, defineModelRuntime, f, resetRuntime  , registerActiveFetchReaders , compositeKey } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -37,7 +37,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport(),
-      defaults: { resumeRefetch: { chunkSize: 1 }, inSessionGc: false }
+      defaults: { resumeRefetch: { chunkSize: 1 } }
     });
     let resolveFirst!: () => void;
     const firstRefetch = jest.fn(
@@ -68,39 +68,6 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     expect(diagnostics().snapshot()).toMatchObject({ resumeDrains: 0, resumeRefetches: 0 });
     releaseFirst();
     releaseSecond();
-    act(() => root.unmount());
-  });
-
-  it('refetches an Infinity-fresh query on remount after GC evicted its committed rows', async () => {
-    let calls = 0;
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: `row-${++calls}`, name: 'Collected', group: null }] } as TData }) })
-    });
-    const rows = createRowsModel('FreshnessGcEvicted');
-    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-gc-evicted', select: data => data.rows, staleTime: Infinity });
-    const Reader = () => {
-      query.use(undefined);
-      return null;
-    };
-    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
-    let root!: TestRenderer.ReactTestRenderer;
-
-    act(() => {
-      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
-    });
-    await settle();
-    expect(calls).toBe(1);
-
-    act(() => root.update(React.createElement(Root, { mounted: false })));
-    act(() => {
-      collectGarbage();
-    });
-    act(() => root.update(React.createElement(Root, { mounted: true })));
-    await settle();
-
-    expect(rows.find('row-1')).toBeUndefined();
-    expect(calls).toBe(2);
     act(() => root.unmount());
   });
 
