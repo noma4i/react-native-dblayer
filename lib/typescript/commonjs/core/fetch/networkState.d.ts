@@ -1,5 +1,15 @@
-/** Read the coordinator-owned connectivity state used by every fetch path. */
+/**
+ * Connectivity has one owner, and it is React Query's. A second copy of the same boolean meant two
+ * answers to one question, and the retry gate, the fetch paths and the subscription runtime could
+ * each be told a different one.
+ *
+ * The fetch paths still ask before starting rather than letting the query runtime pause them:
+ * `networkMode` stays `'always'` because an imperative `fetch()` must fail while offline instead of
+ * returning a promise that settles whenever the network happens to come back.
+ */
+/** Read the connectivity state used by every fetch path. */
 export declare const isFetchNetworkOnline: () => boolean;
+/** Build the error an imperative fetch throws when it is offline with nothing cached to return. */
 export declare const createOfflineFetchError: () => Error;
 /**
  * Host connectivity input: the app reports reachability changes here (e.g. from a NetInfo
@@ -7,8 +17,14 @@ export declare const createOfflineFetchError: () => Error;
  * resuming them once connectivity returns. Idempotent for repeated same-value calls.
  *
  * @param nextOnline `true` when the device regained a usable network, `false` when it lost one.
+ * @returns Nothing.
  */
 export declare const setFetchNetworkOnline: (nextOnline: boolean) => void;
-/** Subscribe to coordinator connectivity changes. */
+/**
+ * Subscribe to connectivity changes.
+ *
+ * @param listener Called after every change of the connectivity state.
+ * @returns The unsubscribe callback.
+ */
 export declare const subscribeFetchNetwork: (listener: () => void) => (() => void);
 //# sourceMappingURL=networkState.d.ts.map

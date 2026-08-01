@@ -1,12 +1,20 @@
-/** Coordinator-owned connectivity state: the single source every fetch path and retry gate reads. */
-const onlineListeners = new Set<() => void>();
-let online = true;
+import { onlineManager } from '@tanstack/react-query';
 
-/** Read the coordinator-owned connectivity state used by every fetch path. */
-export const isFetchNetworkOnline = (): boolean => online;
+/**
+ * Connectivity has one owner, and it is React Query's. A second copy of the same boolean meant two
+ * answers to one question, and the retry gate, the fetch paths and the subscription runtime could
+ * each be told a different one.
+ *
+ * The fetch paths still ask before starting rather than letting the query runtime pause them:
+ * `networkMode` stays `'always'` because an imperative `fetch()` must fail while offline instead of
+ * returning a promise that settles whenever the network happens to come back.
+ */
 
-export const createOfflineFetchError = (): Error =>
-  new Error('react-native-dblayer: fetch is offline and no cached data exists');
+/** Read the connectivity state used by every fetch path. */
+export const isFetchNetworkOnline = (): boolean => onlineManager.isOnline();
+
+/** Build the error an imperative fetch throws when it is offline with nothing cached to return. */
+export const createOfflineFetchError = (): Error => new Error('react-native-dblayer: fetch is offline and no cached data exists');
 
 /**
  * Host connectivity input: the app reports reachability changes here (e.g. from a NetInfo
@@ -14,15 +22,16 @@ export const createOfflineFetchError = (): Error =>
  * resuming them once connectivity returns. Idempotent for repeated same-value calls.
  *
  * @param nextOnline `true` when the device regained a usable network, `false` when it lost one.
+ * @returns Nothing.
  */
 export const setFetchNetworkOnline = (nextOnline: boolean): void => {
-  if (online === nextOnline) return;
-  online = nextOnline;
-  for (const listener of onlineListeners) listener();
+  onlineManager.setOnline(nextOnline);
 };
 
-/** Subscribe to coordinator connectivity changes. */
-export const subscribeFetchNetwork = (listener: () => void): (() => void) => {
-  onlineListeners.add(listener);
-  return () => onlineListeners.delete(listener);
-};
+/**
+ * Subscribe to connectivity changes.
+ *
+ * @param listener Called after every change of the connectivity state.
+ * @returns The unsubscribe callback.
+ */
+export const subscribeFetchNetwork = (listener: () => void): (() => void) => onlineManager.subscribe(() => listener());
