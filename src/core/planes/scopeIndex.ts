@@ -80,8 +80,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
    */
   const indexMembership = (key: string, members: Set<string>, departed: Iterable<string>): void => {
     for (const id of departed) {
-      const keys = keysByRow.get(id);
-      if (!keys) continue;
+      const keys = keysByRow.get(id)!;
       keys.delete(key);
       if (keys.size === 0) keysByRow.delete(id);
     }
@@ -299,6 +298,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     lastAccess: key => accessTimes.get(key),
     has: (key, id) => memberSets.get(key)?.has(id) ?? false,
     keysOf: id => [...(keysByRow.get(id) ?? [])],
+    residentRowKeys: () => keysByRow.size,
     orderRevision: key => orderRevisions.get(key) ?? 0,
     touchMembers: ids => {
       const touched = new Set<string>();

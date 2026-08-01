@@ -55,6 +55,8 @@ export type ScopeIndex = {
   has(key: string, id: string): boolean;
   /** All scope keys containing the row - the reverse membership index. */
   keysOf(id: string): string[];
+  /** Rows still holding a reverse membership entry - a gauge, so an entry left behind is visible. */
+  residentRowKeys(): number;
   orderRevision(key: string): number;
   /** Bump the revisions of scopes that currently contain one of these rows. */
   touchMembers(ids: string[]): string[];

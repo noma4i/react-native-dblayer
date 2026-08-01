@@ -33,6 +33,17 @@ describe('scope index projections', () => {
     expect(index.keysOf('row-2')).toEqual([]);
   });
 
+  it('holds no reverse entry for a row that left its last scope', () => {
+    const index = createIndex('Reverse');
+    index.applyDelta(SCOPE, [{ id: 'row-1', orderKey: 'a' }, { id: 'row-2', orderKey: 'b' }], []);
+    expect(index.residentRowKeys()).toBe(2);
+
+    // The scope survives, so only the departed row's reverse entry may go - and it must go.
+    index.write(SCOPE, index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }]).next);
+
+    expect(index.residentRowKeys()).toBe(1);
+  });
+
   it('starts the order revision from scratch after a reset', () => {
     const index = createIndex('Reset');
     index.write(SCOPE, index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }]).next);
