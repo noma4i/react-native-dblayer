@@ -1,4 +1,4 @@
-import { and, eq, gt, gte, inArray, isNull, isUndefined, lt, lte, not, or } from '@tanstack/db';
+import { and, coalesce, eq, gt, gte, inArray, isNull, isUndefined, lt, lte, not, or } from '@tanstack/db';
 import type { DbWhere, DbWhereOp, DbWhereOperator, WhereExpression, WhereOperand, WhereRowRef } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { isWhereOperatorValue } from './compileDbWhere';
@@ -68,5 +68,8 @@ export const compileWhereExpression = <TStored>(ref: WhereRowRef, where: DbWhere
   if (!isOperatorNode(where)) return leafExpression(ref, where as Partial<TStored>);
   if ('and' in where) return allOf(where.and.map(child => compileWhereExpression(ref, child)));
   if ('or' in where) return anyOf(where.or.map(child => compileWhereExpression(ref, child)));
-  return not(compileWhereExpression(ref, where.not));
+  // The engine follows SQL: a comparison against a missing value is unknown, and negating unknown
+  // keeps it unknown, which drops the row. The declared language has no unknown - a row whose field
+  // holds no value is simply not equal to the operand - so unknown is settled to false before `not`.
+  return not(coalesce(compileWhereExpression(ref, where.not), false as WhereOperand) as WhereExpression);
 };
