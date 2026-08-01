@@ -207,10 +207,7 @@ describe('loading machine timeline contracts', () => {
     await settle();
 
     const afterErrorBanners = timeline.frames().map(frame => frame.showErrorBanner);
-    if (!afterErrorBanners.includes(true)) {
-      timeline.unmount();
-      throw new Error(`W-ERR-RETRY missing error banner: ${JSON.stringify(timeline.frames())}`);
-    }
+    expect(afterErrorBanners).toContain(true);
 
     void latest.refresh().catch(() => undefined);
     await settle();
@@ -222,12 +219,8 @@ describe('loading machine timeline contracts', () => {
     const flickers = banners.some((banner, index) => banner && banners.slice(index + 1).some((next, nextIndex) => !next && banners.slice(index + nextIndex + 2).includes(true)));
 
     timeline.unmount();
-    if (!banners.includes(true)) {
-      throw new Error(`W-ERR-RETRY missing error banner: ${JSON.stringify(timeline.frames())}`);
-    }
-    if (flickers) {
-      throw new Error(`W-ERR-RETRY offending frames: ${JSON.stringify(timeline.frames())}`);
-    }
+    expect(banners).toContain(true);
+    expect(flickers).toBe(false);
   });
 
   it('W-SURV does not emit terminal empty after a mounted reader loses its rows', async () => {
@@ -257,14 +250,8 @@ describe('loading machine timeline contracts', () => {
     await settle();
 
     const frames = timeline.frames();
-    if (frames.some(frame => frame.showEmptyState)) {
-      timeline.unmount();
-      throw new Error(`W-SURV offending frames: ${JSON.stringify(frames)}`);
-    }
-    if (!frames.some(frame => frame.showSkeleton || frame.phase === 'initial_loading')) {
-      timeline.unmount();
-      throw new Error(`W-SURV missing loading frame: ${JSON.stringify(frames)}`);
-    }
+    expect(frames.filter(frame => frame.showEmptyState)).toEqual([]);
+    expect(frames.some(frame => frame.showSkeleton || frame.phase === 'initial_loading')).toBe(true);
 
     expect(pending).toHaveLength(1);
     pending.shift()?.resolve({ row: { id: 'row-2', groupId: 'g', status: 'active' } });
@@ -308,10 +295,7 @@ describe('loading machine timeline contracts', () => {
     await settle();
 
     const retryFrames = timeline.frames();
-    if (!retryFrames.some(frame => frame.isRetrying && frame.retryAttempt > 0)) {
-      timeline.unmount();
-      throw new Error(`LC6 missing retry frame: ${JSON.stringify(retryFrames)}`);
-    }
+    expect(retryFrames.some(frame => frame.isRetrying && frame.retryAttempt > 0)).toBe(true);
     pending.shift()?.resolve({ row: { id: 'row-1', groupId: 'g', status: 'active' } });
     await settle();
     timeline.unmount();
@@ -369,11 +353,7 @@ describe('loading machine timeline contracts', () => {
 
     const frames = timeline.frames().slice(deathFrameStart);
     timeline.unmount();
-    if (!frames.some(frame => frame.loadingState.showSkeleton || frame.loadingState.phase === 'initial_loading')) {
-      throw new Error(`W-REFRESH-VOID missing loading frame: ${JSON.stringify(frames)}`);
-    }
-    if (frames.some(frame => frame.loadingState.showData && (Array.isArray(frame.data) ? frame.data.length : frame.data == null ? 0 : 1) === 0)) {
-      throw new Error(`W-REFRESH-VOID offending frames: ${JSON.stringify(frames)}`);
-    }
+    expect(frames.some(frame => frame.loadingState.showSkeleton || frame.loadingState.phase === 'initial_loading')).toBe(true);
+    expect(frames.filter(frame => frame.loadingState.showData && (Array.isArray(frame.data) ? frame.data.length : frame.data == null ? 0 : 1) === 0)).toEqual([]);
   });
 });
