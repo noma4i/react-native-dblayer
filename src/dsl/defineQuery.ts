@@ -1,7 +1,7 @@
 import type { DocumentNode, OperationDefinitionNode } from 'graphql';
-import { CancelledError, QueryObserver } from '@tanstack/react-query';
+import { CancelledError } from '@tanstack/react-query';
 import { union } from 'es-toolkit';
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef } from 'react';
 import type {
   ChainMeta,
   ConnectionLike,
@@ -23,12 +23,13 @@ import type {
 } from '../types';
 import { bridgeWindowPagination, useLoadMore } from './pagination';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
+import { useObservedQuery } from '../core/fetch/useObservedQuery';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { compositeKey, parseCompositeKey, stableSerialize } from '../core/serialize';
 import { registerModelInvalidation } from '../core/invalidationRegistry';
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
-import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
+import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig } from './configure';
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders, registerMaterializationReconciler } from '../core/fetch/fetchReaderRegistry';
@@ -469,10 +470,6 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   }
   const useObservedState = (key: string, scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean): RequestState => {
     const client = getDbQueryClient();
-    const generation = getRuntimeGeneration();
-    // `staleTime: 'static'` leaves mount, focus and reconnect exactly where they already are - no
-    // automatic trigger ever reads this observer as stale. The interval is the one edge nothing else
-    // covers, and it runs on React Query's own timer rather than a private one.
     // The observer owns one job: refresh what is already on screen once its declared window runs
     // out. It stays disabled until the first result has landed, so first loads keep going through
     // the reader's own path, and `staleTime: 'static'` means no automatic trigger ever reads it as
@@ -495,31 +492,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         return meta ?? current();
       }
     };
-    const observerRef = useRef<{ key: string; generation: number; observer: QueryObserver<ChainMeta | null> } | null>(null);
-    if (observerRef.current === null || observerRef.current.key !== key || observerRef.current.generation !== generation) {
-      observerRef.current = { key, generation, observer: new QueryObserver<ChainMeta | null>(client, observerOptions) };
-    } else {
-      observerRef.current.observer.setOptions(observerOptions);
-    }
-    const observer = observerRef.current.observer;
-    const subscribe = useCallback(
-      (onStoreChange: () => void) => {
-        const unsubscribeObserver = observer.subscribe(onStoreChange);
-        const unsubscribeLocal = localState.subscribe(key, onStoreChange);
-        return () => {
-          unsubscribeObserver();
-          unsubscribeLocal();
-        };
-      },
-      [key, observer]
-    );
-    const getSnapshot = useCallback(
-      () =>
-        `${observer.getCurrentResult().fetchStatus}:${observer.getCurrentResult().status}:${observer.getCurrentResult().failureCount}:${observer.getCurrentResult().dataUpdatedAt}:${localState.version(key)}`,
-      [key, observer]
-    );
-    useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-    const result = observer.getCurrentResult();
+    const result = useObservedQuery<ChainMeta | null>(key, observerOptions, `${observerOptions.enabled}:${String(refreshIntervalOf(key))}`, localState);
     const local = localState.get(key);
     const meta = (result.data ?? undefined) as ChainMeta | undefined;
     return {

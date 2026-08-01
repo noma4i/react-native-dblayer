@@ -1,7 +1,7 @@
-import { QueryObserver } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { FetchConfig, FetchData, FetchHandle, FetchResult, FetchState } from '../types';
 import { computeLoadingState, computePhase, isFetchedResult } from '../queries/base/loadingState';
+import { useObservedQuery } from '../core/fetch/useObservedQuery';
 import { buildScopeKey } from '../core/compileDbWhere';
 import { registerKeyedReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
@@ -9,7 +9,7 @@ import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
 import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
-import { getDbQueryClient, getDbRuntimeConfig, getRuntimeGeneration } from './configure';
+import { getDbQueryClient, getDbRuntimeConfig } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { reportSyncError } from '../core/syncError';
 import {
@@ -201,29 +201,7 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     restore(input);
     const enabled = config.enabled?.(input) ?? true;
     const client = getDbQueryClient();
-    const generation = getRuntimeGeneration();
-    const observerRef = useRef<{ key: string; generation: number; observer: QueryObserver<FetchData<TSelected>> } | null>(null);
-    if (observerRef.current === null || observerRef.current.key !== key || observerRef.current.generation !== generation) {
-      observerRef.current = { key, generation, observer: new QueryObserver<FetchData<TSelected>>(client, { queryKey: queryKeyOf(key), enabled: false, staleTime: Infinity }) };
-    }
-    const observer = observerRef.current.observer;
-    const subscribe = useCallback(
-      (onStoreChange: () => void) => {
-        const unsubscribeObserver = observer.subscribe(onStoreChange);
-        const unsubscribePaused = localState.subscribe(key, onStoreChange);
-        return () => {
-          unsubscribeObserver();
-          unsubscribePaused();
-        };
-      },
-      [key, observer]
-    );
-    const getSnapshot = useCallback(() => {
-      const result = observer.getCurrentResult();
-      return `${result.fetchStatus}:${result.status}:${result.failureCount}:${result.dataUpdatedAt}:${localState.version(key)}`;
-    }, [key, observer]);
-    useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-    const result = observer.getCurrentResult();
+    const result = useObservedQuery<FetchData<TSelected>>(key, { queryKey: queryKeyOf(key), enabled: false, staleTime: Infinity }, 'fixed', localState);
     const state: FetchState = {
       isFetching: result.fetchStatus === 'fetching',
       isFetched: isFetchedResult(result),
