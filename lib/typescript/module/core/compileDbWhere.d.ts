@@ -1,4 +1,10 @@
-import type { DbWhere } from '../types';
+import type { DbWhere, DbWhereOp } from '../types';
+/**
+ * The one declaration of the comparison operator set. The type lists the operators, this record
+ * names them, and both the row predicate and the query compiler are keyed by it - so an operator
+ * that exists in one of the two and not the other does not compile.
+ */
+export declare const WHERE_OPERATOR_NAMES: Record<keyof DbWhereOp<string>, true>;
 /** True when a leaf value is an operator record: a non-empty plain object whose every key is a comparison operator. */
 export declare const isWhereOperatorValue: (value: unknown) => value is Record<string, unknown>;
 export declare const matchesDbWhere: <TStored>(row: TStored, where: DbWhere<TStored> | undefined) => boolean;

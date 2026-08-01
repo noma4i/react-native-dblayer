@@ -93,11 +93,7 @@ describe('persisted query record guards', () => {
 });
 
 describe('where operator matching', () => {
-  it('gates contains and ordered comparisons by operand types', () => {
-    expect(matchesDbWhere({ id: 'r', name: 'hello world' }, { name: { contains: 'lo wo' } } as never)).toBe(true);
-    expect(matchesDbWhere({ id: 'r', name: 'hello' }, { name: { contains: 'nope' } } as never)).toBe(false);
-    expect(matchesDbWhere({ id: 'r', name: 7 }, { name: { contains: '7' } } as never)).toBe(false);
-    expect(matchesDbWhere({ id: 'r', name: 'has 7' }, { name: { contains: 7 } } as never)).toBe(false);
+  it('gates ordered comparisons by operand types', () => {
     // Ordered operators never coerce across types.
     expect(matchesDbWhere({ id: 'r', seq: '5' }, { seq: { gt: 4 } } as never)).toBe(false);
     expect(matchesDbWhere({ id: 'r', seq: 5 }, { seq: { gt: '4' } } as never)).toBe(false);

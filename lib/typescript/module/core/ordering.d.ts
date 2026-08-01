@@ -22,4 +22,10 @@ export declare const createFieldOrderComparator: <TRow extends RowId & Record<st
 }>) => ((left: TRow, right: TRow) => number);
 /** Build the canonical comparator for a client-sorted scope: comparator, one field, or a declared key list. */
 export declare const compareRowsBySpec: <TRow extends RowId & Record<string, unknown>>(sort: ClientSort<TRow>) => ((left: TRow, right: TRow) => number);
+/** Engine order options that reproduce the canonical comparator: absence last, codepoint strings. */
+export declare const canonicalOrderOptions: (direction: "asc" | "desc") => {
+    direction: "asc" | "desc";
+    nulls: "last";
+    stringSort: "lexical";
+};
 //# sourceMappingURL=ordering.d.ts.map

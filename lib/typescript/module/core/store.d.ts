@@ -1,4 +1,4 @@
-import type { IncrementalCommitBatch, ModelStore, RowRecord, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
+import type { IncrementalCommitBatch, ModelQueryHandle, ModelQuerySpec, ModelStore, RowRecord, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
 export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransaction } from './storeSync';
 export declare const registerModelStoreFactory: <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>) => void;
 /**
@@ -35,4 +35,6 @@ export declare const hydrateStoreScopes: (sources: ReadonlyArray<readonly [strin
 export declare const markStoresReady: () => void;
 export declare const resetStores: () => void;
 export declare const storeScopeCollection: (model: string, scopeKey: string) => StoreScopeCollection;
+/** Hold one declared model read as a live query of the engine; the caller releases it when its reader leaves. */
+export declare const storeModelQuery: <TStored extends RowRecord>(model: string, key: string, spec: ModelQuerySpec<TStored>) => ModelQueryHandle;
 //# sourceMappingURL=store.d.ts.map

@@ -59,15 +59,6 @@ describe('DbWhere comparison operators', () => {
     excluded.unmount();
   });
 
-  it('matches substring with contains on string fields', () => {
-    setupSpecRuntime();
-    const items = createItems('Contains');
-    seedItems(items);
-    const reader = renderCounted(() => items.use.where({ name: { contains: 'ar' } }).orderBy('score').rows());
-    expect(reader.result().map(row => row.id)).toEqual(['3']);
-    reader.unmount();
-  });
-
   it('composes operators inside and/or/not nodes', () => {
     setupSpecRuntime();
     const items = createItems('Compose');

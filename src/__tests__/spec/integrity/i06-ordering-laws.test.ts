@@ -3,15 +3,21 @@ import { compareOrderValues, createFieldOrderComparator, withIdTieBreak } from '
 const sign = (value: number): number => (value === 0 ? 0 : value < 0 ? -1 : 1);
 
 describe('canonical ordering laws', () => {
-  it('keeps missing values last in both directions and equal to each other', () => {
-    const missingValues = [null, undefined, Number.NaN, new Date(Number.NaN)];
+  it('sorts every value with no position after the ordered ones, and absence after those', () => {
+    const absentValues = [null, undefined];
+    const unorderableValues = [Number.NaN, new Date(Number.NaN)];
 
-    for (const missing of missingValues) {
-      expect(compareOrderValues(missing, 1)).toBeGreaterThan(0);
-      expect(compareOrderValues(1, missing)).toBeLessThan(0);
-      for (const otherMissing of missingValues) {
-        expect(compareOrderValues(missing, otherMissing)).toBe(0);
-      }
+    for (const value of [...absentValues, ...unorderableValues]) {
+      expect(compareOrderValues(value, 1)).toBeGreaterThan(0);
+      expect(compareOrderValues(1, value)).toBeLessThan(0);
+    }
+    for (const absent of absentValues) {
+      for (const other of absentValues) expect(compareOrderValues(absent, other)).toBe(0);
+      // Absence is the last place of all: it follows even a value that has no position in its type.
+      for (const unorderable of unorderableValues) expect(compareOrderValues(absent, unorderable)).toBeGreaterThan(0);
+    }
+    for (const unorderable of unorderableValues) {
+      for (const other of unorderableValues) expect(compareOrderValues(unorderable, other)).toBe(0);
     }
   });
 
@@ -26,15 +32,18 @@ describe('canonical ordering laws', () => {
     }
   });
 
-  it('keeps missing values last for descending field order and resolves ties by id', () => {
-    const compare = createFieldOrderComparator<{ id: string; score?: number }>([{ field: 'score', direction: 'desc' }]);
+  it('reverses an unorderable value with the direction while absence stays last', () => {
     const rows = [
-      { id: 'missing-z' },
+      { id: 'absent-z' },
       { id: 'finite', score: 2 },
-      { id: 'missing-a', score: Number.NaN }
+      { id: 'unorderable-a', score: Number.NaN }
     ];
 
-    expect(rows.sort(compare).map(row => row.id)).toEqual(['finite', 'missing-a', 'missing-z']);
+    const descending = [...rows].sort(createFieldOrderComparator<{ id: string; score?: number }>([{ field: 'score', direction: 'desc' }]));
+    const ascending = [...rows].sort(createFieldOrderComparator<{ id: string; score?: number }>([{ field: 'score', direction: 'asc' }]));
+
+    expect(descending.map(row => row.id)).toEqual(['unorderable-a', 'finite', 'absent-z']);
+    expect(ascending.map(row => row.id)).toEqual(['finite', 'unorderable-a', 'absent-z']);
   });
 
   it('replaces zero and NaN comparator ties with the canonical id order', () => {

@@ -1,4 +1,4 @@
-import type { DbWhere, DbWhereOperator, StoredRow } from '../types';
+import type { DbWhere, DbWhereOp, DbWhereOperator, StoredRow } from '../types';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { compareCodepoints, stableSerialize } from './serialize';
 
@@ -7,7 +7,14 @@ const isOperatorNode = <TStored>(where: DbWhere<TStored>): where is DbWhereOpera
   return 'and' in where || 'or' in where || 'not' in where;
 };
 
-const WHERE_OPERATORS = new Set(['gt', 'gte', 'lt', 'lte', 'in', 'notIn', 'contains']);
+/**
+ * The one declaration of the comparison operator set. The type lists the operators, this record
+ * names them, and both the row predicate and the query compiler are keyed by it - so an operator
+ * that exists in one of the two and not the other does not compile.
+ */
+export const WHERE_OPERATOR_NAMES: Record<keyof DbWhereOp<string>, true> = { gt: true, gte: true, lt: true, lte: true, in: true, notIn: true };
+
+const WHERE_OPERATORS = new Set(Object.keys(WHERE_OPERATOR_NAMES));
 
 /** True when a leaf value is an operator record: a non-empty plain object whose every key is a comparison operator. */
 export const isWhereOperatorValue = (value: unknown): value is Record<string, unknown> => {
@@ -26,7 +33,6 @@ const operatorMatches = (rowValue: unknown, operators: Record<string, unknown>):
   Object.entries(operators).every(([operator, operand]) => {
     if (operator === 'in') return Array.isArray(operand) && operand.some(candidate => rowValue === candidate);
     if (operator === 'notIn') return Array.isArray(operand) && !operand.some(candidate => rowValue === candidate);
-    if (operator === 'contains') return typeof rowValue === 'string' && typeof operand === 'string' && rowValue.includes(operand);
     const compared = compareOrderedValues(rowValue, operand);
     if (compared === undefined || Number.isNaN(compared)) return false;
     if (operator === 'gt') return compared > 0;

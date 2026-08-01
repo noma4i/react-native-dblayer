@@ -1,3 +1,4 @@
+import type { ModelQueryHandle, ModelQuerySpec } from './core.modelQueries.types';
 import type { ChangeMessage, ChangeMessageOrDeleteKeyMessage, Collection } from '@tanstack/db';
 import type { WriteCtx } from './core.writePolicies.types';
 import type { RowRecord } from './db.types';
@@ -57,6 +58,7 @@ export type StoreScopeSyncChange = {
  */
 export type ModelStore<T extends { id: string }> = EntityState<T> & {
   scopeCollection(scopeKey: string): StoreScopeCollection;
+  modelQuery<TQueried extends RowRecord>(key: string, spec: ModelQuerySpec<TQueried>): ModelQueryHandle;
   applyScopeChanges(changes: readonly StoreScopeSyncChange[]): void;
   markReady(): void;
   dispose(): void;

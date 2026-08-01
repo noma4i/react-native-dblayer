@@ -94,7 +94,7 @@ export type ModelFieldSpecs = Record<string, FieldSpec<any, any, any, any>>;
  * Comparison operators accepted in a `DbWhere` leaf value. All operators are LOCAL predicates over
  * already-stored rows: ordering operators (`gt`/`gte`/`lt`/`lte`) compare numbers numerically and
  * strings by codepoint (ISO date strings therefore compare chronologically); `in`/`notIn` use strict
- * equality against the operand list; `contains` is a case-sensitive substring test on string fields.
+ * equality against the operand list, and a row holding no value belongs to no list.
  * Mixed-type or nullish row values never match an ordering operator.
  */
 export type DbWhereOp<V> = {
@@ -104,7 +104,6 @@ export type DbWhereOp<V> = {
   lte?: V;
   in?: readonly V[];
   notIn?: readonly V[];
-  contains?: V extends string ? string : never;
 };
 
 type DbWhereLeaf<T> = { [K in keyof T]?: T[K] | DbWhereOp<NonNullable<T[K]>> };

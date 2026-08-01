@@ -43,7 +43,7 @@ export {
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
 export { collectGarbage } from '../core/gc';
-export { afterStoreTransaction, runInStoreTransaction, SyncFeed } from '../core/storeSync';
+export { afterStoreTransaction, OWNED_COLLECTION_LIFETIME, runInStoreTransaction, SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';
 export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, purgeForeignStorageKeys } from '../dsl/configure';
 export { getApplyRuntime } from '../dsl/configure';
@@ -77,6 +77,7 @@ export { compositeStorageKey } from '../core/serialize';
 export { decodePersistence, encodePersistence, jsonRoundTrip } from '../core/persistenceCodec';
 export { invalidatePersistedQuery, readPersistedQuery, removePersistedQuery, writePersistedQuery } from '../core/queryPersistence';
 export { buildScopeKey, matchesDbWhere } from '../core/compileDbWhere';
+export { compileWhereExpression } from '../core/compileWhereExpression';
 export { createEntityPlane, createRowCleaner } from '../core/storeEntities';
 export { runInApplyBatch } from '../core/storeSync';
 export { createCommitBus } from '../core/apply/commitBus';

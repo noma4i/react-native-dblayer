@@ -3,14 +3,9 @@ import { compareCodepoints, compositeKey } from './serialize';
 import { noteMembershipWrites } from './diagnostics';
 import type { ScopePlane, ScopePlaneOptions, StoreMembershipRow, StoreScopeChange, StoreScopeSyncChange } from '../types';
 import { afterStoreTransaction, isInStoreTransaction, OWNED_COLLECTION_LIFETIME, SyncFeed, assertStoreReadable } from './storeSync';
+import { createDerivedCollectionCache } from './storeDerivedCollections';
 
 const membershipKey = (scopeKey: string, entityId: string): string => compositeKey(scopeKey, entityId);
-
-let storeScopeCollectionCount = 0;
-
-(globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ = {
-  count: (): number => storeScopeCollectionCount
-};
 
 export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
   const { modelId, storeId, entities, readCommitted, isReady } = options;
@@ -24,7 +19,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
   });
   const membershipsByScope = memberships.createIndex(row => row.scopeKey, { indexType: BasicIndex });
 
-  const scopeCollections = new Map<string, { collection: ReturnType<typeof buildScopeCollection>; consumers: number }>();
+  const scopeCollections = createDerivedCollectionCache<ReturnType<typeof buildScopeCollection>>();
   const buildScopeCollection = (scopeKey: string) =>
     createLiveQueryCollection({
       ...OWNED_COLLECTION_LIFETIME,
@@ -39,23 +34,6 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
           .select(({ membership, entity }) => ({ ...entity, orderKey: membership.orderKey })),
       getKey: row => row.$key
     });
-
-  const getScopeCollection = (scopeKey: string) => {
-    const existing = scopeCollections.get(scopeKey);
-    if (existing) return existing;
-    const entry = { collection: buildScopeCollection(scopeKey), consumers: 0 };
-    scopeCollections.set(scopeKey, entry);
-    storeScopeCollectionCount += 1;
-    return entry;
-  };
-
-  const releaseScopeCollection = (scopeKey: string, entry: { collection: ReturnType<typeof buildScopeCollection>; consumers: number }): void => {
-    entry.consumers -= 1;
-    if (entry.consumers !== 0 || scopeCollections.get(scopeKey) !== entry) return;
-    scopeCollections.delete(scopeKey);
-    storeScopeCollectionCount -= 1;
-    void entry.collection.cleanup();
-  };
 
   const scopeMembers = (scopeKey: string): StoreMembershipRow[] =>
     [...membershipsByScope.equalityLookup(scopeKey)].map(key => memberships.get(key as string)!);
@@ -100,8 +78,8 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
       toArray: () => {
         assertStoreReadable();
         if (!isReady()) return [];
-        const existing = scopeCollections.get(scopeKey);
-        if (existing) return [...existing.collection.toArray];
+        const existing = scopeCollections.peek(scopeKey);
+        if (existing) return [...existing.toArray];
         return scopeMembers(scopeKey)
           .sort((left, right) => compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.entityId, right.entityId))
           .flatMap(membership => {
@@ -110,12 +88,11 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
           });
       },
       subscribe: listener => {
-        const entry = getScopeCollection(scopeKey);
-        entry.consumers += 1;
+        const held = scopeCollections.acquire(scopeKey, () => buildScopeCollection(scopeKey));
         let released = false;
         let scheduled = false;
         let pending: StoreScopeChange[] = [];
-        const subscription = entry.collection.subscribeChanges(
+        const subscription = held.collection.subscribeChanges(
           changes => {
             const next = changes as StoreScopeChange[];
             if (!isInStoreTransaction()) {
@@ -138,7 +115,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
           released = true;
           pending = [];
           subscription.unsubscribe();
-          releaseScopeCollection(scopeKey, entry);
+          held.release();
         };
       }
     }),
@@ -154,9 +131,7 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
       membershipFeed.finish();
     },
     dispose: () => {
-      for (const entry of scopeCollections.values()) void entry.collection.cleanup();
-      storeScopeCollectionCount -= scopeCollections.size;
-      scopeCollections.clear();
+      scopeCollections.disposeAll();
     }
   };
 };

@@ -4,8 +4,13 @@ import { compareCodepoints, stableSerialize } from './serialize';
 /** Narrow a client sort spec to its declared key-list form (`Array.isArray` alone does not narrow `ReadonlyArray` unions). */
 export const isMultiFieldSort = <TStored>(sort: ClientSort<TStored>): sort is MultiFieldSort<TStored> => Array.isArray(sort);
 
-const isMissingOrderValue = (value: unknown): boolean =>
-  value == null || (typeof value === 'number' && Number.isNaN(value)) || (value instanceof Date && Number.isNaN(value.getTime()));
+/** A value that carries no position in its own type: not-a-number, and a date that is not a date. */
+const isUnorderableValue = (value: unknown): boolean => (typeof value === 'number' && Number.isNaN(value)) || (value instanceof Date && Number.isNaN(value.getTime()));
+
+const isMissingOrderValue = (value: unknown): boolean => value == null || isUnorderableValue(value);
+
+/** An absent value: it holds the same place whichever way the order runs. */
+const isAbsentOrderValue = (value: unknown): boolean => value == null;
 
 const orderValueRank = (value: unknown): number => {
   if (typeof value === 'boolean') return 0;
@@ -20,6 +25,14 @@ const orderValueRank = (value: unknown): number => {
 export const compareOrderValues = (left: unknown, right: unknown): number => {
   const leftMissing = isMissingOrderValue(left);
   const rightMissing = isMissingOrderValue(right);
+  const leftAbsent = isAbsentOrderValue(left);
+  const rightAbsent = isAbsentOrderValue(right);
+  if (leftAbsent || rightAbsent) {
+    if (leftAbsent && rightAbsent) return 0;
+    return leftAbsent ? 1 : -1;
+  }
+  // An unorderable value sorts as the greatest of its field, so reversing the order moves it to the
+  // front. Absence, above, does not move: those are the two rules the collection engine applies.
   if (leftMissing || rightMissing) {
     if (leftMissing && rightMissing) return 0;
     return leftMissing ? 1 : -1;
@@ -75,7 +88,7 @@ export const createFieldOrderComparator = <TRow extends RowId & Record<string, u
     for (const order of orderBy) {
       const result = compareOrderValues(left[order.field], right[order.field]);
       if (result === 0) continue;
-      if (isMissingOrderValue(left[order.field]) || isMissingOrderValue(right[order.field])) return result;
+      if (isAbsentOrderValue(left[order.field]) || isAbsentOrderValue(right[order.field])) return result;
       return order.direction === 'asc' ? result : -result;
     }
     return 0;
@@ -87,3 +100,10 @@ export const compareRowsBySpec = <TRow extends RowId & Record<string, unknown>>(
   if ('comparator' in sort) return withIdTieBreak(sort.comparator);
   return createFieldOrderComparator([{ field: String(sort.field), direction: sort.dir }]);
 };
+
+/** Engine order options that reproduce the canonical comparator: absence last, codepoint strings. */
+export const canonicalOrderOptions = (direction: 'asc' | 'desc'): { direction: 'asc' | 'desc'; nulls: 'last'; stringSort: 'lexical' } => ({
+  direction,
+  nulls: 'last',
+  stringSort: 'lexical'
+});

@@ -1,7 +1,8 @@
-import type { EntityPlane, IncrementalCommitBatch, ModelStore, PreparedUpsert, RowRecord, ScopePlane, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
+import type { EntityPlane, IncrementalCommitBatch, ModelQueryHandle, ModelQuerySpec, ModelStore, PreparedUpsert, RowRecord, ScopePlane, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
 import { createEntityPlane } from './storeEntities';
 import { afterStoreTransaction, restoreStoreReads, runInStoreTransaction } from './storeSync';
 import { createScopePlane } from './storeScopeCollections';
+import { createModelQueryPlane } from './storeModelQueries';
 
 export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransaction } from './storeSync';
 
@@ -47,6 +48,7 @@ export const createModelStore = <T extends RowRecord>(options: {
     applyWriteGate: options.applyWriteGate as (previous: RowRecord, incoming: RowRecord, ctx: WriteCtx) => RowRecord,
     ownedFields
   });
+  const modelQueryPlane = createModelQueryPlane({ modelId, storeId, entities: entityPlane.entities });
   const scopePlane: ScopePlane = createScopePlane({
     modelId,
     storeId,
@@ -74,6 +76,7 @@ export const createModelStore = <T extends RowRecord>(options: {
       scopePlane.reset();
     },
     scopeCollection: scopeKey => scopePlane.scopeCollection(scopeKey),
+    modelQuery: (key, spec) => modelQueryPlane.query(key, spec),
     applyScopeChanges: changes => scopePlane.applyScopeChanges(changes),
     markReady: () => {
       entityPlane.markReady();
@@ -82,6 +85,7 @@ export const createModelStore = <T extends RowRecord>(options: {
     },
     dispose: () => {
       entityPlane.dispose();
+      modelQueryPlane.dispose();
       scopePlane.dispose();
       if (activeStores.get(modelId) === store) activeStores.delete(modelId);
     }
@@ -133,3 +137,7 @@ export const resetStores = (): void => {
 };
 
 export const storeScopeCollection = (model: string, scopeKey: string): StoreScopeCollection => ensureModelStore(model).scopeCollection(scopeKey);
+
+/** Hold one declared model read as a live query of the engine; the caller releases it when its reader leaves. */
+export const storeModelQuery = <TStored extends RowRecord>(model: string, key: string, spec: ModelQuerySpec<TStored>): ModelQueryHandle =>
+  ensureModelStore(model).modelQuery(key, spec);

@@ -1,5 +1,6 @@
 import { buildScopeKey } from '../core/compileDbWhere';
 import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
+import { useModelQuery } from '../read/useModelQuery';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../utils/arrayEquality';
@@ -87,20 +88,9 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
       },
       exists: function useExists(criteria, required) {
         const signature = incrementalSignature('where-exists', options.modelId, buildScopeKey({ criteria, required }));
-        return useIncrementalRead({
-          signature,
-          deps: criteria == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine<TStored, boolean>({
-              signature,
-              model: options.modelId,
-              where: row => criteria != null && options.matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: (_rows, count) => count > 0,
-              countOnly: true
-            })
-        });
+        // An inactive read declares a filter no row meets, so the hook shape never depends on it.
+        const spec = { where: criteria ?? { or: [] }, orderBy: [], limit: undefined, required };
+        return useModelQuery(options.modelId, signature, spec, rows => rows.length > 0);
       }
     });
   };
