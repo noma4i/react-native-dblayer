@@ -1,10 +1,9 @@
 import type { DerivedCollection, DerivedCollectionCache } from '../types';
+import { registerResidency } from './residency';
 
 let liveDerivedCollectionCount = 0;
 
-(globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ = {
-  count: (): number => liveDerivedCollectionCount
-};
+registerResidency('derivedCollections', () => liveDerivedCollectionCount);
 
 /**
  * One home for the lifetime of every collection derived from a store: scope windows and model

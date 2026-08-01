@@ -48,6 +48,7 @@ export type * from './core.modelQueries.types';
 export type * from './core.store.types';
 export type * from './core.whereExpression.types';
 export type * from './core.reset.types';
+export type * from './core.residency.types';
 export type * from './subscription.types';
 export type * from './utils.singletonStatics.types';
 export type * from './utils.singleFlight.types';

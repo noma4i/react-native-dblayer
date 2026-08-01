@@ -42,6 +42,7 @@ export {
   toTimestamp
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
+export { registerResidency, residencySnapshot } from '../core/residency';
 export { collectGarbage } from '../core/gc';
 export { afterStoreTransaction, OWNED_COLLECTION_LIFETIME, runInStoreTransaction, SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';

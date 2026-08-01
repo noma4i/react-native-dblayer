@@ -1,6 +1,6 @@
 import React, { act, useState } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { defineModelRuntime, f, resetRuntime } from '../../testApi';
+import { defineModelRuntime, f, residencySnapshot, resetRuntime } from '../../testApi';
 import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type ScopeReadWork = { fullRows: number; incrementalRows: number };
@@ -8,8 +8,7 @@ type ScopeReadWork = { fullRows: number; incrementalRows: number };
 const scopeReadWork = (): { snapshot: () => ScopeReadWork; reset: () => void } =>
   (globalThis as Record<string, unknown>).__DBLAYER_SCOPE_READ_WORK__ as { snapshot: () => ScopeReadWork; reset: () => void };
 
-const storeScopeCollections = (): { count: () => number } =>
-  (globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ as { count: () => number };
+const storeScopeCollections = (): { count: () => number } => ({ count: () => residencySnapshot().derivedCollections ?? 0 });
 
 const createRows = (tag: string) =>
   defineModelRuntime({

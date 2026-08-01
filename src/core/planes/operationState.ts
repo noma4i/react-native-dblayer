@@ -247,6 +247,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       notify?.(record);
       return record;
     },
+    residentRowBuckets: () => opsByRowKey.size,
     remove: operationId => {
       const operation = operations.get(operationId);
       if (!operation) return;

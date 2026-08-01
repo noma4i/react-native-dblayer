@@ -1,5 +1,6 @@
 import type { EntityPlane, IncrementalCommitBatch, ModelQueryHandle, ModelQuerySpec, ModelStore, PreparedUpsert, RowRecord, ScopePlane, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
 import { createEntityPlane } from './storeEntities';
+import { registerResidency } from './residency';
 import { afterStoreTransaction, restoreStoreReads, runInStoreTransaction } from './storeSync';
 import { createScopePlane } from './storeScopeCollections';
 import { createModelQueryPlane } from './storeModelQueries';
@@ -9,6 +10,7 @@ export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransac
 /** Store factories are a definition registry (registered at defineModel time, replaced per generation); active stores die on reset. */
 const storeFactories = new Map<string, () => ModelStore<RowRecord>>();
 const activeStores = new Map<string, ModelStore<RowRecord>>();
+registerResidency('modelStores', () => activeStores.size);
 let storeSequence = 0;
 
 export const registerModelStoreFactory = <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>): void => {

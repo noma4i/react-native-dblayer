@@ -14,6 +14,7 @@ import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState } from '../core/planes/operationState';
 import { isTempId } from '../utils/generateTempId';
 import { registerReset, resetInMemoryRuntime } from '../core/reset';
+import { registerResidency } from '../core/residency';
 import { startMaintenanceScheduler } from '../core/maintenanceScheduler';
 import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
@@ -259,6 +260,8 @@ export const resetPersistenceRuntime = (): void => {
   applyRuntime = null;
   operationState = null;
 };
+
+registerResidency('operationRowBuckets', () => operationState?.residentRowBuckets() ?? 0);
 
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
 export const getOperationState = (): OperationState => {

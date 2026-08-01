@@ -1,4 +1,4 @@
-import { afterStoreTransaction, runInStoreTransaction, SyncFeed , createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection , keysForSequence } from '../../testApi';
+import { afterStoreTransaction, runInStoreTransaction, SyncFeed , createModelStore, publishProjectedBatch, runInApplyBatch, storeScopeCollection , keysForSequence, residencySnapshot } from '../../testApi';
 import { createMemoryPlane, diagnostics } from '../helpers/harness';
 
 type Row = { id: string } & Record<string, unknown>;
@@ -40,7 +40,7 @@ describe('model store', () => {
     store.upsert({ id: 'row-1' });
     store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
     store.markReady();
-    const collections = (globalThis as Record<string, unknown>).__DBLAYER_STORE_SCOPE_COLLECTIONS__ as { count(): number };
+    const collections = { count: (): number => residencySnapshot().derivedCollections ?? 0 };
     const before = collections.count();
 
     expect(store.scopeCollection('scope-1').toArray()).toMatchObject([{ id: 'row-1' }]);
