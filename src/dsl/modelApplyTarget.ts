@@ -1,4 +1,3 @@
-import { registerApplyTarget } from '../core/apply/applyTargetRegistry';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { keysForSequence } from '../core/orderKey';
 import { firstCompositeKeyPart } from '../core/serialize';
@@ -127,7 +126,6 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       planes().scopeIndex.ackPersist();
     }
   };
-  registerApplyTarget(options.modelId, applyTarget);
   const applySnapshot = (ops: WriteOp[]): void => {
     getApplyRuntime().commit(createCommitEnvelope(ops));
   };

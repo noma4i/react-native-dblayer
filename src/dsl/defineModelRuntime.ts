@@ -29,6 +29,7 @@ import { createModelDefinitions } from './modelDefinitions';
 import { createModelDirectAccess } from './modelDirectAccess';
 import { registerModelRuntime, registerModelSchemaAndGc } from './modelRegistrations';
 import { planModelLanding, planModelLandingWithRoot, registerModelLandingHost } from './modelLandingGraph';
+import { registerApplyTarget } from '../core/apply/applyTargetRegistry';
 /**
  * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
@@ -138,6 +139,7 @@ export const defineModelRuntime = <
     preparePatch,
     putRows
   });
+  registerApplyTarget(config.id, applyTarget);
   registerModelSchemaAndGc<InferStoredFields<TFields> & Record<string, unknown>>({
     modelId: config.id,
     modelName: config.name,

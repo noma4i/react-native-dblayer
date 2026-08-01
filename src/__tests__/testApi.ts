@@ -4,6 +4,7 @@ import type { RowId, SingletonStatics } from '../types';
 export * from '../index';
 export type * from '../types';
 export { defineModelRuntime } from '../dsl/defineModelRuntime';
+export { createModelApplyTarget } from '../dsl/modelApplyTarget';
 
 type SingletonUseFind<TStored extends RowId> = (
   id: string | null | undefined,
