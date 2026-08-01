@@ -164,4 +164,64 @@ describe('app-shaped thread freshness against lost members', () => {
     expect(threadRows.map(row => row.id).sort()).toEqual(['m-1', 'm-2', 'm-3']);
     expect(calls).toBe(2);
   });
+
+  it('T4 repairs the thread when the rows are gone and only the membership came back', async () => {
+    const history = [1, 2, 3].map(index => message(`m-${index}`, index));
+    let calls = 0;
+    const storage = createMemoryPlane();
+    const build = () => {
+      configureDb({
+        storage,
+        dataVersion: 'app-thread-rows',
+        transport: createMockTransport({
+          query: async <TData,>() => {
+            calls += 1;
+            return { data: { chat: { messages: { nodes: history, pageInfo: { hasPreviousPage: false, startCursor: null } } } } as TData };
+          }
+        })
+      });
+      const models = createAppModels('ThreadRowsLost');
+      const threadQuery = models.messages.query('thread', {
+        document,
+        vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
+        page: (data: ThreadResponse) => data.chat.messages,
+        into: models.messages.scopes.thread,
+        coverage: 'page',
+        direction: 'backward',
+        staleTime: 300_000
+      });
+      return { models, threadQuery };
+    };
+
+    const before = build();
+    await act(async () => {
+      await bootDb();
+    });
+    const firstReader = recordTimelineInProvider(() => before.threadQuery.use({ chatId: 'chat-1' }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(calls).toBe(1);
+    firstReader.unmount();
+    suspendDb();
+
+    // The mirror split of T2: membership and freshness survive, the rows behind them do not.
+    const rowKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:row:'));
+    expect(rowKeys).not.toEqual([]);
+    storage.set(rowKeys.map(key => ({ key, value: null })));
+
+    const after = build();
+    await act(async () => {
+      await bootDb();
+    });
+    const reader = recordTimelineInProvider(() => after.threadQuery.use({ chatId: 'chat-1' }));
+    await settle();
+    await settle(1, { macro: true });
+    const rows = (reader.last().data as Array<{ id: string }> | undefined) ?? [];
+    reader.unmount();
+
+    // Membership pointing at rows nobody can read is not a thread: the screen owes one request and
+    // the history, not a list that quietly lost its contents.
+    expect(rows.map(row => row.id).sort()).toEqual(['m-1', 'm-2', 'm-3']);
+    expect(calls).toBe(2);
+  });
 });
