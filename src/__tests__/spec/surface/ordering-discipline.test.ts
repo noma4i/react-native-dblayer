@@ -84,7 +84,42 @@ const rawComparatorUses = (file: string, canonical: Set<string>): string[] => {
   return violations;
 };
 
+/**
+ * A hand-rolled field comparison: `left < right ? -1 : 1` and its shapes. Ordering has one home, so a
+ * module that decides order itself has quietly forked the total order - and its version has no id
+ * tie-break, which is exactly how two surfaces of one relation start naming different rows.
+ */
+const handRolledComparisons = (file: string): string[] => {
+  const source = parsed(file);
+  const violations: string[] = [];
+  const isOrderNumber = (node: ts.Expression, value: number): boolean =>
+    (ts.isNumericLiteral(node) && Number(node.text) === Math.abs(value)) ||
+    (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand) && Number(node.operand.text) === Math.abs(value));
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isConditionalExpression(node) &&
+      ts.isBinaryExpression(node.condition) &&
+      [ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken].includes(node.condition.operatorToken.kind) &&
+      isOrderNumber(node.whenTrue, 1) &&
+      isOrderNumber(node.whenFalse, 1)
+    ) {
+      violations.push(`${path.relative(srcRoot, file)}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return violations;
+};
+
 describe('ordering discipline', () => {
+  it('decides order in one home, never by a hand-rolled field comparison', () => {
+    const violations = sourceFiles(srcRoot)
+      .filter(file => file !== orderingHome)
+      .flatMap(handRolledComparisons);
+
+    expect(violations).toEqual([]);
+  });
+
   it('feeds no raw consumer comparator into sort or reduce outside the ordering home', () => {
     const canonical = canonicalNames();
     expect(canonical.size).toBeGreaterThan(3);
