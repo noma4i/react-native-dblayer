@@ -1,4 +1,4 @@
-import type { ModelBuildInput, ModelFacade, ModelFacadeConfig, RelationDecl, ModelStoredValue, AnyFields, DbShape, GraphqlActionDefinition, RelationSpec } from '../types';
+import type { ModelBuildInput, ModelFacade, ModelFacadeConfig, ModelStoredValue, AnyFields, DbShape, GraphqlActionDefinition, RelationDecl, RelationSpec } from '../types';
 export declare const defineModelFacade: <const TKey extends string, TShape extends DbShape<any, AnyFields>, const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>, const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>, const TEvents extends Record<string, {
     type: "live";
 }>, const TAssociations extends Record<string, RelationDecl<unknown>>, TStatics extends Record<string, unknown>>(key: TKey, config: ModelFacadeConfig<TShape, TRelations, TActions, TEvents, TAssociations, TStatics>) => ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TStatics>;
