@@ -564,9 +564,13 @@ describe('durable freshness', () => {
     const processLocalDetails = Message.details({ id: 'm-1' });
     await processLocalDetails.fetch();
     getDbQueryClient().removeQueries();
+    expect(storage.keys('dbl:query:').length).toBeGreaterThan(0);
     freshnessClasses.durable = 0;
 
     processLocalDetails.read();
+    // The refetch below happens either way - zero freshness makes even a restored chain stale. What
+    // the drop decides is whether the record stays on disk to be restored again next launch.
+    expect(storage.keys('dbl:query:')).toEqual([]);
     await processLocalDetails.fetch();
     expect(calls).toBe(2);
   });

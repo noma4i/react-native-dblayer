@@ -12,11 +12,8 @@ import { isQueryFresh, persistenceWindowOf, resolveStaleTime } from '../core/fet
 import { getDbQueryClient, getDbRuntimeConfig } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { reportSyncError } from '../core/syncError';
-import {
-  readPersistedQuery,
-  removePersistedQuery,
-  writePersistedQuery
-} from '../core/queryPersistence';
+import { removePersistedQuery } from '../core/queryPersistence';
+import { persistBucket, restorePersistedBucket } from '../core/fetch/persistedBucket';
 import { stableSerialize } from '../core/serialize';
 
 let fetchHandleSequence = 0;
@@ -59,42 +56,35 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     persists ? persistenceWindowOf(empty, config.staleTime, config.emptyStaleTime, getDbRuntimeConfig().defaults) : null;
   const restore = (input: TInput): FetchData<TSelected> | undefined => {
     const key = keyOf(input);
-    const client = getDbQueryClient();
-    const queryKey = queryKeyOf(key);
-    const cached = client.getQueryData(queryKey) as FetchData<TSelected> | undefined;
+    const cached = getDbQueryClient().getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
     if (cached !== undefined || !persists) return cached;
-    const record = readPersistedQuery<TSelected, TInput>(persistenceDeclaration, key, candidate => {
-      const voidInputMatches = input === undefined && candidate.scope === null;
-      if (!voidInputMatches && keyOf(candidate.scope as TInput) !== key) {
-        throw new Error('react-native-dblayer: persisted fetch input does not match its identity');
-      }
-      const selected = config.validate ? config.validate(candidate.payload as TSelected) : (candidate.payload as TSelected);
-      return { payload: selected, scope: input };
+    return restorePersistedBucket<TSelected, FetchData<TSelected>, TInput>({
+      declaration: persistenceDeclaration,
+      identity: key,
+      queryKey: queryKeyOf(key),
+      validate: candidate => {
+        const voidInputMatches = input === undefined && candidate.scope === null;
+        if (!voidInputMatches && keyOf(candidate.scope as TInput) !== key) {
+          throw new Error('react-native-dblayer: persisted fetch input does not match its identity');
+        }
+        const selected = config.validate ? config.validate(candidate.payload as TSelected) : (candidate.payload as TSelected);
+        return { payload: selected, scope: input };
+      },
+      cache: selected => ({ selected, empty: isEmpty(selected) }),
+      window: persistenceWindow
     });
-    if (record === undefined) return undefined;
-    const restored = { selected: record.payload, empty: isEmpty(record.payload) };
-    if (persistenceWindow(restored.empty) === null) {
-      removePersistedQuery(persistenceDeclaration, key);
-      return undefined;
-    }
-    client.setQueryData(queryKey, restored, { updatedAt: record.dataUpdatedAt });
-    if (record.invalidated) void client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
-    return restored;
   };
   const persist = (input: TInput, data: FetchData<TSelected>): void => {
+    if (!persists) return;
     const key = keyOf(input);
-    if (persistenceWindow(data.empty) === null) {
-      if (persists) removePersistedQuery(persistenceDeclaration, key);
-      return;
-    }
-    const dataUpdatedAt = getDbQueryClient().getQueryState(queryKeyOf(key))!.dataUpdatedAt;
-    writePersistedQuery({
-      ...persistenceDeclaration,
+    persistBucket<TSelected, TInput>({
+      declaration: persistenceDeclaration,
       identity: key,
+      queryKey: queryKeyOf(key),
       scope: (input === undefined ? null : input) as TInput,
       payload: data.selected,
       empty: data.empty,
-      dataUpdatedAt
+      window: persistenceWindow
     });
   };
   const execute = async (input: TInput, isCurrent: () => boolean): Promise<FetchData<TSelected>> => {

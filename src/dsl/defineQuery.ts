@@ -40,12 +40,8 @@ import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { fromNodes } from '../queries/base/connection';
 import { reportSyncError } from '../core/syncError';
-import {
-  invalidatePersistedQuery,
-  readPersistedQuery,
-  removePersistedQuery,
-  writePersistedQuery
-} from '../core/queryPersistence';
+import { invalidatePersistedQuery } from '../core/queryPersistence';
+import { persistBucket, restorePersistedBucket } from '../core/fetch/persistedBucket';
 /**
  * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
  *
@@ -207,42 +203,34 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   registerMaterializationReconciler({ modelId: destinationModelId, chains: materializationChains });
   const restore = (scope: TScope): ChainMeta | undefined => {
     const identity = bucketKeyOf(scope);
-    const client = getDbQueryClient();
-    const queryKey = queryKeyOf(identity);
-    const cached = client.getQueryData(queryKey) as ChainMeta | undefined;
+    const cached = getDbQueryClient().getQueryData(queryKeyOf(identity)) as ChainMeta | undefined;
     if (cached !== undefined) return cached;
-    const record = readPersistedQuery<ChainMeta, TScope>(persistenceDeclaration, identity, candidate => {
-      const restoredScope = normalizeScope(candidate.scope as TScope);
-      if (bucketKeyOf(restoredScope) !== identity || !isChainMeta(candidate.payload)) {
-        throw new Error('react-native-dblayer: persisted query identity or metadata is invalid');
-      }
-      validateDestination(restoredScope, candidate.payload);
-      return { payload: candidate.payload, scope: restoredScope };
+    return restorePersistedBucket<ChainMeta, ChainMeta, TScope>({
+      declaration: persistenceDeclaration,
+      identity,
+      queryKey: queryKeyOf(identity),
+      validate: candidate => {
+        const restoredScope = normalizeScope(candidate.scope as TScope);
+        if (bucketKeyOf(restoredScope) !== identity || !isChainMeta(candidate.payload)) {
+          throw new Error('react-native-dblayer: persisted query identity or metadata is invalid');
+        }
+        validateDestination(restoredScope, candidate.payload);
+        return { payload: candidate.payload, scope: restoredScope };
+      },
+      cache: meta => meta,
+      window: persistenceWindow
     });
-    if (record === undefined) return undefined;
-    if (persistenceWindow(record.empty) === null) {
-      removePersistedQuery(persistenceDeclaration, identity);
-      return undefined;
-    }
-    client.setQueryData(queryKey, record.payload, { updatedAt: record.dataUpdatedAt });
-    if (record.invalidated) void client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
-    return record.payload;
   };
   const persist = (scope: TScope, meta: ChainMeta): void => {
     const identity = bucketKeyOf(scope);
-    const empty = isEmptyChain(meta);
-    if (persistenceWindow(empty) === null) {
-      removePersistedQuery(persistenceDeclaration, identity);
-      return;
-    }
-    const dataUpdatedAt = getDbQueryClient().getQueryState(queryKeyOf(identity))!.dataUpdatedAt;
-    writePersistedQuery({
-      ...persistenceDeclaration,
+    persistBucket<ChainMeta, TScope>({
+      declaration: persistenceDeclaration,
       identity,
+      queryKey: queryKeyOf(identity),
       scope,
       payload: meta,
-      empty,
-      dataUpdatedAt
+      empty: isEmptyChain(meta),
+      window: persistenceWindow
     });
   };
   const pageMetaOf = (connection: ConnectionLike): PageMeta => {
