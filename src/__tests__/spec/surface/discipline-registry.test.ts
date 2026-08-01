@@ -29,6 +29,31 @@ const surfaceTests = (): string[] =>
     .flatMap(name => (name.endsWith('.test.ts') || name.endsWith('.test.tsx') ? [name.replace(/\.test\.tsx?$/, '')] : []))
     .sort();
 
+const specsRoot = path.dirname(specFile);
+const specRoot = path.resolve(__dirname, '..');
+
+/** Every test file of the suite, by bare name, wherever its axis folder happens to be. */
+const allSpecTests = (directory: string): string[] =>
+  fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) return allSpecTests(target);
+    return /\.test\.tsx?$/.test(entry.name) ? [entry.name.replace(/\.test\.tsx?$/, '')] : [];
+  });
+
+/** Success criteria carry a fourth column naming the test that pins them: four columns, six cells. */
+const criterionTests = (): string[] => {
+  const rows = fs
+    .readdirSync(specsRoot)
+    .filter(name => name.endsWith('.md'))
+    .flatMap(name =>
+      fs
+        .readFileSync(path.join(specsRoot, name), 'utf8')
+        .split('\n')
+        .filter(line => /^\| [A-Z]+\d+ \|/.test(line) && line.split('|').length === 6)
+    );
+  return [...new Set(rows.flatMap(row => [...(row.split('|')[4] ?? '').matchAll(/`([a-z0-9]+(?:-[a-z0-9]+)+)`/gi)].map(match => match[1]!)))].sort();
+};
+
 describe('discipline registry', () => {
   it('names an existing test for every declared discipline', () => {
     const declared = declaredTests();
@@ -41,5 +66,13 @@ describe('discipline registry', () => {
     const declared = new Set(declaredTests());
 
     expect(surfaceTests().filter(name => name !== 'discipline-registry' && !declared.has(name))).toEqual([]);
+  });
+
+  it('names an existing test for every success criterion that claims one', () => {
+    const named = criterionTests();
+    expect(named.length).toBeGreaterThan(20);
+    const existing = new Set(allSpecTests(specRoot));
+
+    expect(named.filter(name => !existing.has(name))).toEqual([]);
   });
 });
