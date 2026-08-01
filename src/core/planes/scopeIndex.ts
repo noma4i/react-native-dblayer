@@ -73,17 +73,19 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     accessTimes.delete(key);
   };
 
-  const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
-    const nextIds = new Set(next.entries.map(entry => entry.id));
-    if (previous) {
-      for (const entry of previous.entries) {
-        if (nextIds.has(entry.id)) continue;
-        const keys = keysByRow.get(entry.id)!;
-        keys.delete(key);
-        if (keys.size === 0) keysByRow.delete(entry.id);
-      }
+  /**
+   * The ONE place membership projections change. Both landing paths call it - the diffing commit with
+   * the ids that left, the append fast path with none - so `memberSets` and `keysByRow` cannot be
+   * repaired by one path and left stale by the other.
+   */
+  const indexMembership = (key: string, members: Set<string>, departed: Iterable<string>): void => {
+    for (const id of departed) {
+      const keys = keysByRow.get(id);
+      if (!keys) continue;
+      keys.delete(key);
+      if (keys.size === 0) keysByRow.delete(id);
     }
-    for (const id of nextIds) {
+    for (const id of members) {
       let keys = keysByRow.get(id);
       if (!keys) {
         keys = new Set();
@@ -91,7 +93,13 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       }
       keys.add(key);
     }
-    memberSets.set(key, nextIds);
+    memberSets.set(key, members);
+  };
+
+  const indexCommit = (key: string, previous: ScopeIndexValue | undefined, next: ScopeIndexValue): void => {
+    const nextIds = new Set(next.entries.map(entry => entry.id));
+    const departed = (previous?.entries ?? []).filter(entry => !nextIds.has(entry.id)).map(entry => entry.id);
+    indexMembership(key, nextIds, departed);
   };
 
   const sameEntryOrder = (previous: ScopeEntry[] | undefined, next: ScopeEntry[]): boolean => {
@@ -110,20 +118,9 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
     }
     if (fastAdd) {
       orderRevisions.set(key, (orderRevisions.get(key) ?? 0) + 1);
-      let members = memberSets.get(key);
-      if (!members) {
-        members = new Set();
-        memberSets.set(key, members);
-      }
-      for (const id of fastAdd) {
-        members.add(id);
-        let keys = keysByRow.get(id);
-        if (!keys) {
-          keys = new Set();
-          keysByRow.set(id, keys);
-        }
-        keys.add(key);
-      }
+      const members = memberSets.get(key) ?? new Set<string>();
+      for (const id of fastAdd) members.add(id);
+      indexMembership(key, members, []);
       removed.delete(key);
       scopes.set(key, next);
       dirty.add(key);
@@ -326,6 +323,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
       memberSets.clear();
       keysByRow.clear();
+      orderRevisions.clear();
       accessTimes.clear();
       for (const fullKey of storage.keys(storagePrefix())) {
         const encoded = parseCompositeKey(fullKey.slice(storagePrefix().length));
@@ -354,6 +352,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       removed.clear();
       memberSets.clear();
       keysByRow.clear();
+      orderRevisions.clear();
       accessTimes.clear();
     }
   };
