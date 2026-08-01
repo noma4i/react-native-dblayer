@@ -8,7 +8,7 @@ import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
-import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
+import { isQueryFresh, persistenceWindowOf, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { reportSyncError } from '../core/syncError';
@@ -55,14 +55,8 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
       ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime)!
       : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
   };
-  const persistenceWindow = (empty: boolean): number | null => {
-    if (!persists) return null;
-    const defaults = getDbRuntimeConfig().defaults;
-    const window = empty
-      ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime ?? resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0)
-      : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
-    return Number.isFinite(window) && window > 0 ? window : null;
-  };
+  const persistenceWindow = (empty: boolean): number | null =>
+    persists ? persistenceWindowOf(empty, config.staleTime, config.emptyStaleTime, getDbRuntimeConfig().defaults) : null;
   const restore = (input: TInput): FetchData<TSelected> | undefined => {
     const key = keyOf(input);
     const client = getDbQueryClient();

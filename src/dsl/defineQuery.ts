@@ -34,7 +34,7 @@ import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders, registerMaterializationReconciler } from '../core/fetch/fetchReaderRegistry';
 import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
-import { isQueryFresh, resolveStaleTime } from '../core/fetch/queryFreshness';
+import { isQueryFresh, persistenceWindowOf, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { createGenerationFence } from '../utils/runtimeGeneration';
@@ -156,13 +156,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (!isNonArrayRecord(scope)) return false;
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
   };
-  const persistenceWindow = (empty: boolean): number | null => {
-    const defaults = getDbRuntimeConfig().defaults;
-    const window = empty
-      ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime ?? resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0)
-      : (resolveStaleTime(config.staleTime, defaults) ?? defaults.staleTime ?? 0);
-    return Number.isFinite(window) && window > 0 ? window : null;
-  };
+  const persistenceWindow = (empty: boolean): number | null => persistenceWindowOf(empty, config.staleTime, config.emptyStaleTime, getDbRuntimeConfig().defaults);
   const validateDestination = (scope: TScope, meta: ChainMeta): void => {
     // An empty chain materializes nothing, so there is no destination to require: an empty result
     // never persists a scope snapshot, and demanding one would make every empty record stale.
