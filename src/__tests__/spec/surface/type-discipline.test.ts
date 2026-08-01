@@ -52,11 +52,6 @@ const allowlist: AllowedViolation[] = [
     file: 'src/core/subscriptionRuntime.ts',
     pattern: 'as unknown as',
     reason: 'TypedDocumentNode variance plus Object.fromEntries, dynamic-key tuple, and runtime payload erasure at external type boundaries'
-  },
-  {
-    file: 'src/dsl/defineView.ts',
-    pattern: 'as unknown as',
-    reason: 'Public generic view configuration and relation handles cross the row-shape-erased runtime boundary'
   }
 ];
 

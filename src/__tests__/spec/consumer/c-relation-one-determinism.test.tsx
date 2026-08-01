@@ -37,61 +37,52 @@ const createModels = (suffix: string) => {
   return { messages, chats };
 };
 
+const mountLatest = (chats: unknown) => renderCounted(() => (chats as LatestReader).use.related('chat-1', 'latest') as MessageRow | undefined);
+
 describe('hasOne resolves to one row on every surface', () => {
-  it('picks the id tie-break winner in a view include, whatever order tied rows arrived in', () => {
-    const { messages, chats } = createModels('View');
-    // 'later-id' arrives FIRST: a raw reduce would keep it, the tie-break must not.
+  it('picks the id tie-break winner whatever order tied rows arrived in', () => {
+    const { messages, chats } = createModels('Arrival');
+    // 'm-b' arrives FIRST: a raw reduce would keep it, the tie-break must not.
     messages.insert({ id: 'm-b', chatId: 'chat-1', rank: 5, text: 'arrived first' });
     messages.insert({ id: 'm-a', chatId: 'chat-1', rank: 5, text: 'arrived second' });
-    const view = chats.view<{ id: string; latest: MessageRow | null }, { latest: MessageRow | null }>('withLatest', {
-      source: 'inbox',
-      include: { latest: {} },
-      select: (chat, included) => ({ id: chat.id, latest: included.latest })
-    });
-    const reader = renderCounted(() => view.use({ inboxId: 'main' }));
 
-    expect(reader.result()[0]?.latest?.id).toBe('m-a');
+    const reader = mountLatest(chats);
+
+    expect(reader.result()?.id).toBe('m-a');
     reader.unmount();
   });
 
-  it('agrees between the model relation read and the view include', () => {
+  it('names the same row to a reader that mounted before the rows and one that mounted after', () => {
     const { messages, chats } = createModels('Agree');
-    messages.insert({ id: 'm-b', chatId: 'chat-1', rank: 5, text: 'arrived first' });
-    messages.insert({ id: 'm-a', chatId: 'chat-1', rank: 5, text: 'arrived second' });
-    const view = chats.view<{ id: string; latest: MessageRow | null }, { latest: MessageRow | null }>('withLatest', {
-      source: 'inbox',
-      include: { latest: {} },
-      select: (chat, included) => ({ id: chat.id, latest: included.latest })
+    const early = mountLatest(chats);
+    act(() => {
+      messages.insert({ id: 'm-b', chatId: 'chat-1', rank: 5, text: 'arrived first' });
+      messages.insert({ id: 'm-a', chatId: 'chat-1', rank: 5, text: 'arrived second' });
     });
-    const reader = renderCounted(() => view.use({ inboxId: 'main' }));
 
-    const modelRead = renderCounted(() => (chats as unknown as LatestReader).use.related('chat-1', 'latest') as MessageRow | undefined);
-    expect(reader.result()[0]?.latest?.id).toBe(modelRead.result()?.id);
-    modelRead.unmount();
-    reader.unmount();
+    const late = mountLatest(chats);
+
+    expect(early.result()?.id).toBe('m-a');
+    expect(late.result()?.id).toBe('m-a');
+    early.unmount();
+    late.unmount();
   });
 
   it('keeps the tie-break winner after a tied row leaves and re-enters the relation', () => {
     const { messages, chats } = createModels('Reenter');
     messages.insert({ id: 'm-a', chatId: 'chat-1', rank: 5, text: 'first arrival' });
     messages.insert({ id: 'm-b', chatId: 'chat-1', rank: 5, text: 'second arrival' });
-    const view = chats.view<{ id: string; latest: MessageRow | null }, { latest: MessageRow | null }>('withLatest', {
-      source: 'inbox',
-      include: { latest: {} },
-      select: (chat, included) => ({ id: chat.id, latest: included.latest })
-    });
-    const reader = renderCounted(() => view.use({ inboxId: 'main' }));
-    expect(reader.result()[0]?.latest?.id).toBe('m-a');
+    const reader = mountLatest(chats);
+    expect(reader.result()?.id).toBe('m-a');
 
-    // The tie-break winner leaves and comes back, so it is now the LAST arrival of the relation.
-    // Arrival order must not decide a tie: both surfaces still name the same row.
+    // The winner leaves and comes back, so it is now the LAST arrival: order must not decide a tie.
     act(() => messages.update('m-a', { chatId: 'chat-other' }));
     act(() => messages.update('m-a', { chatId: 'chat-1' }));
 
-    const modelRead = renderCounted(() => (chats as unknown as LatestReader).use.related('chat-1', 'latest') as MessageRow | undefined);
-    expect(reader.result()[0]?.latest?.id).toBe('m-a');
-    expect(modelRead.result()?.id).toBe('m-a');
-    modelRead.unmount();
+    const late = mountLatest(chats);
+    expect(reader.result()?.id).toBe('m-a');
+    expect(late.result()?.id).toBe('m-a');
+    late.unmount();
     reader.unmount();
   });
 
@@ -99,17 +90,10 @@ describe('hasOne resolves to one row on every surface', () => {
     const { messages, chats } = createModels('Ordered');
     messages.insert({ id: 'm-a', chatId: 'chat-1', rank: 1, text: 'older' });
     messages.insert({ id: 'm-b', chatId: 'chat-1', rank: 9, text: 'newest' });
-    const view = chats.view<{ id: string; latest: MessageRow | null }, { latest: MessageRow | null }>('withLatest', {
-      source: 'inbox',
-      include: { latest: {} },
-      select: (chat, included) => ({ id: chat.id, latest: included.latest })
-    });
-    const reader = renderCounted(() => view.use({ inboxId: 'main' }));
 
-    expect(reader.result()[0]?.latest?.id).toBe('m-b');
-    const modelRead = renderCounted(() => (chats as unknown as LatestReader).use.related('chat-1', 'latest') as MessageRow | undefined);
-    expect(modelRead.result()?.id).toBe('m-b');
-    modelRead.unmount();
+    const reader = mountLatest(chats);
+
+    expect(reader.result()?.id).toBe('m-b');
     reader.unmount();
   });
 });

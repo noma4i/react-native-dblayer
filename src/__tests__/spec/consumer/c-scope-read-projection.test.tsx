@@ -50,20 +50,6 @@ describe('scope read projection', () => {
     expect(compares).toBe(0);
   });
 
-  it('evaluates a view from persisted entry order with zero comparator calls', () => {
-    let compares = 0;
-    const rows = build('View', () => {
-      compares += 1;
-    });
-    const feedView = rows.view('feedView', { source: 'feed', include: {} });
-    compares = 0;
-
-    const reader = renderCounted(() => feedView.use({ bucket: 'a' }));
-    expect(reader.result().map(row => row.id)).toEqual(['r-1', 'r-2', 'r-3']);
-    expect(compares).toBe(0);
-    reader.unmount();
-  });
-
   it('serves useCount and use() from the one projected row set', () => {
     const rows = build('Count', () => {});
     const counter = renderCounted(() => rows.scopes.feed.useCount({ bucket: 'a' }));

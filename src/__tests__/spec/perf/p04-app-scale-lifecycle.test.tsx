@@ -154,11 +154,6 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
   const digestA = defineFetch<{ value: number }, void, number>({ key: 'app-scale-digest-a', fetcher: async () => ({ value: 1 }), select: data => data.value, staleTime: Infinity });
   const digestB = defineFetch<{ value: number }, void, number>({ key: 'app-scale-digest-b', fetcher: async () => ({ value: 2 }), select: data => data.value, staleTime: Infinity });
 
-  const membersView = chats.view<{ id: string; memberNames: string[] }, { members: { id: string; name: string }[] }>('withMembers', {
-    source: chats.scopes.active,
-    include: { members: { model: users, ids: chat => chat.memberIds, renderKeys: ['id', 'name'] } },
-    select: (chat, included) => ({ id: chat.id, memberNames: included.members.map(user => user.name) })
-  });
 
   const renders: Record<string, number> = {};
   const bump = (key: string): void => {
@@ -199,7 +194,8 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
     return null;
   };
   const ViewReader = ({ status }: { status: string }) => {
-    membersView.use({ status });
+    const rows = chats.scopes.active.use({ status }, { renderKeys: ['id', 'memberIds'] });
+    users.use.byIds(rows.flatMap(chat => chat.memberIds), { renderKeys: ['id', 'name'] });
     bump(`view-${status}`);
     return null;
   };
@@ -259,7 +255,7 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
     inactiveMounted.push({ key, unmount: () => act(() => standaloneRoot.unmount()) });
   }
 
-  return { root, renders, chatQueries, messageQueries, digestA, digestB, membersView, inactiveMounted, chatQueryScopes, messageQueryScopes };
+  return { root, renders, chatQueries, messageQueries, digestA, digestB, inactiveMounted, chatQueryScopes, messageQueryScopes };
 };
 
 describe('app-scale lifecycle', () => {

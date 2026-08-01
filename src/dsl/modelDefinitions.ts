@@ -11,7 +11,6 @@ import { defineFetch } from './defineFetch';
 import { defineModelIngest } from './defineIngest';
 import { defineModelMutation } from './defineMutation';
 import { defineQuery } from './defineQuery';
-import { defineView } from './defineView';
 
 export const createModelDefinitions = <TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput>(
   options: ModelDefinitionsOptions<TStored, TInput>
@@ -68,7 +67,6 @@ export const createModelDefinitions = <TStored extends { id: string; updatedAt?:
     defineFetch<TData, TFetchInput, TSelected>({ ...fetchConfig, key: fetchConfig.key ?? compositeKey(options.modelId, name) } as Parameters<
       typeof defineFetch<TData, TFetchInput, TSelected>
     >[0]),
-  view: (name, viewConfig) => defineView(options.context.model<ModelCore<TStored>>(), name, viewConfig),
   poller: (name, pollerConfig) =>
     createModelStatusPoller({
       ...pollerConfig,

@@ -59,7 +59,22 @@ const printSurface = () => {
   return rows.sort().join('\n');
 };
 
+/**
+ * The terminals a model definition offers. The list is the DSL surface a consumer can reach through a
+ * model, so it is stated here rather than inferred: an aggregation terminal that reappears would give
+ * the package a second home for join/filter/sort next to the scope plane and the live query.
+ */
+const MODEL_DEFINITION_TERMINALS = ['detached', 'fetch', 'ingest', 'mutation', 'poller', 'query'];
+
 describe('public type surface', () => {
+  it('offers exactly the declared model definition terminals', () => {
+    const declaration = fs.readFileSync(path.resolve(__dirname, '../../../types/dsl.model.types.ts'), 'utf8');
+    const picked = /export type ModelDefinitions<[^>]*> = Pick<\s*ModelCore<[^>]*>,\s*([^>]*)>/.exec(declaration)?.[1] ?? '';
+    const terminals = [...picked.matchAll(/'([a-zA-Z]+)'/g)].map(match => match[1]!).sort();
+
+    expect(terminals).toEqual(MODEL_DEFINITION_TERMINALS);
+  });
+
   it('locks the public signature snapshot', () => {
     const first = printSurface();
 

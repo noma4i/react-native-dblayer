@@ -7,7 +7,6 @@ import type { DetachedOperationConfig, DetachedOperationHandle } from './dsl.det
 import type { defineQuery } from '../dsl/defineQuery';
 import type { ConnectionLike, EnsuredRowQueryHandle, ScopeQueryHandle } from './dsl.query.types';
 import type { defineFetch } from '../dsl/defineFetch';
-import type { ViewConfig, ViewHandle } from './dsl.view.types';
 import type { DbSubscriptionEntry } from './subscription.types';
 import type { ModelReadBuilder, RequiredFields } from './dsl.readBuilder.types';
 import type { ScopeSpec } from './dsl.scope.types';
@@ -108,7 +107,7 @@ export type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof 
 export type ModelDefinitions<TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TInput> = Pick<ModelCore<TStored, TInput>, 'query' | 'mutation' | 'detached' | 'fetch' | 'view' | 'poller' | 'ingest'>;
+}, TInput> = Pick<ModelCore<TStored, TInput>, 'query' | 'mutation' | 'detached' | 'fetch' | 'poller' | 'ingest'>;
 export type ModelDefinitionsOptions<TStored extends {
     id: string;
     updatedAt?: string | null;
@@ -317,8 +316,6 @@ export type ModelCore<TStored extends {
     }, TNode>(name: string, config: ModelMutationConfig<TData, TInput, TRow, TNode>): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
     /** Define a durable operation whose consumer-owned executor resumes through the core boot lifecycle. */
     detached<TInput>(kind: string, config: DetachedOperationConfig<TInput, TStored>): DetachedOperationHandle<TInput>;
-    /** Define a reactive joined projection over one declared scope and its current related rows. */
-    view<TItem = TStored & Record<string, unknown>, TIncluded extends Record<string, unknown> = Record<string, unknown>>(name: string, config: ViewConfig<TStored, TIncluded, TItem>): ViewHandle<TItem, Record<string, unknown>>;
     /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
     fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
     /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */

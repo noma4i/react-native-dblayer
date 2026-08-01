@@ -21,7 +21,6 @@ export type * from './read.scopeReadEngine.types';
 export type * from './read.liveRead.types';
 export type * from './read.projectionGate.types';
 export type * from './dsl.query.types';
-export type * from './dsl.view.types';
 export type * from './dsl.readBuilder.types';
 export type * from './dsl.ordering.types';
 export type * from './dsl.configure.types';
