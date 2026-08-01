@@ -8,13 +8,26 @@ import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '..
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
 
+/**
+ * A tracked-only mutation - deduped or `once`, declared without an optimistic model - owns no rows
+ * and names no model, and the rest of the package already reads `''` as exactly that. The reader has
+ * to accept what the writer legitimately produces: rejecting one record discards the WHOLE ledger,
+ * taking the `once` keys that stop a destructive call from running a second time after a restart.
+ */
+const namesItsOwner = (value: Record<string, unknown>): boolean => {
+  if (isNonEmptyString(value.model)) return true;
+  const rowIds = value.rowIds;
+  const ownsNoRows = (value.tempIds as unknown[]).length === 0 && (rowIds === undefined || (rowIds as unknown[]).length === 0);
+  return value.model === '' && ownsNoRows;
+};
+
 const isOperationRecord = (value: unknown): value is OperationRecord =>
   isNonArrayRecord(value) &&
   isNonEmptyString(value.operationId) &&
-  isNonEmptyString(value.model) &&
   Array.isArray(value.tempIds) &&
   value.tempIds.every(isNonEmptyString) &&
   (value.rowIds === undefined || (Array.isArray(value.rowIds) && value.rowIds.every(isNonEmptyString))) &&
+  namesItsOwner(value) &&
   (value.intent === 'insert' || value.intent === 'patch' || value.intent === 'destroy') &&
   (value.status === 'pending' || value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed') &&
   isNonNegativeSafeInteger(value.createdAt) &&

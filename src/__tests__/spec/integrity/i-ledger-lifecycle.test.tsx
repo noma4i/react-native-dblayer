@@ -96,6 +96,23 @@ describe('operation ledger lifecycle invariants', () => {
     expect(ledger.hasPending(key)).toBe(false);
   });
 
+  it('reads back an operation that owns no model instead of discarding the whole ledger', () => {
+    // A tracked-only mutation - deduped or `once`, with no optimistic model - owns no rows and no
+    // model. Writing it and refusing to read it back discards EVERY operation on the next cold
+    // start, taking the `once` keys that stop a destructive call from running twice.
+    const storage = createMemoryPlane();
+    const build = () => createOperationState({ storage, prefix: () => 'ledger:', now: () => 0 });
+    const ledger = build();
+    ledger.begin({ operationId: 'op-tracked', model: '', tempIds: [], rowIds: [], intent: 'patch', idempotencyKey: 'key-tracked', once: true, createdAt: 0 });
+    ledger.close('op-tracked', 'committed');
+
+    const restarted = build();
+    restarted.hydrate();
+
+    expect(restarted.get('op-tracked')?.status).toBe('committed');
+    expect(restarted.hasCommitted('key-tracked')).toBe(true);
+  });
+
   it('retains a committed once key until reset', () => {
     const ledger = createLedger();
     ledger.begin(beginOperation('operation-once', 'key-once', true));
