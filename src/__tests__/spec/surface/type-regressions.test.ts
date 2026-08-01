@@ -5,24 +5,43 @@ const root = path.resolve(__dirname, '../../../..');
 const fixtureName = path.join(root, 'scope-inference.fixture.ts');
 const entry = path.join(root, 'src/index.ts').split(path.sep).join('/');
 
+const options: ts.CompilerOptions = {
+  strict: true,
+  target: ts.ScriptTarget.ESNext,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  allowImportingTsExtensions: true,
+  jsx: ts.JsxEmit.ReactJSX,
+  skipLibCheck: true,
+  noEmit: true
+};
+
+/**
+ * Every fixture type-checks against the whole package, and the package does not change between
+ * fixtures: its parsed files are read once and handed to each program, and each program reuses the
+ * previous one. Without that sharing the gate re-parses the package per fixture and outgrows the
+ * shard budget, which would push the suite toward dropping cases rather than keeping them cheap.
+ */
+const packageFiles = new Map<string, ts.SourceFile | undefined>();
+let fixtureSource = '';
+let previousProgram: ts.Program | undefined;
+
+const host = ts.createCompilerHost(options);
+const readPackageFile = host.getSourceFile.bind(host);
+host.fileExists = fileName => fileName === fixtureName || ts.sys.fileExists(fileName);
+host.readFile = fileName => (fileName === fixtureName ? fixtureSource : ts.sys.readFile(fileName));
+host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+  if (fileName === fixtureName) return ts.createSourceFile(fileName, fixtureSource, languageVersion, true);
+  if (!packageFiles.has(fileName)) packageFiles.set(fileName, readPackageFile(fileName, languageVersion, onError, shouldCreateNewSourceFile));
+  return packageFiles.get(fileName);
+};
+
 const compileFixture = (source: string): readonly ts.Diagnostic[] => {
-  const options: ts.CompilerOptions = {
-    strict: true,
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    allowImportingTsExtensions: true,
-    jsx: ts.JsxEmit.ReactJSX,
-    skipLibCheck: true,
-    noEmit: true
-  };
-  const host = ts.createCompilerHost(options);
-  const getSourceFile = host.getSourceFile.bind(host);
-  host.fileExists = fileName => fileName === fixtureName || ts.sys.fileExists(fileName);
-  host.readFile = fileName => (fileName === fixtureName ? source : ts.sys.readFile(fileName));
-  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
-    fileName === fixtureName ? ts.createSourceFile(fileName, source, languageVersion, true) : getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
-  return ts.getPreEmitDiagnostics(ts.createProgram([fixtureName], options, host));
+  fixtureSource = source;
+  const program = ts.createProgram([fixtureName], options, host, previousProgram);
+  const diagnostics = ts.getPreEmitDiagnostics(program);
+  previousProgram = program;
+  return diagnostics;
 };
 
 describe('public type regressions', () => {

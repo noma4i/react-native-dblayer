@@ -22,10 +22,13 @@ const sourceFiles = (directory: string): string[] =>
     return /\.tsx?$/.test(entry.name) ? [target] : [];
   });
 
-const parsed = (file: string): ts.SourceFile => ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+/** One walk and one read of the tree for all three checks: a gate pays for itself out of the shard budget. */
+const sources: Array<{ file: string; text: string }> = sourceFiles(srcRoot).map(file => ({ file, text: fs.readFileSync(file, 'utf8') }));
 
-const feedCalls = (file: string): string[] => {
-  const source = parsed(file);
+const parsed = (file: string, text: string): ts.SourceFile => ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+
+const feedCalls = ({ file, text }: { file: string; text: string }): string[] => {
+  const source = parsed(file, text);
   const found: string[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ['pushMessage', 'truncate'].includes(node.expression.name.text)) {
@@ -37,8 +40,8 @@ const feedCalls = (file: string): string[] => {
   return found;
 };
 
-const engineImports = (file: string): string[] => {
-  const source = parsed(file);
+const engineImports = ({ file, text }: { file: string; text: string }): string[] => {
+  const source = parsed(file, text);
   const found: string[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text.startsWith('@tanstack/') && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
@@ -52,17 +55,31 @@ const engineImports = (file: string): string[] => {
   return found;
 };
 
+/** Directories allowed to name the collection engine: the store that owns it, and the types it hands out. */
+const ENGINE_OWNERS = ['core/', 'types/'];
+
+const engineImporters = (): string[] =>
+  sources
+    .filter(({ text }) => /from '@tanstack\/db'/.test(text))
+    .map(({ file }) => path.relative(srcRoot, file))
+    .filter(file => !ENGINE_OWNERS.some(owner => file.startsWith(owner)))
+    .sort();
+
 describe('collection write discipline', () => {
+  it('keeps the collection engine behind the store', () => {
+    expect(engineImporters()).toEqual([]);
+  });
+
   it('drives the sync feed from the store planes only', () => {
-    const writers = sourceFiles(srcRoot)
-      .filter(file => feedCalls(file).length > 0)
-      .map(file => path.relative(srcRoot, file))
+    const writers = sources
+      .filter(entry => feedCalls(entry).length > 0)
+      .map(({ file }) => path.relative(srcRoot, file))
       .sort();
 
     expect(writers).toEqual([...FEED_WRITERS].sort());
   });
 
   it('imports no engine mutation entry point', () => {
-    expect(sourceFiles(srcRoot).flatMap(engineImports)).toEqual([]);
+    expect(sources.flatMap(engineImports)).toEqual([]);
   });
 });
