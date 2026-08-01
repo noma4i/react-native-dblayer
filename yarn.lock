@@ -2280,8 +2280,6 @@ __metadata:
     "@stryker-mutator/jest-runner": "npm:^9.6.1"
     "@tanstack/db": "npm:0.6.17"
     "@tanstack/pacer": "npm:0.21.1"
-    "@tanstack/query-db-collection": "npm:1.2.1"
-    "@tanstack/react-db": "npm:0.1.95"
     "@tanstack/react-query": "npm:5.101.4"
     "@testing-library/react-native": "npm:^14.0.1"
     "@types/jest": "npm:^29.5.14"
@@ -2646,31 +2644,6 @@ __metadata:
   version: 5.101.4
   resolution: "@tanstack/query-core@npm:5.101.4"
   checksum: 10c0/a407960303431e6498c6518cf6f8cc7283d3e4a95dbdc5e9fa42c217b9dd7afaffb82a4f2d36b38f578f745e8cf69ff8551abb947f5abcc0a290f3e3e75dc654
-  languageName: node
-  linkType: hard
-
-"@tanstack/query-db-collection@npm:1.2.1":
-  version: 1.2.1
-  resolution: "@tanstack/query-db-collection@npm:1.2.1"
-  dependencies:
-    "@standard-schema/spec": "npm:^1.1.0"
-    "@tanstack/db": "npm:0.6.17"
-  peerDependencies:
-    "@tanstack/query-core": ^5.0.0
-    typescript: ">=4.7"
-  checksum: 10c0/4483e8fcf47ce90eff4c203a97536486311ea2afa0a8ad498f1297b0c91c5ff2bf64882e650df6a2aed16393bddefb16b58c2b75f76bcf6dcd5305920e97123a
-  languageName: node
-  linkType: hard
-
-"@tanstack/react-db@npm:0.1.95":
-  version: 0.1.95
-  resolution: "@tanstack/react-db@npm:0.1.95"
-  dependencies:
-    "@tanstack/db": "npm:0.6.17"
-    use-sync-external-store: "npm:^1.6.0"
-  peerDependencies:
-    react: ">=16.8.0"
-  checksum: 10c0/c3c7b880505240215e279c6453eb92311c21e249380ba4530dea4c1d3ae346804f777e2fb032caebb79ffa57f4f5d109737ced0e392b1800b4ef6062fc1c5c33
   languageName: node
   linkType: hard
 
@@ -9250,15 +9223,6 @@ __metadata:
   dependencies:
     punycode: "npm:^2.1.0"
   checksum: 10c0/4ef57b45aa820d7ac6496e9208559986c665e49447cb072744c13b66925a362d96dd5a46c4530a6b8e203e5db5fe849369444440cb22ecfc26c679359e5dfa3c
-  languageName: node
-  linkType: hard
-
-"use-sync-external-store@npm:^1.6.0":
-  version: 1.6.0
-  resolution: "use-sync-external-store@npm:1.6.0"
-  peerDependencies:
-    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/35e1179f872a53227bdf8a827f7911da4c37c0f4091c29b76b1e32473d1670ebe7bcd880b808b7549ba9a5605c233350f800ffab963ee4a4ee346ee983b6019b
   languageName: node
   linkType: hard
 
