@@ -2,7 +2,7 @@ import { createCollection, createLiveQueryCollection } from '@tanstack/db';
 import { compileWhereExpression, matchesDbWhere, OWNED_COLLECTION_LIFETIME, SyncFeed, WHERE_OPERATOR_NAMES } from '../../testApi';
 import type { DbWhere } from '../../testApi';
 
-type Row = { id: string; label: string; rank: number; flag: boolean; note: string | null };
+type Row = { id: string; label: string; rank: number; flag: boolean; note?: string | null };
 
 /**
  * The declared filter has exactly one meaning. Answering it with a predicate in one place and with a
@@ -16,7 +16,9 @@ const ROWS: Row[] = [
   { id: 'c', label: 'gamma', rank: -3, flag: true, note: '' },
   { id: 'd', label: '', rank: 0, flag: false, note: 'hell' },
   { id: 'e', label: 'Alpha', rank: 10, flag: true, note: 'HELLO' },
-  { id: 'f', label: '100%', rank: 5, flag: false, note: 'a_b' }
+  { id: 'f', label: '100%', rank: 5, flag: false, note: 'a_b' },
+  // A row that never carried the field at all: absence is not the same value as `null`.
+  { id: 'g', label: 'absent', rank: 7, flag: true }
 ];
 
 let tag = 0;

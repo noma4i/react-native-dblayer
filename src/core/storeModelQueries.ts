@@ -5,7 +5,6 @@ import { canonicalOrderOptions } from './ordering';
 import { createDerivedCollectionCache } from './storeDerivedCollections';
 import { OWNED_COLLECTION_LIFETIME } from './storeSync';
 import { getCommitBus } from '../dsl/configure';
-import { rowsShallowEqual } from '../utils/rowEquality';
 import type { ModelQueryPlane, ModelQueryPlaneOptions, ModelQuerySpec, RowRecord, WhereExpression, WhereOperand, WhereRowRef } from '../types';
 
 const fieldRef = (row: WhereRowRef, field: string): WhereOperand => row[field]!;
@@ -39,6 +38,8 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
             (builder, order) => builder.orderBy(({ row }) => fieldRef(row as WhereRowRef, order.field), canonicalOrderOptions(order.direction)),
             filtered
           )
+          // The id tie-break is stated, not inherited: the engine settling ties by collection key is
+          // its own business, while equal keys resolving by id is this package's declared order.
           .orderBy(({ row }) => fieldRef(row as WhereRowRef, 'id'), canonicalOrderOptions('asc'));
         return spec.limit === undefined ? ordered : ordered.limit(spec.limit);
       },
@@ -61,21 +62,13 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
       // A mounted query is a maintenance root: its rows are on screen even though its changes come
       // from the engine rather than from the commit bus.
       const releaseRoot = getCommitBus().retain([{ kind: 'model', model: modelId }]);
-      // Query results arrive as fresh objects on every read; an unchanged row keeps its instance so
-      // readers that compare by reference see no change where none happened.
-      const rowCache = new Map<string, RowRecord>();
-      const resolve = (queried: RowRecord): RowRecord => {
-        const next = Object.fromEntries(Object.entries(queried).filter(([key_]) => !key_.startsWith('$'))) as RowRecord;
-        const current = rowCache.get(next.id);
-        const resolved = current && rowsShallowEqual(current, next) ? current : next;
-        rowCache.set(next.id, resolved);
-        return resolved;
-      };
+      /** Query rows carry the engine's virtual properties; readers see stored fields only. */
+      const stored = (queried: RowRecord): RowRecord => Object.fromEntries(Object.entries(queried).filter(([field]) => !field.startsWith('$'))) as RowRecord;
       return {
         rows: () => {
           const materialized = [...held.collection.collection.toArray];
           noteReadEngineScan(materialized.length);
-          return materialized.map(row => resolve(row as RowRecord));
+          return materialized.map(row => stored(row as RowRecord));
         },
         subscribe: listener => {
           const subscription = held.collection.collection.subscribeChanges(() => listener(), { includeInitialState: false });

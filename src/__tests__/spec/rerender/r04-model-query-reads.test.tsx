@@ -1,8 +1,10 @@
-import { act } from 'react';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
 import { defineModelRuntime, f, resetRuntime } from '../../testApi';
 import { diagnostics, renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; bucket: string; rank: number; label: string };
+type SparseRow = { id: string; bucket: string; label: string; rank?: number };
 
 let suffix = 0;
 const createRows = () => {
@@ -94,6 +96,77 @@ describe('model query reads', () => {
 
     expect(reader.result()).toMatchObject({ id: 'r-0004' });
     reader.unmount();
+  });
+
+  it('settles equal order keys by id whatever order the rows arrived in', () => {
+    const rows = createRows();
+    // Inserted against id order, all sharing one rank: only the id tie-break can decide the result.
+    rows.insertMany([
+      { id: 'r-z', bucket: 'a', rank: 1, label: 'z' },
+      { id: 'r-a', bucket: 'a', rank: 1, label: 'a' },
+      { id: 'r-m', bucket: 'a', rank: 1, label: 'm' }
+    ]);
+    const reader = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('rank', 'asc').rows());
+
+    expect(reader.result().map(row => row.id)).toEqual(['r-a', 'r-m', 'r-z']);
+    reader.unmount();
+  });
+
+  it('keeps a shared query serving the readers that stayed', () => {
+    const rows = createRows();
+    rows.insertMany(seed(6));
+    const first = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('rank', 'asc').rows());
+    const second = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('rank', 'asc').rows());
+    expect(second.result().map(row => row.id)).toEqual(['r-0000', 'r-0002', 'r-0004']);
+
+    // One reader leaves; the query belongs to the other one until it leaves too.
+    first.unmount();
+    act(() => {
+      rows.insert({ id: 'r-0006', bucket: 'a', rank: 6, label: 'later' });
+    });
+
+    expect(second.result().map(row => row.id)).toEqual(['r-0000', 'r-0002', 'r-0004', 'r-0006']);
+    second.unmount();
+  });
+
+  it('places rows with no order value last, whichever way the order runs', () => {
+    const rows = createRows();
+    const sparse: SparseRow[] = [
+      { id: 'r-has-2', bucket: 'a', label: 'two', rank: 2 },
+      { id: 'r-absent', bucket: 'a', label: 'none' },
+      { id: 'r-has-1', bucket: 'a', label: 'one', rank: 1 }
+    ];
+    rows.insertMany(sparse as Row[]);
+    const ascending = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('rank', 'asc').rows());
+    const descending = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('rank', 'desc').rows());
+
+    expect(ascending.result().map(row => row.id)).toEqual(['r-has-1', 'r-has-2', 'r-absent']);
+    expect(descending.result().map(row => row.id)).toEqual(['r-has-2', 'r-has-1', 'r-absent']);
+    ascending.unmount();
+    descending.unmount();
+  });
+
+  it('follows the reader to its new filter and lets the old query go', () => {
+    const rows = createRows();
+    rows.insertMany(seed(6));
+    let seen: string[] = [];
+    const Reader = ({ bucket }: { bucket: string }) => {
+      seen = rows.use.where({ bucket }).orderBy('rank', 'asc').rows().map(row => row.id);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader, { bucket: 'a' }));
+    });
+    expect(seen).toEqual(['r-0000', 'r-0002', 'r-0004']);
+
+    // The declaration changed under a mounted reader: the result must follow it, not stay behind.
+    act(() => {
+      root.update(React.createElement(Reader, { bucket: 'b' }));
+    });
+
+    expect(seen).toEqual(['r-0001', 'r-0003', 'r-0005']);
+    act(() => root.unmount());
   });
 
   it('serves a fresh result after a runtime reset', () => {

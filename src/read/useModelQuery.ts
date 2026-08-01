@@ -26,6 +26,7 @@ export const useModelQuery = <TValue>(
   const isEqualRef = useRef(isEqual);
   const specRef = useRef(spec);
   const valueRef = useRef<{ value: TValue; version: number } | null>(null);
+  const renderedKeyRef = useRef<string | null>(null);
   selectRef.current = select;
   isEqualRef.current = isEqual;
   specRef.current = spec;
@@ -39,7 +40,14 @@ export const useModelQuery = <TValue>(
     return handle;
   }, [modelId, key]);
   const handle = hold();
-  valueRef.current ??= { value: selectRef.current(handle.rows()), version: 0 };
+  // The declaration can change under a mounted reader: a new query means a new value on this very
+  // render, not on the next change of the old one.
+  const state = valueRef.current;
+  if (state === null || heldRef.current!.key !== renderedKeyRef.current) {
+    renderedKeyRef.current = key;
+    const value = selectRef.current(handle.rows());
+    valueRef.current = state === null ? { value, version: 0 } : { value, version: state.version + 1 };
+  }
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
@@ -62,5 +70,5 @@ export const useModelQuery = <TValue>(
   );
 
   useSyncExternalStore(subscribe, () => valueRef.current!.version);
-  return valueRef.current.value;
+  return valueRef.current!.value;
 };
