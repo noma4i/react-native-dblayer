@@ -65,11 +65,9 @@ describe('sort scale', () => {
     const large = patchWork(20_000);
 
     expect(large.readEngineApplies).toBe(small.readEngineApplies);
-    expect(large.readEngineRebuilds).toBe(small.readEngineRebuilds);
     expect(large.readEngineDeltaRows).toBe(small.readEngineDeltaRows);
     // One row moved, so exactly one of the fifty declared ordered queries did any work.
     expect(small.readEngineApplies).toBe(1);
-    expect(small.readEngineRebuilds).toBe(0);
     expect(small.readEngineDeltaRows).toBe(1);
   });
 });

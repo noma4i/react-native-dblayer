@@ -40,14 +40,12 @@ describe('read diagnostics', () => {
     const delta = diagnostics().snapshot();
     // The one inserted row reaches the delta read-engine path once.
     expect(delta.readEngineDeltaRows).toBe(1);
-    expect(delta.readEngineRebuilds).toBe(0);
     act(() => {
       items.replace('row-1', { id: 'row-2', status: 'ready', score: 2 });
     });
 
     // Identity replace reaches the reader as ordinary deltas: no read path recomputes a whole result.
     const afterReplace = diagnostics().snapshot();
-    expect(afterReplace.readEngineRebuilds).toBe(0);
     expect(afterReplace.readEngineDeltaRows).toBeGreaterThan(delta.readEngineDeltaRows);
     reader.unmount();
   });
@@ -71,7 +69,6 @@ describe('read diagnostics', () => {
       fkIndexFullBuilds: 0,
       fkIndexIncrementalUpdates: 0,
       readEngineApplies: 0,
-      readEngineRebuilds: 0,
       readEngineDeltaRows: 0,
       readEngineScanRows: 0,
       relationChildScans: 0,

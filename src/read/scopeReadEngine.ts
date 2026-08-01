@@ -8,7 +8,7 @@ import type { RequireGate, RowRecord, ScopeProjectionOptions, ScopeReadWorkSnaps
 import { createProjectionGate, validateProjectionOptions } from './projectionGate';
 import { hasRequiredFields } from './requireFields';
 import { useScopeRetention } from './scopeRetention';
-import { incrementalSignature } from './incrementalReadEngine';
+import { incrementalSignature } from './readIdentity';
 import { rowsShallowEqual } from '../utils/rowEquality';
 import { arraysShallowEqual } from '../utils/arrayEquality';
 

@@ -5,7 +5,6 @@ import {
   configureDb,
   compositeKey,
   computePhase,
-  createModelReadEngine,
   createModelContext,
   createModelCriteria,
   createModelScopeKeys,
@@ -187,54 +186,6 @@ describe('runtime edge helpers', () => {
         1
       )
     ).toEqual([{ id: 'a', rank: 1 }]);
-  });
-
-  it('updates row and count engines across membership, value, and rebuild transitions', () => {
-    const rows = new Map([
-      ['a', { id: 'a', rank: 1, visible: true }],
-      ['b', { id: 'b', rank: 2, visible: false }]
-    ]);
-    const engine = createModelReadEngine({
-      signature: 'runtime-edge-engine',
-      model: 'RuntimeEdgeRows',
-      where: row => row.visible,
-      options: { orderBy: [{ field: 'rank', direction: 'asc' }] },
-      initial: () => [...rows.values()],
-      read: id => rows.get(id),
-      select: selected => selected.map(row => row.id)
-    });
-    const batch = (id: string, fields: string[] | null = null) =>
-      ({
-        rows: [{ model: 'RuntimeEdgeRows', id, fields, kind: 'update' }],
-        scopes: [],
-        pending: [],
-        scopeChanges: []
-      });
-
-    expect(engine.value).toEqual(['a']);
-    expect(engine.apply(batch('missing') as never)).toBe(false);
-    rows.set('b', { id: 'b', rank: 0, visible: true });
-    expect(engine.apply(batch('b') as never)).toBe(true);
-    expect(engine.value).toEqual(['b', 'a']);
-    rows.set('a', { id: 'a', rank: 3, visible: true });
-    expect(engine.apply(batch('a', ['rank']) as never)).toBe(false);
-    rows.set('a', { id: 'a', rank: -1, visible: true });
-    expect(engine.apply(batch('a', ['rank']) as never)).toBe(true);
-    rows.set('a', { id: 'a', rank: 3, visible: false });
-    expect(engine.apply(batch('a') as never)).toBe(true);
-    expect(engine.apply({ ...batch('b'), mode: 'bulk' } as never)).toBe(true);
-
-    const count = createModelReadEngine({
-      signature: 'runtime-edge-count',
-      model: 'RuntimeEdgeRows',
-      where: row => row.visible,
-      countOnly: true,
-      initial: () => [...rows.values()],
-      read: id => rows.get(id),
-      select: (_selected, size) => size
-    });
-    expect(count.value).toBe(1);
-    expect(count.apply(batch('b', []) as never)).toBe(false);
   });
 
   it('reports an absent maintenance owner as unprotected', () => {

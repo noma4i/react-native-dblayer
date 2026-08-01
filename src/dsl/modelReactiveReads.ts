@@ -1,5 +1,6 @@
 import type { DbReadOptions, DbWhere, Dependency, ModelContext, ModelCore, ProjectionOptions, StoredRowShape, ModelReadBuilder } from '../types';
-import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
+import { incrementalSignature } from '../read/readIdentity';
+import { useModelQuery } from '../read/useModelQuery';
 import { createProjectionGate, useProjectedLiveRow, useProjectedLiveRows, validateProjectionOptions } from '../read/projectionGate';
 import { hasRequiredFields } from '../read/requireFields';
 import { useLiveRead } from '../read/useLiveRead';
@@ -16,6 +17,7 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
   context: ModelContext<TStored>;
   defaultOrder?: DbReadOptions<TStored>['orderBy'];
   matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
+  normalizeCriteria(where: DbWhere<TStored>): DbWhere<TStored>;
   rowDep(id: string, fields?: ReadonlyArray<string>): Dependency;
   modelDep: Dependency;
   whereRead(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
@@ -58,21 +60,13 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
       optionsRef.current = readOptions;
       const order = readOptions.orderBy ?? options.defaultOrder;
       const signature = incrementalSignature('first', options.modelId, where, order, readOptions.limit, readOptions.require);
-      return useIncrementalRead({
-        signature,
-        deps: [options.modelDep],
-        create: () =>
-          createModelReadEngine({
-            signature,
-            model: options.modelId,
-            where: row => (where == null || options.matchesCriteria(row, where)) && hasRequiredFields(row, optionsRef.current.require ?? []),
-            options: order ? { orderBy: [{ field: String(order.field), direction: order.direction }], limit: readOptions.limit } : { limit: readOptions.limit },
-            initial: () => planes().entityState.values(),
-            read: id => planes().entityState.read(id),
-            select: rows => (rows[0] ? gateRef.current.project(rows[0], optionsRef.current) : undefined),
-            isEqual: Object.is
-          })
-      });
+      const spec = {
+        where: where == null ? undefined : options.normalizeCriteria(where),
+        orderBy: order ? [{ field: String(order.field), direction: order.direction }] : [],
+        limit: readOptions.limit,
+        required: readOptions.require ?? []
+      };
+      return useModelQuery(options.modelId, signature, spec, rows => (rows[0] ? gateRef.current.project(rows[0] as TStored, optionsRef.current) : undefined));
     }) as ModelCore<TStored, TInput>['use']['first'],
     where: options.whereRead,
     byIds: ((ids: readonly string[] | null | undefined, readOptions: ProjectionOptions<TStored, Record<string, unknown>> = {}) => {
@@ -102,20 +96,9 @@ export const createModelReactiveReads = <TStored extends { id: string } & Record
       );
     }) as ModelCore<TStored, TInput>['use']['byIds'],
     count: function useCount(where) {
-      return useIncrementalRead({
-        signature: incrementalSignature('count', options.modelId, where),
-        deps: [options.modelDep],
-        create: () =>
-          createModelReadEngine({
-            signature: incrementalSignature('count', options.modelId, where),
-            model: options.modelId,
-            where: row => where == null || options.matchesCriteria(row, where),
-            initial: () => planes().entityState.values(),
-            read: id => planes().entityState.read(id),
-            select: (_rows, count) => count,
-            countOnly: true
-          })
-      });
+      const signature = incrementalSignature('count', options.modelId, where);
+      const spec = { where: where == null ? undefined : options.normalizeCriteria(where), orderBy: [], limit: undefined, required: [] };
+      return useModelQuery(options.modelId, signature, spec, rows => rows.length);
     },
     related: ((id: string | null | undefined, relationName: string, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}): unknown => {
       const relation = resolvedRelations()[relationName];

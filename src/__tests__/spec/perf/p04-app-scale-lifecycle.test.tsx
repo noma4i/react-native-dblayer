@@ -398,7 +398,7 @@ describe('app-scale lifecycle', () => {
     );
   });
 
-  it('keeps commit fanout narrow and skips a full read-engine rebuild for a single-row update', async () => {
+  it('keeps commit fanout narrow for a single-row update', async () => {
     const resuming = { current: false };
     const releaseQueue: Array<() => void> = [];
     setupEnsembleTransport(resuming, releaseQueue);
@@ -417,7 +417,6 @@ describe('app-scale lifecycle', () => {
       // 23 mounted readers total; candidates-index scopes fanout to the touched model's own bucket, so
       // notified subscribers must stay a small fraction of the whole ensemble, not fan out globally.
       expect(snapshot.commitFanoutNotified).toBeLessThan(23 * 0.25);
-      expect(snapshot.readEngineRebuilds).toBe(0);
 
       for (const key of Object.keys(renders)) {
         const delta = renders[key]! - (beforeRenders[key] ?? 0);

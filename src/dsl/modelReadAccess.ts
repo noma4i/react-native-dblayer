@@ -1,5 +1,5 @@
 import { buildScopeKey } from '../core/compileDbWhere';
-import { incrementalSignature } from '../read/incrementalReadEngine';
+import { incrementalSignature } from '../read/readIdentity';
 import { useModelQuery } from '../read/useModelQuery';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
 import { arraysShallowEqual } from '../utils/arrayEquality';

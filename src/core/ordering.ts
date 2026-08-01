@@ -107,3 +107,13 @@ export const canonicalOrderOptions = (direction: 'asc' | 'desc'): { direction: '
   nulls: 'last',
   stringSort: 'lexical'
 });
+
+/** Apply an optional non-negative row limit; undefined means no limit. */
+export const limitRows = <T>(rows: T[], limit: number | undefined): T[] => (limit === undefined ? rows : rows.slice(0, Math.max(0, limit)));
+
+/** Sort a snapshot read by declared keys and cut it to the declared limit. */
+export const sortModelReadRows = <T extends RowId & Record<string, unknown>>(
+  rows: T[],
+  orderBy: ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>,
+  limit?: number
+): T[] => limitRows([...rows].sort(createFieldOrderComparator(orderBy)), limit);

@@ -64,10 +64,8 @@ describe('where operator scale', () => {
     const large = patchWork(20_000);
 
     expect(large.readEngineApplies).toBe(small.readEngineApplies);
-    expect(large.readEngineRebuilds).toBe(small.readEngineRebuilds);
     expect(large.readEngineDeltaRows).toBe(small.readEngineDeltaRows);
     expect(small.readEngineApplies).toBe(1);
-    expect(small.readEngineRebuilds).toBe(0);
     expect(small.readEngineDeltaRows).toBe(1);
   });
 });

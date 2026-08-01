@@ -9,7 +9,6 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   fkIndexFullBuilds: 0,
   fkIndexIncrementalUpdates: 0,
   readEngineApplies: 0,
-  readEngineRebuilds: 0,
   readEngineDeltaRows: 0,
   readEngineScanRows: 0,
   scopeReadPasses: 0,
@@ -45,10 +44,10 @@ export const noteFkIndex = (kind: 'full' | 'incremental', rows: number): void =>
   else diagnostics.fkIndexIncrementalUpdates += rows;
 };
 
-export const noteReadEngineApply = (kind: 'delta' | 'rebuild', rows: number): void => {
+/** One incremental update of a declared query, sized by the rows it moved. */
+export const noteReadEngineApply = (rows: number): void => {
   diagnostics.readEngineApplies += 1;
-  if (kind === 'rebuild') diagnostics.readEngineRebuilds += 1;
-  else diagnostics.readEngineDeltaRows += rows;
+  diagnostics.readEngineDeltaRows += rows;
 };
 
 /** Record one model-read scan by its row count, without per-row instrumentation. */

@@ -191,6 +191,7 @@ export const defineModelRuntime = <
       context,
       defaultOrder: config.defaultOrder,
       matchesCriteria,
+      normalizeCriteria,
       rowDep,
       modelDep,
       whereRead

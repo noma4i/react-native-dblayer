@@ -7,6 +7,7 @@ export declare const createModelReactiveReads: <TStored extends {
     context: ModelContext<TStored>;
     defaultOrder?: DbReadOptions<TStored>["orderBy"];
     matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
+    normalizeCriteria(where: DbWhere<TStored>): DbWhere<TStored>;
     rowDep(id: string, fields?: ReadonlyArray<string>): Dependency;
     modelDep: Dependency;
     whereRead(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;

@@ -2,7 +2,8 @@ import type { DataLossMechanism } from '../types';
 export declare const noteCommit: () => void;
 export declare const noteCommitFanout: (candidates: number, notified: number) => void;
 export declare const noteFkIndex: (kind: "full" | "incremental", rows: number) => void;
-export declare const noteReadEngineApply: (kind: "delta" | "rebuild", rows: number) => void;
+/** One incremental update of a declared query, sized by the rows it moved. */
+export declare const noteReadEngineApply: (rows: number) => void;
 /** Record one model-read scan by its row count, without per-row instrumentation. */
 export declare const noteReadEngineScan: (rows: number) => void;
 export declare const noteScopeReadPass: (resorted: boolean) => void;

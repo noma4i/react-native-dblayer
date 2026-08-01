@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const source = fs.readFileSync(path.resolve(__dirname, '../../../read/scopeReadEngine.ts'), 'utf8');
 const liveReadSource = fs.readFileSync(path.resolve(__dirname, '../../../read/useLiveRead.ts'), 'utf8');
-const incrementalReadSource = fs.readFileSync(path.resolve(__dirname, '../../../read/incrementalReadEngine.ts'), 'utf8');
+const incrementalReadSource = fs.readFileSync(path.resolve(__dirname, '../../../read/readIdentity.ts'), 'utf8');
 const storeSource = fs.readFileSync(path.resolve(__dirname, '../../../core/store.ts'), 'utf8');
 const scopeIndexSource = fs.readFileSync(path.resolve(__dirname, '../../../core/planes/scopeIndex.ts'), 'utf8');
 const configureSource = fs.readFileSync(path.resolve(__dirname, '../../../dsl/configure.ts'), 'utf8');

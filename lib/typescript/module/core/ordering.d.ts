@@ -28,4 +28,11 @@ export declare const canonicalOrderOptions: (direction: "asc" | "desc") => {
     nulls: "last";
     stringSort: "lexical";
 };
+/** Apply an optional non-negative row limit; undefined means no limit. */
+export declare const limitRows: <T>(rows: T[], limit: number | undefined) => T[];
+/** Sort a snapshot read by declared keys and cut it to the declared limit. */
+export declare const sortModelReadRows: <T extends RowId & Record<string, unknown>>(rows: T[], orderBy: ReadonlyArray<{
+    field: string;
+    direction: "asc" | "desc";
+}>, limit?: number) => T[];
 //# sourceMappingURL=ordering.d.ts.map

@@ -1,5 +1,5 @@
 import { invalidateModel } from '../core/invalidationRegistry';
-import { limitRows, sortModelReadRows } from '../read/incrementalReadEngine';
+import { limitRows, sortModelReadRows } from '../core/ordering';
 import type { ModelDirectAccess, ModelDirectAccessOptions } from '../types';
 
 export const createModelDirectAccess = <TStored extends { id: string; updatedAt?: string | null } & Record<string, unknown>, TInput>(

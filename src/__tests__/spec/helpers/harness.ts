@@ -137,7 +137,6 @@ export type DiagnosticsSnapshot = {
   fkIndexFullBuilds: number;
   fkIndexIncrementalUpdates: number;
   readEngineApplies: number;
-  readEngineRebuilds: number;
   readEngineDeltaRows: number;
   readEngineScanRows: number;
   scopeReadPasses: number;

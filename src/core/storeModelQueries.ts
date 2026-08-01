@@ -27,8 +27,8 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
   const { modelId, storeId, entities } = options;
   const cache = createDerivedCollectionCache<ReturnType<typeof build>>();
 
-  const build = <TStored extends RowRecord>(key: string, spec: ModelQuerySpec<TStored>) =>
-    createLiveQueryCollection({
+  const build = <TStored extends RowRecord>(key: string, spec: ModelQuerySpec<TStored>) => {
+    const collection = createLiveQueryCollection({
       ...OWNED_COLLECTION_LIFETIME,
       id: `dblayer-${modelId}-query-${storeId}-${key}`,
       startSync: true,
@@ -44,6 +44,16 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
       },
       getKey: row => (row as RowRecord).id
     });
+    // The work a declaration costs is counted once on the query, not once per reader watching it.
+    const counter = collection.subscribeChanges(changes => noteReadEngineApply(changes.length), { includeInitialState: false });
+    return {
+      collection,
+      cleanup: () => {
+        counter.unsubscribe();
+        return collection.cleanup();
+      }
+    };
+  };
 
   return {
     query: (key, spec) => {
@@ -63,20 +73,12 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
       };
       return {
         rows: () => {
-          const materialized = [...held.collection.toArray];
+          const materialized = [...held.collection.collection.toArray];
           noteReadEngineScan(materialized.length);
           return materialized.map(row => resolve(row as RowRecord));
         },
         subscribe: listener => {
-          // The engine maintains the query incrementally, so every notification is a delta and its
-          // size is the work this reader was asked to do.
-          const subscription = held.collection.subscribeChanges(
-            changes => {
-              noteReadEngineApply('delta', changes.length);
-              listener();
-            },
-            { includeInitialState: false }
-          );
+          const subscription = held.collection.collection.subscribeChanges(() => listener(), { includeInitialState: false });
           return () => subscription.unsubscribe();
         },
         release: () => {

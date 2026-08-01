@@ -17,7 +17,6 @@ export type * from './db.types';
 export type * from './dsl.maintenanceRegistry.types';
 export type * from './dsl.modelContext.types';
 export type * from './read.scopeRetention.types';
-export type * from './read.incrementalReadEngine.types';
 export type * from './read.scopeReadEngine.types';
 export type * from './read.liveRead.types';
 export type * from './read.projectionGate.types';

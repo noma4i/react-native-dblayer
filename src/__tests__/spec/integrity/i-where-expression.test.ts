@@ -70,6 +70,9 @@ const CASES: Array<[string, DbWhere<Row>]> = [
   ['not of a leaf', { not: { flag: true } }],
   ['not of an or', { not: { or: [{ label: 'alpha' }, { label: 'beta' }] } }],
   ['nested and inside or', { or: [{ and: [{ flag: true }, { rank: { lt: 0 } }] }, { label: 'beta' }] }],
+  ['or of one leaf', { or: [{ label: 'alpha' }] }],
+  ['and of one leaf', { and: [{ label: 'alpha' }] }],
+  ['and of nothing admits every row', { and: [] }],
   ['notIn while the field is null', { note: { notIn: ['hello world'] } }],
   ['gt while the field is null', { note: { gt: 'a' } }],
   ['not of a null equality', { not: { note: null } }],
@@ -79,6 +82,12 @@ const CASES: Array<[string, DbWhere<Row>]> = [
 describe('where expression compilation', () => {
   it.each(CASES)('agrees with the declared predicate: %s', (_name, where) => {
     expect(engineRows(where)).toEqual(predicateRows(where));
+  });
+
+  it('admits no row for a choice between nothing', () => {
+    // The mirror of an empty `and`: a filter that offers no alternative is met by no row.
+    expect(engineRows({ or: [] })).toEqual([]);
+    expect(predicateRows({ or: [] })).toEqual([]);
   });
 
   it('matches every row when the filter carries no condition', () => {

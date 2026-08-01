@@ -86,13 +86,11 @@ describe('large scope churn', () => {
 
     expect(large.scopeReadResorts).toBe(small.scopeReadResorts);
     expect(large.readEngineApplies).toBe(small.readEngineApplies);
-    expect(large.readEngineRebuilds).toBe(small.readEngineRebuilds);
     expect(large.readEngineDeltaRows).toBe(small.readEngineDeltaRows);
     expect(large.commitFanoutCandidates).toBe(small.commitFanoutCandidates);
     expect(large.commitFanoutNotified).toBe(small.commitFanoutNotified);
     expect(small.entityUpsertGuardHits).toBe(0);
     expect(large.entityUpsertGuardHits).toBe(0);
-    expect(small.readEngineRebuilds).toBe(0);
   });
 
   it('(b) keeps same-order page-reconcile fanout constant between 200 and 800 rows', () => {
@@ -141,8 +139,6 @@ describe('large scope churn', () => {
     expect(last.scopeReadPasses).toBe(first.scopeReadPasses);
     expect(last.scopeReadResorts).toBe(first.scopeReadResorts);
     expect(last.readEngineApplies).toBe(first.readEngineApplies);
-    expect(last.readEngineRebuilds).toBe(first.readEngineRebuilds);
     expect(last.readEngineDeltaRows).toBe(first.readEngineDeltaRows);
-    expect(first.readEngineRebuilds).toBe(0);
   });
 });
