@@ -64,6 +64,8 @@ export type CommitBus = {
     subscribeIncremental(notify: () => void, deps: ReadonlyArray<Dependency>, onBatch: (batch: IncrementalCommitBatch | null) => void): CommitSubscription;
     subscribeAll(onBatch: (batch: IncrementalCommitBatch) => void): () => void;
     activeDependencies(): ReadonlyArray<Dependency>;
+    /** Declare rows held by a reader that receives its changes outside the bus; returns the release. */
+    retain(deps: ReadonlyArray<Dependency>): () => void;
     publish(batch: IncrementalCommitBatch): void;
     publishAll(): void;
     subscriberCount(): number;

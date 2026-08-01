@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { Dependency, GateEntry, ProjectionGate, ProjectionOptions, RowRecord } from '../types';
-import { rowsShallowEqual, useLiveRead } from './useLiveRead';
+import { useLiveRead } from './useLiveRead';
+import { rowsShallowEqual } from '../utils/rowEquality';
 import { arraysShallowEqual } from '../utils/arrayEquality';
 
 const equalityValue = <TStored extends RowRecord, TOutput extends Record<string, unknown>>(

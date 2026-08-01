@@ -21,6 +21,7 @@ const depMatches = (dep: Dependency, batch: CommitBatch): boolean => {
  */
 export const createCommitBus = (): CommitBus => {
   const subscribers = new Set<CommitSubscriber>();
+  const retained = new Set<{ deps: ReadonlyArray<Dependency> }>();
   const subscribersByModel = new Map<string, Set<CommitSubscriber>>();
   const allSubscribers = new Set<(batch: IncrementalCommitBatch) => void>();
   const modelsOf = (deps: ReadonlyArray<Dependency>): Set<string> => new Set(deps.map(dep => dep.model));
@@ -67,8 +68,18 @@ export const createCommitBus = (): CommitBus => {
       allSubscribers.add(onBatch);
       return () => allSubscribers.delete(onBatch);
     },
+    /**
+     * Hold rows for a reader that gets its changes elsewhere. A live query of the collection engine
+     * notifies its own readers, but the rows it serves are still in use, so it declares them here -
+     * otherwise maintenance would collect rows that are on screen.
+     */
+    retain: (deps: ReadonlyArray<Dependency>): (() => void) => {
+      const entry = { deps };
+      retained.add(entry);
+      return () => retained.delete(entry);
+    },
     /** Snapshot of live reader dependencies, used as garbage-collection roots. */
-    activeDependencies: (): ReadonlyArray<Dependency> => [...subscribers].flatMap(subscriber => subscriber.deps),
+    activeDependencies: (): ReadonlyArray<Dependency> => [...subscribers, ...retained].flatMap(holder => holder.deps),
     publish: (batch: IncrementalCommitBatch): void => {
       if (!batch.rows.length && !batch.scopes.length && !batch.pending?.length) return;
       for (const onBatch of [...allSubscribers]) onBatch(batch);

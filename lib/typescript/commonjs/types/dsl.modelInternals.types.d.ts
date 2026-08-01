@@ -17,5 +17,7 @@ export type ModelScopeKeys = {
 /** Internal `DbWhere` matcher compiled per model. */
 export type ModelCriteria<TRow extends Record<string, unknown>> = {
     matches(row: TRow, where: DbWhere<TRow>): boolean;
+    /** Filter with every operand read through the field codecs; the single normalization of a declared filter. */
+    normalize(where: DbWhere<TRow>): DbWhere<TRow>;
 };
 //# sourceMappingURL=dsl.modelInternals.types.d.ts.map

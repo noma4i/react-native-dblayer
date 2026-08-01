@@ -1,8 +1,7 @@
 import { buildScopeKey } from '../core/compileDbWhere';
-import { createModelReadEngine, incrementalSignature, useIncrementalRead } from '../read/incrementalReadEngine';
+import { incrementalSignature } from '../read/incrementalReadEngine';
 import { useModelQuery } from '../read/useModelQuery';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
-import { hasRequiredFields } from '../read/requireFields';
 import { arraysShallowEqual } from '../utils/arrayEquality';
 import type { DbWhere, Dependency, ModelContext, ModelReadAccess, ModelReadBuilder, ProjectionOptions, ReadOrder, ScopeSpec } from '../types';
 import { useEffect, useRef } from 'react';
@@ -15,6 +14,7 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
   defaultOrder?: ReadOrder<TStored>;
   keyForScope(scopeName: string, scopeValue: unknown): string;
   matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
+  normalizeCriteria(where: DbWhere<TStored>): DbWhere<TStored>;
 }): ModelReadAccess<TStored> => {
   const { planes } = options.context;
   const rowDep = (id: string, fields?: ReadonlyArray<string>): Dependency => ({ kind: 'row', model: options.modelId, id, ...(fields ? { fields } : {}) });
@@ -45,51 +45,47 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
         const gateRef = useRef(createProjectionGate<TStored, TOutput>());
         projectionRef.current = projection;
         const signature = incrementalSignature('where-builder', options.modelId, buildScopeKey({ criteria, orders: effectiveOrders, limit, required }));
-        return useIncrementalRead({
+        const spec = {
+          where: criteria == null ? { or: [] } : options.normalizeCriteria(criteria),
+          orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>,
+          limit,
+          required
+        };
+        return useModelQuery(
+          options.modelId,
           signature,
-          deps: criteria == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine({
-              signature,
-              model: options.modelId,
-              where: row => criteria != null && options.matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              options: { orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: rows => gateRef.current.projectRows(rows, projectionRef.current),
-              isEqual: arraysShallowEqual
-            })
-        });
+          spec,
+          rows => gateRef.current.projectRows(rows as TStored[], projectionRef.current),
+          arraysShallowEqual
+        );
       },
       pluck: function usePluck(criteria, orders, limit, required, projection, field) {
         const effectiveOrders = orders.length > 0 ? orders : defaultOrders;
         const projectionRef = useRef(projection);
         projectionRef.current = projection;
         const signature = incrementalSignature('where-pluck', options.modelId, buildScopeKey({ criteria, orders: effectiveOrders, limit, required, field }));
-        return useIncrementalRead({
+        const spec = {
+          where: criteria == null ? { or: [] } : options.normalizeCriteria(criteria),
+          orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>,
+          limit,
+          required
+        };
+        return useModelQuery(
+          options.modelId,
           signature,
-          deps: criteria == null ? [] : [modelDep],
-          create: () =>
-            createModelReadEngine<TStored, unknown[]>({
-              signature,
-              model: options.modelId,
-              where: row => criteria != null && options.matchesCriteria(row, criteria) && hasRequiredFields(row, required),
-              options: { orderBy: effectiveOrders as ReadonlyArray<{ field: string; direction: 'asc' | 'desc' }>, limit },
-              initial: () => planes().entityState.values(),
-              read: id => planes().entityState.read(id),
-              select: rows => {
-                const selector = projectionRef.current.select;
-                const projected: readonly object[] = selector ? rows.map(row => selector(row)) : rows;
-                return projected.map(row => Reflect.get(row, field));
-              },
-              isEqual: arraysShallowEqual
-            })
-        });
+          spec,
+          rows => {
+            const selector = projectionRef.current.select;
+            const projected: readonly object[] = selector ? (rows as TStored[]).map(row => selector(row)) : rows;
+            return projected.map(row => Reflect.get(row, field));
+          },
+          arraysShallowEqual
+        );
       },
       exists: function useExists(criteria, required) {
         const signature = incrementalSignature('where-exists', options.modelId, buildScopeKey({ criteria, required }));
         // An inactive read declares a filter no row meets, so the hook shape never depends on it.
-        const spec = { where: criteria ?? { or: [] }, orderBy: [], limit: undefined, required };
+        const spec = { where: criteria == null ? { or: [] } : options.normalizeCriteria(criteria), orderBy: [], limit: undefined, required };
         return useModelQuery(options.modelId, signature, spec, rows => rows.length > 0);
       }
     });

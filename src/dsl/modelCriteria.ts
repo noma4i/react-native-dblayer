@@ -25,15 +25,18 @@ export const createModelCriteria = <TRow extends Record<string, unknown>>(fields
     }
     return out as DbWhere<TRow>;
   };
-  return {
-    matches: (row: TRow, where: DbWhere<TRow>): boolean => {
-      if (typeof where !== 'object' || where === null) return matchesDbWhere(row, where);
-      let normalized = cache.get(where);
-      if (!normalized) {
-        normalized = normalize(where);
-        cache.set(where, normalized);
-      }
-      return matchesDbWhere(row, normalized);
+  const normalizeCached = (where: DbWhere<TRow>): DbWhere<TRow> => {
+    if (typeof where !== 'object' || where === null) return where;
+    let normalized = cache.get(where);
+    if (!normalized) {
+      normalized = normalize(where);
+      cache.set(where, normalized);
     }
+    return normalized;
+  };
+  return {
+    // One normalization for both readers of a filter: the row predicate and the query compiler.
+    normalize: normalizeCached,
+    matches: (row: TRow, where: DbWhere<TRow>): boolean => matchesDbWhere(row, normalizeCached(where))
   };
 };

@@ -28,7 +28,7 @@ describe('read diagnostics', () => {
     reader.unmount();
   });
 
-  it('separates delta rows from replace rebuilds', () => {
+  it('delivers a replace as a delta instead of recomputing the result', () => {
     setupSpecRuntime();
     diagnostics().reset();
     const items = createItems('Modes');
@@ -45,7 +45,10 @@ describe('read diagnostics', () => {
       items.replace('row-1', { id: 'row-2', status: 'ready', score: 2 });
     });
 
-    expect(diagnostics().snapshot().readEngineRebuilds).toBeGreaterThan(0);
+    // Identity replace reaches the reader as ordinary deltas: no read path recomputes a whole result.
+    const afterReplace = diagnostics().snapshot();
+    expect(afterReplace.readEngineRebuilds).toBe(0);
+    expect(afterReplace.readEngineDeltaRows).toBeGreaterThan(delta.readEngineDeltaRows);
     reader.unmount();
   });
 

@@ -8,5 +8,6 @@ export declare const createModelReadAccess: <TStored extends {
     defaultOrder?: ReadOrder<TStored>;
     keyForScope(scopeName: string, scopeValue: unknown): string;
     matchesCriteria(row: TStored, where: DbWhere<TStored>): boolean;
+    normalizeCriteria(where: DbWhere<TStored>): DbWhere<TStored>;
 }) => ModelReadAccess<TStored>;
 //# sourceMappingURL=modelReadAccess.d.ts.map

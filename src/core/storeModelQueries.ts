@@ -1,8 +1,11 @@
 import { and, createLiveQueryCollection, isUndefined, not } from '@tanstack/db';
 import { compileWhereExpression } from './compileWhereExpression';
+import { noteReadEngineApply, noteReadEngineScan } from './diagnostics';
 import { canonicalOrderOptions } from './ordering';
 import { createDerivedCollectionCache } from './storeDerivedCollections';
 import { OWNED_COLLECTION_LIFETIME } from './storeSync';
+import { getCommitBus } from '../dsl/configure';
+import { rowsShallowEqual } from '../utils/rowEquality';
 import type { ModelQueryPlane, ModelQueryPlaneOptions, ModelQuerySpec, RowRecord, WhereExpression, WhereOperand, WhereRowRef } from '../types';
 
 const fieldRef = (row: WhereRowRef, field: string): WhereOperand => row[field]!;
@@ -45,13 +48,41 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
   return {
     query: (key, spec) => {
       const held = cache.acquire(key, () => build(key, spec));
+      // A mounted query is a maintenance root: its rows are on screen even though its changes come
+      // from the engine rather than from the commit bus.
+      const releaseRoot = getCommitBus().retain([{ kind: 'model', model: modelId }]);
+      // Query results arrive as fresh objects on every read; an unchanged row keeps its instance so
+      // readers that compare by reference see no change where none happened.
+      const rowCache = new Map<string, RowRecord>();
+      const resolve = (queried: RowRecord): RowRecord => {
+        const next = Object.fromEntries(Object.entries(queried).filter(([key_]) => !key_.startsWith('$'))) as RowRecord;
+        const current = rowCache.get(next.id);
+        const resolved = current && rowsShallowEqual(current, next) ? current : next;
+        rowCache.set(next.id, resolved);
+        return resolved;
+      };
       return {
-        rows: () => [...held.collection.toArray].map(row => row as RowRecord),
+        rows: () => {
+          const materialized = [...held.collection.toArray];
+          noteReadEngineScan(materialized.length);
+          return materialized.map(row => resolve(row as RowRecord));
+        },
         subscribe: listener => {
-          const subscription = held.collection.subscribeChanges(() => listener(), { includeInitialState: false });
+          // The engine maintains the query incrementally, so every notification is a delta and its
+          // size is the work this reader was asked to do.
+          const subscription = held.collection.subscribeChanges(
+            changes => {
+              noteReadEngineApply('delta', changes.length);
+              listener();
+            },
+            { includeInitialState: false }
+          );
           return () => subscription.unsubscribe();
         },
-        release: held.release
+        release: () => {
+          releaseRoot();
+          held.release();
+        }
       };
     },
     dispose: () => {

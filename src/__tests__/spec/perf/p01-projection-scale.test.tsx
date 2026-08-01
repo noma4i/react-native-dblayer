@@ -40,9 +40,10 @@ describe('projection scale', () => {
     expect(large.work.readEngineApplies).toBe(small.work.readEngineApplies);
     expect(large.work.readEngineRebuilds).toBe(small.work.readEngineRebuilds);
     expect(large.work.readEngineDeltaRows).toBe(small.work.readEngineDeltaRows);
-    expect(small.work.readEngineApplies).toBe(50);
+    // One row changed, so exactly one of the fifty declared queries did any work at all.
+    expect(small.work.readEngineApplies).toBe(1);
     expect(small.work.readEngineRebuilds).toBe(0);
-    expect(small.work.readEngineDeltaRows).toBe(50);
+    expect(small.work.readEngineDeltaRows).toBe(1);
     small.deltas.forEach((renders, index) => expect(renders).toBe(index === 25 ? 1 : 0));
     large.deltas.forEach((renders, index) => expect(renders).toBe(index === 25 ? 1 : 0));
   });

@@ -9,7 +9,7 @@ import { createProjectionGate, validateProjectionOptions } from './projectionGat
 import { hasRequiredFields } from './requireFields';
 import { useScopeRetention } from './scopeRetention';
 import { incrementalSignature } from './incrementalReadEngine';
-import { rowsShallowEqual } from './useLiveRead';
+import { rowsShallowEqual } from '../utils/rowEquality';
 import { arraysShallowEqual } from '../utils/arrayEquality';
 
 const EMPTY_ROWS: RowRecord[] = [];

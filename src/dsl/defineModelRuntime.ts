@@ -65,7 +65,7 @@ export const defineModelRuntime = <
 
   const scopeByFieldMap = new Map(membershipScopes.map(([name, spec]) => [name, spec.by] as const));
   const { keyForScope, normalizeScopeValue, isScopeValueComplete, scopeValueFromRow } = createModelScopeKeys(config, scopeByFieldMap);
-  const { matches: matchesCriteria } = createModelCriteria<InferStoredFields<TFields> & Record<string, unknown>>(config.fields);
+  const { matches: matchesCriteria, normalize: normalizeCriteria } = createModelCriteria<InferStoredFields<TFields> & Record<string, unknown>>(config.fields);
 
   const { membershipForUpsert, detachForDestroy } = createModelMembership<InferStoredFields<TFields> & Record<string, unknown>>({
     membershipScopes,
@@ -126,7 +126,8 @@ export const defineModelRuntime = <
     scopes: config.scopes as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>> | undefined,
     defaultOrder: config.defaultOrder,
     keyForScope,
-    matchesCriteria
+    matchesCriteria,
+    normalizeCriteria
   });
   const { applyTarget, applySnapshot, applyEvent } = createModelApplyTarget<InferStoredFields<TFields> & Record<string, unknown>>({
     modelId: config.id,

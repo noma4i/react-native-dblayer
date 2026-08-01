@@ -1,6 +1,4 @@
 import type { Dependency } from '../types';
-/** Shallow row equality across both key sets; array values compare element identity one level deep. */
-export declare const rowsShallowEqual: (left: object, right: object) => boolean;
 /**
  * Reactive read primitive with pinpoint emissions: the hook subscribes to the commit bus with an
  * explicit dependency set, recomputes only when a commit batch intersects it, and re-renders only

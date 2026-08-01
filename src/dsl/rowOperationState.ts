@@ -1,6 +1,6 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import type { RowOperationState } from '../types';
-import { rowsShallowEqual } from '../read/useLiveRead';
+import { rowsShallowEqual } from '../utils/rowEquality';
 import { getCommitBus, getOperationState } from './configure';
 
 const readUnsyncedChanges = <TStored>(model: string, id: string): Partial<TStored> | undefined => {

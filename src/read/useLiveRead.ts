@@ -1,9 +1,7 @@
-import { union } from 'es-toolkit';
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import type { CommitSubscription, Dependency, LiveReadState } from '../types';
 import { getCommitBus } from '../dsl/configure';
 import { compositeKey, semanticValue } from '../core/serialize';
-import { arraysShallowEqual } from '../utils/arrayEquality';
 
 const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
   compositeKey(
@@ -17,15 +15,6 @@ const depsSignature = (deps: ReadonlyArray<Dependency>): string =>
             : compositeKey('r', dep.model, dep.id, semanticValue(dep.fields ?? []))
     )
   );
-
-/** Shallow row equality across both key sets; array values compare element identity one level deep. */
-export const rowsShallowEqual = (left: object, right: object): boolean => {
-  return union(Object.keys(left), Object.keys(right)).every(key => {
-    const leftValue = Reflect.get(left, key);
-    const rightValue = Reflect.get(right, key);
-    return Array.isArray(leftValue) && Array.isArray(rightValue) ? arraysShallowEqual(leftValue, rightValue) : leftValue === rightValue;
-  });
-};
 
 /**
  * Reactive read primitive with pinpoint emissions: the hook subscribes to the commit bus with an
