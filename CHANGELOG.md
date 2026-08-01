@@ -1,5 +1,24 @@
 # Changelog
 
+## 10.0.0-beta.8 - 2026-08-01
+
+### Fixed
+
+- Store collections no longer lose their rows to the collection library's own retention timer. A model left without a mounted reader for five minutes had its rows cleared behind the store, while the indexes built over the collection kept their keys, so the next scope projection read rows the collection no longer held and threw. Every collection this package builds now declares store-owned lifetime.
+- A mounted reader whose declared filter changes now serves the new filter on the same render instead of keeping the previous result.
+- A filter comparing a field to `null` selects the rows whose field is `null`, and `notIn` admits a row whose field carries no value, on both the row predicate and the live query.
+
+### Changed
+
+- Model reads (`find`, `where`, `exists`, `count`, `first`, `pluck`) are compiled into live queries of the collection engine; the package no longer carries its own read engine. One declaration is served by one live query however many readers hold it, and a commit reaches only the queries whose result it changes.
+- Ordering follows one total order across the live query and the comparator: an ordered value first, then a value with no position in its own type (`NaN`, an invalid `Date`) which reverses with the direction, then absence which stays last either way.
+
+### Removed
+
+- The `contains` filter operator. The engine's pattern match treats `%` and `_` as wildcards and has no escape, so a literal search containing them would give a live query a wider answer than the row predicate.
+- The `readEngineRebuilds` diagnostic counter: with queries maintained incrementally, no path recomputes a whole result.
+- The `@tanstack/react-db` and `@tanstack/query-db-collection` dependencies, which no code imported.
+
 ## 10.0.0-beta.7 - 2026-07-31
 
 ### Fixed
