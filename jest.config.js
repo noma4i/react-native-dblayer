@@ -9,6 +9,7 @@ module.exports = {
     '!src/**/__tests__/**',
     '!src/index.ts'
   ],
+  setupFiles: ['<rootDir>/jest.env.js'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   transform: {
     '^.+\\.js$': [

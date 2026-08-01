@@ -89,6 +89,8 @@ export type RequestState = {
     hasNextPage: boolean;
     ids: string[];
     resultKind: 'one' | 'many';
+    /** When the current chain meta landed; the freshness record follows it whichever path fetched. */
+    dataUpdatedAt: number;
 };
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
 export type ChainMeta = {

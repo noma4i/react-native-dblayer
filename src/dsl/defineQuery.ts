@@ -88,6 +88,8 @@ const isChainMeta = (value: unknown): value is ChainMeta =>
   value.ids.every(id => typeof id === 'string') &&
   (value.resultKind === 'one' || value.resultKind === 'many');
 const isEmptyChain = (value: ChainMeta): boolean => value.ids.length === 0;
+/** Largest delay a 32-bit timer holds; anything above it fires on the next tick instead of later. */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 /** Fail fast at define time, then rewrite the `connection` shorthand into the one `page` seam - dense nodes, pageInfo passthrough. */
 const normalizeQueryConfig = <TResponse, TVars, TScope, TStored>(config: QueryConfig<TResponse, TVars, TScope, TStored>): QueryConfig<TResponse, TVars, TScope, TStored> => {
   const readConnection = config.connection;
@@ -145,7 +147,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (rawScope === null) return null;
     const scope = normalizeScope(rawScope);
     destinationScope?.key(scope);
-    registeredScopes.set(buildScopeKey(scope), scope);
+    registeredScopes.set(bucketKeyOf(scope), scope);
     return scope;
   };
   const matchesPartialScope = (scope: TScope, partial: TScope): boolean => {
@@ -315,6 +317,19 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       resultKind: result.resultKind
     };
   };
+  /**
+   * The declared window doubles as the refresh cadence while a reader watches. A window only
+   * consulted when a reader mounts cannot repair a feed whose live channel died under a screen the
+   * user never left, which is the case the window is declared for. `Infinity` and `0` opt out: one
+   * declares data that never ages, the other data whose every read is already a fetch.
+   */
+  const refreshIntervalOf = (key: string): number | false => {
+    const window = staleTimeOf(key);
+    // A window past the platform timer ceiling is not a long schedule - the timer silently collapses
+    // to the next tick and the screen starts polling the transport. Such a window declares data that
+    // does not age, which is the same answer as `Infinity` and `0`: no schedule.
+    return window > 0 && window <= MAX_TIMER_DELAY_MS ? window : false;
+  };
   const staleTimeOf = (key: string): number => {
     const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
     const defaults = getDbRuntimeConfig().defaults;
@@ -452,12 +467,39 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       invalidateMatching(normalizeScope(scope as TScope));
     });
   }
-  const useObservedState = (key: string): RequestState => {
+  const useObservedState = (key: string, scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean): RequestState => {
     const client = getDbQueryClient();
     const generation = getRuntimeGeneration();
+    // `staleTime: 'static'` leaves mount, focus and reconnect exactly where they already are - no
+    // automatic trigger ever reads this observer as stale. The interval is the one edge nothing else
+    // covers, and it runs on React Query's own timer rather than a private one.
+    // The observer owns one job: refresh what is already on screen once its declared window runs
+    // out. It stays disabled until the first result has landed, so first loads keep going through
+    // the reader's own path, and `staleTime: 'static'` means no automatic trigger ever reads it as
+    // stale - the interval is the only thing that moves it, on React Query's timer rather than a
+    // private one.
+    const landed = (client.getQueryData(queryKeyOf(key)) as ChainMeta | undefined) !== undefined;
+    const observerOptions = {
+      queryKey: queryKeyOf(key),
+      enabled: enabled && scope !== null && landed,
+      staleTime: 'static' as const,
+      refetchIntervalInBackground: false,
+      refetchInterval: () => refreshIntervalOf(key),
+      queryFn: async (): Promise<ChainMeta | null> => {
+        const current = () => (client.getQueryData(queryKeyOf(key)) as ChainMeta | undefined) ?? null;
+        // Offline, the scheduled refresh does nothing and keeps what is there: the reconnect path
+        // owns catching up, and a refresh that fails is not a reason to disturb the screen.
+        if (scope === null || !isFetchNetworkOnline()) return current();
+        const fence = createGenerationFence();
+        const meta = await execute(scope, key, resurrectDestroyed, { cursor: null, isCurrent: fence.isCurrent });
+        return meta ?? current();
+      }
+    };
     const observerRef = useRef<{ key: string; generation: number; observer: QueryObserver<ChainMeta | null> } | null>(null);
     if (observerRef.current === null || observerRef.current.key !== key || observerRef.current.generation !== generation) {
-      observerRef.current = { key, generation, observer: new QueryObserver<ChainMeta | null>(client, { queryKey: queryKeyOf(key), enabled: false, staleTime: Infinity }) };
+      observerRef.current = { key, generation, observer: new QueryObserver<ChainMeta | null>(client, observerOptions) };
+    } else {
+      observerRef.current.observer.setOptions(observerOptions);
     }
     const observer = observerRef.current.observer;
     const subscribe = useCallback(
@@ -489,15 +531,23 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null,
       hasNextPage: meta?.hasNextPage ?? false,
       ids: meta?.ids ?? [],
-      resultKind: meta?.resultKind ?? (config.page ? 'many' : 'one')
+      resultKind: meta?.resultKind ?? (config.page ? 'many' : 'one'),
+      dataUpdatedAt: result.dataUpdatedAt
     };
   };
   const useReader = (scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean, forceAbsentRefetch: boolean): RequestState => {
     const key = scope === null ? compositeKey(keyName, 'inactive') : bucketKeyOf(scope);
-    const state = useObservedState(key);
+    const state = useObservedState(key, scope, enabled, resurrectDestroyed);
     const mountedKey = useRef<string | null>(null);
     const forcedRefetch = useRef(false);
     if (mountedKey.current !== key) forcedRefetch.current = false;
+    // Freshness has to survive a restart whichever path fetched, and the scheduled refresh lands
+    // through the observer rather than through `run`. Following the landing timestamp records both.
+    useEffect(() => {
+      if (scope === null || state.dataUpdatedAt === 0) return;
+      const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
+      if (meta !== undefined) persist(scope, meta);
+    }, [key, scope, state.dataUpdatedAt]);
     useEffect(() => {
       if (scope === null || !enabled) return;
       const client = getDbQueryClient();
