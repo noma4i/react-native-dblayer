@@ -26,7 +26,7 @@ describe('residency drain', () => {
       { id: 'r-2', bucket: 'b', label: 'two' }
     ]);
     const reader = renderCounted(() => rows.use.where({ bucket: 'a' }).rows());
-    expect(residencySnapshot().derivedCollections).toBeGreaterThan(0);
+    expect(residencySnapshot().derivedCollections).toBe(1);
 
     reader.unmount();
 
@@ -35,20 +35,20 @@ describe('residency drain', () => {
 
   it('holds no row bucket for an operation that was taken back', () => {
     createRows();
-    const before = residencySnapshot().operationRowBuckets;
+    expect(residencySnapshot().operationRowBuckets).toBe(0);
     const operation = { operationId: 'op-resident', model: 'SpecResidencyOps', tempIds: [], rowIds: ['r-op'], intent: 'patch' as const, createdAt: 1 };
     getOperationState().applyTransitions([{ kind: 'begin', operation }]);
-    expect(residencySnapshot().operationRowBuckets).toBe(before + 1);
+    expect(residencySnapshot().operationRowBuckets).toBe(1);
 
     // Removal leaves the bucket empty, and an empty bucket that stays behind is the leak.
     getOperationState().applyTransitions([{ kind: 'remove', operationId: 'op-resident' }]);
 
-    expect(residencySnapshot().operationRowBuckets).toBe(before);
+    expect(residencySnapshot().operationRowBuckets).toBe(0);
   });
 
   it('holds no entry for a model store that was disposed', () => {
     setupSpecRuntime();
-    const before = residencySnapshot().modelStores;
+    expect(residencySnapshot().modelStores).toBe(0);
     const store = createModelStore<{ id: string }>({
       modelId: `SpecResidencyStore${(suffix += 1)}`,
       now: () => Date.now(),
@@ -56,11 +56,11 @@ describe('residency drain', () => {
       prefix: () => 'spec-residency:',
       applyWriteGate: (_previous, incoming) => incoming
     });
-    expect(residencySnapshot().modelStores).toBe(before + 1);
+    expect(residencySnapshot().modelStores).toBe(1);
 
     store.dispose();
 
-    expect(residencySnapshot().modelStores).toBe(before);
+    expect(residencySnapshot().modelStores).toBe(0);
   });
 
   it('sums every instance registered under one name and forgets an unregistered gauge', () => {

@@ -137,6 +137,7 @@ export { replayJournal, flushPersistence, resetPersistenceRuntime } from '../dsl
  * SITE and intercept internal callers. Spying on a re-exported binding of this facade never
  * reaches those call sites.
  */
+export * as diagnosticsModule from '../core/diagnostics';
 export * as lifecycleModule from '../dsl/lifecycle';
 export * as networkStateModule from '../core/fetch/networkState';
 export { createMockMmkv, resetAllMockMmkvStores } from '../../__mocks__/mmkvMockFactory';

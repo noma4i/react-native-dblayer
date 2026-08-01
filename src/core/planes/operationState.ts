@@ -107,14 +107,23 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     else pendingKeys.delete(record.idempotencyKey);
     if (record.status === 'committed' && record.once === true) committedKeys.add(record.idempotencyKey);
   };
+  const indexRecord = (record: OperationRecord): void => {
+    indexOperation(record);
+    indexRecordRows(record);
+    if (isPendingPatchOwner(record)) pendingPatchCount += 1;
+  };
+  const unindexRecord = (record: OperationRecord): void => {
+    if (record.idempotencyKey && record.status === 'pending') pendingKeys.delete(record.idempotencyKey);
+    unindexRecordRows(record);
+    if (isPendingPatchOwner(record)) pendingPatchCount -= 1;
+  };
+  /** The same pair applied to every record: a projection rebuilt here can never disagree with one maintained incrementally. */
   const rebuildIndexes = (): void => {
     committedKeys.clear();
     pendingKeys.clear();
     opsByRowKey.clear();
-    for (const record of operations.values()) {
-      indexOperation(record);
-      indexRecordRows(record);
-    }
+    pendingPatchCount = 0;
+    for (const record of operations.values()) indexRecord(record);
   };
   const opsKey = () => `${prefix()}ops`;
   const entriesFor = (records: ReadonlyMap<string, OperationRecord>, onceKeys: ReadonlySet<string>): Array<{ key: string; value: string | null }> => {
@@ -169,25 +178,19 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     begin: operation => {
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
-      indexOperation(record);
-      indexRecordRows(record);
-      if (isPendingPatchOwner(record)) pendingPatchCount += 1;
+      indexRecord(record);
       storage.set(persistEntries());
       notify?.(record);
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
       if (!operation || operation.status !== 'pending') return;
-      const wasPatchOwner = isPendingPatchOwner(operation);
       hydratedPendingIds.delete(operationId);
-      if (operation.idempotencyKey) pendingKeys.delete(operation.idempotencyKey);
       const retainKey = status === 'committed' && operation.once === true;
       const record: OperationRecord = { ...operation, status, idempotencyKey: retainKey ? operation.idempotencyKey : undefined };
-      unindexRecordRows(operation);
+      unindexRecord(operation);
       operations.set(operationId, record);
-      indexRecordRows(record);
-      if (wasPatchOwner) pendingPatchCount -= 1;
-      indexOperation(record);
+      indexRecord(record);
       storage.set(persistEntries());
       notify?.(record);
     },
@@ -319,23 +322,12 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       for (const transition of transitions) {
         const operationId = transition.kind === 'begin' ? transition.operation.operationId : transition.operationId;
         const before = operations.get(operationId);
-        if (before) {
-          unindexRecordRows(before);
-          if (before.idempotencyKey && before.status === 'pending') pendingKeys.delete(before.idempotencyKey);
-          if (isPendingPatchOwner(before)) pendingPatchCount -= 1;
-        }
+        if (before) unindexRecord(before);
         const result = applyTransition(operations, committedKeys, transition);
         // A no-op transition (status mismatch / unknown id) must not strip the hydrated resume mark.
         if (transition.kind !== 'begin' && (result.next !== undefined || result.previous !== undefined)) hydratedPendingIds.delete(transition.operationId);
-        if (result.next) {
-          indexOperation(result.next);
-          indexRecordRows(result.next);
-          if (isPendingPatchOwner(result.next)) pendingPatchCount += 1;
-        } else if (before && result.previous === undefined) {
-          indexOperation(before);
-          indexRecordRows(before);
-          if (isPendingPatchOwner(before)) pendingPatchCount += 1;
-        }
+        if (result.next) indexRecord(result.next);
+        else if (before && result.previous === undefined) indexRecord(before);
         const notification = result.next ?? result.previous;
         if (notification) notifications.push(notification);
       }

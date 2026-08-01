@@ -41,12 +41,13 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-jest-shards.mjs",
     "test:coverage": "node scripts/run-jest-shards.mjs --coverage",
-    "test:mutation": "gtimeout 180 stryker run",
+    "test:mutation": "node scripts/run-mutation.mjs",
     "lint": "eslint .",
     "check:jsdoc": "node scripts/check-jsdoc.mjs",
     "release:notes": "node scripts/release-notes.mjs",
     "clean": "rm -rf lib",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .githooks",
+    "test:mutation:full": "stryker run --force"
   },
   "peerDependencies": {
     "@graphql-typed-document-node/core": ">=3",

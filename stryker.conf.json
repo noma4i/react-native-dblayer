@@ -3,36 +3,36 @@
   "testRunner": "jest",
   "coverageAnalysis": "perTest",
   "ignoreStatic": true,
-  "incremental": false,
+  "incremental": true,
   "mutate": [
     "src/**/*.{ts,tsx}",
     "!src/__tests__/**",
     "!src/types/**"
   ],
   "mutator": {
-    "excludedMutations": [
-      "ArithmeticOperator",
-      "ArrayDeclaration",
-      "ArrowFunction",
-      "AssignmentOperator",
-      "BlockStatement",
-      "BooleanLiteral",
-      "MethodExpression",
-      "ObjectLiteral",
-      "Regex",
-      "StringLiteral",
-      "UnaryOperator",
-      "UpdateOperator"
-    ]
+    "excludedMutations": []
   },
   "jest": {
     "configFile": "jest.stryker.config.js",
     "enableFindRelatedTests": false
   },
-  "ignorePatterns": ["example", "lib", "docs", "reports", ".yarn", ".githooks", "coverage", "*.log"],
+  "ignorePatterns": [
+    "example",
+    "lib",
+    "docs",
+    "reports",
+    ".yarn",
+    ".githooks",
+    "coverage",
+    "*.log"
+  ],
   "tempDirName": ".stryker-tmp",
   "cleanTempDir": true,
-  "reporters": ["progress", "json", "event-recorder"],
+  "reporters": [
+    "progress",
+    "json",
+    "event-recorder"
+  ],
   "eventReporter": {
     "baseDir": "reports/mutation/events"
   },
@@ -41,5 +41,6 @@
   },
   "concurrency": 12,
   "timeoutMS": 60000,
-  "logLevel": "error"
+  "logLevel": "error",
+  "incrementalFile": "reports/mutation/incremental.json"
 }
