@@ -7,7 +7,7 @@ import { registerKeyedReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
 import { getDbTransport, responseDataOrThrow } from '../core/transport';
 import { registerActiveFetchReaders } from '../core/fetch/fetchReaderRegistry';
-import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { createOfflineFetchError, isFetchNetworkOnline } from '../core/fetch/networkState';
 import { isQueryFresh, persistenceWindowOf, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { getDbQueryClient, getDbRuntimeConfig } from './configure';
 import { createGenerationFence } from '../utils/runtimeGeneration';
@@ -185,11 +185,36 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
     restore(input);
     const enabled = config.enabled?.(input) ?? true;
     const client = getDbQueryClient();
-    const result = useObservedQuery<FetchData<TSelected>>(key, { queryKey: queryKeyOf(key), enabled: false, staleTime: Infinity }, 'fixed', localState);
+    // One entry point for every automatic fetch of this key, same as the model-query surface: the
+    // declared window is the observer's real `staleTime`, so first load, mounting on stale data and
+    // reconnect are React Query's decisions. `run` stays for `fetch` and `refresh`, where the caller
+    // owns the outcome and the error.
+    const observerOptions = {
+      queryKey: queryKeyOf(key),
+      enabled,
+      staleTime: staleTimeOf(key),
+      // Paused offline and resumed on reconnect; the imperative path keeps the runtime default so an
+      // awaited `fetch()` fails instead of waiting for the network.
+      networkMode: 'online' as const,
+      refetchOnMount: getDbRuntimeConfig().defaults.refetchOnMount ?? true,
+      refetchOnReconnect: true,
+      queryFn: async (): Promise<FetchData<TSelected>> => {
+        const fence = createGenerationFence();
+        let issuedAt = localState.get(key).invalidateSeq;
+        let data = await execute(input, fence.isCurrent);
+        // An invalidate issued after this request left outranks its answer; see defineQuery.
+        while (fence.isCurrent() && localState.get(key).invalidateSeq !== issuedAt) {
+          issuedAt = localState.get(key).invalidateSeq;
+          data = await execute(input, fence.isCurrent);
+        }
+        return data;
+      }
+    };
+    const result = useObservedQuery<FetchData<TSelected>>(key, observerOptions, `${enabled}:${staleTimeOf(key)}`, localState);
     const state: FetchState = {
       isFetching: result.fetchStatus === 'fetching',
       isFetched: isFetchedResult(result),
-      isPaused: localState.get(key).isPaused,
+      isPaused: localState.get(key).isPaused || result.fetchStatus === 'paused',
       retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
       error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null
     };
@@ -212,18 +237,16 @@ export const defineFetch = <TData, TInput = void, TSelected = TData>(config: Fet
           await run(input, { restart: false });
         }
       });
-      const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
-      const canRefetch = !firstMount || !state.isFetched || getDbRuntimeConfig().defaults.refetchOnMount !== false;
-      if (firstMount && canRefetch && !isFreshKey(key) && !state.isFetching) void run(input, { restart: false });
-      const unsubscribeOnline = subscribeFetchNetwork(() => {
-        if (isFetchNetworkOnline() && !isFreshKey(key)) void run(input, { restart: false });
-      });
-      return () => {
-        unsubscribeOnline();
-        release();
-      };
+      return release;
     }, [client, enabled, input, key, state.isFetched, state.isFetching]);
+    // Whatever path landed the value, its freshness has to survive a restart; following the landing
+    // timestamp records both the imperative and the scheduled landing.
+    useEffect(() => {
+      if (!persists || result.dataUpdatedAt === 0) return;
+      const landed = client.getQueryData(queryKeyOf(key)) as FetchData<TSelected> | undefined;
+      if (landed !== undefined) persist(input, landed);
+    }, [client, input, key, result.dataUpdatedAt]);
     const data = (result.data as FetchData<TSelected> | undefined)?.selected;
     const hasData = data !== undefined && !isEmpty(data);
     const phaseInput = {

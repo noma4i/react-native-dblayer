@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { focusManager } from '@tanstack/react-query';
 import { act } from 'react';
-import { bootDb, configureDb, defineModel, defineShape, f, gql, setFetchNetworkOnline, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineFetch, defineModel, defineShape, f, gql, setFetchNetworkOnline, suspendDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
 
 /**
@@ -17,7 +17,7 @@ import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle
  * window must cost exactly one request, and a background refresh must never shorten a chain the
  * user has already paged through.
  */
-const FRESHNESS = { PUSH_BACKED: 300_000, EMPTY_RETRY: 30_000 };
+const FRESHNESS = { PUSH_BACKED: 300_000, EMPTY_RETRY: 30_000, CATALOG: 7_200_000 };
 const MAX_PAGES_CHATS = 20;
 
 type ChatInput = { id: string; status: string; lastActivityAt: string };
@@ -101,10 +101,87 @@ const threadPage = (index: number, hasPreviousPage: boolean): ThreadData => ({
   }
 });
 
+/** `appConfigFetch` / `countriesFetch`: a keyed standalone fetch with a declared catalog window. */
+const defineCatalogFetch = (tag: string, onCall: () => void) =>
+  defineFetch<{ value: string }, void, { value: string }>({
+    key: `app-freshness-catalog-${tag}`,
+    fetcher: async () => {
+      onCall();
+      return { value: 'catalog' };
+    },
+    select: data => data,
+    staleTime: 'CATALOG'
+  });
+
 describe('app-shaped freshness conformance', () => {
   afterEach(() => {
     setFetchNetworkOnline(true);
     jest.useRealTimers();
+  });
+
+  it('B1 keeps a catalog fetch silent on cold start while its window still holds', async () => {
+    jest.useFakeTimers();
+    const storage = createMemoryPlane();
+    let calls = 0;
+    configure(storage, createMockTransport());
+    const first = defineCatalogFetch('ColdFresh', () => { calls += 1; });
+    await bootDb();
+    await first.fetch();
+    expect(calls).toBe(1);
+    suspendDb();
+    jest.advanceTimersByTime(FRESHNESS.CATALOG - 1);
+
+    configure(storage, createMockTransport());
+    const restarted = defineCatalogFetch('ColdFresh', () => { calls += 1; });
+    await bootDb();
+    const reader = renderCountedInProvider(() => restarted.use());
+    await settle();
+
+    expect(reader.result().data).toEqual({ value: 'catalog' });
+    expect(calls).toBe(1);
+    reader.unmount();
+  });
+
+  it('B2 refetches a catalog fetch exactly once when its window has closed', async () => {
+    jest.useFakeTimers();
+    const storage = createMemoryPlane();
+    let calls = 0;
+    configure(storage, createMockTransport());
+    const first = defineCatalogFetch('ColdExpired', () => { calls += 1; });
+    await bootDb();
+    await first.fetch();
+    suspendDb();
+    jest.advanceTimersByTime(FRESHNESS.CATALOG + 1);
+
+    configure(storage, createMockTransport());
+    const restarted = defineCatalogFetch('ColdExpired', () => { calls += 1; });
+    await bootDb();
+    const reader = renderCountedInProvider(() => restarted.use());
+    await settleUntil(() => calls === 2);
+
+    expect(calls).toBe(2);
+    reader.unmount();
+  });
+
+  it('B3 pauses a catalog fetch mounted offline and catches up on reconnect', async () => {
+    let calls = 0;
+    configure(createMemoryPlane(), createMockTransport());
+    const catalog = defineCatalogFetch('Offline', () => { calls += 1; });
+    await bootDb();
+    setFetchNetworkOnline(false);
+    const reader = renderCountedInProvider(() => catalog.use());
+    await settle();
+    await settle(1, { macro: true });
+    expect(calls).toBe(0);
+    expect(reader.result().loadingState.isOffline).toBe(true);
+
+    await act(async () => {
+      setFetchNetworkOnline(true);
+    });
+    await settleUntil(() => calls === 1, 50, { macro: true });
+
+    expect(calls).toBe(1);
+    reader.unmount();
   });
 
   it('A1 keeps a push-backed chat list silent on cold start while its window still holds', async () => {

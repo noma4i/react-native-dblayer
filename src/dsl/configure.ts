@@ -1,7 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, OperationState, OperationTransition, RuntimeConfig, WriteOp } from '../types';
 import { retryDelayMs } from '../core/fetch/retryPolicy';
-import { isFetchNetworkOnline } from '../core/fetch/networkState';
 import { mmkvStoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
@@ -98,9 +97,11 @@ export const getDbQueryClient = (): QueryClient => {
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
         refetchOnMount: false,
+        // Connectivity is not vetoed here: the scheduled path runs in `online` mode, where React
+        // Query pauses the attempt until the network returns, and the imperative path refuses to
+        // start offline before it ever reaches a retry.
         retry: (failureCount, error) =>
           getRuntimeGeneration() === generation &&
-          isFetchNetworkOnline() &&
           retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount + 1) !== null,
         retryDelay: (failureCount, error) =>
           getRuntimeGeneration() === generation ? (retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount) ?? 0) : 0
