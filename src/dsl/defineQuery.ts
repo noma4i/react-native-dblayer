@@ -33,7 +33,7 @@ import { getApplyRuntime, getDbQueryClient, getDbRuntimeConfig } from './configu
 import { responseDataOrThrow } from '../core/transport';
 import { getInternalModelHandle, getInternalScopeHandle, hasInternalScopeHandle } from '../core/internalHandles';
 import { refetchActiveFetchReaders, registerActiveFetchReaders, registerMaterializationReconciler } from '../core/fetch/fetchReaderRegistry';
-import { createOfflineFetchError, isFetchNetworkOnline, subscribeFetchNetwork } from '../core/fetch/networkState';
+import { createOfflineFetchError, isFetchNetworkOnline } from '../core/fetch/networkState';
 import { isQueryFresh, persistenceWindowOf, resolveStaleTime } from '../core/fetch/queryFreshness';
 import { registerKeyedReset, registerReset } from '../core/reset';
 import { createKeyedLocalState } from '../core/fetch/keyedLocalState';
@@ -314,7 +314,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     return window > 0 && window <= MAX_TIMER_DELAY_MS ? window : false;
   };
   const staleTimeOf = (key: string): number => {
-    const meta = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
+    const meta = (getDbQueryClient().getQueryData(queryKeyOf(key)) ?? undefined) as ChainMeta | undefined;
     const defaults = getDbRuntimeConfig().defaults;
     return meta !== undefined && isEmptyChain(meta) && (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime) != null
       ? (resolveStaleTime(config.emptyStaleTime, defaults) ?? defaults.emptyStaleTime)!
@@ -452,25 +452,36 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   }
   const useObservedState = (key: string, scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean): RequestState => {
     const client = getDbQueryClient();
-    // The observer owns one job: refresh what is already on screen once its declared window runs
-    // out. It stays disabled until the first result has landed, so first loads keep going through
-    // the reader's own path, and `staleTime: 'static'` means no automatic trigger ever reads it as
-    // stale - the interval is the only thing that moves it, on React Query's timer rather than a
-    // private one.
-    const landed = (client.getQueryData(queryKeyOf(key)) as ChainMeta | undefined) !== undefined;
+    // One entry point for every automatic fetch of this bucket: the declared window is the
+    // observer's real `staleTime`, so first load, mounting on stale data, reconnecting and the
+    // interval are all decided by React Query. `run` stays for what a caller asks for by name -
+    // `fetch`, `refresh`, next page - where the caller owns the outcome and the error.
     const observerOptions = {
       queryKey: queryKeyOf(key),
-      enabled: enabled && scope !== null && landed,
-      staleTime: 'static' as const,
+      enabled: enabled && scope !== null,
+      staleTime: staleTimeOf(key),
+      // The scheduled path pauses offline and resumes itself on reconnect, which is what a reader
+      // watching a screen needs. The imperative path keeps the runtime default: a caller awaiting
+      // `fetch()` must get an offline error rather than a promise that waits for the network.
+      networkMode: 'online' as const,
+      refetchOnMount: config.refetchOnMount ?? getDbRuntimeConfig().defaults.refetchOnMount ?? true,
+      refetchOnReconnect: true,
       refetchIntervalInBackground: false,
       refetchInterval: () => refreshIntervalOf(key),
       queryFn: async (): Promise<ChainMeta | null> => {
         const current = () => (client.getQueryData(queryKeyOf(key)) as ChainMeta | undefined) ?? null;
-        // Offline, the scheduled refresh does nothing and keeps what is there: the reconnect path
-        // owns catching up, and a refresh that fails is not a reason to disturb the screen.
-        if (scope === null || !isFetchNetworkOnline()) return current();
+        if (scope === null) return current();
         const fence = createGenerationFence();
-        const meta = await execute(scope, key, resurrectDestroyed, { cursor: null, isCurrent: fence.isCurrent });
+        let issuedAt = localState.get(key).invalidateSeq;
+        let meta = await execute(scope, key, resurrectDestroyed, { cursor: null, isCurrent: fence.isCurrent });
+        // An invalidate that landed while this fetch was in flight outranks the response: it was
+        // issued after the request left, so the answer predates it and cannot satisfy it. Reading
+        // again inside this fetch keeps the debt with the fetch that owes it - a follow-up scheduled
+        // outside would dedupe straight back into the fetch it is meant to supersede.
+        while (fence.isCurrent() && localState.get(key).invalidateSeq !== issuedAt) {
+          issuedAt = localState.get(key).invalidateSeq;
+          meta = (await execute(scope, key, resurrectDestroyed, { cursor: null, isCurrent: fence.isCurrent })) ?? meta;
+        }
         return meta ?? current();
       }
     };
@@ -481,7 +492,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       isFetching: result.fetchStatus === 'fetching',
       isFetchingNextPage: local.isFetchingNextPage && result.fetchStatus === 'fetching',
       isFetched: isFetchedResult(result),
-      isPaused: local.isPaused,
+      isPaused: local.isPaused || result.fetchStatus === 'paused',
       retryAttempt: result.fetchStatus === 'fetching' ? result.failureCount : 0,
       error: result.error instanceof Error ? result.error : result.error != null ? new Error(String(result.error)) : null,
       hasNextPage: meta?.hasNextPage ?? false,
@@ -520,26 +531,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         markResumeStale,
         refetch: () => run(scope, { restart: false, resurrectDestroyed })
       });
-      const firstMount = mountedKey.current !== key;
       mountedKey.current = key;
-      const isFresh = isQueryFresh(client, queryKey, staleTimeOf(key));
-      const canRefetch = !firstMount || !state.isFetched || (config.refetchOnMount ?? getDbRuntimeConfig().defaults.refetchOnMount) !== false;
-      const shouldFetch = firstMount && canRefetch;
-      if (shouldFetch && !isFresh && !state.isFetching) {
-        void run(scope, { restart: false, resurrectDestroyed });
-      }
       if (forceAbsentRefetch && state.isFetched && !state.isFetching && !forcedRefetch.current) {
         forcedRefetch.current = true;
         void run(scope, { restart: true, resurrectDestroyed });
       }
-      const unsubscribeOnline = subscribeFetchNetwork(() => {
-        if (!isFetchNetworkOnline()) return;
-        if (!isQueryFresh(client, queryKey, staleTimeOf(key))) void run(scope, { restart: false, resurrectDestroyed });
-      });
-      return () => {
-        unsubscribeOnline();
-        release();
-      };
+      return release;
     }, [enabled, forceAbsentRefetch, key, resurrectDestroyed, scope, state.isFetched, state.isFetching]);
     return state;
   };

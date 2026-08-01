@@ -1,4 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { focusManager } from '@tanstack/react-query';
 import { act } from 'react';
 import { bootDb, configureDb, defineModel, defineShape, f, gql, setFetchNetworkOnline, suspendDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
@@ -247,7 +248,80 @@ describe('app-shaped freshness conformance', () => {
     expect(calls).toBe(2);
   });
 
-  it('A6 refetches a mounted chat list on reconnect only when its window has closed', async () => {
+  it('A7 fetches a probe window once per mount instead of spinning under a mounted reader', async () => {
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return { data: { chat: { id: 'chat-1', status: 'active', lastActivityAt: '2026-08-01T00:00:00Z' } } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: { ...FRESHNESS, PROBE: 0 } } });
+    const Chat = defineModel('AppFreshnessChatProbe', {
+      schema: ChatSchema,
+      relations: {
+        details: {
+          remote: gql.single(chatDocument, {
+            variables: (params: { chatId: string }) => ({ id: params.chatId }),
+            select: data => data.chat,
+            staleTime: 'PROBE'
+          })
+        }
+      }
+    });
+    await bootDb();
+    const reader = renderCountedInProvider(() => Chat.details({ chatId: 'chat-1' }).use());
+    await settle();
+    await settle(1, { macro: true });
+    const afterMount = calls;
+    await settle(20);
+    await settle(3, { macro: true });
+
+    expect(afterMount).toBe(1);
+    expect(calls).toBe(1);
+    reader.unmount();
+  });
+
+  it('A8 catches up a backgrounded chat list on reconnect, where no scheduled refresh was pending', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return { data: chatPage(1, false) as TData };
+      }
+    });
+    configure(createMemoryPlane(), transport);
+    const Chat = defineChats('Background');
+    await bootDb();
+    const reader = renderCountedInProvider(() => Chat.list({ statusFilter: 'active' }).use());
+    await settleUntil(() => calls === 1);
+
+    try {
+      // Backgrounded: the scheduled refresh is suppressed, so nothing is pending to resume. The
+      // window still closes while the app sits offline, and the reconnect is the only thing left
+      // that can notice.
+      focusManager.setFocused(false);
+      await act(async () => {
+        setFetchNetworkOnline(false);
+      });
+      jest.advanceTimersByTime(FRESHNESS.PUSH_BACKED + 1);
+      await settle();
+      expect(calls).toBe(1);
+
+      await act(async () => {
+        setFetchNetworkOnline(true);
+      });
+      await settleUntil(() => calls === 2);
+
+      expect(calls).toBe(2);
+    } finally {
+      focusManager.setFocused(undefined);
+      reader.unmount();
+    }
+  });
+
+  it('A6 catches up a mounted chat list on reconnect when the window closed while offline', async () => {
     jest.useFakeTimers();
     let calls = 0;
     const transport = createMockTransport({
@@ -262,6 +336,7 @@ describe('app-shaped freshness conformance', () => {
     const reader = renderCountedInProvider(() => Chat.list({ statusFilter: 'active' }).use());
     await settleUntil(() => calls === 1);
 
+    // A reconnect on data still inside its window owes nothing.
     await act(async () => {
       setFetchNetworkOnline(false);
       setFetchNetworkOnline(true);
@@ -269,9 +344,16 @@ describe('app-shaped freshness conformance', () => {
     await settle();
     expect(calls).toBe(1);
 
-    jest.advanceTimersByTime(FRESHNESS.PUSH_BACKED + 1);
+    // Offline across the window boundary: the scheduled refresh cannot run, so the catch-up is the
+    // reconnect's alone. Without it the screen keeps stale data until the next boundary.
     await act(async () => {
       setFetchNetworkOnline(false);
+    });
+    jest.advanceTimersByTime(FRESHNESS.PUSH_BACKED + 1);
+    await settle();
+    expect(calls).toBe(1);
+
+    await act(async () => {
       setFetchNetworkOnline(true);
     });
     await settleUntil(() => calls === 2);

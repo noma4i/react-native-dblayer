@@ -83,6 +83,7 @@ export const getDbQueryClient = (): QueryClient => {
   if (queryClient) return queryClient;
   if (!queryClientResetRegistered) {
     registerReset(() => {
+      queryClient?.unmount();
       queryClient = null; // Orphaned with its generation; see configureDb.
     });
     queryClientResetRegistered = true;
@@ -106,6 +107,9 @@ export const getDbQueryClient = (): QueryClient => {
       }
     }
   });
+  // Mounting is what connects the cache to connectivity: without it a fetch paused offline is never
+  // resumed, because nothing tells the cache the network came back.
+  queryClient.mount();
   return queryClient;
 };
 
