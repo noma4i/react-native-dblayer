@@ -97,4 +97,71 @@ describe('app-shaped thread freshness against lost members', () => {
     expect(rows.map(row => row.id).sort()).toEqual(['m-1', 'm-2', 'm-3']);
     expect(calls).toBe(2);
   });
+
+  it('T3 repairs the thread when only its own membership is lost and the sibling scope survives', async () => {
+    const history = [1, 2, 3].map(index => message(`m-${index}`, index));
+    let calls = 0;
+    const storage = createMemoryPlane();
+    const build = () => {
+      configureDb({
+        storage,
+        dataVersion: 'app-thread-sibling',
+        transport: createMockTransport({
+          query: async <TData,>() => {
+            calls += 1;
+            return { data: { chat: { messages: { nodes: history, pageInfo: { hasPreviousPage: false, startCursor: null } } } } as TData };
+          }
+        })
+      });
+      const models = createAppModels('ThreadSiblingScope');
+      const threadQuery = models.messages.query('thread', {
+        document,
+        vars: (scope: { chatId: string }) => ({ chatId: scope.chatId }),
+        page: (data: ThreadResponse) => data.chat.messages,
+        into: models.messages.scopes.thread,
+        coverage: 'page',
+        direction: 'backward',
+        staleTime: 300_000
+      });
+      return { models, threadQuery };
+    };
+
+    const before = build();
+    await act(async () => {
+      await bootDb();
+    });
+    const firstReader = recordTimelineInProvider(() => before.threadQuery.use({ chatId: 'chat-1' }));
+    await settle();
+    await settle(1, { macro: true });
+    expect(calls).toBe(1);
+    // The sibling scope over the same rows: this is the Media screen of the same chat.
+    before.models.messages.insert({ ...message('m-media', 4), kind: 'video', media: { id: 'media-4', kind: 'video', fileUrl: 'https://cdn/m-4.mp4' } } as never);
+    expect(before.models.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' })).toHaveLength(1);
+    firstReader.unmount();
+    suspendDb();
+
+    // Exactly the reported split: the thread loses its members while the sibling keeps its own.
+    const threadScopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:') && key.includes('thread'));
+    const mediaScopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:') && key.includes('media'));
+    expect(threadScopeKeys).not.toEqual([]);
+    expect(mediaScopeKeys).not.toEqual([]);
+    storage.set(threadScopeKeys.map(key => ({ key, value: null })));
+
+    const after = build();
+    await act(async () => {
+      await bootDb();
+    });
+    const threadReader = recordTimelineInProvider(() => after.threadQuery.use({ chatId: 'chat-1' }));
+    await settle();
+    await settle(1, { macro: true });
+    const threadRows = (threadReader.last().data as Array<{ id: string }> | undefined) ?? [];
+    const mediaRows = after.models.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' }) as Array<{ id: string }>;
+    threadReader.unmount();
+
+    // A full sibling beside an empty thread is the screen from the report: the thread has to repair
+    // itself rather than present emptiness as the answer.
+    expect(mediaRows.map(row => row.id)).toEqual(['m-media']);
+    expect(threadRows.map(row => row.id).sort()).toEqual(['m-1', 'm-2', 'm-3']);
+    expect(calls).toBe(2);
+  });
 });
