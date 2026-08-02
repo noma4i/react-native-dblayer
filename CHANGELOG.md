@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.0.0-beta.10 - 2026-08-02
+
+### Fixed
+
+- WritePlan.update rejects explicit undefined patch fields before commit, preserving the root response, target row, and invalidations as one atomic planning boundary.
+
 ## 10.0.0-beta.9 - 2026-08-02
 
 ### Breaking changes and migration
