@@ -139,6 +139,10 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   const affectedIds = Object.keys(stored.schemaFingerprints)
     .filter(id => current.schemaFingerprints[id] === undefined || current.schemaFingerprints[id] !== stored.schemaFingerprints[id])
     .sort(compareCodepoints);
+  const currentOnlyIds = Object.keys(current.schemaFingerprints)
+    .filter(id => stored.schemaFingerprints[id] === undefined)
+    .sort(compareCodepoints);
+  const manifestChanged = storedResult.migrated || affectedIds.length > 0 || currentOnlyIds.length > 0;
 
   if (affectedIds.length > 0) {
     const epoch = getApplyRuntime().currentEpoch();
@@ -147,6 +151,6 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
     for (const modelId of affectedIds) noteDataLoss('schema-migration-reset', modelId, 1);
   }
 
-  if (storedResult?.migrated || affectedIds.length > 0) writePersistenceManifest(prefix, current);
+  if (manifestChanged) writePersistenceManifest(prefix, current);
   return { reset: false };
 };

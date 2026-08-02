@@ -77,6 +77,7 @@ describe('schema fingerprint blast radius', () => {
     const added = defineModelRuntime({ id: 'BlastAdded', name: 'BlastAdded', fields: { label: f.str() } });
     diagnostics().reset();
     const boot = await bootDb();
+    const manifest = JSON.parse(storage.get('dbl:manifest')!) as { payload: { schemaFingerprints: Record<string, string> } };
 
     expect({
       beta: betaAfter.find('b-added-1'),
@@ -88,6 +89,34 @@ describe('schema fingerprint blast radius', () => {
       added: undefined,
       reset: false,
       dataLossEvents: []
+    });
+    expect(manifest.payload.schemaFingerprints).toEqual(computeSchemaFingerprints());
+
+    added.insert({ id: 'added-1', label: 'added' });
+    flushPersistence();
+
+    configureDb({ storage, transport: createMockTransport(), dataVersion: 'added-model' });
+    const betaAfterSchemaChange = defineBeta();
+    const addedAfterSchemaChange = defineModelRuntime({
+      id: 'BlastAdded',
+      name: 'BlastAdded',
+      fields: { label: f.str(), addedField: f.str().nullDefault() }
+    });
+    diagnostics().reset();
+    const bootAfterSchemaChange = await bootDb();
+
+    expect({
+      beta: betaAfterSchemaChange.find('b-added-1'),
+      added: addedAfterSchemaChange.find('added-1'),
+      reset: bootAfterSchemaChange.reset,
+      manifestResets: diagnostics().snapshot().manifestResets,
+      dataLossEvents: diagnostics().snapshot().dataLossEvents
+    }).toEqual({
+      beta: { id: 'b-added-1', label: 'beta' },
+      added: undefined,
+      reset: false,
+      manifestResets: 0,
+      dataLossEvents: [{ mechanism: 'schema-migration-reset', model: 'BlastAdded', count: 1 }]
     });
   });
 
