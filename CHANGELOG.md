@@ -1,5 +1,24 @@
 # Changelog
 
+## 10.0.0-beta.9 - 2026-08-02
+
+### Breaking changes and migration
+
+- BREAKING: actions, remote queries, and live ingest replace cross-model after, invalidate, and extract callbacks with one write(context, plan) callback. Migration: declare plan.upsert, plan.update, plan.destroy, and plan.invalidate intents inside write.
+- BREAKING: remove intoIf, ExtractSink, PlanRowsSink, model views, reachability garbage collection, gc, inSessionGc, and dropIdleScopesAfterMs. Migration: use model relations and scoped reads; use maintenance only for bounded temporary-row and per-scope retention.
+
+### Added
+
+- WritePlan - actions, remote queries, and live ingest commit root landing and cross-model writes in one envelope, then run invalidations after commit.
+- Model-local schema fingerprints reset only incompatible model rows, scopes, query buckets, and operations; compatible models stay durable.
+
+### Fixed
+
+- A failed manifest read cannot silently erase runtime data; new models persist without resetting existing models.
+- Query and relation freshness follows committed membership, reader ownership, and invalidations while React Query owns request scheduling.
+- Persisted query buckets and observer wiring are shared per query identity, preventing sibling readers from racing or duplicating lifecycle work.
+- Operation records without a current owner remain readable and do not corrupt the registry.
+
 ## 10.0.0-beta.8 - 2026-08-01
 
 ### Fixed
