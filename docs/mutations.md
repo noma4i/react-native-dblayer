@@ -46,6 +46,9 @@ receives one `WritePlan` with exactly `upsert`, `update`, `destroy`, and `invali
 The action root landing and additional writes enter one commit envelope. Invalidation intents run
 after a successful commit.
 
+Update patches omit absent fields; an own enumerable field with explicit `undefined` rejects before
+commit.
+
 ## Request mode
 
 `Model.actions.name.run(input)` returns the selected payload. `Model.actions.name.use()` returns a

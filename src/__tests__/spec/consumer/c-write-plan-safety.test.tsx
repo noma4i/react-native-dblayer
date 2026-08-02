@@ -254,4 +254,37 @@ describe('write plan safety', () => {
     expect(RootUpdate.find('root-forged-target')).toBeUndefined();
     expect(RootDestroy.find('root-forged-target')).toBeUndefined();
   });
+
+  it('rejects undefined update patches before committing the root response', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { root: { id: 'root-undefined', value: 'root' } } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+
+    const Victim = defineModel('SpecWritePlanSafetyUndefinedVictim', { schema: RowSchema });
+    Victim.insert({ id: 'victim-undefined', value: 'before' });
+    let invalidations = 0;
+    const target = { invalidate: () => invalidations++ };
+    const Root = defineModel('SpecWritePlanSafetyUndefinedRoot', {
+      schema: RowSchema,
+      relations: {
+        root: {
+          remote: gql.single(queryDocument, {
+            variables: (params: Scope) => params,
+            select: data => data.root,
+            write: (_context, plan) => {
+              plan.update(Victim, 'victim-undefined', { value: undefined });
+              plan.invalidate(target);
+            }
+          })
+        }
+      }
+    });
+
+    await expect(Root.root({ bucket: 'all' }).fetch()).rejects.toThrow('WritePlan.update does not accept undefined for "value"');
+
+    expect(Root.find('root-undefined')).toBeUndefined();
+    expect(Victim.find('victim-undefined')).toEqual({ id: 'victim-undefined', value: 'before' });
+    expect(invalidations).toBe(0);
+  });
 });

@@ -57,6 +57,9 @@ const requireUpdateIntent = (
   const { model, handle } = requireModelTarget(intent.model, handles);
   if (!isNonEmptyString(intent.id)) throw new Error('WritePlan.update requires a non-empty string id');
   if (!isNonArrayRecord(intent.patch)) throw new Error('WritePlan.update requires a plain object patch');
+  for (const [field, value] of Object.entries(intent.patch)) {
+    if (value === undefined) throw new Error(`WritePlan.update does not accept undefined for "${field}"`);
+  }
   return { model, handle, id: intent.id, patch: intent.patch };
 };
 
