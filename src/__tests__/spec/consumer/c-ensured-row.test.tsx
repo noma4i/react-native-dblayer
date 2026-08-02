@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DbProvider, configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle } from '../helpers/harness';
-import { DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 
 type Row = { id: string; name: string; status: string; updatedAt: string; shareUrl?: string };
 type Response = { detail: Row | null };
@@ -16,7 +16,7 @@ const createRowsModel = (id: string) => {
     fields: { name: f.str(), status: f.str(), updatedAt: f.str(), shareUrl: f.str().optional() },
     scopes: { byStatus: ({ by: { status: 'status' } }) }
   });
-  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
   return model;
 };
 

@@ -24,7 +24,8 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
  * silent partial boot is worse than a startup crash.
  *
  * @returns `replayed` - the journal record count `replayJournal` recovered; `maintenance` - reports of
- * every declared model maintenance task; `reset` - whether an incompatible persisted schema was cleared.
+ * every declared model maintenance task; `reset` - whether a full incompatible namespace reset cleared persisted state.
+ * Model-level schema migrations leave `reset` false.
  */
 export const bootDb = async (): Promise<{ replayed: number; maintenance: MaintenanceReport[]; reset: boolean }> => {
   runBootValidations();

@@ -16,9 +16,16 @@ export type SchemaDeclaration = {
     scopes: Record<string, ScopeDeclaration>;
 };
 /** Persisted schema manifest used by the boot compatibility gate. */
+export type SchemaFingerprints = Readonly<Record<string, string>>;
 export type PersistenceManifest = {
+    formatVersion: number;
+    schemaFingerprints: SchemaFingerprints;
+    dataVersion: string | null;
+};
+export type SingleFingerprintPersistenceManifest = {
     formatVersion: number;
     schemaFingerprint: string;
     dataVersion: string | null;
 };
+export type PersistenceManifestRecord = PersistenceManifest | SingleFingerprintPersistenceManifest;
 //# sourceMappingURL=core.schemaManifest.types.d.ts.map

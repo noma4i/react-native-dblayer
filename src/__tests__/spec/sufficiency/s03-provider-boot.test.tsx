@@ -2,7 +2,7 @@ import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
 import * as dbl from '../../testApi';
-import { registerBootValidation , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { registerBootValidation , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
 const DbProvider = (
@@ -49,7 +49,7 @@ describe('provider-owned query runtime', () => {
   it('gates children until boot completes and then supports DSL reads', async () => {
     setupSpecRuntime();
     const users = dbl.defineModelRuntime({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() } });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     users.insert({ id: 'user', name: 'Ready' });
     let renders = 0;
     let value: string | undefined;

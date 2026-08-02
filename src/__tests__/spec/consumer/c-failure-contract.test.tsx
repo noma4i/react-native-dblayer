@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, resetRuntime , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , flushPersistence } from '../../testApi';
+import { configureDb, defineModelRuntime, f, resetRuntime , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , flushPersistence } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type MessageRow = { id: string; text: string; status: 'Sending' | 'Failed' | 'Sent'; createdAt: string };
@@ -188,7 +188,7 @@ describe('optimistic failure contract', () => {
     const failingTransport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage, transport: failingTransport });
     const { send, tempId } = createMessages('FailureRestart', failingTransport, false, undefined, Number.POSITIVE_INFINITY);
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
 
     await expect(send.run({ text: 'hello' })).rejects.toThrow('offline');
     const id = tempId()!;

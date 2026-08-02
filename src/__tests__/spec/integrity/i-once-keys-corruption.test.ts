@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f , bootDb , DB_FORMAT_VERSION , encodePersistence } from '../../testApi';
+import { configureDb, defineModelRuntime, f , bootDb , encodePersistence } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -11,7 +11,7 @@ describe('once-keys corruption diagnostics', () => {
     const storage = createMemoryPlane();
     storage.set([
       { key: 'dbl:ops-once', value: '{corrupt-json' },
-      { key: 'dbl:manifest', value: encodePersistence({ formatVersion: DB_FORMAT_VERSION, schemaFingerprint: 'stale-fingerprint', dataVersion: null }) }
+      { key: 'dbl:manifest', value: encodePersistence({ formatVersion: 7, schemaFingerprint: 'stale-fingerprint', dataVersion: null }) }
     ]);
     configureDb({ storage, transport: createMockTransport() });
     diagnostics().reset();

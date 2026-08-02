@@ -53,9 +53,11 @@ export type OperationState = {
   clearFailed(operationId: string): void;
   /** Re-open a retained failed operation for durable retry. */
   reopen(operationId: string): OperationRecord | undefined;
-  /** Remove any operation after an explicit discard or failed atomic start. */
+  /** Remove every operation owned by the named models and persist the remaining ledger once. */
+  discardModels(modelIds: ReadonlySet<string>): number;
   /** Row buckets still held by at least one operation - a gauge, so a bucket left behind is visible. */
   residentRowBuckets(): number;
+  /** Remove any operation after an explicit discard or failed atomic start. */
   remove(operationId: string): void;
   /** Pending records loaded by hydrate; only these are crash orphans during boot reconciliation. */
   hydratedPending(): OperationRecord[];

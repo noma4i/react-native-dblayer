@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
 
 type ChatRow = { id: string; status: string; kind: string; lastActivityAt: string; memberIds: string[] };
@@ -96,7 +96,7 @@ const createModels = (): EnsembleModels => {
   const messages = createMessagesModel();
   const users = createUsersModel();
   const counters = createCountersModel();
-  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
   seedChats(chats);
   seedMessages(messages);
   seedUsers(users);

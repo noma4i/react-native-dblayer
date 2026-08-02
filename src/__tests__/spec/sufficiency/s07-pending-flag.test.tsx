@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, resetRuntime , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , encodePersistence } from '../../testApi';
+import { configureDb, defineModelRuntime, f, resetRuntime , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , encodePersistence } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
@@ -218,7 +218,7 @@ describe('model pending flag', () => {
     ]);
     configureDb({ storage, transport: createMockTransport() });
     const messages = defineModelRuntime({ id: 'SpecPendingPatchReplay', name: 'SpecPendingPatchReplay', fields: { text: f.str() } });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     messages.insert({ id: 'message-1', text: 'kept' });
 
     await bootDb();

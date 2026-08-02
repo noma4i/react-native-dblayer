@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime , runPendingTempRowMaintenance , flushPersistence, getOperationState, getRuntimeGeneration, replayJournal , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f, reconcileDetachedOperationsAtBoot, resetRuntime , runPendingTempRowMaintenance , flushPersistence, getOperationState, getRuntimeGeneration, replayJournal , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 import { attemptWithLastWriteFaulted, createFaultStorage } from '../helpers/faultStorage';
 
@@ -23,7 +23,7 @@ const declare = (model: ReturnType<typeof defineRows>, kind: string, resume: (en
     onFailurePatch: () => ({ state: 'failed' })
   });
 
-const writeManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+const writeManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
 
 describe('detached operations', () => {
   it('rejects missing maintenance and keeps terminal controls idempotent across invalid records', async () => {

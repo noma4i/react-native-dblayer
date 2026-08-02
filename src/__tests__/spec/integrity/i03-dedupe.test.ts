@@ -1,4 +1,4 @@
-import { configureDb, defineCommand, defineModelRuntime, f, resetRuntime , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , compositeKey } from '../../testApi';
+import { configureDb, defineCommand, defineModelRuntime, f, resetRuntime , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , compositeKey } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Result = { action: { ok: true } };
@@ -83,7 +83,7 @@ describe('mutation dedupe semantics', () => {
     const transport = createMockTransport({ mutation: async <TData>() => ({ data: response as TData }) });
     configureDb({ storage, transport });
     const firstCommand = defineCommand<Result, Input>('specDedupeOnceRestart', { document, result: 'action', once: true });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     await firstCommand.run({ value: 'same' });
     flushPersistence();
 

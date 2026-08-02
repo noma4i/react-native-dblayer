@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f, reportSyncError , getApplyRuntime , createCommitEnvelope , createJournal , encodePersistence , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f, reportSyncError , getApplyRuntime , createCommitEnvelope , createJournal , encodePersistence , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 describe('apply honesty (D5): mid-plan throw', () => {
@@ -152,7 +152,7 @@ describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
       ops: [{ kind: 'upsert', model, rows: [{ id: `row-${epoch}`, label: 'good' }] }]
     })[0]!.value!;
   };
-  const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+  const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
 
   it('routes an ops-not-array record through the corruption drop path instead of throwing on boot', async () => {
     // `createApplyRuntime` reads `journal.lastEpoch()` eagerly at construction (inside `configureDb`), so the

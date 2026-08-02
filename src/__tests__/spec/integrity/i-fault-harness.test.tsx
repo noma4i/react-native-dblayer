@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f , flushPersistence , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f , flushPersistence , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createFaultStorage } from '../helpers/faultStorage';
 import { compositeStorageKey, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
@@ -201,7 +201,7 @@ describe('persistence fault invariants', () => {
     const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: { id: 'row-1', label: 'server' } } as TData }) });
     configureDb({ storage: storage.plane, transport, defaults: { persistence: { checkpointDelayMs: 60_000, maxPendingPlans: 100 } } });
     const rows = createRows('Tombstone');
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     const query = rows.query<FaultResponse, { id: string }, { id: string }, FaultRow>('detail', {
       document,
       key: 'fault-tombstone-detail',

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , stableSerialize } from '../../testApi';
+import { configureDb , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , stableSerialize } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -70,7 +70,7 @@ describe('app-shaped loss contracts', () => {
     configureDb({ storage, transport: createMockTransport() });
     const tag = 'LossL2';
     const beforeModels = createAppModels(tag);
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     addAccount(beforeModels, 'A');
     flushPersistence();
     const beforeRows = allModels(beforeModels).map(model => stableSerialize(model.all()));
@@ -95,7 +95,7 @@ describe('app-shaped loss contracts', () => {
   it('L3 keeps a chat last-message protection while trimming only older unprotected thread rows', async () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const models = createAppModels('LossL3');
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     writeMany(models.messages, Array.from({ length: 305 }, (_, index) => ({ id: `message-${index + 1}`, chatId: 'chat-1', userId: 'other', kind: 'text', body: String(index + 1), createdAt: `2026-07-26T00:00:${String(index % 60).padStart(2, '0')}Z`, updatedAt: '2026-07-26T00:00:00Z', sequenceNumber: index + 1 })));
     write(models.chats, { id: 'chat-1', kind: 'personal', status: 'active', premium: false, isPublic: false, history: 'all', pinned: false, muted: false, read: false, unreadCount: 0, messagesCount: 305, lastActivityAt: '2026-07-26T00:00:00Z', lastMessage: { id: 'message-1' }, userIds: [], createdAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z' });
 

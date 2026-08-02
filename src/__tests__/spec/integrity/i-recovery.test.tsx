@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest , bootDb , encodePersistence , compositeKey } from '../../testApi';
+import { configureDb, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , bootDb , encodePersistence , compositeKey } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 
@@ -18,7 +18,7 @@ const defineRecoveryModel = (id: string) =>
     scopes: { feed: ({ by: { bucket: 'bucket' } }) }
   });
 
-const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
 
 describe('persistence recovery protocol', () => {
   it('C1 drops one corrupt row while hydrating the remaining rows', async () => {

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModelRuntime, f , getApplyTarget , flushPersistence, getOperationState , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { belongsTo, configureDb, defineModelRuntime, f , getApplyTarget , flushPersistence, getOperationState , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Chat = { id: string; unreadCount: number; lastMessageId: string | null; lastActivityAt: number };
@@ -101,7 +101,7 @@ describe('effects derive from accepted rows', () => {
     };
     configureDb({ storage, transport: createMockTransport() });
     const first = defineRows();
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     first.chats.insert({ id: 'chat-1', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 });
     first.messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
 

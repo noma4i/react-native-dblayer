@@ -1,4 +1,4 @@
-import { computeSchemaFingerprint, registerSchemaDeclaration , stableSerialize } from '../../testApi';
+import { computeSchemaFingerprints, registerSchemaDeclaration , stableSerialize } from '../../testApi';
 import type { SchemaDeclaration } from '../../testApi';
 
 const declaration = (id: string): SchemaDeclaration => ({
@@ -10,14 +10,14 @@ const declaration = (id: string): SchemaDeclaration => ({
 
 describe('schema fingerprint id ordering', () => {
   it('sorts declaration ids by codepoint order, not locale-dependent order, before fingerprinting', () => {
-    const ids = ['zebra', 'Banana', 'apple'];
+    const ids = ['a[', 'a,', 'a'];
     for (const id of ids) registerSchemaDeclaration(declaration(id));
 
-    // Pure codepoint order: uppercase 'B' (66) sorts before lowercase 'a' (97) and 'z' (122).
-    // A locale-aware comparator (case-insensitive primary weight) instead orders this as apple, Banana, zebra.
-    const codepointOrder = ['Banana', 'apple', 'zebra'];
-    const expected = stableSerialize(codepointOrder.map(declaration));
+    // Array default sorting compares the serialized pair and misorders ids containing punctuation.
+    const codepointOrder = ['a', 'a,', 'a['];
+    const expected = Object.fromEntries(codepointOrder.map(id => [id, stableSerialize(declaration(id))]));
 
-    expect(computeSchemaFingerprint()).toBe(expected);
+    expect(computeSchemaFingerprints()).toEqual(expected);
+    expect(Object.keys(computeSchemaFingerprints())).toEqual(codepointOrder);
   });
 });

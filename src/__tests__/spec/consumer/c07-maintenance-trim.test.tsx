@@ -1,12 +1,12 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f , bootDb , runPendingTempRowMaintenance , clearFailedOptimisticMutation , DB_FORMAT_VERSION, computeSchemaFingerprint, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f , bootDb , runPendingTempRowMaintenance , clearFailedOptimisticMutation , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
 type MessageResponse = { rows: MessageRow[] };
 
 const document = { kind: 'Document', definitions: [] } as never;
-const persistCurrentManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprint: computeSchemaFingerprint(), dataVersion: null });
+const persistCurrentManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
 
 const createMessageModel = (limit: number, protect?: () => Set<string>) =>
   defineModelRuntime({
