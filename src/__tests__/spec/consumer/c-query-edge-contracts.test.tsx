@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, defineQuery, f, intoIf } from '../../testApi';
+import { configureDb, defineModelRuntime, defineQuery, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; label: string };
@@ -86,15 +86,6 @@ describe('query definition edges', () => {
     response = { row: null };
     await query.fetch({});
     expect(query.read({})).toBeUndefined();
-  });
-
-  it('creates extract sinks only for present rows', () => {
-    setupSpecRuntime();
-    const rows = createRows('IntoIf');
-
-    expect(intoIf(rows, null)).toEqual([]);
-    expect(intoIf(rows, undefined)).toEqual([]);
-    expect(intoIf(rows, { id: 'row-1', label: 'first' })).toEqual([{ into: rows, rows: [{ id: 'row-1', label: 'first' }] }]);
   });
 
   it('skips transport when the definition-level enabled predicate rejects the scope', async () => {

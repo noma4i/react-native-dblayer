@@ -38,7 +38,7 @@ describe('model-owned write declarations', () => {
       result: 'pin',
       dedupe: false,
       optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) },
-      extract: ({ data }) => [{ into: chats, rows: [data.pin] }]
+      write: ({ data }, plan) => plan.upsert(chats, data.pin)
     });
     const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
     let pending!: Promise<{ id: string; pinned: boolean } | null>;

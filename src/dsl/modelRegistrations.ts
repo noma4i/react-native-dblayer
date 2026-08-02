@@ -40,6 +40,7 @@ export const registerModelRuntime = <TStored extends { id: string; updatedAt?: s
   const { planes, resolvedRelations } = options.context;
   const model = options.context.model<ModelCore<TStored, TInput>>();
   registerInternalModelHandle(model, {
+    modelId: options.modelId,
     normalizeRowId: row => options.normalize(row).id,
     readRow: id => planes().entityState.read(id),
     applyRows: rows => options.applySnapshot(options.planRows(rows)),

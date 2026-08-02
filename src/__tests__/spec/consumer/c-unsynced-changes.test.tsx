@@ -27,7 +27,7 @@ const setup = (suffix: string) => {
     result: 'pinChat',
     dedupe: false,
     optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: () => ({ pinned: true }) },
-    extract: ({ data }) => [{ into: chats, rows: [data.pinChat] }]
+    write: ({ data }, plan) => plan.upsert(chats, data.pinChat)
   });
   return { chats, pinChat, mutations };
 };

@@ -3,6 +3,8 @@ import type { ActionInput, ActionPayload, FacadeRuntimeModel, GraphqlActionDefin
 import { readRowOperationState, useRowOperationState } from './rowOperationState';
 import { scalarFieldCodecs } from '../schema/fieldCodec';
 import { exactMutationVariables } from './mutationVariables';
+import { exactMutationRootPlan } from './mutationRootPlan';
+import { getInternalModelHandle } from '../core/internalHandles';
 
 /**
  * A declared action becomes its runtime handle here. The declared mode decides which machinery
@@ -140,33 +142,32 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     }
     return undefined;
   })();
-  const extract =
+  const rootPlanner =
     definition.kind === 'update' || (definition.kind === 'insert' && !definition.optimistic)
       ? ({ data }: { data: Parameters<typeof definition.select>[0] }) => {
           const row = definition.select(data);
-          return row == null ? [] : [{ into: runtime, rows: [row] }];
+          return row == null ? [] : getInternalModelHandle(runtime).planRows([row]);
         }
       : definition.kind === 'custom' && definition.select
-        ? ({ data }: { data: Parameters<NonNullable<typeof definition.select>>[0] }) => {
-            const row = definition.select?.(data);
-            return row == null ? [] : [{ into: runtime, rows: [row] }];
-          }
+        ? (() => {
+            const select = definition.select;
+            return ({ data }: { data: Parameters<typeof select>[0] }) => {
+              const row = select(data);
+              return row == null ? [] : getInternalModelHandle(runtime).planRows([row]);
+            };
+          })()
         : undefined;
   const mutationConfig = {
     document: definition.document,
     result: definition.result,
     [exactMutationVariables]: definition.variables,
     optimistic,
-    extract,
+    [exactMutationRootPlan]: rootPlanner,
+    write: definition.write,
     dedupe: definition.dedupe,
     once: definition.once,
     onMutate: definition.before,
-    onCommit: definition.after
-      ? (data: Parameters<NonNullable<TDefinition['after']>>[0]['data'], context: { input: ActionInput<TDefinition> }) =>
-          definition.after?.({ input: context.input, data })
-      : undefined,
     onError: definition.error,
-    invalidate: definition.invalidate,
     track: definition.track
   };
   const mutation = runtime.mutation(name, mutationConfig);

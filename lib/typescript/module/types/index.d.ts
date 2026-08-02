@@ -15,6 +15,7 @@ export type * from './core.writePolicies.types';
 export type * from './db.types';
 export type * from './dsl.maintenanceRegistry.types';
 export type * from './dsl.modelContext.types';
+export type * from './dsl.writePlan.types';
 export type * from './read.scopeRetention.types';
 export type * from './read.scopeReadEngine.types';
 export type * from './read.liveRead.types';

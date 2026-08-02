@@ -82,7 +82,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(76);
+    expect(first.split('\n')).toHaveLength(75);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -93,7 +93,6 @@ DbTransport: any
 DbTransportError: any
 DbWhere: any
 DbWhereOp: any
-ExtractSink: any
 FetchConfig: any
 FetchHandle: any
 FetchResult: any
@@ -122,6 +121,7 @@ ScopePlacement: any
 SingletonModel: any
 SingletonStatics: any
 StoragePlane: any
+WritePlan: any
 belongsTo: <TChild, TParent>(model: import("<root>/src/types/core.relations.types").RelationTarget<TParent>, options: { foreignKey: keyof TChild & string; touch?: ((child: TChild, parent: TParent) => Partial<TParent> | null) | undefined; counterCache?: { field: keyof TParent & string; filter?: ((child: TChild) => boolean) | undefined; } | undefined; }) => import("<root>/src/types/core.relations.types").BelongsToDecl<TParent>
 configureDb: (options: import("<root>/src/types/dsl.configure.types").ConfigureDbOptions) => void
 createDbSubscriptionEffects: <TEffects extends Record<keyof TEffects, (...args: never[]) => void>>(noopEffects: TEffects) => import("<root>/src/types/subscription.types").DbSubscriptionEffectsChannel<TEffects>
@@ -143,7 +143,6 @@ generateTempId: (prefix?: string | undefined) => string
 gql: import("<root>/src/types/dsl.graphql.types").GraphqlDsl
 hasMany: <_TParent, TChild>(model: import("<root>/src/types/core.relations.types").RelationTarget<TChild>, options: { foreignKey: keyof TChild & string; dependent?: "destroy" | undefined; }) => import("<root>/src/types/core.relations.types").HasManyDecl<TChild>
 hasOne: <_TParent, TChild>(model: import("<root>/src/types/core.relations.types").RelationTarget<TChild>, options: { foreignKey: keyof TChild & string; comparator?: ((left: TChild, right: TChild) => number) | undefined; }) => import("<root>/src/types/core.relations.types").HasOneDecl<TChild>
-intoIf: (into: import("<root>/src/types/dsl.query.types").PlanRowsSink, row: unknown) => import("<root>/src/types/dsl.query.types").ExtractSink[]
 isTempId: (id: string | null | undefined) => boolean
 modelRef: <TStored>(key: string) => import("<root>/src/types/core.relations.types").ModelRef<TStored>
 pickDefined: <TSource extends object, TKey extends keyof TSource>(source: TSource, keys: readonly TKey[]) => Partial<Pick<TSource, TKey>>

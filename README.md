@@ -96,8 +96,9 @@ const send = Message.actions.send.use();
 await send.run({ chatId, body });
 ```
 
-Request actions own optimistic writes, correlation, rollback, deduplication, extraction, and
-invalidation. Durable and poll modes use the same `gql.action` declaration.
+Request actions own optimistic writes, correlation, rollback, deduplication, and invalidation.
+Actions, remote queries, and live ingest use one `write(context, plan)` callback and one `WritePlan`.
+Durable and poll modes use the same `gql.action` declaration.
 
 ## Apply subscription events
 

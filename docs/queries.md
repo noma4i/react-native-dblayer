@@ -27,6 +27,7 @@ const Message = defineModel('Message', {
 | --- | --- |
 | `variables` | Maps relation parameters to GraphQL variables. |
 | `connection` | Selects Relay nodes, edges, and page info. |
+| `write` | Plans additional cross-model writes and invalidations in the response envelope. |
 | `coverage` | Selects complete or paged membership reconciliation. |
 | `cursor` | Selects a custom cursor from the response. |
 | `required` | Disables transport until all named parameters are non-nullish. |
@@ -40,6 +41,10 @@ const Message = defineModel('Message', {
 | `cursorVar` | Overrides the cursor variable name. |
 | `map` | Maps each selected transport node before model normalization. |
 | `mapCursor` | Maps the stored cursor into the transport variable type. |
+
+Remote query declarations use one `write(context, plan)` callback and one `WritePlan`. The root
+relation landing and additional intents enter one commit envelope. Invalidation intents run after a
+successful commit.
 
 ## `gql.list(document, options)`
 
@@ -65,6 +70,7 @@ details: {
 | --- | --- |
 | `variables` | Maps relation parameters to GraphQL variables. |
 | `select` | Selects one row or a nullish absence. |
+| `write` | Plans additional cross-model writes and invalidations in the response envelope. |
 | `required` | Disables transport until all named parameters are non-nullish. |
 | `staleTime` | Sets filled-result freshness. |
 | `persistenceVersion` | Versions persisted query metadata when the declaration contract changes. |
@@ -95,8 +101,7 @@ Freshness-aware `fetch` keeps restored data when a stale network attempt fails. 
 returns restored data and rejects when no memory or durable record exists. Forced `refresh`
 propagates request failures even when older data remains readable.
 
-## Connection and extract helpers
+## Connection helpers
 
-`fromNodes` normalizes Relay nodes and edges. `intoIf` conditionally returns an `ExtractSink`.
-These helpers remain public for model-less services and migration adapters; model relations land
-their selected rows automatically.
+`fromNodes` normalizes Relay nodes and edges for service-level transport handling. Model relations
+land their selected rows automatically.

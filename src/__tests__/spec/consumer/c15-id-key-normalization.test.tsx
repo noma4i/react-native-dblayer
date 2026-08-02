@@ -265,7 +265,7 @@ describe('id-key normalization contracts (LC20)', () => {
     reader.unmount();
   });
 
-  it('rolls back a numeric-id respond extract sink after transport failure', async () => {
+  it('rolls back a numeric-id respond node after transport failure', async () => {
     let rejectMutation!: (error: Error) => void;
     const transport = createMockTransport({
       mutation: async <TData,>() =>
@@ -275,16 +275,15 @@ describe('id-key normalization contracts (LC20)', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const moments = createMoments();
-    const send = moments.mutation<RespondResponse, void, MomentRow, MomentRow>('numeric-respond-inverse', {
+    const send = moments.mutation<RespondResponse, void, MomentRow, RespondResponse['sink']>('numeric-respond-inverse', {
       document,
       result: 'send',
       dedupe: false,
       optimistic: {
         model: moments,
         respond: () => ({ send: { id: '', userId: '54', status: 'sending' }, sink: { id: 54, userId: '54', status: 'sink' } }),
-        selectServerNode: data => data.send
+        selectServerNode: data => data.sink
       },
-      extract: ({ data }) => [{ into: moments, rows: [data.sink] }]
     });
     let request!: ReturnType<typeof send.run>;
 

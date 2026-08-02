@@ -1,5 +1,4 @@
 import { getInternalModelHandle, getInternalScopeHandle } from '../core/internalHandles';
-import { isRecord } from '../utils/normalizeHelpers';
 import type { MutationConfig, MutationModel, MutationResponder, OptimisticCtx, RespondOptimistic, WriteOp } from '../types';
 
 const normalizeResponseId = (model: MutationModel, row: Record<string, unknown>, fallbackId?: string | null): string => {
@@ -32,7 +31,6 @@ export const createMutationResponder = <TData, TInput, TStored, TNode>(config: M
         ops.push(...getInternalScopeHandle(placement.scope).planPlacement(placement.value(input), id, optimistic.prependTo ? 'prepend' : 'append'));
       }
     }
-    for (const sink of config.extract?.({ data }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
     return ops;
   };
 
@@ -40,10 +38,6 @@ export const createMutationResponder = <TData, TInput, TStored, TNode>(config: M
     const targets: Array<{ model: MutationModel; id: string }> = [];
     const node = optimistic.selectServerNode(data) as Record<string, unknown> | null | undefined;
     if (node) targets.push({ model: optimistic.model, id: normalizeResponseId(optimistic.model, node, context.tempId) });
-    for (const sink of config.extract?.({ data }) ?? []) {
-      const model = sink.into as MutationModel;
-      for (const row of sink.rows) if (isRecord(row)) targets.push({ model, id: normalizeResponseId(model, row) });
-    }
     return targets.flatMap(({ model, id }) => {
       const previous = model.find(id);
       if (previous === undefined) return [{ kind: 'destroy' as const, model: model.modelId, ids: [id], tombstone: false }];

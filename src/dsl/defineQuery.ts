@@ -8,7 +8,6 @@ import type {
   DbGraphQLDocument,
   EnsuredRowQueryHandle,
   EnsuredRowResult,
-  ExtractSink,
   MaterializedChain,
   ModelDestination,
   PageMeta,
@@ -42,14 +41,7 @@ import { fromNodes } from '../queries/base/connection';
 import { reportSyncError } from '../core/syncError';
 import { invalidatePersistedQuery } from '../core/queryPersistence';
 import { persistBucket, restorePersistedBucket } from '../core/fetch/persistedBucket';
-/**
- * Create one extract sink only when a row exists; pair with the `{ into, rows }` extract contract.
- *
- * @param into Extract destination.
- * @param row Optional source row.
- * @returns One extract sink, or an empty list.
- */
-export const intoIf = (into: ExtractSink['into'], row: unknown): ExtractSink[] => (row == null ? [] : [{ into, rows: [row] }]);
+import { createWritePlanCollector, runWritePlanInvalidations } from './writePlan';
 const issuedResetSeqByBucket = new Map<string, number>();
 const appliedResetSeqByBucket = new Map<string, number>();
 registerReset(() => {
@@ -245,7 +237,8 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     scope: TScope,
     data: TResponse,
     resetOrder: boolean,
-    resurrectDestroyed: boolean
+    resurrectDestroyed: boolean,
+    isCurrent: () => boolean
   ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
     const nodes = nodesOf(selected, config.page !== undefined);
@@ -253,14 +246,26 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const rows = isScopeDestination(config.into) ? nodes.map(node => ({ row: node as TStored & { id: string } })) : [];
     if (isScopeDestination(config.into)) ops.push(...getInternalScopeHandle(config.into).planApply(scope, rows, coverage, { resetOrder }));
     else ops.push(...getInternalModelHandle(config.into).planRows(nodes as TStored[], resurrectDestroyed ? { origin: 'event' as const } : undefined));
-    for (const sink of config.extract?.({ data, nodes }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
+    if (!isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
+    const writePlanCollector = createWritePlanCollector();
+    config.write?.({ data, nodes, scope }, writePlanCollector.plan);
+    if (!isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
+    const compiledWritePlan = writePlanCollector.compile();
+    if (!isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
+    ops.push(...compiledWritePlan.writeOps);
     if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
+    if (!isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
+    const invalidationsCurrent = runWritePlanInvalidations(compiledWritePlan.invalidations, isCurrent, error =>
+      reportSyncError(error, { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery')
+    );
+    if (!invalidationsCurrent) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
     const committedRows = isScopeDestination(config.into) ? rows.map(entry => entry.row) : nodes;
     const normalizeRowId = isScopeDestination(config.into)
       ? (row: unknown) => getInternalScopeHandle(config.into).normalizeRowId(row)
       : (row: unknown) => getInternalModelHandle(config.into).normalizeRowId(row);
     const ids = committedRows.map(row => compositeKey(destinationModelId, normalizeRowId(row)));
-    const meta = config.page ? pageMetaOf(config.page(data)) : { endCursor: null, hasNextPage: false };
+    const meta = config.page ? pageMetaOf(selected as ConnectionLike) : { endCursor: null, hasNextPage: false };
+    if (!isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
     return { meta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
@@ -286,7 +291,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const applied = appliedResetSeqByBucket.get(guardKey) ?? 0;
     if ((reset && issued < applied) || (!reset && issued < issuedResetSeqByBucket.get(guardKey)!)) return null;
     if (reset) appliedResetSeqByBucket.set(guardKey, issued);
-    const result = applyResponse(scope, data, reset, resurrectDestroyed);
+    const result = applyResponse(scope, data, reset, resurrectDestroyed, context.isCurrent);
     const previous = getDbQueryClient().getQueryData(queryKeyOf(key)) as ChainMeta | undefined;
     const previousPages = previous?.pages ?? 0;
     const pages = config.page ? (reset ? 1 : previousPages + 1) : 1;
@@ -361,12 +366,17 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         },
         staleTime: options.restart || options.nextPage ? 0 : staleTimeOf(key)
       });
+      if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
       if (meta !== null) persist(scope, meta);
+      if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
       if (localState.get(key).invalidateSeq !== invalidateSeqAtStart) {
         // An invalidate landed while this fetch was in flight. The response predates it, so it
         // cannot satisfy it: restore the invalidated mark the landing cleared and run once more.
+        if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
         await client.invalidateQueries({ queryKey, exact: true, refetchType: 'none' });
+        if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
         await run(scope, { restart: false, resurrectDestroyed: options.resurrectDestroyed, propagateFailure: options.propagateFailure });
+        if (!generationFence.isCurrent()) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
       }
     } catch (error) {
       if (!generationFence.isCurrent()) {

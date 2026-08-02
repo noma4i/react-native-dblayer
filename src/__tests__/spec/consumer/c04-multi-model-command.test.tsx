@@ -3,7 +3,7 @@ import { configureDb, defineCommand, defineModelRuntime, f } from '../../testApi
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // Mirrors yupi_v2 src/db/mutations/walletMutations.ts sendGift: one model-less defineCommand whose
-// `extract` sinks fan a single response out into 4 independent models in ONE apply transaction.
+// WritePlan fans a single response out into 4 independent models in ONE apply transaction.
 
 type UserRow = { id: string; fullName: string };
 type MessageRow = { id: string; chatId: string; body: string };
@@ -48,12 +48,12 @@ describe('multi-model command consumer contracts', () => {
       document,
       result: 'giftSend',
       dedupe: false,
-      extract: ({ data }) => [
-        { into: users, rows: [data.giftSend.user] },
-        { into: messages, rows: [data.giftSend.message] },
-        { into: currentUser, rows: [{ id: 'me', balance: data.giftSend.wallet.balance }] },
-        { into: walletTransactions, rows: [data.giftSend.transaction] }
-      ]
+      write: ({ data }, plan) => {
+        plan.upsert(users, data.giftSend.user);
+        plan.upsert(messages, data.giftSend.message);
+        plan.upsert(currentUser, { id: 'me', balance: data.giftSend.wallet.balance });
+        plan.upsert(walletTransactions, data.giftSend.transaction);
+      }
     });
 
     const userReader = renderCounted(() => users.use.find('user-1'));
@@ -110,12 +110,12 @@ describe('multi-model command consumer contracts', () => {
       document,
       result: 'giftSend',
       dedupe: false,
-      extract: ({ data }) => [
-        { into: users, rows: [data.giftSend.user] },
-        { into: messages, rows: [data.giftSend.message] },
-        { into: currentUser, rows: [{ id: 'me', balance: data.giftSend.wallet.balance }] },
-        { into: walletTransactions, rows: [data.giftSend.transaction] }
-      ]
+      write: ({ data }, plan) => {
+        plan.upsert(users, data.giftSend.user);
+        plan.upsert(messages, data.giftSend.message);
+        plan.upsert(currentUser, { id: 'me', balance: data.giftSend.wallet.balance });
+        plan.upsert(walletTransactions, data.giftSend.transaction);
+      }
     });
 
     await expect(sendGift.run({ userId: 'user-1', giftId: 'gift-1' })).rejects.toThrow('network down');

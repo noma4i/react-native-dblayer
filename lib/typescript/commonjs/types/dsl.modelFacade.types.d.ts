@@ -9,6 +9,7 @@ import type { AnyFields, InferBuildInput, InferStoredFields } from './schema.inf
 import type { ModelCore, ScopeHandle } from './dsl.model.types';
 import type { DbSubscriptionEntry } from './subscription.types';
 import type { ModelStatusPollerPhase } from './utils.modelStatusPoller.types';
+import type { WritePlan } from './dsl.writePlan.types';
 export type TypedDocumentData<TDocument> = TDocument extends TypedDocumentNode<infer TData, any> ? TData : never;
 export type TypedDocumentVariables<TDocument> = TDocument extends TypedDocumentNode<any, infer TVariables> ? TVariables : never;
 export type TypedMutationInput<TVariables> = TVariables extends {
@@ -62,6 +63,11 @@ export type GraphqlConnectionOptions<TData, TVariables, TParams, TConnection, TN
     variables(params: TParams): TVariables;
     connection(data: TData): TConnection | null | undefined;
     map?(node: TNode): TMapped;
+    write?(context: {
+        data: TData;
+        nodes: readonly TMapped[];
+        params: TParams;
+    }, plan: WritePlan): void;
     cursor?(data: TData, connection: TConnection): string | null;
     mapCursor?(cursor: string): unknown;
     coverage?: ScopeCoverage;
@@ -83,6 +89,11 @@ export type GraphqlListOptions<TData, TVariables, TParams, TNode, TMapped> = {
     variables(params: TParams): TVariables;
     select(data: TData): ReadonlyArray<TNode | null | undefined> | null | undefined;
     map?(node: TNode): TMapped;
+    write?(context: {
+        data: TData;
+        nodes: readonly TMapped[];
+        params: TParams;
+    }, plan: WritePlan): void;
     required?: readonly (keyof TParams & string)[];
     staleTime?: number | string;
     persistenceVersion?: number;
@@ -97,6 +108,11 @@ export type GraphqlListDefinition<TData, TVariables, TParams, TNode, TMapped = T
 export type GraphqlSingleOptions<TData, TVariables, TParams, TNode> = {
     variables(params: TParams): TVariables;
     select(data: TData): TNode | null | undefined;
+    write?(context: {
+        data: TData;
+        nodes: readonly TNode[];
+        params: TParams;
+    }, plan: WritePlan): void;
     required?: readonly (keyof TParams & string)[];
     staleTime?: number | string;
     persistenceVersion?: number;
@@ -134,17 +150,13 @@ type GraphqlActionBase<TData, TVariables, TInput, TResultKey extends keyof TData
         key(input: TInput): string | null;
     };
     once?: boolean;
-    before?(input: TInput, context: ActionContext): void;
-    after?(context: {
+    write?(context: {
         input: TInput;
         data: TData;
-    }): void;
+    }, plan: WritePlan): void;
+    before?(input: TInput, context: ActionContext): void;
     error?(error: Error, context: ActionContext & {
         input: TInput;
-    }): void;
-    invalidate?(context: {
-        input: TInput;
-        data: TData;
     }): void;
     track?(context: {
         input: TInput;

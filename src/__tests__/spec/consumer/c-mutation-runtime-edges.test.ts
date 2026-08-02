@@ -123,7 +123,7 @@ describe('mutation runtime edges', () => {
     expect(rows.scopes.bucket.read({ bucket: 'a' }).map(row => row.id)).toEqual(['row-1']);
   });
 
-  it('contains post-commit callback and logger failures without skipping later callbacks', async () => {
+  it('contains post-commit invalidation target and logger failures without skipping later targets', async () => {
     const onSyncError = jest.fn();
     const loggerError = jest.fn(() => {
       throw new Error('logger failure');
@@ -136,15 +136,22 @@ describe('mutation runtime edges', () => {
     });
     const rows = createRows('CallbackIsolation');
     const tracked = jest.fn();
-    const callbackFailure: unknown = 'commit callback failure';
+    const firstTarget = {
+      invalidate: () => {
+        throw new Error('first invalidation failure');
+      }
+    };
+    const secondTarget = {
+      invalidate: () => {
+        throw new Error('second invalidation failure');
+      }
+    };
     const mutation = rows.mutation<{ save: { ok: boolean } }, void, never, never>('save', {
       document,
       result: 'save',
-      onCommit: () => {
-        throw callbackFailure;
-      },
-      invalidate: () => {
-        throw new Error('invalidate callback failure');
+      write: (_context, plan) => {
+        plan.invalidate(firstTarget);
+        plan.invalidate(secondTarget);
       },
       track: tracked
     });
@@ -180,15 +187,15 @@ describe('mutation runtime edges', () => {
     expect(rows.find('temp-existing')).toMatchObject({ label: 'existing' });
   });
 
-  it('keeps extract operations for another model outside method-patch ownership', async () => {
+  it('keeps WritePlan operations for another model outside method-patch ownership', async () => {
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
         mutation: async <TData,>() => ({ data: { save: { audit: { id: 'audit-1', bucket: 'audit', label: 'written' } } } as TData })
       })
     });
-    const rows = createRows('PatchExtract');
-    const audits = createRows('PatchExtractAudit');
+    const rows = createRows('PatchWritePlan');
+    const audits = createRows('PatchWritePlanAudit');
     rows.insert({ id: 'row-1', bucket: 'a', label: 'before' });
     const mutation = rows.mutation<
       { save: { audit: EdgeRow } },
@@ -204,7 +211,7 @@ describe('mutation runtime edges', () => {
         selectId: input => input.id,
         selectPatch: () => ({ label: 'optimistic' })
       },
-      extract: ({ data }) => [{ into: audits, rows: [data.save.audit] }]
+      write: ({ data }, plan) => plan.upsert(audits, data.save.audit)
     });
 
     await expect(mutation.run({ id: 'row-1' })).resolves.toMatchObject({ audit: { id: 'audit-1' } });

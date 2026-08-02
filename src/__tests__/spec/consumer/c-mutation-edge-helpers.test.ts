@@ -1,10 +1,14 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import {
   configureDb,
   correlateIncomingRow,
   createMutationResponder,
   defineModelRuntime,
+  exactMutationRootPlan,
   f,
   getOperationState,
+  getInternalModelHandle,
   hasMany,
   isMethodOptimistic,
   isRespondOptimistic,
@@ -17,6 +21,9 @@ import {
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
+type RootPlanResponse = { save: { row: { id: string; label: string } } };
+type RootPlanVariables = { input: { label: string } };
+const rootPlanDocument: TypedDocumentNode<RootPlanResponse, RootPlanVariables> = { kind: Kind.DOCUMENT, definitions: [] };
 
 describe('mutation configuration edges', () => {
   it('rejects conflicting declaration shapes and invalid optimistic placement', () => {
@@ -205,6 +212,31 @@ describe('mutation correlation edges', () => {
   });
 });
 
+describe('mutation root planner edges', () => {
+  it('applies the exact root planner output before the response commit', async () => {
+    const transport = createMockTransport({
+      mutation: async <TData,>() => ({
+        data: { save: { row: { id: 'root-plan-1', label: 'root' } } } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const root = defineModelRuntime({
+      id: 'MutationRootPlanEdges',
+      name: 'MutationRootPlanEdges',
+      fields: { label: f.str() }
+    });
+    const mutation = root.mutation('save', {
+      document: rootPlanDocument,
+      result: 'save',
+      [exactMutationRootPlan]: ({ data }) => getInternalModelHandle(root).planRows([data.save.row])
+    });
+
+    await mutation.run({ label: 'input' });
+
+    expect(root.find('root-plan-1')).toEqual({ id: 'root-plan-1', label: 'root' });
+  });
+});
+
 describe('mutation responder edges', () => {
   it('uses model rowId normalization for replacement and inverse identities', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
@@ -216,29 +248,18 @@ describe('mutation responder edges', () => {
       guard: input => (input as { label?: string }).label !== 'guarded',
       maintenance: { dropTempRowsAfterMs: 1000 }
     });
-    const extracted = defineModelRuntime({
-      id: 'MutationResponderCustomExtractedIds',
-      name: 'MutationResponderCustomExtractedIds',
-      fields: { label: f.str() },
-      rowId: input => (input as { sourceId: string | number }).sourceId
-    });
     const optimistic = {
       model: rows,
       respond: () => ({}),
       selectServerNode: (data: { save: { row: { sourceId: number; label: string } } }) => data.save.row
     };
-    const responder = createMutationResponder({
-      document,
-      result: 'save',
-      optimistic,
-      extract: ({ data }: { data: { extra: { sourceId: number; label: string } } }) => [{ into: extracted, rows: [data.extra] }]
-    } as never);
+    const responder = createMutationResponder({ document, result: 'save', optimistic } as never);
     const context = { tempId: 'temp-1', operationId: 'operation-1' };
     rows.insert({ sourceId: 'temp-1', label: 'temporary' } as never);
 
     expect(() =>
       responder.planFromRespond(
-        { save: { row: { sourceId: null, label: 'invalid' } }, extra: { sourceId: 88, label: 'extra' } } as never,
+        { save: { row: { sourceId: null, label: 'invalid' } } } as never,
         { tempId: null, operationId: 'invalid-operation' },
         optimistic as never,
         {}
@@ -246,23 +267,22 @@ describe('mutation responder edges', () => {
     ).toThrow('MutationResponderCustomIds requires id');
     expect(() =>
       responder.planFromRespond(
-        { save: { row: { id: 'wrong-field', sourceId: 77, label: 'guarded' } }, extra: { sourceId: 88, label: 'extra' } } as never,
+        { save: { row: { id: 'wrong-field', sourceId: 77, label: 'guarded' } } } as never,
         context,
         optimistic as never,
         {}
       )
     ).toThrow('MutationResponderCustomIds rejected input');
 
-    const response = { save: { row: { sourceId: 77, label: 'server' } }, extra: { sourceId: 88, label: 'extra' } };
+    const response = { save: { row: { sourceId: 77, label: 'server' } } };
     const plan = responder.planFromRespond(response as never, context, optimistic as never, {});
     const inverse = responder.inverseFromRespond(response as never, context, optimistic as never);
 
     expect(plan).toContainEqual({ kind: 'destroy', model: rows.modelId, ids: ['temp-1'], origin: 'replace' });
     expect(inverse).toContainEqual({ kind: 'destroy', model: rows.modelId, ids: ['77'], tombstone: false });
-    expect(inverse).toContainEqual({ kind: 'destroy', model: extracted.modelId, ids: ['88'], tombstone: false });
   });
 
-  it('plans absent payload errors, temp placement, replacement, extraction, and inverse writes', () => {
+  it('plans absent payload errors, temp placement, replacement, and inverse writes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineModelRuntime({
       id: 'MutationResponderRows',
@@ -271,36 +291,24 @@ describe('mutation responder edges', () => {
       maintenance: { dropTempRowsAfterMs: 1000 },
       scopes: { feed: ({ sort: 'server-order' }) }
     });
-    const extracted = defineModelRuntime({
-      id: 'MutationResponderExtracted',
-      name: 'MutationResponderExtracted',
-      fields: { label: f.str() }
-    });
     const optimistic = {
       model: rows,
       respond: () => ({}),
       selectServerNode: (data: { save: { row: { id?: string; label: string } | null } }) => data.save.row,
       prependTo: { scope: rows.scopes.feed, value: () => ({}) }
     };
-    const responder = createMutationResponder({
-      document,
-      result: 'save',
-      optimistic,
-      extract: ({ data }: { data: { extra?: { id: string; label: string } } }) =>
-        data.extra ? [{ into: extracted, rows: [data.extra, null] }] : []
-    } as never);
+    const responder = createMutationResponder({ document, result: 'save', optimistic } as never);
     const context = { tempId: 'temp-1', operationId: 'operation-1' };
 
     expect(() => responder.planFromRespond({} as never, context, optimistic as never, {})).toThrow('save returned no data');
     expect(responder.planFromRespond({ save: { row: null } } as never, context, optimistic as never, {})).toEqual([]);
     const tempPlan = responder.planFromRespond(
-      { save: { row: { id: '', label: 'temp' } }, extra: { id: 'extra-1', label: 'extra' } } as never,
+      { save: { row: { id: '', label: 'temp' } } } as never,
       context,
       optimistic as never,
       {}
     );
     expect(tempPlan.some(op => op.kind === 'scope-delta')).toBe(true);
-    expect(tempPlan.some(op => op.model === extracted.modelId)).toBe(true);
     expect(
       responder.planFromRespond(
         { save: { row: { id: 'server-direct', label: 'direct' } } } as never,
@@ -324,14 +332,12 @@ describe('mutation responder edges', () => {
     );
     expect(replacement).toContainEqual({ kind: 'destroy', model: rows.modelId, ids: ['temp-1'], origin: 'replace' });
 
-    extracted.insert({ id: 'extra-existing', label: 'old' });
     const inverse = responder.inverseFromRespond(
-      { save: { row: { id: 'server-new', label: 'new' } }, extra: { id: 'extra-existing', label: 'new' } } as never,
+      { save: { row: { id: 'server-new', label: 'new' } } } as never,
       context,
       optimistic as never
     );
     expect(inverse).toContainEqual({ kind: 'destroy', model: rows.modelId, ids: ['server-new'], tombstone: false });
-    expect(inverse.some(op => op.model === extracted.modelId && op.kind === 'upsert')).toBe(true);
     expect(
       responder.inverseFromRespond(
         { save: { row: { id: '', label: 'temp' } } } as never,
@@ -340,8 +346,7 @@ describe('mutation responder edges', () => {
       )
     ).toContainEqual(expect.objectContaining({ model: rows.modelId }));
 
-    const responderWithoutExtract = createMutationResponder({ document, result: 'save', optimistic } as never);
-    expect(responderWithoutExtract.planFromRespond({ save: { row: null } } as never, context, optimistic as never, {})).toEqual([]);
-    expect(responderWithoutExtract.inverseFromRespond({ save: { row: null } } as never, context, optimistic as never)).toEqual([]);
+    expect(responder.planFromRespond({ save: { row: null } } as never, context, optimistic as never, {})).toEqual([]);
+    expect(responder.inverseFromRespond({ save: { row: null } } as never, context, optimistic as never)).toEqual([]);
   });
 });

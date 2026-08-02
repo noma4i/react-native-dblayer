@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type {
-  ActionContext,
+  ActionMode,
   GraphqlActionDefinition,
   GraphqlActionOptions,
   GraphqlConnectionDefinition,
@@ -16,17 +16,19 @@ import type {
   TypedDocumentVariables
 } from './dsl.modelFacade.types';
 
-type ActionOptionsWithoutVariables<TData, TVariables, TInput, TResultKey extends keyof TData & string, TNode> = GraphqlActionOptions<
+type ActionOptionsForMode<
   TData,
   TVariables,
   TInput,
-  TResultKey,
-  TNode
-> extends infer TOptions
-  ? TOptions extends unknown
-    ? Omit<TOptions, 'variables'>
-    : never
-  : never;
+  TResultKey extends keyof TData & string,
+  TNode,
+  TMode extends ActionMode
+> = Extract<
+  GraphqlActionOptions<TData, TVariables, TInput, TResultKey, TNode>,
+  TMode extends 'request' ? { mode?: 'request' } : { mode: TMode }
+>;
+
+type ActionModeMarker<TMode extends ActionMode> = TMode extends 'request' ? { mode?: 'request' } : { mode: TMode };
 
 export type GraphqlDsl = {
   live<TData, TVariables>(
@@ -65,27 +67,22 @@ export type GraphqlDsl = {
     TInput,
     TResultKey extends keyof TypedDocumentData<TDocument> & string,
     TNode,
-    const TRest extends ActionOptionsWithoutVariables<
+    TMode extends ActionMode = 'request'
+  >(
+    document: TDocument,
+    options: ActionOptionsForMode<
       TypedDocumentData<TDocument>,
       TypedDocumentVariables<TDocument>,
       TInput,
       TResultKey,
-      TNode
-    >
-  >(
-    document: TDocument,
-    options: {
-      variables(input: TInput, context: ActionContext): TypedDocumentVariables<TDocument>;
-    } & TRest
+      TNode,
+      TMode
+    > & ActionModeMarker<TMode>
   ): GraphqlActionDefinition<
     TypedDocumentData<TDocument>,
     TypedDocumentVariables<TDocument>,
     TInput,
     TResultKey,
     TNode
-  > &
-    {
-      variables(input: TInput, context: ActionContext): TypedDocumentVariables<TDocument>;
-    } &
-    NoInfer<TRest>;
+  > & ActionModeMarker<TMode>;
 };

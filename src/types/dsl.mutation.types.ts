@@ -1,6 +1,7 @@
 import type { DbGraphQLDocument } from './db.types';
 import type { WriteOp } from './core.apply.journal.types';
-import type { ExtractSink } from './dsl.query.types';
+import type { WritePlan } from './dsl.writePlan.types';
+import type { exactMutationRootPlan } from '../dsl/mutationRootPlan';
 import type { exactMutationVariables } from '../dsl/mutationVariables';
 
 /** Non-null payload selected by a mutation's declared top-level `result` field. */
@@ -62,7 +63,7 @@ export type InsertOptimistic<TData, TInput, TStored, TNode> = {
 
 /**
  * Channel-agnostic temp-row correlation rule for an insert-optimistic mutation: when any write
- * channel (query landing, another mutation's extract sink, ingest, seed) plans a server row that is
+ * channel (query landing, WritePlan response, ingest, seed) plans a server row that is
  * not in the store yet, the core matches it against this mutation's still-open temp rows and plans
  * a replace instead of a duplicate insert. `fields` compare candidate/incoming values with
  * `Object.is`; `match` further narrows candidates; `createdAtWindowMs` rejects candidates whose
@@ -108,20 +109,18 @@ export type MutationConfig<TData, TInput, TStored, TNode> = {
   [exactMutationVariables]?: (input: TInput, ctx: OptimisticCtx) => Record<string, unknown>;
   /** Optimistic local write applied before the network call, undone on error/rollback. */
   optimistic?: InsertOptimistic<TData, TInput, TStored, TNode> | RespondOptimistic<TData, TInput, TNode> | PatchOptimistic<TInput, TStored> | DestroyOptimistic<TInput>;
-  /** Cross-model sideloads from the response, applied in the same transaction as the commit. */
-  extract?: (ctx: { data: TData }) => ExtractSink[];
+  /** Internal exact root landing planner supplied by the action facade. */
+  [exactMutationRootPlan]?: (context: { data: TData }) => WriteOp[];
+  /** Plan cross-model writes and invalidations into the response envelope. */
+  write?: (context: { input: TInput; data: TData }, plan: WritePlan) => void;
   /** Double-tap guard key. Pending duplicates are skipped; null skips dedupe for that input. */
   dedupe?: false | { key: (input: TInput) => string | null };
   /** Retain a committed dedupe key until runtime reset instead of releasing it after commit. */
   once?: boolean;
   /** Called synchronously right after the optimistic write (if any), before the transport call starts. */
   onMutate?: (input: TInput, ctx: OptimisticCtx) => void;
-  /** Called after the response commits successfully, after extract sinks and preserve-on-commit have applied. */
-  onCommit?: (data: TData, ctx: OptimisticCtx & { input: TInput }) => void;
   /** Called after a failed run has rolled back its optimistic write (if any) and closed the operation. */
   onError?: (error: Error, ctx: OptimisticCtx & { input: TInput }) => void;
-  /** Called after a successful commit to invalidate related queries; errors are logged and do not fail the mutation. */
-  invalidate?: (ctx: { input: TInput; data: TData }) => void;
   /** Called after a successful commit for analytics/tracking; errors are logged and do not fail the mutation. */
   track?: (ctx: { input: TInput; data: TData }) => void;
 };

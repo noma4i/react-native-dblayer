@@ -70,7 +70,7 @@ describe('action modes', () => {
           kind: 'insert',
           select: data => data.startJob.job,
           before: input => calls.push(`before:${input.label}`),
-          after: ({ input, data }) => calls.push(`after:${input.label}:${data.startJob.job.id}`),
+          track: ({ input, data }) => calls.push(`track:${input.label}:${data.startJob.job.id}`),
           error: (error, { input }) => calls.push(`error:${input.label}:${error.message}`)
         })
       }
@@ -80,7 +80,7 @@ describe('action modes', () => {
     await expect(Job.actions.start.run({ label: 'fail' })).rejects.toThrow('rejected');
 
     expect(Job.find('job-1')).toEqual({ id: 'job-1', label: 'pass', status: 'done' });
-    expect(calls).toEqual(['before:pass', 'after:pass:job-1', 'before:fail', 'error:fail:rejected']);
+    expect(calls).toEqual(['before:pass', 'track:pass:job-1', 'before:fail', 'error:fail:rejected']);
   });
 
   it('starts and completes a durable action through one model-owned handle', () => {

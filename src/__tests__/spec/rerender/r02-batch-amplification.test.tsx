@@ -294,7 +294,7 @@ describe('rerender matrix batch amplification', () => {
         selectId: input => input.id,
         selectPatch: input => ({ name: input.name })
       },
-      extract: ({ data }) => [{ into: rows, rows: [data.rename] }]
+      write: ({ data }, plan) => plan.upsert(rows, data.rename)
     });
 
     const ingest = rows.ingest({

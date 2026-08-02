@@ -26,25 +26,45 @@ export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
       const remote = definition.remote;
       const query = remote
         ? remote.type === 'single'
-          ? (runtime.query(name, {
-              document: remote.document,
-              vars: remote.variables,
-              select: remote.select,
-              into: runtime,
-              requiredScope: remote.required,
-              staleTime: remote.staleTime,
-              resumeStaleTime: remote.resumeStaleTime,
-              emptyStaleTime: remote.emptyStaleTime,
-              persistenceVersion: remote.persistenceVersion,
-              refetchOnMount: remote.refetchOnMount
-            }) as QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined>)
+          ? (() => {
+              const write = remote.write;
+              return runtime.query(name, {
+                document: remote.document,
+                vars: remote.variables,
+                select: remote.select,
+                write: write
+                  ? ({ data, nodes, scope }, plan) =>
+                      write({
+                        data,
+                        nodes,
+                        params: scope
+                      }, plan)
+                  : undefined,
+                into: runtime,
+                requiredScope: remote.required,
+                staleTime: remote.staleTime,
+                resumeStaleTime: remote.resumeStaleTime,
+                emptyStaleTime: remote.emptyStaleTime,
+                persistenceVersion: remote.persistenceVersion,
+                refetchOnMount: remote.refetchOnMount
+              }) as QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined>;
+            })()
           : remote.type === 'list'
             ? (() => {
                 const list = remote as GraphqlListDefinition<any, any, any, any, any>;
+                const write = list.write;
                 return runtime.query(name, {
                   document: list.document,
                   vars: list.variables,
                   select: (data: unknown) => (list.select(data) ?? []).flatMap(node => (node == null ? [] : [list.map ? list.map(node) : node])),
+                  write: write
+                    ? ({ data, nodes, scope }, plan) =>
+                        write({
+                          data,
+                          nodes,
+                          params: scope
+                        }, plan)
+                    : undefined,
                   into: runtime.scopes[name] as never,
                   coverage: 'complete',
                   requiredScope: list.required,
@@ -57,6 +77,7 @@ export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
               })()
             : (() => {
                 const connection = remote as GraphqlConnectionDefinition<any, any, any, any, any, any>;
+                const write = connection.write;
                 return runtime.query(name, {
                   document: connection.document,
                   vars: connection.variables,
@@ -71,6 +92,14 @@ export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
                       relationCursor: value && connection.cursor ? connection.cursor(data, value) : undefined
                     };
                   },
+                  write: write
+                    ? ({ data, nodes, scope }, plan) =>
+                        write({
+                          data,
+                          nodes,
+                          params: scope
+                        }, plan)
+                    : undefined,
                   into: runtime.scopes[name] as never,
                   coverage: connection.coverage,
                   requiredScope: connection.required,

@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, defineCommand, defineModel, defineShape, f, gql, intoIf } from '../../testApi';
+import { configureDb, defineCommand, defineModel, defineShape, f, gql } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type UserInput = {
@@ -75,7 +75,7 @@ const createGraphModels = (suffix: string) => {
     actions: {
       create: gql.action(createChatDocument, {
         result: 'createChat',
-        variables: input => ({ input }),
+        variables: (input: CreateChatVariables['input']) => ({ input }),
         kind: 'insert',
         select: data => data.createChat.chat,
         optimistic: {
@@ -213,7 +213,7 @@ describe('sideload graph', () => {
     reader.unmount();
   });
 
-  it('lands cross-model command extracts through public model facades', async () => {
+  it('lands cross-model command writes through public model facades', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>() => ({
         data: {
@@ -229,7 +229,7 @@ describe('sideload graph', () => {
       document: refreshUserDocument,
       result: 'refreshUser',
       mapInput: input => ({ input }),
-      extract: ({ data }) => intoIf(User, data.refreshUser.user)
+      write: ({ data }, plan) => plan.upsert(User, data.refreshUser.user)
     });
 
     await refreshUser.run({ id: 'user-command' });

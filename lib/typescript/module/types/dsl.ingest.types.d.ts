@@ -1,6 +1,6 @@
 import type { OperationState } from './core.planes.operationState.types';
 import type { DbSubscriptionEntry } from './subscription.types';
-import type { ExtractSink } from './dsl.query.types';
+import type { WritePlan } from './dsl.writePlan.types';
 export type IngestModel = {
     modelId: string;
     name?: string;
@@ -17,8 +17,10 @@ export type IngestDecl = {
     invalidateAll?: true;
     /** Echo guard: when this operation id already committed locally, the whole event is skipped. */
     operationId?: string | null;
-    /** Cross-model sideloads applied in the SAME transaction as the event rows. */
-    extract?: ExtractSink[];
+    /** Cross-model writes applied in the SAME transaction as the event rows. */
+    write?: (context: {
+        data: unknown;
+    }, plan: WritePlan) => void;
 };
 export type ModelIngestTools = {
     /** Model that owns this fused ingest declaration. */

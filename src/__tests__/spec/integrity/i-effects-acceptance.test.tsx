@@ -52,7 +52,7 @@ describe('effects derive from accepted rows', () => {
       result: 'pin',
       dedupe: false,
       optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) },
-      extract: ({ data }) => [{ into: chats, rows: [data.pin] }]
+      write: ({ data }, plan) => plan.upsert(chats, data.pin)
     });
     const target = getApplyTarget(chats.modelId);
     let failApply = false;

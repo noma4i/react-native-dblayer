@@ -2,12 +2,11 @@ import { act } from 'react';
 import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
-// Channel-agnostic temp correlation (G1, closed in 9.0): a mutation that declares
-// `optimistic.correlate` gets its still-open temp rows collapsed into the matching server row no
-// matter which channel delivers it - query result application, an unrelated mutation's extract
-// sink, or a subscription/ingest handler. The correlation seam lives in `planRows`, the single
-// point every write channel plans upsert rows through, and draws candidates from the durable
-// operation ledger (open insert operations), so a false merge cannot come from a whole-model scan.
+// Channel-agnostic temp correlation: a mutation that declares `optimistic.correlate` collapses an
+// open temp row into the matching server row regardless of delivery channel - query result
+// application, an unrelated mutation's WritePlan response, or a subscription/ingest handler.
+// The correlation seam is `planRows`, where every write channel plans upsert rows through durable
+// ledger candidates (open insert operations) instead of a whole-model scan.
 
 type MessageRow = { id: string; chatId: string; body: string; status: 'Sending' | 'Failed' | 'Sent' };
 type ChatRow = { id: string; lastMessageId: string | null; lastActivityAt: number };
@@ -82,13 +81,11 @@ describe('channel-agnostic temp correlation', () => {
     });
 
     const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    // DESIRED: one logical message, one row (the server-confirmed one). ACTUAL today: two rows
-    // (the still-pending temp row plus the query-delivered server row).
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe('server-1');
   });
 
-  it('case 2: an unrelated mutation extract sink collapses the still-pending temp row of the same logical message', async () => {
+  it('case 2: an unrelated mutation WritePlan write collapses the still-pending temp row of the same logical message', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>(operation: { variables?: unknown }) => {
         const variables = (operation.variables ?? {}) as { input?: { chatId?: string } };
@@ -97,13 +94,13 @@ describe('channel-agnostic temp correlation', () => {
       }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const messages = createMessagesModel('Extract');
+    const messages = createMessagesModel('WritePlan');
     const send = createSendMutation(messages);
     const giftEcho = messages.mutation<{ giftSend: { message: MessageRow } }, Record<string, never>, never, never>('giftEcho', {
       document,
       result: 'giftSend',
       mapInput: () => ({}),
-      extract: ({ data }) => [{ into: messages, rows: [data.giftSend.message] }]
+      write: ({ data }, plan) => plan.upsert(messages, data.giftSend.message)
     });
 
     act(() => {
@@ -116,8 +113,6 @@ describe('channel-agnostic temp correlation', () => {
     });
 
     const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    // DESIRED: one logical message, one row. ACTUAL today: two rows - the extract sink of a
-    // completely unrelated mutation writes the server row by its own id with no correlation check.
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe('server-1');
   });
@@ -141,8 +136,6 @@ describe('channel-agnostic temp correlation', () => {
     });
 
     const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    // DESIRED: one logical message, one row. ACTUAL today: two rows - the ingest handler upserts the
-    // server row by its own id with no correlation to the temp row already sitting in the same scope.
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe('server-1');
   });
@@ -174,20 +167,11 @@ describe('channel-agnostic temp correlation', () => {
     });
     expect(messages.find(tempId)).toMatchObject({ status: 'Failed' });
 
-    // The same logical message is now confirmed via a completely different channel (a thread
-    // refetch), the way it would be in the app if the thread screen is reopened after the lost
-    // response. Today nothing marks the failed row as resolved or removes it: it is orphaned
-    // forever, coexisting with the server row that eventually arrives through any other channel.
     await act(async () => {
       await query.fetch({ chatId: 'chat-1' });
     });
 
     const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    // DESIRED: the failed row either resolves (collapses into the confirmed server row) or the
-    // core explicitly flags it as still requiring resolution instead of silently going stale.
-    // ACTUAL today: the failed row just sits there unresolved (`use.failed` stays true forever, and
-    // `use.failed` itself is a hook so it is exercised through operation-state introspection instead)
-    // and the confirmed server row is a second, independent row in the same scope.
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe('server-1');
   });

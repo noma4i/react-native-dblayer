@@ -65,6 +65,7 @@ export { rowsShallowEqual } from '../utils/rowEquality';
 export { isMethodOptimistic, isRespondOptimistic, validateMutationConfig } from '../dsl/mutationConfiguration';
 export { correlateIncomingRow, modelHasCorrelators, registerMutationCorrelator } from '../dsl/mutationCorrelation';
 export { createMutationResponder } from '../dsl/mutationResponder';
+export { exactMutationRootPlan } from '../dsl/mutationRootPlan';
 export { registerBootValidation, runBootValidations } from '../dsl/bootValidations';
 export { defineIngest, defineModelIngest } from '../dsl/defineIngest';
 export { reconcileDetachedOperationsAtBoot } from '../dsl/defineDetachedOperation';

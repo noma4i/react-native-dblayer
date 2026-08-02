@@ -130,7 +130,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
     act(() => root.unmount());
   });
 
-  it('applies two-model extracts in one commit wave and does not touch unrelated scopes', () => {
+  it('applies two-model writes in one commit wave and does not touch unrelated scopes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
     const primary = createPrimaryModel();
     const secondary = createSecondaryModel();
@@ -143,7 +143,10 @@ describe('multi-model ingest and ingest echo contracts', () => {
           const input = payload as EventPayload;
           return {
             upsert: input.primary,
-            extract: [{ into: secondary, rows: [input.secondary] }]
+            write: ({ data }, plan) => {
+              const event = data as EventPayload;
+              plan.upsert(secondary, event.secondary);
+            }
           };
         }
       }
@@ -191,7 +194,7 @@ describe('multi-model ingest and ingest echo contracts', () => {
       dedupe: { key: input => input.operationId },
       once: true,
       mapInput: input => input,
-      extract: ({ data }) => [{ into: primary, rows: [data.momentIngest] }]
+      write: ({ data }, plan) => plan.upsert(primary, data.momentIngest)
     });
 
     const ingest = primary.ingest({

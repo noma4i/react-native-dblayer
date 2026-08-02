@@ -9,7 +9,7 @@ import type { CommandConfig } from '../types';
  * `once: true` to retain committed keys until reset, or `dedupe: false` to disable the guard.
  *
  * @param name Stable command namespace used by the default dedupe key.
- * @param config Mutation document, response result field, optional dedupe/once policy, mapping/extract, and lifecycle callbacks.
+ * @param config Mutation document, response result field, optional dedupe/once policy, mapping, response WritePlan, and lifecycle callbacks.
  * @returns The same `{ run, retry, discard, use }` surface as `defineMutation`.
  */
 export const defineCommand = <TData, TInput, TStored extends { id: string } = { id: string }, TNode = TStored>(

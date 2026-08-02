@@ -6,6 +6,8 @@ import { getDbSubscriptionEffect } from '../core/subscriptionRuntime';
 import { getInternalModelHandle } from '../core/internalHandles';
 import { reportSyncError } from '../core/syncError';
 import { createGenerationRegistry } from '../core/generationRegistry';
+import { createGenerationFence } from '../utils/runtimeGeneration';
+import { createWritePlanCollector, runWritePlanInvalidations } from './writePlan';
 
 const modelsByName = createGenerationRegistry<IngestModel>();
 
@@ -94,7 +96,7 @@ export const defineModelIngest = (
 };
 
 /**
- * Compile a subscription event into ONE event plan: rows, destroys and extract sinks apply with
+ * Compile a subscription event into ONE event plan: rows, destroys and write plan intents apply with
  * relation side effects (touch/counterCache/dependent) in a single epoch. Version arbitration for
  * stale events lives in the model's write acceptance gate - not here (one gate, no zoo).
  *
@@ -108,9 +110,11 @@ export const defineModelIngest = (
  */
 export const defineIngest = (model: IngestModel, handlers: Record<string, (payload: unknown) => IngestDecl | null>): IngestHandle => ({
   apply: (event, payload) => {
+    const generationFence = createGenerationFence();
     try {
       const declaration = handlers[event]?.(payload) ?? null;
       if (!declaration) return null;
+      if (!generationFence.isCurrent()) return null;
       if (declaration.operationId && getOperationState().hasCommitted(declaration.operationId)) return declaration;
       const rows = declaration.upsert == null ? [] : Array.isArray(declaration.upsert) ? declaration.upsert : [declaration.upsert];
       const ids = declaration.destroy == null ? [] : Array.isArray(declaration.destroy) ? declaration.destroy : [declaration.destroy];
@@ -123,16 +127,22 @@ export const defineIngest = (model: IngestModel, handlers: Record<string, (paylo
         );
       }
       if (ids.length > 0) ops.push({ kind: 'destroy', model: model.modelId, ids });
-      for (const sink of declaration.extract ?? []) {
-        ops.push(
-          ...getInternalModelHandle(sink.into)
-            .planRows(sink.rows)
-            .map(op => (op.kind === 'upsert' ? { kind: 'upsert' as const, model: op.model, rows: op.rows, origin: 'event' as const } : op))
-        );
-      }
+      if (!generationFence.isCurrent()) return null;
+      const writePlanCollector = createWritePlanCollector({ origin: 'event' });
+      declaration.write?.({ data: payload }, writePlanCollector.plan);
+      if (!generationFence.isCurrent()) return null;
+      const compiledWritePlan = writePlanCollector.compile();
+      if (!generationFence.isCurrent()) return null;
+      ops.push(...compiledWritePlan.writeOps);
       if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
+      if (!generationFence.isCurrent()) return null;
+      if (!runWritePlanInvalidations(compiledWritePlan.invalidations, generationFence.isCurrent, error => reportModelIngestError(model, event, error))) {
+        return null;
+      }
+      if (!generationFence.isCurrent()) return null;
       if (declaration.invalidateAll) model.invalidate();
       else if (declaration.invalidate) model.invalidate(declaration.invalidate);
+      if (!generationFence.isCurrent()) return null;
       return declaration;
     } catch (error) {
       reportModelIngestError(model, event, error);

@@ -2,6 +2,7 @@ import type { DbGraphQLDocument, LoadingState } from './db.types';
 import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { ScopeHandle } from './dsl.model.types';
 import type { WindowPaginationBridge } from './dsl.pagination.types';
+import type { WritePlan } from './dsl.writePlan.types';
 
 /** GraphQL pageInfo subset the query DSL understands, in both pagination directions. */
 export type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
@@ -38,7 +39,7 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
   select?: (data: TResponse) => unknown;
   into: QueryDestination<TStored, TScope>;
   coverage?: ScopeCoverage;
-  extract?: (ctx: { data: TResponse; nodes: unknown[] }) => ExtractSink[];
+  write?: (context: { data: TResponse; nodes: unknown[]; scope: TScope }, plan: WritePlan) => void;
   enabled?: (scope: TScope) => boolean;
   /** Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. */
   requiredScope?: ReadonlyArray<keyof TScope & string>;
@@ -71,10 +72,6 @@ export type RequestState = {
 };
 /** The value stored per query key in the package QueryClient: fetch chain meta only - rows live in the store. */
 export type ChainMeta = { cursor: string | null; pages: number; hasNextPage: boolean; ids: string[]; resultKind: 'one' | 'many' };
-export type PlanRowsSink = { modelId: string } | { key: string };
-
-export type ExtractSink = { into: PlanRowsSink; rows: unknown[] };
-
 export type QueryResult<T, TData = T[] | T | undefined> = {
   data: TData; loadingState: LoadingState; error: Error | null; hasNextPage: boolean;
   isFetchingNextPage: boolean; fetchNextPage: () => void; refresh: () => Promise<void>;

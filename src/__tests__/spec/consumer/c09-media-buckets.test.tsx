@@ -382,8 +382,8 @@ describe('media scope bucket behavior', () => {
     queryReader.unmount();
   });
 
-  it('derives composite membership for query extract sinks', async () => {
-    type ExtractResponse = { carrier: { id: string; label: string }; media: MediaRow[] };
+  it('derives composite membership for query write-plan targets', async () => {
+    type QueryResponse = { carrier: { id: string; label: string }; media: MediaRow[] };
     const transport = createMockTransport({
       query: async <TData,>() => ({
         data: {
@@ -395,12 +395,12 @@ describe('media scope bucket behavior', () => {
     configureDb({ storage: createMemoryPlane(), transport });
     const media = createMediaModel();
     const carriers = defineModelRuntime({ id: 'SpecCompositeCarrierQuery', name: 'SpecCompositeCarrierQuery', fields: { label: f.str() } });
-    const query = carriers.query<ExtractResponse, Record<string, never>, Record<string, never>, { id: string; label: string }>('with-media', {
+    const query = carriers.query<QueryResponse, Record<string, never>, Record<string, never>, { id: string; label: string }>('with-media', {
       document,
       vars: value => value,
       select: data => data.carrier,
       into: carriers,
-      extract: ({ data }) => [{ into: media, rows: data.media }]
+      write: ({ data }, plan) => plan.upsert(media, data.media)
     });
 
     await query.fetch({});
@@ -408,7 +408,7 @@ describe('media scope bucket behavior', () => {
     expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.id)).toEqual(['b-1']);
   });
 
-  it('keeps composite membership derivation for mutation extract sinks', async () => {
+  it('keeps composite membership derivation for mutation WritePlan writes', async () => {
     type MutationResponse = { save: { id: string; label: string }; media: MediaRow[] };
     const transport = createMockTransport({
       mutation: async <TData,>() => ({
@@ -424,7 +424,7 @@ describe('media scope bucket behavior', () => {
     const mutation = carriers.mutation<MutationResponse, Record<string, never>, { id: string; label: string }, never>('with-media', {
       document,
       result: 'save',
-      extract: ({ data }) => [{ into: media, rows: data.media }]
+      write: ({ data }, plan) => plan.upsert(media, data.media)
     });
 
     await mutation.run({});

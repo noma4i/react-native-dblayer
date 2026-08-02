@@ -1,4 +1,4 @@
-import type { DefinedMutation, MutationConfig, MutationPayload, MutationRuntimeContext, OperationRecord, OptimisticCtx, WriteOp } from '../types';
+import type { DefinedMutation, InvalidationTarget, MutationConfig, MutationPayload, MutationRuntimeContext, OperationRecord, OptimisticCtx, WriteOp } from '../types';
 import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { hasDependentCascade } from '../core/relations';
 import { noteDataLoss } from '../core/diagnostics';
@@ -16,6 +16,8 @@ import { isMethodOptimistic, isRespondOptimistic } from './mutationConfiguration
 import { registerMutationCorrelator } from './mutationCorrelation';
 import { createMutationResponder } from './mutationResponder';
 import { exactMutationVariables } from './mutationVariables';
+import { exactMutationRootPlan } from './mutationRootPlan';
+import { createWritePlanCollector, runWritePlanInvalidations } from './writePlan';
 
 /** Internal shared replacement seam for mutation commits and `Model.replace` reconciliation. */
 export const clearFailedOptimisticMutation = (model: string, tempId: string): void => {
@@ -53,6 +55,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
     let operationContext!: OptimisticCtx;
     let data!: TData;
     let result!: MutationPayload<TData>;
+    let plannedInvalidations: InvalidationTarget[] = [];
     const methodPatchOptimistic = optimistic && isMethodOptimistic(optimistic) && optimistic.method === 'patch';
     // A mutation declared without an input has nothing to persist for resume, so it can lose nothing.
     const persistedFailedInput =
@@ -204,7 +207,15 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
         const node = optimistic.selectServerNode(data);
         if (node != null) ops.push(...getInternalModelHandle(optimistic.model).planReplace(tempId, node));
       }
-      for (const sink of config.extract?.({ data }) ?? []) ops.push(...getInternalModelHandle(sink.into).planRows(sink.rows));
+      ops.push(...(config[exactMutationRootPlan]?.({ data }) ?? []));
+      if (!generationFence.isCurrent()) return null;
+      const writePlanCollector = createWritePlanCollector();
+      config.write?.({ input, data }, writePlanCollector.plan);
+      if (!generationFence.isCurrent()) return null;
+      const compiledWritePlan = writePlanCollector.compile();
+      if (!generationFence.isCurrent()) return null;
+      ops.push(...compiledWritePlan.writeOps);
+      plannedInvalidations = compiledWritePlan.invalidations;
       const commitOps = methodPatchOptimistic
         ? ops.map(op => (op.kind === 'upsert' && op.model === optimistic.model.modelId ? { ...op, operationId } : op))
         : ops;
@@ -219,6 +230,7 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
       } else if (commitOps.length > 0) {
         getApplyRuntime().commit(createCommitEnvelope(commitOps));
       }
+      if (!generationFence.isCurrent()) return null;
     } catch (error) {
       if (!generationFence.isCurrent()) return null;
       const rollbackOps: WriteOp[] = [];
@@ -283,9 +295,10 @@ export const createMutationRuntime = <TData, TInput, TStored extends { id: strin
         reportCallbackError(error, callback);
       }
     };
-    runCommittedCallback('onCommit', () => config.onCommit?.(data, { ...operationContext, input }));
-    runCommittedCallback('invalidate', () => config.invalidate?.({ input, data }));
+    if (!runWritePlanInvalidations(plannedInvalidations, generationFence.isCurrent, error => reportCallbackError(error, 'write.invalidate'))) return null;
+    if (!generationFence.isCurrent()) return null;
     runCommittedCallback('track', () => config.track?.({ input, data }));
+    if (!generationFence.isCurrent()) return null;
     return result;
   };
 

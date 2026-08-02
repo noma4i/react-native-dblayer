@@ -14,7 +14,7 @@ describe('internal handle registry guards', () => {
 
   it('returns the registered handle for a model that was registered', () => {
     const model = {};
-    const handle = { tag: 'model-handle' } as never;
+    const handle = { modelId: 'SpecInternalHandleModel', tag: 'model-handle' } as never;
     registerInternalModelHandle(model, handle);
     expect(getInternalModelHandle(model)).toBe(handle);
   });

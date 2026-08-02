@@ -25,7 +25,6 @@ const runtimeExportAllowlist = [
   'gql',
   'hasMany',
   'hasOne',
-  'intoIf',
   'isTempId',
   'modelRef',
   'pickDefined',

@@ -34,17 +34,19 @@ describe('command invalidation and dedupe contracts', () => {
       select: data => data.version,
       staleTime: Number.MAX_SAFE_INTEGER
     });
+    const invalidationTarget = {
+      invalidate: () => {
+        activeCampaigns.remove();
+      }
+    };
 
     const redeem = defineCommand<CommandResult, { campaignId: string }, never, never>('specCommandInvalidate', {
       document,
       result: 'reward',
       mapInput: input => ({ campaignId: input.campaignId }),
-      extract: ({ data }) => {
-        const row = data.reward.user;
-        return [{ into: users, rows: [row] }];
-      },
-      invalidate: () => {
-        activeCampaigns.remove();
+      write: ({ data }, plan) => {
+        plan.upsert(users, data.reward.user);
+        plan.invalidate(invalidationTarget);
       }
     });
 
@@ -93,10 +95,7 @@ describe('command invalidation and dedupe contracts', () => {
       document,
       result: 'reward',
       mapInput: input => ({ campaignId: input.campaignId }),
-      extract: ({ data }) => {
-        const row = data.reward.user;
-        return [{ into: users, rows: [row] }];
-      }
+      write: ({ data }, plan) => plan.upsert(users, data.reward.user)
     });
 
     const fetchReader = renderCountedInProvider(() => activeCampaigns.use());

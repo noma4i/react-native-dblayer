@@ -20,6 +20,7 @@ const AUTHORIZED = new Map<string, string>([
   ['dsl/modelWrites.ts', 'a write plan rolls its own optimistic insert back'],
   ['dsl/modelRegistrations.ts', 'a failed optimistic mutation is cleared by the consumer'],
   ['dsl/defineDetachedOperation.ts', 'a detached operation rolls its own optimistic insert back'],
+  ['dsl/writePlan.ts', 'the consumer declared a destroy in the write plan'],
   ['dsl/configure.ts', 'replay drops temp rows of operations that cannot resume across a restart'],
   ['core/apply/commitEnvelope.ts', 'envelope construction, not a decision to delete'],
   ['core/apply/applyExecution.ts', 'applying a destroy already decided elsewhere']

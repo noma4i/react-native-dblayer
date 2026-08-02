@@ -112,9 +112,7 @@ somewhere under `docs/`.
 | `FetchHandle`     | type  | [queries.md](./queries.md)            |
 | `FetchResult`     | type  | [queries.md](./queries.md)                  |
 | `QueryResult`     | type  | [queries.md](./queries.md)                  |
-| `ExtractSink`     | type  | [queries.md](./queries.md)        |
 | `fromNodes`       | value | [queries.md](./queries.md) |
-| `intoIf`          | value | [queries.md](./queries.md) |
 | `useLoadMore` | value | [queries.md](./queries.md) |
 | `LoadMoreTarget` | type | [queries.md](./queries.md) |
 | `LoadMoreOptions` | type | [queries.md](./queries.md) |
@@ -126,6 +124,7 @@ somewhere under `docs/`.
 | `defineCommand`           | value | [mutations.md](./mutations.md)  |
 | `MutateCallbacks`         | type  | [mutations.md](./mutations.md)          |
 | `ScopePlacement`          | type  | [mutations.md](./mutations.md) |
+| `WritePlan`               | type  | [mutations.md](./mutations.md) |
 
 ### Ingest and subscriptions
 

@@ -3,8 +3,10 @@ import {
   configureDb,
   createDbSubscriptionEffects,
   defineIngest,
+  defineModel,
   defineModelRuntime,
   defineModelIngest,
+  defineShape,
   f,
   getOperationState,
   registerMutationCorrelator,
@@ -115,43 +117,49 @@ describe('model ingest edge helpers', () => {
     expect(rows.find('handler-id')).toMatchObject({ label: 'handler' });
     expect(compiled.entries).toHaveLength(15);
 
-    const parents = defineModelRuntime({
-      id: 'BaseIngestEdgeParents',
-      name: 'BaseIngestEdgeParents',
-      fields: { childCount: f.num() }
+    const parents = defineModel('BaseIngestEdgeParents', {
+      schema: defineShape<{ id: string; childCount: number }>()({ childCount: f.num() })
     });
-    const children = defineModelRuntime({
-      id: 'BaseIngestEdgeChildren',
-      name: 'BaseIngestEdgeChildren',
-      fields: { parentId: f.str() },
-      relations: () => ({
+    const children = defineModel('BaseIngestEdgeChildren', {
+      schema: defineShape<{ id: string; parentId: string }>()({ parentId: f.str() }),
+      associations: () => ({
         parent: belongsTo(parents, { foreignKey: 'parentId', counterCache: { field: 'childCount' } })
       })
     });
     parents.insert({ id: 'parent-1', childCount: 0 });
-    const extracting = defineIngest(rows, {
-      relation: () => ({ extract: [{ into: children, rows: [{ id: 'child-1', parentId: 'parent-1' }] }] })
+    const writing = defineIngest(rows, {
+      relation: () => ({
+        write: ({ data }, plan) => {
+          const payload = data as { parentId: string };
+          plan.upsert(children, { id: 'child-1', parentId: payload.parentId });
+        }
+      })
     });
-    extracting.apply('relation', {});
+    writing.apply('relation', { parentId: 'parent-1' });
     expect(children.find('child-1')).toMatchObject({ parentId: 'parent-1' });
     expect(parents.find('parent-1')).toMatchObject({ childCount: 1 });
 
-    registerMutationCorrelator(children.modelId, 'extract-child', { fields: ['parentId'] });
-    children.insert({ id: 'temp-extract-child', parentId: 'parent-1' });
+    registerMutationCorrelator(children.key, 'write-child', { fields: ['parentId'] });
+    children.insert({ id: 'temp-write-child', parentId: 'parent-1' });
     getOperationState().begin({
-      operationId: 'extract-child-operation',
-      model: children.modelId,
-      tempIds: ['temp-extract-child'],
-      rowIds: ['temp-extract-child'],
+      operationId: 'write-child-operation',
+      model: children.key,
+      tempIds: ['temp-write-child'],
+      rowIds: ['temp-write-child'],
       intent: 'insert',
       createdAt: 1
     });
-    const correlatedExtract = defineIngest(rows, {
-      relation: () => ({ extract: [{ into: children, rows: [{ id: 'server-extract-child', parentId: 'parent-1' }] }] })
+    const correlatedWrite = defineIngest(rows, {
+      relation: () => ({
+        write: ({ data }, plan) => {
+          const payload = data as { parentId: string };
+          plan.upsert(children, { id: 'server-write-child', parentId: payload.parentId });
+        }
+      })
     });
-    correlatedExtract.apply('relation', {});
-    expect(children.find('temp-extract-child')).toBeUndefined();
-    expect(children.find('server-extract-child')).toMatchObject({ parentId: 'parent-1' });
+    correlatedWrite.apply('relation', { parentId: 'parent-1' });
+    expect(children.find('temp-write-child')).toBeUndefined();
+    expect(children.find('server-write-child')).toMatchObject({ parentId: 'parent-1' });
   });
 
   it('returns null for absent declarations and reports handler failures', () => {

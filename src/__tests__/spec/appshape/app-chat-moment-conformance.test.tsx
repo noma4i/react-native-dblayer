@@ -42,14 +42,14 @@ describe('app chat and moment conformance', () => {
     const previous = chat('chat-previous', '2026-07-27T00:01:00Z');
     models.chats.scopes.list.seed({ statusFilter: 'active' }, [previous] as any);
     models.messages.scopes.thread.seed({ chatId: 'chat-created' }, [message('message-existing', 'chat-created')] as any);
-    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', extract: ({ data }: any) => [{ into: models.chats, rows: [data.chatGroupCreate.chat] }] });
+    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', write: ({ data }, plan) => plan.upsert(models.chats, data.chatGroupCreate.chat) });
 
     await act(async () => { await create.run({ mode: 'create' } as any); });
 
     expect(models.chats.scopes.list.read({ statusFilter: 'active' }).map((row: any) => row.id)).toEqual(['chat-created', 'chat-previous']);
     expect(models.messages.scopes.thread.read({ chatId: 'chat-created' }).map((row: any) => row.id)).toEqual(['message-existing']);
 
-    const sync = models.chats.mutation('sync', { document, result: 'chatSync', extract: ({ data }: any) => [{ into: models.chats, rows: data.chatSync.chats }] });
+    const sync = models.chats.mutation('sync', { document, result: 'chatSync', write: ({ data }, plan) => plan.upsert(models.chats, data.chatSync.chats) });
     const ingest = models.chats.ingest({ chatCreated: { handler: (payload: any) => ({ upsert: payload.chat, invalidate: { statusFilter: payload.chat.status } }) } });
     await act(async () => { await sync.run({ mode: 'sync' } as any); });
     act(() => { ingest.apply('chatCreated', { chat: created }); });
@@ -64,7 +64,7 @@ describe('app chat and moment conformance', () => {
     const existing = chat('chat-existing', '2026-07-27T00:01:00Z');
     models.chats.scopes.list.seed({ statusFilter: 'active' }, [existing] as any);
     models.messages.scopes.thread.seed({ chatId: 'chat-existing' }, [message('message-existing', 'chat-existing')] as any);
-    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', extract: ({ data }: any) => [{ into: models.chats, rows: [data.chatGroupCreate.chat] }] });
+    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', write: ({ data }, plan) => plan.upsert(models.chats, data.chatGroupCreate.chat) });
 
     await expect(create.run({})).rejects.toThrow('offline');
 
@@ -78,7 +78,13 @@ describe('app chat and moment conformance', () => {
     const existing = chat('chat-existing', '2026-07-27T00:01:00Z');
     models.chats.scopes.list.seed({ statusFilter: 'active' }, [existing] as any);
     models.messages.scopes.thread.seed({ chatId: 'chat-existing' }, [message('message-existing', 'chat-existing')] as any);
-    const create = models.chats.mutation('createGroup', { document, result: 'chatGroupCreate', extract: ({ data }: any) => data.chatGroupCreate?.chat ? [{ into: models.chats, rows: [data.chatGroupCreate.chat] }] : [] });
+    const create = models.chats.mutation('createGroup', {
+      document,
+      result: 'chatGroupCreate',
+      write: ({ data }, plan) => {
+        if (data.chatGroupCreate?.chat) plan.upsert(models.chats, data.chatGroupCreate.chat);
+      }
+    });
 
     await expect(create.run({})).rejects.toThrow('chatGroupCreate returned no data');
 

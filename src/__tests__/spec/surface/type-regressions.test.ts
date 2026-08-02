@@ -411,14 +411,15 @@ describe('public type regressions', () => {
         actions: {
           update: gql.action(document, {
             result: 'updateRow',
-            variables: (input: Input) => ({
-              input: { rowId: Number(input.rowId), title: input.title }
-            }),
+            variables: (input: Input) => {
+              return { input: { rowId: Number(input.rowId), title: input.title } };
+            },
             kind: 'update',
             id: input => input.rowId,
             select: data => data.updateRow.row,
-            before: input => {
+            before: (input, context) => {
               const source: Input['source'] = input.source;
+              void context.operationId;
               void source;
             }
           })
@@ -427,6 +428,43 @@ describe('public type regressions', () => {
       void rows.actions.update.run({ rowId: '1', title: 'typed', source: 'screen' });
       // @ts-expect-error source is part of the model action input
       void rows.actions.update.run({ rowId: '1', title: 'typed' });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
+  it('accepts an inferred optimistic insert action', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
+      type Row = { id: string; title: string };
+      type Data = { insertRow: { row: Row } };
+      type Variables = { input: { title: string } };
+      type Input = { title: string; source: 'screen' | 'sync' };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const RowSchema = defineShape<Row>()({ title: f.str() });
+      const rows = defineModel('action-insert-optimistic', {
+        schema: RowSchema,
+        actions: {
+          insert: gql.action(document, {
+            result: 'insertRow',
+            variables: (input: Input) => {
+              return { input: { title: input.title } };
+            },
+            kind: 'insert',
+            optimistic: {
+              build: (input, context) => {
+                const source: Input['source'] = input.source;
+                void source;
+                return { id: context.tempId, title: input.title };
+              }
+            },
+            select: data => data.insertRow.row
+          })
+        }
+      });
+      void rows.actions.insert.run({ title: 'typed', source: 'screen' });
+      // @ts-expect-error source is part of the model action input
+      void rows.actions.insert.run({ title: 'typed' });
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });
@@ -448,7 +486,9 @@ describe('public type regressions', () => {
         actions: model => ({
           update: gql.action(document, {
             result: 'updateRow',
-            variables: (input: Variables['input']) => ({ input }),
+            variables: (input: Variables['input']) => {
+              return { input };
+            },
             kind: 'update',
             id: input => input.rowId,
             select: data => data.updateRow.row,
@@ -462,6 +502,138 @@ describe('public type regressions', () => {
         })
       });
       void rows.actions.update.run({ rowId: '1', title: 'typed' });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
+  it('types the exact write plan surface and action write context', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql, type WritePlan } from '${entry}';
+
+      type User = { id: string; teamId: string; label: string };
+      type Team = { id: string; name: string };
+      type ActionInput = { id: string; teamId: string; label: string };
+      type ActionData = { updateUser: { row: User } };
+      type ActionVariables = { input: { id: string; label: string } };
+      type ExpectedWritePlanKeys = 'upsert' | 'update' | 'destroy' | 'invalidate';
+      type ExactWritePlanKeys = [keyof WritePlan] extends [ExpectedWritePlanKeys]
+        ? [ExpectedWritePlanKeys] extends [keyof WritePlan] ? true : false
+        : false;
+      const exactWritePlanKeys: ExactWritePlanKeys = true;
+      void exactWritePlanKeys;
+
+      const UserSchema = defineShape<User>()({ teamId: f.str(), label: f.str() });
+      const TeamSchema = defineShape<Team>()({ name: f.str() });
+      const result: 'updateUser' = 'updateUser';
+      const kind: 'update' = 'update';
+      const Teams = defineModel('write-plan-teams', { schema: TeamSchema });
+      const Users = defineModel('write-plan-users', {
+        schema: UserSchema,
+        relations: { byTeam: { by: { teamId: 'teamId' } } }
+      });
+      declare const plan: WritePlan;
+      const teamRows: readonly Team[] = [{ id: 'team-1', name: 'one' }];
+      const userRelation = Users.byTeam({ teamId: 'team-1' });
+
+      plan.upsert(Users, { id: 'user-1', teamId: 'team-1', label: 'one' });
+      plan.upsert(Teams, teamRows);
+      plan.update(Users, 'user-1', { label: 'updated' });
+      plan.update(Teams, 'team-1', { name: 'updated' });
+      plan.destroy(Users, 'user-1');
+      plan.destroy(Teams, ['team-1', 'team-2']);
+      plan.invalidate(userRelation);
+      // @ts-expect-error upsert input follows the selected model build input
+      plan.upsert(Users, { id: 'user-1', teamId: 'team-1', label: 1 });
+      // @ts-expect-error update patch follows the selected stored model
+      plan.update(Teams, 'team-1', { label: 'wrong' });
+      // @ts-expect-error destroy accepts string ids only
+      plan.destroy(Users, 1);
+
+      declare const document: TypedDocumentNode<ActionData, ActionVariables>;
+      defineModel('write-plan-action-users', {
+        schema: UserSchema,
+        actions: {
+          update: gql.action(document, {
+            result,
+            variables: (input: ActionInput) => {
+              return { input: { id: input.id, label: input.label } };
+            },
+            kind,
+            id: input => input.id,
+            select: data => data.updateUser.row,
+            write: (context, actionPlan) => {
+              const input: ActionInput = context.input;
+              const data: ActionData = context.data;
+              actionPlan.update(Teams, input.teamId, { name: data.updateUser.row.label });
+            },
+            before: (_input, context) => {
+              void context.operationId;
+              // @ts-expect-error before does not receive a write plan
+              context.plan;
+            },
+            error: (_error, context) => {
+              void context.input;
+              // @ts-expect-error error does not receive a write plan
+              context.plan;
+            },
+            track: context => {
+              void context.data;
+              // @ts-expect-error track does not receive a write plan
+              context.plan;
+            }
+          })
+        }
+      });
+    `);
+    expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
+  });
+
+  it('rejects removed public action callbacks', () => {
+    const diagnostics = compileFixture(`
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f, gql } from '${entry}';
+
+      type Row = { id: string; label: string };
+      type Input = { id: string; label: string };
+      type Data = { updateRow: { row: Row } };
+      type Variables = { input: Input };
+      declare const document: TypedDocumentNode<Data, Variables>;
+      const result: 'updateRow' = 'updateRow';
+      const kind: 'update' = 'update';
+      const RowSchema = defineShape<Row>()({ label: f.str() });
+      defineModel('removed-public-action-callbacks', {
+        schema: RowSchema,
+        actions: {
+          withAfter: gql.action(document, {
+            result,
+            variables: (input: Input) => ({ input }),
+            kind,
+            id: input => input.id,
+            select: data => data.updateRow.row,
+            // @ts-expect-error public gql.action no longer accepts after
+            after: (_context: { input: Input; data: Data }) => undefined
+          }),
+          withInvalidate: gql.action(document, {
+            result,
+            variables: (input: Input) => ({ input }),
+            kind,
+            id: input => input.id,
+            select: data => data.updateRow.row,
+            // @ts-expect-error public gql.action no longer accepts invalidate
+            invalidate: (_context: { input: Input; data: Data }) => undefined
+          }),
+          withResume: gql.action(document, {
+            result,
+            variables: (input: Input) => ({ input }),
+            kind,
+            id: input => input.id,
+            select: data => data.updateRow.row,
+            // @ts-expect-error update actions do not accept the durable-only resume key
+            resume: async () => 'orphaned'
+          })
+        }
+      });
     `);
     expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))).toEqual([]);
   });

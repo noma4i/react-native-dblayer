@@ -31,8 +31,11 @@ const Message = defineModel('Message', {
 `Model.events.apply(name, payload)` delivers a typed payload manually. Both routes execute the same
 handler, sideload traversal, relation effects, idempotency checks, and atomic plan commit.
 
-`IngestDecl` supports row upsert, destroy, operation echo identity, and additional extraction
-sinks.
+`IngestDecl` supports row upsert, destroy, operation echo identity, and additional
+`write(context, plan)` intents.
+
+Live ingest uses the same `WritePlan` as actions and remote queries. The event root and additional
+intents enter one commit envelope. Invalidation intents run after a successful commit.
 
 ## `createDbSubscriptionRuntime(entries)`
 

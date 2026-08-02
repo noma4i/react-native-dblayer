@@ -13,7 +13,7 @@ export declare const defineModelIngest: (model: IngestModel, entries: Record<str
     apply: (key: string, payload: unknown) => void;
 };
 /**
- * Compile a subscription event into ONE event plan: rows, destroys and extract sinks apply with
+ * Compile a subscription event into ONE event plan: rows, destroys and write plan intents apply with
  * relation side effects (touch/counterCache/dependent) in a single epoch. Version arbitration for
  * stale events lives in the model's write acceptance gate - not here (one gate, no zoo).
  *

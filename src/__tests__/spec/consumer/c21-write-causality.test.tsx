@@ -62,14 +62,14 @@ const createFixture = (suffix: string, guarded = false) => {
     result: 'pinChat',
     dedupe: false,
     optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: () => ({ pinned: true }) },
-    extract: ({ data }) => [{ into: chats, rows: [data.pinChat] }]
+    write: ({ data }, plan) => plan.upsert(chats, data.pinChat)
   });
   const muteChat = chats.mutation<MuteResponse, { id: string }, ChatRow, ChatRow>('mute-chat', {
     document,
     result: 'muteChat',
     dedupe: false,
     optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: () => ({ muted: true }) },
-    extract: ({ data }) => [{ into: chats, rows: [data.muteChat] }]
+    write: ({ data }, plan) => plan.upsert(chats, data.muteChat)
   });
   return { chats, query, pinChat, muteChat, queries, mutations };
 };
@@ -126,8 +126,8 @@ describe('optimistic write causality', () => {
     queryReader.unmount();
   });
 
-  it('commits its own authoritative extract after releasing the optimistic patch overlay', async () => {
-    const { chats, pinChat, mutations } = createFixture('OwnExtract');
+  it('commits its own authoritative WritePlan write after releasing the optimistic patch overlay', async () => {
+    const { chats, pinChat, mutations } = createFixture('OwnWritePlan');
     chats.insert(initialRow);
     const reader = recordTimeline(() => chats.use.find('chat-1'));
     let pin!: Promise<PinResponse['pinChat'] | null>;

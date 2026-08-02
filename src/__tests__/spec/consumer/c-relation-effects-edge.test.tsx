@@ -1,4 +1,4 @@
-import { belongsTo, defineModelRuntime, f, hasMany } from '../../testApi';
+import { belongsTo, defineModel, defineModelRuntime, defineShape, f, hasMany } from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 /**
@@ -12,10 +12,8 @@ type Message = { id: string; chatId: string; createdAt: number };
 
 const createChatModels = (suffix: string) => {
   setupSpecRuntime();
-  const chats = defineModelRuntime({
-    id: `SpecEffectsChats${suffix}`,
-    name: `SpecEffectsChats${suffix}`,
-    fields: { unreadCount: f.num(), lastActivityAt: f.num() }
+  const chats = defineModel(`SpecEffectsChats${suffix}`, {
+    schema: defineShape<Chat>()({ unreadCount: f.num(), lastActivityAt: f.num() })
   });
   const messages = defineModelRuntime({
     id: `SpecEffectsMessages${suffix}`,
@@ -102,12 +100,15 @@ describe('relation effect in-batch edges', () => {
       combined: {
         handler: () => ({
           upsert: { id: 'msg-1', chatId: 'chat-1', createdAt: 1 },
-          extract: [{ into: chats, rows: [{ id: 'chat-1', unreadCount: 50, lastActivityAt: 40 }] }]
+          write: ({ data }, plan) => {
+            const payload = data as { parent: Chat };
+            plan.upsert(chats, payload.parent);
+          }
         })
       }
     });
 
-    ingest.apply('combined', {});
+    ingest.apply('combined', { parent: { id: 'chat-1', unreadCount: 50, lastActivityAt: 40 } });
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 50 });
   });
