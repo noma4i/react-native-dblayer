@@ -92,7 +92,7 @@ describe('action write plan failure boundaries', () => {
     expect(Root.find(optimisticId)).toEqual({ id: optimisticId, value: 'optimistic' });
     expect(Root.find('server-root')).toBeUndefined();
     expect(Sibling.find('sibling-1')).toBeUndefined();
-    expect(Root.operation(optimisticId).read()).toEqual({ pending: false, failed: true, unsyncedChanges: undefined });
+    expect(Root.operation(optimisticId).read()).toEqual({ pending: false, failed: true, deliveryUnknown: false, unsyncedChanges: undefined });
     expect(diagnostics().snapshot().commits - beforeCommits).toBe(2);
   });
 

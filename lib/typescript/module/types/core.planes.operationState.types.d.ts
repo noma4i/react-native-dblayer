@@ -1,4 +1,4 @@
-export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
+export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed' | 'delivery_unknown';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
 export type OperationRecord = {
     operationId: string;
@@ -63,6 +63,8 @@ export type OperationState = {
     pendingForRow(model: string, rowId: string): OperationRecord[];
     /** Failed operations touching one model row (rowIds union tempIds). */
     failedForRow(model: string, rowId: string): OperationRecord[];
+    /** Unknown-delivery operations touching one model row. */
+    deliveryUnknownForRow(model: string, rowId: string): OperationRecord[];
     /** Most recent retained failed operation for one model row. */
     failedFor(model: string, rowId: string): OperationRecord | undefined;
     /** Remove one retained failed operation after retry, discard, or reconciliation. */
@@ -96,14 +98,16 @@ export type OperationState = {
         key: string;
         value: string | null;
     }>;
-    /** Apply already-durable transitions to live state without writing storage again. */
-    applyTransitions(transitions: readonly OperationTransition[]): void;
+    /** Apply already-durable transitions to live state and return records whose pending dependencies changed. */
+    applyTransitions(transitions: readonly OperationTransition[]): OperationRecord[];
     /** Hydrates the single ledger blob; malformed data is cold-reset because orphan temp-row reconciliation is the contract fallback. */
     hydrate(): void;
     reset(): void;
 };
-/** Persisted once-key payload protected by the shared persistence envelope. */
-export type PersistedOnceKeyRecord = {
-    keys: string[];
+/** Single persisted operation snapshot. Operations and retained once keys never diverge. */
+export type PersistedOperationState = {
+    recordVersion: 2;
+    operations: Record<string, OperationRecord>;
+    committedKeys: string[];
 };
 //# sourceMappingURL=core.planes.operationState.types.d.ts.map

@@ -14,8 +14,8 @@ describe('apply honesty (D5): mid-plan throw', () => {
       fields: { label: f.str() }
     });
     rows.insert({ id: 'row-1', label: 'baseline' });
-    const journalBefore = JSON.parse(storage.get('dbl:journal:1')!) as { payload: { status: string } };
-    expect(journalBefore.payload.status).toBe('committed');
+    const journalBefore = JSON.parse(storage.get('dbl:journal:1')!) as { payload: { recordVersion: number } };
+    expect(journalBefore.payload.recordVersion).toBe(2);
 
     expect(() =>
       getApplyRuntime().commit(createCommitEnvelope([
@@ -34,19 +34,19 @@ describe('apply honesty (D5): mid-plan throw', () => {
 describe('replay honesty (D15): parseable-but-malformed WAL records', () => {
   const configureBootRuntime = (entries: Array<{ key: string; value: string }>) => {
     const storage = createMemoryPlane();
-    storage.set(entries);
+    entries.forEach(entry => storage.set(entry.key, entry.value));
     configureDb({ storage, transport: createMockTransport() });
     return storage;
   };
   const encodedRecord = (epoch: number, model: string): string => {
     const storage = createMemoryPlane();
-    return createJournal(storage, () => 'dbl:').pendingEntry({
+    return createJournal(storage, () => 'dbl:').entry({
       txId: `test:${epoch}`,
       runtimeEpoch: 1,
       epoch,
-      status: 'pending',
-      ops: [{ kind: 'upsert', model, rows: [{ id: `row-${epoch}`, label: 'good' }] }]
-    })[0]!.value!;
+      ops: [{ kind: 'upsert', model, rows: [{ id: `row-${epoch}`, label: 'good' }] }],
+      operationTransitions: []
+    }).value!;
   };
   const writeMatchingManifest = () => writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
 

@@ -3,12 +3,14 @@ import {
   compositeKey,
   computeSchemaFingerprints,
   configureDb,
+  createCommitEnvelope,
   DB_FORMAT_VERSION,
   defineModelRuntime,
   encodePersistence,
   f,
   flushPersistence,
   getCommitBus,
+  getApplyRuntime,
   getOperationState,
   noteMaintenancePersistence,
   purgeForeignStorageKeys,
@@ -19,7 +21,7 @@ import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostic
 
 const configureRecoveryRuntime = (entries: Array<{ key: string; value: string }> = []) => {
   const storage = createMemoryPlane();
-  storage.set(entries);
+  entries.forEach(entry => storage.set(entry.key, entry.value));
   configureDb({ storage, transport: createMockTransport() });
   return storage;
 };
@@ -349,20 +351,31 @@ describe('persistence recovery protocol', () => {
     expect(purgeForeignStorageKeys()).toBe(1);
     noteMaintenancePersistence([model.modelId]);
     flushPersistence();
-    getOperationState().begin({
-      operationId: 'maintenance-operation',
-      actionKey: `${model.modelId}:action`,
-      actionMode: 'request',
-      model: model.modelId,
-      tempIds: [],
-      rowIds: ['row-1'],
-      intent: 'patch',
-      createdAt: 1
-    });
+    getApplyRuntime().commit(
+      createCommitEnvelope([], [{
+        kind: 'begin',
+        operation: {
+          operationId: 'maintenance-operation',
+          actionKey: `${model.modelId}:action`,
+          actionMode: 'request',
+          model: model.modelId,
+          tempIds: [],
+          rowIds: ['row-1'],
+          intent: 'patch',
+          createdAt: 1
+        }
+      }])
+    );
 
     expect(storage.get('foreign:key')).toBeUndefined();
     expect(storage.get('dbl:owned')).toBe('owned');
-    expect(events).toContainEqual({ rows: [], scopes: [], pending: [{ model: model.modelId, id: 'row-1' }] });
+    expect(events).toContainEqual({
+      mode: 'delta',
+      rows: [],
+      scopes: [],
+      scopeChanges: [],
+      pending: [{ model: model.modelId, id: 'row-1' }]
+    });
     unsubscribe();
   });
 });

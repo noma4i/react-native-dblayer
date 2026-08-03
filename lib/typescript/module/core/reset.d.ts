@@ -1,4 +1,5 @@
 import type { Resetter, SyncResetter } from '../types';
+import type { StorageResetEntry } from '../types/core.persistenceInternals.types';
 /**
  * Register in-memory runtime state that `resetRuntime`'s kill-switch must clear. `defineModel` calls this
  * automatically for its own planes; use it directly only for extra runtime state defined outside a model.
@@ -29,4 +30,6 @@ export declare const resetInMemoryRuntime: () => void;
  * are rethrown together as an `AggregateError` after storage and in-memory state are fully reset.
  */
 export declare const resetRuntime: () => void;
+export declare const resumeInterruptedStorageReset: () => boolean;
+export declare const resetRuntimeForCompatibility: (restore: readonly StorageResetEntry[]) => void;
 //# sourceMappingURL=reset.d.ts.map

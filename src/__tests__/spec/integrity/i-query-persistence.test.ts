@@ -1,15 +1,5 @@
-import {
-  compositeStorageKey,
-  configureDb,
-  encodePersistence,
-  type QueryPersistenceRecord,
-  type StoragePlane
-} from '../../testApi';
-import {
-  readPersistedQuery,
-  readPersistedQueryFamily,
-  writePersistedQuery
-} from '../../testApi';
+import { compositeStorageKey, configureDb, encodePersistence, type QueryPersistenceRecord, type StoragePlane } from '../../testApi';
+import { invalidatePersistedQuery, readPersistedQuery, readPersistedQueryFamily, removePersistedQuery, writePersistedQuery } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const declaration = {
@@ -18,10 +8,8 @@ const declaration = {
   fingerprint: 'fingerprint'
 };
 
-const record = (
-  overrides: Partial<QueryPersistenceRecord<string, null>> = {}
-): QueryPersistenceRecord<string, null> => ({
-  recordVersion: 1,
+const record = (overrides: Partial<QueryPersistenceRecord<string, null>> = {}): QueryPersistenceRecord<string, null> => ({
+  recordVersion: 2,
   family: declaration.family,
   identity: 'identity',
   persistenceVersion: declaration.persistenceVersion,
@@ -31,11 +19,11 @@ const record = (
   empty: false,
   dataUpdatedAt: 1,
   invalidated: false,
+  invalidationRevision: 0,
   ...overrides
 });
 
-const keyOf = (family = declaration.family, identity = 'identity'): string =>
-  compositeStorageKey('dbl:', 'query', family, identity);
+const keyOf = (family = declaration.family, identity = 'identity'): string => compositeStorageKey('dbl:', 'query', family, identity);
 
 describe('query persistence records', () => {
   it('removes corrupt, unsupported, and incompatible exact records', () => {
@@ -47,7 +35,7 @@ describe('query persistence records', () => {
       defaults: { onSyncError }
     });
 
-    storage.set([{ key: keyOf(), value: 'corrupt' }]);
+    storage.set(keyOf(), 'corrupt');
     expect(
       readPersistedQuery(declaration, 'identity', value => ({
         payload: value.payload as string,
@@ -57,7 +45,7 @@ describe('query persistence records', () => {
     expect(onSyncError).toHaveBeenCalledTimes(1);
     expect(storage.get(keyOf())).toBeUndefined();
 
-    storage.set([{ key: keyOf(), value: encodePersistence(record(), 99) }]);
+    storage.set(keyOf(), encodePersistence(record(), 99));
     expect(
       readPersistedQuery(declaration, 'identity', value => ({
         payload: value.payload as string,
@@ -66,7 +54,7 @@ describe('query persistence records', () => {
     ).toBeUndefined();
     expect(onSyncError).toHaveBeenCalledTimes(1);
 
-    storage.set([{ key: keyOf(), value: encodePersistence(record({ persistenceVersion: 2 })) }]);
+    storage.set(keyOf(), encodePersistence(record({ persistenceVersion: 2 })));
     expect(
       readPersistedQuery(declaration, 'identity', value => ({
         payload: value.payload as string,
@@ -84,7 +72,7 @@ describe('query persistence records', () => {
       transport: createMockTransport(),
       defaults: { onSyncError }
     });
-    storage.set([
+    [
       { key: keyOf(declaration.family, 'corrupt'), value: 'corrupt' },
       {
         key: keyOf(declaration.family, 'wrong-family'),
@@ -94,13 +82,11 @@ describe('query persistence records', () => {
         key: keyOf(declaration.family, 'valid'),
         value: encodePersistence(record({ identity: 'valid' }))
       }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
 
     expect(readPersistedQueryFamily(declaration).map(value => value.identity)).toEqual(['valid']);
     expect(onSyncError).toHaveBeenCalledTimes(1);
-    expect(storage.snapshotKeys().filter(key => key.startsWith(compositeStorageKey('dbl:', 'query', declaration.family)))).toEqual([
-      keyOf(declaration.family, 'valid')
-    ]);
+    expect(storage.snapshotKeys().filter(key => key.startsWith(compositeStorageKey('dbl:', 'query', declaration.family)))).toEqual([keyOf(declaration.family, 'valid')]);
   });
 
   it('removes a family record whose declared identity does not match its storage key', () => {
@@ -111,12 +97,7 @@ describe('query persistence records', () => {
       defaults: {}
     });
     const forgedKey = keyOf(declaration.family, 'physical-identity');
-    storage.set([
-      {
-        key: forgedKey,
-        value: encodePersistence(record({ identity: 'declared-identity' }))
-      }
-    ]);
+    storage.set(forgedKey, encodePersistence(record({ identity: 'declared-identity' })));
 
     expect(readPersistedQueryFamily(declaration)).toEqual([]);
     expect(storage.get(forgedKey)).toBeUndefined();
@@ -128,7 +109,7 @@ describe('query persistence records', () => {
     const ghostKey = keyOf(declaration.family, 'ghost');
     const storage: StoragePlane = {
       get: key => (key === ghostKey ? undefined : base.get(key)),
-      set: entries => base.set(entries),
+      set: (key, value) => base.set(key, value),
       keys: prefix => [...base.keys(prefix), ...(ghostKey.startsWith(prefix) ? [ghostKey] : [])]
     };
     const onSyncError = jest.fn();
@@ -160,5 +141,53 @@ describe('query persistence records', () => {
       })
     ).toBe(false);
     expect(onSyncError).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates every accepted family record with one physical write', () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport(), defaults: {} });
+    writePersistedQuery({ ...record({ identity: 'first' }) });
+    writePersistedQuery({ ...record({ identity: 'second' }) });
+    const set = storage.set;
+    let invalidationWrites = 0;
+    storage.set = (key, value) => {
+      invalidationWrites += 1;
+      if (invalidationWrites === 2) throw new Error('process killed after first invalidation write');
+      set(key, value);
+    };
+
+    try {
+      expect(() => invalidatePersistedQuery(declaration, () => true)).not.toThrow();
+    } finally {
+      storage.set = set;
+    }
+    expect(invalidationWrites).toBe(1);
+    expect(readPersistedQueryFamily(declaration).map(value => [value.identity, value.invalidated])).toEqual([
+      ['first', true],
+      ['second', true]
+    ]);
+  });
+
+  it('keeps surviving records stale when family removal stops between keys', () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport(), defaults: {} });
+    writePersistedQuery({ ...record({ identity: 'first' }) });
+    writePersistedQuery({ ...record({ identity: 'second' }) });
+    const set = storage.set;
+    let deletions = 0;
+    storage.set = (key, value) => {
+      if (value === null) {
+        deletions += 1;
+        if (deletions === 2) throw new Error('process killed during family removal');
+      }
+      set(key, value);
+    };
+
+    try {
+      expect(() => removePersistedQuery(declaration)).toThrow('process killed during family removal');
+    } finally {
+      storage.set = set;
+    }
+    expect(readPersistedQueryFamily(declaration).map(value => value.invalidated)).toEqual([true]);
   });
 });

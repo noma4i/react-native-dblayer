@@ -6,7 +6,7 @@ describe('resetRuntime failure isolation', () => {
   it('runs every resetter, clears storage, and rethrows resetter failures after the full pass', () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport() });
-    storage.set([{ key: 'dbl:sentinel', value: 'present' }]);
+    storage.set('dbl:sentinel', 'present');
     const calls: string[] = [];
     const unregisterFirst = registerReset(() => {
       calls.push('first');
@@ -33,15 +33,15 @@ describe('resetRuntime failure isolation', () => {
   it('runs every resetter and finishes in-memory teardown when storage deletion throws', () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport() });
-    storage.set([{ key: 'dbl:sentinel', value: 'present' }]);
+    storage.set('dbl:sentinel', 'present');
     const set = storage.set;
     let failDeletion = true;
-    storage.set = entries => {
-      if (failDeletion && entries.some(entry => entry.value === null)) {
+    storage.set = (key, value) => {
+      if (failDeletion && value === null) {
         failDeletion = false;
         throw new Error('storage deletion failed');
       }
-      set(entries);
+      set(key, value);
     };
     const calls: string[] = [];
     const unregisterFirst = registerReset(() => {

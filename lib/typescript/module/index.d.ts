@@ -5,6 +5,7 @@ export { DbProvider } from './dsl/DbProvider';
 export type { DbProviderProps } from './types';
 export { resetRuntime, registerReset } from './core/reset';
 export { setFetchNetworkOnline } from './core/fetch/networkState';
+export { MutationDeliveryUnknownError } from './core/mutationDeliveryError';
 export type { StoragePlane } from './types';
 export { defineModel } from './dsl/defineModel';
 export type { WritePlan } from './types';

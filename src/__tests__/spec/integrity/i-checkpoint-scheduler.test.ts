@@ -55,9 +55,9 @@ describe('checkpoint scheduler pacing', () => {
     scheduler.noteMaintenance(['Rows']);
     scheduler.flushNow();
 
-    expect(write).toHaveBeenCalledWith([
-      { key: 'checkpoint:applied:Rows', value: encodePersistence(7) },
-      { key: 'checkpoint:meta', value: encodePersistence({ lastCheckpointEpoch: 7 }) }
+    expect(write.mock.calls).toEqual([
+      ['checkpoint:applied:Rows', encodePersistence(7)],
+      ['checkpoint:meta', encodePersistence({ lastCheckpointEpoch: 7 })]
     ]);
     expect(target.ackPersist).toHaveBeenCalledTimes(1);
     expect(scheduler.flushedEpoch()).toBe(7);
@@ -81,9 +81,9 @@ describe('checkpoint scheduler pacing', () => {
     scheduler.noteMaintenance(['Rows']);
     scheduler.flushNow();
 
-    expect(write).toHaveBeenCalledWith([
-      { key: 'checkpoint:row:Rows:1', value: 'row' },
-      { key: 'checkpoint:meta', value: encodePersistence({ lastCheckpointEpoch: 0 }) }
+    expect(write.mock.calls).toEqual([
+      ['checkpoint:row:Rows:1', 'row'],
+      ['checkpoint:meta', encodePersistence({ lastCheckpointEpoch: 0 })]
     ]);
     expect(target.ackPersist).toHaveBeenCalledTimes(1);
   });
@@ -123,7 +123,7 @@ describe('checkpoint scheduler pacing', () => {
     scheduler.notePlan(['Rows'], 2);
     jest.advanceTimersByTime(5);
 
-    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(3);
     expect(target.ackPersist).toHaveBeenCalledTimes(1);
     expect(scheduler.flushedEpoch()).toBe(2);
     expect(scheduler.pendingPlans()).toBe(0);
@@ -136,10 +136,10 @@ describe('checkpoint scheduler pacing', () => {
     scheduler.notePlan(['Rows'], 2);
     scheduler.notePlan(['Rows'], 3);
 
-    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(3);
     expect(scheduler.flushedEpoch()).toBe(3);
     jest.advanceTimersByTime(10);
-    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(3);
     scheduler.cancel();
   });
 

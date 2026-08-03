@@ -79,7 +79,7 @@ describe('app-shaped thread freshness against lost members', () => {
     const scopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:'));
     expect(scopeKeys).not.toEqual([]);
     expect(storage.snapshotKeys().filter(key => key.startsWith('dbl:query:'))).not.toEqual([]);
-    storage.set(scopeKeys.map(key => ({ key, value: null })));
+    scopeKeys.map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
 
     const after = build();
     await act(async () => {
@@ -144,7 +144,7 @@ describe('app-shaped thread freshness against lost members', () => {
     const mediaScopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:') && key.includes('media'));
     expect(threadScopeKeys).not.toEqual([]);
     expect(mediaScopeKeys).not.toEqual([]);
-    storage.set(threadScopeKeys.map(key => ({ key, value: null })));
+    threadScopeKeys.map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
 
     const after = build();
     await act(async () => {
@@ -206,7 +206,7 @@ describe('app-shaped thread freshness against lost members', () => {
     // The mirror split of T2: membership and freshness survive, the rows behind them do not.
     const rowKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:row:'));
     expect(rowKeys).not.toEqual([]);
-    storage.set(rowKeys.map(key => ({ key, value: null })));
+    rowKeys.map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
 
     const after = build();
     await act(async () => {

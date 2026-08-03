@@ -18,7 +18,7 @@ describe('account switch integrity', () => {
 
     rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
     flushPersistence();
-    storageB.set(preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })));
+    preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })).forEach(entry => storageB.set(entry.key, entry.value));
 
     resetRuntime();
     configureDb({ storage: storageA, transport });
@@ -40,7 +40,7 @@ describe('account switch integrity', () => {
 
     rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
     flushPersistence();
-    storageB.set(preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })));
+    preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })).forEach(entry => storageB.set(entry.key, entry.value));
 
     configureDb({ storage: storageA, transport });
     expect(rows.find('row-1')).toBeUndefined();

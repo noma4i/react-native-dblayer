@@ -18,10 +18,10 @@ describe('storage transaction', () => {
     const storage: StoragePlane = {
       get: memory.get,
       keys: memory.keys,
-      set: entries => {
+      set: (key, value) => {
         writeCount += 1;
         if (writeCount === failAtWrite) throw new Error('durable commit failed');
-        memory.set(entries);
+        memory.set(key, value);
       }
     };
     configureDb({ storage, transport: createMockTransport() });
@@ -41,7 +41,7 @@ describe('storage transaction', () => {
     const parentRenders = parentReader.renders();
     const childRenders = childReader.renders();
 
-    failAtWrite = writeCount + 2;
+    failAtWrite = writeCount + 1;
     expect(() => {
       act(() => children.insert({ id: 'child-1', parentId: 'parent-1' }));
     }).toThrow('durable commit failed');

@@ -14,12 +14,13 @@ const readUnsyncedChanges = <TStored>(model: string, id: string): Partial<TStore
 
 /** Read the complete operation state for one row from the durable ledger. */
 export const readRowOperationState = <TStored>(model: string, id: string | null | undefined): RowOperationState<TStored> => {
-  if (id == null) return { pending: false, failed: false, unsyncedChanges: undefined };
+  if (id == null) return { pending: false, failed: false, deliveryUnknown: false, unsyncedChanges: undefined };
   const key = String(id);
   const operations = getOperationState();
   return {
     pending: operations.pendingForRow(model, key).length > 0,
     failed: operations.failedFor(model, key) !== undefined,
+    deliveryUnknown: operations.deliveryUnknownForRow(model, key).length > 0,
     unsyncedChanges: readUnsyncedChanges<TStored>(model, key)
   };
 };
@@ -27,6 +28,7 @@ export const readRowOperationState = <TStored>(model: string, id: string | null 
 const statesEqual = <TStored>(left: RowOperationState<TStored>, right: RowOperationState<TStored>): boolean =>
   left.pending === right.pending &&
   left.failed === right.failed &&
+  left.deliveryUnknown === right.deliveryUnknown &&
   (left.unsyncedChanges === right.unsyncedChanges ||
     (left.unsyncedChanges !== undefined && right.unsyncedChanges !== undefined && rowsShallowEqual(left.unsyncedChanges, right.unsyncedChanges)));
 

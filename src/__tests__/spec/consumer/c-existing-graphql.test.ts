@@ -36,11 +36,9 @@ const createMemoryPlane = (): dbLayer.StoragePlane => {
   const values = new Map<string, string>();
   return {
     get: key => values.get(key),
-    set: entries => {
-      for (const entry of entries) {
-        if (entry.value === null) values.delete(entry.key);
-        else values.set(entry.key, entry.value);
-      }
+    set: (key, value) => {
+      if (value === null) values.delete(key);
+      else values.set(key, value);
     },
     keys: prefix => [...values.keys()].filter(key => key.startsWith(prefix))
   };

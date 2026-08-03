@@ -87,9 +87,9 @@ describe('write plan safety', () => {
     const storage = createMemoryPlane();
     let queryPersistenceWrites = 0;
     const storageSet = storage.set;
-    storage.set = entries => {
-      queryPersistenceWrites += entries.filter(entry => entry.value !== null && entry.key.includes(':query:')).length;
-      storageSet(entries);
+    storage.set = (key, value) => {
+      if (value !== null && key.includes(':query:')) queryPersistenceWrites += 1;
+      storageSet(key, value);
     };
     const transport = createMockTransport({
       query: async <TData,>() => ({ data: { root: { id: 'root-commit-reset', value: 'root' } } as TData })

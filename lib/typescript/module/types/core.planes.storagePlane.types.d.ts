@@ -1,10 +1,7 @@
-/** Atomic-enough synchronous storage seam used by all state planes. */
+/** Synchronous single-key storage seam. Multi-key atomicity is never implied. */
 export interface StoragePlane {
     get(key: string): string | undefined;
-    set(entries: Array<{
-        key: string;
-        value: string | null;
-    }>): void;
+    set(key: string, value: string | null): void;
     keys(prefix: string): string[];
 }
 //# sourceMappingURL=core.planes.storagePlane.types.d.ts.map

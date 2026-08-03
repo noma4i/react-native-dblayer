@@ -1,13 +1,14 @@
 import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
-import { readCommittedOnceKeys, writeCommittedOnceKeys } from './planes/operationState';
-import { resetRuntime } from './reset';
+import { committedOnceKeysEntry, readCommittedOnceKeys } from './planes/operationState';
+import { createJournal } from './apply/journal';
+import { resetRuntimeForCompatibility, resumeInterruptedStorageReset } from './reset';
 import { noteDataLoss, noteManifestReset } from './diagnostics';
 import { compareCodepoints, compositeStorageKey, stableSerialize } from './serialize';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { isNonArrayRecord, isNonEmptyString } from '../utils/normalizeHelpers';
 import type { PersistenceManifest, PersistenceManifestRecord, SchemaDeclaration, SchemaFingerprints, SingleFingerprintPersistenceManifest } from '../types';
 
-export const DB_FORMAT_VERSION = 8;
+export const DB_FORMAT_VERSION = 9;
 
 const SINGLE_FINGERPRINT_FORMAT_VERSION = 7;
 const declarations = new Map<string, SchemaDeclaration>();
@@ -18,13 +19,32 @@ export const registerSchemaDeclaration = (declaration: SchemaDeclaration): void 
 };
 
 export const computeSchemaFingerprints = (): SchemaFingerprints =>
-  Object.fromEntries(
-    [...declarations.entries()]
-      .sort(([left], [right]) => compareCodepoints(left, right))
-      .map(([id, declaration]) => [id, stableSerialize(declaration)])
-  );
+  Object.fromEntries([...declarations.entries()].sort(([left], [right]) => compareCodepoints(left, right)).map(([id, declaration]) => [id, stableSerialize(declaration)]));
 
 const manifestKey = (prefix: string): string => `${prefix}manifest`;
+
+const committedOnceKeysForReset = (storage: ReturnType<typeof getDbRuntimeConfig>['storage'], prefix: string) => {
+  const persisted = readCommittedOnceKeys(storage, prefix);
+  const open = new Map<string, { once?: boolean; idempotencyKey?: string }>();
+  for (const record of createJournal(storage, () => prefix).allRecords()) {
+    for (const transition of record.operationTransitions) {
+      if (transition.kind === 'begin') {
+        open.set(transition.operation.operationId, transition.operation);
+        continue;
+      }
+      const operation = open.get(transition.operationId);
+      if (transition.kind === 'close') {
+        if (transition.status === 'committed' && operation?.once === true && operation.idempotencyKey) {
+          persisted.keys.push(operation.idempotencyKey);
+        }
+        open.delete(transition.operationId);
+        continue;
+      }
+      open.delete(transition.operationId);
+    }
+  }
+  return { keys: [...new Set(persisted.keys)].sort(), corruptSources: persisted.corruptSources };
+};
 
 const isSchemaFingerprints = (value: unknown): value is SchemaFingerprints =>
   isNonArrayRecord(value) && Object.entries(value).every(([id, fingerprint]) => isNonEmptyString(id) && isNonEmptyString(fingerprint));
@@ -32,19 +52,12 @@ const isSchemaFingerprints = (value: unknown): value is SchemaFingerprints =>
 const isDataVersion = (value: unknown): value is string | null => value === null || typeof value === 'string';
 
 const isPersistenceManifest = (value: unknown): value is PersistenceManifest =>
-  isNonArrayRecord(value) &&
-  typeof value.formatVersion === 'number' &&
-  isSchemaFingerprints(value.schemaFingerprints) &&
-  isDataVersion(value.dataVersion);
+  isNonArrayRecord(value) && typeof value.formatVersion === 'number' && isSchemaFingerprints(value.schemaFingerprints) && isDataVersion(value.dataVersion);
 
 const isSingleFingerprintPersistenceManifest = (value: unknown): value is SingleFingerprintPersistenceManifest =>
-  isNonArrayRecord(value) &&
-  typeof value.formatVersion === 'number' &&
-  typeof value.schemaFingerprint === 'string' &&
-  isDataVersion(value.dataVersion);
+  isNonArrayRecord(value) && typeof value.formatVersion === 'number' && typeof value.schemaFingerprint === 'string' && isDataVersion(value.dataVersion);
 
-const isPersistenceManifestRecord = (value: unknown): value is PersistenceManifestRecord =>
-  isPersistenceManifest(value) || isSingleFingerprintPersistenceManifest(value);
+const isPersistenceManifestRecord = (value: unknown): value is PersistenceManifestRecord => isPersistenceManifest(value) || isSingleFingerprintPersistenceManifest(value);
 
 const convertSingleFingerprint = (schemaFingerprint: string): SchemaFingerprints | undefined => {
   try {
@@ -59,11 +72,7 @@ const convertSingleFingerprint = (schemaFingerprint: string): SchemaFingerprints
       entries.push([value.id, value]);
     }
 
-    return Object.fromEntries(
-      entries
-        .sort(([left], [right]) => compareCodepoints(left, right))
-        .map(([id, declaration]) => [id, stableSerialize(declaration)])
-    );
+    return Object.fromEntries(entries.sort(([left], [right]) => compareCodepoints(left, right)).map(([id, declaration]) => [id, stableSerialize(declaration)]));
   } catch {
     return undefined;
   }
@@ -87,7 +96,7 @@ const readPersistenceManifest = (prefix: string): { manifest: PersistenceManifes
 };
 
 export const writePersistenceManifest = (prefix: string, manifest: PersistenceManifestRecord): void => {
-  getDbRuntimeConfig().storage.set([{ key: manifestKey(prefix), value: encodePersistence(manifest) }]);
+  getDbRuntimeConfig().storage.set(manifestKey(prefix), encodePersistence(manifest));
 };
 
 const resetIncompatiblePersistence = (
@@ -96,14 +105,13 @@ const resetIncompatiblePersistence = (
   current: PersistenceManifest,
   stored: PersistenceManifestRecord | undefined
 ): { reset: true } => {
-  const committedOnceKeys = readCommittedOnceKeys(storage, prefix);
-  resetRuntime();
-  writeCommittedOnceKeys(storage, prefix, committedOnceKeys.keys);
+  const committedOnceKeys = committedOnceKeysForReset(storage, prefix);
+  const onceEntry = committedOnceKeysEntry(prefix, committedOnceKeys.keys);
+  resetRuntimeForCompatibility([{ key: manifestKey(prefix), value: encodePersistence(current) }, ...(onceEntry ? [onceEntry] : [])]);
   getOperationState().hydrate();
   noteDataLoss('corrupt-once-keys', '__operations__', committedOnceKeys.corruptSources);
   noteManifestReset();
   noteDataLoss(stored !== undefined ? 'data-version-migration-reset' : 'model-corruption-recovery', '__runtime__', 1);
-  writePersistenceManifest(prefix, current);
   return { reset: true };
 };
 
@@ -114,7 +122,7 @@ const clearModelPersistence = (storage: ReturnType<typeof getDbRuntimeConfig>['s
     { key: compositeStorageKey(prefix, 'tombstones', modelId), value: null },
     { key: `${prefix}applied:${modelId}`, value: encodePersistence(epoch) }
   ];
-  storage.set(entries);
+  for (const entry of entries) storage.set(entry.key, entry.value);
 };
 
 /** Reset incompatible persisted state before journal replay, then persist the current manifest. */
@@ -122,6 +130,7 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   const { storage } = getDbRuntimeConfig();
   const prefix = getStoragePrefix();
   const current: PersistenceManifest = { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: getPersistenceDataVersion() };
+  const interruptedReset = resumeInterruptedStorageReset();
   const storedResult = readPersistenceManifest(prefix);
   const stored = storedResult?.manifest;
   const nonempty = storage.keys(prefix).some(key => key !== manifestKey(prefix));
@@ -129,7 +138,7 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   if (!stored) {
     if (nonempty) return resetIncompatiblePersistence(storage, prefix, current, stored);
     writePersistenceManifest(prefix, current);
-    return { reset: false };
+    return { reset: interruptedReset };
   }
 
   if (stored.formatVersion !== current.formatVersion || stored.dataVersion !== current.dataVersion || !isPersistenceManifest(stored)) {
@@ -150,5 +159,5 @@ export const ensurePersistenceCompatibility = (): { reset: boolean } => {
   }
 
   if (manifestChanged) writePersistenceManifest(prefix, current);
-  return { reset: false };
+  return { reset: interruptedReset };
 };

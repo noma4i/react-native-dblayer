@@ -409,9 +409,9 @@ describe('query runtime edges', () => {
     const storage = createMemoryPlane();
     const write = storage.set.bind(storage);
     let resetOnQueryWrite = false;
-    storage.set = entries => {
-      write(entries);
-      if (!resetOnQueryWrite || !entries.some(entry => entry.key.startsWith('dbl:query:'))) return;
+    storage.set = (key, value) => {
+      write(key, value);
+      if (!resetOnQueryWrite || !key.startsWith('dbl:query:')) return;
       resetOnQueryWrite = false;
       resetRuntime();
     };

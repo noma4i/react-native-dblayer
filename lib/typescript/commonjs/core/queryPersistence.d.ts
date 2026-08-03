@@ -1,4 +1,5 @@
 import type { QueryPersistenceDeclaration, QueryPersistenceRecord, QueryPersistenceWrite } from '../types';
+export declare const readQueryPersistenceRevision: (declaration: QueryPersistenceDeclaration, identity: string) => number;
 export declare const readPersistedQuery: <TPayload, TScope>(declaration: QueryPersistenceDeclaration, identity: string, validate: (record: QueryPersistenceRecord) => {
     payload: TPayload;
     scope: TScope;

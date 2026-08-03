@@ -95,7 +95,7 @@ const rewriteQueryRecord = (
   const key = storage.snapshotKeys().find(candidate => candidate.startsWith('dbl:query:'));
   if (key === undefined) throw new Error('query record is missing');
   const envelope = JSON.parse(storage.get(key)!) as { payload: QueryPersistenceRecord };
-  storage.set([{ key, value: encodePersistence(update(envelope.payload)) }]);
+  [{ key, value: encodePersistence(update(envelope.payload)) }].forEach(entry => storage.set(entry.key, entry.value));
 };
 
 describe('durable freshness', () => {
@@ -435,7 +435,7 @@ describe('durable freshness', () => {
     suspendDb();
 
     const scopePrefix = compositeStorageKey('dbl:', 'scope', 'DurableFreshnessDestinationValidation');
-    storage.set(storage.keys(scopePrefix).map(key => ({ key, value: null })));
+    storage.keys(scopePrefix).map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
     configure(storage, transport);
     await bootDb();
     await relation.fetch();
@@ -447,12 +447,7 @@ describe('durable freshness', () => {
       { id: 'keep-row', chatId: 'chat-1', body: 'keep' }
     ]);
     suspendDb();
-    storage.set([
-      {
-        key: compositeStorageKey('dbl:', 'row', 'DurableFreshnessDestinationValidation', 'm-3'),
-        value: null
-      }
-    ]);
+    storage.set(compositeStorageKey('dbl:', 'row', 'DurableFreshnessDestinationValidation', 'm-3'), null);
     configure(storage, transport);
     await bootDb();
     await relation.fetch();
@@ -510,7 +505,7 @@ describe('durable freshness', () => {
     suspendDb();
 
     const rowPrefix = compositeStorageKey('dbl:', 'row', 'DurableFreshnessDirectDestination');
-    storage.set(storage.keys(rowPrefix).map(key => ({ key, value: null })));
+    storage.keys(rowPrefix).map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
     configureDb({
       storage,
       transport,

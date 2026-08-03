@@ -64,11 +64,11 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
 
     expect(plane.get('dbl:sentinel')).toBeUndefined();
 
-    plane.set([{ key: 'dbl:sentinel', value: 'kept' }]);
+    plane.set('dbl:sentinel', 'kept');
     expect(plane.get('dbl:sentinel')).toBe('kept');
     expect(plane.keys('dbl:')).toEqual(['dbl:sentinel']);
 
-    plane.set([{ key: 'dbl:sentinel', value: null }]);
+    plane.set('dbl:sentinel', null);
     expect(plane.get('dbl:sentinel')).toBeUndefined();
   });
 

@@ -1,5 +1,5 @@
 export type QueryPersistenceRecord<TPayload = unknown, TScope = unknown> = {
-    recordVersion: 1;
+    recordVersion: 2;
     family: string;
     identity: string;
     persistenceVersion: number;
@@ -9,6 +9,7 @@ export type QueryPersistenceRecord<TPayload = unknown, TScope = unknown> = {
     empty: boolean;
     dataUpdatedAt: number;
     invalidated: boolean;
+    invalidationRevision: number;
 };
 export type QueryPersistenceDeclaration = {
     family: string;
@@ -22,5 +23,6 @@ export type QueryPersistenceWrite<TPayload, TScope> = QueryPersistenceDeclaratio
     empty: boolean;
     dataUpdatedAt: number;
     invalidated?: boolean;
+    invalidationRevision?: number;
 };
 //# sourceMappingURL=core.queryPersistence.types.d.ts.map

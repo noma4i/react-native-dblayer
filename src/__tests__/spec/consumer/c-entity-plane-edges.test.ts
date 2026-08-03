@@ -121,11 +121,9 @@ describe('entity plane edges', () => {
     let rowsPrefix = '';
     const storage: StoragePlane = {
       get: key => values.get(key),
-      set: entries => {
-        for (const entry of entries) {
-          if (entry.value === null) values.delete(entry.key);
-          else values.set(entry.key, entry.value);
-        }
+      set: (key, value) => {
+        if (value === null) values.delete(key);
+        else values.set(key, value);
       },
       keys: requestedPrefix => {
         rowsPrefix = requestedPrefix;
@@ -156,12 +154,7 @@ describe('entity plane edges', () => {
   it('hydrates valid rows and reuses their clean identity', () => {
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage);
-    storage.set([
-      {
-        key: compositeStorageKey(prefix, 'row', modelId, 'row-1'),
-        value: encodePersistence({ id: 'row-1', label: 'persisted' })
-      }
-    ]);
+    storage.set(compositeStorageKey(prefix, 'row', modelId, 'row-1'), encodePersistence({ id: 'row-1', label: 'persisted' }));
 
     plane.hydrate();
     const first = plane.readCommitted('row-1');
@@ -176,7 +169,7 @@ describe('entity plane edges', () => {
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => now);
     const tombstones = Object.fromEntries(Array.from({ length: 10_002 }, (_, index) => [`row-${index}`, { at: 0 }]));
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence(tombstones));
     plane.hydrate();
     now = 700_000;
 
@@ -187,12 +180,7 @@ describe('entity plane edges', () => {
     let now = 0;
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => now);
-    storage.set([
-      {
-        key: compositeStorageKey(prefix, 'tombstones', modelId),
-        value: encodePersistence({ 'row-1': { at: 0 } })
-      }
-    ]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence({ 'row-1': { at: 0 } }));
     plane.hydrate();
     now = 24 * 60 * 60 * 1000 + 1;
 
@@ -204,7 +192,7 @@ describe('entity plane edges', () => {
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => now);
     const tombstones = Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [`row-${index}`, { at: 0 }]));
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence(tombstones));
     plane.hydrate();
     now = 700_000;
 
@@ -223,7 +211,7 @@ describe('entity plane edges', () => {
     for (let index = 0; index < 3; index += 1) tombstones[`young-${index}`] = { at: 699_000 };
     for (let index = 0; index < 5_000; index += 1) tombstones[`mid-${index}`] = { at: 50_000 };
     for (let index = 0; index < 5_000; index += 1) tombstones[`ancient-${index}`] = { at: index };
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence(tombstones));
     plane.hydrate();
     now = 700_000;
 
@@ -242,7 +230,7 @@ describe('entity plane edges', () => {
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => now);
     const tombstones = Object.fromEntries(Array.from({ length: 10_003 }, (_, index) => [`row-${index}`, { at: 699_500 }]));
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence(tombstones));
     plane.hydrate();
     now = 700_000;
 
@@ -256,7 +244,7 @@ describe('entity plane edges', () => {
     let now = 0;
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => now);
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence({ 'row-1': { at: 0 } }) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence({ 'row-1': { at: 0 } }));
     plane.hydrate();
     now = 24 * 60 * 60 * 1000;
 
@@ -269,7 +257,7 @@ describe('entity plane edges', () => {
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => 1_000);
     const tombstones = Object.fromEntries(Array.from({ length: 20_001 }, (_, index) => [`row-${index}`, { at: 1_000 }]));
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence(tombstones));
     plane.hydrate();
 
     expect(plane.pruneTombstones()).toBe(10_001);
@@ -282,7 +270,7 @@ describe('entity plane edges', () => {
     const tombstones: Record<string, { at: number }> = {};
     for (let index = 0; index < 10_000; index += 1) tombstones[`newer-${index}`] = { at: 900 };
     for (let index = 0; index < 10_001; index += 1) tombstones[`older-${index}`] = { at: 500 };
-    storage.set([{ key: compositeStorageKey(prefix, 'tombstones', modelId), value: encodePersistence(tombstones) }]);
+    storage.set(compositeStorageKey(prefix, 'tombstones', modelId), encodePersistence(tombstones));
     plane.hydrate();
 
     expect(plane.pruneTombstones()).toBe(10_001);

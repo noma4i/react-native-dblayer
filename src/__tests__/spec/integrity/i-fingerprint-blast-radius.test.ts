@@ -1,4 +1,4 @@
-import { bootDb, compositeStorageKey, computeSchemaFingerprints, configureDb, defineModelRuntime, f, flushPersistence, writePersistenceManifest } from '../../testApi';
+import { bootDb, compositeStorageKey, computeSchemaFingerprints, configureDb, DB_FORMAT_VERSION, defineModelRuntime, f, flushPersistence, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -130,13 +130,13 @@ describe('schema fingerprint blast radius', () => {
     await bootDb();
     keptBefore.insert({ id: 'kept-1', label: 'kept' });
     flushPersistence();
-    storage.set([{ key: compositeStorageKey('dbl:', 'row', removedId, 'removed-1'), value: 'stale' }]);
+    storage.set(compositeStorageKey('dbl:', 'row', removedId, 'removed-1'), 'stale');
 
     configureDb({ storage, transport: createMockTransport(), dataVersion: 'removed-model' });
     const keptAfter = defineModelRuntime({ id: keptId, name: keptId, fields: { label: f.str() } });
     const keptFingerprint = computeSchemaFingerprints()[keptId];
     writePersistenceManifest('dbl:', {
-      formatVersion: 8,
+      formatVersion: DB_FORMAT_VERSION,
       schemaFingerprints: { [removedId]: 'stale-fingerprint', [keptId]: keptFingerprint },
       dataVersion: 'removed-model'
     });

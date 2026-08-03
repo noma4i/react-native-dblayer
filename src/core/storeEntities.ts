@@ -294,7 +294,7 @@ export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
         if (row && keyId === row.id) {
           loaded.push(row);
         } else {
-          storage.set([{ key: fullKey, value: null }]);
+          storage.set(fullKey, null);
           noteDataLoss('corrupt-row', modelId, 1);
         }
       }
@@ -312,7 +312,7 @@ export const createEntityPlane = (options: EntityPlaneOptions): EntityPlane => {
         if (persisted) {
           for (const [id, tombstone] of Object.entries(persisted)) tombstones.set(id, tombstone);
         } else {
-          storage.set([{ key: tombstonesKey(), value: null }]);
+          storage.set(tombstonesKey(), null);
           noteDataLoss('corrupt-tombstones', modelId, 1);
         }
       }

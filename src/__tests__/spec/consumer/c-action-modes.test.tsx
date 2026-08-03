@@ -476,7 +476,7 @@ describe('action modes', () => {
     act(() => JobModel.actions.create.discard(tempId));
 
     expect(JobModel.find(tempId)).toBeUndefined();
-    expect(JobModel.operation(tempId).read()).toEqual({ pending: false, failed: false, unsyncedChanges: undefined });
+    expect(JobModel.operation(tempId).read()).toEqual({ pending: false, failed: false, deliveryUnknown: false, unsyncedChanges: undefined });
     expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
     affected.unmount();
     unrelated.unmount();
@@ -852,7 +852,7 @@ describe('action modes', () => {
     const callsAfterDiscard = transport.calls.length;
     await expect(JobModel.actions.change.retry('update-retry-target')).resolves.toBeNull();
     expect(transport.calls).toHaveLength(callsAfterDiscard);
-    expect(JobModel.operation('update-retry-target').read()).toEqual({ pending: false, failed: false, unsyncedChanges: undefined });
+    expect(JobModel.operation('update-retry-target').read()).toEqual({ pending: false, failed: false, deliveryUnknown: false, unsyncedChanges: undefined });
     affected.unmount();
     unrelated.unmount();
   });
@@ -969,7 +969,7 @@ describe('action modes', () => {
     const callsAfterDiscard = transport.calls.length;
     await expect(JobModel.actions.change.retry(secondFailureId)).resolves.toBeNull();
     expect(transport.calls).toHaveLength(callsAfterDiscard);
-    expect(JobModel.operation(secondFailureId).read()).toEqual({ pending: false, failed: false, unsyncedChanges: undefined });
+    expect(JobModel.operation(secondFailureId).read()).toEqual({ pending: false, failed: false, deliveryUnknown: false, unsyncedChanges: undefined });
     affected.unmount();
     unrelated.unmount();
   });

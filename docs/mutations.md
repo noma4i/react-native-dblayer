@@ -58,6 +58,11 @@ commit.
 `discard` for failed optimistic inserts. The write lifecycle is optimistic planning, transport,
 atomic correlation or rollback, cross-model planning, one commit, then invalidation and tracking.
 
+Mutation transport does not retry automatically. An adapter throws
+`MutationDeliveryUnknownError` only when it cannot prove whether the server accepted the mutation.
+The action keeps its optimistic row and exposes `deliveryUnknown: true`. It never sends that
+operation again. Correlation or explicit cancel resolves the operation.
+
 An insert action always lands the row selected by `select`. An optimistic declaration may create a
 temporary row before transport; without one, the selected server row still enters the owning model
 and its declared scopes during the commit.
@@ -67,7 +72,9 @@ and its declared scopes during the commit.
 A durable insert starts with `Model.actions.name.start(input)`. It returns a handle with
 `operationId`, `tempId`, `execute(transportInput)`, and `cancel()`. The WAL persists the optimistic
 root before transport. `resume(operationId)` reconnects to one durable operation after boot.
-`open()` returns the typed input and handle for every pending or failed operation owned by the action.
+`open()` returns the typed input and handle for every pending, failed, or unknown-delivery operation.
+`execute` accepts pending and failed operations. It returns `null` without transport for an
+unknown-delivery operation.
 
 ## Poll mode
 

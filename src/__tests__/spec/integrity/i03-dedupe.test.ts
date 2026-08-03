@@ -13,6 +13,12 @@ const RowSchema = defineShape<Row>()({ value: f.str() });
 
 const defineAction = (suffix: string, options: { once?: boolean; dedupe?: false } = {}) => {
   const actionKey = `specDedupe${suffix}`;
+  const dedupe = { key: (input: Input) => compositeKey(actionKey, stableSerialize(input)) };
+  const policy = options.dedupe === false
+    ? options.once === true
+      ? ({ once: true, dedupe: false } as unknown as { once?: false; dedupe: false })
+      : { once: false as const, dedupe: false as const }
+    : { dedupe, ...(options.once === undefined ? {} : { once: options.once }) };
   const model = defineModel(`SpecDedupeModel${suffix}`, {
     schema: RowSchema,
     actions: owner => ({
@@ -20,8 +26,7 @@ const defineAction = (suffix: string, options: { once?: boolean; dedupe?: false 
         mode: 'request',
         result: 'action',
         variables: (input: Input) => input,
-        dedupe: options.dedupe === false ? false : { key: input => compositeKey(actionKey, stableSerialize(input)) },
-        ...(options.once === undefined ? {} : { once: options.once }),
+        ...policy,
         root: { insert: { select: () => null } }
       })
     })
@@ -149,14 +154,17 @@ describe('mutation dedupe semantics', () => {
 
     await regular.run({ value: 'regular' });
     await once.run({ value: 'once' });
+    flushPersistence();
     const persisted = JSON.parse(storage.get('dbl:ops') ?? '{}') as {
-      payload?: Record<string, { once?: boolean; idempotencyKey?: string }>;
+      payload?: { operations: Record<string, { once?: boolean; idempotencyKey?: string }> };
     };
-    const records = Object.values(persisted.payload ?? {});
+    const records = Object.values(persisted.payload?.operations ?? {});
     const regularRecord = records.find(record => record.once !== true);
     const onceRecord = records.find(record => record.once === true);
 
     expect(regularRecord?.idempotencyKey).toBeUndefined();
-    expect(onceRecord?.idempotencyKey).toBe(compositeKey('specDedupeStoredOnce', '{"value":"once"}'));
+    expect(onceRecord?.idempotencyKey).toBe(
+      compositeKey('SpecDedupeModelStoredOnce:run', compositeKey('specDedupeStoredOnce', '{"value":"once"}'))
+    );
   });
 });

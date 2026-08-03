@@ -35,5 +35,6 @@ export declare const persistBucket: <TPayload, TScope>(args: {
     payload: TPayload;
     empty: boolean;
     window: (empty: boolean) => number | null;
+    invalidationRevision?: number;
 }) => void;
 //# sourceMappingURL=persistedBucket.d.ts.map

@@ -12,10 +12,6 @@ export type CommitEnvelope = {
     epoch: number;
     entityOps: JournalOp[];
     scopeOps: JournalOp[];
-    operationEntries: Array<{
-        key: string;
-        value: string | null;
-    }>;
     operationTransitions: OperationTransition[];
     readonly [commitEnvelopeBrand]: true;
 };

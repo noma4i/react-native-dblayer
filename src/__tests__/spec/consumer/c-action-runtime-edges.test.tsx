@@ -33,17 +33,38 @@ describe('action runtime edges', () => {
       defineModel('SpecActionInvalidOnce', {
         schema: RowSchema,
         actions: owner => ({
-          apply: owner.gql.action(document, {
-            mode: 'request',
-            result: 'apply',
-            once: true,
-            dedupe: false,
-            variables: (input: Input) => ({ input }),
-            root: { insert: { select: ({ data }) => data.apply.row } }
-          })
+          apply: owner.gql.action(
+            document,
+            {
+              mode: 'request',
+              result: 'apply',
+              once: true,
+              dedupe: false,
+              variables: (input: Input) => ({ input }),
+              root: { insert: { select: ({ data }: { data: Data }) => data.apply.row } }
+            } as never
+          )
         })
       })
     ).toThrow('once cannot be combined with dedupe: false');
+
+    expect(() =>
+      defineModel('SpecActionBareOnce', {
+        schema: RowSchema,
+        actions: owner => ({
+          apply: owner.gql.action(
+            document,
+            {
+              mode: 'request',
+              result: 'apply',
+              once: true,
+              variables: (input: Input) => ({ input }),
+              root: { insert: { select: ({ data }: { data: Data }) => data.apply.row } }
+            } as never
+          )
+        })
+      })
+    ).toThrow('once requires a dedupe key');
 
     const Model = defineModel('SpecActionInvalidInput', {
       schema: RowSchema,

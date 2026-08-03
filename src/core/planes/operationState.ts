@@ -1,5 +1,5 @@
 import { isUndefined, omitBy } from 'es-toolkit';
-import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOnceKeyRecord } from '../../types';
+import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOperationState } from '../../types';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
@@ -7,6 +7,7 @@ import { decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTEN
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
+const OPERATION_STATE_RECORD_VERSION = 2;
 
 const isRollbackMembership = (value: unknown): value is { id: string; scopeKey: string; orderKey: string } =>
   isNonArrayRecord(value) && isNonEmptyString(value.id) && isNonEmptyString(value.scopeKey) && isNonEmptyString(value.orderKey);
@@ -23,7 +24,7 @@ const namesItsOwner = (value: Record<string, unknown>): boolean => {
   return value.model === '' && ownsNoRows;
 };
 
-const isOperationRecord = (value: unknown): value is OperationRecord =>
+export const isOperationRecord = (value: unknown): value is OperationRecord =>
   isNonArrayRecord(value) &&
   isNonEmptyString(value.operationId) &&
   isNonEmptyString(value.actionKey) &&
@@ -34,7 +35,7 @@ const isOperationRecord = (value: unknown): value is OperationRecord =>
   value.rowIds.every(isNonEmptyString) &&
   namesItsOwner(value) &&
   (value.intent === 'insert' || value.intent === 'patch' || value.intent === 'destroy') &&
-  (value.status === 'pending' || value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed') &&
+  (value.status === 'pending' || value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed' || value.status === 'delivery_unknown') &&
   isNonNegativeSafeInteger(value.createdAt) &&
   (value.idempotencyKey === undefined || isNonEmptyString(value.idempotencyKey)) &&
   (value.once === undefined || typeof value.once === 'boolean') &&
@@ -52,7 +53,35 @@ const isOperationRecordMap = (value: unknown): value is Record<string, Operation
   isNonArrayRecord(value) &&
   Object.entries(value).every(([operationId, record]) => isNonEmptyString(operationId) && isOperationRecord(record) && record.operationId === operationId);
 
-const isOnceKeyRecord = (value: unknown): value is PersistedOnceKeyRecord => isNonArrayRecord(value) && Array.isArray(value.keys) && value.keys.every(isNonEmptyString);
+export const isOperationTransition = (value: unknown): value is OperationTransition => {
+  if (!isNonArrayRecord(value)) return false;
+  if (value.kind === 'begin') return isNonArrayRecord(value.operation) && isOperationRecord({ ...value.operation, status: 'pending' });
+  if (value.kind === 'close') {
+    return (
+      isNonEmptyString(value.operationId) && (value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed' || value.status === 'delivery_unknown')
+    );
+  }
+  return (
+    value.kind === 'remove' &&
+    isNonEmptyString(value.operationId) &&
+    (value.expectedStatus === undefined ||
+      value.expectedStatus === 'pending' ||
+      value.expectedStatus === 'committed' ||
+      value.expectedStatus === 'rolledback' ||
+      value.expectedStatus === 'failed' ||
+      value.expectedStatus === 'delivery_unknown')
+  );
+};
+
+const isPreviousOnceKeyRecord = (value: unknown): value is { keys: string[] } =>
+  isNonArrayRecord(value) && Array.isArray(value.keys) && value.keys.every(isNonEmptyString);
+
+const isPersistedOperationState = (value: unknown): value is PersistedOperationState =>
+  isNonArrayRecord(value) &&
+  value.recordVersion === OPERATION_STATE_RECORD_VERSION &&
+  isOperationRecordMap(value.operations) &&
+  Array.isArray(value.committedKeys) &&
+  value.committedKeys.every(isNonEmptyString);
 
 /** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`
  * (which clears diagnostics) right after this read, so it reports the loss itself once reset is done. */
@@ -61,7 +90,7 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
   let corruptSources = 0;
   const rawOnceKeys = storage.get(onceKeysKey(prefix));
   if (rawOnceKeys) {
-    const record = decodeSupportedPersistence(rawOnceKeys, PERSISTENCE_SCHEMA_VERSION, isOnceKeyRecord);
+    const record = decodeSupportedPersistence(rawOnceKeys, PERSISTENCE_SCHEMA_VERSION, isPreviousOnceKeyRecord);
     if (record) {
       for (const key of record.keys) keys.add(key);
     } else {
@@ -70,8 +99,14 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
   }
   const rawOperations = storage.get(`${prefix}ops`);
   if (rawOperations) {
-    const records = decodeSupportedPersistence(rawOperations, PERSISTENCE_SCHEMA_VERSION, isOperationRecordMap);
-    if (records) {
+    const state = decodeSupportedPersistence(
+      rawOperations,
+      PERSISTENCE_SCHEMA_VERSION,
+      (value): value is PersistedOperationState | Record<string, OperationRecord> => isPersistedOperationState(value) || isOperationRecordMap(value)
+    );
+    if (state) {
+      const records = isPersistedOperationState(state) ? state.operations : state;
+      if (isPersistedOperationState(state)) for (const key of state.committedKeys) keys.add(key);
       for (const record of Object.values(records)) {
         if (record.status === 'committed' && record.once === true && typeof record.idempotencyKey === 'string') keys.add(record.idempotencyKey);
       }
@@ -83,9 +118,21 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
 };
 
 export const writeCommittedOnceKeys = (storage: StoragePlane, prefix: string, keys: readonly string[]): void => {
-  if (keys.length === 0) return;
-  storage.set([{ key: onceKeysKey(prefix), value: encodePersistence({ keys }) }]);
+  const entry = committedOnceKeysEntry(prefix, keys);
+  if (entry) storage.set(entry.key, entry.value);
 };
+
+export const committedOnceKeysEntry = (prefix: string, keys: readonly string[]): { key: string; value: string } | undefined =>
+  keys.length === 0
+    ? undefined
+    : {
+        key: `${prefix}ops`,
+        value: encodePersistence<PersistedOperationState>({
+          recordVersion: OPERATION_STATE_RECORD_VERSION,
+          operations: {},
+          committedKeys: [...keys].sort()
+        })
+      };
 
 /** JSON-round-trip an operation input before it enters the persistent ledger. */
 export const serializeOperationInput = (input: unknown): { serializable: boolean; value: unknown } => {
@@ -94,8 +141,8 @@ export const serializeOperationInput = (input: unknown): { serializable: boolean
 
 const CLOSED_TTL_MS = 60 * 60 * 1000;
 
-export const createOperationState = (options: { storage: StoragePlane; prefix: () => string; now: () => number; notify?: (record: OperationRecord) => void }): OperationState => {
-  const { storage, prefix, now, notify } = options;
+export const createOperationState = (options: { storage: StoragePlane; prefix: () => string; now: () => number }): OperationState => {
+  const { storage, prefix, now } = options;
   const operations = new Map<string, OperationRecord>();
   const committedKeys = new Set<string>();
   const pendingKeys = new Set<string>();
@@ -150,11 +197,25 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const opsKey = () => `${prefix()}ops`;
   const entriesFor = (records: ReadonlyMap<string, OperationRecord>, onceKeys: ReadonlySet<string>): Array<{ key: string; value: string | null }> => {
     const keys = [...onceKeys].sort();
-    const persistedRecords = Object.fromEntries([...records].map(([operationId, record]) => [operationId, omitBy(record, isUndefined)]));
+    const persistedRecords = Object.fromEntries([...records].map(([operationId, record]) => [operationId, omitBy(record, isUndefined) as OperationRecord]));
+    if (records.size === 0 && keys.length === 0) {
+      return storage.get(opsKey()) === undefined ? [] : [{ key: opsKey(), value: null }];
+    }
     return [
-      { key: opsKey(), value: records.size > 0 ? encodePersistence(persistedRecords) : null },
-      { key: onceKeysKey(prefix()), value: keys.length > 0 ? encodePersistence({ keys }) : null }
+      {
+        key: opsKey(),
+        value: encodePersistence<PersistedOperationState>({
+          recordVersion: OPERATION_STATE_RECORD_VERSION,
+          operations: persistedRecords,
+          committedKeys: keys
+        })
+      }
     ];
+  };
+  const persist = (): void => {
+    const entry = entriesFor(operations, committedKeys)[0];
+    if (!entry) return;
+    storage.set(entry.key, entry.value);
   };
   const persistEntries = (): Array<{ key: string; value: string | null }> => entriesFor(operations, committedKeys);
   const applyTransition = (
@@ -169,9 +230,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         rowIds: [...transition.operation.rowIds],
         ...(transition.operation.patchedFields ? { patchedFields: [...transition.operation.patchedFields] } : {}),
         ...(transition.operation.rollbackRow ? { rollbackRow: { ...transition.operation.rollbackRow } } : {}),
-        ...(transition.operation.rollbackMemberships
-          ? { rollbackMemberships: transition.operation.rollbackMemberships.map(membership => ({ ...membership })) }
-          : {}),
+        ...(transition.operation.rollbackMemberships ? { rollbackMemberships: transition.operation.rollbackMemberships.map(membership => ({ ...membership })) } : {}),
         status: 'pending'
       };
       const previous = records.get(next.operationId);
@@ -205,8 +264,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operation.operationId, record);
       indexRecord(record);
-      storage.set(persistEntries());
-      notify?.(record);
+      persist();
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
@@ -217,20 +275,24 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       unindexRecord(operation);
       operations.set(operationId, record);
       indexRecord(record);
-      storage.set(persistEntries());
-      notify?.(record);
+      persist();
     },
     get: operationId => operations.get(operationId),
     hasCommitted: idempotencyKey => committedKeys.has(idempotencyKey),
     hasPending: idempotencyKey => pendingKeys.has(idempotencyKey),
     pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),
-    open: () => [...operations.values()].filter(operation => operation.status === 'pending' || operation.status === 'failed'),
+    open: () => [...operations.values()].filter(operation => operation.status === 'pending' || operation.status === 'failed' || operation.status === 'delivery_unknown'),
     openInsertsFor: model =>
-      [...operations.values()].filter(operation => operation.model === model && operation.intent === 'insert' && (operation.status === 'pending' || operation.status === 'failed')),
+      [...operations.values()].filter(
+        operation =>
+          operation.model === model && operation.intent === 'insert' && (operation.status === 'pending' || operation.status === 'failed' || operation.status === 'delivery_unknown')
+      ),
     openRowIdsFor: model => {
       const held = new Set<string>();
       for (const operation of operations.values()) {
-        if (operation.model !== model || (operation.status !== 'pending' && operation.status !== 'failed')) continue;
+        if (operation.model !== model || (operation.status !== 'pending' && operation.status !== 'failed' && operation.status !== 'delivery_unknown')) {
+          continue;
+        }
         for (const id of operation.rowIds) held.add(id);
       }
       return held;
@@ -245,6 +307,11 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (!bucket) return [];
       // The bucket is keyed by (model, rowId); status is the only live filter.
       return [...bucket].filter(operation => operation.status === 'failed');
+    },
+    deliveryUnknownForRow: (model, rowId) => {
+      const bucket = bucketFor(model, rowId);
+      if (!bucket) return [];
+      return [...bucket].filter(operation => operation.status === 'delivery_unknown');
     },
     failedFor: (model, rowId) => {
       const bucket = bucketFor(model, rowId);
@@ -261,8 +328,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (!operation || operation.status !== 'failed') return;
       operations.delete(operationId);
       rebuildIndexes();
-      storage.set(persistEntries());
-      notify?.(operation);
+      persist();
     },
     reopen: operationId => {
       const operation = operations.get(operationId);
@@ -270,8 +336,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const record: OperationRecord = { ...operation, status: 'pending' };
       operations.set(operationId, record);
       rebuildIndexes();
-      storage.set(persistEntries());
-      notify?.(record);
+      persist();
       return record;
     },
     discardModels: modelIds => {
@@ -285,7 +350,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       }
       rebuildIndexes();
       for (const key of committedOnceKeys) committedKeys.add(key);
-      storage.set(persistEntries());
+      persist();
       return discarded;
     },
     residentRowBuckets: () => opsByRowKey.size,
@@ -295,8 +360,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       hydratedPendingIds.delete(operationId);
       operations.delete(operationId);
       rebuildIndexes();
-      storage.set(persistEntries());
-      notify?.(operation);
+      persist();
     },
     hydratedPending: () => [...hydratedPendingIds].map(operationId => operations.get(operationId)!),
     takeHydratedPending: matches => {
@@ -314,7 +378,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       let pruned = 0;
       for (const [operationId, operation] of operations) {
         const retainedOnce = operation.status === 'committed' && operation.once === true;
-        if (operation.status !== 'pending' && operation.status !== 'failed' && !retainedOnce && operation.createdAt < cutoff) {
+        if (operation.status !== 'pending' && operation.status !== 'failed' && operation.status !== 'delivery_unknown' && !retainedOnce && operation.createdAt < cutoff) {
           operations.delete(operationId);
           pruned += 1;
         }
@@ -367,23 +431,29 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
         const notification = result.next ?? result.previous;
         if (notification) notifications.push(notification);
       }
-      for (const operation of notifications) notify?.(operation);
+      return notifications;
     },
     hydrate: () => {
       operations.clear();
       hydratedPendingIds.clear();
       const rawOps = storage.get(opsKey());
       if (rawOps) {
-        const records = decodeSupportedPersistence(rawOps, PERSISTENCE_SCHEMA_VERSION, isOperationRecordMap);
-        if (records) {
+        const state = decodeSupportedPersistence(
+          rawOps,
+          PERSISTENCE_SCHEMA_VERSION,
+          (value): value is PersistedOperationState | Record<string, OperationRecord> => isPersistedOperationState(value) || isOperationRecordMap(value)
+        );
+        if (state) {
+          const records = isPersistedOperationState(state) ? state.operations : state;
           for (const [operationId, record] of Object.entries(records)) {
             const retainKey = record.status === 'pending' || (record.status === 'committed' && record.once === true);
             const hydratedRecord = retainKey ? record : { ...record, idempotencyKey: undefined };
             operations.set(operationId, hydratedRecord);
             if (hydratedRecord.status === 'pending') hydratedPendingIds.add(operationId);
           }
+          if (isPersistedOperationState(state)) for (const key of state.committedKeys) committedKeys.add(key);
         } else {
-          storage.set([{ key: opsKey(), value: null }]);
+          storage.set(opsKey(), null);
           noteCorruptionLedgerReset();
           noteDataLoss('operation-ledger-corruption-reset', '__operations__', 1);
           getDbLogger().error('cold-ledger recovery', { key: opsKey() });
@@ -391,6 +461,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       }
       rebuildIndexes();
       for (const key of readCommittedOnceKeys(storage, prefix()).keys) committedKeys.add(key);
+      if (storage.get(onceKeysKey(prefix())) !== undefined) {
+        persist();
+        storage.set(onceKeysKey(prefix()), null);
+      }
       pendingPatchCount = 0;
       for (const op of operations.values()) if (isPendingPatchOwner(op)) pendingPatchCount += 1;
     },

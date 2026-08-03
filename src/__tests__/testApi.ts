@@ -46,6 +46,7 @@ export { noteDataLoss } from '../core/diagnostics';
 export { registerResidency, residencySnapshot } from '../core/residency';
 export { afterStoreTransaction, OWNED_COLLECTION_LIFETIME, runInStoreTransaction, SyncFeed } from '../core/storeSync';
 export { reportSyncError } from '../core/syncError';
+export { MutationDeliveryUnknownError } from '../core/mutationDeliveryError';
 export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, noteMaintenancePersistence, purgeForeignStorageKeys } from '../dsl/configure';
 export { getApplyRuntime } from '../dsl/configure';
 export { createCommitEnvelope } from '../core/apply/commitEnvelope';

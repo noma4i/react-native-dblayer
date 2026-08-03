@@ -19,7 +19,7 @@ const RowSchema = defineShape<Row>()({ bucket: f.str(), label: f.str() });
  */
 describe('once and dedupe idempotency', () => {
   let suffix = 0;
-  const build = (options: { once: boolean; storage?: ReturnType<typeof createMemoryPlane>; fail?: boolean }) => {
+  const build = (options: { once: boolean; storage?: ReturnType<typeof createMemoryPlane>; fail?: boolean; modelId?: string }) => {
     const storage = options.storage ?? createMemoryPlane();
     let calls = 0;
     configureDb({
@@ -32,7 +32,7 @@ describe('once and dedupe idempotency', () => {
         }
       })
     });
-    const modelId = `SpecOnce${++suffix}`;
+    const modelId = options.modelId ?? `SpecOnce${++suffix}`;
     const rows = defineModel(modelId, {
       schema: RowSchema,
       maintenance: { dropTempRowsAfterMs: 1000 },
@@ -75,6 +75,44 @@ describe('once and dedupe idempotency', () => {
     await save.run({ key: 'gift-2', label: 'second' });
 
     expect(callCount()).toBe(2);
+  });
+
+  it('namespaces the same once key by model and action', async () => {
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: async <TData,>() => {
+          calls += 1;
+          return { data: { save: { row: { id: `server-${calls}`, bucket: 'a', label: 'saved' } } } as TData };
+        }
+      })
+    });
+    const defineRows = (modelId: string) =>
+      defineModel(modelId, {
+        schema: RowSchema,
+        maintenance: { dropTempRowsAfterMs: 1000 },
+        actions: owner => ({
+          save: owner.gql.action(document, {
+            mode: 'request',
+            result: 'save',
+            variables: (input: Input) => ({ input }),
+            dedupe: { key: (input: Input) => input.key },
+            once: true,
+            optimistic: {
+              root: { insert: { select: ({ input, tempId }) => ({ id: tempId, bucket: 'a', label: input.label }) } }
+            },
+            root: { insert: { select: ({ data }) => data.save.row } }
+          })
+        })
+      });
+    const first = defineRows(`SpecOnceNamespaceA${++suffix}`);
+    const second = defineRows(`SpecOnceNamespaceB${++suffix}`);
+
+    await first.actions.save.run({ key: 'shared', label: 'first' });
+    await second.actions.save.run({ key: 'shared', label: 'second' });
+
+    expect(calls).toBe(2);
   });
 
   it('lets a plain dedupe key send again once the first send committed', async () => {
@@ -131,12 +169,14 @@ describe('once and dedupe idempotency', () => {
 
   it('remembers a committed once key across a process restart', async () => {
     const storage = createMemoryPlane();
-    const first = build({ once: true, storage });
+    const modelId = `SpecOnceRestart${++suffix}`;
+    const first = build({ once: true, storage, modelId });
+    await bootDb();
     await first.save.run({ key: 'gift-1', label: 'first' });
     expect(first.callCount()).toBe(1);
 
     // New runtime generation over the same storage: the safety record is what survives, not the data.
-    const second = build({ once: true, storage });
+    const second = build({ once: true, storage, modelId });
     await bootDb();
     await second.save.run({ key: 'gift-1', label: 'after restart' });
 
@@ -145,11 +185,12 @@ describe('once and dedupe idempotency', () => {
 
   it('lets a failed once operation be sent again', async () => {
     const storage = createMemoryPlane();
-    const failing = build({ once: true, storage, fail: true });
+    const modelId = `SpecOnceRetry${++suffix}`;
+    const failing = build({ once: true, storage, fail: true, modelId });
     await expect(failing.save.run({ key: 'gift-1', label: 'first' })).rejects.toThrow('transport refused');
     expect(failing.callCount()).toBe(1);
 
-    const retry = build({ once: true, storage });
+    const retry = build({ once: true, storage, modelId });
     await bootDb();
     await retry.save.run({ key: 'gift-1', label: 'retry' });
 

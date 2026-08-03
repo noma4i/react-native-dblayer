@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
 import { act } from 'react';
-import { bootDb, configureDb, defineModel, defineShape, f, getOperationState, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineModel, defineShape, f, getOperationState, MutationDeliveryUnknownError, suspendDb } from '../../testApi';
 import type { DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle } from '../helpers/harness';
 
@@ -163,7 +163,12 @@ describe('durable action transport', () => {
       job: { id: 'server-job', label: 'created', status: 'done' },
       audit: { id: 'audit-1', jobId: 'server-job', label: 'created' }
     });
-    expect(JobModel.operation(handle.tempId).read()).toEqual({ pending: false, failed: false, unsyncedChanges: undefined });
+    expect(JobModel.operation(handle.tempId).read()).toEqual({
+      pending: false,
+      failed: false,
+      deliveryUnknown: false,
+      unsyncedChanges: undefined
+    });
     expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 1 });
     unmountReaders(readers);
   });
@@ -252,6 +257,7 @@ describe('durable action transport', () => {
       retry = resumed!.execute({ token: 'retry-token' });
     });
     await settle();
+    expect(getOperationState().get(handle.operationId)?.status).toBe('pending');
     expect(getOperationState().pending()[0]).toMatchObject({ operationId: handle.operationId, tempIds: [handle.tempId] });
     expect(JobModel.where({}).read()).toEqual([{ id: handle.tempId, label: 'retry', status: 'pending' }]);
 
@@ -274,6 +280,29 @@ describe('durable action transport', () => {
     unmountReaders(readers);
   });
 
+  it('keeps unknown delivery open but blocks automatic re-execution', async () => {
+    const storage = createMemoryPlane();
+    const transport = createMockTransport({
+      mutation: async () => {
+        throw new MutationDeliveryUnknownError('mutation response was not observed');
+      }
+    });
+    const { JobModel } = await defineFixture(storage, transport, 'SpecDurableDeliveryUnknown');
+    const handle = JobModel.actions.start.start({ label: 'unknown' });
+
+    await expect(handle.execute({ token: 'token-1' })).rejects.toThrow('mutation response was not observed');
+
+    expect(JobModel.find(handle.tempId)).toEqual({ id: handle.tempId, label: 'unknown', status: 'pending' });
+    expect(JobModel.operation(handle.tempId).read()).toMatchObject({
+      pending: false,
+      failed: false,
+      deliveryUnknown: true
+    });
+    expect(JobModel.actions.start.open()).toHaveLength(1);
+    await expect(handle.execute({ token: 'token-2' })).resolves.toBeNull();
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it('cancels and rolls back the optimistic row in one envelope', async () => {
     const storage = createMemoryPlane();
     const transport = createMockTransport();
@@ -285,7 +314,12 @@ describe('durable action transport', () => {
     act(() => handle.cancel());
 
     expect(JobModel.find(handle.tempId)).toBeUndefined();
-    expect(JobModel.operation(handle.tempId).read()).toEqual({ pending: false, failed: false, unsyncedChanges: undefined });
+    expect(JobModel.operation(handle.tempId).read()).toEqual({
+      pending: false,
+      failed: false,
+      deliveryUnknown: false,
+      unsyncedChanges: undefined
+    });
     expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 0 });
     expect(transport.calls).toHaveLength(0);
     unmountReaders(readers);

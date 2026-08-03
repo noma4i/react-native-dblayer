@@ -10,8 +10,8 @@ export interface DbDefaults {
   emptyStaleTime?: number;
   /** Package-wide default window size for `ScopeHandle.useWindow` when its own `pageSize` is omitted. */
   pageSize?: number;
-  /** Retry policies for query and mutation work. Missing classifiers disable retries. */
-  retry?: { query?: DbRetryPolicy; mutation?: DbRetryPolicy };
+  /** Query retry policy. Mutations never retry automatically. */
+  retry?: { query?: DbRetryPolicy };
   /** Whether stale queries refetch when their consumer mounts. Defaults to true. */
   refetchOnMount?: boolean;
   /**

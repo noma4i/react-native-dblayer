@@ -1,4 +1,4 @@
-import { configureDb, registerRelationHost, resetRuntime , registerApplyTarget , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , createModelStore, registerModelStoreFactory, defineModelRuntime, f, getApplyRuntime, getInternalScopeHandle, storeModelQuery, storeScopeCollection } from '../../testApi';
+import { configureDb, registerRelationHost, resetRuntime , registerApplyTarget , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , readJournalRecord, encodePersistence , createModelStore, registerModelStoreFactory, defineModelRuntime, f, getApplyRuntime, getInternalScopeHandle, storeModelQuery, storeScopeCollection } from '../../testApi';
 import type { ApplyTarget, CheckpointScheduler, Dependency, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, setupSpecRuntime } from '../helpers/harness';
 
@@ -70,15 +70,15 @@ const createTargetMock = () => {
 const encodeJournalRecord = (record: JournalRecord): string => {
   const storage = createMemoryPlane();
   const journal = createJournal(storage, () => PREFIX);
-  return (record.status === 'pending' ? journal.pendingEntry(record) : journal.committedEntry(record).entries)[0]!.value!;
+  return journal.entry(record).value!;
 };
 
-const journalRecord = (epoch: number, status: 'pending' | 'committed', ops: JournalRecord['ops']): JournalRecord => ({
+const journalRecord = (epoch: number, ops: JournalRecord['ops']): JournalRecord => ({
   txId: `test:${epoch}`,
   runtimeEpoch: 1,
   epoch,
-  status,
-  ops
+  ops,
+  operationTransitions: []
 });
 
 const setup = () => {
@@ -517,7 +517,7 @@ describe('apply pipeline batching', () => {
     firstRuntime.commit(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]));
     mock.rows.clear();
     mock.calls.length = 0;
-    storage.set([{ key: `${PREFIX}applied:${MODEL}`, value: 'garbage' }]);
+    storage.set(`${PREFIX}applied:${MODEL}`, 'garbage');
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
 
     expect(runtime.replay()).toBe(1);
@@ -529,13 +529,13 @@ describe('apply pipeline batching', () => {
   it.each([-1, 1.5])('rejects an invalid applied epoch marker and replays conservatively: %s', invalidEpoch => {
     const { storage, mock, bus } = setup();
     diagnostics().reset();
-    storage.set([
+    [
       {
         key: `${PREFIX}journal:1`,
-        value: encodeJournalRecord(journalRecord(1, 'pending', [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
+        value: encodeJournalRecord(journalRecord(1, [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
       },
       { key: `${PREFIX}applied:${MODEL}`, value: encodePersistence(invalidEpoch) }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
 
     expect(runtime.replay()).toBe(1);
@@ -547,44 +547,44 @@ describe('apply pipeline batching', () => {
   it('preserves an unsupported applied-epoch version and stops replay for migration', () => {
     const { storage, bus } = setup();
     const markerKey = `${PREFIX}applied:${MODEL}`;
-    storage.set([
+    [
       {
         key: `${PREFIX}journal:1`,
-        value: encodeJournalRecord(journalRecord(1, 'pending', [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
+        value: encodeJournalRecord(journalRecord(1, [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
       },
       { key: markerKey, value: encodePersistence(0, 2) }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
 
     expect(() => runtime.replay()).toThrow('Unsupported persistence schema version 2');
     expect(storage.get(markerKey)).toBeDefined();
   });
 
-  it('marks an already-applied pending record committed without re-applying it', () => {
+  it('keeps an already-applied WAL record immutable without re-applying it', () => {
     const { storage, mock, bus } = setup();
-    storage.set([
+    [
       {
         key: `${PREFIX}journal:3`,
-        value: encodeJournalRecord(journalRecord(3, 'pending', [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
+        value: encodeJournalRecord(journalRecord(3, [{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]))
       },
       { key: `${PREFIX}applied:${MODEL}`, value: encodePersistence(5) }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
 
     expect(runtime.replay()).toBe(0);
     expect(mock.calls.some(call => call.op === 'put')).toBe(false);
-    expect((JSON.parse(storage.get(`${PREFIX}journal:3`)!) as { payload: { status: string } }).payload.status).toBe('committed');
+    expect(readJournalRecord(storage, PREFIX, `${PREFIX}journal:3`)).toEqual(journalRecord(3, [
+      { kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }
+    ]));
     expect(runtime.currentEpoch()).toBe(3);
   });
 
   it('prunes checkpointed committed records once the flush callback reports the flushed epoch', () => {
     const { storage, bus } = setup();
-    storage.set(
-      Array.from({ length: 51 }, (_, index) => ({
+    Array.from({ length: 51 }, (_, index) => ({
         key: `${PREFIX}journal:${index + 1}`,
-        value: encodeJournalRecord(journalRecord(index + 1, 'committed', []))
-      }))
-    );
+        value: encodeJournalRecord(journalRecord(index + 1, []))
+      })).forEach(entry => storage.set(entry.key, entry.value));
     let afterFlush: ((epoch: number) => void) | null = null;
     const checkpoint: CheckpointScheduler = {
       setAfterFlush: (callback: (epoch: number) => void) => {
@@ -600,6 +600,6 @@ describe('apply pipeline batching', () => {
     afterFlush!(51);
 
     expect(storage.get(`${PREFIX}journal:1`)).toBeUndefined();
-    expect(storage.get(`${PREFIX}journal:2`)).toBeDefined();
+    expect(storage.get(`${PREFIX}journal:2`)).toBeUndefined();
   });
 });

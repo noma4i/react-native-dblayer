@@ -17,7 +17,7 @@ export type TypedMutationInput<TVariables> = TVariables extends {
     input: infer TInput;
 } ? TInput : TVariables;
 export type ModelStoredValue<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<any, infer TFields> ? InferStoredFields<TFields> : never;
-export type ModelBuildInput<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<infer TInput, infer TFields> ? unknown extends TInput ? InferBuildInput<TFields> : TInput : never;
+export type ModelBuildInput<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<infer TInput, infer TFields> ? (unknown extends TInput ? InferBuildInput<TFields> : TInput) : never;
 export type FacadeRuntimeModel<TStored extends {
     id: string;
     updatedAt?: string | null;
@@ -274,18 +274,23 @@ type GraphqlActionResponse<TData, TInput, TResultKey extends keyof TData & strin
         data: TData;
     }): void;
 };
+type GraphqlActionRequestDedupe<TInput> = {
+    once?: boolean;
+    dedupe: {
+        key(input: TInput): string | null;
+    };
+} | {
+    once?: false;
+    dedupe?: false;
+};
 type GraphqlActionRequestBase<TVariables, TInput> = {
     mode?: 'request';
     variables(input: TInput, context: ActionContext): TVariables;
-    dedupe?: false | {
-        key(input: TInput): string | null;
-    };
-    once?: boolean;
     before?(input: TInput, context: ActionContext): void;
     error?(error: Error, context: ActionContext & {
         input: TInput;
     }): void;
-};
+} & GraphqlActionRequestDedupe<TInput>;
 type GraphqlActionRequestOptimisticOptions<TData, TInput, TResultKey extends keyof TData & string, TOwnerKey extends string, TBuildInput, TStored extends {
     id: string;
 }> = (GraphqlActionResponse<TData, TInput, TResultKey, TBuildInput, TStored, TOwnerKey, ActionInsertRoot<TData, TInput, TBuildInput, TStored>> & {
@@ -466,6 +471,7 @@ export type PollModelAction<TInput> = {
 export type RowOperationState<TStored> = {
     pending: boolean;
     failed: boolean;
+    deliveryUnknown: boolean;
     unsyncedChanges: Partial<TStored> | undefined;
 };
 export type RowOperation<TStored> = {

@@ -15,7 +15,7 @@ import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 const DECLARATION = { family: 'query:guards', persistenceVersion: 1, fingerprint: 'fp-1' };
 
 const record = (identity: string, overrides: Record<string, unknown> = {}) => ({
-  recordVersion: 1,
+  recordVersion: 2,
   family: DECLARATION.family,
   identity,
   persistenceVersion: 1,
@@ -23,6 +23,7 @@ const record = (identity: string, overrides: Record<string, unknown> = {}) => ({
   empty: false,
   dataUpdatedAt: 5,
   invalidated: false,
+  invalidationRevision: 0,
   scope: { chatId: identity },
   payload: { ids: [identity] },
   ...overrides
@@ -41,8 +42,7 @@ describe('persisted query record guards', () => {
     configureDb({ storage, transport: createMockTransport() });
   });
 
-  const readBack = (identity: string) =>
-    readPersistedQuery(DECLARATION, identity, candidate => ({ payload: candidate.payload, scope: candidate.scope }));
+  const readBack = (identity: string) => readPersistedQuery(DECLARATION, identity, candidate => ({ payload: candidate.payload, scope: candidate.scope }));
 
   it('round-trips a record and removes exactly one identity or one family', () => {
     expect(writePersistedQuery(record('chat-1'))).toBe(true);
@@ -57,13 +57,11 @@ describe('persisted query record guards', () => {
     removePersistedQuery(DECLARATION);
     expect(readBack('chat-2')).toBeUndefined();
     expect(() => removePersistedQuery(DECLARATION)).not.toThrow();
-    expect(
-      readPersistedQuery({ ...DECLARATION, family: 'query:other' }, 'other', candidate => ({ payload: candidate.payload, scope: candidate.scope }))
-    ).toBeDefined();
+    expect(readPersistedQuery({ ...DECLARATION, family: 'query:other' }, 'other', candidate => ({ payload: candidate.payload, scope: candidate.scope }))).toBeDefined();
   });
 
   it.each([
-    ['record version', { recordVersion: 2 }],
+    ['record version', { recordVersion: 3 }],
     ['family type', { family: 7 }],
     ['identity type', { identity: 7 }],
     ['persistence version', { persistenceVersion: 1.5 }],
@@ -75,7 +73,7 @@ describe('persisted query record guards', () => {
   ])('rejects and deletes a stored record with a malformed %s', (_label, overrides) => {
     expect(writePersistedQuery(record('bad'))).toBe(true);
     const key = storage.snapshotKeys().find(candidate => candidate.includes('query:guards'))!;
-    storage.set([{ key, value: encodePersistence(record('bad', overrides)) }]);
+    [{ key, value: encodePersistence(record('bad', overrides)) }].forEach(entry => storage.set(entry.key, entry.value));
 
     expect(readBack('bad')).toBeUndefined();
     expect(storage.get(key)).toBeUndefined();

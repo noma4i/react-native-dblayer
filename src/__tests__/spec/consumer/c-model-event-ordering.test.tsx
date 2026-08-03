@@ -43,11 +43,9 @@ const createMemoryPlane = (): StoragePlane => {
   const values = new Map<string, string>();
   return {
     get: key => values.get(key),
-    set: entries => {
-      for (const entry of entries) {
-        if (entry.value === null) values.delete(entry.key);
-        else values.set(entry.key, entry.value);
-      }
+    set: (key, value) => {
+      if (value === null) values.delete(key);
+      else values.set(key, value);
     },
     keys: prefix => [...values.keys()].filter(key => key.startsWith(prefix))
   };
@@ -235,12 +233,12 @@ describe('model event ordering', () => {
     const failingStorage: StoragePlane = {
       get: storage.get,
       keys: storage.keys,
-      set: entries => {
+      set: (key, value) => {
         if (failOnce) {
           failOnce = false;
           throw failure;
         }
-        storage.set(entries);
+        storage.set(key, value);
       }
     };
     const { transport, subscribers } = createTransport();

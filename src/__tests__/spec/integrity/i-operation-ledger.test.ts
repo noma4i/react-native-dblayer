@@ -34,13 +34,13 @@ const setup = (nowValue = () => 1000) => {
 describe('committed once-key persistence format', () => {
   it('refuses an unknown version, rejects non-string keys, and reads the canonical payload', () => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['k1'] }, 99) }]);
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: ['k1'] }, 99));
     expect(() => readCommittedOnceKeys(storage, PREFIX)).toThrow('Unsupported persistence schema version 99');
 
-    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['k1', 7] }) }]);
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: ['k1', 7] }));
     expect(readCommittedOnceKeys(storage, PREFIX).keys).toEqual([]);
 
-    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['k2', 'k1'] }) }]);
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: ['k2', 'k1'] }));
     expect(readCommittedOnceKeys(storage, PREFIX).keys).toEqual(['k1', 'k2']);
   });
 
@@ -51,31 +51,31 @@ describe('committed once-key persistence format', () => {
       b: { ...baseRecord('b'), status: 'pending', once: true, idempotencyKey: 'skip-pending' },
       c: { ...baseRecord('c'), status: 'committed', once: false, idempotencyKey: 'skip-not-once' }
     };
-    storage.set([{ key: `${PREFIX}ops`, value: encodePersistence(ops) }]);
+    storage.set(`${PREFIX}ops`, encodePersistence(ops));
 
     expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: ['keep'], corruptSources: 0 });
   });
 
   it('counts each corrupt source separately', () => {
     const { storage } = setup();
-    storage.set([
+    [
       { key: `${PREFIX}ops-once`, value: '{corrupt' },
       { key: `${PREFIX}ops`, value: '{corrupt' }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
 
     expect(readCommittedOnceKeys(storage, PREFIX).corruptSources).toBe(2);
   });
 
   it('rejects empty once keys instead of retaining an ambiguous identity', () => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: [''] }) }]);
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: [''] }));
 
     expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 1 });
   });
 
   it('rejects a once-key record that carries no key list at all', () => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ notKeys: ['k1'] }) }]);
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ notKeys: ['k1'] }));
 
     // A record shaped like anything else is not a key list: reading it must report corruption,
     // never reach into a missing array.
@@ -84,7 +84,7 @@ describe('committed once-key persistence format', () => {
 
   it('keeps one valid once key while a sibling entry of the same record is invalid', () => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops-once`, value: encodePersistence({ keys: ['valid', 7] }) }]);
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: ['valid', 7] }));
 
     // One bad entry invalidates the LIST: a partially decoded key set would silently lose identity.
     expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 1 });
@@ -413,9 +413,9 @@ describe('hydrate key retention', () => {
     state.begin(baseRecord('op-a', { idempotencyKey: 'key-a' }));
     const writes: unknown[] = [];
     const originalSet = storage.set.bind(storage);
-    storage.set = entries => {
-      writes.push(entries);
-      originalSet(entries);
+    storage.set = (key, value) => {
+      writes.push({ key, value });
+      originalSet(key, value);
     };
 
     state.applyTransitions([{ kind: 'close', operationId: 'op-a', status: 'committed' }]);
@@ -426,7 +426,7 @@ describe('hydrate key retention', () => {
 
   it('cold-resets a corrupt ops record and reports the loss', () => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops`, value: '{corrupt' }]);
+    storage.set(`${PREFIX}ops`, '{corrupt');
     const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
 
     fresh.hydrate();
@@ -455,7 +455,7 @@ describe('hydrate key retention', () => {
     ['fractional creation time', { ...baseRecord('op-1'), createdAt: 1.5, status: 'pending' }]
   ])('cold-resets a semantically invalid operation record: %s', (_label, record) => {
     const { storage } = setup();
-    storage.set([{ key: `${PREFIX}ops`, value: encodePersistence({ [String(record.operationId)]: record }) }]);
+    storage.set(`${PREFIX}ops`, encodePersistence({ [String(record.operationId)]: record }));
     const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
 
     fresh.hydrate();
@@ -470,9 +470,6 @@ describe('hydrate key retention', () => {
     state.begin(baseRecord('op-1'));
     state.remove('op-1');
 
-    expect(state.persistEntries()).toEqual([
-      { key: `${PREFIX}ops`, value: null },
-      { key: `${PREFIX}ops-once`, value: null }
-    ]);
+    expect(state.persistEntries()).toEqual([]);
   });
 });

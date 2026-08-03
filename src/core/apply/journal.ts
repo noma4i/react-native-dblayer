@@ -1,16 +1,18 @@
 import { sortBy } from 'es-toolkit';
-import type { StoragePlane, Journal, JournalOp, JournalRecord, JournalWritePlan, PersistedJournalRecord } from '../../types';
+import type { Journal, JournalOp, JournalRecord, PersistedJournalRecord, StoragePlane, VersionedValue } from '../../types';
+import type { SplitJournalRecord } from '../../types/core.persistenceInternals.types';
+import { isOperationTransition } from '../planes/operationState';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger, isPositiveSafeInteger } from '../../utils/normalizeHelpers';
 import { isScopeEntrySet, isScopeIndexValue } from '../planes/scopeIndex';
 
-const COMMITTED_CAP = 50;
-const JOURNAL_SCHEMA_VERSION = 1;
+const JOURNAL_RECORD_VERSION = 2;
 const JOURNAL_OP_SCHEMA_VERSION = 1;
+const OPERATION_TRANSITION_SCHEMA_VERSION = 1;
 
-const checkpointEpoch = (storage: StoragePlane, prefix: string): number => {
+export const readCheckpointEpoch = (storage: StoragePlane, prefix: string): number => {
   const metaKey = `${prefix}meta`;
   const raw = storage.get(metaKey);
   if (!raw) return 0;
@@ -21,7 +23,7 @@ const checkpointEpoch = (storage: StoragePlane, prefix: string): number => {
   );
   if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
   if (decoded.kind === 'ok') return decoded.value.lastCheckpointEpoch;
-  storage.set([{ key: metaKey, value: null }]);
+  storage.set(metaKey, null);
   noteDataLoss('corrupt-checkpoint-meta', '__runtime__', 1);
   return 0;
 };
@@ -36,50 +38,62 @@ const epochFromKey = (prefix: string, journalKey: string): number | undefined =>
 const isValidJournalOp = (value: unknown): value is JournalOp => {
   if (!isNonArrayRecord(value) || !isNonEmptyString(value.model)) return false;
   const op = value;
-  if (op.kind === 'upsert')
+  if (op.kind === 'upsert') {
     return Array.isArray(op.rows) && op.rows.every(row => isNonArrayRecord(row) && isNonEmptyString(row.id)) && (op.origin === undefined || op.origin === 'replace');
-  if (op.kind === 'destroy')
+  }
+  if (op.kind === 'destroy') {
     return (
       Array.isArray(op.ids) &&
       op.ids.every(isNonEmptyString) &&
       (op.tombstone === undefined || typeof op.tombstone === 'boolean') &&
       (op.origin === undefined || op.origin === 'replace')
     );
+  }
   if (op.kind === 'scope') return isNonEmptyString(op.scopeKey) && isScopeIndexValue(op.next);
   if (op.kind === 'scope-delta') return isNonEmptyString(op.scopeKey) && isScopeEntrySet(op.append) && Array.isArray(op.detach) && op.detach.every(isNonEmptyString);
   return false;
 };
 
-const isPersistedJournalRecord = (value: unknown): value is PersistedJournalRecord => {
-  if (!isNonArrayRecord(value)) return false;
-  const record = value;
-  return (
-    isNonEmptyString(record.txId) &&
-    isPositiveSafeInteger(record.runtimeEpoch) &&
-    isPositiveSafeInteger(record.epoch) &&
-    (record.status === 'pending' || record.status === 'committed') &&
-    Array.isArray(record.ops) &&
-    record.ops.every(op => isNonArrayRecord(op) && isPositiveSafeInteger(op.schemaVersion) && 'payload' in op)
-  );
+const hasJournalIdentity = (value: Record<string, unknown>): boolean =>
+  isNonEmptyString(value.txId) && isPositiveSafeInteger(value.runtimeEpoch) && isPositiveSafeInteger(value.epoch);
+
+const hasVersionedValues = (value: unknown): value is Array<VersionedValue<unknown>> =>
+  Array.isArray(value) && value.every(entry => isNonArrayRecord(entry) && isPositiveSafeInteger(entry.schemaVersion) && 'payload' in entry);
+
+const isPersistedJournalRecord = (value: unknown): value is PersistedJournalRecord | SplitJournalRecord => {
+  if (!isNonArrayRecord(value) || !hasJournalIdentity(value) || !hasVersionedValues(value.ops)) return false;
+  if (value.recordVersion === JOURNAL_RECORD_VERSION) return hasVersionedValues(value.operationTransitions);
+  return value.recordVersion === undefined && (value.status === 'pending' || value.status === 'committed');
+};
+
+const decodeValues = <T>(values: Array<VersionedValue<unknown>>, version: number, accepts: (value: unknown) => value is T): T[] => {
+  const decoded: T[] = [];
+  for (const value of values) {
+    if (value.schemaVersion !== version) throw new Error(`Unsupported persistence schema version ${value.schemaVersion}`);
+    if (!accepts(value.payload)) return [];
+    decoded.push(value.payload);
+  }
+  return decoded;
 };
 
 const encodeJournalRecord = (record: JournalRecord): string =>
-  encodePersistence<PersistedJournalRecord>(
-    {
-      ...record,
-      ops: record.ops.map(op => versionPersistenceValue(op, JOURNAL_OP_SCHEMA_VERSION))
-    },
-    JOURNAL_SCHEMA_VERSION
-  );
+  encodePersistence<PersistedJournalRecord>({
+    recordVersion: JOURNAL_RECORD_VERSION,
+    txId: record.txId,
+    runtimeEpoch: record.runtimeEpoch,
+    epoch: record.epoch,
+    ops: record.ops.map(op => versionPersistenceValue(op, JOURNAL_OP_SCHEMA_VERSION)),
+    operationTransitions: record.operationTransitions.map(transition => versionPersistenceValue(transition, OPERATION_TRANSITION_SCHEMA_VERSION))
+  });
 
-/** Read one WAL record under the shared corruption policy: checkpointed corruption is dropped, while newer corruption is recorded as unavoidable loss. Covers both unparseable JSON and parseable JSON of the wrong record shape. */
+/** Read one immutable WAL record and localize corruption after checkpoint coverage. */
 export const readJournalRecord = (storage: StoragePlane, prefix: string, journalKey: string): JournalRecord | null => {
   const raw = storage.get(journalKey);
   if (!raw) return null;
   const dropAsCorrupt = (): null => {
     const epoch = epochFromKey(prefix, journalKey);
-    const lastCheckpointEpoch = checkpointEpoch(storage, prefix);
-    storage.set([{ key: journalKey, value: null }]);
+    const lastCheckpointEpoch = readCheckpointEpoch(storage, prefix);
+    storage.set(journalKey, null);
     if (epoch !== undefined && epoch <= lastCheckpointEpoch) {
       noteCorruptionJournalDrop();
       noteDataLoss('journal-corruption-checkpointed-drop', '__runtime__', 1);
@@ -90,80 +104,41 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
     getDbLogger().error('unrecoverable WAL corruption', { key: journalKey, epoch, lastCheckpointEpoch });
     return null;
   };
-  const decoded = decodePersistence(raw, JOURNAL_SCHEMA_VERSION, isPersistedJournalRecord);
+  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isPersistedJournalRecord);
   if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
   if (decoded.kind === 'corrupt') return dropAsCorrupt();
-  const ops: JournalOp[] = [];
-  for (const versioned of decoded.value.ops) {
-    if (versioned.schemaVersion !== JOURNAL_OP_SCHEMA_VERSION) throw new Error(`Unsupported persistence schema version ${versioned.schemaVersion}`);
-    if (!isValidJournalOp(versioned.payload)) return dropAsCorrupt();
-    ops.push(versioned.payload);
-  }
+  const ops = decodeValues(decoded.value.ops, JOURNAL_OP_SCHEMA_VERSION, isValidJournalOp);
+  if (ops.length !== decoded.value.ops.length) return dropAsCorrupt();
+  const transitions = 'recordVersion' in decoded.value ? decodeValues(decoded.value.operationTransitions, OPERATION_TRANSITION_SCHEMA_VERSION, isOperationTransition) : [];
+  if ('recordVersion' in decoded.value && transitions.length !== decoded.value.operationTransitions.length) return dropAsCorrupt();
   if (epochFromKey(prefix, journalKey) !== decoded.value.epoch) return dropAsCorrupt();
-  return { ...decoded.value, ops };
+  return {
+    txId: decoded.value.txId,
+    runtimeEpoch: decoded.value.runtimeEpoch,
+    epoch: decoded.value.epoch,
+    ops,
+    operationTransitions: transitions
+  };
 };
 
 export const createJournal = (storage: StoragePlane, prefix: () => string): Journal => {
-  const key = (name: string) => `${prefix()}${name}`;
-  const recordKey = (epoch: number) => key(`journal:${epoch}`);
-
+  const recordKey = (epoch: number): string => `${prefix()}journal:${epoch}`;
   const allRecords = (): JournalRecord[] =>
     sortBy(
       storage
-        .keys(key('journal:'))
+        .keys(`${prefix()}journal:`)
         .map(journalKey => readJournalRecord(storage, prefix(), journalKey))
         .filter((record): record is JournalRecord => record !== null),
       [record => record.epoch]
     );
 
-  /** In-memory committed-epoch index, loaded once - the hot path never re-reads the journal. */
-  let committedEpochs: number[] | null = null;
-  const committedIndex = (): number[] =>
-    (committedEpochs ??= allRecords()
-      .filter(record => record.status === 'committed')
-      .map(record => record.epoch));
-  /** Plan which committed epochs fall past the cap; the live index is only mutated by `commit()` after the batch is durable. */
-  const planPrune = (index: number[], virtual: readonly number[], pruneBeforeEpoch: number): { stale: number[]; commitStale: () => void } => {
-    const prunable = virtual.filter(epoch => epoch <= pruneBeforeEpoch).sort((a, b) => a - b);
-    const stale = prunable.slice(0, Math.max(0, virtual.length - COMMITTED_CAP));
-    const commitStale = (): void => {
-      for (const epoch of stale) {
-        const position = index.indexOf(epoch);
-        if (position >= 0) index.splice(position, 1);
-      }
-    };
-    return { stale, commitStale };
-  };
-  const pruneCommitted = (pruneBeforeEpoch: number): JournalWritePlan => {
-    const index = committedIndex();
-    const { stale, commitStale } = planPrune(index, index, pruneBeforeEpoch);
-    return { entries: stale.map(epoch => ({ key: recordKey(epoch), value: null })), commit: commitStale };
-  };
-
   return {
-    /** Storage entry for one pending WAL record, composed with other durable state in one batch. */
-    pendingEntry: (record: JournalRecord): Array<{ key: string; value: string | null }> => [{ key: recordKey(record.epoch), value: encodeJournalRecord(record) }],
-    /** Plan marking the record committed + pruning past-cap records; call `commit()` only after the batch's storage.set succeeded. */
-    committedEntry: (record: JournalRecord, pruneBeforeEpoch = Number.POSITIVE_INFINITY): JournalWritePlan => {
-      const index = committedIndex();
-      const virtual = index.includes(record.epoch) ? index : [...index, record.epoch];
-      const { stale, commitStale } = planPrune(index, virtual, pruneBeforeEpoch);
-      const entries: Array<{ key: string; value: string | null }> = [
-        { key: recordKey(record.epoch), value: encodeJournalRecord({ ...record, status: 'committed' }) },
-        ...stale.map(epoch => ({ key: recordKey(epoch), value: null }))
-      ];
-      return {
-        entries,
-        commit: () => {
-          if (!index.includes(record.epoch)) index.push(record.epoch);
-          commitStale();
-        }
-      };
-    },
-    /** Plan pruning committed records after their checkpoint batch flushed; call `commit()` only after the deletes are durable. */
-    pruneCommitted,
+    entry: record => ({ key: recordKey(record.epoch), value: encodeJournalRecord(record) }),
+    coveredKeys: checkpoint =>
+      allRecords()
+        .filter(record => record.epoch <= checkpoint)
+        .map(record => recordKey(record.epoch)),
     allRecords,
-    pending: (): JournalRecord[] => allRecords().filter(record => record.status === 'pending'),
-    lastEpoch: (): number => allRecords().reduce((max, record) => Math.max(max, record.epoch), 0)
+    lastEpoch: () => allRecords().reduce((max, record) => Math.max(max, record.epoch), 0)
   };
 };

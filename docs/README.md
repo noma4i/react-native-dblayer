@@ -101,6 +101,7 @@ The reference below matches `src/index.ts` exactly.
 | Export | Kind | Home |
 | --- | --- | --- |
 | `WritePlan` | type | [mutations.md](./mutations.md) |
+| `MutationDeliveryUnknownError` | value | [mutations.md](./mutations.md) |
 | `useDbSubscriptions` | value | [ingest-live.md](./ingest-live.md) |
 
 ### Runtime

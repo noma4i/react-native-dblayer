@@ -86,14 +86,16 @@ describe('pending operation index scale', () => {
       name: 'SpecPendingIndexMergeOrder',
       fields: { a: f.num(), b: f.num(), shared: f.str() }
     });
-    const operations = getOperationState();
     const reader = renderCounted(() => model.use.unsyncedChanges(TARGET_ROW));
     act(() => {
-      operations.begin({ ...ACTION_OWNER, operationId: 'op-a', model: 'SpecPendingIndexMergeOrder', tempIds: [], rowIds: [TARGET_ROW], intent: 'patch', patchedFields: ['a', 'shared'], patchedValues: { a: 1, shared: 'from-a' }, createdAt: 1 });
-      // An unrelated close on a different row exercises the bucket-remove/bucket-add path without touching this row's order.
-      operations.begin({ ...ACTION_OWNER, operationId: 'op-noise', model: 'SpecPendingIndexForeign', tempIds: [], rowIds: ['foreign-row-noise'], intent: 'patch', patchedFields: ['x'], patchedValues: { x: 0 }, createdAt: 1 });
-      operations.close('op-noise', 'committed');
-      operations.begin({ ...ACTION_OWNER, operationId: 'op-b', model: 'SpecPendingIndexMergeOrder', tempIds: [], rowIds: [TARGET_ROW], intent: 'patch', patchedFields: ['b', 'shared'], patchedValues: { b: 2, shared: 'from-b' }, createdAt: 2 });
+      getApplyRuntime().commit(
+        createCommitEnvelope([], [
+          { kind: 'begin', operation: { ...ACTION_OWNER, operationId: 'op-a', model: 'SpecPendingIndexMergeOrder', tempIds: [], rowIds: [TARGET_ROW], intent: 'patch', patchedFields: ['a', 'shared'], patchedValues: { a: 1, shared: 'from-a' }, createdAt: 1 } },
+          { kind: 'begin', operation: { ...ACTION_OWNER, operationId: 'op-noise', model: 'SpecPendingIndexForeign', tempIds: [], rowIds: ['foreign-row-noise'], intent: 'patch', patchedFields: ['x'], patchedValues: { x: 0 }, createdAt: 1 } },
+          { kind: 'close', operationId: 'op-noise', status: 'committed' },
+          { kind: 'begin', operation: { ...ACTION_OWNER, operationId: 'op-b', model: 'SpecPendingIndexMergeOrder', tempIds: [], rowIds: [TARGET_ROW], intent: 'patch', patchedFields: ['b', 'shared'], patchedValues: { b: 2, shared: 'from-b' }, createdAt: 2 } }
+        ])
+      );
     });
 
     expect(reader.result()).toEqual({ a: 1, shared: 'from-b', b: 2 });

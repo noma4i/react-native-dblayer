@@ -9,10 +9,10 @@ import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/
 describe('once-keys corruption diagnostics', () => {
   it('reports corrupt persisted once-keys as a data-loss event during the manifest cold reset', async () => {
     const storage = createMemoryPlane();
-    storage.set([
+    [
       { key: 'dbl:ops-once', value: '{corrupt-json' },
       { key: 'dbl:manifest', value: encodePersistence({ formatVersion: 7, schemaFingerprint: 'stale-fingerprint', dataVersion: null }) }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
     configureDb({ storage, transport: createMockTransport() });
     diagnostics().reset();
     defineModelRuntime({ id: 'SpecOnceKeysCorruption', name: 'SpecOnceKeysCorruption', fields: { label: f.str() } });

@@ -48,6 +48,7 @@ export const persistBucket = <TPayload, TScope>(args: {
   payload: TPayload;
   empty: boolean;
   window: (empty: boolean) => number | null;
+  invalidationRevision?: number;
 }): void => {
   if (args.window(args.empty) === null) {
     removePersistedQuery(args.declaration, args.identity);
@@ -59,6 +60,7 @@ export const persistBucket = <TPayload, TScope>(args: {
     scope: args.scope,
     payload: args.payload,
     empty: args.empty,
-    dataUpdatedAt: getDbQueryClient().getQueryState(args.queryKey)!.dataUpdatedAt
+    dataUpdatedAt: getDbQueryClient().getQueryState(args.queryKey)!.dataUpdatedAt,
+    invalidationRevision: args.invalidationRevision
   });
 };

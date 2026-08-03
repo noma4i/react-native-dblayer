@@ -136,7 +136,7 @@ describe('model store', () => {
     first.upsert({ id: 'c', owner: 'first' });
     second.upsert({ id: 'b:c', owner: 'second' });
 
-    storage.set([...first.persistEntries(), ...second.persistEntries()]);
+    [...first.persistEntries(), ...second.persistEntries()].forEach(entry => storage.set(entry.key, entry.value));
 
     expect(storage.keys('spec-store:row:')).toHaveLength(2);
   });

@@ -5,9 +5,9 @@ const refusingStorage = () => {
   const storage = createMemoryPlane();
   const accept = storage.set;
   let refusing = false;
-  storage.set = entries => {
+  storage.set = (key, value) => {
     if (refusing) throw new Error('storage is full');
-    accept(entries);
+    accept(key, value);
   };
   return { storage, refuse: () => (refusing = true), allow: () => (refusing = false) };
 };

@@ -102,9 +102,7 @@ export const getDbQueryClient = (): QueryClient => {
         // Connectivity is not vetoed here: the scheduled path runs in `online` mode, where React
         // Query pauses the attempt until the network returns, and the imperative path refuses to
         // start offline before it ever reaches a retry.
-        retry: (failureCount, error) =>
-          getRuntimeGeneration() === generation &&
-          retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount + 1) !== null,
+        retry: (failureCount, error) => getRuntimeGeneration() === generation && retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount + 1) !== null,
         retryDelay: (failureCount, error) =>
           getRuntimeGeneration() === generation ? (retryDelayMs(getDbRuntimeConfig().defaults.retry?.query ?? {}, error, failureCount) ?? 0) : 0
       }
@@ -257,7 +255,7 @@ export const replayJournal = (): number => {
 export const purgeForeignStorageKeys = (): number => {
   const { storage } = getDbRuntimeConfig();
   const foreign = storage.keys('').filter(key => !key.startsWith(STORAGE_PREFIX));
-  if (foreign.length > 0) storage.set(foreign.map(key => ({ key, value: null })));
+  for (const key of foreign) storage.set(key, null);
   return foreign.length;
 };
 
@@ -278,11 +276,7 @@ export const getOperationState = (): OperationState => {
     operationState = createOperationState({
       storage,
       prefix: getStoragePrefix,
-      now: () => Date.now(),
-      notify: operation => {
-        if (operation.model === '' || operation.rowIds.length === 0) return;
-        commitBus.publish({ rows: [], scopes: [], pending: operation.rowIds.map(id => ({ model: operation.model, id })) });
-      }
+      now: () => Date.now()
     });
     operationState.hydrate();
   }

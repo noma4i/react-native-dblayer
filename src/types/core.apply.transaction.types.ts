@@ -14,7 +14,6 @@ export type CommitEnvelope = {
   epoch: number;
   entityOps: JournalOp[];
   scopeOps: JournalOp[];
-  operationEntries: Array<{ key: string; value: string | null }>;
   operationTransitions: OperationTransition[];
   readonly [commitEnvelopeBrand]: true;
 };
@@ -36,7 +35,11 @@ export type ApplyTarget = {
    * PLANNING-ONLY: compute final order keys for these ids in this scope (sort-aware for
    * field/comparator scopes, tail keys for server order). `readRow` sees plan-overlay rows.
    */
-  planScopePlacement(scopeKey: string, ids: readonly string[], readRow: (model: string, id: string) => Record<string, unknown> | undefined): Array<{ id: string; orderKey: string }>;
+  planScopePlacement(
+    scopeKey: string,
+    ids: readonly string[],
+    readRow: (model: string, id: string) => Record<string, unknown> | undefined
+  ): Array<{ id: string; orderKey: string }>;
   readScopeOrderRevision(scopeKey: string): number;
   readScopeGeneration(scopeKey: string): number;
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;

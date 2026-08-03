@@ -243,7 +243,7 @@ describe('restored chain metadata guard', () => {
     expect(extraKeys).toEqual([]);
     const envelope = JSON.parse(storage.get(recordKey!)!) as { schemaVersion: number; payload: Record<string, unknown> };
     const corrupted = { ...envelope.payload, payload: corrupt(envelope.payload.payload as Record<string, unknown>, modelId) };
-    storage.set([{ key: recordKey!, value: encodePersistence(corrupted, envelope.schemaVersion) }]);
+    storage.set(recordKey!, encodePersistence(corrupted, envelope.schemaVersion));
 
     const secondQuery = buildRuntime();
     await act(async () => {

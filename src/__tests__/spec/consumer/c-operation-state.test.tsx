@@ -109,11 +109,13 @@ describe('operation state', () => {
     expect(User.operation('user-1').read()).toEqual({
       pending: true,
       failed: false,
+      deliveryUnknown: false,
       unsyncedChanges: { username: 'after' }
     });
     expect(reader.result()).toEqual({
       pending: true,
       failed: false,
+      deliveryUnknown: false,
       unsyncedChanges: { username: 'after' }
     });
 
@@ -131,11 +133,13 @@ describe('operation state', () => {
     expect(User.operation('user-1').read()).toEqual({
       pending: false,
       failed: false,
+      deliveryUnknown: false,
       unsyncedChanges: undefined
     });
     expect(reader.result()).toEqual({
       pending: false,
       failed: false,
+      deliveryUnknown: false,
       unsyncedChanges: undefined
     });
     reader.unmount();
@@ -179,6 +183,7 @@ describe('operation state', () => {
     expect(User.operation(tempId).read()).toEqual({
       pending: false,
       failed: true,
+      deliveryUnknown: false,
       unsyncedChanges: undefined
     });
     await expect(User.actions.create.retry(tempId!)).rejects.toThrow('create failed');

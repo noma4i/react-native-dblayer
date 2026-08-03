@@ -1,5 +1,18 @@
-import { configureDb, defineModelRuntime, f , flushPersistence , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
-import { createFaultStorage } from '../helpers/faultStorage';
+import {
+  configureDb,
+  defineModelRuntime,
+  f,
+  flushPersistence,
+  createCommitEnvelope,
+  createApplyRuntime,
+  createCommitBus,
+  createJournal,
+  encodePersistence,
+  DB_FORMAT_VERSION,
+  computeSchemaFingerprints,
+  writePersistenceManifest
+} from '../../testApi';
+import { createFaultStorage, failAfterSettledBatches } from '../helpers/faultStorage';
 import { compositeStorageKey, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
 type FaultRow = { id: string; label: string };
@@ -23,28 +36,26 @@ const configureFaultRuntime = (storage: ReturnType<typeof createFaultStorage>) =
 };
 
 describe('fault storage harness', () => {
-  it('fails configured batches before writes, truncates one batch, corrupts values, and records batch order', () => {
+  it('fails configured writes, corrupts values, and records physical write order', () => {
     const storage = createFaultStorage();
 
     storage.failNextSet();
-    expect(() => storage.plane.set([{ key: 'one', value: '1' }])).toThrow('fault: set failed');
+    expect(() => storage.plane.set('one', '1')).toThrow('fault: set failed');
     expect(storage.plane.get('one')).toBeUndefined();
-    storage.plane.set([{ key: 'one', value: '1' }]);
+    storage.plane.set('one', '1');
 
-    storage.truncateNextSet(1);
-    expect(() => storage.plane.set([{ key: 'two', value: '2' }, { key: 'three', value: '3' }])).toThrow('fault: set truncated');
+    storage.plane.set('two', '2');
+    storage.plane.set('three', '3');
     expect(storage.plane.get('two')).toBe('2');
-    expect(storage.plane.get('three')).toBeUndefined();
+    expect(storage.plane.get('three')).toBe('3');
 
     storage.corrupt('one');
     expect(storage.plane.get('one')).toBe('{corrupt');
     expect(storage.setCalls()).toEqual([
-      [{ key: 'one', value: '1' }],
-      [{ key: 'one', value: '1' }],
-      [
-        { key: 'two', value: '2' },
-        { key: 'three', value: '3' }
-      ]
+      { key: 'one', value: '1' },
+      { key: 'one', value: '1' },
+      { key: 'two', value: '2' },
+      { key: 'three', value: '3' }
     ]);
   });
 });
@@ -69,7 +80,7 @@ describe('persistence fault invariants', () => {
     }
   });
 
-  it('writes the pending journal record before applying an insert', () => {
+  it('writes the immutable journal record before applying an insert', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('WriteAhead');
@@ -79,13 +90,48 @@ describe('persistence fault invariants', () => {
     const journalKey = storage.plane.keys('dbl:journal:')[0];
     expect(journalKey).toBe('dbl:journal:1');
     const journal = JSON.parse(storage.plane.get(journalKey!)!) as {
-      payload: { status: string; ops: Array<{ payload: { kind: string; model: string; rows?: FaultRow[] } }> };
+      payload: { ops: Array<{ payload: { kind: string; model: string; rows?: FaultRow[] } }> };
     };
     expect(journal.payload).toMatchObject({
-      status: 'committed',
       ops: [{ payload: { kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'local' }] } }]
     });
-    expect(JSON.parse(storage.setCalls()[0]![0]!.value!) as { payload: { status: string } }).toMatchObject({ payload: { status: 'pending' } });
+    expect(storage.setCalls()[0]!.key).toBe('dbl:journal:1');
+  });
+
+  it('stores row work and its operation transition in one immutable WAL value', () => {
+    const storage = createFaultStorage();
+    configureFaultRuntime(storage);
+    const rows = createRows('TransitionEnvelope');
+    const runtime = createApplyRuntime({ storage: storage.plane, prefix: () => 'dbl:', bus: createCommitBus() });
+
+    runtime.commit(
+      createCommitEnvelope(
+        [{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'temp-1', label: 'pending' }] }],
+        [
+          {
+            kind: 'begin',
+            operation: {
+              operationId: 'operation-1',
+              actionKey: 'send',
+              actionMode: 'durable',
+              model: rows.modelId,
+              tempIds: ['temp-1'],
+              rowIds: ['temp-1'],
+              intent: 'insert',
+              createdAt: 1
+            }
+          }
+        ]
+      )
+    );
+
+    expect(storage.setCalls()[0]!.key).toBe('dbl:journal:1');
+    expect(JSON.parse(storage.setCalls()[0]!.value!) as { payload: unknown }).toMatchObject({
+      payload: {
+        ops: [{ payload: { kind: 'upsert', model: rows.modelId } }],
+        operationTransitions: [{ payload: { kind: 'begin', operation: { operationId: 'operation-1' } } }]
+      }
+    });
   });
 
   it('retries a failed checkpoint with the original rows and applied marker intact', () => {
@@ -113,8 +159,8 @@ describe('persistence fault invariants', () => {
       { id: 'row-2', label: 'second' }
     ]);
 
-    storage.truncateNextSet(1);
-    expect(() => flushPersistence()).toThrow('fault: set truncated');
+    failAfterSettledBatches(storage, 1);
+    expect(() => flushPersistence()).toThrow('fault: set failed');
     expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
     expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBeUndefined();
 
@@ -125,7 +171,7 @@ describe('persistence fault invariants', () => {
     expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
   });
 
-  it('keeps committed WAL records through a failed flush and prunes the oldest record after a successful checkpoint', () => {
+  it('keeps WAL records through a failed flush and deletes every covered record after checkpoint', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('PruneSafety');
@@ -138,7 +184,7 @@ describe('persistence fault invariants', () => {
     flushPersistence();
 
     expect(storage.plane.get('dbl:journal:1')).toBeUndefined();
-    expect(storage.plane.keys('dbl:journal:')).toHaveLength(50);
+    expect(storage.plane.keys('dbl:journal:')).toHaveLength(0);
   });
 
   it('does not advance the prune checkpoint after a failed checkpoint write', () => {
@@ -164,12 +210,13 @@ describe('persistence fault invariants', () => {
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'first' }] }]));
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]));
 
-    expect(storage.setCalls()[3]).toEqual(
-      expect.arrayContaining([{ key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'), value: encodePersistence({ id: 'row-2', label: 'second' }) }])
-    );
-    expect(storage.setCalls()[3]).not.toEqual(
-      expect.arrayContaining([{ key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'), value: encodePersistence({ id: 'row-1', label: 'first' }) }])
-    );
+    const secondJournalIndex = storage.setCalls().findIndex(write => write.key === 'dbl:journal:2');
+    const secondWrites = storage.setCalls().slice(secondJournalIndex + 1);
+    expect(secondWrites).toContainEqual({
+      key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'),
+      value: encodePersistence({ id: 'row-2', label: 'second' })
+    });
+    expect(secondWrites).not.toContainEqual(expect.objectContaining({ key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1') }));
   });
 
   it('does not replay a journal record already covered by its applied marker', () => {
@@ -180,13 +227,14 @@ describe('persistence fault invariants', () => {
       txId: 'test:1',
       runtimeEpoch: 1,
       epoch: 1,
-      status: 'committed' as const,
-      ops: [{ kind: 'upsert' as const, model: rows.modelId, rows: [{ id: 'row-1', label: 'persisted' }] }]
+      ops: [{ kind: 'upsert' as const, model: rows.modelId, rows: [{ id: 'row-1', label: 'persisted' }] }],
+      operationTransitions: []
     };
-    storage.plane.set([
+    const journalEntry = createJournal(storage.plane, () => 'dbl:').entry(record);
+    [
       { key: `dbl:applied:${rows.modelId}`, value: encodePersistence(1) },
-      { key: 'dbl:journal:1', value: createJournal(storage.plane, () => 'dbl:').committedEntry(record).entries[0]!.value }
-    ]);
+      journalEntry
+    ].forEach(entry => storage.plane.set(entry.key, entry.value));
     const bus = createCommitBus();
     const batches: unknown[] = [];
     bus.subscribeAll(batch => batches.push(batch));

@@ -4,6 +4,7 @@ import * as barrel from '../../../index';
 
 const runtimeExportAllowlist = [
   'DbProvider',
+  'MutationDeliveryUnknownError',
   'belongsTo',
   'configureDb',
   'createIdArrayPatcher',

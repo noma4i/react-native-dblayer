@@ -2,15 +2,7 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind, OperationTypeNode } from 'graphql';
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import {
-  configureDb,
-  defineModel,
-  defineShape,
-  f,
-  resetRuntime,
-  useDbSubscriptions,
-  type DbTransport
-} from '../../testApi';
+import { configureDb, defineModel, defineShape, f, resetRuntime, useDbSubscriptions, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Message = { id: string; chatId: string; body: string; status: 'sending' | 'sent' };
@@ -76,6 +68,20 @@ const defineMessages = (key: string) =>
           correlate: { fields: ['chatId', 'body'] }
         },
         root: { insert: { select: ({ data }) => data.messageSend.message } }
+      }),
+      sendDurable: owner.gql.action(sendDocument, {
+        mode: 'durable',
+        result: 'messageSend',
+        variables: (input: SendInput, _transportInput: Record<string, never>) => ({ input }),
+        optimistic: {
+          root: {
+            insert: {
+              select: ({ input, tempId }) => ({ id: tempId, ...input, status: 'sending' as const })
+            }
+          },
+          correlate: { fields: ['chatId', 'body'] }
+        },
+        root: { insert: { select: ({ data }) => data.messageSend.message } }
       })
     }),
     events: owner => ({
@@ -96,9 +102,7 @@ const startPendingSend = (messages: ReturnType<typeof defineMessages>): string =
 };
 
 const expectCorrelated = (messages: ReturnType<typeof defineMessages>, tempId: string): void => {
-  expect(messages.thread({ chatId: 'chat-1' }).read()).toEqual([
-    { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' }
-  ]);
+  expect(messages.thread({ chatId: 'chat-1' }).read()).toEqual([{ id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' }]);
   expect(messages.find(tempId)).toBeUndefined();
   expect(messages.operation(tempId).read().pending).toBe(false);
 };
@@ -133,10 +137,7 @@ describe('channel-agnostic temp correlation', () => {
     let next!: (data: unknown) => void;
     const transport = createMockTransport({
       mutation: () => new Promise(() => undefined),
-      subscribe: (
-        _options: Parameters<NonNullable<DbTransport['subscribe']>>[0],
-        handlers: Parameters<NonNullable<DbTransport['subscribe']>>[1]
-      ) => {
+      subscribe: (_options: Parameters<NonNullable<DbTransport['subscribe']>>[0], handlers: Parameters<NonNullable<DbTransport['subscribe']>>[1]) => {
         next = handlers.next;
         return () => undefined;
       }
@@ -152,7 +153,15 @@ describe('channel-agnostic temp correlation', () => {
     act(() => next({ messageCreated: { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' } } }));
 
     expectCorrelated(messages, tempId);
+    const durable = messages.actions.sendDurable.start({ chatId: 'chat-1', body: 'durable' });
+    act(() => next({ messageCreated: { message: { id: 'server-2', chatId: 'chat-1', body: 'durable', status: 'sent' } } }));
     act(() => root.unmount());
+    expect(messages.thread({ chatId: 'chat-1' }).read()).toEqual([
+      { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' },
+      { id: 'server-2', chatId: 'chat-1', body: 'durable', status: 'sent' }
+    ]);
+    expect(messages.find(durable.tempId)).toBeUndefined();
+    expect(messages.operation(durable.tempId).read().pending).toBe(false);
   });
 
   it('collapses an open temp row when another model action plans the server row', async () => {

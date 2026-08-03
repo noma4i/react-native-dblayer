@@ -27,22 +27,19 @@ export type JournalRecord = {
   txId: string;
   runtimeEpoch: number;
   epoch: number;
-  status: 'pending' | 'committed';
   ops: JournalOp[];
+  operationTransitions: OperationTransition[];
 };
 
-export type PersistedJournalRecord = Omit<JournalRecord, 'ops'> & {
+export type PersistedJournalRecord = Omit<JournalRecord, 'ops' | 'operationTransitions'> & {
+  recordVersion: 2;
   ops: Array<VersionedValue<JournalOp>>;
+  operationTransitions: Array<VersionedValue<OperationTransition>>;
 };
-
-/** Planned journal write batch: `entries` go into one storage.set; `commit()` advances the in-memory epoch index and must run only after that set succeeded. */
-export type JournalWritePlan = { entries: Array<{ key: string; value: string | null }>; commit(): void };
 
 export type Journal = {
-  pendingEntry(record: JournalRecord): Array<{ key: string; value: string | null }>;
-  committedEntry(record: JournalRecord, pruneBeforeEpoch?: number): JournalWritePlan;
-  pruneCommitted(pruneBeforeEpoch: number): JournalWritePlan;
+  entry(record: JournalRecord): { key: string; value: string };
+  coveredKeys(checkpointEpoch: number): string[];
   allRecords(): JournalRecord[];
-  pending(): JournalRecord[];
   lastEpoch(): number;
 };

@@ -17,11 +17,8 @@ export type TypedDocumentVariables<TDocument> = TDocument extends TypedDocumentN
 export type TypedMutationInput<TVariables> = TVariables extends { input: infer TInput } ? TInput : TVariables;
 
 export type ModelStoredValue<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<any, infer TFields> ? InferStoredFields<TFields> : never;
-export type ModelBuildInput<TShape extends DbShape<any, AnyFields>> = TShape extends DbShape<infer TInput, infer TFields>
-  ? unknown extends TInput
-    ? InferBuildInput<TFields>
-    : TInput
-  : never;
+export type ModelBuildInput<TShape extends DbShape<any, AnyFields>> =
+  TShape extends DbShape<infer TInput, infer TFields> ? (unknown extends TInput ? InferBuildInput<TFields> : TInput) : never;
 
 export type FacadeRuntimeModel<TStored extends { id: string; updatedAt?: string | null }, TInput> = ModelCore<TStored, TInput> & {
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>, TInput>>;
@@ -36,10 +33,7 @@ export type ModelConfigurationRelation<TStored, TData> = {
 export type ModelConfigurationRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>> = {
   [K in keyof TRelations]: (
     params: RelationParams<TStored, TRelations[K]> | null
-  ) => ModelConfigurationRelation<
-    TStored,
-    TRelations[K] extends { remote: GraphqlSingleDefinition<any, any, any, any> } ? TStored | undefined : TStored[]
-  >;
+  ) => ModelConfigurationRelation<TStored, TRelations[K] extends { remote: GraphqlSingleDefinition<any, any, any, any> } ? TStored | undefined : TStored[]>;
 };
 
 export type ModelConfigurationOwner<
@@ -93,17 +87,18 @@ export type Relation<TStored, TData = TStored[], TInput = TStored> = {
   issueSequence(field: keyof TStored & string): number;
 };
 
-export type GraphqlConnectionNode<TConnection> = NonNullable<TConnection> extends {
-  nodes?: ReadonlyArray<infer TNode> | null;
-}
-  ? NonNullable<TNode>
-  : NonNullable<TConnection> extends {
-        edges?: ReadonlyArray<infer TEdge> | null;
-      }
-    ? NonNullable<TEdge> extends { node?: infer TNode }
-      ? NonNullable<TNode>
-      : never
-    : never;
+export type GraphqlConnectionNode<TConnection> =
+  NonNullable<TConnection> extends {
+    nodes?: ReadonlyArray<infer TNode> | null;
+  }
+    ? NonNullable<TNode>
+    : NonNullable<TConnection> extends {
+          edges?: ReadonlyArray<infer TEdge> | null;
+        }
+      ? NonNullable<TEdge> extends { node?: infer TNode }
+        ? NonNullable<TNode>
+        : never
+      : never;
 
 export type GraphqlConnectionOptions<TData, TVariables, TParams, TConnection, TNode, TMapped, TOwnerKey extends string = string> = {
   variables(params: TParams): TVariables;
@@ -181,13 +176,7 @@ export type GraphqlSingleDefinition<TData, TVariables, TParams, TNode, TOwnerKey
 
 export type GraphqlLivePayload<TData> = TData[keyof TData];
 
-export type GraphqlLiveOptions<
-  TData,
-  TVariables,
-  TBuildInput = unknown,
-  TStored extends { id: string } = { id: string },
-  TOwnerKey extends string = string
-> = {
+export type GraphqlLiveOptions<TData, TVariables, TBuildInput = unknown, TStored extends { id: string } = { id: string }, TOwnerKey extends string = string> = {
   variables?: TVariables;
   root: ModelRootPlan<{ payload: GraphqlLivePayload<TData> }, TBuildInput, TStored>;
   write?(context: { payload: GraphqlLivePayload<TData> }, plan: WritePlan<TOwnerKey>): void;
@@ -216,24 +205,11 @@ export type MutationCorrelate = {
   createdAtWindowMs?: number;
 };
 
-type ActionRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = ModelRootPlan<
-  { input: TInput; data: TData },
-  TBuildInput,
-  TStored
->;
+type ActionRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = ModelRootPlan<{ input: TInput; data: TData }, TBuildInput, TStored>;
 
-type ActionInsertRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = Extract<
-  ActionRoot<TData, TInput, TBuildInput, TStored>,
-  { insert: unknown }
->;
-type ActionUpdateRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = Extract<
-  ActionRoot<TData, TInput, TBuildInput, TStored>,
-  { update: unknown }
->;
-type ActionDestroyRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = Extract<
-  ActionRoot<TData, TInput, TBuildInput, TStored>,
-  { destroy: unknown }
->;
+type ActionInsertRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = Extract<ActionRoot<TData, TInput, TBuildInput, TStored>, { insert: unknown }>;
+type ActionUpdateRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = Extract<ActionRoot<TData, TInput, TBuildInput, TStored>, { update: unknown }>;
+type ActionDestroyRoot<TData, TInput, TBuildInput, TStored extends { id: string }> = Extract<ActionRoot<TData, TInput, TBuildInput, TStored>, { destroy: unknown }>;
 
 type OptimisticActionContext<TInput> = {
   input: TInput;
@@ -296,26 +272,16 @@ type GraphqlActionResponse<
   track?(context: { input: TInput; data: TData }): void;
 };
 
-type GraphqlActionRequestBase<
-  TVariables,
-  TInput
-> = {
+type GraphqlActionRequestDedupe<TInput> = { once?: boolean; dedupe: { key(input: TInput): string | null } } | { once?: false; dedupe?: false };
+
+type GraphqlActionRequestBase<TVariables, TInput> = {
   mode?: 'request';
   variables(input: TInput, context: ActionContext): TVariables;
-  dedupe?: false | { key(input: TInput): string | null };
-  once?: boolean;
   before?(input: TInput, context: ActionContext): void;
   error?(error: Error, context: ActionContext & { input: TInput }): void;
-};
+} & GraphqlActionRequestDedupe<TInput>;
 
-type GraphqlActionRequestOptimisticOptions<
-  TData,
-  TInput,
-  TResultKey extends keyof TData & string,
-  TOwnerKey extends string,
-  TBuildInput,
-  TStored extends { id: string }
-> =
+type GraphqlActionRequestOptimisticOptions<TData, TInput, TResultKey extends keyof TData & string, TOwnerKey extends string, TBuildInput, TStored extends { id: string }> =
   | (GraphqlActionResponse<TData, TInput, TResultKey, TBuildInput, TStored, TOwnerKey, ActionInsertRoot<TData, TInput, TBuildInput, TStored>> & {
       optimistic: OptimisticInsert<TInput, TBuildInput, TStored>;
     })
@@ -349,15 +315,7 @@ export type GraphqlActionDurableOptions<
   TOwnerKey extends string = string,
   TBuildInput = unknown,
   TStored extends { id: string } = { id: string }
-> = GraphqlActionResponse<
-  TData,
-  TInput,
-  TResultKey,
-  TBuildInput,
-  TStored,
-  TOwnerKey,
-  ActionInsertRoot<TData, TInput, TBuildInput, TStored>
-> & {
+> = GraphqlActionResponse<TData, TInput, TResultKey, TBuildInput, TStored, TOwnerKey, ActionInsertRoot<TData, TInput, TBuildInput, TStored>> & {
   mode: 'durable';
   variables(input: TInput, transportInput: TTransportInput, context: OptimisticContext): TVariables;
   optimistic: OptimisticInsert<TInput, TBuildInput, TStored>;
@@ -365,14 +323,7 @@ export type GraphqlActionDurableOptions<
   error?(error: Error, context: OptimisticContext & { input: TInput }): void;
 };
 
-export type GraphqlActionPollOptions<
-  TData,
-  TVariables,
-  TInput,
-  TOwnerKey extends string = string,
-  TBuildInput = unknown,
-  TStored extends { id: string } = { id: string }
-> = {
+export type GraphqlActionPollOptions<TData, TVariables, TInput, TOwnerKey extends string = string, TBuildInput = unknown, TStored extends { id: string } = { id: string }> = {
   root: ModelRootPlan<TData, TBuildInput, TStored>;
   write?(context: TData, plan: WritePlan<TOwnerKey>): void;
   track?(context: TData): void;
@@ -511,9 +462,8 @@ export type ModelFacadeConfig<
   statics?: (model: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TKey>) => TStatics;
 };
 
-type RelationParamsFromBy<TStored, TBy> = TBy extends Record<string, keyof TStored & string>
-  ? { [K in keyof TBy]: TBy[K] extends keyof TStored ? NonNullable<TStored[TBy[K]]> : never }
-  : Record<string, never>;
+type RelationParamsFromBy<TStored, TBy> =
+  TBy extends Record<string, keyof TStored & string> ? { [K in keyof TBy]: TBy[K] extends keyof TStored ? NonNullable<TStored[TBy[K]]> : never } : Record<string, never>;
 
 type RelationRemoteParams<TStored, TDefinition, TParams> = TDefinition extends { by: infer TBy } ? TParams & RelationParamsFromBy<TStored, TBy> : TParams;
 
@@ -523,18 +473,19 @@ export type RelationParams<TStored, TDefinition> = TDefinition extends {
   ? RelationRemoteParams<TStored, TDefinition, TParams>
   : TDefinition extends { remote: GraphqlListDefinition<any, any, infer TParams, any> }
     ? RelationRemoteParams<TStored, TDefinition, TParams>
-  : TDefinition extends { remote: GraphqlSingleDefinition<any, any, infer TParams, any> }
-    ? RelationRemoteParams<TStored, TDefinition, TParams>
-  : TDefinition extends { by: infer TBy }
-    ? RelationParamsFromBy<TStored, TBy>
-    : Record<string, never>;
+    : TDefinition extends { remote: GraphqlSingleDefinition<any, any, infer TParams, any> }
+      ? RelationRemoteParams<TStored, TDefinition, TParams>
+      : TDefinition extends { by: infer TBy }
+        ? RelationParamsFromBy<TStored, TBy>
+        : Record<string, never>;
 
 export type ActionInput<TDefinition> = TDefinition extends GraphqlActionDefinition<any, any, infer TInput, any> ? TInput : never;
-export type ActionPayload<TDefinition> = TDefinition extends GraphqlActionRequestDefinition<infer TData, any, any, infer TResultKey, any, any, any, any>
-  ? NonNullable<TData[TResultKey]>
-  : TDefinition extends GraphqlActionDurableDefinition<infer TData, any, any, infer TResultKey, any, any, any, any>
+export type ActionPayload<TDefinition> =
+  TDefinition extends GraphqlActionRequestDefinition<infer TData, any, any, infer TResultKey, any, any, any, any>
     ? NonNullable<TData[TResultKey]>
-    : never;
+    : TDefinition extends GraphqlActionDurableDefinition<infer TData, any, any, infer TResultKey, any, any, any, any>
+      ? NonNullable<TData[TResultKey]>
+      : never;
 
 export type ModelActionHook<TInput, TResult> = {
   run(input: TInput): Promise<TResult | null>;
@@ -578,6 +529,7 @@ export type PollModelAction<TInput> = {
 export type RowOperationState<TStored> = {
   pending: boolean;
   failed: boolean;
+  deliveryUnknown: boolean;
   unsyncedChanges: Partial<TStored> | undefined;
 };
 
@@ -596,9 +548,7 @@ export type ModelRelationMethods<TStored, TRelations extends Record<string, Rela
 };
 
 export type AssociationStored<TDefinition> = TDefinition extends RelationDecl<infer TStored> ? TStored : never;
-export type AssociationData<TDefinition> = TDefinition extends { kind: 'belongsTo' | 'hasOne' }
-  ? AssociationStored<TDefinition> | undefined
-  : AssociationStored<TDefinition>[];
+export type AssociationData<TDefinition> = TDefinition extends { kind: 'belongsTo' | 'hasOne' } ? AssociationStored<TDefinition> | undefined : AssociationStored<TDefinition>[];
 export type ModelAssociationMethods<TAssociations extends Record<string, RelationDecl<unknown>>> = {
   [K in keyof TAssociations]: (id: string | null | undefined) => Relation<AssociationStored<TAssociations[K]>, AssociationData<TAssociations[K]>>;
 };
@@ -614,9 +564,7 @@ export type ModelActionMethods<TActions extends Record<string, GraphqlActionDefi
 };
 
 export type ModelEventHandle<TEvents extends Record<string, GraphqlLiveDefinition<any, any, any, any, any>>> = {
-  [K in keyof TEvents]: TEvents[K] extends GraphqlLiveDefinition<infer TData, any, any, any, any>
-    ? ModelEventSubscription<GraphqlLivePayload<TData>>
-    : never;
+  [K in keyof TEvents]: TEvents[K] extends GraphqlLiveDefinition<infer TData, any, any, any, any> ? ModelEventSubscription<GraphqlLivePayload<TData>> : never;
 };
 
 export type ModelFacadeCore<
@@ -629,10 +577,7 @@ export type ModelFacadeCore<
   key: TKey;
   find(id: string | null | undefined): TStored | undefined;
   wait(id: string | null | undefined, options: ModelWaitOptions): Promise<TStored | undefined>;
-  useFind(
-    id: string | null | undefined,
-    options?: { renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }
-  ): TStored | undefined;
+  useFind(id: string | null | undefined, options?: { renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }): TStored | undefined;
   where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored, TStored[], TInput>;
   byIds(ids: readonly string[] | null | undefined): Relation<TStored, TStored[], TInput>;
   insert(row: TInput): void;

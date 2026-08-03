@@ -1,9 +1,30 @@
 import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, isDbConfigured, resetPersistenceRuntime } from '../dsl/configure';
 import type { Resetter, SyncResetter } from '../types';
+import type { StorageResetEntry, StorageResetIntent } from '../types/core.persistenceInternals.types';
+import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { restartModelEventRegistry } from './modelEventRegistry';
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
 
 const resetters = new Set<Resetter>();
 const keyedResetters = new Map<string, Resetter>();
+const resetIntentKey = (prefix: string): string => `${prefix}reset-intent`;
+
+const STORAGE_RESET_INTENT_VERSION = 1;
+
+const isStorageResetIntent = (value: unknown): value is StorageResetIntent =>
+  isNonArrayRecord(value) &&
+  value.recordVersion === STORAGE_RESET_INTENT_VERSION &&
+  Array.isArray(value.restore) &&
+  value.restore.every(entry => isNonArrayRecord(entry) && typeof entry.key === 'string' && typeof entry.value === 'string');
+
+const readStorageResetIntent = (): StorageResetIntent | undefined => {
+  const raw = getDbRuntimeConfig().storage.get(resetIntentKey(getStoragePrefix()));
+  if (raw === undefined) return undefined;
+  return decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isStorageResetIntent) ?? {
+    recordVersion: STORAGE_RESET_INTENT_VERSION,
+    restore: []
+  };
+};
 
 /**
  * Register in-memory runtime state that `resetRuntime`'s kill-switch must clear. `defineModel` calls this
@@ -57,17 +78,7 @@ export const resetInMemoryRuntime = (): void => {
   if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'configureDb failed to run one or more resetters');
 };
 
-/**
- * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
- * persisted key under the library namespace, clears all registered in-memory state and notifies
- * every live subscriber. There is no partial/per-model variant - the host app decides when to pull
- * it (e.g. on logout). Fully synchronous by design: state is clean the moment the call returns, with
- * no deferred teardown to await - seeding and subsequent reads can rely on it immediately. An async
- * resetter is a registration error and throws. No-ops when `configureDb` has never run - an
- * unconfigured runtime is trivially clean. Every resetter runs even when another throws; failures
- * are rethrown together as an `AggregateError` after storage and in-memory state are fully reset.
- */
-export const resetRuntime = (): void => {
+const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void => {
   if (!isDbConfigured()) return;
   advanceRuntimeGeneration();
   const resetErrors: unknown[] = [];
@@ -80,15 +91,69 @@ export const resetRuntime = (): void => {
   };
   attempt(resetPersistenceRuntime);
   const { storage } = getDbRuntimeConfig();
+  const intentKey = resetIntentKey(getStoragePrefix());
+  try {
+    storage.set(
+      intentKey,
+      encodePersistence<StorageResetIntent>({
+        recordVersion: STORAGE_RESET_INTENT_VERSION,
+        restore: restore.map(entry => ({ ...entry }))
+      })
+    );
+  } catch (error) {
+    throw new AggregateError([error], 'resetRuntime failed to persist reset intent');
+  }
   const clearStorage = (): void => {
     const keys = storage.keys(getStoragePrefix());
-    if (keys.length > 0) storage.set(keys.map(key => ({ key, value: null })));
+    for (const key of keys) {
+      if (key !== intentKey) storage.set(key, null);
+    }
   };
   attempt(clearStorage);
   runRegisteredResetters(attempt);
   attempt(() => getOperationState().reset());
   attempt(() => getCommitBus().publishAll());
-  attempt(clearStorage);
+  let finalStorageClearSucceeded = true;
+  try {
+    clearStorage();
+  } catch (error) {
+    finalStorageClearSucceeded = false;
+    resetErrors.push(error);
+  }
+  if (finalStorageClearSucceeded) {
+    for (const entry of restore) {
+      try {
+        storage.set(entry.key, entry.value);
+      } catch (error) {
+        finalStorageClearSucceeded = false;
+        resetErrors.push(error);
+        break;
+      }
+    }
+  }
+  if (finalStorageClearSucceeded) attempt(() => storage.set(intentKey, null));
   attempt(restartModelEventRegistry);
   if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'resetRuntime failed to run one or more resetters');
 };
+
+/**
+ * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
+ * persisted key under the library namespace, clears all registered in-memory state and notifies
+ * every live subscriber. There is no partial/per-model variant - the host app decides when to pull
+ * it (e.g. on logout). Fully synchronous by design: state is clean the moment the call returns, with
+ * no deferred teardown to await - seeding and subsequent reads can rely on it immediately. An async
+ * resetter is a registration error and throws. No-ops when `configureDb` has never run - an
+ * unconfigured runtime is trivially clean. Every resetter runs even when another throws; failures
+ * are rethrown together as an `AggregateError` after storage and in-memory state are fully reset.
+ */
+export const resetRuntime = (): void => resetRuntimeWithRecovery([]);
+
+export const resumeInterruptedStorageReset = (): boolean => {
+  if (!isDbConfigured()) return false;
+  const intent = readStorageResetIntent();
+  if (intent === undefined) return false;
+  resetRuntimeWithRecovery(intent.restore);
+  return true;
+};
+
+export const resetRuntimeForCompatibility = (restore: readonly StorageResetEntry[]): void => resetRuntimeWithRecovery(restore);

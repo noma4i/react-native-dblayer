@@ -6,8 +6,7 @@ import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSI
 import { arraysShallowEqual } from '../../utils/arrayEquality';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 
-export const isScopeEntry = (value: unknown): value is ScopeEntry =>
-  isNonArrayRecord(value) && isNonEmptyString(value.id) && isOrderKey(value.orderKey);
+export const isScopeEntry = (value: unknown): value is ScopeEntry => isNonArrayRecord(value) && isNonEmptyString(value.id) && isOrderKey(value.orderKey);
 
 const compareEntries = (left: ScopeEntry, right: ScopeEntry): number => compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id, right.id);
 
@@ -143,7 +142,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
   };
   const scopeEntry = (id: string, orderKey: string): ScopeEntry => ({ id, orderKey });
 
-  const reconcileNext = (key: string, coverage: ScopeCoverage, incoming: IncomingScopeRow[], opts?: { resetOrder?: boolean; protectedIds?: ReadonlySet<string> }): ReconcileResult => {
+  const reconcileNext = (
+    key: string,
+    coverage: ScopeCoverage,
+    incoming: IncomingScopeRow[],
+    opts?: { resetOrder?: boolean; protectedIds?: ReadonlySet<string> }
+  ): ReconcileResult => {
     const previous = current(key) ?? empty();
     const generation = previous.generation + 1;
     const previousById = new Map(previous.entries.map(entry => [entry.id, entry] as const));
@@ -343,7 +347,7 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
           scopes.set(key, value);
           accessTimes.set(key, Date.now());
         } else {
-          storage.set([{ key: fullKey, value: null }]);
+          storage.set(fullKey, null);
           noteDataLoss('corrupt-scope', modelId, 1);
         }
       }

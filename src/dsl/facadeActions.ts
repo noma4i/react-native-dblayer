@@ -29,7 +29,8 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { useActionHandle } from './actionHook';
 import { createWritePlanCollector, runWritePlanInvalidations, stampCausalRevision } from './writePlan';
-import { stableSerialize } from '../core/serialize';
+import { compositeKey, stableSerialize } from '../core/serialize';
+import { MutationDeliveryUnknownError } from '../core/mutationDeliveryError';
 
 /**
  * A declared action becomes its runtime handle here. The declared mode decides which action lifecycle
@@ -51,8 +52,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
 ): ModelActionMethods<Record<'defined', TDefinition>>['defined'] => {
   const rootOwner = {
     modelId: runtime.modelId,
-    planRows: (rows: readonly unknown[], options?: { origin?: 'event' }) =>
-      getInternalModelHandle(runtime).planRows([...rows], options ?? { origin: 'event' })
+    planRows: (rows: readonly unknown[], options?: { origin?: 'event' }) => getInternalModelHandle(runtime).planRows([...rows], options ?? { origin: 'event' })
   };
   const selectOneRow = (value: unknown, selector: string): Record<string, unknown> => {
     if (!isNonArrayRecord(value)) throw new Error(`${name}: ${selector} selector must return exactly one row`);
@@ -73,6 +73,8 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       unknown,
       TStored
     >;
+    const correlate = durableDefinition.optimistic.correlate;
+    if (correlate) registerMutationCorrelator(runtime.modelId, actionKey, correlate);
     const executions = new Map<string, Promise<ActionPayload<TDefinition> | null>>();
     const currentRecord = (operationId: string, tempId: string): OperationRecord | undefined => {
       const record = getOperationState().get(operationId);
@@ -82,7 +84,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         record.actionKey !== actionKey ||
         record.model !== runtime.modelId ||
         record.intent !== 'insert' ||
-        (record.status !== 'pending' && record.status !== 'failed') ||
+        (record.status !== 'pending' && record.status !== 'failed' && record.status !== 'delivery_unknown') ||
         record.tempIds.length !== 1 ||
         record.tempIds[0] !== tempId ||
         !Object.hasOwn(record, 'input') ||
@@ -96,45 +98,40 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       const execute = (transportInput: DurableActionTransportInput<TDefinition>): Promise<ActionPayload<TDefinition> | null> => {
         const record = currentRecord(operationId, tempId);
         if (!record) return Promise.resolve(null);
+        if (record.status === 'delivery_unknown') return Promise.resolve(null);
         const existing = executions.get(operationId);
         if (existing) return existing;
-        const promise = runExecution(record, tempId, transportInput);
-        executions.set(operationId, promise);
-        void promise.then(
-          () => {
+        const execution = runExecution(record, tempId, transportInput);
+        const promise = execution.then(
+          value => {
             if (executions.get(operationId) === promise) executions.delete(operationId);
+            return value;
           },
-          () => {
+          error => {
             if (executions.get(operationId) === promise) executions.delete(operationId);
+            throw error;
           }
         );
+        executions.set(operationId, promise);
         return promise;
       };
       const cancel = (): void => {
         const record = currentRecord(operationId, tempId);
         if (!record) return;
-        getApplyRuntime().commit(
-          createCommitEnvelope(
-            [{ kind: 'destroy', model: runtime.modelId, ids: [tempId], tombstone: false }],
-            [{ kind: 'remove', operationId }]
-          )
-        );
+        getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: runtime.modelId, ids: [tempId], tombstone: false }], [{ kind: 'remove', operationId }]));
       };
       return { operationId, tempId, execute, cancel };
     };
-    const runExecution = async (
-      record: OperationRecord,
-      tempId: string,
-      transportInput: DurableActionTransportInput<TDefinition>
-    ): Promise<ActionPayload<TDefinition> | null> => {
+    const runExecution = async (record: OperationRecord, tempId: string, transportInput: DurableActionTransportInput<TDefinition>): Promise<ActionPayload<TDefinition> | null> => {
       const generationFence = createGenerationFence({ generation: getRuntimeGeneration() });
       const operationId = record.operationId;
       const input = record.input as ActionInput<TDefinition>;
       const context = { operationId, tempId };
       let baseRevision: number | undefined;
       if (record.status === 'failed') {
-        const { status, ...beginOperation } = record;
+        const { status, idempotencyKey, ...rest } = record;
         void status;
+        const beginOperation = idempotencyKey === undefined ? rest : { ...rest, idempotencyKey };
         getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'begin', operation: beginOperation }]));
       }
       if (!generationFence.isCurrent()) return null;
@@ -144,9 +141,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         const variables = durableDefinition.variables(input, transportInput, context);
         if (!generationFence.isCurrent()) return null;
         baseRevision = getApplyRuntime().currentEpoch();
-        const data = responseDataOrThrow(
-          await getDbTransport().mutation({ mutation: durableDefinition.document, variables })
-        );
+        const data = responseDataOrThrow(await getDbTransport().mutation({ mutation: durableDefinition.document, variables }));
         if (!generationFence.isCurrent()) return null;
         const payload = data[durableDefinition.result];
         if (payload == null) throw new Error(`${durableDefinition.result} returned no data`);
@@ -166,12 +161,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         const compiledWritePlan = writePlanCollector.compile();
         if (!generationFence.isCurrent()) return null;
         const responseWriteOps = stampCausalRevision([...responseOps, ...compiledWritePlan.writeOps], baseRevision);
-        getApplyRuntime().commit(
-          createCommitEnvelope(
-            responseWriteOps,
-            [{ kind: 'close', operationId, status: 'committed' }]
-          )
-        );
+        getApplyRuntime().commit(createCommitEnvelope(responseWriteOps, [{ kind: 'close', operationId, status: 'committed' }]));
         if (!generationFence.isCurrent()) return null;
         if (!runWritePlanInvalidations(compiledWritePlan.invalidations, generationFence.isCurrent, error => reportCallbackError(error, 'write.invalidate'))) return null;
         try {
@@ -185,7 +175,8 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         if (!generationFence.isCurrent()) return null;
         const active = currentRecord(operationId, tempId);
         if (active) {
-          getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'close', operationId, status: 'failed' }]));
+          const status = error instanceof MutationDeliveryUnknownError ? ('delivery_unknown' as const) : ('failed' as const);
+          getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'close', operationId, status }]));
           if (generationFence.isCurrent()) {
             try {
               durableDefinition.error?.(error instanceof Error ? error : new Error(String(error)), { ...context, input });
@@ -224,16 +215,14 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
           input: serialized.value,
           createdAt: Date.now()
         };
-        getApplyRuntime().commit(
-          createCommitEnvelope(optimisticOps, [{ kind: 'begin', operation: beginOperation }])
-        );
+        getApplyRuntime().commit(createCommitEnvelope(optimisticOps, [{ kind: 'begin', operation: beginOperation }]));
         return createHandle(operationId, tempId);
       },
       resume: (operationId: string) => {
         const record = getOperationState().get(operationId);
         if (!record || record.tempIds.length !== 1 || record.tempIds[0] === undefined || record.input === undefined || !Object.hasOwn(record, 'input')) return undefined;
         if (record.actionMode !== 'durable' || record.actionKey !== actionKey || record.model !== runtime.modelId || record.intent !== 'insert') return undefined;
-        if (record.status !== 'pending' && record.status !== 'failed') return undefined;
+        if (record.status !== 'pending' && record.status !== 'failed' && record.status !== 'delivery_unknown') return undefined;
         return createHandle(operationId, record.tempIds[0]);
       },
       open: () =>
@@ -334,8 +323,15 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
   }
   const requestDefinition = definition as ActionRequestDefinition<TDefinition, TStored>;
-  if (requestDefinition.once === true && requestDefinition.dedupe === false) {
+  const requestPolicy = requestDefinition as typeof requestDefinition & {
+    once?: boolean;
+    dedupe?: false | { key(input: ActionInput<TDefinition>): string | null };
+  };
+  if (requestPolicy.once === true && requestPolicy.dedupe === false) {
     throw new Error('once cannot be combined with dedupe: false');
+  }
+  if (requestPolicy.once === true && requestPolicy.dedupe === undefined) {
+    throw new Error('once requires a dedupe key');
   }
   let correlatorRegistered = false;
   const requestIntent = (): OperationRecord['intent'] => modelRootIntentOf(requestDefinition.root);
@@ -372,19 +368,18 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     }
     return latest;
   };
+  const deliveryUnknownRequestRecord = (rowId: string): OperationRecord | undefined =>
+    getOperationState()
+      .deliveryUnknownForRow(runtime.modelId, rowId)
+      .find(record => record.actionMode === 'request' && record.actionKey === actionKey);
   const idempotencyKeyFor = (input: ActionInput<TDefinition>, operationId: string): { key: string; deduped: boolean } => {
     if (requestDefinition.dedupe === false) return { key: operationId, deduped: false };
     const key = requestDefinition.dedupe?.key(input);
     if (key == null) return { key: operationId, deduped: false };
     if (typeof key !== 'string' || key.length === 0) throw new Error(`${name}: dedupe key must be a non-empty string`);
-    return { key, deduped: true };
+    return { key: compositeKey(actionKey, key), deduped: true };
   };
-  const buildOptimisticPlan = (
-    input: ActionInput<TDefinition>,
-    tempId: string | null,
-    operationId: string,
-    captureRollback = true
-  ): ActionRequestPlan => {
+  const buildOptimisticPlan = (input: ActionInput<TDefinition>, tempId: string | null, operationId: string, captureRollback = true): ActionRequestPlan => {
     const optimistic = requestDefinition.optimistic;
     if (!optimistic) {
       return { ops: [], intent: requestIntent(), tempIds: [], rowIds: [] };
@@ -450,12 +445,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       rollbackMemberships: getInternalModelHandle(runtime).captureMembership(id)
     };
   };
-  const runRequestExecution = async (
-    operationId: string,
-    tempId: string | null,
-    input: ActionInput<TDefinition>,
-    tracked: boolean
-  ): Promise<ActionPayload<TDefinition> | null> => {
+  const runRequestExecution = async (operationId: string, tempId: string | null, input: ActionInput<TDefinition>, tracked: boolean): Promise<ActionPayload<TDefinition> | null> => {
     const generationFence = createGenerationFence({ generation: getRuntimeGeneration() });
     const record = tracked ? currentRequestRecord(operationId, tempId) : undefined;
     if (tracked && !record) return null;
@@ -472,15 +462,16 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       const payload = data[requestDefinition.result];
       if (payload == null) throw new Error(`${requestDefinition.result} returned no data`);
       if (tracked && !currentRequestRecord(operationId, tempId)) return null;
-      const responseOwner = tempId !== null && record?.intent === 'insert'
-        ? {
-            modelId: runtime.modelId,
-            planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
-              if (rows.length !== 1) throw new Error(`${name}: response insert selector must return exactly one row`);
-              return getInternalModelHandle(runtime).planReplace(tempId, selectOneRow(rows[0], 'response insert'));
+      const responseOwner =
+        tempId !== null && record?.intent === 'insert'
+          ? {
+              modelId: runtime.modelId,
+              planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
+                if (rows.length !== 1) throw new Error(`${name}: response insert selector must return exactly one row`);
+                return getInternalModelHandle(runtime).planReplace(tempId, selectOneRow(rows[0], 'response insert'));
+              }
             }
-          }
-        : rootOwner;
+          : rootOwner;
       const responseOps = compileModelRootPlan(responseOwner, requestDefinition.root as never, { input, data } as never).map(operation =>
         operation.kind === 'patch' && record?.intent === 'patch' ? { ...operation, operationId } : operation
       );
@@ -510,33 +501,38 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       if (!generationFence.isCurrent()) return null;
       const active = tracked ? currentRequestRecord(operationId, tempId) : undefined;
       if (active) {
-        const rollbackOps = active.intent === 'patch' && active.rollbackRow !== undefined
-          ? (() => {
-              const rowId = active.rowIds[0]!;
-              const current = getInternalModelHandle(runtime).readRow(rowId);
-              if (!current) return [];
-              const patch: Record<string, unknown> = {};
-              const remove: string[] = [];
-              for (const field of active.patchedFields!) {
-                const latest = getOperationState().latestPendingValue(runtime.modelId, rowId, field, operationId);
-                if (latest.found) {
-                  patch[field] = latest.value;
-                  continue;
-                }
-                if (!active.patchedValues || stableSerialize(current[field]) !== stableSerialize(active.patchedValues[field])) continue;
-                if (Object.hasOwn(active.rollbackRow, field)) {
-                  patch[field] = active.rollbackRow[field];
-                  continue;
-                }
-                remove.push(field);
-              }
-              return [{ kind: 'patch' as const, model: runtime.modelId, id: rowId, patch, remove, operationId }];
-            })()
-          : active.intent === 'destroy' && active.rollbackRow !== undefined && active.rollbackMemberships !== undefined
-            ? getInternalModelHandle(runtime).planRestore(active.rollbackRow, active.rollbackMemberships)
-            : [];
-        const status = active.tempIds.length > 0 || active.rollbackRow !== undefined ? 'failed' as const : 'rolledback' as const;
-        getApplyRuntime().commit(createCommitEnvelope(rollbackOps, [{ kind: 'close', operationId, status }]));
+        if (error instanceof MutationDeliveryUnknownError) {
+          getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'close', operationId, status: 'delivery_unknown' }]));
+        } else {
+          const rollbackOps =
+            active.intent === 'patch' && active.rollbackRow !== undefined
+              ? (() => {
+                  const rowId = active.rowIds[0]!;
+                  const current = getInternalModelHandle(runtime).readRow(rowId);
+                  if (!current) return [];
+                  const patch: Record<string, unknown> = {};
+                  const remove: string[] = [];
+                  for (const field of active.patchedFields!) {
+                    const latest = getOperationState().latestPendingValue(runtime.modelId, rowId, field, operationId);
+                    if (latest.found) {
+                      patch[field] = latest.value;
+                      continue;
+                    }
+                    if (!active.patchedValues || stableSerialize(current[field]) !== stableSerialize(active.patchedValues[field])) continue;
+                    if (Object.hasOwn(active.rollbackRow, field)) {
+                      patch[field] = active.rollbackRow[field];
+                      continue;
+                    }
+                    remove.push(field);
+                  }
+                  return [{ kind: 'patch' as const, model: runtime.modelId, id: rowId, patch, remove, operationId }];
+                })()
+              : active.intent === 'destroy' && active.rollbackRow !== undefined && active.rollbackMemberships !== undefined
+                ? getInternalModelHandle(runtime).planRestore(active.rollbackRow, active.rollbackMemberships)
+                : [];
+          const status = active.tempIds.length > 0 || active.rollbackRow !== undefined ? ('failed' as const) : ('rolledback' as const);
+          getApplyRuntime().commit(createCommitEnvelope(rollbackOps, [{ kind: 'close', operationId, status }]));
+        }
       }
       if (generationFence.isCurrent()) {
         try {
@@ -606,12 +602,11 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     return runRequestExecution(record.operationId, tempId, input, true);
   };
   const discard = (rowId: string): void => {
-    const record = failedRequestRecord(rowId);
+    const record = failedRequestRecord(rowId) ?? deliveryUnknownRequestRecord(rowId);
     if (!record || record.actionMode !== 'request' || record.actionKey !== actionKey) return;
-    const ops = record.intent === 'insert' && record.tempIds.length === 1
-      ? [{ kind: 'destroy' as const, model: runtime.modelId, ids: [record.tempIds[0]!], tombstone: false }]
-      : [];
-    getApplyRuntime().commit(createCommitEnvelope(ops, [{ kind: 'remove', operationId: record.operationId, expectedStatus: 'failed' }]));
+    const ops =
+      record.intent === 'insert' && record.tempIds.length === 1 ? [{ kind: 'destroy' as const, model: runtime.modelId, ids: [record.tempIds[0]!], tombstone: false }] : [];
+    getApplyRuntime().commit(createCommitEnvelope(ops, [{ kind: 'remove', operationId: record.operationId, expectedStatus: record.status }]));
   };
   return {
     run,

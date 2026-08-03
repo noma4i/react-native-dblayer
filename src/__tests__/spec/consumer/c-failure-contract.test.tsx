@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
-import { configureDb, defineModel, defineShape, f, resetRuntime } from '../../testApi';
+import { configureDb, defineModel, defineShape, f, MutationDeliveryUnknownError, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; label: string; status: 'pending' | 'done' };
@@ -71,6 +71,29 @@ describe('action failure contract', () => {
     await rows.actions.create.run({ label: 'local' });
 
     expect(rows.where({}).read()).toEqual([{ id: 'server-1', label: 'server', status: 'done' }]);
+  });
+
+  it('keeps an optimistic request when mutation delivery is unknown', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: async () => {
+          throw new MutationDeliveryUnknownError('response was not observed');
+        }
+      })
+    });
+    const rows = defineRows('SpecActionFailureDeliveryUnknown');
+
+    await expect(rows.actions.create.run({ label: 'local' })).rejects.toThrow('response was not observed');
+
+    const optimistic = rows.where({}).read()[0]!;
+    expect(optimistic).toMatchObject({ label: 'local', status: 'pending' });
+    expect(rows.operation(optimistic.id).read()).toMatchObject({
+      pending: false,
+      failed: false,
+      deliveryUnknown: true
+    });
+    await expect(rows.actions.create.retry(optimistic.id)).resolves.toBeNull();
   });
 
   it('rejects an optimistic insert model without temp-row retention', () => {

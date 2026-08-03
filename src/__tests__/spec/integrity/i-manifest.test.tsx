@@ -136,7 +136,7 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime();
 
     await bootDb();
-    storage.set([{ key: 'dbl:sentinel', value: 'kept' }]);
+    storage.set('dbl:sentinel', 'kept');
 
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:sentinel')).toBe('kept');
@@ -145,7 +145,7 @@ describe('persistence schema manifest', () => {
   it('cold-resets persisted data when the consumer data version changes', async () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
     await bootDb();
-    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    storage.set('dbl:sentinel', 'discard');
     const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
       reset: () => void;
       snapshot: () => { manifestResets: number; dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
@@ -177,7 +177,7 @@ describe('persistence schema manifest', () => {
     const restarted = defineOnceAction();
     await bootDb();
 
-    expect(storage.get('dbl:ops')).toBeUndefined();
+    expect(storage.get('dbl:ops')).toBeDefined();
     expect(await restarted.run({ value: 'once' })).toBeNull();
     expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1);
   });
@@ -220,7 +220,7 @@ describe('persistence schema manifest', () => {
   it('preserves persisted data when the consumer data version matches', async () => {
     const storage = configureManifestRuntime(undefined, 'build-1');
     await bootDb();
-    storage.set([{ key: 'dbl:sentinel', value: 'kept' }]);
+    storage.set('dbl:sentinel', 'kept');
 
     configureManifestRuntime(storage, 'build-1');
 
@@ -231,7 +231,7 @@ describe('persistence schema manifest', () => {
   it('cold-resets persisted data when the consumer changes from the default version to a build version', async () => {
     const storage = configureManifestRuntime();
     await bootDb();
-    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    storage.set('dbl:sentinel', 'discard');
 
     configureManifestRuntime(storage, 'build-1');
 
@@ -242,7 +242,7 @@ describe('persistence schema manifest', () => {
   it('preserves persisted data across boots when the consumer omits the data version', async () => {
     const storage = configureManifestRuntime();
     await bootDb();
-    storage.set([{ key: 'dbl:sentinel', value: 'kept' }]);
+    storage.set('dbl:sentinel', 'kept');
 
     configureManifestRuntime(storage);
 
@@ -294,11 +294,11 @@ describe('persistence schema manifest', () => {
     flushPersistence();
     const alphaScopePrefix = compositeStorageKey('dbl:', 'scope', alphaId);
     expect(storage.keys(alphaScopePrefix).length).toBeGreaterThan(0);
-    storage.set([
+    [
       { key: compositeStorageKey('dbl:', 'scope', alphaId, 'manual'), value: 'scope' },
       { key: compositeStorageKey('dbl:', 'tombstones', alphaId), value: encodePersistence({ 'alpha-stale': { at: 1 } }) },
       { key: 'dbl:query:keep', value: 'query' }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
     const legacyFingerprint = stableSerialize([betaDeclaration, alphaDeclaration]);
     writePersistenceManifest('dbl:', { formatVersion: 7, schemaFingerprint: legacyFingerprint, dataVersion: null });
 
@@ -335,14 +335,16 @@ describe('persistence schema manifest', () => {
     await bootDb();
     const ledger = getOperationState();
     ledger.begin(modelOperation('alpha-operation', alphaId));
-    ledger.begin(modelOperation('beta-operation', betaId));
+    ledger.begin(modelOperation('beta-operation', betaId, { actionMode: 'durable' }));
     ledger.begin(modelOperation('beta-once-operation', betaId, { idempotencyKey: 'beta-once-key', once: true }));
     ledger.close('beta-once-operation', 'committed');
+    expect(storage.get('dbl:ops')).toBeDefined();
     writePersistenceManifest('dbl:', { formatVersion: 7, schemaFingerprint: stableSerialize([modelDeclaration(alphaId), modelDeclaration(betaId)]), dataVersion: null });
 
     configureManifestRuntime(storage);
     defineManifestModel(alphaId, { added: f.str().nullDefault() });
     defineManifestModel(betaId);
+    expect(storage.get('dbl:ops')).toBeDefined();
     await bootDb();
 
     const restartedLedger = getOperationState();
@@ -350,10 +352,11 @@ describe('persistence schema manifest', () => {
     expect(restartedLedger.get('beta-operation')).toBeDefined();
     expect(restartedLedger.get('beta-once-operation')).toBeDefined();
     expect(restartedLedger.hasCommitted('beta-once-key')).toBe(true);
-    const operations = JSON.parse(storage.get('dbl:ops')!) as { payload: Record<string, OperationRecord> };
-    expect(operations.payload).not.toHaveProperty('alpha-operation');
-    expect(operations.payload).toHaveProperty('beta-operation');
-    expect(storage.get('dbl:ops-once')).toBeDefined();
+    const operations = JSON.parse(storage.get('dbl:ops')!) as { payload: { operations: Record<string, OperationRecord>; committedKeys: string[] } };
+    expect(operations.payload.operations).not.toHaveProperty('alpha-operation');
+    expect(operations.payload.operations).toHaveProperty('beta-operation');
+    expect(operations.payload.committedKeys).toContain('beta-once-key');
+    expect(storage.get('dbl:ops-once')).toBeUndefined();
     expect(restartedLedger.discardModels(new Set([betaId]))).toBe(2);
   });
 
@@ -365,18 +368,17 @@ describe('persistence schema manifest', () => {
     defineManifestModel(betaId);
     writePersistenceManifest('dbl:', { formatVersion: 7, schemaFingerprint: stableSerialize([modelDeclaration(alphaId), modelDeclaration(betaId)]), dataVersion: null });
     const journal = createJournal(storage, () => 'dbl:');
-    storage.set(
-      journal.pendingEntry({
+    const entry = journal.entry({
         txId: 'manifest-wal',
         runtimeEpoch: 1,
         epoch: 1,
-        status: 'pending',
         ops: [
           { kind: 'upsert', model: alphaId, rows: [{ id: 'alpha-wal', label: 'alpha' }] },
           { kind: 'upsert', model: betaId, rows: [{ id: 'beta-wal', label: 'beta' }] }
-        ]
-      })
-    );
+        ],
+        operationTransitions: []
+      });
+    storage.set(entry.key, entry.value);
 
     configureManifestRuntime(storage);
     const alpha = defineManifestModel(alphaId, { added: f.str().nullDefault() });
@@ -392,7 +394,7 @@ describe('persistence schema manifest', () => {
   it('cold-resets format 4 keys before reading the injective composite-key format', async () => {
     const storage = configureManifestRuntime();
     writePersistenceManifest('dbl:', { formatVersion: 4, schemaFingerprint: stableSerialize([declaration('manifest-format-4')]), dataVersion: null });
-    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    storage.set('dbl:sentinel', 'discard');
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(storage.get('dbl:sentinel')).toBeUndefined();
@@ -401,7 +403,7 @@ describe('persistence schema manifest', () => {
   it('cold-resets format 5 keys from the membership-edge era', async () => {
     const storage = configureManifestRuntime();
     writePersistenceManifest('dbl:', { formatVersion: 5, schemaFingerprint: stableSerialize([declaration('manifest-format-5')]), dataVersion: null });
-    storage.set([{ key: 'dbl:sentinel', value: 'edge-era' }]);
+    storage.set('dbl:sentinel', 'edge-era');
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(storage.get('dbl:sentinel')).toBeUndefined();
@@ -409,7 +411,7 @@ describe('persistence schema manifest', () => {
 
   it('records manifest-driven resets in diagnostics', async () => {
     const storage = configureManifestRuntime();
-    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    storage.set('dbl:sentinel', 'discard');
     writePersistenceManifest('dbl:', { formatVersion: 6, schemaFingerprint: 'outdated', dataVersion: null });
     const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
       reset: () => void;
@@ -426,7 +428,7 @@ describe('persistence schema manifest', () => {
     const storage = configureManifestRuntime();
     defineManifestModel('ManifestUnsupportedFormat');
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION + 1, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
-    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    storage.set('dbl:sentinel', 'discard');
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(storage.get('dbl:sentinel')).toBeUndefined();
@@ -434,7 +436,7 @@ describe('persistence schema manifest', () => {
 
   it('resets nonempty storage without a manifest', async () => {
     const storage = configureManifestRuntime();
-    storage.set([{ key: 'dbl:sentinel', value: 'discard' }]);
+    storage.set('dbl:sentinel', 'discard');
     const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as {
       reset: () => void;
       snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
@@ -448,10 +450,10 @@ describe('persistence schema manifest', () => {
 
   it('treats malformed manifests as absent when storage is nonempty', async () => {
     const storage = configureManifestRuntime();
-    storage.set([
+    [
       { key: 'dbl:manifest', value: '{broken' },
       { key: 'dbl:sentinel', value: 'discard' }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
 
     await expect(bootDb()).resolves.toMatchObject({ reset: true });
     expect(storage.get('dbl:sentinel')).toBeUndefined();
@@ -470,10 +472,10 @@ describe('manifest shape guard', () => {
     ];
     for (const value of malformed) {
       const storage = configureManifestRuntime();
-      storage.set([
+      [
         { key: 'dbl:manifest', value },
         { key: 'dbl:sentinel', value: 'stale' }
-      ]);
+      ].forEach(entry => storage.set(entry.key, entry.value));
 
       await expect(bootDb()).resolves.toMatchObject({ reset: true });
       expect(storage.get('dbl:sentinel')).toBeUndefined();
@@ -498,10 +500,10 @@ describe('manifest shape guard', () => {
         reset: () => void;
         snapshot: () => { dataLossEvents: Array<{ mechanism: string; model: string; count: number }> };
       };
-      storage.set([
+      [
         { key: 'dbl:manifest', value: encodePersistence(payload) },
         { key: 'dbl:sentinel', value: 'stale' }
-      ]);
+      ].forEach(entry => storage.set(entry.key, entry.value));
       diagnostics.reset();
 
       await expect(bootDb()).resolves.toMatchObject({ reset: true });

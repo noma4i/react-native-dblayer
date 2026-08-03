@@ -1,5 +1,5 @@
 import type { AcceptedRow, CommitEnvelope, DestroyedRow, JournalOp, OperationTransition, StoredRow, WriteOp } from '../../types';
-import { getOperationState, getRuntimeGeneration } from '../../dsl/configure';
+import { getRuntimeGeneration } from '../../dsl/configure';
 import { deduplicateScopeEntriesById } from '../planes/scopeIndex';
 import { deriveEffects } from '../relations';
 import { compositeKey } from '../serialize';
@@ -210,7 +210,6 @@ export const createCommitEnvelope = (ops: WriteOp[], explicitOperationTransition
     epoch: runtimeEpoch,
     entityOps: planned.ops.filter(op => !isScopeOperation(op)),
     scopeOps: planned.ops.filter(isScopeOperation),
-    operationEntries: operationTransitions.length > 0 ? getOperationState().prepareTransitions(operationTransitions) : [],
     operationTransitions
   } as unknown as CommitEnvelope;
 };

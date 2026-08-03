@@ -274,10 +274,10 @@ describe('scope order cache reset contract', () => {
     const scopeKey = compositeKey('byBucket', '{"bucket":"stale"}');
     const staleKey = compositeStorageKey('dbl:', 'scope', modelId, 'not-a-scope-key');
     const malformedKey = `${compositeStorageKey('dbl:', 'scope', modelId)}not-encoded`;
-    storage.set([
+    [
       { key: staleKey, value: 'corrupt' },
       { key: malformedKey, value: 'corrupt' }
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
     const originalKeys = storage.keys.bind(storage);
     const vanishedKey = `${compositeStorageKey('dbl:', 'scope', modelId)}vanished`;
     storage.keys = prefix => [...originalKeys(prefix), vanishedKey];

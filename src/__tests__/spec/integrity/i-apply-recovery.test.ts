@@ -167,18 +167,17 @@ describe('post-WAL apply recovery', () => {
       throw new Error('boot replay failure');
     };
     const journal = createJournal(storage, () => 'dbl:');
-    storage.set(
-      journal.pendingEntry({
+    const entry = journal.entry({
         txId: 'boot-replay',
         runtimeEpoch: 1,
         epoch: 1,
-        status: 'pending',
         ops: [
           { kind: 'upsert', model: first.modelId, rows: [{ id: 'first-row', label: 'first' }] },
           { kind: 'upsert', model: second.modelId, rows: [{ id: 'second-row', label: 'second' }] }
-        ]
-      })
-    );
+        ],
+        operationTransitions: []
+      });
+    storage.set(entry.key, entry.value);
     const published: unknown[] = [];
     const unsubscribe = getCommitBus().subscribeAll(batch => published.push(batch));
 
@@ -186,7 +185,7 @@ describe('post-WAL apply recovery', () => {
       expect(() => getApplyRuntime().replay()).toThrow('boot replay failure');
       expect(() => first.find('first-row')).toThrow('poisoned');
       expect(published).toHaveLength(0);
-      expect(journal.pending()).toHaveLength(1);
+      expect(journal.allRecords()).toHaveLength(1);
     } finally {
       target.put = originalPut;
       unsubscribe();
@@ -196,22 +195,22 @@ describe('post-WAL apply recovery', () => {
   it('replays every pending record even when txIds collide across process lifetimes', () => {
     const { second } = createModels();
     const journal = createJournal(storage, () => 'dbl:');
-    storage.set([
-      ...journal.pendingEntry({
+    [
+      journal.entry({
         txId: '1:1',
         runtimeEpoch: 1,
         epoch: 1,
-        status: 'pending',
-        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-a', label: 'a' }] }]
+        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-a', label: 'a' }] }],
+        operationTransitions: []
       }),
-      ...journal.pendingEntry({
+      journal.entry({
         txId: '1:1',
         runtimeEpoch: 1,
         epoch: 2,
-        status: 'pending',
-        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-b', label: 'b' }] }]
+        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-b', label: 'b' }] }],
+        operationTransitions: []
       })
-    ]);
+    ].forEach(entry => storage.set(entry.key, entry.value));
 
     expect(getApplyRuntime().replay()).toBe(2);
     expect(second.find('boot-a')).toMatchObject({ label: 'a' });
