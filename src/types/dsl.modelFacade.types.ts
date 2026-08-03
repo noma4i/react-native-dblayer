@@ -559,9 +559,15 @@ export type DurableActionHandle<TTransportInput, TResult> = {
   cancel(): void;
 };
 
+export type OpenDurableAction<TInput, TTransportInput, TResult> = {
+  input: TInput;
+  handle: DurableActionHandle<TTransportInput, TResult>;
+};
+
 export type DurableModelAction<TInput, TTransportInput = never, TResult = unknown> = {
   start(input: TInput): DurableActionHandle<TTransportInput, TResult>;
   resume(operationId: string): DurableActionHandle<TTransportInput, TResult> | undefined;
+  open(): OpenDurableAction<TInput, TTransportInput, TResult>[];
 };
 
 export type PollModelAction<TInput> = {

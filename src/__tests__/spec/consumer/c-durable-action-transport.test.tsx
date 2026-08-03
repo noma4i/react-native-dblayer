@@ -341,6 +341,7 @@ describe('durable action transport', () => {
       })
     });
     const handle = JobModel.actions.first.start({ label: 'owned' });
+    const secondHandle = JobModel.actions.first.start({ label: 'owned-second' });
     const readers = {
       owner: renderCounted(() => JobModel.where({}).use().data),
       audit: renderCounted(() => AuditModel.where({}).use().data),
@@ -349,8 +350,13 @@ describe('durable action transport', () => {
     const before = workSnapshot(storage, readers.owner, readers.audit, readers.unrelated);
 
     const wrongOwner = JobModel.actions.second.resume(handle.operationId);
+    const ownedOperations = JobModel.actions.first.open();
 
     expect(wrongOwner).toBeUndefined();
+    expect(JobModel.actions.second.open()).toEqual([]);
+    expect(ownedOperations.map(operation => operation.input)).toEqual([{ label: 'owned' }, { label: 'owned-second' }]);
+    expect(ownedOperations[0]?.handle).toMatchObject({ operationId: handle.operationId, tempId: handle.tempId });
+    expect(ownedOperations[1]?.handle).toMatchObject({ operationId: secondHandle.operationId, tempId: secondHandle.tempId });
     expect(JobModel.actions.first.resume(handle.operationId)).toMatchObject({
       operationId: handle.operationId,
       tempId: handle.tempId
@@ -387,8 +393,10 @@ describe('durable action transport', () => {
     expect(getOperationState().open()).toEqual(
       expect.arrayContaining([expect.objectContaining({ operationId: handle.operationId, tempIds: [handle.tempId] })])
     );
-    const resumed = second.JobModel.actions.start.resume(handle.operationId);
+    const restored = second.JobModel.actions.start.open();
+    const resumed = restored[0]?.handle;
 
+    expect(restored.map(operation => operation.input)).toEqual([{ label: 'restart' }]);
     expect(resumed).toBeDefined();
     expect(Object.keys(resumed!).sort()).toEqual(['cancel', 'execute', 'operationId', 'tempId']);
     expect(resumed).toMatchObject({ operationId: handle.operationId, tempId: handle.tempId });

@@ -66,7 +66,8 @@ and its declared scopes during the commit.
 
 A durable insert starts with `Model.actions.name.start(input)`. It returns a handle with
 `operationId`, `tempId`, `execute(transportInput)`, and `cancel()`. The WAL persists the optimistic
-root before transport. `resume(operationId)` reconnects to a durable operation after boot.
+root before transport. `resume(operationId)` reconnects to one durable operation after boot.
+`open()` returns the typed input and handle for every pending or failed operation owned by the action.
 
 ## Poll mode
 

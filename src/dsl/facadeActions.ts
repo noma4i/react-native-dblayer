@@ -235,7 +235,26 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         if (record.actionMode !== 'durable' || record.actionKey !== actionKey || record.model !== runtime.modelId || record.intent !== 'insert') return undefined;
         if (record.status !== 'pending' && record.status !== 'failed') return undefined;
         return createHandle(operationId, record.tempIds[0]);
-      }
+      },
+      open: () =>
+        getOperationState()
+          .open()
+          .filter(
+            record =>
+              record.actionMode === 'durable' &&
+              record.actionKey === actionKey &&
+              record.model === runtime.modelId &&
+              record.intent === 'insert' &&
+              record.tempIds.length === 1 &&
+              record.tempIds[0] !== undefined &&
+              Object.hasOwn(record, 'input') &&
+              record.input !== undefined
+          )
+          .sort((left, right) => left.createdAt - right.createdAt)
+          .map(record => ({
+            input: record.input as ActionInput<TDefinition>,
+            handle: createHandle(record.operationId, record.tempIds[0]!)
+          }))
     } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
   }
   if (definition.mode === 'poll') {
