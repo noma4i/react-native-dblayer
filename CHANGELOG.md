@@ -1,5 +1,21 @@
 # Changelog
 
+## 10.0.0-beta.14 - 2026-08-04
+
+### Breaking changes and migration
+
+- BREAKING: `StoragePlane.set` accepts 1 key and value. Migration: remove batch adapters and implement synchronous single-key writes.
+- BREAKING: mutation retry policy is removed. GraphQL mutations never retry automatically.
+- BREAKING: `once: true` requires `dedupe.key`. The runtime namespaces the key by model and action.
+- `RowOperationState` adds `deliveryUnknown`. Transport adapters throw `MutationDeliveryUnknownError` only when delivery cannot be proved.
+
+### Fixed
+
+- Row changes and operation transitions share 1 immutable WAL record and 1 ordered checkpoint.
+- A durable reset intent completes namespace resets after process death and restores compatibility metadata before boot.
+- Query family invalidation uses 1 revision record, so process death cannot leave sibling query records fresh.
+- Durable correlation registers before the first operation. Unknown mutation delivery preserves optimistic rows without sending the mutation again.
+
 ## 10.0.0-beta.10 - 2026-08-02
 
 ### Fixed
