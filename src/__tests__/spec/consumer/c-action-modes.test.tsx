@@ -1104,10 +1104,13 @@ describe('action modes', () => {
     const unrelated = renderCounted(() => Unrelated.useFind(unrelatedRow.id));
     const phase = renderCounted(() => JobModel.actions.status.use({ id: 'poll-job' }));
     const sibling = renderCounted(() => JobModel.actions.status.use({ id: 'poll-job' }));
+    const inactive = renderCounted(() => JobModel.actions.status.use(null));
     const before = workSnapshot(storage, affected, unrelated);
 
     await settle();
 
+    expect(inactive.result()).toMatchObject({ phase: 'idle', attempts: 0 });
+    await act(async () => inactive.result().refresh());
     expect(order.slice(0, 3)).toEqual(['key', 'variables', 'transport']);
     expect(phase.result()).toMatchObject({ phase: 'polling', attempts: 1 });
     expect(JobModel.find('poll-job')?.status).toBe('pending');
@@ -1121,9 +1124,12 @@ describe('action modes', () => {
     expect(JobModel.find('poll-job')?.status).toBe('done');
     expectWork(storage, affected, unrelated, refreshBefore, { wal: 1, commits: 1, affectedTicks: 1 });
 
+    await act(async () => phase.result().refresh());
+    expect(transport.calls).toHaveLength(3);
     act(() => jest.advanceTimersByTime(100));
     await settle();
-    expect(transport.calls).toHaveLength(2);
+    expect(transport.calls).toHaveLength(3);
+    inactive.unmount();
     phase.unmount();
     sibling.unmount();
     affected.unmount();

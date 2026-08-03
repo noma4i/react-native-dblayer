@@ -164,6 +164,21 @@ describe('durable action edges', () => {
     expect(transport.calls).toHaveLength(0);
   });
 
+  it('drops a durable response when transport resets the runtime before returning', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: async <TData,>() => {
+          resetRuntime();
+          return { data: { startJob: { job: { id: 'server', label: 'server', status: 'done' } } } as TData };
+        }
+      })
+    });
+    const Model = defineDurable('SpecDurableTransportReset');
+
+    await expect(Model.actions.start.start({ label: 'transport' }).execute({ token: 'token' })).resolves.toBeNull();
+  });
+
   it('fences response planning, write compilation, commit, invalidation, and tracking resets', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>() => ({ data: { startJob: { job: { id: 'server', label: 'server', status: 'done' } } } as TData })
@@ -230,15 +245,33 @@ describe('durable action edges', () => {
       mutation: async <TData,>() => ({ data: { startJob: { job: { id: 'server', label: 'server', status: 'done' } } } as TData })
     });
     configureDb({ storage: createMemoryPlane(), transport: successTransport, defaults: { onSyncError } });
-    const Track = defineDurable('SpecDurableTrackFailure', { track: () => { throw new Error('track failed'); } });
-    await expect(Track.actions.start.start({ label: 'track' }).execute({ token: 'token' })).resolves.toEqual({
+    const Callbacks = defineDurable('SpecDurableCallbackFailure', {
+      write: (_context, plan) => plan.invalidate({ invalidate: () => { throw new Error('invalidate failed'); } }),
+      track: () => { throw new Error('track failed'); }
+    });
+    const callbackHandle = Callbacks.actions.start.start({ label: 'callbacks' });
+    await expect(callbackHandle.execute({ token: 'token' })).resolves.toEqual({
       job: { id: 'server', label: 'server', status: 'done' }
+    });
+    expect(Callbacks.actions.start.resume(callbackHandle.operationId)).toBeUndefined();
+    expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), {
+      source: 'action',
+      model: Callbacks.key,
+      key: 'write.invalidate'
     });
     expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), {
       source: 'action',
-      model: Track.key,
+      model: Callbacks.key,
       key: 'track'
     });
+
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ mutation: async () => Promise.reject(new Error('error transport failed')) })
+    });
+    const ErrorFailure = defineDurable('SpecDurableErrorObject', { error: error => errors.push(error) });
+    await expect(ErrorFailure.actions.start.start({ label: 'error' }).execute({ token: 'token' })).rejects.toThrow('error transport failed');
+    expect(errors.at(-1)).toEqual(new Error('error transport failed'));
   });
 
   it('drops a stale durable rejection and a retry fenced by its reopen commit', async () => {

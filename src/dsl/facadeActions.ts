@@ -372,18 +372,18 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     }
     const intent = modelRootIntentOf(optimistic.root);
     if (intent === 'insert') {
-      if (tempId === null) throw new Error(`${name}: optimistic insert requires a temp id`);
+      const insertTempId = tempId!;
       const optimisticOwner = {
         modelId: runtime.modelId,
         planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
           if (rows.length !== 1) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
           const row = selectOneRow(rows[0], 'optimistic insert');
-          return rootOwner.planRows([{ ...row, id: tempId }]);
+          return rootOwner.planRows([{ ...row, id: insertTempId }]);
         }
       };
-      const ops = compileModelRootPlan(optimisticOwner, optimistic.root as never, { input, tempId, operationId } as never);
+      const ops = compileModelRootPlan(optimisticOwner, optimistic.root as never, { input, tempId: insertTempId, operationId } as never);
       if (ops.length === 0) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
-      return { ops, intent, tempIds: [tempId], rowIds: [tempId] };
+      return { ops, intent, tempIds: [insertTempId], rowIds: [insertTempId] };
     }
     const ops = compileModelRootPlan(rootOwner, optimistic.root as never, { input, tempId: tempId ?? '', operationId } as never);
     if (intent === 'patch') {
@@ -498,7 +498,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
               if (!current) return [];
               const patch: Record<string, unknown> = {};
               const remove: string[] = [];
-              for (const field of active.patchedFields ?? []) {
+              for (const field of active.patchedFields!) {
                 const latest = getOperationState().latestPendingValue(runtime.modelId, rowId, field, operationId);
                 if (latest.found) {
                   patch[field] = latest.value;
