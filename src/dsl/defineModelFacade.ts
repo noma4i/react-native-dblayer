@@ -26,6 +26,7 @@ import { getInternalModelHandle, registerInternalModelHandle } from '../core/int
 import { createAssociationRelation, createByIdsRelation, createNamedRelation, createWhereRelation } from './facadeRelations';
 import { createAction, createOperation } from './facadeActions';
 import { compileRemoteRelations } from './facadeRemoteQueries';
+import { waitForCommittedRow } from '../core/waitForCommittedRow';
 
 export const defineModelFacade = <
   const TKey extends string,
@@ -95,6 +96,7 @@ export const defineModelFacade = <
   const base: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TActions, TEvents> = {
     key,
     find: runtime.find,
+    wait: (id, options) => waitForCommittedRow({ key, find: runtime.find }, id, options),
     useFind: runtime.use.find,
     where: (where: DbWhere<ModelStoredValue<TShape>>, options?: DbReadOptions<ModelStoredValue<TShape>>) => createWhereRelation(runtime, where, options),
     byIds: (ids: readonly string[] | null | undefined) => createByIdsRelation(runtime, ids),

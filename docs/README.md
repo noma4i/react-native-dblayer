@@ -9,11 +9,11 @@ the [project README](../README.md).
 | --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | [getting-started.md](./getting-started.md) | Boot sequence: register models, `configureDb`, `DbProvider`, the internal boot sequence and automatic background suspension, storage/transport seams, runtime prerequisites. Start here.                                                           |
 | 2   | [models.md](./models.md)                   | `defineModel(key, config)`, schema, associations, named relations, actions, events, sideloads, writes, maintenance, and statics. |
-| 3   | [reading.md](./reading.md)                 | `find`, `useFind`, `where`, `byIds`, named `Relation` reads, counts, invalidation, pagination, and operation state. |
+| 3   | [reading.md](./reading.md)                 | `find`, `wait`, `useFind`, `where`, `byIds`, named `Relation` reads, counts, invalidation, pagination, and operation state. |
 | 4   | [queries.md](./queries.md)                 | `gql.single`, `gql.connection`, relation loading state, and service-only `defineFetch`. |
 | 5   | [mutations.md](./mutations.md)             | `gql.action`, request/durable/poll modes, and service-only `defineCommand`. |
 | 6   | [ingest-live.md](./ingest-live.md)         | `gql.live`, `Model.events`, and the shared subscription runtime. |
-| 7   | [runtime.md](./runtime.md)                 | Reset, persistence, row waiters, patchers, ids, and concurrency helpers. |
+| 7   | [runtime.md](./runtime.md)                 | Reset, persistence, patchers, ids, and concurrency helpers. |
 
 Every export below has one home page. The reference table is checked against `src/index.ts`.
 
@@ -29,6 +29,7 @@ There are no public model-bound query, mutation, view, ingest, poller, detached-
 | Named relation method | Local or GraphQL-backed immutable relation. | [queries.md](./queries.md) |
 | `Model.actions.name` | Request, durable, or poll action. | [mutations.md](./mutations.md) |
 | `Model.events` | Typed subscription entries and manual delivery. | [ingest-live.md](./ingest-live.md) |
+| `Model.wait(id, options)` | Read-only wait for one committed row. | [reading.md](./reading.md) |
 | `Model.operation(id)` | Snapshot or subscribed row operation state. | [reading.md](./reading.md) |
 
 `defineFetch` (model-less reads) and `defineCommand` (model-less RPC) remain standalone
@@ -65,6 +66,7 @@ somewhere under `docs/`.
 | `ModelAction` | type | [mutations.md](./mutations.md) |
 | `ModelActionHook` | type | [mutations.md](./mutations.md) |
 | `ModelEventHandle` | type | [ingest-live.md](./ingest-live.md) |
+| `ModelWaitOptions` | type | [reading.md](./reading.md) |
 | `Relation` | type | [reading.md](./reading.md) |
 | `RelationOptions` | type | [reading.md](./reading.md) |
 | `RelationResult` | type | [reading.md](./reading.md) |
@@ -142,8 +144,6 @@ somewhere under `docs/`.
 | `resetRuntime`                | value | [runtime.md](./runtime.md)                             |
 | `registerReset`               | value | [runtime.md](./runtime.md)                             |
 | `setFetchNetworkOnline`       | value | [runtime.md](./runtime.md)                          |
-| `updateWhenRowExists`          | value | [runtime.md](./runtime.md)                                          |
-| `waitForRow`                  | value | [runtime.md](./runtime.md)                                          |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md) |
 | `createSingleFlight`          | value | [runtime.md](./runtime.md)          |
 | `createKeyedArrayPatcher`     | value | [runtime.md](./runtime.md)                     |

@@ -7,6 +7,10 @@ Every model provides point reads and immutable `Relation` objects.
 `Model.find(id)` returns a snapshot. `Model.useFind(id, options)` subscribes to one row and accepts
 field-level `renderKeys` or required fields. Nullish ids return `undefined` without caller guards.
 
+`Model.wait(id, options)` resolves with the first committed row for the exact model and id.
+`ModelWaitOptions` requires `timeoutMs` and accepts an `AbortSignal`. Nullish ids, timeout, abort,
+and `resetRuntime()` resolve with `undefined`. The waiter never writes or retains deferred work.
+
 ## Relations
 
 Named methods, `Model.where(where, options)`, `Model.byIds(ids)`, and association methods return a

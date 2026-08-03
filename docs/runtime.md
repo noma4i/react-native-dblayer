@@ -23,12 +23,6 @@ stale work, and notifies mounted readers. Use it for logout or account replaceme
 Updates query retry state for network reachability. Offline work remains contained and mounted
 readers receive the corresponding `LoadingState`.
 
-## Row waiters
-
-`waitForRow` resolves when a model row appears and supports timeout and abort.
-`updateWhenRowExists` applies a patch immediately or after the row arrives. Both use commit
-notifications and always detach their listener.
-
 ## Scalar and id utility helpers
 
 `generateTempId` and `isTempId` own optimistic identity. Field codecs normalize supported scalar shapes.

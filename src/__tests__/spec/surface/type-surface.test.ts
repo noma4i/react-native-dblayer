@@ -82,7 +82,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(75);
+    expect(first.split('\n')).toHaveLength(74);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -106,6 +106,7 @@ ModelActionHook: any
 ModelEventHandle: any
 ModelInput: any
 ModelStored: any
+ModelWaitOptions: any
 MutateCallbacks: any
 NumericField: any
 PatchModel: any
@@ -155,10 +156,8 @@ registerReset: <TReset extends Resetter>(reset: import("<root>/src/types/core.re
 resetRuntime: () => void
 scalar: { str: import("<root>/src/types/schema.scalar.types").ScalarValue<string>; num: import("<root>/src/types/schema.scalar.types").ScalarValue<number>; int: import("<root>/src/types/schema.scalar.types").ScalarValue<number>; date: import("<root>/src/types/schema.scalar.types").ScalarValue<string>; bool: import("<root>/src/types/schema.scalar.types").ScalarValue<boolean>; id: import("<root>/src/types/schema.scalar.types").ScalarValue<string>; enum: <TValue extends string>(values: readonly TValue[]) => import("<root>/src/types/schema.scalar.types").ScalarValue<TValue>; }
 setFetchNetworkOnline: (nextOnline: boolean) => void
-updateWhenRowExists: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, patch: import("<root>/src/types/core.rowWaiters.types").RowPatch<TStored>, options: import("<root>/src/types/core.rowWaiters.types").UpdateWhenRowExistsOptions) => void
 useLoadMore: (target: import("<root>/src/types/dsl.pagination.types").LoadMoreTarget, options?: import("<root>/src/types/dsl.pagination.types").LoadMoreOptions | undefined) => () => void
-useMergedScopeRows: <TRow extends { id: string; }>(baseRows: readonly TRow[], extraRows: readonly TRow[], options?: import("<root>/src/types/read.liveRead.types").MergeOptions<TRow> | undefined) => readonly TRow[]
-waitForRow: <TStored extends { id: string; }>(model: import("<root>/src/types/core.rowWaiters.types").WaiterModel<TStored>, id: string, options: import("<root>/src/types/core.rowWaiters.types").WaitForRowOptions) => Promise<TStored | undefined>"
+useMergedScopeRows: <TRow extends { id: string; }>(baseRows: readonly TRow[], extraRows: readonly TRow[], options?: import("<root>/src/types/read.liveRead.types").MergeOptions<TRow> | undefined) => readonly TRow[]"
 `);
   });
 });

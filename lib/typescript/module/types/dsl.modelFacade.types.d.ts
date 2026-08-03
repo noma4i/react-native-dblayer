@@ -31,6 +31,10 @@ export type RelationOptions<TStored> = {
     enabled?: boolean;
     loadMoreDebounceMs?: number;
 };
+export type ModelWaitOptions = {
+    timeoutMs: number;
+    signal?: AbortSignal;
+};
 export type RelationResult<TData> = {
     data: TData;
     loadingState: LoadingState;
@@ -357,6 +361,7 @@ export type ModelFacadeCore<TStored extends {
 }>> = {
     key: string;
     find(id: string | null | undefined): TStored | undefined;
+    wait(id: string | null | undefined, options: ModelWaitOptions): Promise<TStored | undefined>;
     useFind(id: string | null | undefined, options?: {
         renderKeys?: readonly (keyof TStored & string)[];
         require?: readonly (keyof TStored & string)[];

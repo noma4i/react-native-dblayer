@@ -37,10 +37,8 @@ const runtimeExportAllowlist = [
   'resetRuntime',
   'scalar',
   'setFetchNetworkOnline',
-  'updateWhenRowExists',
   'useLoadMore',
-  'useMergedScopeRows',
-  'waitForRow'
+  'useMergedScopeRows'
 ];
 
 const assertRemovedModelConfig = (): void => {

@@ -9,7 +9,7 @@ export type { StoragePlane } from './types';
 export { defineModel } from './dsl/defineModel';
 export { gql } from './dsl/graphql';
 export type { WritePlan } from './types';
-export type { ModelAction, ModelActionHook, ModelEventHandle, Relation, RelationOptions, RelationResult, RowOperation, RowOperationState } from './types';
+export type { ModelAction, ModelActionHook, ModelEventHandle, ModelWaitOptions, Relation, RelationOptions, RelationResult, RowOperation, RowOperationState } from './types';
 export { belongsTo, hasMany, hasOne, modelRef, references } from './core/relations';
 export { f } from './schema/f';
 export { scalar } from './schema/scalar';
@@ -32,6 +32,5 @@ export { createThrottledSingleFlight, createSingleFlight } from './utils/singleF
 export { createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher } from './utils/modelPatchers';
 export { createSingletonStatics } from './utils/singletonStatics';
 export type { NumericField, PatchModel, RowId, SingletonModel, SingletonStatics } from './types';
-export { updateWhenRowExists, waitForRow } from './core/rowWaiters';
 export { useMergedScopeRows } from './read/useMergedScopeRows';
 //# sourceMappingURL=index.d.ts.map

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const surfaceRoot = path.resolve(__dirname);
 const specFile = path.resolve(__dirname, '../../../../specs/10-testing.md');
+const describeWithLocalSpecs = fs.existsSync(specFile) ? describe : describe.skip;
 
 /**
  * The discipline table of the testing spec is the registry of surface gates, and it is checked both
@@ -26,7 +27,7 @@ const declaredTests = (): string[] => {
 const surfaceTests = (): string[] =>
   fs
     .readdirSync(surfaceRoot)
-    .flatMap(name => (name.endsWith('.test.ts') || name.endsWith('.test.tsx') ? [name.replace(/\.test\.tsx?$/, '')] : []))
+    .flatMap(name => (/\.(?:test\.tsx?|typecheck\.ts)$/.test(name) ? [name.replace(/\.(?:test\.tsx?|typecheck\.ts)$/, '')] : []))
     .sort();
 
 const specsRoot = path.dirname(specFile);
@@ -54,12 +55,17 @@ const criterionTests = (): string[] => {
   return [...new Set(rows.flatMap(row => [...(row.split('|')[4] ?? '').matchAll(/`([a-z0-9]+(?:-[a-z0-9]+)+)`/gi)].map(match => match[1]!)))].sort();
 };
 
-describe('discipline registry', () => {
+describeWithLocalSpecs('discipline registry', () => {
   it('names an existing test for every declared discipline', () => {
     const declared = declaredTests();
     expect(declared.length).toBeGreaterThan(10);
 
-    expect(declared.filter(name => !fs.existsSync(path.join(surfaceRoot, `${name}.test.ts`)))).toEqual([]);
+    expect(
+      declared.filter(
+        name =>
+          !['.test.ts', '.test.tsx', '.typecheck.ts'].some(suffix => fs.existsSync(path.join(surfaceRoot, `${name}${suffix}`)))
+      )
+    ).toEqual([]);
   });
 
   it('declares every surface gate that exists', () => {
