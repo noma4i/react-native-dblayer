@@ -1,5 +1,12 @@
 # Changelog
 
+## 10.0.0-beta.15 - 2026-08-04
+
+### Fixed
+
+- WAL decoding validates each outer record and nested versioned value once. Malformed records cannot pass through a duplicate validation branch.
+- The mutation runner requires an explicit non-empty diff base, selects related tests, and fails when any mutant survives.
+
 ## 10.0.0-beta.14 - 2026-08-04
 
 ### Breaking changes and migration
