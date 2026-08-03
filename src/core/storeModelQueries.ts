@@ -3,7 +3,7 @@ import { compileWhereExpression } from './compileWhereExpression';
 import { noteReadEngineApply, noteReadEngineScan } from './diagnostics';
 import { canonicalOrderOptions } from './ordering';
 import { createDerivedCollectionCache } from './storeDerivedCollections';
-import { OWNED_COLLECTION_LIFETIME } from './storeSync';
+import { createStoreTransactionBatcher, OWNED_COLLECTION_LIFETIME } from './storeSync';
 import { getCommitBus } from '../dsl/configure';
 import type { ModelQueryPlane, ModelQueryPlaneOptions, ModelQuerySpec, RowRecord, WhereExpression, WhereOperand, WhereRowRef } from '../types';
 
@@ -71,8 +71,12 @@ export const createModelQueryPlane = (options: ModelQueryPlaneOptions): ModelQue
           return materialized.map(row => stored(row as RowRecord));
         },
         subscribe: listener => {
-          const subscription = held.collection.collection.subscribeChanges(() => listener(), { includeInitialState: false });
-          return () => subscription.unsubscribe();
+          const delivery = createStoreTransactionBatcher<void>(() => listener());
+          const subscription = held.collection.collection.subscribeChanges(() => delivery.push([undefined]), { includeInitialState: false });
+          return () => {
+            delivery.dispose();
+            subscription.unsubscribe();
+          };
         },
         release: () => {
           releaseRoot();

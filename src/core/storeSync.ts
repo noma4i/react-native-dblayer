@@ -88,6 +88,35 @@ export const afterStoreTransaction = (complete: () => void): void => {
   complete();
 };
 
+/** Coalesce engine changes until every collection in the outer store transaction is final. */
+export const createStoreTransactionBatcher = <T>(deliver: (items: T[]) => void): { push(items: readonly T[]): void; dispose(): void } => {
+  let active = true;
+  let scheduled = false;
+  let pending: T[] = [];
+  return {
+    push: items => {
+      if (!active || items.length === 0) return;
+      if (!isInStoreTransaction()) {
+        deliver([...items]);
+        return;
+      }
+      pending.push(...items);
+      if (scheduled) return;
+      scheduled = true;
+      afterStoreTransaction(() => {
+        scheduled = false;
+        const batch = pending;
+        pending = [];
+        if (active && batch.length > 0) deliver(batch);
+      });
+    },
+    dispose: () => {
+      active = false;
+      pending = [];
+    }
+  };
+};
+
 /**
  * Run one apply pass with batched collection flushes: every store write inside `run` lands in a
  * per-store transactional buffer (readable through the store immediately) and is committed to the

@@ -30,6 +30,11 @@ export declare const OWNED_COLLECTION_LIFETIME: {
 export declare const runInStoreTransaction: <T>(run: () => T) => T;
 export declare const isInStoreTransaction: () => boolean;
 export declare const afterStoreTransaction: (complete: () => void) => void;
+/** Coalesce engine changes until every collection in the outer store transaction is final. */
+export declare const createStoreTransactionBatcher: <T>(deliver: (items: T[]) => void) => {
+    push(items: readonly T[]): void;
+    dispose(): void;
+};
 /**
  * Run one apply pass with batched collection flushes: every store write inside `run` lands in a
  * per-store transactional buffer (readable through the store immediately) and is committed to the

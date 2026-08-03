@@ -13,7 +13,7 @@ const srcRoot = path.resolve(__dirname, '../../..');
 const FEED_WRITERS = ['core/storeEntities.ts', 'core/storeScopeCollections.ts', 'core/storeSync.ts'];
 
 /** Engine entry points that write into a collection outside the sync feed. */
-const FORBIDDEN_IMPORTS = ['createTransaction', 'createOptimisticAction'];
+const FORBIDDEN_IMPORTS = ['createTransaction', 'createOptimisticAction', 'queryCollectionOptions'];
 
 const sourceFiles = (directory: string): string[] =>
   fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -66,6 +66,19 @@ const engineImporters = (): string[] =>
     .sort();
 
 describe('collection write discipline', () => {
+  it('recognizes every engine entry point that can become a second writer', () => {
+    expect(
+      engineImports({
+        file: path.join(srcRoot, 'core', 'secondWriterProbe.ts'),
+        text: "import { createOptimisticAction, createTransaction, queryCollectionOptions } from '@tanstack/db';"
+      })
+    ).toEqual([
+      'core/secondWriterProbe.ts: createOptimisticAction',
+      'core/secondWriterProbe.ts: createTransaction',
+      'core/secondWriterProbe.ts: queryCollectionOptions'
+    ]);
+  });
+
   it('keeps the collection engine behind the store', () => {
     expect(engineImporters()).toEqual([]);
   });

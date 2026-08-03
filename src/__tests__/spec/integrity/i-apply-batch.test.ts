@@ -1,6 +1,6 @@
-import { configureDb, registerRelationHost, resetRuntime , registerApplyTarget , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , createModelStore, registerModelStoreFactory } from '../../testApi';
+import { configureDb, registerRelationHost, resetRuntime , registerApplyTarget , createCommitEnvelope , createApplyRuntime , createCommitBus , createJournal , encodePersistence , createModelStore, registerModelStoreFactory, defineModelRuntime, f, getApplyRuntime, getInternalScopeHandle, storeModelQuery, storeScopeCollection } from '../../testApi';
 import type { ApplyTarget, CheckpointScheduler, Dependency, IncrementalCommitBatch, JournalRecord, RelationHost, StoredRow, WriteOp } from '../../testApi';
-import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 /**
  * Apply-pipeline batch contracts over a mock target: entity-before-scope ordering, scope-change
@@ -252,6 +252,45 @@ describe('apply pipeline batching', () => {
 
     const order = mock.calls.filter(call => call.op === 'put' || call.op === 'scope').map(call => call.op);
     expect(order).toEqual(['put', 'scope']);
+  });
+
+  it('notifies a model query only after every model in the envelope reached final state', () => {
+    setupSpecRuntime();
+    const first = defineModelRuntime({
+      id: 'SpecApplyBatchFirst',
+      name: 'SpecApplyBatchFirst',
+      fields: { label: f.str(), bucket: f.str() },
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
+    });
+    const scope = getInternalScopeHandle(first.scopes.byBucket);
+    const projected = storeScopeCollection(first.modelId, scope.key({ bucket: 'a' }));
+    const query = storeModelQuery(first.modelId, 'all', {
+      where: undefined,
+      orderBy: [],
+      limit: undefined,
+      required: []
+    });
+    const snapshots: Array<{ queryIds: string[]; scopeIds: Array<string | undefined> }> = [];
+    const unsubscribe = query.subscribe(() => {
+      snapshots.push({
+        queryIds: query.rows().map(row => row.id),
+        scopeIds: projected.toArray().map(row => row.id)
+      });
+    });
+
+    getApplyRuntime().commit(
+      createCommitEnvelope(
+        scope.planApply(
+          { bucket: 'a' },
+          [{ row: { id: 'first', label: 'first', bucket: 'a' } }],
+          'complete'
+        )
+      )
+    );
+
+    expect(snapshots).toEqual([{ queryIds: ['first'], scopeIds: ['first'] }]);
+    unsubscribe();
+    query.release();
   });
 
   it('aggregates every scope note of one commit into a single merged scope change', () => {
