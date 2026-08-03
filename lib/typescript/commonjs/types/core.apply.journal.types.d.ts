@@ -10,6 +10,7 @@ export type WriteOp = {
     origin?: 'event';
     operationId?: string;
     mergeBase?: never;
+    baseRevision?: number;
 }
 /** Replace carries the prior row only through planning so write groups observe the same commit semantics. */
  | {
@@ -19,6 +20,7 @@ export type WriteOp = {
     origin: 'replace';
     mergeBase?: unknown;
     operationId?: string;
+    baseRevision?: number;
 }
 /** `operationId` lets a pending optimistic method-patch plan its own rollback while foreign patches keep its owned fields. */
  | {
@@ -28,6 +30,7 @@ export type WriteOp = {
     patch: Record<string, unknown>;
     remove?: string[];
     operationId?: string;
+    baseRevision?: number;
 }
 /** `replace` marks the destroy half of an identity swap during relation planning. */
  | {
@@ -37,6 +40,7 @@ export type WriteOp = {
     tombstone?: boolean;
     origin?: 'replace';
     operationTransitions?: OperationTransition[];
+    baseRevision?: number;
 } | {
     kind: 'scope';
     model: string;

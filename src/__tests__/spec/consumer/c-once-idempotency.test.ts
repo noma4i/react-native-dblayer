@@ -1,11 +1,15 @@
-import { bootDb, configureDb, defineModelRuntime, f } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
+import { bootDb, configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
-
-const document = { kind: 'Document', definitions: [] } as never;
 
 type Row = { id: string; bucket: string; label: string };
 type SaveData = { save: { row: Row } };
 type Input = { key: string; label: string };
+type Variables = { input: Input };
+
+const document: TypedDocumentNode<SaveData, Variables> = { kind: Kind.DOCUMENT, definitions: [] };
+const RowSchema = defineShape<Row>()({ bucket: f.str(), label: f.str() });
 
 /**
  * Idempotency lives in the client ledger: a `once` operation that committed must never send a
@@ -29,24 +33,28 @@ describe('once and dedupe idempotency', () => {
       })
     });
     const modelId = `SpecOnce${++suffix}`;
-    const rows = defineModelRuntime({
-      id: modelId,
-      name: modelId,
-      fields: { bucket: f.str(), label: f.str() },
-      maintenance: { dropTempRowsAfterMs: 1000 }
+    const rows = defineModel(modelId, {
+      schema: RowSchema,
+      maintenance: { dropTempRowsAfterMs: 1000 },
+      actions: owner => ({
+        save: owner.gql.action(document, {
+          mode: 'request',
+          result: 'save',
+          variables: (input: Input) => ({ input }),
+          dedupe: { key: (input: Input) => input.key },
+          ...(options.once ? { once: true as const } : {}),
+          optimistic: {
+            root: {
+              insert: {
+                select: ({ input, tempId }) => ({ id: tempId, bucket: 'a', label: input.label })
+              }
+            }
+          },
+          root: { insert: { select: ({ data }) => data.save.row } }
+        })
+      })
     });
-    const save = rows.mutation<SaveData, Input, never, Row>('save', {
-      document,
-      result: 'save',
-      dedupe: { key: (input: Input) => input.key },
-      ...(options.once ? { once: true as const } : {}),
-      optimistic: {
-        model: rows,
-        respond: (input: Input, context: { tempId: string }) => ({ save: { row: { id: context.tempId, bucket: 'a', label: input.label } } }),
-        selectServerNode: (data: SaveData) => data.save.row
-      }
-    });
-    return { storage, rows, save, callCount: () => calls };
+    return { storage, rows, save: rows.actions.save, callCount: () => calls };
   };
 
   it('sends a committed once operation exactly once for the same key', async () => {
@@ -94,17 +102,23 @@ describe('once and dedupe idempotency', () => {
       })
     });
     const modelId = `SpecOnceConcurrent${++suffix}`;
-    const rows = defineModelRuntime({ id: modelId, name: modelId, fields: { bucket: f.str(), label: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
-    const save = rows.mutation<SaveData, Input, never, Row>('save', {
-      document,
-      result: 'save',
-      dedupe: { key: (input: Input) => input.key },
-      optimistic: {
-        model: rows,
-        respond: (input: Input, context: { tempId: string }) => ({ save: { row: { id: context.tempId, bucket: 'a', label: input.label } } }),
-        selectServerNode: (data: SaveData) => data.save.row
-      }
+    const rows = defineModel(modelId, {
+      schema: RowSchema,
+      maintenance: { dropTempRowsAfterMs: 1000 },
+      actions: owner => ({
+        save: owner.gql.action(document, {
+          mode: 'request',
+          result: 'save',
+          variables: (input: Input) => ({ input }),
+          dedupe: { key: (input: Input) => input.key },
+          optimistic: {
+            root: { insert: { select: ({ input, tempId }) => ({ id: tempId, bucket: 'a', label: input.label }) } }
+          },
+          root: { insert: { select: ({ data }) => data.save.row } }
+        })
+      })
     });
+    const save = rows.actions.save;
 
     const first = save.run({ key: 'draft-1', label: 'first' });
     const second = await save.run({ key: 'draft-1', label: 'duplicate' });

@@ -1,26 +1,41 @@
-import { configureDb, defineFetch } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimelineInProvider, settle } from '../helpers/harness';
 
 type NullableResponse = { value: null };
 type ValueResponse = { value: string };
+type NullableRow = { id: string; value: null };
+type ValueRow = { id: string; value: string };
 
-const document = { kind: 'Document', definitions: [] } as never;
+const nullableDocument: TypedDocumentNode<NullableResponse, Record<string, never>> = { kind: Kind.DOCUMENT, definitions: [] };
+const valueDocument: TypedDocumentNode<ValueResponse, Record<string, never>> = { kind: Kind.DOCUMENT, definitions: [] };
+const NullableSchema = defineShape<NullableRow>()({ value: f.str().nullable() });
+const ValueSchema = defineShape<ValueRow>()({ value: f.str() });
 
-describe('defineFetch empty loading state', () => {
+describe('model relation empty loading state', () => {
   it('shows an empty state for a null selected result', async () => {
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({ query: async <TData,>() => ({ data: { value: null } as TData }) })
     });
-    const request = defineFetch<NullableResponse, void, null>({
-      document,
-      key: 'c20-null-empty',
-      select: data => data.value
+    const NullableModel = defineModel('C20FetchEmptyNullable', {
+      schema: NullableSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(nullableDocument, {
+            variables: () => ({}),
+            select: data => data.value
+          })
+        }
+      })
     });
-    let latest!: ReturnType<typeof request.use>;
+    const relation = NullableModel.result({});
+    let latest!: ReturnType<typeof relation.use>;
     const reader = recordTimelineInProvider(() => {
-      latest = request.use(undefined);
-      return latest;
+      const result = relation.use();
+      latest = result;
+      return result;
     });
 
     await settle(6, { macro: true });
@@ -32,15 +47,23 @@ describe('defineFetch empty loading state', () => {
   it('keeps data state for a non-empty selected result', async () => {
     const transport = createMockTransport({ query: async <TData,>() => ({ data: { value: 'ready' } as TData }) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const request = defineFetch<ValueResponse, void, string>({
-      document,
-      key: 'c20-value-data',
-      select: data => data.value
+    const ValueModel = defineModel('C20FetchEmptyValue', {
+      schema: ValueSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(valueDocument, {
+            variables: () => ({}),
+            select: data => ({ id: 'result', value: data.value })
+          })
+        }
+      })
     });
-    let latest!: ReturnType<typeof request.use>;
+    const relation = ValueModel.result({});
+    let latest!: ReturnType<typeof relation.use>;
     const reader = recordTimelineInProvider(() => {
-      latest = request.use(undefined);
-      return latest;
+      const result = relation.use();
+      latest = result;
+      return result;
     });
 
     await settle(6, { macro: true });

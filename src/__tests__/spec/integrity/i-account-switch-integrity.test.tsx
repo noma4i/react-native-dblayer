@@ -4,7 +4,6 @@ import { createMemoryPlane, createMockTransport, renderCounted } from '../helper
 type Row = { id: string; accountId: string; label: string };
 type ScopeValue = { accountId: string };
 type QueryResult = { rows: Row[] };
-type SendResult = { send: { row: Row } };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
@@ -63,40 +62,6 @@ describe('account switch integrity', () => {
     expect(rows.find('row-1')).toBeUndefined();
     replayJournal();
     expect(rows.find('row-1')).toMatchObject({ label: 'unflushed' });
-  });
-
-  it('D8 rolls back optimistic state and pending dedupe when onMutate throws', async () => {
-    let onMutateCalls = 0;
-    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { row: { id: 'server-1', accountId: 'A', label: 'sent' } } } as TData }) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModelRuntime({ id: 'AccountSwitchMutation', name: 'AccountSwitchMutation', fields: { accountId: f.str(), label: f.str() }, maintenance: { dropTempRowsAfterMs: 1000 } });
-    let firstTempId = '';
-    const send = rows.mutation<SendResult, { label: string }, Row, Row>('send', {
-      document,
-      result: 'send',
-      optimistic: {
-        model: rows,
-        failure: 'rollback',
-        build: (input, context) => {
-          if (!firstTempId) firstTempId = context.tempId!;
-          return { id: context.tempId!, accountId: 'A', label: input.label };
-        },
-        selectServerNode: data => data.send.row
-      },
-      onMutate: () => {
-        onMutateCalls += 1;
-        if (onMutateCalls === 1) throw new Error('onMutate failed');
-      }
-    });
-
-    await expect(send.run({ label: 'first' })).rejects.toThrow('onMutate failed');
-    expect(rows.find(firstTempId)).toBeUndefined();
-    const pending = renderCounted(() => rows.use.pending(firstTempId));
-    expect(pending.result()).toBe(false);
-    pending.unmount();
-
-    await expect(send.run({ label: 'second' })).resolves.toMatchObject({ row: { id: 'server-1' } });
-    expect(transport.calls.filter(call => call.kind === 'mutation')).toHaveLength(1);
   });
 
   it('D9 rejects undefined by-scope values before query transport and permits null as disabled', async () => {

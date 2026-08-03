@@ -15,8 +15,6 @@ export type InternalModelHandle = {
   captureMembership(id: string): Array<{ id: string; scopeKey: string; orderKey: string }>;
   planRestore(next: unknown, memberships: Array<{ id: string; scopeKey: string; orderKey: string }>): WriteOp[];
   relations(): Record<string, RelationDecl>;
-  revision(): number;
-  dropTempRowsAfterMs(): number | undefined;
 };
 
 /** Opaque per-scope capabilities: apply plans, keying, order semantics, and resolution. */

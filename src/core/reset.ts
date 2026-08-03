@@ -1,5 +1,6 @@
 import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, isDbConfigured, resetPersistenceRuntime } from '../dsl/configure';
 import type { Resetter, SyncResetter } from '../types';
+import { restartModelEventRegistry } from './modelEventRegistry';
 
 const resetters = new Set<Resetter>();
 const keyedResetters = new Map<string, Resetter>();
@@ -88,5 +89,6 @@ export const resetRuntime = (): void => {
   attempt(() => getOperationState().reset());
   attempt(() => getCommitBus().publishAll());
   attempt(clearStorage);
+  attempt(restartModelEventRegistry);
   if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'resetRuntime failed to run one or more resetters');
 };

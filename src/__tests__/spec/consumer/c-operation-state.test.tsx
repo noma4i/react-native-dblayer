@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, gql, type DbTransport } from '../../testApi';
+import { configureDb, defineModel, defineShape, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type UserInput = {
@@ -83,18 +83,19 @@ describe('operation state', () => {
     });
     const User = defineModel('SpecOperationUpdateUser', {
       schema: UserSchema,
-      actions: {
-        rename: gql.action(updateDocument, {
+      actions: owner => ({
+        rename: owner.gql.action(updateDocument, {
+          mode: 'request',
           result: 'updateUser',
           variables: input => ({ input }),
-          kind: 'update',
-          id: input => input.id,
-          select: data => data.updateUser.user,
+          root: { update: { select: ({ input }) => ({ id: String(input.id), patch: { username: input.username } }) } },
           optimistic: {
-            patch: input => ({ username: input.username })
+            root: {
+              update: { select: ({ input }) => ({ id: String(input.id), patch: { username: input.username } }) }
+            }
           }
         })
-      }
+      })
     });
     User.insert({ id: 'user-1', username: 'before' });
     const reader = renderCounted(() => User.operation('user-1').use());
@@ -151,21 +152,20 @@ describe('operation state', () => {
     });
     const User = defineModel('SpecOperationFailedUser', {
       schema: UserSchema,
-      actions: {
-        create: gql.action(createDocument, {
+      actions: owner => ({
+        create: owner.gql.action(createDocument, {
+          mode: 'request',
           result: 'createUser',
           variables: input => ({ input }),
-          kind: 'insert',
-          select: data => data.createUser.user,
+          root: { insert: { select: ({ data }) => data.createUser.user } },
           optimistic: {
-            build: (input, context) => ({
-              id: context.tempId,
+            root: { insert: { select: ({ input, tempId }) => ({
+              id: tempId,
               username: input.username
-            }),
-            failure: 'keep'
+            }) } }
           }
         })
-      },
+      }),
       maintenance: { dropTempRowsAfterMs: 1000 }
     });
 
@@ -213,34 +213,33 @@ describe('operation state', () => {
     });
     const User = defineModel('SpecOperationKindsUser', {
       schema: UserSchema,
-      actions: {
-        remove: gql.action(deleteDocument, {
+      actions: owner => ({
+        remove: owner.gql.action(deleteDocument, {
+          mode: 'request',
           result: 'deleteUser',
           variables: input => ({ input }),
-          kind: 'destroy',
-          id: input => input.id,
-          optimistic: true
+          optimistic: { root: { destroy: { select: ({ input }) => input.id } } },
+          root: { destroy: { select: ({ input }) => input.id } }
         }),
-        refresh: gql.action(refreshDocument, {
+        refresh: owner.gql.action(refreshDocument, {
+          mode: 'request',
           result: 'refreshUser',
           variables: input => ({ input }),
-          kind: 'custom',
-          select: data => data.refreshUser.user
+          root: { insert: { select: ({ data }) => data.refreshUser.user } }
         }),
-        noUpdate: gql.action(updateDocument, {
+        noUpdate: owner.gql.action(updateDocument, {
+          mode: 'request',
           result: 'updateUser',
           variables: input => ({ input }),
-          kind: 'update',
-          id: input => input.id,
-          select: () => null
+          root: { update: { select: () => null } }
         }),
-        noRefresh: gql.action(refreshDocument, {
+        noRefresh: owner.gql.action(refreshDocument, {
+          mode: 'request',
           result: 'refreshUser',
           variables: input => ({ input }),
-          kind: 'custom',
-          select: () => null
+          root: { insert: { select: () => null } }
         })
-      }
+      })
     });
     User.insert({ id: 'user-1', username: 'remove' });
 

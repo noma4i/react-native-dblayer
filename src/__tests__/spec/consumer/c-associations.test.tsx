@@ -88,6 +88,7 @@ describe('associations', () => {
     ]);
     Chat.insert({ id: 'chat-1', ownerId: 'user-1', memberIds: ['user-1', 'user-2'] });
     Message.insert({ id: 'message-1', chatId: 'chat-1', authorId: 'user-1', sequence: 1 });
+    const authorMethod = Message.author;
 
     expect(Message.author('message-1').read()).toEqual({ id: 'user-1', username: 'one' });
     expect(Chat.messages('chat-1').read()).toEqual([{ id: 'message-1', chatId: 'chat-1', authorId: 'user-1', sequence: 1 }]);
@@ -100,7 +101,7 @@ describe('associations', () => {
     expect(Message.author('missing').count()).toBe(0);
     expect(Chat.messages('chat-1').count()).toBe(1);
     expect(Chat.members('chat-1').count()).toBe(2);
-    expect(Message.author).toBe(Message.author);
+    expect(Message.author).toBe(authorMethod);
     expect(Reflect.get(Message, Symbol.toStringTag)).toBeUndefined();
     expect(Reflect.get(Message, 'missingAssociation')).toBeUndefined();
     Message.author('message-1').invalidate();

@@ -1,4 +1,4 @@
-import type { EntityState, ModelMembership, ModelWriteResult, ModelWrites, OperationRecord, OperationTransition, WriteOp, WriteOrigin } from '../types';
+import type { EntityState, ModelMembership, ModelRevisionOwner, ModelWriteResult, ModelWrites, OperationRecord, OperationTransition, WriteOp, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
 import { diffTopLevelFields } from '../core/storeUpsertResolver';
@@ -11,7 +11,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
   entityState(): EntityState<TStored>;
   normalize(input: unknown): TStored;
   isPlanRow(input: unknown): boolean;
-  bumpRevision(): void;
+  revisions: ModelRevisionOwner<TStored>;
   captureMembership(id: string): ModelMembership[];
 }): ModelWrites<TStored> => {
   const prepareRow = (
@@ -19,24 +19,35 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     previous: TStored | undefined,
     origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
     mergeBase?: TStored,
-    operationId?: string
+    operationId?: string,
+    baseRevision?: number
   ) => {
     const incoming = options.normalize(value);
     if (origin === undefined && options.entityState().isTombstoned(incoming.id)) return null;
-    return options.entityState().previewUpsert(incoming, {
+    const admitted = options.revisions.admitRow(incoming, previous, baseRevision);
+    if (!admitted) return null;
+    return options.entityState().previewUpsert(admitted, {
       previous,
       mergeBase: origin === 'replace' ? mergeBase : undefined,
       ctx: { origin: origin ?? 'snapshot', operationId }
     });
   };
-  const preparePatch = (id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string, remove: readonly string[] = []) => {
-    if (!previous) return null;
-    const prepared = options.entityState().previewUpsert({ ...patch, id: String(id) } as TStored, {
+  const preparePatch = (
+    id: string,
+    patch: Record<string, unknown>,
+    previous: TStored | undefined,
+    operationId?: string,
+    remove: readonly string[] = [],
+    baseRevision?: number
+  ) => {
+    const admitted = options.revisions.admitPatch(id, patch, remove, previous, baseRevision);
+    if (!previous || !admitted) return null;
+    const prepared = options.entityState().previewUpsert({ ...admitted.patch, id: String(id) } as TStored, {
       previous,
       ctx: { origin: 'patch', operationId }
     });
     const row = { ...prepared.row };
-    for (const key of remove) delete row[key];
+    for (const key of admitted.remove) delete row[key];
     return { row, changedFields: diffTopLevelFields(previous, row) };
   };
   const putRows = (rows: TStored[]): ModelWriteResult[] => {
@@ -46,10 +57,16 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
       if (result.changedFields !== null && result.changedFields.length === 0) continue;
       changes.push({ id: row.id, changedFields: result.changedFields });
     }
-    if (changes.length > 0) options.bumpRevision();
     return changes;
   };
-  const restoreMembership = (nextId: string, memberships: ModelMembership[]): WriteOp[] => memberships.map(membership => ({ kind: 'scope-delta', model: options.modelId, scopeKey: membership.scopeKey, append: [{ id: nextId, orderKey: membership.orderKey }], detach: [membership.id] }));
+  const restoreMembership = (nextId: string, memberships: ModelMembership[]): WriteOp[] =>
+    memberships.map(membership => ({
+      kind: 'scope-delta',
+      model: options.modelId,
+      scopeKey: membership.scopeKey,
+      append: [{ id: nextId, orderKey: membership.orderKey }],
+      detach: nextId === membership.id ? [] : [membership.id]
+    }));
   const planReplace = (oldId: string, next: unknown, correlatedOperation?: OperationRecord): WriteOp[] => {
     let normalized: TStored;
     try {

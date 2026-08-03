@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { focusManager } from '@tanstack/react-query';
 import { act } from 'react';
-import { bootDb, configureDb, defineFetch, defineModel, defineShape, f, gql, setFetchNetworkOnline, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineModel, defineShape, f, setFetchNetworkOnline, suspendDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
 
 /**
@@ -27,10 +27,13 @@ type ChatListVariables = { statusFilter: string; after?: string | null };
 type ChatDetailData = { chat: ChatInput | null };
 type ThreadData = { chat: { messages: { nodes: MessageInput[]; pageInfo: { hasPreviousPage: boolean; startCursor: string | null } } } };
 type ThreadVariables = { chatId: string; before?: string | null };
+type CatalogInput = { value: string };
+type CatalogData = { catalog: CatalogInput };
 
 const chatsDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ChatListData, ChatListVariables>;
 const chatDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ChatDetailData, { id: string }>;
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
+const catalogDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<CatalogData, Record<string, never>>;
 
 const ChatSchema = defineShape<ChatInput>()({ status: f.str(), lastActivityAt: f.str() });
 const MessageSchema = defineShape<MessageInput>()({ chatId: f.id(), body: f.str() });
@@ -43,11 +46,11 @@ const configure = (storage: ReturnType<typeof createMemoryPlane>, transport: Ret
 const defineChats = (tag: string) =>
   defineModel(`AppFreshnessChat${tag}`, {
     schema: ChatSchema,
-    relations: {
+    relations: owner => ({
       list: {
         by: { statusFilter: 'status' },
         sort: { field: 'lastActivityAt', dir: 'desc' },
-        remote: gql.connection(chatsDocument, {
+        remote: owner.gql.connection(chatsDocument, {
           variables: (params: { statusFilter: string }) => ({ statusFilter: params.statusFilter }),
           connection: data => data.chats,
           maxPages: MAX_PAGES_CHATS,
@@ -56,25 +59,25 @@ const defineChats = (tag: string) =>
         })
       },
       details: {
-        remote: gql.single(chatDocument, {
+        remote: owner.gql.single(chatDocument, {
           variables: (params: { chatId: string }) => ({ id: params.chatId }),
           select: data => data.chat,
           staleTime: 'PUSH_BACKED',
           emptyStaleTime: 'EMPTY_RETRY'
         })
       }
-    }
+    })
   });
 
 /** `MessageModel.thread`: connection read backward, uncapped. */
 const defineMessages = (tag: string) =>
   defineModel(`AppFreshnessMessage${tag}`, {
     schema: MessageSchema,
-    relations: {
+    relations: owner => ({
       thread: {
         by: { chatId: 'chatId' },
         sort: 'server-order',
-        remote: gql.connection(threadDocument, {
+        remote: owner.gql.connection(threadDocument, {
           variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
           connection: data => data.chat.messages,
           direction: 'backward',
@@ -82,7 +85,7 @@ const defineMessages = (tag: string) =>
           coverage: 'page'
         })
       }
-    }
+    })
   });
 
 const chatPage = (index: number, hasNextPage: boolean): ChatListData => ({
@@ -101,16 +104,27 @@ const threadPage = (index: number, hasPreviousPage: boolean): ThreadData => ({
   }
 });
 
-/** `appConfigFetch` / `countriesFetch`: a keyed standalone fetch with a declared catalog window. */
-const defineCatalogFetch = (tag: string, onCall: () => void) =>
-  defineFetch<{ value: string }, void, { value: string }>({
-    key: `app-freshness-catalog-${tag}`,
-    fetcher: async () => {
+const createCatalogTransport = (onCall: () => void) =>
+  createMockTransport({
+    query: async <TData,>() => {
       onCall();
-      return { value: 'catalog' };
-    },
-    select: data => data,
-    staleTime: 'CATALOG'
+      return { data: { catalog: { value: 'catalog' } } as TData };
+    }
+  });
+
+const defineCatalogModel = (tag: string) =>
+  defineModel(`AppFreshnessCatalog${tag}`, {
+    schema: defineShape<CatalogInput>()({ value: f.str() }),
+    rowId: () => 'catalog',
+    relations: owner => ({
+      catalog: {
+        remote: owner.gql.single(catalogDocument, {
+          variables: () => ({}),
+          select: data => data.catalog,
+          staleTime: 'CATALOG'
+        })
+      }
+    })
   });
 
 describe('app-shaped freshness conformance', () => {
@@ -123,21 +137,21 @@ describe('app-shaped freshness conformance', () => {
     jest.useFakeTimers();
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage, createMockTransport());
-    const first = defineCatalogFetch('ColdFresh', () => { calls += 1; });
+    configure(storage, createCatalogTransport(() => { calls += 1; }));
+    const first = defineCatalogModel('ColdFresh');
     await bootDb();
-    await first.fetch();
+    await first.catalog({}).fetch();
     expect(calls).toBe(1);
     suspendDb();
     jest.advanceTimersByTime(FRESHNESS.CATALOG - 1);
 
-    configure(storage, createMockTransport());
-    const restarted = defineCatalogFetch('ColdFresh', () => { calls += 1; });
+    configure(storage, createCatalogTransport(() => { calls += 1; }));
+    const restarted = defineCatalogModel('ColdFresh');
     await bootDb();
-    const reader = renderCountedInProvider(() => restarted.use());
+    const reader = renderCountedInProvider(() => restarted.catalog({}).use());
     await settle();
 
-    expect(reader.result().data).toEqual({ value: 'catalog' });
+    expect(reader.result().data).toEqual({ id: 'catalog', value: 'catalog' });
     expect(calls).toBe(1);
     reader.unmount();
   });
@@ -146,17 +160,17 @@ describe('app-shaped freshness conformance', () => {
     jest.useFakeTimers();
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage, createMockTransport());
-    const first = defineCatalogFetch('ColdExpired', () => { calls += 1; });
+    configure(storage, createCatalogTransport(() => { calls += 1; }));
+    const first = defineCatalogModel('ColdExpired');
     await bootDb();
-    await first.fetch();
+    await first.catalog({}).fetch();
     suspendDb();
     jest.advanceTimersByTime(FRESHNESS.CATALOG + 1);
 
-    configure(storage, createMockTransport());
-    const restarted = defineCatalogFetch('ColdExpired', () => { calls += 1; });
+    configure(storage, createCatalogTransport(() => { calls += 1; }));
+    const restarted = defineCatalogModel('ColdExpired');
     await bootDb();
-    const reader = renderCountedInProvider(() => restarted.use());
+    const reader = renderCountedInProvider(() => restarted.catalog({}).use());
     await settleUntil(() => calls === 2);
 
     expect(calls).toBe(2);
@@ -165,11 +179,12 @@ describe('app-shaped freshness conformance', () => {
 
   it('B3 pauses a catalog fetch mounted offline and catches up on reconnect', async () => {
     let calls = 0;
-    configure(createMemoryPlane(), createMockTransport());
-    const catalog = defineCatalogFetch('Offline', () => { calls += 1; });
+    const storage = createMemoryPlane();
+    configure(storage, createCatalogTransport(() => { calls += 1; }));
+    const catalog = defineCatalogModel('Offline');
     await bootDb();
     setFetchNetworkOnline(false);
-    const reader = renderCountedInProvider(() => catalog.use());
+    const reader = renderCountedInProvider(() => catalog.catalog({}).use());
     await settle();
     await settle(1, { macro: true });
     expect(calls).toBe(0);
@@ -336,15 +351,15 @@ describe('app-shaped freshness conformance', () => {
     configureDb({ storage: createMemoryPlane(), transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: { ...FRESHNESS, PROBE: 0 } } });
     const Chat = defineModel('AppFreshnessChatProbe', {
       schema: ChatSchema,
-      relations: {
+      relations: owner => ({
         details: {
-          remote: gql.single(chatDocument, {
+          remote: owner.gql.single(chatDocument, {
             variables: (params: { chatId: string }) => ({ id: params.chatId }),
             select: data => data.chat,
             staleTime: 'PROBE'
           })
         }
-      }
+      })
     });
     await bootDb();
     const reader = renderCountedInProvider(() => Chat.details({ chatId: 'chat-1' }).use());

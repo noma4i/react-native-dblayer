@@ -1,4 +1,4 @@
-import { belongsTo, configureDb, createDbSubscriptionRuntime, defineModelRuntime, f } from '../../testApi';
+import { belongsTo, configureDb, createModelEventLifecycle, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('identity integrity red-first', () => {
@@ -12,14 +12,8 @@ describe('identity integrity red-first', () => {
     expect(() => defineModelRuntime({ id: 'IdentityDuplicateId', name: 'IdentitySecond', fields: { body: f.str() } })).toThrow('IdentityDuplicateId');
   });
 
-  it('rejects a duplicate model name before ingest can route to the wrong model', () => {
-    defineModelRuntime({ id: 'IdentityIngestFirst', name: 'IdentityDuplicateName', fields: { body: f.str() } });
-
-    expect(() => defineModelRuntime({ id: 'IdentityIngestSecond', name: 'IdentityDuplicateName', fields: { body: f.str() } })).toThrow('IdentityDuplicateName');
-  });
-
   it('rejects a duplicate subscription key', () => {
-    expect(() => createDbSubscriptionRuntime([
+    expect(() => createModelEventLifecycle([
       { key: 'identity-duplicate-subscription', query: {} as never, onData: () => undefined },
       { key: 'identity-duplicate-subscription', query: {} as never, onData: () => undefined }
     ])).toThrow('identity-duplicate-subscription');

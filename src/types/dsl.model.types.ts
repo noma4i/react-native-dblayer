@@ -1,19 +1,13 @@
 import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from './db.types';
 import type { RelationDecl } from './core.relations.types';
 import type { KeepPreviousOption } from './read.scopeRetention.types';
-import type { defineMutation } from '../dsl/defineMutation';
-import type { MutationConfig } from './dsl.mutation.types';
-import type { DetachedOperationConfig, DetachedOperationHandle } from './dsl.detachedOperation.types';
 import type { defineQuery } from '../dsl/defineQuery';
 import type { ConnectionLike, EnsuredRowQueryHandle, ScopeQueryHandle } from './dsl.query.types';
-import type { defineFetch } from '../dsl/defineFetch';
-import type { DbSubscriptionEntry } from './subscription.types';
 import type { ModelReadBuilder, RequiredFields } from './dsl.readBuilder.types';
 import type { ScopeSpec } from './dsl.scope.types';
 import type { InferBuildInput, InferStoredFields } from './schema.infer.types';
 import type { ModelStatusPoller } from './utils.modelStatusPoller.types';
 import type { WritePolicy, WriteCtx, WriteOrigin } from './core.writePolicies.types';
-import type { ModelIngestEntry } from './dsl.ingest.types';
 import type { ModelContext } from './dsl.modelContext.types';
 import type { WriteOp } from './core.apply.journal.types';
 import type { Dependency } from './core.apply.commitBus.types';
@@ -52,14 +46,16 @@ export type ModelWrites<TStored extends { id: string } & Record<string, unknown>
     previous: TStored | undefined,
     origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
     mergeBase?: TStored,
-    operationId?: string
+    operationId?: string,
+    baseRevision?: number
   ): import('./core.apply.transaction.types').PreparedRowWrite | null;
   preparePatch(
     id: string,
     patch: Record<string, unknown>,
     previous: TStored | undefined,
     operationId?: string,
-    remove?: readonly string[]
+    remove?: readonly string[],
+    baseRevision?: number
   ): import('./core.apply.transaction.types').PreparedRowWrite | null;
   putRows(rows: TStored[]): ModelWriteResult[];
   planRows(rows: unknown[], planOptions?: { origin?: 'event' }): WriteOp[];
@@ -89,27 +85,12 @@ export type ScopeWindowResult<T> = {
   resolved: boolean;
 };
 
-/** Manual injection surface for a query's colocated live entries. */
-export type LiveQueryHandle = {
-  /** Inject a payload into the same guarded pipeline transport events use for this query's live entries. */
-  apply(event: string, payload: unknown): void;
-};
-
 export type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0], 'key' | 'into'> & {
   key?: string;
   into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
-  /** Colocated live subscription entries, delivered through the model ingest pipeline while readers are mounted. */
-  live?: Record<string, ModelIngestEntry>;
 };
-export type ModelMutationConfig<TData, TInput, TStored extends { id: string }, TNode> = Omit<MutationConfig<TData, TInput, TStored, TNode>, 'dedupe'> & {
-  dedupe?: false | MutationConfig<TData, TInput, TStored, TNode>['dedupe'];
-};
-export type ModelFetchConfig<TData, TInput, TSelected> = Omit<Parameters<typeof defineFetch<TData, TInput, TSelected>>[0], 'key'> & { key?: string };
 
-export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<
-  ModelCore<TStored, TInput>,
-  'query' | 'mutation' | 'detached' | 'fetch' | 'poller' | 'ingest'
->;
+export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<ModelCore<TStored, TInput>, 'query' | 'poller'>;
 
 export type ModelDefinitionsOptions<TStored extends { id: string; updatedAt?: string | null }, _TInput> = {
   modelId: string;
@@ -238,48 +219,23 @@ export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored
 
 export type ModelCore<TStored extends { id: string; updatedAt?: string | null }, TInput = TStored> = {
   modelId: string;
-  /** Define a model-owned scope query with colocated live subscription entries; `data` is the scope's row array, point materialization is unavailable for scope destinations. */
-  query<TResponse, TVars, TScope, TRow extends { id: string }>(
-    name: string,
-    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { into: ScopeHandle<TRow, TScope>; live: Record<string, ModelIngestEntry> }
-  ): ScopeQueryHandle<TRow, TScope> & { live: LiveQueryHandle };
   /** Define a model-owned scope query; `data` is the scope's row array, point materialization is unavailable for scope destinations. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { into: ScopeHandle<TRow, TScope> }
   ): ScopeQueryHandle<TRow, TScope>;
-  /** Define a paginated model-destination query with colocated live subscription entries; `data` is the landed row array. */
-  query<TResponse, TVars, TScope, TRow extends { id: string }>(
-    name: string,
-    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> &
-      ({ page: (data: TResponse) => ConnectionLike } | { connection: (data: TResponse) => ConnectionLike | null | undefined }) & { live: Record<string, ModelIngestEntry> }
-  ): EnsuredRowQueryHandle<TRow, TScope, TRow[]> & { live: LiveQueryHandle };
   /** Define a paginated model-destination query; `data` is the landed row array. */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow> &
       ({ page: (data: TResponse) => ConnectionLike } | { connection: (data: TResponse) => ConnectionLike | null | undefined })
   ): EnsuredRowQueryHandle<TRow, TScope, TRow[]>;
-  /** Define a model-owned query with colocated live subscription entries; without `page`, `data` is the single landed row (an array-landing `select` needs `page` for list reads). */
-  query<TResponse, TVars, TScope, TRow extends { id: string }>(
-    name: string,
-    config: ModelQueryConfig<TResponse, TVars, TScope, TRow> & { live: Record<string, ModelIngestEntry> }
-  ): EnsuredRowQueryHandle<TRow, TScope, TRow | undefined> & { live: LiveQueryHandle };
   /** Define a model-owned query with a conventional `<modelId>:<name>` key and this model as the default destination; without `page`, `data` is the single landed row (an array-landing `select` needs `page` for list reads). */
   query<TResponse, TVars, TScope, TRow extends { id: string }>(
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
   ): EnsuredRowQueryHandle<TRow, TScope, TRow | undefined>;
-  /** Define a model-owned mutation with a conventional input-sensitive in-flight guard; pass `dedupe: false` to opt out or `once: true` to retain committed keys. */
-  mutation<TData, TInput, TRow extends { id: string }, TNode>(
-    name: string,
-    config: ModelMutationConfig<TData, TInput, TRow, TNode>
-  ): ReturnType<typeof defineMutation<TData, TInput, TRow, TNode>>;
-  /** Define a durable operation whose consumer-owned executor resumes through the core boot lifecycle. */
-  detached<TInput>(kind: string, config: DetachedOperationConfig<TInput, TStored>): DetachedOperationHandle<TInput>;
-  /** Define an ephemeral model-namespaced fetch with a conventional `<modelId>:<name>` key. */
-  fetch<TData, TInput = void, TSelected = TData>(name: string, config: ModelFetchConfig<TData, TInput, TSelected>): ReturnType<typeof defineFetch<TData, TInput, TSelected>>;
-  /** Define a refcounted status poller owned by this model; failures log with `<modelId>:<name>`. */
+  /** Internal refcounted status poller compiled by a model action. */
   poller<TData>(
     name: string,
     config: {
@@ -292,8 +248,6 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
       onSessionStop?: (id: string, reason: 'terminal-payload' | 'budget-exhausted' | 'stopped') => void;
     }
   ): ModelStatusPoller;
-  /** Define model-owned subscription entries that apply rows, guards, effects, and custom handlers together. */
-  ingest(entries: Record<string, ModelIngestEntry>): { entries: DbSubscriptionEntry[]; apply(key: string, payload: unknown): void };
   find(id: string | null | undefined): TStored | undefined;
   where(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
@@ -412,7 +366,6 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
    */
   seed(rows: TInput[]): void;
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>, TInput>>;
-  registerReset(fn: () => void): void;
 };
 
 export type RequiredReadUse<TStored extends { id: string; updatedAt?: string | null }, TKey extends keyof TStored & string> = Omit<ModelCore<TStored>['use'], 'find' | 'first'> & {

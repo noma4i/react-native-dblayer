@@ -18,6 +18,7 @@ import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
 import { compositeKey, compositeStorageKey, parseCompositeKey } from '../core/serialize';
 import { advanceRuntimeGeneration, getRuntimeGeneration } from '../utils/runtimeGeneration';
+import { restartModelEventRegistry } from '../core/modelEventRegistry';
 
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
@@ -38,7 +39,7 @@ const STORAGE_PREFIX = 'dbl:';
  *
  * Call this before rendering `DbProvider`; the provider owns the subsequent `bootDb` data lifecycle.
  *
- * @param options.transport GraphQL transport (`query`/`mutation`) used by `defineQuery`/`defineMutation`.
+ * @param options.transport GraphQL transport used by model relations and actions.
  * @param options.storage Synchronous key/value seam for persistence; defaults to `mmkvStoragePlane()`.
  * @param options.logger Package logger seam; optional, defaults to the built-in logger.
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
@@ -60,6 +61,7 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
   getApplyRuntime();
+  restartModelEventRegistry();
   if (!storeResetRegistered) {
     registerReset(resetStores);
     storeResetRegistered = true;
@@ -72,7 +74,7 @@ export const getDbRuntimeConfig = (): RuntimeConfig => {
 };
 
 /**
- * Internal: the package-owned TanStack QueryClient behind every `defineQuery`/`defineFetch`
+ * Internal: the package-owned TanStack QueryClient behind every remote relation
  * freshness decision. Never exposed to consumers - the library stays the only QueryClient owner.
  * Query retry policy maps our `DbRetryPolicy` formula onto react-query's retry/retryDelay pair;
  * `networkMode: 'always'` keeps react-query out of connectivity decisions - the coordinator's own
@@ -184,6 +186,31 @@ export const replayJournal = (): number => {
   const rowPrefix = compositeStorageKey(getStoragePrefix(), 'row');
   const replayed = runtime.replay();
   const operations = getOperationState();
+  const crashedRequests = operations.takeHydratedPending(operation => operation.actionMode === 'request');
+  if (crashedRequests.length > 0) {
+    const rollbackOps: WriteOp[] = [];
+    const rollbackTransitions: OperationTransition[] = [];
+    for (const operation of crashedRequests) {
+      const rollbackRow = operation.rollbackRow;
+      const rollbackMemberships = operation.rollbackMemberships;
+      if (rollbackRow !== undefined && rollbackMemberships !== undefined) {
+        rollbackOps.push({ kind: 'upsert', model: operation.model, rows: [rollbackRow], origin: 'replace' });
+        for (const membership of rollbackMemberships) {
+          rollbackOps.push({
+            kind: 'scope-delta',
+            model: operation.model,
+            scopeKey: membership.scopeKey,
+            append: [{ id: membership.id, orderKey: membership.orderKey }],
+            detach: [membership.id]
+          });
+        }
+      } else if (operation.intent === 'insert' && operation.tempIds.length > 0) {
+        rollbackOps.push({ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false });
+      }
+      rollbackTransitions.push({ kind: 'close', operationId: operation.operationId, status: 'rolledback' });
+    }
+    runtime.commit(createCommitEnvelope(rollbackOps, rollbackTransitions));
+  }
   const hasApplyTarget = (model: string): boolean => {
     try {
       getApplyTarget(model);
@@ -192,18 +219,6 @@ export const replayJournal = (): number => {
       return false;
     }
   };
-  const orphaned = operations.takeHydratedPending(operation => operation.kind === undefined);
-  if (orphaned.length > 0) {
-    const orphanDestroyOps: WriteOp[] = [];
-    const orphanTransitions: OperationTransition[] = [];
-    for (const operation of orphaned) {
-      if (operation.tempIds.length > 0 && hasApplyTarget(operation.model)) {
-        orphanDestroyOps.push({ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false });
-      }
-      orphanTransitions.push({ kind: 'close' as const, operationId: operation.operationId, status: 'rolledback' as const });
-    }
-    runtime.commit(createCommitEnvelope(orphanDestroyOps, orphanTransitions));
-  }
   const candidates = new Map<string, Set<string>>();
   const noteCandidate = (model: string, id: unknown): void => {
     if (typeof id !== 'string' || !isTempId(id)) return;
@@ -216,8 +231,8 @@ export const replayJournal = (): number => {
     if (parts?.length === 2) noteCandidate(parts[0]!, parts[1]);
   }
   for (const key of storage.keys(`${getStoragePrefix()}journal:`)) {
-    const record = readJournalRecord(storage, getStoragePrefix(), key);
-    for (const operation of record?.ops ?? []) {
+    const record = readJournalRecord(storage, getStoragePrefix(), key)!;
+    for (const operation of record.ops) {
       if (operation.kind !== 'upsert') continue;
       for (const row of operation.rows) noteCandidate(operation.model, row.id);
     }
@@ -265,9 +280,8 @@ export const getOperationState = (): OperationState => {
       prefix: getStoragePrefix,
       now: () => Date.now(),
       notify: operation => {
-        const rowIds = operation.rowIds ?? operation.tempIds;
-        if (operation.model === '' || rowIds.length === 0) return;
-        commitBus.publish({ rows: [], scopes: [], pending: rowIds.map(id => ({ model: operation.model, id })) });
+        if (operation.model === '' || operation.rowIds.length === 0) return;
+        commitBus.publish({ rows: [], scopes: [], pending: operation.rowIds.map(id => ({ model: operation.model, id })) });
       }
     });
     operationState.hydrate();

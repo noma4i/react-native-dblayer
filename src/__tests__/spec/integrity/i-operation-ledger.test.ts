@@ -12,6 +12,8 @@ const PREFIX = 'dbl:';
 
 const baseRecord = (operationId: string, overrides: Partial<OperationRecord> = {}): Omit<OperationRecord, 'status'> => ({
   operationId,
+  actionKey: 'SpecLedgerModel:action',
+  actionMode: 'request',
   model: 'SpecLedgerModel',
   tempIds: [],
   rowIds: [`row-${operationId}`],
@@ -19,6 +21,7 @@ const baseRecord = (operationId: string, overrides: Partial<OperationRecord> = {
   createdAt: 1000,
   ...overrides
 });
+const { rowIds: _missingRowIds, ...operationWithoutRowIds } = baseRecord('op-missing-row-ids');
 
 const setup = (nowValue = () => 1000) => {
   const storage = createMemoryPlane();
@@ -228,12 +231,12 @@ describe('operation lifecycle and idempotency keys', () => {
     expect(state.failedForRow('SpecLedgerModel', 'row-op-1')).toEqual([]);
   });
 
-  it('keeps transition no-ops inert and supports a begin without row ids', () => {
+  it('keeps transition no-ops inert while cloning canonical row ids', () => {
     const { state } = setup();
-    const operation = baseRecord('op-transition', { rowIds: undefined, tempIds: ['temp-transition'] });
+    const operation = baseRecord('op-transition', { rowIds: ['temp-transition'], tempIds: ['temp-transition'] });
 
     state.applyTransitions([{ kind: 'begin', operation }]);
-    expect(state.get('op-transition')).toMatchObject({ status: 'pending', rowIds: undefined });
+    expect(state.get('op-transition')).toMatchObject({ status: 'pending', rowIds: ['temp-transition'] });
 
     state.applyTransitions([{ kind: 'close', operationId: 'missing', status: 'committed' }]);
     state.applyTransitions([{ kind: 'close', operationId: 'op-transition', status: 'committed' }]);
@@ -245,10 +248,10 @@ describe('operation lifecycle and idempotency keys', () => {
 });
 
 describe('row buckets and patch ownership', () => {
-  it('matches pendingForRow by rowIds when present, falling back to tempIds', () => {
+  it('matches pendingForRow only through canonical rowIds', () => {
     const { state } = setup();
     state.begin(baseRecord('op-1', { tempIds: ['temp-1'], rowIds: ['row-1'] }));
-    state.begin(baseRecord('op-2', { tempIds: ['temp-2'], rowIds: undefined }));
+    state.begin(baseRecord('op-2', { tempIds: ['temp-2'], rowIds: ['temp-2'] }));
 
     expect(state.pendingForRow('SpecLedgerModel', 'row-1').map(operation => operation.operationId)).toEqual(['op-1']);
     expect(state.pendingForRow('SpecLedgerModel', 'temp-1')).toEqual([]);
@@ -294,7 +297,7 @@ describe('row buckets and patch ownership', () => {
 
     state.begin(baseRecord('patch-owner', { intent: 'patch', rowIds: ['row-1'], patchedFields: ['status'], patchedValues: { status: 'owned' } }));
     state.begin(baseRecord('insert-peer', { intent: 'insert', rowIds: ['row-1'] }));
-    state.begin(baseRecord('temp-only-patch', { intent: 'patch', rowIds: undefined, tempIds: ['row-1'], patchedFields: ['body'], patchedValues: { body: 'draft' } }));
+    state.begin(baseRecord('temp-only-patch', { intent: 'insert', rowIds: ['row-1'], tempIds: ['row-1'] }));
 
     expect(state.ownedFields('SpecLedgerModel', 'missing')).toEqual(new Set());
     expect(state.ownedFields('SpecLedgerModel', 'row-1')).toEqual(new Set(['status']));
@@ -336,17 +339,16 @@ describe('prune retention', () => {
 });
 
 describe('open row protection source', () => {
-  it('unions rowIds and tempIds of open operations only, tolerating a record without rowIds', () => {
+  it('unions canonical rowIds of open operations only', () => {
     const { storage, state } = setup();
     state.begin(baseRecord('op-open', { tempIds: ['temp-open'] }));
     state.begin(baseRecord('op-closed'));
     state.close('op-closed', 'committed');
-    const { rowIds: _omitted, ...bare } = baseRecord('op-bare', { tempIds: ['temp-bare'] });
-    state.begin(bare);
+    state.begin(baseRecord('op-bare', { tempIds: ['temp-bare'], rowIds: ['temp-bare'] }));
     state.begin(baseRecord('op-failed'));
     state.close('op-failed', 'failed');
 
-    const held = ['row-op-failed', 'row-op-open', 'temp-bare', 'temp-open'];
+    const held = ['row-op-failed', 'row-op-open', 'temp-bare'];
     expect([...state.openRowIdsFor('SpecLedgerModel')].sort()).toEqual(held);
     expect([...state.openRowIdsFor('OtherModel')]).toEqual([]);
 
@@ -435,14 +437,16 @@ describe('hydrate key retention', () => {
 
   it.each([
     ['empty operation id', { ...baseRecord(''), status: 'pending' }],
+    ['empty action key', { ...baseRecord('op-1'), actionKey: '', status: 'pending' }],
+    ['unknown action mode', { ...baseRecord('op-1'), actionMode: 'poll', status: 'pending' }],
     ['empty model id', { ...baseRecord('op-1'), model: '', status: 'pending' }],
     ['empty temporary id', { ...baseRecord('op-1'), tempIds: [''], status: 'pending' }],
     ['one empty temporary id beside a valid one', { ...baseRecord('op-1'), tempIds: ['temp-ok', ''], status: 'pending' }],
+    ['missing canonical row ids', { ...operationWithoutRowIds, status: 'pending' }],
     ['empty row id', { ...baseRecord('op-1'), rowIds: [''], status: 'pending' }],
     ['one empty row id beside a valid one', { ...baseRecord('op-1'), rowIds: ['row-ok', ''], status: 'pending' }],
     ['unknown status', { ...baseRecord('op-1'), status: 'weird' }],
     ['missing status', { ...baseRecord('op-1') }],
-    ['invalid kind', { ...baseRecord('op-1'), kind: 7, status: 'pending' }],
     ['invalid idempotency key', { ...baseRecord('op-1'), idempotencyKey: 7, status: 'pending' }],
     ['invalid once flag', { ...baseRecord('op-1'), once: 'yes', status: 'pending' }],
     ['invalid patched fields', { ...baseRecord('op-1'), patchedFields: ['label', 7], status: 'pending' }],

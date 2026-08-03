@@ -1,9 +1,7 @@
 import {
   advanceRuntimeGeneration,
   configureDb,
-  createDbSubscriptionEffects,
-  createDbSubscriptionRuntime,
-  getDbSubscriptionEffect,
+  createModelEventLifecycle,
   networkStateModule as networkState,
   registerReset,
   resetRuntime,
@@ -33,7 +31,7 @@ describe('subscription runtime correctness', () => {
       });
       configureDb({ storage: createMemoryPlane(), transport });
       const received: string[] = [];
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
 
       runtime.setActive(true);
       jest.advanceTimersByTime(1000);
@@ -64,7 +62,7 @@ describe('subscription runtime correctness', () => {
       });
       configureDb({ storage: createMemoryPlane(), transport });
       setFetchNetworkOnline(false);
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
 
       runtime.setActive(true);
       jest.advanceTimersByTime(120000);
@@ -94,7 +92,7 @@ describe('subscription runtime correctness', () => {
       });
       configureDb({ storage: createMemoryPlane(), transport });
       setFetchNetworkOnline(false);
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
       runtime.setActive(true);
       handlers.error(new Error('connection dropped'));
 
@@ -114,7 +112,7 @@ describe('subscription runtime correctness', () => {
     try {
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
       const received: string[] = [];
-      const runtime = createDbSubscriptionRuntime([
+      const runtime = createModelEventLifecycle([
         {
           key: 'event',
           query: document,
@@ -144,7 +142,7 @@ describe('subscription runtime correctness', () => {
     try {
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
       const received: Array<Record<string, number>> = [];
-      const runtime = createDbSubscriptionRuntime([
+      const runtime = createModelEventLifecycle([
         {
           key: 'userCounters',
           query: document,
@@ -180,7 +178,7 @@ describe('subscription runtime correctness', () => {
       });
       configureDb({ storage: createMemoryPlane(), transport });
       const reconcile = jest.fn();
-      const runtime = createDbSubscriptionRuntime([
+      const runtime = createModelEventLifecycle([
         {
           key: 'userCounters',
           query: document,
@@ -213,7 +211,7 @@ describe('subscription runtime correctness', () => {
       }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const runtime = createDbSubscriptionRuntime([
+    const runtime = createModelEventLifecycle([
       { key: 'first', query: document, onData: () => {} },
       { key: 'second', query: document, onData: () => {} }
     ]);
@@ -234,7 +232,7 @@ describe('subscription runtime correctness', () => {
     const transport = createMockTransport({ subscribe: () => jest.fn() });
     configureDb({ storage: createMemoryPlane(), transport });
     let calls = 0;
-    const runtime = createDbSubscriptionRuntime([
+    const runtime = createModelEventLifecycle([
       {
         key: 'event',
         query: document,
@@ -266,7 +264,7 @@ describe('subscription runtime correctness', () => {
           }
         }
       });
-      const runtime = createDbSubscriptionRuntime([
+      const runtime = createModelEventLifecycle([
         {
           key: 'event',
           query: document,
@@ -293,7 +291,7 @@ describe('subscription runtime correctness', () => {
     const transport = createMockTransport({ subscribe: () => jest.fn() });
     configureDb({ storage: createMemoryPlane(), transport });
     const received: string[] = [];
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
     runtime.setActive(true);
     runtime.dispatch('event', { id: 'first' });
     expect(received).toEqual(['first']);
@@ -322,7 +320,7 @@ describe('subscription runtime correctness', () => {
           }
         })
       });
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
       runtime.setActive(true);
       handlers.error(new Error('retry later'));
 
@@ -338,7 +336,7 @@ describe('subscription runtime correctness', () => {
   it('skips stale, malformed, and unknown dispatch payloads', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
     const received: unknown[] = [];
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
 
     runtime.dispatch('event', 7);
     runtime.dispatch('missing', { id: 'unknown' });
@@ -362,7 +360,7 @@ describe('subscription runtime correctness', () => {
       })
     });
     const received: unknown[] = [];
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
     runtime.setActive(true);
 
     handlers.next(7);
@@ -379,7 +377,7 @@ describe('subscription runtime correctness', () => {
         storage: createMemoryPlane(),
         transport: createMockTransport({ subscribe: () => unsubscribe })
       });
-      const runtime = createDbSubscriptionRuntime([
+      const runtime = createModelEventLifecycle([
         {
           key: 'event',
           query: document,
@@ -411,7 +409,7 @@ describe('subscription runtime correctness', () => {
         }
       })
     });
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
     runtime.setActive(true);
     runtime.setActive(false);
     runtime.setActive(true);
@@ -436,7 +434,7 @@ describe('subscription runtime correctness', () => {
         }
       })
     });
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
     runtime.setActive(true);
     advanceRuntimeGeneration();
 
@@ -455,7 +453,7 @@ describe('subscription runtime correctness', () => {
         mutation: async () => ({ data: undefined })
       } as never
     });
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
 
     expect(() => runtime.setActive(true)).toThrow('transport.subscribe is required');
     runtime.stop();
@@ -466,9 +464,9 @@ describe('subscription runtime correctness', () => {
       storage: createMemoryPlane(),
       transport: createMockTransport({ subscribe: () => jest.fn() })
     });
-    const holder: { runtime?: ReturnType<typeof createDbSubscriptionRuntime> } = {};
+    const holder: { runtime?: ReturnType<typeof createModelEventLifecycle> } = {};
     const unregister = registerReset(() => holder.runtime!.setActive(true));
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
     holder.runtime = runtime;
 
     resetRuntime();
@@ -499,7 +497,7 @@ describe('subscription runtime correctness', () => {
         })
       });
       setFetchNetworkOnline(false);
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
       runtime.setActive(true);
       handlers.error(new Error('offline'));
 
@@ -518,33 +516,6 @@ describe('subscription runtime correctness', () => {
   });
 });
 
-describe('subscription effects registry', () => {
-  it('keeps effect names from distinct channels and rejects a live duplicate', () => {
-    const first = createDbSubscriptionEffects({ firstEffect: () => {} });
-    const second = createDbSubscriptionEffects({ secondEffect: () => {} });
-
-    expect(getDbSubscriptionEffect('firstEffect')).toBe(first.effects.firstEffect);
-    expect(getDbSubscriptionEffect('secondEffect')).toBe(second.effects.secondEffect);
-    expect(() => createDbSubscriptionEffects({ firstEffect: () => {} })).toThrow('subscription effect already registered: firstEffect');
-
-    first.reset();
-    second.reset();
-  });
-
-  it('allows a named effect to recreate after the runtime generation changes while rejecting a same-generation duplicate', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const first = createDbSubscriptionEffects({ refreshedEffect: () => {} });
-
-    expect(() => createDbSubscriptionEffects({ refreshedEffect: () => {} })).toThrow('subscription effect already registered: refreshedEffect');
-
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const recreated = createDbSubscriptionEffects({ refreshedEffect: () => {} });
-
-    first.reset();
-    recreated.reset();
-  });
-});
-
 describe('subscription attempt races', () => {
   const document = { kind: 'Document', definitions: [] } as never;
 
@@ -558,7 +529,7 @@ describe('subscription attempt races', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const received: string[] = [];
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
     runtime.setActive(true);
     runtime.setActive(false);
     runtime.setActive(true);
@@ -575,7 +546,7 @@ describe('subscription attempt races', () => {
     try {
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
       const received: string[] = [];
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, debounce: { ms: 50 }, onData: payload => received.push((payload as { id: string }).id) }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, debounce: { ms: 50 }, onData: payload => received.push((payload as { id: string }).id) }]);
       runtime.setActive(true);
       runtime.dispatch('event', { id: 'buffered' });
 
@@ -602,7 +573,7 @@ describe('subscription attempt races', () => {
         }
       });
       configureDb({ storage: createMemoryPlane(), transport });
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: () => {} }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: () => {} }]);
       runtime.setActive(true);
       expect(attempts).toBe(1);
 
@@ -631,7 +602,7 @@ describe('subscription attempt races', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const received: string[] = [];
-    const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
 
     runtime.setActive(true);
     expect(captured).toHaveLength(1);
@@ -662,7 +633,7 @@ describe('subscription attempt races', () => {
       });
       configureDb({ storage: createMemoryPlane(), transport });
       const received: string[] = [];
-      const runtime = createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
+      const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
 
       runtime.setActive(true);
       runtime.setActive(false);

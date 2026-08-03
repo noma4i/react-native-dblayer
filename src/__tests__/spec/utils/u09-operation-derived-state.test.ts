@@ -6,6 +6,8 @@ const ROW = 'row-1';
 
 const patchOperation = (operationId: string) => ({
   operationId,
+  actionKey: `${MODEL}:action`,
+  actionMode: 'request' as const,
   model: MODEL,
   tempIds: [],
   rowIds: [ROW],

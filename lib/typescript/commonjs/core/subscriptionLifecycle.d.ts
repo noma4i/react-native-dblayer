@@ -1,4 +1,4 @@
-import type { DbSubscriptionEntry, DbSubscriptionRuntime } from '../types';
+import type { ModelEventLifecycleEntry, ModelEventLifecycle } from '../types';
 /** Create the activation, delivery, debounce, retry, and reset lifecycle for static subscription entries. */
-export declare const createSubscriptionLifecycle: <TPayload = unknown>(entries: readonly DbSubscriptionEntry<TPayload>[]) => DbSubscriptionRuntime;
+export declare const createModelEventLifecycle: <TPayload = unknown>(entries: readonly ModelEventLifecycleEntry<TPayload>[]) => ModelEventLifecycle;
 //# sourceMappingURL=subscriptionLifecycle.d.ts.map

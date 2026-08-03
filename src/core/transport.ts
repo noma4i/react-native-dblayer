@@ -14,7 +14,7 @@ const defaultDbTransport: DbTransport = {
 const currentDbTransport = createConfiguredSlot(defaultDbTransport);
 
 /**
- * Set the GraphQL transport used by `defineQuery`/`defineMutation` runtimes. Normally set once via
+ * Set the GraphQL transport used by remote relation and action runtimes. Normally set once via
  * `configureDb({ transport })`; call directly only to swap the transport after initial configuration
  * (e.g. re-authenticating with a new client instance).
  *

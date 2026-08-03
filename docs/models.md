@@ -45,7 +45,7 @@ through the returned singleton.
 | `member` | Applies a local membership predicate. |
 | `sort` | Uses client ordering or authoritative server order. |
 | `retention` | Bounds retained relation members. |
-| `remote` | Attaches `gql.connection` or `gql.single`. |
+| `remote` | Attaches `owner.gql.connection`, `owner.gql.list`, or `owner.gql.single`. |
 
 ## Fields (`f`)
 
@@ -81,8 +81,9 @@ key is the target model's persisted identity and the generic keeps the associati
 
 ## GraphQL declarations
 
-`gql.connection` and `gql.single` attach reads to relations. `gql.action` declares commands.
-`gql.live` declares subscription events. These declarations do not create a second cache or public
+`owner.gql.connection`, `owner.gql.list`, and `owner.gql.single` attach reads to relations.
+`owner.gql.action` declares commands. `owner.gql.live` declares subscription events. These
+declarations do not create a second cache or public
 query builder.
 
 ## Sideloads

@@ -1,20 +1,24 @@
 # Actions
 
-Model commands are declared with `gql.action` and exposed under `Model.actions`.
+Model commands are declared with `owner.gql.action` and exposed under `Model.actions`.
 When an action reads or changes its owning model, declare `actions` as a factory and use its typed
 model argument.
 
-## `gql.action(document, options)`
+## `owner.gql.action(document, options)`
 
 ```ts
-send: gql.action(SendMessageDocument, {
+send: owner.gql.action(SendMessageDocument, {
+  mode: 'request',
   result: 'sendMessage',
   variables: input => ({ input }),
-  kind: 'insert',
-  select: data => data.sendMessage.message,
   optimistic: {
-    build: (input, { tempId }) => ({ id: tempId, ...input, status: 'sending' })
-  }
+    root: {
+      insert: {
+        select: ({ input, tempId }) => ({ id: tempId, ...input, status: 'sending' })
+      }
+    }
+  },
+  root: { insert: { select: ({ data }) => data.sendMessage.message } }
 })
 ```
 
@@ -30,12 +34,9 @@ send: gql.action(SendMessageDocument, {
 | `before` | Runs before the request with the input and operation context. |
 | `error` | Runs after rollback with the error, input, and operation context. |
 | `track` | Observes a successful commit. |
-| `kind` | Selects `insert`, `update`, `destroy`, or `custom`. |
-| `select` | Selects the returned model row when the command has one. |
-| `optimistic` | Declares optimistic build, patch, destruction, retry, or correlation. |
-| `id` | Selects the target id for update and destroy commands. |
+| `root` | Selects exactly one owner-model insert, update, or destroy root. |
+| `optimistic` | Declares the matching optimistic root and optional insert correlation. |
 | `mode` | Selects request, durable, or poll execution. |
-| `resume` | Resumes durable work after boot. |
 | `poll` | Declares interval, attempt budget, and terminal classification. |
 
 ## `WritePlan`
@@ -60,21 +61,16 @@ An insert action always lands the row selected by `select`. An optimistic declar
 temporary row before transport; without one, the selected server row still enters the owning model
 and its declared scopes during the commit.
 
-`MutateCallbacks` describes optional call-site callbacks. `ScopePlacement` describes explicit
-placement when a service adapter must target a relation.
-
 ## Durable mode
 
-A durable insert returns `{ operationId, tempId }` synchronously, persists its intent, and resumes
-through the declared `resume` function after boot. The action owns `complete`, `fail`, `retry`, and
-`discard`.
+A durable insert starts with `Model.actions.name.start(input)`. It returns a handle with
+`operationId`, `tempId`, `execute(transportInput)`, and `cancel()`. The WAL persists the optimistic
+root before transport. `resume(operationId)` reconnects to a durable operation after boot.
 
 ## Poll mode
 
 A poll update exposes `run(input)` and `use(input)`. The hook returns the current phase and
 `refresh()`. One keyed scheduler owns attach counts, interval work, retry budget, and cleanup.
 
-## `defineCommand(name, config)`
-
-`defineCommand` remains available for RPC work that belongs to no model and writes no model row.
-Model-owned commands always use `gql.action`.
+Every action writes through the same commit envelope. Direct TanStack collection mutations and a
+second transaction coordinator are not public surfaces.

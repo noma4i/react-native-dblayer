@@ -3,13 +3,11 @@ import {
   configureDb,
   compositeKey,
   compositeStorageKey,
-  defineFetch,
   defineModel,
   defineShape,
   encodePersistence,
   f,
   getDbQueryClient,
-  gql,
   type QueryPersistenceRecord,
   suspendDb
 } from '../../testApi';
@@ -17,6 +15,8 @@ import { bootDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type FetchPayload = { value: string };
+type FetchVariables = { scope?: string };
+type FetchRow = { id: string; value: string };
 type MessageInput = { id: string; chatId: string; body: string };
 type ThreadData = {
   messages: {
@@ -30,10 +30,54 @@ type DetailVariables = { id: string };
 
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
 const detailDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<DetailData, DetailVariables>;
+const fetchDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<FetchPayload, FetchVariables>;
 const MessageSchema = defineShape<MessageInput>()({
   chatId: f.id(),
   body: f.str()
 });
+const FetchSchema = defineShape<FetchRow>()({ value: f.str() });
+
+type ValueRelation = {
+  read(): FetchRow | undefined;
+  fetch(): Promise<void>;
+  refresh(): Promise<void>;
+};
+
+type ListRelation = {
+  read(): FetchRow[];
+  fetch(): Promise<void>;
+  refresh(): Promise<void>;
+};
+
+const readValue = (relation: ValueRelation): string | undefined => relation.read()?.value;
+
+const defineValueModel = (key: string, options: { staleTime?: number | string; emptyStaleTime?: number | string } = {}) =>
+  defineModel(key, {
+    schema: FetchSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.single(fetchDocument, {
+          variables: (params: FetchVariables) => params,
+          select: data => ({ id: 'fetch-result', value: data.value }),
+          ...options
+        })
+      }
+    })
+  });
+
+const defineListModel = (key: string, options: { staleTime?: number | string; emptyStaleTime?: number | string } = {}) =>
+  defineModel(key, {
+    schema: FetchSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.list(fetchDocument, {
+          variables: (params: FetchVariables) => params,
+          select: () => [],
+          ...options
+        })
+      }
+    })
+  });
 
 const configure = (storage: ReturnType<typeof createMemoryPlane>, transport = createMockTransport()): void => {
   configureDb({
@@ -64,20 +108,21 @@ describe('durable freshness', () => {
     jest.setSystemTime(new Date('2026-07-31T00:00:00.000Z'));
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage);
-    const request = defineFetch<FetchPayload, string, string>({
-      key: 'durable-fetch-fresh',
-      fetcher: async input => ({ value: `${input}-${++calls}` }),
-      select: data => data.value,
-      staleTime: 1_000
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: `scope-${++calls}` } as TData })
     });
+    configure(storage, transport);
+    const model = defineValueModel('DurableFetchFresh', { staleTime: 1_000 });
+    const request = model.result({ scope: 'scope' }) as ValueRelation;
 
-    await expect(request.fetch('scope')).resolves.toBe('scope-1');
+    await request.fetch();
+    expect(readValue(request)).toBe('scope-1');
     jest.advanceTimersByTime(999);
-    configure(storage);
+    configure(storage, transport);
 
-    expect(request.read('scope')).toBe('scope-1');
-    await expect(request.fetch('scope')).resolves.toBe('scope-1');
+    expect(readValue(request)).toBe('scope-1');
+    await request.fetch();
+    expect(readValue(request)).toBe('scope-1');
     expect(calls).toBe(1);
   });
 
@@ -86,19 +131,19 @@ describe('durable freshness', () => {
     jest.setSystemTime(new Date('2026-07-31T00:00:00.000Z'));
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage);
-    const request = defineFetch<FetchPayload, string, string>({
-      key: 'durable-fetch-expired',
-      fetcher: async input => ({ value: `${input}-${++calls}` }),
-      select: data => data.value,
-      staleTime: 1_000
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: `scope-${++calls}` } as TData })
     });
+    configure(storage, transport);
+    const model = defineValueModel('DurableFetchExpired', { staleTime: 1_000 });
+    const request = model.result({ scope: 'scope' }) as ValueRelation;
 
-    await request.fetch('scope');
+    await request.fetch();
     jest.advanceTimersByTime(1_001);
-    configure(storage);
+    configure(storage, transport);
 
-    await expect(Promise.all([request.fetch('scope'), request.fetch('scope')])).resolves.toEqual(['scope-2', 'scope-2']);
+    await Promise.all([request.fetch(), request.fetch()]);
+    expect(readValue(request)).toBe('scope-2');
     expect(calls).toBe(2);
   });
 
@@ -107,20 +152,19 @@ describe('durable freshness', () => {
     jest.setSystemTime(new Date('2026-07-31T00:00:00.000Z'));
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage);
-    const request = defineFetch<FetchPayload, void, string[]>({
-      key: 'durable-fetch-empty',
-      fetcher: async () => ({ value: String(++calls) }),
-      select: () => [],
-      staleTime: 1_000,
-      emptyStaleTime: 5_000
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: String(++calls) } as TData })
     });
+    configure(storage, transport);
+    const model = defineListModel('DurableFetchEmpty', { staleTime: 1_000, emptyStaleTime: 5_000 });
+    const request = model.result({}) as ListRelation;
 
     await request.fetch();
     jest.advanceTimersByTime(4_999);
-    configure(storage);
+    configure(storage, transport);
 
-    await expect(request.fetch()).resolves.toEqual([]);
+    await request.fetch();
+    expect(request.read()).toEqual([]);
     expect(calls).toBe(1);
   });
 
@@ -128,141 +172,108 @@ describe('durable freshness', () => {
     const storage = createMemoryPlane();
     let zeroCalls = 0;
     let anonymousCalls = 0;
-    configure(storage);
-    const zero = defineFetch<FetchPayload, void, string>({
-      key: 'durable-fetch-zero',
-      fetcher: async () => ({ value: String(++zeroCalls) }),
-      select: data => data.value,
-      staleTime: 0
+    const zeroTransport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: String(++zeroCalls) } as TData })
     });
-    const anonymous = defineFetch<FetchPayload, void, string>({
-      fetcher: async () => ({ value: String(++anonymousCalls) }),
-      select: data => data.value,
-      staleTime: 1_000
-    });
+    configure(storage, zeroTransport);
+    const zeroModel = defineValueModel('DurableFetchZero', { staleTime: 0 });
+    const zero = zeroModel.result({}) as ValueRelation;
 
     await zero.fetch();
-    await anonymous.fetch();
-    configure(storage);
+    configure(storage, zeroTransport);
     await zero.fetch();
+
+    const anonymousTransport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: String(++anonymousCalls) } as TData })
+    });
+    configure(storage, anonymousTransport);
+    const anonymousModel = defineValueModel('DurableFetchAnonymous', { staleTime: 0 });
+    const anonymous = anonymousModel.result({}) as ValueRelation;
+
+    await anonymous.fetch();
+    configure(storage, anonymousTransport);
     await anonymous.fetch();
 
     expect({ zeroCalls, anonymousCalls }).toEqual({ zeroCalls: 2, anonymousCalls: 2 });
   });
 
-  it('validates restored selected data and removes the rejected record', async () => {
-    const storage = createMemoryPlane();
-    configure(storage);
-    const first = defineFetch<FetchPayload, void, string>({
-      key: 'durable-fetch-validation',
-      fetcher: async () => ({ value: 'unsafe' }),
-      select: data => data.value,
-      staleTime: 1_000
-    });
-    await first.fetch();
-
-    configure(storage);
-    const second = defineFetch<FetchPayload, void, string>({
-      key: 'durable-fetch-validation',
-      fetcher: async () => ({ value: 'safe' }),
-      select: data => data.value,
-      validate: selected => {
-        if (selected !== 'safe') throw new Error('rejected restore');
-        return selected;
-      },
-      staleTime: 1_000
-    });
-
-    expect(second.read()).toBeUndefined();
-    await expect(second.fetch()).resolves.toBe('safe');
-  });
-
   it('rejects a persisted input mismatch and a now-process-local freshness policy', async () => {
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage);
-    const first = defineFetch<FetchPayload, string, string>({
-      key: 'durable-fetch-policy-change',
-      fetcher: async () => ({ value: String(++calls) }),
-      select: data => data.value,
-      staleTime: 1_000
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: String(++calls) } as TData })
     });
-    await first.fetch('scope');
+    configure(storage, transport);
+    const first = defineValueModel('DurableFetchPolicyChange', { staleTime: 1_000 });
+    const firstResult = first.result({ scope: 'scope' }) as ValueRelation;
+    await firstResult.fetch();
     rewriteQueryRecord(storage, record => ({ ...record, scope: 'other-scope' }));
 
-    configure(storage);
-    expect(first.read('scope')).toBeUndefined();
-    await first.fetch('scope');
-    configure(storage);
-    const processLocal = defineFetch<FetchPayload, string, string>({
-      key: 'durable-fetch-policy-change',
-      fetcher: async () => ({ value: String(++calls) }),
-      select: data => data.value,
-      staleTime: 0
-    });
+    configure(storage, transport);
+    expect(readValue(firstResult)).toBeUndefined();
+    await firstResult.fetch();
+    configure(storage, transport);
+    const processLocal = defineValueModel('DurableFetchPolicyChange', { staleTime: 0 });
+    const processLocalResult = processLocal.result({ scope: 'scope' }) as ValueRelation;
 
-    expect(processLocal.read('scope')).toBeUndefined();
+    expect(readValue(processLocalResult)).toBeUndefined();
     expect(calls).toBe(2);
   });
 
-  it('restores invalidated data as stale and validates transport data', async () => {
+  it('restores invalidated data as stale', async () => {
     const storage = createMemoryPlane();
     let calls = 0;
-    const onSyncError = jest.fn();
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: String(++calls) } as TData })
+    });
     configureDb({
       storage,
-      transport: createMockTransport(),
-      defaults: { staleTime: 1_000, onSyncError }
+      transport,
+      defaults: { staleTime: 1_000 }
     });
-    const first = defineFetch<FetchPayload, void, string>({
-      key: 'durable-fetch-invalidated',
-      fetcher: async () => ({ value: String(++calls) }),
-      select: data => data.value,
-      staleTime: 1_000
-    });
-    await first.fetch();
+    const first = defineValueModel('DurableFetchInvalidated', { staleTime: 1_000 });
+    const firstResult = first.result({}) as ValueRelation;
+    await bootDb();
+    await firstResult.fetch();
+    suspendDb();
     rewriteQueryRecord(storage, record => ({ ...record, invalidated: true }));
 
     configureDb({
       storage,
-      transport: createMockTransport(),
-      defaults: { staleTime: 1_000, onSyncError }
+      transport,
+      defaults: { staleTime: 1_000 }
     });
-    expect(first.read()).toBe('1');
-    await expect(first.fetch()).resolves.toBe('2');
-    const rejected = defineFetch<FetchPayload, void, string>({
-      key: 'durable-fetch-network-validation',
-      fetcher: async () => ({ value: 'unsafe' }),
-      select: data => data.value,
-      validate: () => {
-        throw new Error('unsafe transport value');
-      },
-      staleTime: 1_000
-    });
-
-    await expect(rejected.fetch()).rejects.toThrow('unsafe transport value');
-    expect(onSyncError).toHaveBeenCalledTimes(1);
+    const restored = defineValueModel('DurableFetchInvalidated', { staleTime: 1_000 });
+    await bootDb();
+    const restoredResult = restored.result({}) as ValueRelation;
+    expect(readValue(restoredResult)).toBe('1');
+    await restoredResult.fetch();
+    expect(readValue(restoredResult)).toBe('2');
   });
 
   it('separates freshness-aware fetch, forced refresh, and family removal', async () => {
     const storage = createMemoryPlane();
     let calls = 0;
-    configure(storage);
-    const request = defineFetch<FetchPayload, void, string>({
-      key: 'durable-fetch-controls',
-      fetcher: async () => ({ value: String(++calls) }),
-      select: data => data.value,
-      staleTime: 1_000
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { value: String(++calls) } as TData })
     });
+    configure(storage, transport);
+    const model = defineValueModel('DurableFetchControls', { staleTime: 1_000 });
+    const request = model.result({}) as ValueRelation;
 
-    await expect(request.fetch()).resolves.toBe('1');
-    await expect(request.fetch()).resolves.toBe('1');
-    await expect(request.refresh()).resolves.toBe('2');
-    request.remove();
-    configure(storage);
+    await request.fetch();
+    expect(readValue(request)).toBe('1');
+    await request.fetch();
+    expect(readValue(request)).toBe('1');
+    await request.refresh();
+    expect(readValue(request)).toBe('2');
+    getDbQueryClient().removeQueries();
+    configure(storage, transport);
+    await bootDb();
 
-    expect(request.read()).toBeUndefined();
-    await expect(request.fetch()).resolves.toBe('3');
+    expect(readValue(request)).toBeUndefined();
+    await request.refresh();
+    expect(readValue(request)).toBe('3');
   });
 
   it('restores model relation rows and pagination metadata before freshness evaluation', async () => {
@@ -286,17 +297,17 @@ describe('durable freshness', () => {
     configure(storage, transport);
     const Message = defineModel('DurableFreshnessMessage', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         thread: {
           by: { chatId: 'chatId' },
           sort: 'server-order',
-          remote: gql.connection(threadDocument, {
+          remote: owner.gql.connection(threadDocument, {
             variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
             connection: data => data.messages,
             staleTime: 1_000
           })
         }
-      }
+      })
     });
     await bootDb();
     await Message.thread({ chatId: 'chat-1' }).fetch();
@@ -335,11 +346,11 @@ describe('durable freshness', () => {
     configure(storage, transport);
     const Message = defineModel('DurableFreshnessFamily', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         thread: {
           by: { chatId: 'chatId' },
           sort: 'server-order',
-          remote: gql.connection(threadDocument, {
+          remote: owner.gql.connection(threadDocument, {
             variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
             connection: data => data.messages,
             staleTime: 10_000
@@ -348,13 +359,13 @@ describe('durable freshness', () => {
         sibling: {
           by: { chatId: 'chatId' },
           sort: 'server-order',
-          remote: gql.connection(threadDocument, {
+          remote: owner.gql.connection(threadDocument, {
             variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
             connection: data => data.messages,
             staleTime: 10_000
           })
         }
-      }
+      })
     });
     await bootDb();
     await Message.thread({ chatId: 'chat-1' }).fetch();
@@ -393,17 +404,17 @@ describe('durable freshness', () => {
     configure(storage, transport);
     const Message = defineModel('DurableFreshnessDestinationValidation', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         thread: {
           by: { chatId: 'chatId' },
           sort: 'server-order',
-          remote: gql.connection(threadDocument, {
+          remote: owner.gql.connection(threadDocument, {
             variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
             connection: data => data.messages,
             staleTime: 1_000
           })
         }
-      }
+      })
     });
     await bootDb();
     const relation = Message.thread({ chatId: 'chat-1' });
@@ -483,15 +494,15 @@ describe('durable freshness', () => {
     });
     const Message = defineModel('DurableFreshnessDirectDestination', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         details: {
-          remote: gql.single(detailDocument, {
+          remote: owner.gql.single(detailDocument, {
             variables: ({ id }: { id: string }) => ({ id }),
             select: data => data.message,
             staleTime: 'durable'
           })
         }
-      }
+      })
     });
     await bootDb();
     const details = Message.details({ id: 'm-1' });
@@ -510,15 +521,15 @@ describe('durable freshness', () => {
     });
     const MessageAfterRestart = defineModel('DurableFreshnessDirectDestination', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         details: {
-          remote: gql.single(detailDocument, {
+          remote: owner.gql.single(detailDocument, {
             variables: ({ id }: { id: string }) => ({ id }),
             select: data => data.message,
             staleTime: 'durable'
           })
         }
-      }
+      })
     });
     await bootDb();
     expect(storage.snapshotKeys().filter(key => key.startsWith('dbl:query:'))).toHaveLength(1);
@@ -550,15 +561,15 @@ describe('durable freshness', () => {
     });
     const Message = defineModel('DurableFreshnessProcessLocalPolicy', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         details: {
-          remote: gql.single(detailDocument, {
+          remote: owner.gql.single(detailDocument, {
             variables: ({ id }: { id: string }) => ({ id }),
             select: data => data.message,
             staleTime: 'durable'
           })
         }
-      }
+      })
     });
     await bootDb();
     const processLocalDetails = Message.details({ id: 'm-1' });

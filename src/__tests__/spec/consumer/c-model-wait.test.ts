@@ -131,4 +131,40 @@ describe('Model.wait', () => {
     expect(getCommitBus().subscriberCount()).toBe(beforeSubscribers);
     expect(jest.getTimerCount()).toBe(beforeTimers);
   });
+
+  it('handles an abort between subscription setup and listener registration', async () => {
+    jest.useFakeTimers();
+    setupSpecRuntime();
+    const Rows = createRows('AbortSetupRace');
+    let reads = 0;
+    const signal = {
+      get aborted() {
+        reads += 1;
+        return reads > 1;
+      },
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn()
+    } as unknown as AbortSignal;
+
+    await expect(Rows.wait('missing', { timeoutMs: 60000, signal })).resolves.toBeUndefined();
+    expect(signal.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it('ignores a second terminal signal after the row has resolved', async () => {
+    setupSpecRuntime();
+    const Rows = createRows('SecondTerminalSignal');
+    let abortListener: (() => void) | undefined;
+    const signal = {
+      aborted: false,
+      addEventListener: (_name: string, listener: () => void) => {
+        abortListener = listener;
+      },
+      removeEventListener: () => undefined
+    } as unknown as AbortSignal;
+    const pending = Rows.wait('row-1', { timeoutMs: 60000, signal });
+
+    Rows.insert({ id: 'row-1', label: 'arrived' });
+    await expect(pending).resolves.toMatchObject({ id: 'row-1' });
+    expect(() => abortListener?.()).not.toThrow();
+  });
 });

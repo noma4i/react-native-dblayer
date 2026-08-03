@@ -1,1 +1,0 @@
-{"version":3,"file":"defineFetch.d.ts","sourceRoot":"","sources":["../../../../src/dsl/defineFetch.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,WAAW,EAAa,WAAW,EAA2B,MAAM,UAAU,CAAC;AAmB7F;;;;;GAKG;AACH,eAAO,MAAM,WAAW,GAAI,KAAK,EAAE,MAAM,GAAG,IAAI,EAAE,SAAS,GAAG,KAAK,EAAE,QAAQ,WAAW,CAAC,KAAK,EAAE,MAAM,EAAE,SAAS,CAAC,KAAG,WAAW,CAAC,MAAM,EAAE,SAAS,CAoPjJ,CAAC"}

@@ -10,6 +10,13 @@ import type {
 import { getInternalModelHandle } from '../core/internalHandles';
 import { isNonArrayRecord, isNonEmptyString, isRecord } from '../utils/normalizeHelpers';
 
+export const stampCausalRevision = (ops: readonly WriteOp[], baseRevision: number): WriteOp[] =>
+  ops.map(op =>
+    op.kind === 'upsert' || op.kind === 'patch' || op.kind === 'destroy'
+      ? { ...op, baseRevision }
+      : op
+  );
+
 export const runWritePlanInvalidations = (
   targets: readonly InvalidationTarget[],
   isCurrent: () => boolean,
@@ -41,6 +48,21 @@ const requireModelTarget = (
   const handle = getInternalModelHandle(value);
   handles.set(value, handle);
   return { model: value, handle };
+};
+
+const rejectOwnerTarget = (): never => {
+  throw new Error('WritePlan cannot target its owner model');
+};
+
+const requireForeignModelTarget = (
+  value: unknown,
+  handles: WeakMap<object, ReturnType<typeof getInternalModelHandle>>,
+  ownerKey: string | undefined
+): { model: RuntimeWriteTarget; handle: ReturnType<typeof getInternalModelHandle> } => {
+  if (ownerKey !== undefined && isRecord(value) && Reflect.get(value, 'key') === ownerKey) {
+    rejectOwnerTarget();
+  }
+  return requireModelTarget(value, handles);
 };
 
 const requireInvalidationTarget = (value: unknown): InvalidationTarget => {
@@ -75,9 +97,11 @@ const requireDestroyIntent = (
   return { model, handle, ids };
 };
 
-export const createWritePlanCollector = (options?: WritePlanCollectorOptions): { plan: WritePlan; compile(): CompiledWritePlan } => {
+export const createWritePlanCollector = <TOwnerKey extends string = never>(
+  options?: WritePlanCollectorOptions<TOwnerKey>
+): { plan: WritePlan<TOwnerKey>; compile(): CompiledWritePlan } => {
   const intents: WriteIntent[] = [];
-  const plan: WritePlan = {
+  const plan: WritePlan<TOwnerKey> = {
     upsert: (model, rowOrRows) => {
       intents.push({ kind: 'upsert', model, rows: Array.isArray(rowOrRows) ? [...rowOrRows] : [rowOrRows] });
     },
@@ -96,15 +120,19 @@ export const createWritePlanCollector = (options?: WritePlanCollectorOptions): {
     const handles = new WeakMap<object, ReturnType<typeof getInternalModelHandle>>();
     for (const intent of intents) {
       if (intent.kind === 'upsert') {
-        requireModelTarget(intent.model, handles);
+        requireForeignModelTarget(intent.model, handles, options?.ownerKey);
         continue;
       }
       if (intent.kind === 'update') {
-        requireUpdateIntent(intent, handles);
+        const { model, handle } = requireUpdateIntent(intent, handles);
+        requireForeignModelTarget(model, handles, options?.ownerKey);
+        void handle;
         continue;
       }
       if (intent.kind === 'destroy') {
-        requireDestroyIntent(intent, handles);
+        const { model, handle } = requireDestroyIntent(intent, handles);
+        requireForeignModelTarget(model, handles, options?.ownerKey);
+        void handle;
         continue;
       }
       requireInvalidationTarget(intent.target);
@@ -115,19 +143,21 @@ export const createWritePlanCollector = (options?: WritePlanCollectorOptions): {
     const invalidationTargets = new Set<InvalidationTarget>();
     for (const intent of intents) {
       if (intent.kind === 'upsert') {
-        const { model, handle } = requireModelTarget(intent.model, handles);
+        const { model, handle } = requireForeignModelTarget(intent.model, handles, options?.ownerKey);
         const rows = intent.rows.map(row => model.build(row));
         const planOptions = options?.origin === 'event' ? { origin: options.origin } : undefined;
         writeOps.push(...handle.planRows(rows, planOptions));
         continue;
       }
       if (intent.kind === 'update') {
-        const { handle, id, patch } = requireUpdateIntent(intent, handles);
+        const { model, handle, id, patch } = requireUpdateIntent(intent, handles);
+        requireForeignModelTarget(model, handles, options?.ownerKey);
         writeOps.push({ kind: 'patch', model: handle.modelId, id, patch });
         continue;
       }
       if (intent.kind === 'destroy') {
-        const { handle, ids } = requireDestroyIntent(intent, handles);
+        const { model, handle, ids } = requireDestroyIntent(intent, handles);
+        requireForeignModelTarget(model, handles, options?.ownerKey);
         writeOps.push({ kind: 'destroy', model: handle.modelId, ids });
         continue;
       }

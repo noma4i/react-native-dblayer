@@ -211,7 +211,7 @@ export const createAppModels = (tag: string) => {
       media: f.object(mediaSchema).from((message: any) => message.media ?? null).nullable(), mediaBucket: f.custom<string | null, any>(mediaBucketOf), mediaUrl: f.str().nullable(), localPreviewUrl: f.str().from((message: any) => message.localPreviewUrl).nullable().optional(),
       location: f.array(defineShape()({ id: f.id(), name: f.str().nullDefault(), address: f.str(), city: f.str().nullDefault(), lat: f.num(), lng: f.num() })).from((message: any) => message.location ?? []).default(() => []), transcribed: f.bool().default(false), transcript: f.str().nullable(),
       reactions: f.array(reactionSchema).from((message: any) => message.reactions ?? []).default(() => []), attachedMoment: f.object(attachedMomentSchema).from((message: any) => message.attachedMoment ?? null).nullable(), attachedGift: f.object(defineShape()({ id: f.id(), kind: f.str(), status: f.str(), gift: f.object(defineShape()({ id: f.id(), title: f.str() })).nullable() })).from((message: any) => message.attachedGift ?? null).nullable(),
-      attachedUser: f.object(attachedUserSchema).from((message: any) => message.attachedUser ?? null).nullable(), attachedReaction: f.object(reactionSchema).from((message: any) => message.attachedReaction ?? null).nullable(), replyTo: f.object(replySchema).from((message: any) => message.replyTo ?? null).nullable(), clientId: f.str().from((message: any) => message.clientId).nullDefault(), isDeleted: f.custom<boolean, any>(message => message.isDeleted === true).default(false)
+      attachedUser: f.object(attachedUserSchema).from((message: any) => message.attachedUser ?? null).nullable(), attachedReaction: f.object(reactionSchema).from((message: any) => message.attachedReaction ?? null).nullable(), replyTo: f.object(replySchema).from((message: any) => message.replyTo ?? null).nullable(), isDeleted: f.custom<boolean, any>(message => message.isDeleted === true).default(false)
     },
     scopes: {
       thread: ({ by: { chatId: 'chatId' }, sort: { comparator: compareMessagesNewest, orderFields: ['sequenceNumber', 'createdAt'] } }),
@@ -225,8 +225,7 @@ export const createAppModels = (tag: string) => {
     write: {
       groups: [
         { fields: ['media'] as const, policy: [{ monotonic: { all: [{ ladder: { path: 'media.transcodeStatus', tiers: [['processing'], ['ready', 'failed', 'completed']] } }, { tuple: ['media.transcodeProgress'] }] } }, { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', thumbUrl: 'nonEmpty', coverUrl: 'nonEmpty', gifUrl: 'nonEmpty' } }] },
-        { fields: ['localPreviewUrl'] as const, policy: 'continuity' },
-        { fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }
+        { fields: ['localPreviewUrl'] as const, policy: 'continuity' }
       ]
     },
     maintenance: { dropTempRowsAfterMs: 60_000, maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }

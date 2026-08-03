@@ -1,9 +1,7 @@
-import { configureDb, defineModelRuntime, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState } from '../../testApi';
+import { configureDb, defineModelRuntime, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState, registerMutationCorrelator } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; chatId: string; body: string };
-
-const document = { kind: 'Document', definitions: [] } as never;
 
 const defineRows = (suffix: string) =>
   defineModelRuntime({
@@ -18,25 +16,17 @@ const defineRows = (suffix: string) =>
   });
 
 const defineCorrelation = (rows: ReturnType<typeof defineRows>, fields: Array<keyof Row>) =>
-  rows.mutation<{ send: { row: Row } }, Row, Row, Row>('send', {
-    document,
-    result: 'send',
-    optimistic: {
-      model: rows,
-      build: (input, { tempId }) => ({ ...input, id: tempId! }),
-      selectServerNode: data => data.send.row,
-      correlate: { fields }
-    }
-  });
+  registerMutationCorrelator(rows.modelId, `${rows.modelId}:send`, { fields });
 
 const beginInsert = (model: string, operationId: string, tempId: string): void => {
   getOperationState().begin({
     operationId,
+    actionKey: `${model}:send`,
+    actionMode: 'request',
     model,
     tempIds: [tempId],
     rowIds: [tempId],
     intent: 'insert',
-    idempotencyKey: operationId,
     createdAt: 1
   });
 };
@@ -70,6 +60,13 @@ describe('commit-envelope planning purity', () => {
     expect(getOperationState().failedFor(rows.modelId, tempId)?.operationId).toBe('op-failed');
     getApplyRuntime().commit(createCommitEnvelope(plan));
     expect(getOperationState().failedFor(rows.modelId, tempId)).toBeUndefined();
+  });
+
+  it('rejects an invalid replacement before planning any write', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineRows('InvalidReplacement');
+
+    expect(() => getInternalModelHandle(rows).planReplace('temp-invalid', null)).toThrow(`replace rejected for ${rows.modelId}:temp-invalid`);
   });
 
   it('replaces a correlator declaration with the same model and mutation identity', () => {

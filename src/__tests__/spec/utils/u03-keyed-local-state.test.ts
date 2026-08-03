@@ -1,7 +1,7 @@
 import { createKeyedLocalState } from '../../testApi';
 
 /**
- * Contracts of the one reader-local state home shared by defineQuery/defineFetch: a merge that
+ * Contracts of the one reader-local state home shared by model queries: a merge that
  * changes nothing is fully silent (no version bump, no listener call), so idempotent flag writes
  * on hot request paths never wake a subscribed reader.
  */

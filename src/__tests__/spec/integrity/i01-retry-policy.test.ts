@@ -1,125 +1,146 @@
-import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime, setFetchNetworkOnline , backoffDelayMs } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
+import { configureDb, defineModel, defineShape, f, resetRuntime, setFetchNetworkOnline, type DbRetryClass, backoffDelayMs } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
-const document = { kind: 'Document', definitions: [] } as never;
+type EmptyVariables = Record<string, never>;
 
-const configureRetry = (transport: ReturnType<typeof createMockTransport>, classify?: (error: unknown) => 'network' | 'server' | 'retriable' | 'fatal') => {
+type ValueData = {
+  value: number;
+};
+
+type ValueRow = {
+  id: string;
+  value: number;
+};
+
+type RowsData = {
+  rows: Row[];
+};
+
+type Row = {
+  id: string;
+  label: string;
+};
+
+const valueDocument: TypedDocumentNode<ValueData, EmptyVariables> = {
+  kind: Kind.DOCUMENT,
+  definitions: []
+};
+
+const rowsDocument: TypedDocumentNode<RowsData, EmptyVariables> = {
+  kind: Kind.DOCUMENT,
+  definitions: []
+};
+
+const ValueSchema = defineShape<ValueRow>()({ value: f.num() });
+const RowSchema = defineShape<Row>()({ label: f.str() });
+
+const createValueRelation = (key: string, options: { staleTime?: number } = {}) => {
+  const Model = defineModel(key, {
+    schema: ValueSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.single(valueDocument, {
+          variables: (_params: EmptyVariables) => ({}),
+          select: data => ({ id: key, value: data.value }),
+          ...options
+        })
+      }
+    })
+  });
+  return Model.result({});
+};
+
+const createRowsRelation = (key: string, options: { staleTime?: number } = {}) => {
+  const Model = defineModel(key, {
+    schema: RowSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.list(rowsDocument, {
+          variables: (_params: EmptyVariables) => ({}),
+          select: data => data.rows,
+          ...options
+        })
+      }
+    })
+  });
+  return Model.result({});
+};
+
+const configureRetry = (transport: ReturnType<typeof createMockTransport>, classify?: (error: unknown) => DbRetryClass) => {
+  const queryRetry = {
+    budgets: { network: 2 },
+    backoff: { baseMs: 1, maxMs: 1 },
+    ...(classify === undefined ? {} : { classify })
+  };
   configureDb({
     storage: createMemoryPlane(),
     transport,
     defaults: {
-      retry: { query: { classify, budgets: { network: 2 }, backoff: { baseMs: 1, maxMs: 1 } } }
-    } as never
+      retry: { query: queryRetry }
+    }
   });
 };
 
 describe('query retry policy', () => {
-  it('rejects an offline model-less fetch when no data can be restored', async () => {
+  it('rejects an offline relation when no data can be restored', async () => {
     try {
       configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const request = defineFetch<number, void, number>({
-        key: 'offline-empty-fetch',
-        document,
-        select: data => data
-      });
+      const relation = createRowsRelation('OfflineEmptyRelation');
       setFetchNetworkOnline(false);
 
-      await expect(request.fetch(undefined)).rejects.toThrow('offline');
+      await expect(relation.fetch()).rejects.toThrow('offline');
     } finally {
       setFetchNetworkOnline(true);
     }
   });
 
-  it('rejects an offline model query when no data can be restored', async () => {
-    try {
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const rows = defineModelRuntime({ id: 'OfflineEmptyQuery', name: 'OfflineEmptyQuery', fields: { label: f.str() } });
-      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('offline-empty', {
-        key: 'offline-empty-query',
-        document,
-        select: data => data.rows
-      });
-      setFetchNetworkOnline(false);
-
-      await expect(query.fetch(undefined)).rejects.toThrow('offline');
-    } finally {
-      setFetchNetworkOnline(true);
-    }
-  });
-
-  it('returns cached model-less and model data while offline', async () => {
+  it('returns cached relation data while offline', async () => {
     try {
       let calls = 0;
       const transport = createMockTransport({
         query: async <TData>() => {
           calls += 1;
-          return { data: (calls === 1 ? 7 : { rows: [{ id: 'row-1', label: 'cached' }] }) as TData };
+          return { data: { rows: [{ id: 'row-1', label: 'cached' }] } as TData };
         }
       });
       configureDb({ storage: createMemoryPlane(), transport });
-      const request = defineFetch<number, void, number>({
-        key: 'offline-cached-fetch',
-        document,
-        select: data => data,
-        staleTime: 0
-      });
-      const rows = defineModelRuntime({ id: 'OfflineCachedQuery', name: 'OfflineCachedQuery', fields: { label: f.str() } });
-      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('offline-cached', {
-        key: 'offline-cached-query',
-        document,
-        select: data => data.rows,
-        staleTime: 0
-      });
+      const relation = createRowsRelation('OfflineCachedRelation', { staleTime: 0 });
 
-      await expect(request.fetch()).resolves.toBe(7);
-      await query.fetch();
+      await relation.fetch();
       setFetchNetworkOnline(false);
 
-      await expect(request.fetch()).resolves.toBe(7);
-      await expect(query.fetch()).resolves.toBeUndefined();
-      expect(rows.find('row-1')).toMatchObject({ label: 'cached' });
-      expect(calls).toBe(2);
+      await expect(relation.fetch()).resolves.toBeUndefined();
+      expect(relation.read()).toEqual([{ id: 'row-1', label: 'cached' }]);
+      expect(calls).toBe(1);
     } finally {
       setFetchNetworkOnline(true);
     }
   });
 
-  it('keeps cached model-less and model data on a failed stale fetch but rejects refresh', async () => {
+  it('keeps cached relation data on a failed stale fetch but rejects refresh', async () => {
     let calls = 0;
     const transport = createMockTransport({
       query: async <TData>() => {
         calls += 1;
-        if (calls === 1) return { data: 7 as TData };
-        if (calls === 2) return { data: { rows: [{ id: 'row-1', label: 'cached' }] } as TData };
+        if (calls === 1) return { data: { rows: [{ id: 'row-1', label: 'cached' }] } as TData };
         throw new Error('network failed');
       }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const request = defineFetch<number, void, number>({
-      key: 'failed-cached-fetch',
-      document,
-      select: data => data,
-      staleTime: 0
-    });
-    const rows = defineModelRuntime({ id: 'FailedCachedQuery', name: 'FailedCachedQuery', fields: { label: f.str() } });
-    const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('failed-cached', {
-      key: 'failed-cached-query',
-      document,
-      select: data => data.rows,
-      staleTime: 0
-    });
+    const relation = createRowsRelation('FailedCachedRelation', { staleTime: 0 });
 
-    await request.fetch();
-    await query.fetch();
+    await relation.fetch();
 
-    await expect(request.fetch()).resolves.toBe(7);
-    await expect(query.fetch()).resolves.toBeUndefined();
-    await expect(request.refresh()).rejects.toThrow('network failed');
-    await expect(query.refresh()).rejects.toThrow('network failed');
-    expect(rows.find('row-1')).toMatchObject({ label: 'cached' });
+    await expect(relation.fetch()).resolves.toBeUndefined();
+    expect(relation.read()).toEqual([{ id: 'row-1', label: 'cached' }]);
+    await expect(relation.refresh()).rejects.toThrow('network failed');
+    expect(relation.read()).toEqual([{ id: 'row-1', label: 'cached' }]);
+    expect(calls).toBe(3);
   });
 
-  it('rejects a model-less request that loses connectivity before its first response', async () => {
+  it('rejects a relation that loses connectivity before its first response', async () => {
     let rejectRequest!: (error: Error) => void;
     try {
       configureDb({
@@ -131,12 +152,8 @@ describe('query retry policy', () => {
             })
         })
       });
-      const request = defineFetch<number, void, number>({
-        key: 'offline-during-empty-fetch',
-        document,
-        select: data => data
-      });
-      const pending = request.fetch();
+      const relation = createRowsRelation('OfflineDuringEmptyRelation');
+      const pending = relation.fetch();
       await Promise.resolve();
       setFetchNetworkOnline(false);
       rejectRequest(new Error('network dropped'));
@@ -147,7 +164,7 @@ describe('query retry policy', () => {
     }
   });
 
-  it('keeps cached model data when connectivity drops during a stale request', async () => {
+  it('keeps cached relation data when connectivity drops during a stale request', async () => {
     let rejectRequest!: (error: Error) => void;
     let calls = 0;
     try {
@@ -163,21 +180,16 @@ describe('query retry policy', () => {
           }
         })
       });
-      const rows = defineModelRuntime({ id: 'OfflineDuringCachedQuery', name: 'OfflineDuringCachedQuery', fields: { label: f.str() } });
-      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('offline-during-cached', {
-        key: 'offline-during-cached-query',
-        document,
-        select: data => data.rows,
-        staleTime: 0
-      });
-      await query.fetch();
-      const pending = query.fetch();
+      const relation = createRowsRelation('OfflineDuringCachedRelation', { staleTime: 0 });
+      await relation.fetch();
+      const pending = relation.fetch();
       await Promise.resolve();
       setFetchNetworkOnline(false);
       rejectRequest(new Error('network dropped'));
 
       await expect(pending).resolves.toBeUndefined();
-      expect(rows.find('row-1')).toMatchObject({ label: 'cached' });
+      expect(relation.read()).toEqual([{ id: 'row-1', label: 'cached' }]);
+      expect(calls).toBe(2);
     } finally {
       setFetchNetworkOnline(true);
     }
@@ -193,17 +205,14 @@ describe('query retry policy', () => {
       query: async <TData>() => {
         calls += 1;
         if (calls < 3) throw new Error('offline');
-        return { data: 42 as TData };
+        return { data: { value: 42 } as TData };
       }
     });
     configureRetry(transport, () => 'network');
-    const request = defineFetch<number, void, number>({
-      key: 'retry-network',
-      document,
-      select: (data: number) => data
-    });
+    const relation = createValueRelation('RetryNetworkRelation');
 
-    await expect(request.fetch(undefined)).resolves.toBe(42);
+    await expect(relation.fetch()).resolves.toBeUndefined();
+    expect(relation.read()).toEqual({ id: 'RetryNetworkRelation', value: 42 });
     expect(calls).toBe(3);
   });
 
@@ -216,13 +225,9 @@ describe('query retry policy', () => {
       }
     });
     configureRetry(transport, () => 'fatal');
-    const request = defineFetch<number, void, number>({
-      key: 'retry-fatal',
-      document,
-      select: (data: number) => data
-    });
+    const relation = createValueRelation('RetryFatalRelation');
 
-    await expect(request.fetch(undefined)).rejects.toThrow('fatal');
+    await expect(relation.fetch()).rejects.toThrow('fatal');
     expect(calls).toBe(1);
   });
 
@@ -235,13 +240,9 @@ describe('query retry policy', () => {
       }
     });
     configureRetry(transport);
-    const request = defineFetch<number, void, number>({
-      key: 'retry-safe-default',
-      document,
-      select: (data: number) => data
-    });
+    const relation = createValueRelation('RetryDefaultRelation');
 
-    await expect(request.fetch(undefined)).rejects.toThrow('unclassified');
+    await expect(relation.fetch()).rejects.toThrow('unclassified');
     expect(calls).toBe(1);
   });
 
@@ -260,17 +261,13 @@ describe('query retry policy', () => {
         transport,
         defaults: {
           retry: { query: { classify: () => 'network', budgets: { network: 2 }, backoff: { baseMs: 1000, maxMs: 1000 } } }
-        } as never
+        }
       });
-      const request = defineFetch<number, void, number>({
-        key: 'retry-reset-fence',
-        document,
-        select: (data: number) => data
-      });
+      const relation = createValueRelation('RetryResetFenceRelation');
 
-      const pending = request.fetch(undefined).then(
+      const pending = relation.fetch().then(
         () => null,
-        error => error as Error
+        error => error
       );
       await Promise.resolve();
       await Promise.resolve();
@@ -284,7 +281,7 @@ describe('query retry policy', () => {
     }
   });
 
-  it('does not report a stale defineFetch failure after runtime reset', async () => {
+  it('does not report a stale relation failure after runtime reset', async () => {
     let rejectRequest!: (error: Error) => void;
     const onSyncError = jest.fn();
     configureDb({
@@ -297,51 +294,21 @@ describe('query retry policy', () => {
       }),
       defaults: { onSyncError }
     });
-    const request = defineFetch<number, void, number>({
-      key: 'fetch-error-reset-fence',
-      document,
-      select: (data: number) => data
-    });
-    const pending = request.fetch(undefined).catch(error => error as Error);
+    const relation = createValueRelation('ErrorResetFenceRelation');
+    const pending = relation.fetch().then(
+      () => null,
+      error => error
+    );
     await Promise.resolve();
 
     resetRuntime();
-    rejectRequest(new Error('stale fetch failure'));
+    rejectRequest(new Error('stale relation failure'));
     await pending;
 
     expect(onSyncError).not.toHaveBeenCalled();
   });
 
-  it('does not report a stale defineQuery failure after runtime reset', async () => {
-    let rejectRequest!: (error: Error) => void;
-    const onSyncError = jest.fn();
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport({
-        query: () =>
-          new Promise((_resolve, reject) => {
-            rejectRequest = reject;
-          })
-      }),
-      defaults: { onSyncError }
-    });
-    const rows = defineModelRuntime({ id: 'QueryErrorResetFence', name: 'QueryErrorResetFence', fields: { label: f.str() } });
-    const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('stale-error', {
-      key: 'query-error-reset-fence',
-      document,
-      select: data => data.rows
-    });
-    const pending = query.fetch(undefined).catch(error => error as Error);
-    await Promise.resolve();
-
-    resetRuntime();
-    rejectRequest(new Error('stale query failure'));
-    await pending;
-
-    expect(onSyncError).not.toHaveBeenCalled();
-  });
-
-  it('does not write stale defineFetch pause state into the fresh generation', async () => {
+  it('does not write stale relation pause state into the fresh generation', async () => {
     let rejectRequest!: (error: Error) => void;
     try {
       configureDb({
@@ -353,57 +320,18 @@ describe('query retry policy', () => {
             })
         })
       });
-      const request = defineFetch<number, void, number>({
-        key: 'fetch-state-reset-fence',
-        document,
-        enabled: () => false,
-        select: (data: number) => data
-      });
-      const pending = request.fetch(undefined).catch(error => error as Error);
+      const relation = createValueRelation('StateResetFenceRelation');
+      const pending = relation.fetch().then(
+        () => null,
+        error => error
+      );
       await Promise.resolve();
 
       resetRuntime();
       setFetchNetworkOnline(false);
-      rejectRequest(new Error('stale fetch failure'));
+      rejectRequest(new Error('stale relation failure'));
       await pending;
-      const reader = renderCounted(() => request.use(undefined));
-
-      expect(reader.result().loadingState.isOffline).toBe(false);
-      reader.unmount();
-    } finally {
-      setFetchNetworkOnline(true);
-    }
-  });
-
-  it('does not write stale defineQuery pause state into the fresh generation', async () => {
-    let rejectRequest!: (error: Error) => void;
-    let enabled = true;
-    try {
-      configureDb({
-        storage: createMemoryPlane(),
-        transport: createMockTransport({
-          query: () =>
-            new Promise((_resolve, reject) => {
-              rejectRequest = reject;
-            })
-        })
-      });
-      const rows = defineModelRuntime({ id: 'QueryStateResetFence', name: 'QueryStateResetFence', fields: { label: f.str() } });
-      const query = rows.query<{ rows: Array<{ id: string; label: string }> }, void, void, { id: string; label: string }>('stale-state', {
-        key: 'query-state-reset-fence',
-        document,
-        enabled: () => enabled,
-        select: data => data.rows
-      });
-      const pending = query.fetch(undefined).catch(error => error as Error);
-      await Promise.resolve();
-
-      enabled = false;
-      resetRuntime();
-      setFetchNetworkOnline(false);
-      rejectRequest(new Error('stale query failure'));
-      await pending;
-      const reader = renderCounted(() => query.use(undefined));
+      const reader = renderCounted(() => relation.use({ enabled: false }));
 
       expect(reader.result().loadingState.isOffline).toBe(false);
       reader.unmount();

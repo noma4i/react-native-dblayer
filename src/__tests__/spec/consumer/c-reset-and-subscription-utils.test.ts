@@ -1,5 +1,4 @@
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, createDbSubscriptionEffects, defineDbSubscriptionEntry, defineModelRuntime, f, registerReset, resetRuntime } from '../../testApi';
+import { configureDb, defineModelRuntime, f, registerReset, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for the logout wipe, reset registration, and subscription utilities.
@@ -82,55 +81,5 @@ describe('registerReset', () => {
     } finally {
       unregister();
     }
-  });
-});
-
-describe('createDbSubscriptionEffects', () => {
-  it('keeps one stable effects identity while configure swaps implementations and reset restores noop', () => {
-    const channel = createDbSubscriptionEffects({ onPing: (_value: string) => {} });
-    const table = channel.effects;
-    const seen: string[] = [];
-    channel.configure({
-      onPing: value => {
-        seen.push(value);
-      }
-    });
-    expect(channel.effects).toBe(table);
-    table.onPing('a');
-    expect(seen).toEqual(['a']);
-    channel.reset();
-    table.onPing('b');
-    expect(seen).toEqual(['a']);
-  });
-
-  it('keeps ingest effect names resolvable after the channel resets to noop', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const channel = createDbSubscriptionEffects({ onEchoResolvable: (_payload: unknown) => {} });
-    const rows = defineModelRuntime({ id: 'EffectsResetResolvable', name: 'EffectsResetResolvable', fields: { label: f.str() } });
-    const ingest = rows.ingest({ evt: { payload: data => data, effect: { name: 'onEchoResolvable', when: 'before' } } });
-    const seen: unknown[] = [];
-
-    channel.reset();
-    channel.configure({
-      onEchoResolvable: payload => {
-        seen.push(payload);
-      }
-    });
-    ingest.apply('evt', { id: 'x' });
-
-    expect(seen).toEqual([{ id: 'x' }]);
-  });
-});
-
-describe('defineDbSubscriptionEntry', () => {
-  it('returns the entry preserving key, document, vars and handler', () => {
-    type PingResult = { chatPing: { id: string } };
-    const document = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<PingResult, never>;
-    const onData = (_payload: PingResult['chatPing']): void => {};
-    const entry = defineDbSubscriptionEntry({ key: 'chatPing', query: document, onData, debounce: { ms: 50 } });
-    expect(entry.key).toBe('chatPing');
-    expect(entry.query).toBe(document);
-    expect(entry.onData).toBe(onData);
-    expect(entry.debounce).toEqual({ ms: 50 });
   });
 });

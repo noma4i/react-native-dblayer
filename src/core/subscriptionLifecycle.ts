@@ -7,14 +7,14 @@ import { registerReset } from './reset';
 import { Debouncer } from '@tanstack/pacer';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
-import type { DbSubscriptionEntry, DbSubscriptionRuntime, DbSubscriptionRuntimeInspectRow, SubscriptionEntryState, SubscriptionLifecycleContext } from '../types';
+import type { ModelEventLifecycleEntry, ModelEventLifecycle, ModelEventLifecycleInspectRow, SubscriptionEntryState, SubscriptionLifecycleContext } from '../types';
 
-const LOG_PREFIX = 'DbSubscriptionRuntime';
+const LOG_PREFIX = 'ModelEventLifecycle';
 const GLOBAL_DEBOUNCE_KEY = '__global__';
 
 /** Create the activation, delivery, debounce, retry, and reset lifecycle for static subscription entries. */
-export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonly DbSubscriptionEntry<TPayload>[]): DbSubscriptionRuntime => {
-  const runtimeEntries = entries as readonly DbSubscriptionEntry[];
+export const createModelEventLifecycle = <TPayload = unknown>(entries: readonly ModelEventLifecycleEntry<TPayload>[]): ModelEventLifecycle => {
+  const runtimeEntries = entries as readonly ModelEventLifecycleEntry[];
   const registeredKeys = new Set<string>();
   for (const entry of runtimeEntries) {
     if (registeredKeys.has(entry.key)) throw new Error(`Subscription entry already registered for key ${entry.key}`);
@@ -112,7 +112,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
       getDbLogger().debug(LOG_PREFIX, 'response skipped', { key: state.entry.key });
       return;
     }
-    handlePayload(state, data[state.entry.key]);
+    handlePayload(state, data[state.entry.payloadKey ?? state.entry.key]);
   };
   const subscribeEntry = (state: SubscriptionEntryState): void => {
     if (!context.active || !isCurrentGeneration() || state.unsubscribe) return;
@@ -191,7 +191,7 @@ export const createSubscriptionLifecycle = <TPayload = unknown>(entries: readonl
     if (isCurrentGeneration()) return;
     reset();
   });
-  const inspect = (): DbSubscriptionRuntimeInspectRow[] =>
+  const inspect = (): ModelEventLifecycleInspectRow[] =>
     context.states.map(state => ({
       key: state.entry.key,
       active: Boolean(state.unsubscribe),

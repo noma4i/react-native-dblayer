@@ -5,13 +5,13 @@ import type { VersionedValue } from './core.persistenceCodec.types';
 
 /** Raw model-owned intent accepted by the write-plan compiler. */
 export type WriteOp =
-  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; operationId?: string; mergeBase?: never }
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin?: 'event'; operationId?: string; mergeBase?: never; baseRevision?: number }
   /** Replace carries the prior row only through planning so write groups observe the same commit semantics. */
-  | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown; operationId?: string }
+  | { kind: 'upsert'; model: string; rows: unknown[]; origin: 'replace'; mergeBase?: unknown; operationId?: string; baseRevision?: number }
   /** `operationId` lets a pending optimistic method-patch plan its own rollback while foreign patches keep its owned fields. */
-  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; remove?: string[]; operationId?: string }
+  | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; remove?: string[]; operationId?: string; baseRevision?: number }
   /** `replace` marks the destroy half of an identity swap during relation planning. */
-  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; operationTransitions?: OperationTransition[] }
+  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; operationTransitions?: OperationTransition[]; baseRevision?: number }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey?: string }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };

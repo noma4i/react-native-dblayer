@@ -52,7 +52,7 @@ const ASSERTING_NAMES = /^(expect|assert|verify|check)/i;
 
 const isAssertion = (node: ts.Node): boolean => {
   if (!ts.isCallExpression(node)) return false;
-  const target = ts.isPropertyAccessExpression(node.expression) ? node.expression.expression : node.expression;
+  const target = ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression;
   return ts.isIdentifier(target) && ASSERTING_NAMES.test(target.text);
 };
 
@@ -79,6 +79,13 @@ const assertionFreeCases = (file: string): string[] => {
 const tautologicalAsserts = (file: string): string[] => {
   const source = parsed(file);
   const found: string[] = [];
+  const isComparableExpression = (node: ts.Node): boolean =>
+    ts.isIdentifier(node) ||
+    ts.isLiteralExpression(node) ||
+    [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword, ts.SyntaxKind.TrueKeyword].includes(node.kind) ||
+    ts.isPropertyAccessExpression(node) ||
+    ts.isElementAccessExpression(node) ||
+    ts.isCallExpression(node);
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
@@ -89,9 +96,8 @@ const tautologicalAsserts = (file: string): string[] => {
       node.expression.expression.expression.text === 'expect' &&
       node.arguments.length === 1 &&
       node.expression.expression.arguments.length === 1 &&
-      // Only a plain name on both sides is a tautology. A property access or a call can return a
-      // different object each time, so comparing it to itself checks memoization, not equality.
-      ts.isIdentifier(node.arguments[0]!) &&
+      isComparableExpression(node.arguments[0]!) &&
+      isComparableExpression(node.expression.expression.arguments[0]!) &&
       node.arguments[0]!.getText(source) === node.expression.expression.arguments[0]!.getText(source)
     ) {
       found.push(location(source, node));

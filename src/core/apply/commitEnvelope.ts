@@ -46,7 +46,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         const inputId = typeof input === 'object' && input !== null && 'id' in input ? String((input as { id: unknown }).id) : '';
         const previous = inputId ? readPlannedRow(overlay, op.model, inputId) : undefined;
         const mergeBase = op.origin === 'replace' && typeof op.mergeBase === 'object' && op.mergeBase !== null ? (op.mergeBase as StoredRow) : undefined;
-        const prepared = target.prepareUpsert(input, previous, op.origin, mergeBase, op.operationId);
+        const prepared = target.prepareUpsert(input, previous, op.origin, mergeBase, op.operationId, op.baseRevision);
         if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
         const id = prepared.row.id;
         if (typeof id !== 'string' || id.length === 0) throw new Error(`Prepared row for ${op.model} has no string id`);
@@ -67,7 +67,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
     if (op.kind === 'patch') {
       const patchId = String(op.id);
       const previous = readPlannedRow(overlay, op.model, patchId);
-      const prepared = target.preparePatch(patchId, op.patch, previous, op.operationId, op.remove);
+      const prepared = target.preparePatch(patchId, op.patch, previous, op.operationId, op.remove, op.baseRevision);
       if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
       const id = String(prepared.row.id);
       writePlannedRow(overlay, op.model, id, prepared.row);
@@ -92,15 +92,20 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
     if (op.kind === 'destroy') {
       operationTransitions.push(...(op.operationTransitions ?? []));
       const destroyIds = op.ids.map(String);
+      const existingDestroyIds: string[] = [];
       for (const id of destroyIds) {
+        if (!target.admitDestroy(id, op.baseRevision)) continue;
         const previous = readPlannedRow(overlay, op.model, id);
-        if (previous) destroyed.push({ model: op.model, id, before: previous, origin: op.origin });
+        if (!previous) continue;
+        existingDestroyIds.push(id);
+        destroyed.push({ model: op.model, id, before: previous, origin: op.origin });
         writePlannedRow(overlay, op.model, id, null);
       }
+      if (existingDestroyIds.length === 0) continue;
       preparedOps.push({
         kind: 'destroy',
         model: op.model,
-        ids: destroyIds,
+        ids: existingDestroyIds,
         ...(op.tombstone !== undefined ? { tombstone: op.tombstone } : {}),
         ...(op.origin ? { origin: op.origin } : {})
       });

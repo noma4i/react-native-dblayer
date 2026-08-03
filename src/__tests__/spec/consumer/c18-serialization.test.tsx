@@ -1,50 +1,61 @@
-import { configureDb, defineFetch } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type FetchInput = { at?: Date; value?: bigint | null | number };
-type FetchResponse = { version: number };
+type FetchData = { version: number };
+type ResultRow = { id: string; version: number };
 
-const document = { kind: 'Document', definitions: [] } as never;
+const document: TypedDocumentNode<FetchData, FetchInput> = { kind: Kind.DOCUMENT, definitions: [] };
+const ResultSchema = defineShape<ResultRow>()({ version: f.num() });
 
-const createFetch = () => {
+const createFixture = (key: string) => {
   const transport = createMockTransport({
     query: async <TData,>() => ({ data: { version: 1 } as TData })
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const fetch = defineFetch<FetchResponse, FetchInput, number>({
-    key: 'c18-serialization',
-    document,
-    vars: input => input,
-    select: data => data.version,
-    staleTime: Number.MAX_SAFE_INTEGER
+  const Model = defineModel(key, {
+    schema: ResultSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.single(document, {
+          variables: (params: FetchInput) => params,
+          select: data => ({ id: 'result', version: data.version }),
+          staleTime: Number.MAX_SAFE_INTEGER
+        })
+      }
+    })
   });
-  return { fetch, transport };
+  return { relation: (params: FetchInput) => Model.result(params), transport };
 };
 
 describe('scope-key serialization', () => {
   it('uses distinct fetch cache entries for distinct Date filters', async () => {
-    const { fetch, transport } = createFetch();
+    const { relation, transport } = createFixture('C18SerializationDate');
 
-    await fetch.fetch({ at: new Date('2026-01-01T00:00:00.000Z') });
-    await fetch.fetch({ at: new Date('2026-01-02T00:00:00.000Z') });
+    await relation({ at: new Date('2026-01-01T00:00:00.000Z') }).fetch();
+    await relation({ at: new Date('2026-01-02T00:00:00.000Z') }).fetch();
 
     expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(2);
   });
 
   it('uses distinct fetch cache entries for NaN and null filters', async () => {
-    const { fetch, transport } = createFetch();
+    const { relation, transport } = createFixture('C18SerializationSpecialValues');
 
-    await fetch.fetch({ value: Number.NaN });
-    await fetch.fetch({ value: null });
+    await relation({ value: Number.NaN }).fetch();
+    await relation({ value: null }).fetch();
 
     expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(2);
   });
 
   it('derives a fetch cache key for a bigint filter without throwing', async () => {
-    const { fetch, transport } = createFetch();
+    const { relation, transport } = createFixture('C18SerializationBigint');
+    const result = relation({ value: 1n });
 
-    await expect(fetch.fetch({ value: 1n })).resolves.toBe(1);
+    await expect(result.fetch()).resolves.toBeUndefined();
 
     expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(1);
+    expect(result.read()?.version).toBe(1);
   });
 });

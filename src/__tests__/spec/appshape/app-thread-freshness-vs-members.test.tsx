@@ -20,8 +20,7 @@ const message = (id: string, sequenceNumber: number) => ({
   mediaGroupId: null,
   replyToId: null,
   media: null,
-  localPreviewUrl: null,
-  clientId: null
+  localPreviewUrl: null
 });
 
 /**

@@ -1,14 +1,39 @@
 import { useEffect } from 'react';
-import type { ActionInput, ActionPayload, FacadeRuntimeModel, GraphqlActionDefinition, ModelActionMethods, RowOperation } from '../types';
+import type {
+  ActionInput,
+  ActionDefinitionData,
+  ActionPayload,
+  ActionRequestDefinition,
+  ActionRequestPlan,
+  DurableActionHandle,
+  DurableActionTransportInput,
+  FacadeRuntimeModel,
+  GraphqlActionDefinition,
+  GraphqlActionDurableDefinition,
+  ModelActionMethods,
+  OperationRecord,
+  RowOperation
+} from '../types';
 import { readRowOperationState, useRowOperationState } from './rowOperationState';
-import { scalarFieldCodecs } from '../schema/fieldCodec';
-import { exactMutationVariables } from './mutationVariables';
-import { exactMutationRootPlan } from './mutationRootPlan';
 import { getInternalModelHandle } from '../core/internalHandles';
+import { hasDependentCascade } from '../core/relations';
+import { compileModelRootPlan, modelRootIntentOf } from './modelRootPlan';
+import { registerMutationCorrelator } from './mutationCorrelation';
+import { createCommitEnvelope } from '../core/apply/commitEnvelope';
+import { getApplyRuntime, getOperationState, getRuntimeGeneration } from './configure';
+import { getDbTransport, responseDataOrThrow } from '../core/transport';
+import { reportSyncError } from '../core/syncError';
+import { serializeOperationInput } from '../core/planes/operationState';
+import { generateTempId } from '../utils/generateTempId';
+import { createGenerationFence } from '../utils/runtimeGeneration';
+import { isNonArrayRecord } from '../utils/normalizeHelpers';
+import { useActionHandle } from './actionHook';
+import { createWritePlanCollector, runWritePlanInvalidations, stampCausalRevision } from './writePlan';
+import { stableSerialize } from '../core/serialize';
 
 /**
- * A declared action becomes its runtime handle here. The declared mode decides which machinery
- * carries it - a durable operation, a poller, or a mutation - and the caller sees one handle either
+ * A declared action becomes its runtime handle here. The declared mode decides which action lifecycle
+ * carries it - a durable operation, a poller, or a request - and the caller sees one handle either
  * way, so a consumer never reproduces the lifecycle of the mode it happened to get.
  */
 export const createOperation = <TStored extends { id: string; updatedAt?: string | null }, TInput>(
@@ -24,45 +49,219 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
   name: string,
   definition: TDefinition
 ): ModelActionMethods<Record<'defined', TDefinition>>['defined'] => {
-  const readActionId = (value: unknown): string => {
-    const id = scalarFieldCodecs.id.read(value);
-    if (id === undefined) throw new Error(`${name}: action requires id`);
-    return id;
+  const rootOwner = {
+    modelId: runtime.modelId,
+    planRows: (rows: readonly unknown[], options?: { origin?: 'event' }) =>
+      getInternalModelHandle(runtime).planRows([...rows], options ?? { origin: 'event' })
+  };
+  const selectOneRow = (value: unknown, selector: string): Record<string, unknown> => {
+    if (!isNonArrayRecord(value)) throw new Error(`${name}: ${selector} selector must return exactly one row`);
+    return value;
+  };
+  const actionKey = name;
+  const reportCallbackError = (error: unknown, callback: string): void => {
+    reportSyncError(error, { source: 'action', model: runtime.modelId, key: callback }, 'modelAction');
   };
   if (definition.mode === 'durable') {
-    if (!definition.optimistic) throw new Error(`${name}: durable insert requires optimistic build`);
-    const insert = definition.optimistic;
-    const handle = runtime.detached<ActionInput<TDefinition>>(name, {
-      build: (input, context) => insert.build(input, context) as TStored,
-      resume: definition.resume,
-      failure: insert.failure,
-      onFailurePatch: insert.onFailurePatch ? input => insert.onFailurePatch!(input) as Partial<TStored> : undefined
-    });
+    const durableDefinition = definition as GraphqlActionDurableDefinition<
+      ActionDefinitionData<TDefinition>,
+      any,
+      ActionInput<TDefinition>,
+      keyof ActionDefinitionData<TDefinition> & string,
+      DurableActionTransportInput<TDefinition>,
+      string,
+      unknown,
+      TStored
+    >;
+    const executions = new Map<string, Promise<ActionPayload<TDefinition> | null>>();
+    const currentRecord = (operationId: string, tempId: string): OperationRecord | undefined => {
+      const record = getOperationState().get(operationId);
+      if (
+        !record ||
+        record.actionMode !== 'durable' ||
+        record.actionKey !== actionKey ||
+        record.model !== runtime.modelId ||
+        record.intent !== 'insert' ||
+        (record.status !== 'pending' && record.status !== 'failed') ||
+        record.tempIds.length !== 1 ||
+        record.tempIds[0] !== tempId ||
+        !Object.hasOwn(record, 'input') ||
+        record.input === undefined
+      ) {
+        return undefined;
+      }
+      return record;
+    };
+    const createHandle = (operationId: string, tempId: string): DurableActionHandle<DurableActionTransportInput<TDefinition>, ActionPayload<TDefinition>> => {
+      const execute = (transportInput: DurableActionTransportInput<TDefinition>): Promise<ActionPayload<TDefinition> | null> => {
+        const record = currentRecord(operationId, tempId);
+        if (!record) return Promise.resolve(null);
+        const existing = executions.get(operationId);
+        if (existing) return existing;
+        const promise = runExecution(record, tempId, transportInput);
+        executions.set(operationId, promise);
+        void promise.then(
+          () => {
+            if (executions.get(operationId) === promise) executions.delete(operationId);
+          },
+          () => {
+            if (executions.get(operationId) === promise) executions.delete(operationId);
+          }
+        );
+        return promise;
+      };
+      const cancel = (): void => {
+        const record = currentRecord(operationId, tempId);
+        if (!record) return;
+        getApplyRuntime().commit(
+          createCommitEnvelope(
+            [{ kind: 'destroy', model: runtime.modelId, ids: [tempId], tombstone: false }],
+            [{ kind: 'remove', operationId }]
+          )
+        );
+      };
+      return { operationId, tempId, execute, cancel };
+    };
+    const runExecution = async (
+      record: OperationRecord,
+      tempId: string,
+      transportInput: DurableActionTransportInput<TDefinition>
+    ): Promise<ActionPayload<TDefinition> | null> => {
+      const generationFence = createGenerationFence({ generation: getRuntimeGeneration() });
+      const operationId = record.operationId;
+      const input = record.input as ActionInput<TDefinition>;
+      const context = { operationId, tempId };
+      let baseRevision: number | undefined;
+      if (record.status === 'failed') {
+        const { status, ...beginOperation } = record;
+        void status;
+        getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'begin', operation: beginOperation }]));
+      }
+      if (!generationFence.isCurrent()) return null;
+      try {
+        durableDefinition.before?.(input, context);
+        if (!generationFence.isCurrent()) return null;
+        const variables = durableDefinition.variables(input, transportInput, context);
+        if (!generationFence.isCurrent()) return null;
+        baseRevision = getApplyRuntime().currentEpoch();
+        const data = responseDataOrThrow(
+          await getDbTransport().mutation({ mutation: durableDefinition.document, variables })
+        );
+        if (!generationFence.isCurrent()) return null;
+        const payload = data[durableDefinition.result];
+        if (payload == null) throw new Error(`${durableDefinition.result} returned no data`);
+        if (!currentRecord(operationId, tempId)) return null;
+        const responseOwner = {
+          modelId: runtime.modelId,
+          planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
+            if (rows.length !== 1) throw new Error(`${name}: response insert selector must return exactly one row`);
+            return getInternalModelHandle(runtime).planReplace(tempId, selectOneRow(rows[0], 'response insert'));
+          }
+        };
+        const responseOps = compileModelRootPlan(responseOwner, durableDefinition.root, { input, data });
+        if (responseOps.length === 0) throw new Error(`${name}: response insert selector must return exactly one row`);
+        if (!generationFence.isCurrent()) return null;
+        const writePlanCollector = createWritePlanCollector({ ownerKey: runtime.modelId });
+        durableDefinition.write?.({ input, data }, writePlanCollector.plan);
+        const compiledWritePlan = writePlanCollector.compile();
+        if (!generationFence.isCurrent()) return null;
+        const responseWriteOps = stampCausalRevision([...responseOps, ...compiledWritePlan.writeOps], baseRevision);
+        getApplyRuntime().commit(
+          createCommitEnvelope(
+            responseWriteOps,
+            [{ kind: 'close', operationId, status: 'committed' }]
+          )
+        );
+        if (!generationFence.isCurrent()) return null;
+        if (!runWritePlanInvalidations(compiledWritePlan.invalidations, generationFence.isCurrent, error => reportCallbackError(error, 'write.invalidate'))) return null;
+        try {
+          durableDefinition.track?.({ input, data });
+        } catch (callbackError) {
+          reportCallbackError(callbackError, 'track');
+        }
+        if (!generationFence.isCurrent()) return null;
+        return payload as ActionPayload<TDefinition>;
+      } catch (error) {
+        if (!generationFence.isCurrent()) return null;
+        const active = currentRecord(operationId, tempId);
+        if (active) {
+          getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'close', operationId, status: 'failed' }]));
+          if (generationFence.isCurrent()) {
+            try {
+              durableDefinition.error?.(error instanceof Error ? error : new Error(String(error)), { ...context, input });
+            } catch (callbackError) {
+              reportCallbackError(callbackError, 'error');
+            }
+          }
+        }
+        throw error;
+      }
+    };
     return {
-      run: handle.start,
-      complete: handle.complete,
-      fail: handle.fail,
-      retry: handle.retry,
-      discard: handle.discard
+      start: (input: ActionInput<TDefinition>) => {
+        const serialized = serializeOperationInput(input);
+        if (!serialized.serializable) throw new Error(`${name}: action input is not JSON serializable`);
+        const operationId = generateTempId('op');
+        const tempId = generateTempId('row');
+        const optimisticOwner = {
+          modelId: runtime.modelId,
+          planRows: (rows: readonly unknown[]) => {
+            if (rows.length !== 1) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
+            const row = selectOneRow(rows[0], 'optimistic insert');
+            return rootOwner.planRows([{ ...row, id: tempId }]);
+          }
+        };
+        const optimisticOps = compileModelRootPlan(optimisticOwner, durableDefinition.optimistic.root, { input, tempId, operationId });
+        if (optimisticOps.length === 0) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
+        const beginOperation: Omit<OperationRecord, 'status'> = {
+          operationId,
+          actionKey,
+          actionMode: 'durable',
+          model: runtime.modelId,
+          tempIds: [tempId],
+          rowIds: [tempId],
+          intent: 'insert',
+          input: serialized.value,
+          createdAt: Date.now()
+        };
+        getApplyRuntime().commit(
+          createCommitEnvelope(optimisticOps, [{ kind: 'begin', operation: beginOperation }])
+        );
+        return createHandle(operationId, tempId);
+      },
+      resume: (operationId: string) => {
+        const record = getOperationState().get(operationId);
+        if (!record || record.tempIds.length !== 1 || record.tempIds[0] === undefined || record.input === undefined || !Object.hasOwn(record, 'input')) return undefined;
+        if (record.actionMode !== 'durable' || record.actionKey !== actionKey || record.model !== runtime.modelId || record.intent !== 'insert') return undefined;
+        if (record.status !== 'pending' && record.status !== 'failed') return undefined;
+        return createHandle(operationId, record.tempIds[0]);
+      }
     } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
   }
   if (definition.mode === 'poll') {
     const inputs = new Map<string, ActionInput<TDefinition>>();
     const refs = new Map<string, number>();
-    const poller = runtime.poller<Parameters<typeof definition.select>[0]>(name, {
+    const baseRevisions = new Map<string, number>();
+    const poller = runtime.poller<ActionDefinitionData<TDefinition>>(name, {
       document: definition.document,
       vars: id => {
-        return definition.variables(inputs.get(id)!, { tempId: null, operationId: '' });
+        baseRevisions.set(id, getApplyRuntime().currentEpoch());
+        return definition.variables(inputs.get(id)!, { sessionKey: id }) as Record<string, unknown>;
       },
       apply: (id, data) => {
-        const patch = definition.select(data);
-        if (patch != null) runtime.update(id, patch as Partial<TStored>);
+        const baseRevision = baseRevisions.get(id)!;
+        const ops = stampCausalRevision(compileModelRootPlan(rootOwner, definition.root, data), baseRevision);
+        if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
       },
       classify: definition.poll.classify,
       intervalMs: definition.poll.intervalMs,
       maxAttempts: definition.poll.maxAttempts
     });
-    const idFor = (input: ActionInput<TDefinition>): string => readActionId(definition.id(input));
+    const idFor = (input: ActionInput<TDefinition>): string => {
+      const id = definition.poll.key(input);
+      if (id.length === 0) throw new Error('Poll action key must be a non-empty string');
+      return id;
+    };
     const retain = (id: string): void => {
       refs.set(id, (refs.get(id) ?? 0) + 1);
     };
@@ -74,6 +273,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
       }
       refs.delete(id);
       inputs.delete(id);
+      baseRevisions.delete(id);
     };
     return {
       run: async (input: ActionInput<TDefinition>) => {
@@ -103,85 +303,303 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
           refresh: async () => {
             if (!id || input == null) return;
             inputs.set(id, input);
-            await poller.refresh(id, { resetBudget: true });
+            const currentPhase = poller.getPhase(id).phase;
+            if (currentPhase === 'ready' || currentPhase === 'failed' || currentPhase === 'stalled') {
+              await poller.refresh(id, { resetBudget: true });
+              return;
+            }
+            await poller.refresh(id);
           }
         };
       }
     } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
   }
-  const optimistic = (() => {
-    if (definition.kind === 'insert' && definition.optimistic) {
-      const insert = definition.optimistic;
-      return {
-        model: runtime,
-        build: (input: Parameters<TDefinition['variables']>[0], context: { tempId: string | null; operationId: string }) => {
-          return insert.build(input, { ...context, tempId: context.tempId! });
-        },
-        selectServerNode: definition.select,
-        existingTempId: insert.existingTempId,
-        failure: insert.failure,
-        onFailurePatch: insert.onFailurePatch,
-        onRetryPatch: insert.onRetryPatch,
-        correlate: insert.correlate
-      };
-    }
-    if (definition.kind === 'update' && definition.optimistic) {
-      return {
-        method: 'patch' as const,
-        model: runtime,
-        selectId: (input: ActionInput<TDefinition>) => readActionId(definition.id(input)),
-        selectPatch: definition.optimistic.patch
-      };
-    }
-    if (definition.kind === 'destroy' && definition.optimistic === true) {
-      return {
-        method: 'destroy' as const,
-        model: runtime,
-        selectId: (input: ActionInput<TDefinition>) => readActionId(definition.id(input))
-      };
-    }
-    return undefined;
-  })();
-  const rootPlanner =
-    definition.kind === 'update' || (definition.kind === 'insert' && !definition.optimistic)
-      ? ({ data }: { data: Parameters<typeof definition.select>[0] }) => {
-          const row = definition.select(data);
-          return row == null ? [] : getInternalModelHandle(runtime).planRows([row]);
-        }
-      : definition.kind === 'custom' && definition.select
-        ? (() => {
-            const select = definition.select;
-            return ({ data }: { data: Parameters<typeof select>[0] }) => {
-              const row = select(data);
-              return row == null ? [] : getInternalModelHandle(runtime).planRows([row]);
-            };
-          })()
-        : undefined;
-  const mutationConfig = {
-    document: definition.document,
-    result: definition.result,
-    [exactMutationVariables]: definition.variables,
-    optimistic,
-    [exactMutationRootPlan]: rootPlanner,
-    write: definition.write,
-    dedupe: definition.dedupe,
-    once: definition.once,
-    onMutate: definition.before,
-    onError: definition.error,
-    track: definition.track
+  const requestDefinition = definition as ActionRequestDefinition<TDefinition, TStored>;
+  if (requestDefinition.once === true && requestDefinition.dedupe === false) {
+    throw new Error('once cannot be combined with dedupe: false');
+  }
+  let correlatorRegistered = false;
+  const requestIntent = (): OperationRecord['intent'] => modelRootIntentOf(requestDefinition.root);
+  const ensureCorrelator = (intent: OperationRecord['intent']): void => {
+    if (correlatorRegistered || intent !== 'insert') return;
+    const correlate = requestDefinition.optimistic?.correlate;
+    if (correlate) registerMutationCorrelator(runtime.modelId, actionKey, correlate);
+    correlatorRegistered = true;
   };
-  const mutation = runtime.mutation(name, mutationConfig);
-  return {
-    run: (input: ActionInput<TDefinition>) => mutation.run(input) as Promise<ActionPayload<TDefinition> | null>,
-    retry: tempId => mutation.retry(tempId) as Promise<ActionPayload<TDefinition> | null>,
-    discard: tempId => mutation.discard(tempId),
-    use: () => {
-      const handle = mutation.use();
-      return {
-        run: (input: ActionInput<TDefinition>) => handle.mutateAsync(input) as Promise<ActionPayload<TDefinition> | null>,
-        isPending: handle.isPending,
-        error: handle.error
+  const currentRequestRecord = (operationId: string, tempId: string | null): OperationRecord | undefined => {
+    const record = getOperationState().get(operationId);
+    if (
+      !record ||
+      record.actionMode !== 'request' ||
+      record.actionKey !== actionKey ||
+      record.model !== runtime.modelId ||
+      record.status !== 'pending' ||
+      !Object.hasOwn(record, 'input')
+    ) {
+      return undefined;
+    }
+    if (tempId === null) {
+      if (record.tempIds.length !== 0) return undefined;
+    } else if (record.tempIds.length !== 1 || record.tempIds[0] !== tempId) {
+      return undefined;
+    }
+    return record;
+  };
+  const failedRequestRecord = (rowId: string): OperationRecord | undefined => {
+    let latest: OperationRecord | undefined;
+    for (const record of getOperationState().failedForRow(runtime.modelId, rowId)) {
+      if (record.actionMode !== 'request' || record.actionKey !== actionKey) continue;
+      if (!latest || record.createdAt >= latest.createdAt) latest = record;
+    }
+    return latest;
+  };
+  const idempotencyKeyFor = (input: ActionInput<TDefinition>, operationId: string): { key: string; deduped: boolean } => {
+    if (requestDefinition.dedupe === false) return { key: operationId, deduped: false };
+    const key = requestDefinition.dedupe?.key(input);
+    if (key == null) return { key: operationId, deduped: false };
+    if (typeof key !== 'string' || key.length === 0) throw new Error(`${name}: dedupe key must be a non-empty string`);
+    return { key, deduped: true };
+  };
+  const buildOptimisticPlan = (
+    input: ActionInput<TDefinition>,
+    tempId: string | null,
+    operationId: string,
+    captureRollback = true
+  ): ActionRequestPlan => {
+    const optimistic = requestDefinition.optimistic;
+    if (!optimistic) {
+      return { ops: [], intent: requestIntent(), tempIds: [], rowIds: [] };
+    }
+    const intent = modelRootIntentOf(optimistic.root);
+    if (intent === 'insert') {
+      if (tempId === null) throw new Error(`${name}: optimistic insert requires a temp id`);
+      const optimisticOwner = {
+        modelId: runtime.modelId,
+        planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
+          if (rows.length !== 1) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
+          const row = selectOneRow(rows[0], 'optimistic insert');
+          return rootOwner.planRows([{ ...row, id: tempId }]);
+        }
       };
+      const ops = compileModelRootPlan(optimisticOwner, optimistic.root as never, { input, tempId, operationId } as never);
+      if (ops.length === 0) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
+      return { ops, intent, tempIds: [tempId], rowIds: [tempId] };
+    }
+    const ops = compileModelRootPlan(rootOwner, optimistic.root as never, { input, tempId: tempId ?? '', operationId } as never);
+    if (intent === 'patch') {
+      const operation = ops[0] as Extract<(typeof ops)[number], { kind: 'patch' }>;
+      if (!captureRollback) {
+        return {
+          ops: [{ ...operation, operationId }],
+          intent,
+          tempIds: [],
+          rowIds: [operation.id],
+          patchedFields: Object.keys(operation.patch),
+          patchedValues: operation.patch
+        };
+      }
+      const previous = getInternalModelHandle(runtime).readRow(operation.id);
+      if (!previous) throw new Error(`${name}: optimistic update target is missing`);
+      return {
+        ops: [{ ...operation, operationId }],
+        intent,
+        tempIds: [],
+        rowIds: [operation.id],
+        rollbackRow: previous,
+        rollbackMemberships: getInternalModelHandle(runtime).captureMembership(operation.id),
+        patchedFields: Object.keys(operation.patch),
+        patchedValues: operation.patch
+      };
+    }
+    if (ops.length !== 1 || ops[0]?.kind !== 'destroy' || ops[0].ids.length !== 1) {
+      throw new Error(`${name}: optimistic destroy selector must return exactly one destroy`);
+    }
+    const operation = ops[0];
+    const id = operation.ids[0]!;
+    if (hasDependentCascade(runtime.modelId)) {
+      throw new Error(`${runtime.modelId}: optimistic destroy is not supported on models with dependent cascades - rollback cannot restore cascaded children`);
+    }
+    if (!captureRollback) return { ops, intent, tempIds: [], rowIds: [id] };
+    const previous = getInternalModelHandle(runtime).readRow(id);
+    if (!previous) throw new Error(`${name}: optimistic destroy target is missing`);
+    return {
+      ops,
+      intent,
+      tempIds: [],
+      rowIds: [id],
+      rollbackRow: previous,
+      rollbackMemberships: getInternalModelHandle(runtime).captureMembership(id)
+    };
+  };
+  const runRequestExecution = async (
+    operationId: string,
+    tempId: string | null,
+    input: ActionInput<TDefinition>,
+    tracked: boolean
+  ): Promise<ActionPayload<TDefinition> | null> => {
+    const generationFence = createGenerationFence({ generation: getRuntimeGeneration() });
+    const record = tracked ? currentRequestRecord(operationId, tempId) : undefined;
+    if (tracked && !record) return null;
+    const context = { tempId, operationId };
+    let baseRevision: number | undefined;
+    try {
+      requestDefinition.before?.(input, context);
+      if (!generationFence.isCurrent()) return null;
+      const variables = requestDefinition.variables(input, context);
+      if (!generationFence.isCurrent()) return null;
+      baseRevision = getApplyRuntime().currentEpoch();
+      const data = responseDataOrThrow(await getDbTransport().mutation({ mutation: requestDefinition.document, variables }));
+      if (!generationFence.isCurrent()) return null;
+      const payload = data[requestDefinition.result];
+      if (payload == null) throw new Error(`${requestDefinition.result} returned no data`);
+      if (tracked && !currentRequestRecord(operationId, tempId)) return null;
+      const responseOwner = tempId !== null && record?.intent === 'insert'
+        ? {
+            modelId: runtime.modelId,
+            planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
+              if (rows.length !== 1) throw new Error(`${name}: response insert selector must return exactly one row`);
+              return getInternalModelHandle(runtime).planReplace(tempId, selectOneRow(rows[0], 'response insert'));
+            }
+          }
+        : rootOwner;
+      const responseOps = compileModelRootPlan(responseOwner, requestDefinition.root as never, { input, data } as never).map(operation =>
+        operation.kind === 'patch' && record?.intent === 'patch' ? { ...operation, operationId } : operation
+      );
+      if (tempId !== null && record?.intent === 'insert' && responseOps.length === 0) {
+        throw new Error(`${name}: response insert selector must return exactly one row`);
+      }
+      if (!generationFence.isCurrent()) return null;
+      const writePlanCollector = createWritePlanCollector({ ownerKey: runtime.modelId });
+      requestDefinition.write?.({ input, data }, writePlanCollector.plan);
+      const compiledWritePlan = writePlanCollector.compile();
+      if (!generationFence.isCurrent()) return null;
+      const responseWriteOps = stampCausalRevision([...responseOps, ...compiledWritePlan.writeOps], baseRevision);
+      const responseOperationOps = tracked ? [{ kind: 'close' as const, operationId, status: 'committed' as const }] : [];
+      if (responseWriteOps.length > 0 || responseOperationOps.length > 0) {
+        getApplyRuntime().commit(createCommitEnvelope(responseWriteOps, responseOperationOps));
+      }
+      if (!generationFence.isCurrent()) return null;
+      if (!runWritePlanInvalidations(compiledWritePlan.invalidations, generationFence.isCurrent, error => reportCallbackError(error, 'write.invalidate'))) return null;
+      try {
+        requestDefinition.track?.({ input, data });
+      } catch (callbackError) {
+        reportCallbackError(callbackError, 'track');
+      }
+      if (!generationFence.isCurrent()) return null;
+      return payload as ActionPayload<TDefinition>;
+    } catch (error) {
+      if (!generationFence.isCurrent()) return null;
+      const active = tracked ? currentRequestRecord(operationId, tempId) : undefined;
+      if (active) {
+        const rollbackOps = active.intent === 'patch' && active.rollbackRow !== undefined
+          ? (() => {
+              const rowId = active.rowIds[0]!;
+              const current = getInternalModelHandle(runtime).readRow(rowId);
+              if (!current) return [];
+              const patch: Record<string, unknown> = {};
+              const remove: string[] = [];
+              for (const field of active.patchedFields ?? []) {
+                const latest = getOperationState().latestPendingValue(runtime.modelId, rowId, field, operationId);
+                if (latest.found) {
+                  patch[field] = latest.value;
+                  continue;
+                }
+                if (!active.patchedValues || stableSerialize(current[field]) !== stableSerialize(active.patchedValues[field])) continue;
+                if (Object.hasOwn(active.rollbackRow, field)) {
+                  patch[field] = active.rollbackRow[field];
+                  continue;
+                }
+                remove.push(field);
+              }
+              return [{ kind: 'patch' as const, model: runtime.modelId, id: rowId, patch, remove, operationId }];
+            })()
+          : active.intent === 'destroy' && active.rollbackRow !== undefined && active.rollbackMemberships !== undefined
+            ? getInternalModelHandle(runtime).planRestore(active.rollbackRow, active.rollbackMemberships)
+            : [];
+        const status = active.tempIds.length > 0 || active.rollbackRow !== undefined ? 'failed' as const : 'rolledback' as const;
+        getApplyRuntime().commit(createCommitEnvelope(rollbackOps, [{ kind: 'close', operationId, status }]));
+      }
+      if (generationFence.isCurrent()) {
+        try {
+          requestDefinition.error?.(error instanceof Error ? error : new Error(String(error)), { ...context, input });
+        } catch (callbackError) {
+          reportCallbackError(callbackError, 'error');
+        }
+      }
+      throw error;
+    }
+  };
+  const run = async (input: ActionInput<TDefinition>): Promise<ActionPayload<TDefinition> | null> => {
+    const serialized = serializeOperationInput(input);
+    if (!serialized.serializable) throw new Error(`${name}: action input is not JSON serializable`);
+    const operationId = generateTempId('op');
+    const dedupe = idempotencyKeyFor(input, operationId);
+    const operations = getOperationState();
+    if (dedupe.deduped && requestDefinition.once === true && operations.hasCommitted(dedupe.key)) return null;
+    if (dedupe.deduped && operations.hasPending(dedupe.key)) return null;
+    const intent = requestIntent();
+    ensureCorrelator(intent);
+    const optimistic = requestDefinition.optimistic;
+    const tempId = optimistic && modelRootIntentOf(optimistic.root) === 'insert' ? generateTempId('row') : null;
+    const plan = buildOptimisticPlan(input, tempId, operationId);
+    const beginOperation: Omit<OperationRecord, 'status'> = {
+      operationId,
+      actionKey,
+      actionMode: 'request',
+      model: runtime.modelId,
+      tempIds: plan.tempIds,
+      rowIds: plan.rowIds,
+      intent: plan.intent,
+      idempotencyKey: dedupe.key,
+      once: requestDefinition.once === true,
+      input: serialized.value,
+      ...(plan.rollbackRow !== undefined ? { rollbackRow: plan.rollbackRow } : {}),
+      ...(plan.rollbackMemberships !== undefined ? { rollbackMemberships: plan.rollbackMemberships } : {}),
+      ...(plan.patchedFields !== undefined ? { patchedFields: plan.patchedFields } : {}),
+      ...(plan.patchedValues !== undefined ? { patchedValues: plan.patchedValues } : {}),
+      createdAt: Date.now()
+    };
+    const tracked = optimistic !== undefined || dedupe.deduped;
+    if (optimistic) {
+      getApplyRuntime().commit(createCommitEnvelope(plan.ops, [{ kind: 'begin', operation: beginOperation }]));
+    } else if (tracked) {
+      getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'begin', operation: beginOperation }]));
+    }
+    return runRequestExecution(operationId, tempId, input, tracked);
+  };
+  const retry = async (rowId: string): Promise<ActionPayload<TDefinition> | null> => {
+    const record = failedRequestRecord(rowId);
+    if (!record || record.actionMode !== 'request' || record.actionKey !== actionKey || !Object.hasOwn(record, 'input') || record.input === undefined) return null;
+    const input = record.input as ActionInput<TDefinition>;
+    const tempId = record.tempIds.length === 1 ? record.tempIds[0]! : null;
+    const optimistic = requestDefinition.optimistic;
+    if (!optimistic || modelRootIntentOf(optimistic.root) !== record.intent) return null;
+    const plan = buildOptimisticPlan(input, tempId, record.operationId, false);
+    const idempotency = idempotencyKeyFor(input, record.operationId);
+    const { status, ...beginOperation } = {
+      ...record,
+      actionMode: 'request' as const,
+      idempotencyKey: idempotency.key,
+      input: record.input
+    };
+    void status;
+    getApplyRuntime().commit(createCommitEnvelope(plan.ops, [{ kind: 'begin', operation: beginOperation }]));
+    return runRequestExecution(record.operationId, tempId, input, true);
+  };
+  const discard = (rowId: string): void => {
+    const record = failedRequestRecord(rowId);
+    if (!record || record.actionMode !== 'request' || record.actionKey !== actionKey) return;
+    const ops = record.intent === 'insert' && record.tempIds.length === 1
+      ? [{ kind: 'destroy' as const, model: runtime.modelId, ids: [record.tempIds[0]!], tombstone: false }]
+      : [];
+    getApplyRuntime().commit(createCommitEnvelope(ops, [{ kind: 'remove', operationId: record.operationId, expectedStatus: 'failed' }]));
+  };
+  return {
+    run,
+    retry,
+    discard,
+    use: () => {
+      return useActionHandle(run);
     }
   } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
 };

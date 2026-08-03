@@ -1,1 +1,1 @@
-{"version":3,"file":"graphql.d.ts","sourceRoot":"","sources":["../../../../src/dsl/graphql.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,UAAU,CAAC;AAE3C,kEAAkE;AAClE,eAAO,MAAM,GAAG,EAAE,UA2BjB,CAAC"}
+{"version":3,"file":"graphql.d.ts","sourceRoot":"","sources":["../../../../src/dsl/graphql.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,UAAU,EAAE,MAAM,UAAU,CAAC;AAG3C,kEAAkE;AAClE,eAAO,MAAM,gBAAgB,GAAI,SAAS,SAAS,MAAM,EAAE,WAAW,EAAE,OAAO,SAAS;IAAE,EAAE,EAAE,MAAM,CAAA;CAAE,OAAK,UAAU,CAAC,SAAS,EAAE,WAAW,EAAE,OAAO,CA2BnJ,CAAC"}

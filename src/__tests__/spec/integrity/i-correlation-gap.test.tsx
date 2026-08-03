@@ -1,279 +1,192 @@
-import { act } from 'react';
-import { belongsTo, configureDb, defineModelRuntime, f } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind, OperationTypeNode } from 'graphql';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
+import {
+  configureDb,
+  defineModel,
+  defineShape,
+  f,
+  resetRuntime,
+  useDbSubscriptions,
+  type DbTransport
+} from '../../testApi';
+import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
-// Channel-agnostic temp correlation: a mutation that declares `optimistic.correlate` collapses an
-// open temp row into the matching server row regardless of delivery channel - query result
-// application, an unrelated mutation's WritePlan response, or a subscription/ingest handler.
-// The correlation seam is `planRows`, where every write channel plans upsert rows through durable
-// ledger candidates (open insert operations) instead of a whole-model scan.
+type Message = { id: string; chatId: string; body: string; status: 'sending' | 'sent' };
+type SendInput = { chatId: string; body: string };
+type SendData = { messageSend: { message: Message } };
+type SendVariables = { input: SendInput };
+type QueryData = { messages: Message[] };
+type QueryVariables = { chatId: string };
+type EventData = { messageCreated: { message: Message } };
+type Gift = { id: string; label: string };
+type GiftData = { giftSend: { gift: Gift; message: Message } };
+type GiftVariables = { input: { label: string } };
 
-type MessageRow = { id: string; chatId: string; body: string; status: 'Sending' | 'Failed' | 'Sent' };
-type ChatRow = { id: string; lastMessageId: string | null; lastActivityAt: number };
+const MessageSchema = defineShape<Message>()({
+  chatId: f.str(),
+  body: f.str(),
+  status: f.enum(['sending', 'sent'] as const)
+});
+const GiftSchema = defineShape<Gift>()({ label: f.str() });
+const sendDocument: TypedDocumentNode<SendData, SendVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const queryDocument: TypedDocumentNode<QueryData, QueryVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const giftDocument: TypedDocumentNode<GiftData, GiftVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const eventDocument: TypedDocumentNode<EventData, Record<string, never>> = {
+  kind: Kind.DOCUMENT,
+  definitions: [
+    {
+      kind: Kind.OPERATION_DEFINITION,
+      operation: OperationTypeNode.SUBSCRIPTION,
+      variableDefinitions: [],
+      directives: [],
+      selectionSet: {
+        kind: Kind.SELECTION_SET,
+        selections: [{ kind: Kind.FIELD, name: { kind: Kind.NAME, value: 'messageCreated' }, arguments: [], directives: [] }]
+      }
+    }
+  ]
+};
 
-const document = { kind: 'Document', definitions: [] } as never;
-
-const createMessagesModel = (suffix: string) =>
-  defineModelRuntime({
-    id: `SpecIntegrityCorrelationMessages${suffix}`,
-    name: `SpecIntegrityCorrelationMessages${suffix}`,
-    fields: {
-      id: f.str(),
-      chatId: f.str(),
-      body: f.str(),
-      status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent'])
-    },
+const defineMessages = (key: string) =>
+  defineModel(key, {
+    schema: MessageSchema,
     maintenance: { dropTempRowsAfterMs: 60_000 },
-    scopes: {
-      thread: ({ by: { chatId: 'chatId' } })
-    }
+    relations: owner => ({
+      thread: {
+        by: { chatId: 'chatId' },
+        remote: owner.gql.list(queryDocument, {
+          variables: (params: QueryVariables) => params,
+          select: data => data.messages
+        })
+      }
+    }),
+    actions: owner => ({
+      send: owner.gql.action(sendDocument, {
+        mode: 'request',
+        result: 'messageSend',
+        variables: (input: SendInput) => ({ input }),
+        optimistic: {
+          root: {
+            insert: {
+              select: ({ input, tempId }) => ({ id: tempId, ...input, status: 'sending' as const })
+            }
+          },
+          correlate: { fields: ['chatId', 'body'] }
+        },
+        root: { insert: { select: ({ data }) => data.messageSend.message } }
+      })
+    }),
+    events: owner => ({
+      created: owner.gql.live(eventDocument, {
+        variables: {},
+        root: { insert: { select: ({ payload }) => payload.message } }
+      })
+    })
   });
 
-const createSendMutation = (messages: ReturnType<typeof createMessagesModel>) =>
-  messages.mutation<{ messageSend: { message: MessageRow } }, { chatId: string; body: string }, MessageRow, MessageRow>('send', {
-    document,
-    result: 'messageSend',
-    optimistic: {
-      model: messages,
-      tempIdPrefix: 'msg',
-      build: (input, { tempId }) => ({ id: tempId!, chatId: input.chatId, body: input.body, status: 'Sending' }),
-      selectServerNode: data => data.messageSend.message,
-      onFailurePatch: () => ({ status: 'Failed' }),
-      correlate: { fields: ['chatId', 'body'] }
-    }
+const startPendingSend = (messages: ReturnType<typeof defineMessages>): string => {
+  act(() => {
+    void messages.actions.send.run({ chatId: 'chat-1', body: 'hello' });
   });
+  const rows = messages.thread({ chatId: 'chat-1' }).read();
+  expect(rows).toHaveLength(1);
+  return rows[0]!.id;
+};
+
+const expectCorrelated = (messages: ReturnType<typeof defineMessages>, tempId: string): void => {
+  expect(messages.thread({ chatId: 'chat-1' }).read()).toEqual([
+    { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' }
+  ]);
+  expect(messages.find(tempId)).toBeUndefined();
+  expect(messages.operation(tempId).read().pending).toBe(false);
+};
+
+function Activation(): null {
+  useDbSubscriptions(true);
+  return null;
+}
+
+afterEach(resetRuntime);
 
 describe('channel-agnostic temp correlation', () => {
-  it('case 1: a query-delivered server row collapses the still-pending temp row of the same logical message', async () => {
-    const transport = createMockTransport({
-      // The mutation response never arrives (lost/never processed) - mirrors the "response of own
-      // mutation lost" scenario. The temp row is left permanently in 'Sending'.
-      mutation: () => new Promise(() => {}),
-      query: async <TData,>() => ({
-        data: { thread: { nodes: [{ id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' }], pageInfo: { hasPreviousPage: false } } } as TData
-      })
-    });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const messages = createMessagesModel('Query');
-    const send = createSendMutation(messages);
-    // Mirrors yupi_v2's real chatThreadQuery shape (coverage: 'page', direction: 'backward'), not the
-    // library's non-paginated default ('complete' coverage, which wholesale-replaces scope membership
-    // on every fetch and would trivially "fix" this by accident).
-    const query = messages.query<{ thread: { nodes: MessageRow[]; pageInfo: { hasPreviousPage: boolean } } }, { chatId: string }, { chatId: string }, MessageRow>('thread', {
-      document,
-      vars: value => value,
-      page: data => ({ nodes: data.thread.nodes, pageInfo: data.thread.pageInfo }),
-      into: messages.scopes.thread,
-      coverage: 'page',
-      direction: 'backward'
-    });
-
-    act(() => {
-      void send.run({ chatId: 'chat-1', body: 'hello' });
-    });
-    expect(messages.scopes.thread.read({ chatId: 'chat-1' })).toHaveLength(1);
-
-    // Direct, non-hook fetch (the same `query.fetch` a screen's mount effect would trigger) - avoids
-    // pulling DbProvider/bootDb into this scenario, since bootDb runs its own crash-recovery pass
-    // (unrelated to this defect) that would confound a still-genuinely-in-flight mutation.
-    await act(async () => {
-      await query.fetch({ chatId: 'chat-1' });
-    });
-
-    const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe('server-1');
-  });
-
-  it('case 2: an unrelated mutation WritePlan write collapses the still-pending temp row of the same logical message', async () => {
-    const transport = createMockTransport({
-      mutation: async <TData,>(operation: { variables?: unknown }) => {
-        const variables = (operation.variables ?? {}) as { input?: { chatId?: string } };
-        if (variables.input?.chatId) return new Promise<{ data: TData }>(() => {});
-        return { data: { giftSend: { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' } } } } as { data: TData };
-      }
-    });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const messages = createMessagesModel('WritePlan');
-    const send = createSendMutation(messages);
-    const giftEcho = messages.mutation<{ giftSend: { message: MessageRow } }, Record<string, never>, never, never>('giftEcho', {
-      document,
-      result: 'giftSend',
-      mapInput: () => ({}),
-      write: ({ data }, plan) => plan.upsert(messages, data.giftSend.message)
-    });
-
-    act(() => {
-      void send.run({ chatId: 'chat-1', body: 'hello' });
-    });
-    expect(messages.scopes.thread.read({ chatId: 'chat-1' })).toHaveLength(1);
-
-    await act(async () => {
-      await giftEcho.run({});
-    });
-
-    const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe('server-1');
-  });
-
-  it('case 3: a subscription/ingest handler collapses the still-pending temp row of the same logical message', async () => {
-    const transport = createMockTransport({ mutation: () => new Promise(() => {}) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const messages = createMessagesModel('Ingest');
-    const send = createSendMutation(messages);
-    const ingest = messages.ingest({
-      messageCreated: { handler: payload => ({ upsert: (payload as { message: MessageRow }).message }) }
-    });
-
-    act(() => {
-      void send.run({ chatId: 'chat-1', body: 'hello' });
-    });
-    expect(messages.scopes.thread.read({ chatId: 'chat-1' })).toHaveLength(1);
-
-    act(() => {
-      ingest.apply('messageCreated', { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' } });
-    });
-
-    const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe('server-1');
-  });
-
-  it('case 4: a failed temp row resolves when the equivalent server row arrives through another channel', async () => {
-    const transport = createMockTransport({
-      mutation: async () => Promise.reject(new Error('offline')),
-      query: async <TData,>() => ({
-        data: { thread: { nodes: [{ id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' }], pageInfo: { hasPreviousPage: false } } } as TData
-      })
-    });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const messages = createMessagesModel('FailedLiveness');
-    const send = createSendMutation(messages);
-    const query = messages.query<{ thread: { nodes: MessageRow[]; pageInfo: { hasPreviousPage: boolean } } }, { chatId: string }, { chatId: string }, MessageRow>('thread', {
-      document,
-      vars: value => value,
-      page: data => ({ nodes: data.thread.nodes, pageInfo: data.thread.pageInfo }),
-      into: messages.scopes.thread,
-      coverage: 'page',
-      direction: 'backward'
-    });
-
-    let tempId!: string;
-    await act(async () => {
-      const runPromise = send.run({ chatId: 'chat-1', body: 'hello' });
-      tempId = messages.scopes.thread.read({ chatId: 'chat-1' })[0]!.id;
-      await expect(runPromise).rejects.toThrow('offline');
-    });
-    expect(messages.find(tempId)).toMatchObject({ status: 'Failed' });
-
-    await act(async () => {
-      await query.fetch({ chatId: 'chat-1' });
-    });
-
-    const rows = messages.scopes.thread.read({ chatId: 'chat-1' });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.id).toBe('server-1');
-  });
-
-  it('case 6: closes the correlated pending operation as committed', async () => {
-    const transport = createMockTransport({ mutation: () => new Promise(() => {}) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const messages = createMessagesModel('CloseOp');
-    const send = createSendMutation(messages);
-    const ingest = messages.ingest({
-      messageCreated: { handler: payload => ({ upsert: (payload as { message: MessageRow }).message }) }
-    });
-
-    act(() => {
-      void send.run({ chatId: 'chat-1', body: 'hello' });
-    });
-    const tempId = messages.scopes.thread.read({ chatId: 'chat-1' })[0]!.id;
-    const pending = renderCounted(() => messages.use.pending(tempId));
-    expect(pending.result()).toBe(true);
-
-    act(() => {
-      ingest.apply('messageCreated', { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' } });
-    });
-
-    // The operation whose temp row was confirmed through another channel must not stay pending
-    // forever - it closes as committed at correlation time.
-    expect(pending.result()).toBe(false);
-    pending.unmount();
-  });
-
-  // Case 5, as specified, cannot be reproduced through the public API: `deriveEffects`
-  // (react-native-dblayer/src/core/relations.ts) gates the ENTIRE `upsertEffects` call - which is
-  // what runs a `belongsTo` relation's `touch`/`counterCache` - behind `acceptedRow.origin === 'event'`
-  // (see the loop over `accepted` right before the effect-flush loop). A mutation's own optimistic
-  // insert writes with `origin: undefined` (plain `planRows`, no `{ origin: 'event' }` passed - see
-  // `defineMutation.ts`'s `InsertOptimistic` branch), and even its own successful commit writes with
-  // `origin: 'replace'` (`planReplace`) - NEITHER value satisfies the `'event'` gate. Only an
-  // ingest/subscription-driven upsert (`defineIngest.ts` explicitly tags its ops `origin: 'event'`)
-  // ever reaches `upsertEffects`. So a mutation's optimistic insert never touches its `belongsTo`
-  // parent in the first place - there is nothing for a failed mutation to roll back, and no way to
-  // construct the "optimistic insert touches parent, then the mutation fails" scenario through the
-  // public API at all. The two assertions below verify this directly (mid-flight AND after a
-  // successful commit) instead of guessing from the source comment alone.
-  it('case 5: cannot be reproduced - a mutation optimistic insert never touches its belongsTo parent at all (only origin:"event" ingest applies do), so there is nothing to roll back on failure', async () => {
-    const chats = defineModelRuntime({
-      id: 'SpecIntegrityCorrelationChatsRollback',
-      name: 'SpecIntegrityCorrelationChatsRollback',
-      fields: { id: f.str(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() }
-    });
-    const messages = defineModelRuntime({
-      id: 'SpecIntegrityCorrelationMessagesRollback',
-      name: 'SpecIntegrityCorrelationMessagesRollback',
-      fields: { id: f.str(), chatId: f.str(), body: f.str(), status: f.enum<MessageRow['status']>(['Sending', 'Failed', 'Sent']) },
-      maintenance: { dropTempRowsAfterMs: 1000 },
-      relations: () => ({
-        chat: belongsTo<MessageRow, ChatRow>(chats, {
-          foreignKey: 'chatId',
-          touch: message => ({ lastMessageId: message.id, lastActivityAt: 1 })
+  it('collapses an open temp row when a query lands the server row', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: () => new Promise(() => undefined),
+        query: async <TData,>() => ({
+          data: { messages: [{ id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' }] } as TData
         })
       })
     });
+    const messages = defineMessages('SpecCorrelationQuery');
+    const tempId = startPendingSend(messages);
 
-    // Sub-case A: mutation fails - confirms there is no touch to roll back.
-    const failingTransport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
-    configureDb({ storage: createMemoryPlane(), transport: failingTransport });
-    chats.insert({ id: 'chat-1', lastMessageId: 'm-old', lastActivityAt: 0 });
-    const failingSend = messages.mutation<{ messageSend: { message: MessageRow } }, { chatId: string; body: string }, MessageRow, MessageRow>('send', {
-      document,
-      result: 'messageSend',
-      optimistic: {
-        model: messages,
-        tempIdPrefix: 'msg',
-        build: (input, { tempId }) => ({ id: tempId!, chatId: input.chatId, body: input.body, status: 'Sending' }),
-        selectServerNode: data => data.messageSend.message,
-        onFailurePatch: () => ({ status: 'Failed' })
+    await act(async () => messages.thread({ chatId: 'chat-1' }).fetch());
+
+    expectCorrelated(messages, tempId);
+  });
+
+  it('collapses an open temp row when a model event lands the server row', () => {
+    let next!: (data: unknown) => void;
+    const transport = createMockTransport({
+      mutation: () => new Promise(() => undefined),
+      subscribe: (
+        _options: Parameters<NonNullable<DbTransport['subscribe']>>[0],
+        handlers: Parameters<NonNullable<DbTransport['subscribe']>>[1]
+      ) => {
+        next = handlers.next;
+        return () => undefined;
       }
     });
-    const runPromise = failingSend.run({ chatId: 'chat-1', body: 'hello' });
-    // Mid-flight, right after the optimistic insert, BEFORE the mutation has even had a chance to
-    // fail: the parent is already untouched.
-    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'm-old' });
-    await expect(runPromise).rejects.toThrow('offline');
-    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'm-old' });
-
-    // Sub-case B: mutation SUCCEEDS (server confirms, planReplace commits with origin:'replace') -
-    // still no touch. This rules out "maybe touch only fires on commit, not on the optimistic phase".
-    const succeedingTransport = createMockTransport({
-      mutation: async <TData,>() => ({ data: { messageSend: { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'Sent' } } } as TData })
+    configureDb({ storage: createMemoryPlane(), transport });
+    const messages = defineMessages('SpecCorrelationEvent');
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Activation));
     });
-    configureDb({ storage: createMemoryPlane(), transport: succeedingTransport });
-    chats.insert({ id: 'chat-1', lastMessageId: 'm-old', lastActivityAt: 0 });
-    const succeedingSend = messages.mutation<{ messageSend: { message: MessageRow } }, { chatId: string; body: string }, MessageRow, MessageRow>('send2', {
-      document,
-      result: 'messageSend',
-      optimistic: {
-        model: messages,
-        tempIdPrefix: 'msg',
-        build: (input, { tempId }) => ({ id: tempId!, chatId: input.chatId, body: input.body, status: 'Sending' }),
-        selectServerNode: data => data.messageSend.message
+    const tempId = startPendingSend(messages);
+
+    act(() => next({ messageCreated: { message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' } } }));
+
+    expectCorrelated(messages, tempId);
+    act(() => root.unmount());
+  });
+
+  it('collapses an open temp row when another model action plans the server row', async () => {
+    const transport = createMockTransport({
+      mutation: async <TData,>(operation: Parameters<DbTransport['mutation']>[0]) => {
+        if (operation.mutation === sendDocument) return await new Promise<{ data: TData }>(() => undefined);
+        return {
+          data: {
+            giftSend: {
+              gift: { id: 'gift-1', label: 'gift' },
+              message: { id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' }
+            }
+          } as TData
+        };
       }
     });
-    await succeedingSend.run({ chatId: 'chat-1', body: 'hello' });
-    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'm-old' });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const messages = defineMessages('SpecCorrelationWritePlan');
+    const gifts = defineModel('SpecCorrelationGifts', {
+      schema: GiftSchema,
+      actions: owner => ({
+        send: owner.gql.action(giftDocument, {
+          mode: 'request',
+          result: 'giftSend',
+          variables: (input: GiftVariables['input']) => ({ input }),
+          root: { insert: { select: ({ data }) => data.giftSend.gift } },
+          write: ({ data }, plan) => plan.upsert(messages, data.giftSend.message)
+        })
+      })
+    });
+    const tempId = startPendingSend(messages);
+
+    await act(async () => gifts.actions.send.run({ label: 'gift' }));
+
+    expectCorrelated(messages, tempId);
   });
 });

@@ -1,22 +1,57 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineCommand, defineModelRuntime, f } from '../../testApi';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
-
-// Mirrors yupi_v2 src/db/mutations/walletMutations.ts sendGift: one model-less defineCommand whose
-// WritePlan fans a single response out into 4 independent models in ONE apply transaction.
 
 type UserRow = { id: string; fullName: string };
 type MessageRow = { id: string; chatId: string; body: string };
 type WalletTransactionRow = { id: string; amount: number };
+type CurrentUserRow = { id: string; balance: number };
+type GiftInput = { userId: string; giftId: string };
+type GiftData = {
+  giftSend: {
+    user: UserRow;
+    message: MessageRow;
+    wallet: { balance: number };
+    transaction: WalletTransactionRow;
+  };
+};
+type GiftVariables = { input: GiftInput };
 
-const document = { kind: 'Document', definitions: [] } as never;
+const document: TypedDocumentNode<GiftData, GiftVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const UserSchema = defineShape<UserRow>()({ fullName: f.str() });
+const MessageSchema = defineShape<MessageRow>()({ chatId: f.str(), body: f.str() });
+const CurrentUserSchema = defineShape<CurrentUserRow>()({ balance: f.num() });
+const WalletTransactionSchema = defineShape<WalletTransactionRow>()({ amount: f.num() });
 
-const createModels = (suffix: string) => ({
-  users: defineModelRuntime({ id: `SpecConsumerCmdUsers${suffix}`, name: `SpecConsumerCmdUsers${suffix}`, fields: { id: f.str(), fullName: f.str() } }),
-  messages: defineModelRuntime({ id: `SpecConsumerCmdMessages${suffix}`, name: `SpecConsumerCmdMessages${suffix}`, fields: { id: f.str(), chatId: f.str(), body: f.str() } }),
-  currentUser: defineModelRuntime({ id: `SpecConsumerCmdCurrentUser${suffix}`, name: `SpecConsumerCmdCurrentUser${suffix}`, fields: { id: f.str(), balance: f.num() } }),
-  walletTransactions: defineModelRuntime({ id: `SpecConsumerCmdWallet${suffix}`, name: `SpecConsumerCmdWallet${suffix}`, fields: { id: f.str(), amount: f.num() } })
-});
+const createModels = (suffix: string) => {
+  const users = defineModel(`SpecConsumerCmdUsers${suffix}`, { schema: UserSchema });
+  const messages = defineModel(`SpecConsumerCmdMessages${suffix}`, { schema: MessageSchema });
+  const walletTransactions = defineModel(`SpecConsumerCmdWallet${suffix}`, { schema: WalletTransactionSchema });
+  const currentUser = defineModel(`SpecConsumerCmdCurrentUser${suffix}`, {
+    schema: CurrentUserSchema,
+    actions: owner => ({
+      sendGift: owner.gql.action(document, {
+        mode: 'request',
+        result: 'giftSend',
+        variables: (input: GiftInput) => ({ input }),
+        dedupe: false,
+        root: {
+          update: {
+            select: ({ data }) => ({ id: 'me', patch: { balance: data.giftSend.wallet.balance } })
+          }
+        },
+        write: ({ data }, plan) => {
+          plan.upsert(users, data.giftSend.user);
+          plan.upsert(messages, data.giftSend.message);
+          plan.upsert(walletTransactions, data.giftSend.transaction);
+        }
+      })
+    })
+  });
+  return { users, messages, currentUser, walletTransactions };
+};
 
 describe('multi-model command consumer contracts', () => {
   it('writes User + Message + CurrentUser(balance) + WalletTransaction in one commit: each model reader renders once, unrelated readers zero', async () => {
@@ -36,31 +71,14 @@ describe('multi-model command consumer contracts', () => {
     configureDb({ storage: createMemoryPlane(), transport });
     const { users, messages, currentUser, walletTransactions } = createModels('Commit');
     currentUser.insert({ id: 'me', balance: 100 });
-    const unrelated = defineModelRuntime({ id: 'SpecConsumerCmdUnrelated', name: 'SpecConsumerCmdUnrelated', fields: { id: f.str(), value: f.str() } });
+    const unrelated = defineModel('SpecConsumerCmdUnrelated', { schema: defineShape<{ id: string; value: string }>()({ value: f.str() }) });
     unrelated.insert({ id: 'x', value: 'before' });
 
-    const sendGift = defineCommand<
-      { giftSend: { user: UserRow; message: MessageRow; wallet: { balance: number }; transaction: WalletTransactionRow } },
-      { userId: string; giftId: string },
-      never,
-      never
-    >('sendGift', {
-      document,
-      result: 'giftSend',
-      dedupe: false,
-      write: ({ data }, plan) => {
-        plan.upsert(users, data.giftSend.user);
-        plan.upsert(messages, data.giftSend.message);
-        plan.upsert(currentUser, { id: 'me', balance: data.giftSend.wallet.balance });
-        plan.upsert(walletTransactions, data.giftSend.transaction);
-      }
-    });
-
-    const userReader = renderCounted(() => users.use.find('user-1'));
-    const messageReader = renderCounted(() => messages.use.find('msg-1'));
-    const currentUserReader = renderCounted(() => currentUser.use.find('me'));
-    const walletReader = renderCounted(() => walletTransactions.use.find('tx-1'));
-    const unrelatedReader = renderCounted(() => unrelated.use.find('x'));
+    const userReader = renderCounted(() => users.useFind('user-1'));
+    const messageReader = renderCounted(() => messages.useFind('msg-1'));
+    const currentUserReader = renderCounted(() => currentUser.useFind('me'));
+    const walletReader = renderCounted(() => walletTransactions.useFind('tx-1'));
+    const unrelatedReader = renderCounted(() => unrelated.useFind('x'));
     const before = {
       user: userReader.renders(),
       message: messageReader.renders(),
@@ -70,7 +88,7 @@ describe('multi-model command consumer contracts', () => {
     };
 
     await act(async () => {
-      await sendGift.run({ userId: 'user-1', giftId: 'gift-1' });
+      await currentUser.actions.sendGift.run({ userId: 'user-1', giftId: 'gift-1' });
     });
 
     expect(userReader.renders() - before.user).toBe(1);
@@ -101,28 +119,11 @@ describe('multi-model command consumer contracts', () => {
     const { users, messages, currentUser, walletTransactions } = createModels('Error');
     currentUser.insert({ id: 'me', balance: 100 });
 
-    const sendGift = defineCommand<
-      { giftSend: { user: UserRow; message: MessageRow; wallet: { balance: number }; transaction: WalletTransactionRow } },
-      { userId: string; giftId: string },
-      never,
-      never
-    >('sendGift', {
-      document,
-      result: 'giftSend',
-      dedupe: false,
-      write: ({ data }, plan) => {
-        plan.upsert(users, data.giftSend.user);
-        plan.upsert(messages, data.giftSend.message);
-        plan.upsert(currentUser, { id: 'me', balance: data.giftSend.wallet.balance });
-        plan.upsert(walletTransactions, data.giftSend.transaction);
-      }
-    });
+    await expect(currentUser.actions.sendGift.run({ userId: 'user-1', giftId: 'gift-1' })).rejects.toThrow('network down');
 
-    await expect(sendGift.run({ userId: 'user-1', giftId: 'gift-1' })).rejects.toThrow('network down');
-
-    expect(users.all()).toEqual([]);
-    expect(messages.all()).toEqual([]);
-    expect(walletTransactions.all()).toEqual([]);
+    expect(users.where({}).read()).toEqual([]);
+    expect(messages.where({}).read()).toEqual([]);
+    expect(walletTransactions.where({}).read()).toEqual([]);
     expect(currentUser.find('me')?.balance).toBe(100);
   });
 });

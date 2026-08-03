@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, gql } from '../../testApi';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; value: string };
@@ -33,14 +33,14 @@ describe('action write plan', () => {
     const Unrelated = defineModel('SpecActionWritePlanUnrelated', { schema: RowSchema });
     const Root = defineModel('SpecActionWritePlanRoot', {
       schema: RowSchema,
-      actions: {
-        apply: gql.action(
+      actions: owner => ({
+        apply: owner.gql.action(
           rootDocument,
           {
+            mode: 'request',
             result: 'rootAction',
             variables: (input: RootInput) => ({ input }),
-            kind: 'insert',
-            select: (data: RootResponse) => data.rootAction.root,
+            root: { insert: { select: ({ data }) => data.rootAction.root } },
             write: (_context, plan) => {
               plan.upsert(Added, { id: 'added-1', value: 'added' });
               plan.update(Changed, 'changed-1', { value: 'changed' });
@@ -48,7 +48,7 @@ describe('action write plan', () => {
             }
           }
         )
-      }
+      })
     });
 
     Changed.insert({ id: 'changed-1', value: 'before' });
@@ -109,27 +109,26 @@ describe('action write plan', () => {
 
     const Root = defineModel('SpecActionWritePlanAutomaticRoot', {
       schema: RowSchema,
-      actions: {
-        update: gql.action(rootDocument, {
+      actions: owner => ({
+        update: owner.gql.action(rootDocument, {
+          mode: 'request',
           result: 'rootAction',
           variables: (input: AutomaticInput) => ({ input }),
-          kind: 'update',
-          id: input => input.id,
-          select: (data: RootResponse) => data.rootAction.root
+          root: { insert: { select: ({ data }) => data.rootAction.root } }
         }),
-        insert: gql.action(rootDocument, {
+        insert: owner.gql.action(rootDocument, {
+          mode: 'request',
           result: 'rootAction',
           variables: (input: AutomaticInput) => ({ input }),
-          kind: 'insert',
-          select: (data: RootResponse) => data.rootAction.root
+          root: { insert: { select: ({ data }) => data.rootAction.root } }
         }),
-        custom: gql.action(rootDocument, {
+        custom: owner.gql.action(rootDocument, {
+          mode: 'request',
           result: 'rootAction',
           variables: (input: AutomaticInput) => ({ input }),
-          kind: 'custom',
-          select: (data: RootResponse) => data.rootAction.root
+          root: { insert: { select: ({ data }) => data.rootAction.root } }
         })
-      }
+      })
     });
 
     await Root.actions.update.run({ id: 'input-update', value: 'update' });
@@ -154,24 +153,25 @@ describe('action write plan', () => {
     const Root = defineModel('SpecActionWritePlanOptimisticRoot', {
       schema: RowSchema,
       maintenance: { dropTempRowsAfterMs: 60_000 },
-      actions: {
-        apply: gql.action(rootDocument, {
+      actions: owner => ({
+        apply: owner.gql.action(rootDocument, {
+          mode: 'request',
           result: 'rootAction',
           variables: (input: RootInput) => ({ input }),
-          kind: 'insert',
-          select: (data: RootResponse) => {
-            selectCalls += 1;
-            return data.rootAction.root;
+          root: {
+            insert: {
+              select: ({ data }) => {
+                selectCalls += 1;
+                return data.rootAction.root;
+              }
+            }
           },
-          optimistic: {
-            build: (_input, context) => {
-              tempId = context.tempId;
-              return { id: context.tempId, value: 'optimistic' };
-            },
-            failure: 'rollback'
-          }
+          optimistic: { root: { insert: { select: ({ tempId: operationTempId }) => {
+            tempId = operationTempId;
+            return { id: operationTempId, value: 'optimistic' };
+          } } } }
         })
-      }
+      })
     });
     diagnostics().reset();
     const beforeCommits = diagnostics().snapshot().commits;

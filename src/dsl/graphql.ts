@@ -1,7 +1,8 @@
 import type { GraphqlDsl } from '../types';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 
 /** Typed GraphQL declarations for model relations and actions. */
-export const gql: GraphqlDsl = {
+export const createGraphqlDsl = <TOwnerKey extends string, TBuildInput, TStored extends { id: string }>(): GraphqlDsl<TOwnerKey, TBuildInput, TStored> => ({
   live: (document, options) => ({
     type: 'live',
     document,
@@ -22,10 +23,10 @@ export const gql: GraphqlDsl = {
     document,
     ...options
   }),
-  action: (document, options) =>
+  action: (document: TypedDocumentNode<unknown, never>, options: Record<string, unknown>) =>
     ({
       type: 'action',
       document,
       ...options
     }) as never
-};
+});

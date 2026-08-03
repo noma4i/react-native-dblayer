@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
-import { configureDb, defineModel, defineModelRuntime, defineShape, f, getCommitBus, gql, resetRuntime } from '../../testApi';
+import { configureDb, defineModel, defineShape, f, getCommitBus, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; value: string };
@@ -27,9 +27,9 @@ describe('write plan safety', () => {
     const target = { invalidate: () => invalidations++ };
     const Root = defineModel('SpecWritePlanSafetyQueryRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(queryDocument, {
+          remote: owner.gql.single(queryDocument, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -39,7 +39,7 @@ describe('write plan safety', () => {
             }
           })
         }
-      }
+      })
     });
 
     await expect(Root.root({ bucket: 'all' }).fetch()).rejects.toThrow('response dropped');
@@ -60,19 +60,19 @@ describe('write plan safety', () => {
     const target = { invalidate: () => invalidations++ };
     const Root = defineModel('SpecWritePlanSafetyActionRoot', {
       schema: RowSchema,
-      actions: {
-        apply: gql.action(actionDocument, {
+      actions: owner => ({
+        apply: owner.gql.action(actionDocument, {
+          mode: 'request',
           result: 'rootAction',
           variables: (input: ActionInput) => ({ input }),
-          kind: 'insert',
-          select: data => data.rootAction.root,
+          root: { insert: { select: ({ data }) => data.rootAction.root } },
           write: (_context, plan) => {
             plan.upsert(Sibling, { id: 'sibling-action-reset', value: 'sibling' });
             plan.invalidate(target);
             resetRuntime();
           }
         })
-      }
+      })
     });
 
     const result = await Root.actions.apply.run({ value: 'input' });
@@ -101,9 +101,9 @@ describe('write plan safety', () => {
     const target = { invalidate: () => invalidations++ };
     const Root = defineModel('SpecWritePlanSafetyCommitRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(queryDocument, {
+          remote: owner.gql.single(queryDocument, {
             variables: (params: Scope) => params,
             select: data => data.root,
             staleTime: 60_000,
@@ -113,7 +113,7 @@ describe('write plan safety', () => {
             }
           })
         }
-      }
+      })
     });
     const unsubscribe = getCommitBus().subscribeAll(() => resetRuntime());
 
@@ -148,12 +148,12 @@ describe('write plan safety', () => {
     const secondTarget = { invalidate: () => secondInvalidations++ };
     const Root = defineModel('SpecWritePlanSafetyInvalidationRoot', {
       schema: RowSchema,
-      actions: {
-        apply: gql.action(actionDocument, {
+      actions: owner => ({
+        apply: owner.gql.action(actionDocument, {
+          mode: 'request',
           result: 'rootAction',
           variables: (input: ActionInput) => ({ input }),
-          kind: 'insert',
-          select: data => data.rootAction.root,
+          root: { insert: { select: ({ data }) => data.rootAction.root } },
           track: () => {
             tracks += 1;
           },
@@ -163,7 +163,7 @@ describe('write plan safety', () => {
             plan.invalidate(secondTarget);
           }
         })
-      }
+      })
     });
 
     const result = await Root.actions.apply.run({ value: 'input' });
@@ -182,16 +182,12 @@ describe('write plan safety', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
-    const RuntimeSibling = defineModelRuntime({
-      id: 'SpecWritePlanSafetyRuntimeSibling',
-      name: 'SpecWritePlanSafetyRuntimeSibling',
-      fields: { value: f.str() }
-    });
+    const RuntimeSibling = defineModel('SpecWritePlanSafetyRuntimeSibling', { schema: RowSchema });
     const Root = defineModel('SpecWritePlanSafetyRuntimeRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(queryDocument, {
+          remote: owner.gql.single(queryDocument, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -199,7 +195,7 @@ describe('write plan safety', () => {
             }
           })
         }
-      }
+      })
     });
 
     await Root.root({ bucket: 'all' }).fetch();
@@ -216,12 +212,12 @@ describe('write plan safety', () => {
     const Victim = defineModel('SpecWritePlanSafetyVictim', { schema: RowSchema });
     Victim.insert({ id: 'victim-update', value: 'before-update' });
     Victim.insert({ id: 'victim-destroy', value: 'before-destroy' });
-    const forgedTarget = { key: Victim.key, build: Victim.build };
+    const forgedTarget: { readonly key: string; build(input: Row): Row } = { key: Victim.key, build: Victim.build };
     const RootUpdate = defineModel('SpecWritePlanSafetyForgedUpdateRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         updateRoot: {
-          remote: gql.single(queryDocument, {
+          remote: owner.gql.single(queryDocument, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -229,13 +225,13 @@ describe('write plan safety', () => {
             }
           })
         }
-      }
+      })
     });
     const RootDestroy = defineModel('SpecWritePlanSafetyForgedDestroyRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         destroyRoot: {
-          remote: gql.single(queryDocument, {
+          remote: owner.gql.single(queryDocument, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -243,7 +239,7 @@ describe('write plan safety', () => {
             }
           })
         }
-      }
+      })
     });
 
     await expect(RootUpdate.updateRoot({ bucket: 'all' }).fetch()).rejects.toThrow('Unknown model handle');
@@ -267,9 +263,9 @@ describe('write plan safety', () => {
     const target = { invalidate: () => invalidations++ };
     const Root = defineModel('SpecWritePlanSafetyUndefinedRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(queryDocument, {
+          remote: owner.gql.single(queryDocument, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -278,7 +274,7 @@ describe('write plan safety', () => {
             }
           })
         }
-      }
+      })
     });
 
     await expect(Root.root({ bucket: 'all' }).fetch()).rejects.toThrow('WritePlan.update does not accept undefined for "value"');

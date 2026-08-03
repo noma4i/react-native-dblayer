@@ -1,8 +1,11 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type {
-  ActionMode,
-  GraphqlActionDefinition,
-  GraphqlActionOptions,
+  GraphqlActionDurableDefinition,
+  GraphqlActionDurableOptions,
+  GraphqlActionPollDefinition,
+  GraphqlActionPollOptions,
+  GraphqlActionRequestDefinition,
+  GraphqlActionRequestOptions,
   GraphqlConnectionDefinition,
   GraphqlConnectionNode,
   GraphqlConnectionOptions,
@@ -16,29 +19,15 @@ import type {
   TypedDocumentVariables
 } from './dsl.modelFacade.types';
 
-type ActionOptionsForMode<
-  TData,
-  TVariables,
-  TInput,
-  TResultKey extends keyof TData & string,
-  TNode,
-  TMode extends ActionMode
-> = Extract<
-  GraphqlActionOptions<TData, TVariables, TInput, TResultKey, TNode>,
-  TMode extends 'request' ? { mode?: 'request' } : { mode: TMode }
->;
-
-type ActionModeMarker<TMode extends ActionMode> = TMode extends 'request' ? { mode?: 'request' } : { mode: TMode };
-
-export type GraphqlDsl = {
+export type GraphqlDsl<TOwnerKey extends string = string, TBuildInput = unknown, TStored extends { id: string } = { id: string }> = {
   live<TData, TVariables>(
     document: TypedDocumentNode<TData, TVariables>,
-    options: GraphqlLiveOptions<TData>
-  ): GraphqlLiveDefinition<TData, TVariables>;
+    options: GraphqlLiveOptions<TData, TVariables, TBuildInput, TStored, TOwnerKey>
+  ): GraphqlLiveDefinition<TData, TVariables, TBuildInput, TStored, TOwnerKey>;
   single<TDocument extends TypedDocumentNode<any, any>, TParams, TNode>(
     document: TDocument,
-    options: GraphqlSingleOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>
-  ): GraphqlSingleDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode>;
+    options: GraphqlSingleOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TOwnerKey>
+  ): GraphqlSingleDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TOwnerKey>;
   connection<
     TDocument extends TypedDocumentNode<any, any>,
     TParams,
@@ -46,9 +35,9 @@ export type GraphqlDsl = {
       nodes?: ReadonlyArray<unknown> | null;
       edges?: ReadonlyArray<({ node?: unknown } & Record<string, unknown>) | null | undefined> | null;
       pageInfo?: {
-        hasNextPage?: boolean;
+        hasNextPage?: boolean | null;
         endCursor?: string | null;
-        hasPreviousPage?: boolean;
+        hasPreviousPage?: boolean | null;
         startCursor?: string | null;
       } | null;
     },
@@ -56,33 +45,114 @@ export type GraphqlDsl = {
     TMapped = TNode
   >(
     document: TDocument,
-    options: GraphqlConnectionOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TConnection, TNode, TMapped>
-  ): GraphqlConnectionDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TConnection, TNode, TMapped>;
+    options: GraphqlConnectionOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TConnection, TNode, TMapped, TOwnerKey>
+  ): GraphqlConnectionDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TConnection, TNode, TMapped, TOwnerKey>;
   list<TDocument extends TypedDocumentNode<any, any>, TParams, TNode, TMapped = TNode>(
     document: TDocument,
-    options: GraphqlListOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TMapped>
-  ): GraphqlListDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TMapped>;
+    options: GraphqlListOptions<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TMapped, TOwnerKey>
+  ): GraphqlListDefinition<TypedDocumentData<TDocument>, TypedDocumentVariables<TDocument>, TParams, TNode, TMapped, TOwnerKey>;
   action<
-    TDocument extends TypedDocumentNode<any, any>,
+    TData,
+    TVariables,
     TInput,
-    TResultKey extends keyof TypedDocumentData<TDocument> & string,
-    TNode,
-    TMode extends ActionMode = 'request'
+    TTransportInput,
+    TResultKey extends keyof TData & string
   >(
-    document: TDocument,
-    options: ActionOptionsForMode<
-      TypedDocumentData<TDocument>,
-      TypedDocumentVariables<TDocument>,
+    document: TypedDocumentNode<TData, TVariables>,
+    options: GraphqlActionDurableOptions<
+      TData,
+      TVariables,
       TInput,
       TResultKey,
-      TNode,
-      TMode
-    > & ActionModeMarker<TMode>
-  ): GraphqlActionDefinition<
-    TypedDocumentData<TDocument>,
-    TypedDocumentVariables<TDocument>,
+      TTransportInput,
+      TOwnerKey,
+      TBuildInput,
+      TStored
+    >
+  ): GraphqlActionDurableDefinition<
+    TData,
+    TVariables,
     TInput,
     TResultKey,
-    TNode
-  > & ActionModeMarker<TMode>;
+    TTransportInput,
+    TOwnerKey,
+    TBuildInput,
+    TStored
+  >;
+  action<
+    TData,
+    TVariables,
+    TInput
+  >(
+    document: TypedDocumentNode<TData, TVariables>,
+    options: GraphqlActionPollOptions<
+      TData,
+      TVariables,
+      TInput,
+      TOwnerKey,
+      TBuildInput,
+      TStored
+    >
+  ): GraphqlActionPollDefinition<
+    TData,
+    TVariables,
+    TInput,
+    TOwnerKey,
+    TBuildInput,
+    TStored
+  >;
+  action<
+    TData,
+    TVariables,
+    TInput,
+    TResultKey extends keyof TData & string
+  >(
+    document: TypedDocumentNode<TData, TVariables>,
+    options: GraphqlActionRequestOptions<
+      TData,
+      TVariables,
+      TInput,
+      TResultKey,
+      TOwnerKey,
+      TBuildInput,
+      TStored,
+      true
+    >
+  ): GraphqlActionRequestDefinition<
+    TData,
+    TVariables,
+    TInput,
+    TResultKey,
+    TOwnerKey,
+    TBuildInput,
+    TStored,
+    true
+  >;
+  action<
+    TData,
+    TVariables,
+    TInput,
+    TResultKey extends keyof TData & string
+  >(
+    document: TypedDocumentNode<TData, TVariables>,
+    options: GraphqlActionRequestOptions<
+      TData,
+      TVariables,
+      TInput,
+      TResultKey,
+      TOwnerKey,
+      TBuildInput,
+      TStored,
+      false
+    >
+  ): GraphqlActionRequestDefinition<
+    TData,
+    TVariables,
+    TInput,
+    TResultKey,
+    TOwnerKey,
+    TBuildInput,
+    TStored,
+    false
+  >;
 };

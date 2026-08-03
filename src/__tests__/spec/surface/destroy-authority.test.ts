@@ -13,13 +13,11 @@ const srcRoot = path.resolve(__dirname, '../../..');
  */
 const AUTHORIZED = new Map<string, string>([
   ['dsl/modelDirectAccess.ts', 'the consumer called destroy'],
-  ['dsl/defineIngest.ts', 'a server event declared the row deleted'],
   ['core/relations.ts', "a declared hasMany dependent: 'destroy' cascade"],
-  ['dsl/mutationRuntime.ts', 'a mutation destroys optimistically or rolls its own optimistic insert back'],
-  ['dsl/mutationResponder.ts', 'a mutation response rolls its own optimistic insert back'],
+  ['dsl/facadeActions.ts', 'a model action declared an optimistic or confirmed destroy'],
+  ['dsl/modelRootPlan.ts', 'a model root declaration selected a destroy'],
   ['dsl/modelWrites.ts', 'a write plan rolls its own optimistic insert back'],
   ['dsl/modelRegistrations.ts', 'a failed optimistic mutation is cleared by the consumer'],
-  ['dsl/defineDetachedOperation.ts', 'a detached operation rolls its own optimistic insert back'],
   ['dsl/writePlan.ts', 'the consumer declared a destroy in the write plan'],
   ['dsl/configure.ts', 'replay drops temp rows of operations that cannot resume across a restart'],
   ['core/apply/commitEnvelope.ts', 'envelope construction, not a decision to delete'],

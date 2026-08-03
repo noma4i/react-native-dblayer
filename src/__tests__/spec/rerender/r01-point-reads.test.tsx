@@ -1,10 +1,8 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted, setupSpecRuntime } from '../helpers/harness';
+import { defineModelRuntime, f } from '../../testApi';
+import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 type TestRow = { id: string; name: string; status: string; score: number };
-
-const document = { kind: 'Document', definitions: [] } as never;
 
 const createPointModel = () =>
   defineModelRuntime({
@@ -97,19 +95,6 @@ const expectReaderDeltas = (before: ReturnType<typeof capture>, after: ReturnTyp
   expect(after.whereA - before.whereA).toBe(expected.whereA);
   expect(after.count - before.count).toBe(expected.count);
   expect(after.pending5 - before.pending5).toBe(expected.pending5);
-};
-
-function deferredMutation<TData>() {
-  let resolve!: (value: TData) => void;
-  const promise = new Promise<TData>(nextResolve => {
-    resolve = nextResolve;
-  });
-  const transport = createMockTransport({
-    mutation: async <TData,>() => ({
-      data: (await promise) as TData
-    })
-  });
-  return { transport, resolve, promise: promise as Promise<TData> };
 };
 
 type ByIdResult = { rows: TestRow[]; byId: ReadonlyMap<string, TestRow> };
@@ -342,53 +327,6 @@ describe('rerender matrix point reads', () => {
       count: 0,
       pending5: 0
     });
-    readers.row5.unmount();
-    readers.row5Projection.unmount();
-    readers.row5StatusRender.unmount();
-    readers.field5Name.unmount();
-    readers.byIds.unmount();
-    readers.firstA.unmount();
-    readers.whereA.unmount();
-    readers.count.unmount();
-    readers.pending5.unmount();
-  });
-
-  it('tracks optimistic row mutation pending state and row-level readers', async () => {
-    const deferred = deferredMutation<{ save: TestRow }>();
-    const { transport, resolve, promise } = deferred;
-    configureDb({ storage: createMemoryPlane(), transport });
-    const rows = createPointModel();
-    rows.insert({ id: '5', name: 'name-5', status: 'b', score: 5 });
-    const mutation = rows.mutation<{ save: TestRow }, { id: string; name: string }, TestRow, TestRow>('rename', {
-      document,
-      result: 'save',
-      optimistic: {
-        method: 'patch',
-        model: rows,
-        selectId: input => input.id,
-        selectPatch: input => ({ name: input.name })
-      },
-    });
-    const readers = mountReaders(rows);
-    const before = capture(readers);
-
-    let run!: Promise<TestRow | null>;
-    act(() => {
-      run = mutation.run({ id: '5', name: 'name-5-committed' });
-    });
-
-    expect(readers.pending5.result()).toBe(true);
-    resolve({ save: { id: '5', name: 'name-5-committed', status: 'b', score: 5 } });
-
-    await act(async () => {
-      await run;
-      await promise;
-    });
-
-    const after = capture(readers);
-    expect(readers.pending5.result()).toBe(false);
-    expect(after.row5StatusRender - before.row5StatusRender).toBe(0);
-    expect(after.row5Projection - before.row5Projection).toBe(1);
     readers.row5.unmount();
     readers.row5Projection.unmount();
     readers.row5StatusRender.unmount();

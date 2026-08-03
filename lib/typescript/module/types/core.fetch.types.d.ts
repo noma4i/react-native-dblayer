@@ -31,7 +31,7 @@ export type InvalidateFn = (scope?: unknown) => void;
 /**
  * Per-key reader-local state react-query's vocabulary cannot express (offline pause, next-page
  * distinction): flags, a monotonic change version, and listener fan-out - one home shared by
- * `defineQuery` and `defineFetch`.
+ * remote relation queries.
  */
 export type KeyedLocalState<TState> = {
     get(key: string): TState;

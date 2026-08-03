@@ -8,13 +8,12 @@ type Response = { rows: Row[] };
 
 const document = { kind: 'Document', definitions: [] } as never;
 
-const createRowsModel = (id: string, optimistic?: 'optimistic') =>
+const createRowsModel = (id: string) =>
   defineModelRuntime({
     id,
     name: id,
     fields: { name: f.str(), group: f.str().nullable() },
-    scopes: { group: ({ by: { group: 'group' } }) },
-    ...(optimistic ? { maintenance: { dropTempRowsAfterMs: 1000 } } : {})
+    scopes: { group: ({ by: { group: 'group' } }) }
   });
 
 /**
@@ -161,61 +160,4 @@ describe('freshness follows scope membership, not only row survival', () => {
     act(() => root.unmount());
   });
 
-  it('treats an identity replacement as materialized and leaves the chain fresh', async () => {
-    let calls = 0;
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport({
-        query: async <TData,>() => {
-          calls += 1;
-          return { data: { rows: [{ id: 'server-1', name: 'Landed', group: 'g' }] } as TData };
-        },
-        mutation: async <TData,>() => ({ data: { send: { row: { id: 'server-2', name: 'Committed', group: 'g' } } } as TData })
-      })
-    });
-    const rows = createRowsModel('MembershipFreshnessReplace', 'optimistic');
-    const query = rows.query<Response, { group: string }, { group: string }, Row>('group', {
-      document,
-      key: 'membership-freshness-replace',
-      vars: value => value,
-      select: data => data.rows,
-      into: rows.scopes.group,
-      staleTime: Infinity
-    });
-    let tempId = '';
-    const send = rows.mutation('send-replace', {
-      document,
-      result: 'send',
-      optimistic: {
-        model: rows,
-        build: (_input: Record<string, never>, context: { tempId: string | null }) => {
-          tempId = context.tempId!;
-          return { id: tempId, name: 'Optimistic', group: 'g' };
-        },
-        selectServerNode: (data: { send: { row: Row } }) => data.send.row
-      }
-    });
-    const Reader = () => {
-      query.use({ group: 'g' });
-      return null;
-    };
-    let root!: TestRenderer.ReactTestRenderer;
-
-    act(() => {
-      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
-    });
-    await settle();
-    expect(calls).toBe(1);
-
-    // The temp row is destroyed as its identity moves to the server id - a replacement, not a loss.
-    await act(async () => {
-      await send.run({});
-    });
-    await settle();
-
-    expect(rows.find(tempId)).toBeUndefined();
-    expect(rows.scopes.group.read({ group: 'g' }).map(row => row.id).sort()).toEqual(['server-1', 'server-2']);
-    expect(calls).toBe(1);
-    act(() => root.unmount());
-  });
 });

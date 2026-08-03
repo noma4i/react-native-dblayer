@@ -4,11 +4,9 @@ import { noteDataLoss } from '../core/diagnostics';
 import { registerKeyedReset } from '../core/reset';
 import { registerSchemaDeclaration } from '../core/schemaManifest';
 import { getApplyRuntime, getOperationState } from './configure';
-import { clearFailedOptimisticMutation } from './mutationRuntime';
-import { registerIngestModel } from './defineIngest';
 import { registerInternalModelHandle } from '../core/internalHandles';
 import { registerModelMaintenance } from './maintenanceRegistry';
-import type { MaintenanceReport , ModelCore, ModelRuntimeRegistrationOptions, ModelSchemaRegistrationOptions } from '../types';
+import type { MaintenanceReport, ModelCore, ModelRuntimeRegistrationOptions, ModelSchemaRegistrationOptions } from '../types';
 import { resolveStaleTempRows, trimRowsPerScope } from '../utils/modelMaintenance';
 
 export const registerModelSchema = <TStored extends { id: string } & Record<string, unknown>>(options: ModelSchemaRegistrationOptions<TStored>): void => {
@@ -49,11 +47,8 @@ export const registerModelRuntime = <TStored extends { id: string; updatedAt?: s
     planReplace: options.planReplace,
     captureMembership: options.captureMembership,
     planRestore: options.planRestore,
-    relations: resolvedRelations,
-    revision: options.context.revision,
-    dropTempRowsAfterMs: () => options.maintenance?.dropTempRowsAfterMs
+    relations: resolvedRelations
   });
-  registerIngestModel(options.modelName, model);
   if (options.maintenance) {
     const pendingTempRows = (): MaintenanceReport[] => {
       const maxAgeMs = options.maintenance?.dropTempRowsAfterMs;
@@ -66,7 +61,6 @@ export const registerModelRuntime = <TStored extends { id: string; updatedAt?: s
       resolveStaleTempRows(model, { maxAgeMs, protectedIds, onStale: row => ids.push(row.id) });
       if (ids.length === 0) return [];
       getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: options.modelId, ids, tombstone: false }]));
-      for (const id of ids) clearFailedOptimisticMutation(options.modelId, id);
       noteDataLoss('stale-temp-row-expiry', options.modelId, ids.length);
       return [{ model: options.modelId, task: 'dropTempRows', affected: ids.length }];
     };

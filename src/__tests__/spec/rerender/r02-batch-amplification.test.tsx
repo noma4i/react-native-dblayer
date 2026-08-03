@@ -11,8 +11,6 @@ type QueryPayload = {
   };
 };
 
-type DeferredCommitResult = { rename: BulkRow };
-
 type NestedBulkRow = BulkRow & { markers: Array<{ id: string; label: string }> };
 
 type NestedQueryPayload = {
@@ -66,21 +64,6 @@ const createNestedScopedModel = () =>
       byStatus: ({ by: { status: 'status' } })
     }
   });
-
-const deferredMutation = () => {
-  let resolve!: (value: DeferredCommitResult) => void;
-  const promise = new Promise<DeferredCommitResult>((nextResolve, _nextReject) => {
-    resolve = nextResolve;
-  });
-
-  const transport = createMockTransport({
-    mutation: async <TData,>() => ({
-      data: (await promise) as TData
-    })
-  });
-
-  return { transport, resolve, promise };
-};
 
 const scopedModelQueryTransport = () =>
   createMockTransport({
@@ -278,52 +261,4 @@ describe('rerender matrix batch amplification', () => {
     scopeReader.unmount();
   });
 
-  it('keeps commit and ingest updates inside one observed wave budget', async () => {
-    const deferred = deferredMutation();
-    const { transport, resolve, promise } = deferred;
-    configureDb({ storage: createMemoryPlane(), transport });
-    const rows = createSimpleModel();
-    rows.insert({ id: '1', name: 'seed-1', status: 'a', score: 1 });
-
-    const mutation = rows.mutation<{ rename: BulkRow }, { id: string; name: string }, BulkRow, BulkRow>('rename', {
-      document: { kind: 'Document', definitions: [] } as never,
-      result: 'rename',
-      optimistic: {
-        method: 'patch',
-        model: rows,
-        selectId: input => input.id,
-        selectPatch: input => ({ name: input.name })
-      },
-      write: ({ data }, plan) => plan.upsert(rows, data.rename)
-    });
-
-    const ingest = rows.ingest({
-      committed: {
-        handler: payload => ({ upsert: payload as BulkRow })
-      }
-    });
-
-    const reader = renderCounted(() => rows.use.find('1'));
-    const before = reader.renders();
-    let committed!: Promise<BulkRow | null>;
-
-    act(() => {
-      committed = mutation.run({ id: '1', name: 'from-commit' });
-      ingest.apply('committed', { id: '1', name: 'from-ingest', status: 'a', score: 1 });
-      resolve({ rename: { id: '1', name: 'from-commit', status: 'a', score: 1 } });
-    });
-
-    const afterKick = reader.renders();
-    const observedWaves = 3;
-    expect(afterKick - before).toBeGreaterThanOrEqual(1);
-
-    await act(async () => {
-      await committed;
-      await promise;
-    });
-
-    const afterCommit = reader.renders();
-    expect(afterCommit - before).toBeLessThanOrEqual(observedWaves);
-    reader.unmount();
-  });
 });

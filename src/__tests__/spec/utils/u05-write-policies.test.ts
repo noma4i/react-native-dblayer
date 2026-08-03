@@ -96,8 +96,8 @@ describe('write policy matrix', () => {
     );
     expect(folded).toMatchObject({ profile: { name: 'new', city: 'kept' } });
 
-    const localGroups = [{ fields: ['clientId'], policy: 'local' }] as const;
-    expect(gate(localGroups)({ id: 'r', clientId: 'mine' }, { id: 'r', clientId: null }, { origin: 'snapshot' })).toMatchObject({ clientId: 'mine' });
-    expect(gate(localGroups)({ id: 'r', clientId: 'mine' }, { id: 'r', clientId: 'patched' }, { origin: 'patch' })).toMatchObject({ clientId: 'patched' });
+    const localGroups = [{ fields: ['localKey'], policy: 'local' }] as const;
+    expect(gate(localGroups)({ id: 'r', localKey: 'mine' }, { id: 'r', localKey: null }, { origin: 'snapshot' })).toMatchObject({ localKey: 'mine' });
+    expect(gate(localGroups)({ id: 'r', localKey: 'mine' }, { id: 'r', localKey: 'patched' }, { origin: 'patch' })).toMatchObject({ localKey: 'patched' });
   });
 });

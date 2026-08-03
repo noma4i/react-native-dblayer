@@ -1,11 +1,13 @@
 import {
   compositeKey,
   configureDb,
+  createCommitEnvelope,
   createModelNormalization,
   createModelScopeKeys,
   defineModelRuntime,
   f,
   firstCompositeKeyPart,
+  getApplyRuntime,
   getApplyTarget,
   getInternalModelHandle,
   getInternalScopeHandle,
@@ -16,7 +18,8 @@ import {
   type ModelLandingHost,
   type WriteOp
 } from '../../testApi';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { act } from 'react';
+import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const createLandingHost = (model: string, sideloads?: ModelLandingHost['sideloads']): ModelLandingHost => ({
   normalize: input => {
@@ -198,6 +201,42 @@ describe('model write planning edges', () => {
     expect(model.find('missing')).toBeUndefined();
   });
 
+  it('keeps a same-id membership when restoring a captured row', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const model = defineModelRuntime({
+      id: 'ModelWritePlanningSameId',
+      name: 'ModelWritePlanningSameId',
+      fields: { bucket: f.str(), label: f.str() },
+      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
+    });
+    model.scopes.byBucket.seed({ bucket: 'a' }, [{ id: 'same-id', bucket: 'a', label: 'old' }]);
+    const handle = getInternalModelHandle(model);
+    const memberships = handle.captureMembership('same-id');
+    const scopeReader = renderCounted(() => model.scopes.byBucket.use({ bucket: 'a' }));
+    handle.applyPatch('same-id', { label: 'pending' });
+    const plan = handle.planRestore({ id: 'same-id', bucket: 'a', label: 'restored' }, memberships);
+
+    await act(async () => {
+      getApplyRuntime().commit(createCommitEnvelope(plan));
+    });
+
+    const rows = scopeReader.result();
+    scopeReader.unmount();
+    expect({ plan, rows }).toEqual({
+      plan: [
+        { kind: 'upsert', model: model.modelId, rows: [{ id: 'same-id', bucket: 'a', label: 'restored' }], origin: 'replace' },
+        {
+          kind: 'scope-delta',
+          model: model.modelId,
+          scopeKey: memberships[0]!.scopeKey,
+          append: [{ id: 'same-id', orderKey: memberships[0]!.orderKey }],
+          detach: []
+        }
+      ],
+      rows: [{ id: 'same-id', bucket: 'a', label: 'restored' }]
+    });
+  });
+
   it('classifies scope order dependencies and acknowledges both persistence planes', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const model = defineModelRuntime({
@@ -305,7 +344,9 @@ describe('model write planning edges', () => {
     expect(filteredPlan).toHaveLength(2);
     expect(filteredPlan.flatMap(op => (op.kind === 'scope' ? op.next.entries.map(entry => entry.id) : []))).toEqual(['old-1', 'old-2']);
 
+    target.beginApply(getApplyRuntime().currentEpoch() + 1);
     target.destroy(['old-1']);
+    target.commitApply();
     filtered.apply(
       scopeValue,
       [

@@ -64,4 +64,59 @@ describe('scope index projections', () => {
 
     expect(index.orderRevision(SCOPE)).toBe(0);
   });
+
+  it('keeps protected members when a complete snapshot omits them', () => {
+    const index = createIndex('ProtectedSnapshot');
+    index.write(SCOPE, index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }, { id: 'row-2' }]).next);
+
+    const result = index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }], { protectedIds: new Set(['row-2']) });
+
+    expect(result.detachedIds).toEqual([]);
+    expect(result.next.entries.map(entry => entry.id)).toEqual(['row-1', 'row-2']);
+  });
+
+  it('excludes protected members from the trim budget', () => {
+    const index = createIndex('ProtectedTrim');
+    const value = index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }, { id: 'row-2' }, { id: 'row-3' }]).next;
+    const protectedIds = new Set(['row-1']);
+
+    const trimmed = index.trimValue(value, 1, protectedIds);
+
+    expect(trimmed.next.entries.map(entry => entry.id)).toEqual(['row-1', 'row-2']);
+    expect(trimmed.trimmedIds).toEqual(['row-3']);
+    expect(index.trimValue(value, 0, new Set(['row-1', 'row-2', 'row-3']))).toEqual({ next: value, trimmedIds: [] });
+  });
+
+  it('records scope access independently from persisted membership', () => {
+    const index = createIndex('Access');
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1234);
+
+    expect(index.lastAccess(SCOPE)).toBeUndefined();
+    index.noteAccess(SCOPE);
+    expect(index.lastAccess(SCOPE)).toBe(1234);
+
+    now.mockRestore();
+  });
+
+  it('serializes the complete staged overlay without publishing it', () => {
+    const index = createIndex('StagedPersistence');
+    const untouched = compositeKey('byBucket', '{"bucket":"untouched"}');
+    const removed = compositeKey('byBucket', '{"bucket":"removed"}');
+    const added = compositeKey('byBucket', '{"bucket":"added"}');
+    index.write(untouched, index.reconcileNext(untouched, 'complete', [{ id: 'row-1' }]).next);
+    index.write(removed, index.reconcileNext(removed, 'complete', [{ id: 'row-2' }]).next);
+
+    index.beginApply();
+    index.remove(removed);
+    index.write(added, index.reconcileNext(added, 'complete', [{ id: 'row-3' }]).next);
+    const persisted = index.persistEntries();
+
+    expect(persisted).toHaveLength(3);
+    expect(persisted.find(entry => entry.key.includes(untouched))?.value).toEqual(expect.any(String));
+    expect(persisted.find(entry => entry.key.includes(removed))?.value).toBeNull();
+    expect(persisted.find(entry => entry.key.includes(added))?.value).toEqual(expect.any(String));
+    expect(index.keysOf('row-3')).toEqual([]);
+
+    index.abortApply();
+  });
 });

@@ -19,10 +19,15 @@ import type {
  */
 export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
   runtime: FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>>,
-  relations: Record<string, RelationSpec<ModelStoredValue<TShape>, any>> | undefined
-): Record<string, ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>> | QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined> | undefined> => {
+  relations: Record<string, RelationSpec<ModelStoredValue<TShape>, any>>
+): Record<
+  string,
+  | ScopeQueryHandle<ModelStoredValue<TShape>, Record<string, unknown>>
+  | QueryHandle<ModelStoredValue<TShape>, Record<string, unknown>, ModelStoredValue<TShape> | undefined>
+  | undefined
+> => {
   return Object.fromEntries(
-    Object.entries(relations ?? {}).map(([name, definition]) => {
+    Object.entries(relations).map(([name, definition]) => {
       const remote = definition.remote;
       const query = remote
         ? remote.type === 'single'

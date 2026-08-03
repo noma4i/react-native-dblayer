@@ -1,80 +1,80 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineFetch, defineModelRuntime, f, resetRuntime } from '../../testApi';
+import { configureDb, defineModel, defineShape, f, resetRuntime, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
-type FetchPayload = { value: string };
-type Row = { id: string; bucket: string; version: number };
-type QueryResponse = { rows: Row[] };
+type FetchData = { value: string };
+type FetchVariables = { input?: string };
+type ResultRow = { id: string; value: string };
+type ScopeRow = { id: string; bucket: string; version: number };
+type ScopeData = { rows: ScopeRow[] };
 type ScopeValue = { bucket: string };
+type ResultSelect = (data: FetchData) => ResultRow | null | undefined;
 
-const document = { kind: 'Document', definitions: [] } as never;
+const document: TypedDocumentNode<FetchData, FetchVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const listDocument: TypedDocumentNode<ScopeData, ScopeValue> = { kind: Kind.DOCUMENT, definitions: [] };
+const ResultSchema = defineShape<ResultRow>()({ value: f.str() });
+const ScopeSchema = defineShape<ScopeRow>()({ bucket: f.str(), version: f.num() });
 
-const createFetch = (key: string, calls: { count: number }) =>
-  defineFetch<FetchPayload, string, string>({
-    key,
-    fetcher: async input => {
-      calls.count += 1;
-      return { value: input };
-    },
-    select: data => data.value,
-    staleTime: 1_000
+const readInput = (operation: Parameters<DbTransport['query']>[0]): string => {
+  const variables = operation.variables;
+  if (variables == null || typeof variables !== 'object' || !('input' in variables)) return '';
+  const input = variables.input;
+  return typeof input === 'string' ? input : '';
+};
+
+const createFixture = (
+  key: string,
+  staleTime?: number,
+  select: ResultSelect = data => ({ id: data.value, value: data.value })
+) => {
+  const Model = defineModel(key, {
+    schema: ResultSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.single(document, {
+          variables: (params: FetchVariables) => params,
+          select,
+          staleTime
+        })
+      }
+    })
   });
+  return (params: FetchVariables) => Model.result(params);
+};
 
 describe('fetch lifecycle contracts', () => {
-  it('assigns independent generated keys and serves a sequential fresh cache hit', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    let firstCalls = 0;
-    let secondCalls = 0;
-    const first = defineFetch<FetchPayload, string, string>({
-      fetcher: async input => ({ value: `${input}-${++firstCalls}` }),
-      select: data => data.value,
-      staleTime: Infinity
-    });
-    const second = defineFetch<FetchPayload, string, string>({
-      fetcher: async input => ({ value: `${input}-${++secondCalls}` }),
-      select: data => data.value,
-      staleTime: Infinity
-    });
-
-    await expect(first.fetch('first')).resolves.toBe('first-1');
-    await expect(first.fetch('first')).resolves.toBe('first-1');
-    await expect(second.fetch('first')).resolves.toBe('first-1');
-    expect({ firstCalls, secondCalls }).toEqual({ firstCalls: 1, secondCalls: 1 });
-  });
-
   it('normalizes a non-Error imperative failure', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const request = defineFetch<FetchPayload, void, string>({
-      key: 'fetch-non-error-failure',
-      fetcher: async () => Promise.reject('string failure'),
-      select: data => data.value
+    const transport = createMockTransport({
+      query: async <_TData,>() => Promise.reject('string failure')
     });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createFixture('fetch-non-error-failure')({});
 
-    await expect(request.fetch(undefined)).rejects.toThrow('string failure');
+    await expect(relation.fetch()).rejects.toThrow('string failure');
   });
 
   it('drops a response when selection advances the runtime generation', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const request = defineFetch<FetchPayload, void, string>({
-      key: 'fetch-select-reset-fence',
-      fetcher: async () => ({ value: 'stale' }),
-      select: data => {
-        resetRuntime();
-        return data.value;
-      }
+    const transport = createMockTransport({
+      query: async <_TData,>() => ({ data: { value: 'stale' } as _TData })
     });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createFixture('fetch-select-reset-fence', undefined, data => {
+      resetRuntime();
+      return { id: 'fetch-select-reset-fence', value: data.value };
+    })({});
 
-    await expect(request.fetch(undefined)).rejects.toThrow('runtime was reset before it resolved');
+    await expect(relation.fetch()).rejects.toThrow('runtime was reset before it resolved');
   });
 
   it('normalizes a non-Error reader failure and observes the rejected mount run', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const request = defineFetch<FetchPayload, void, string>({
-      key: 'fetch-reader-non-error',
-      fetcher: async () => Promise.reject('reader string failure'),
-      select: data => data.value
+    const transport = createMockTransport({
+      query: async <_TData,>() => Promise.reject('reader string failure')
     });
-    const reader = renderCountedInProvider(() => request.use(undefined));
+    configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createFixture('fetch-reader-non-error')({});
+    const reader = renderCountedInProvider(() => relation.use());
 
     await settle(6, { macro: true });
 
@@ -87,15 +87,14 @@ describe('fetch lifecycle contracts', () => {
     const wasOnline = isTestNetworkOnline();
     try {
       setTestNetworkOnline(false);
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const request = defineFetch<FetchPayload, void, string>({
-        key: 'fetch-reconnect-rejection',
-        fetcher: async () => {
+      const transport = createMockTransport({
+        query: async <_TData,>() => {
           throw new Error('reconnect failure');
-        },
-        select: data => data.value
+        }
       });
-      const reader = renderCountedInProvider(() => request.use(undefined));
+      configureDb({ storage: createMemoryPlane(), transport });
+      const relation = createFixture('fetch-reconnect-rejection')({});
+      const reader = renderCountedInProvider(() => relation.use());
       await settle();
       expect(reader.result().loadingState.isOffline).toBe(true);
 
@@ -110,24 +109,27 @@ describe('fetch lifecycle contracts', () => {
   });
 
   it('keeps only the latest of consecutive reader restarts', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const pending: Array<(value: FetchPayload) => void> = [];
-    const request = defineFetch<FetchPayload, void, string>({
-      key: 'fetch-consecutive-restarts',
-      fetcher: () =>
-        new Promise(resolve => {
-          pending.push(resolve);
-        }),
-      select: data => data.value
+    const pending: Array<(value: FetchData) => void> = [];
+    const transport = createMockTransport({
+      query: async <TData,>() =>
+        await new Promise<{ data: TData }>(resolve => {
+          pending.push(value => resolve({ data: value as TData }));
+        })
     });
-    const reader = renderCountedInProvider(() => request.use(undefined));
+    configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createFixture('fetch-consecutive-restarts')({});
+    const reader = renderCountedInProvider(() => relation.use());
     await settle(2);
     expect(pending).toHaveLength(1);
 
-    act(() => reader.result().refresh());
+    act(() => {
+      void relation.refresh();
+    });
     await settle(2);
     expect(pending).toHaveLength(2);
-    act(() => reader.result().refresh());
+    act(() => {
+      void relation.refresh();
+    });
     await settle(2);
     expect(pending).toHaveLength(3);
 
@@ -136,83 +138,109 @@ describe('fetch lifecycle contracts', () => {
     pending[2]!({ value: 'latest' });
     await settle(6, { macro: true });
 
-    expect(reader.result().data).toBe('latest');
+    expect(reader.result().data?.value).toBe('latest');
     reader.unmount();
   });
 
   it('drops a rejected reader restart after the runtime generation changes', async () => {
     let calls = 0;
     let rejectRestart!: (error: Error) => void;
+    let refreshOutcome!: Promise<unknown>;
     const onSyncError = jest.fn();
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport(), defaults: { onSyncError } });
-    const request = defineFetch<FetchPayload, void, string>({
-      key: 'fetch-reader-reset-rejection',
-      enabled: () => false,
-      fetcher: async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => {
         calls += 1;
-        if (calls === 1) return { value: 'cached' };
-        return await new Promise((_resolve, reject) => {
+        if (calls === 1) return { data: { value: 'cached' } as TData };
+        return await new Promise<{ data: TData }>((_resolve, reject) => {
           rejectRestart = reject;
         });
-      },
-      select: data => data.value,
-      staleTime: Infinity
+      }
     });
-    await expect(request.fetch(undefined)).resolves.toBe('cached');
-    const reader = renderCountedInProvider(() => request.use(undefined));
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { onSyncError } });
+    const relation = createFixture('fetch-reader-reset-rejection', Infinity)({});
+    await expect(relation.fetch()).resolves.toBeUndefined();
+    expect(relation.read()?.value).toBe('cached');
+    const reader = renderCountedInProvider(() => relation.use({ enabled: false }));
     await settle(2);
-    expect(reader.result().data).toBe('cached');
+    expect(calls).toBe(1);
 
-    act(() => reader.result().refresh());
+    act(() => {
+      refreshOutcome = relation.refresh().then(
+        () => undefined,
+        error => error
+      );
+    });
     await settle(2);
     resetRuntime();
     rejectRestart(new Error('stale reader restart'));
     await settle(2);
 
+    await expect(refreshOutcome).resolves.toMatchObject({ message: 'react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved' });
     expect(onSyncError).not.toHaveBeenCalled();
     reader.unmount();
   });
 
   it('F1 coalesces two concurrent fetches for one input into one transport call', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const calls = { count: 0 };
-    const request = createFetch('f1-single-flight', calls);
+    const transport = createMockTransport({
+      query: async <TData, _TVariables>(operation: Parameters<DbTransport['query']>[0]) => ({
+        data: { value: readInput(operation) } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createFixture('f1-single-flight', 1_000);
+    const first = relation({ input: 'same' });
+    const second = relation({ input: 'same' });
 
-    await expect(Promise.all([request.fetch('same'), request.fetch('same')])).resolves.toEqual(['same', 'same']);
+    await expect(Promise.all([first.fetch(), second.fetch()])).resolves.toEqual([undefined, undefined]);
 
-    expect(calls.count).toBe(1);
+    expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(1);
+    expect(first.read()?.value).toBe('same');
   });
 
   it('F2 keeps concurrent fetches for different inputs independent', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const calls = { count: 0 };
-    const request = createFetch('f2-distinct-inputs', calls);
+    const transport = createMockTransport({
+      query: async <TData, _TVariables>(operation: Parameters<DbTransport['query']>[0]) => ({
+        data: { value: readInput(operation) } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createFixture('f2-distinct-inputs', 1_000);
+    const first = relation({ input: 'first' });
+    const second = relation({ input: 'second' });
 
-    await expect(Promise.all([request.fetch('first'), request.fetch('second')])).resolves.toEqual(['first', 'second']);
+    await expect(Promise.all([first.fetch(), second.fetch()])).resolves.toEqual([undefined, undefined]);
 
-    expect(calls.count).toBe(2);
+    expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(2);
+    expect(first.read()?.value).toBe('first');
+    expect(second.read()?.value).toBe('second');
   });
 
   it('F3 does not fetch again when a reader remounts inside its freshness window', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-07-27T00:00:00.000Z'));
     try {
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const calls = { count: 0 };
-      const request = createFetch('f3-fresh-remount', calls);
+      let calls = 0;
+      const transport = createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          return { data: { value: 'same' } as TData };
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      const relation = createFixture('f3-fresh-remount', 1_000)({ input: 'same' });
 
-      const first = renderCountedInProvider(() => request.use('same'));
+      const first = renderCountedInProvider(() => relation.use());
       await settle();
-      expect(calls.count).toBe(1);
+      expect(calls).toBe(1);
       first.unmount();
 
       act(() => {
         jest.advanceTimersByTime(999);
       });
-      const second = renderCountedInProvider(() => request.use('same'));
+      const second = renderCountedInProvider(() => relation.use());
       await settle();
 
-      expect(calls.count).toBe(1);
+      expect(calls).toBe(1);
       second.unmount();
     } finally {
       jest.useRealTimers();
@@ -223,22 +251,28 @@ describe('fetch lifecycle contracts', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-07-27T00:00:00.000Z'));
     try {
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-      const calls = { count: 0 };
-      const request = createFetch('f4-stale-remount', calls);
+      let calls = 0;
+      const transport = createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          return { data: { value: 'same' } as TData };
+        }
+      });
+      configureDb({ storage: createMemoryPlane(), transport });
+      const relation = createFixture('f4-stale-remount', 1_000)({ input: 'same' });
 
-      const first = renderCountedInProvider(() => request.use('same'));
+      const first = renderCountedInProvider(() => relation.use());
       await settle();
-      expect(calls.count).toBe(1);
+      expect(calls).toBe(1);
       first.unmount();
 
       act(() => {
         jest.advanceTimersByTime(1_001);
       });
-      const second = renderCountedInProvider(() => request.use('same'));
+      const second = renderCountedInProvider(() => relation.use());
       await settle();
 
-      expect(calls.count).toBe(2);
+      expect(calls).toBe(2);
       second.unmount();
     } finally {
       jest.useRealTimers();
@@ -254,38 +288,39 @@ describe('fetch lifecycle contracts', () => {
       }
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModelRuntime({
-      id: 'SpecFetchContractsRows',
-      name: 'SpecFetchContractsRows',
-      fields: { bucket: f.str(), version: f.num() },
-      scopes: { byBucket: ({ by: { bucket: 'bucket' } }) }
+    const rows = defineModel('SpecFetchContractsRows', {
+      schema: ScopeSchema,
+      relations: owner => ({
+        byBucket: {
+          by: { bucket: 'bucket' },
+          remote: owner.gql.list(listDocument, {
+            variables: (scope: ScopeValue) => scope,
+            select: data => data.rows,
+            staleTime: Number.MAX_SAFE_INTEGER
+          })
+        }
+      })
     });
-    const request = rows.query<QueryResponse, ScopeValue, ScopeValue, Row>('f5-invalidate', {
-      document,
-      vars: value => value,
-      select: data => data.rows,
-      into: rows.scopes.byBucket,
-      staleTime: Number.MAX_SAFE_INTEGER
-    });
-    const reader = renderCountedInProvider(() => request.use({ bucket: 'a' }));
+    const relation = rows.byBucket({ bucket: 'a' });
+    const reader = renderCountedInProvider(() => relation.use());
 
     await settle();
     expect(calls).toBe(1);
-    expect(rows.scopes.byBucket.read({ bucket: 'a' }).map(row => row.version)).toEqual([1]);
+    expect(relation.read().map(row => row.version)).toEqual([1]);
 
     act(() => {
-      request.invalidate({ bucket: 'a' });
+      relation.invalidate();
     });
     await settle();
 
     expect(calls).toBe(2);
-    expect(rows.scopes.byBucket.read({ bucket: 'a' }).map(row => row.version)).toEqual([2]);
+    expect(relation.read().map(row => row.version)).toEqual([2]);
     reader.unmount();
   });
 
   it('F8 keeps transport idle while offline and resumes it after connectivity returns', async () => {
     const wasOnline = isTestNetworkOnline();
-    const pending: Array<{ resolve: (value: FetchPayload) => void; reject: (error: Error) => void }> = [];
+    const pending: Array<{ resolve: (value: FetchData) => void; reject: (error: Error) => void }> = [];
     try {
       setTestNetworkOnline(true);
       let calls = 0;
@@ -303,12 +338,8 @@ describe('fetch lifecycle contracts', () => {
           retry: { query: { classify: () => 'retriable', budgets: { retriable: 1 }, backoff: { baseMs: 1, maxMs: 1 } } }
         }
       });
-      const request = defineFetch<FetchPayload, void, string>({
-        key: 'f8-offline-reconnect',
-        document,
-        select: data => data.value
-      });
-      const reader = renderCountedInProvider(() => request.use(undefined));
+      const relation = createFixture('f8-offline-reconnect')({});
+      const reader = renderCountedInProvider(() => relation.use());
 
       await settle(6, { macro: true });
       expect(calls).toBe(1);
@@ -327,7 +358,7 @@ describe('fetch lifecycle contracts', () => {
       expect(calls).toBe(2);
       pending.shift()?.resolve({ value: 'recovered' });
       await settle(6, { macro: true });
-      expect(reader.result().data).toBe('recovered');
+      expect(reader.result().data?.value).toBe('recovered');
       reader.unmount();
     } finally {
       setTestNetworkOnline(wasOnline);

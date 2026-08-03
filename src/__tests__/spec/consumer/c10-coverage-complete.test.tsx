@@ -42,6 +42,9 @@ describe('coverage complete and scope isolation', () => {
       },
       {
         users: [{ userId: 'viewer-1', id: 'blocked-1', kind: 'blocked', fullName: 'Ada' }]
+      },
+      {
+        users: []
       }
     ];
 
@@ -78,6 +81,17 @@ describe('coverage complete and scope isolation', () => {
     expect(blockedReader.renders() - before).toBe(1);
     expect(users.find('blocked-2')).toBeTruthy();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'scope-complete-detach', model: users.modelId, count: 1 });
+
+    const beforeEmpty = blockedReader.renders();
+    await act(async () => {
+      await queryReader.result().refresh();
+    });
+    await settle();
+
+    expect(blockedReader.result()).toEqual([]);
+    expect(blockedReader.renders() - beforeEmpty).toBe(1);
+    expect(users.find('blocked-1')).toBeTruthy();
+    expect(users.find('blocked-2')).toBeTruthy();
 
     blockedReader.unmount();
     queryReader.unmount();

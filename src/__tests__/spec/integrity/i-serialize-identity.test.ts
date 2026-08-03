@@ -86,7 +86,8 @@ describe('semanticValue identity tokens', () => {
   it('gives one function a stable token and different functions different tokens', () => {
     const first = () => 1;
     const second = () => 2;
-    expect(semanticValue(first)).toBe(semanticValue(first));
+    const firstToken = semanticValue(first);
+    expect(semanticValue(first)).toBe(firstToken);
     expect(semanticValue(first)).not.toBe(semanticValue(second));
     expect(semanticValue(first)).toMatch(/^function:/);
   });
@@ -105,13 +106,15 @@ describe('semanticValue identity tokens', () => {
   });
 
   it('compares arrays structurally rather than by reference identity', () => {
-    expect(semanticValue([1, 'a'])).toBe(semanticValue([1, 'a']));
+    const firstArrayToken = semanticValue([1, 'a']);
+    expect(semanticValue([1, 'a'])).toBe(firstArrayToken);
     expect(semanticValue([1])).not.toBe(semanticValue({ '0': 1 }));
   });
 
   it('gives an exotic object a stable per-identity token distinct from its structural spelling', () => {
     const exotic = new Map([['a', 1]]);
-    expect(semanticValue(exotic)).toBe(semanticValue(exotic));
+    const firstExoticToken = semanticValue(exotic);
+    expect(semanticValue(exotic)).toBe(firstExoticToken);
     expect(semanticValue(exotic)).toMatch(/^object:/);
     expect(semanticValue(exotic)).not.toBe(semanticValue(new Map([['a', 1]])));
     expect(semanticValue(new Map())).not.toBe(semanticValue({}));

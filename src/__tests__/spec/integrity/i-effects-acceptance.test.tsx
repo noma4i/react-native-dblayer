@@ -1,80 +1,10 @@
-import { act } from 'react';
-import { belongsTo, configureDb, defineModelRuntime, f , getApplyTarget , flushPersistence, getOperationState , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
+import { belongsTo, configureDb, defineModelRuntime, f, flushPersistence, bootDb, DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Chat = { id: string; unreadCount: number; lastMessageId: string | null; lastActivityAt: number };
 type Message = { id: string; chatId: string; body: string; createdAt: number };
 
 describe('effects derive from accepted rows', () => {
-  it('drops relation effects for an event row rejected by the write gate', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const chats = defineModelRuntime({
-      id: 'EffectsAcceptanceChat',
-      name: 'EffectsAcceptanceChat',
-      fields: { unreadCount: f.num(), lastMessageId: f.str().nullable(), lastActivityAt: f.num() }
-    });
-    const messages = defineModelRuntime({
-      id: 'EffectsAcceptanceMessage',
-      name: 'EffectsAcceptanceMessage',
-      fields: { chatId: f.str(), body: f.str(), createdAt: f.num() },
-      scopes: { byChat: ({ by: { chatId: 'chatId' } }) },
-      relations: () => ({
-        chat: belongsTo<Message, Chat>(chats, {
-          foreignKey: 'chatId',
-          touch: (message, chat) => message.createdAt > chat.lastActivityAt ? { lastMessageId: message.id, lastActivityAt: message.createdAt } : null,
-          counterCache: { field: 'unreadCount' }
-        })
-      }),
-      write: { groups: [{ fields: ['chatId', 'body', 'createdAt'] as const, policy: { monotonic: { tuple: ['createdAt'] } } }] }
-    });
-    chats.insertMany([
-      { id: 'chat-1', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 },
-      { id: 'chat-2', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 }
-    ]);
-    messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
-
-    messages.ingest({ received: { handler: () => ({ upsert: { id: 'message-1', chatId: 'chat-2', body: 'rejected', createdAt: 0 } }) } }).apply('received', {});
-
-    expect(messages.find('message-1')).toEqual({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
-    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1', lastActivityAt: 1 });
-    expect(chats.find('chat-2')).toMatchObject({ unreadCount: 0, lastMessageId: null, lastActivityAt: 0 });
-    expect(messages.scopes.byChat.read({ chatId: 'chat-1' }).map(row => row.id)).toEqual(['message-1']);
-    expect(messages.scopes.byChat.read({ chatId: 'chat-2' })).toEqual([]);
-  });
-
-  it('does not commit a method patch ledger entry when its response apply fails', async () => {
-    let resolveMutation!: (value: { data: { pin: { id: string; pinned: boolean } } }) => void;
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) }) });
-    const chats = defineModelRuntime({ id: 'EffectsAcceptanceLedger', name: 'EffectsAcceptanceLedger', fields: { pinned: f.bool() } });
-    chats.insert({ id: 'chat-1', pinned: false });
-    const mutation = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
-      document: { kind: 'Document', definitions: [] } as never,
-      result: 'pin',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) },
-      write: ({ data }, plan) => plan.upsert(chats, data.pin)
-    });
-    const target = getApplyTarget(chats.modelId);
-    let failApply = false;
-    const originalPrepareUpsert = target.prepareUpsert;
-    target.prepareUpsert = (row, ...args) => {
-      if (failApply && (row as { pinned?: unknown }).pinned === false) throw new Error('injected apply failure');
-      return originalPrepareUpsert(row, ...args);
-    };
-    let pending!: Promise<unknown>;
-    act(() => {
-      pending = mutation.run({});
-    });
-    failApply = true;
-    resolveMutation({ data: { pin: { id: 'chat-1', pinned: false } } });
-    await expect(pending).rejects.toThrow('injected apply failure');
-
-    expect(getOperationState().pendingForRow(chats.modelId, 'chat-1')).toEqual([]);
-    expect(getOperationState().failedForRow(chats.modelId, 'chat-1').map(operation => operation.status)).not.toContain('committed');
-    expect(chats.find('chat-1')?.pinned).toBe(false);
-    target.prepareUpsert = originalPrepareUpsert;
-  });
-
   it('stores the complete relation plan and replays it without invoking relation callbacks', async () => {
     const storage = createMemoryPlane();
     const replayTouch = jest.fn((_message: Message, _chat: Chat) => {

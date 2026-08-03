@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, defineCommand, defineModel, defineShape, f, gql } from '../../testApi';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type UserInput = {
@@ -11,6 +11,7 @@ type ChatInput = {
   id: string;
   ownerId: string;
   title: string;
+  owner?: UserInput;
 };
 
 type ChatPayload = ChatInput & {
@@ -52,41 +53,53 @@ const UserSchema = defineShape<UserInput>()({
   username: f.str()
 });
 
-const ChatSchema = defineShape<ChatPayload>()({
+const ChatSchema = defineShape<ChatInput>()({
   ownerId: f.id(),
   title: f.str()
 });
 
 const createGraphModels = (suffix: string) => {
   const User = defineModel(`SpecGraphUser${suffix}`, {
-    schema: UserSchema
+    schema: UserSchema,
+    actions: owner => ({
+      refresh: owner.gql.action(refreshUserDocument, {
+        mode: 'request',
+        result: 'refreshUser',
+        variables: (input: { id: string }) => ({ input }),
+        root: { insert: { select: ({ data }) => data.refreshUser.user } }
+      })
+    })
   });
   const Chat = defineModel(`SpecGraphChat${suffix}`, {
     schema: ChatSchema,
-    relations: {
+    relations: owner => ({
       byOwner: {
         by: { ownerId: 'ownerId' },
-        remote: gql.connection(chatsDocument, {
+        remote: owner.gql.connection(chatsDocument, {
           variables: (params: { ownerId: string }) => ({ ownerId: params.ownerId }),
           connection: data => data.chats
         })
       }
-    },
-    actions: {
-      create: gql.action(createChatDocument, {
+    }),
+    actions: owner => ({
+      create: owner.gql.action(createChatDocument, {
+        mode: 'request',
         result: 'createChat',
         variables: (input: CreateChatVariables['input']) => ({ input }),
-        kind: 'insert',
-        select: data => data.createChat.chat,
+        root: { insert: { select: ({ data }) => data.createChat.chat } },
         optimistic: {
-          build: (input, context) => ({
-            id: context.tempId,
-            ownerId: input.ownerId,
-            title: input.title
-          })
+          root: {
+            insert: {
+              select: ({ input, tempId }) => ({
+                id: tempId,
+                ownerId: input.ownerId,
+                title: input.title
+              })
+            }
+          }
         }
       })
-    },
+    }),
     sideloads: () => ({
       owner: {
         model: User,
@@ -225,14 +238,7 @@ describe('sideload graph', () => {
     });
     configureRuntime(transport);
     const { User } = createGraphModels('Command');
-    const refreshUser = defineCommand<{ refreshUser: { user: UserInput } }, { id: string }>('refreshUser', {
-      document: refreshUserDocument,
-      result: 'refreshUser',
-      mapInput: input => ({ input }),
-      write: ({ data }, plan) => plan.upsert(User, data.refreshUser.user)
-    });
-
-    await refreshUser.run({ id: 'user-command' });
+    await User.actions.refresh.run({ id: 'user-command' });
 
     expect(User.find('user-command')).toEqual({ id: 'user-command', username: 'command-owner' });
   });

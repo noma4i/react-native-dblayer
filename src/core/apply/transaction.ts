@@ -31,7 +31,6 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
     entries.push(...commitPlan.entries);
     storage.set(entries);
     commitPlan.commit();
-    for (const model of models) getApplyTarget(model).ackPersist();
   };
 
   const persistedAppliedEpoch = (model: string): number => {
@@ -51,6 +50,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       if (envelope.schemaVersion !== 1) throw new Error(`Unsupported commit envelope schema version ${String(envelope.schemaVersion)}`);
       if (envelope.epoch !== getRuntimeGeneration()) throw new Error(`Stale commit envelope ${envelope.txId}`);
       const ops = [...envelope.entityOps, ...envelope.scopeOps];
+      if (ops.length === 0 && envelope.operationTransitions.length === 0) {
+        return { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+      }
       epoch += 1;
       const record: JournalRecord = {
         txId: envelope.txId,
@@ -64,13 +66,29 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
         bus,
         () => {
           let batch: IncrementalCommitBatch;
+          let persistenceError: unknown;
+          const persist = (): void => {
+            try {
+              if (checkpoint) {
+                const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
+                storage.set(commitPlan.entries);
+                commitPlan.commit();
+              } else {
+                persistImmediate(ops, record);
+              }
+            } catch (error) {
+              persistenceError = error;
+              throw error;
+            }
+          };
           try {
-            batch = applyAtomically(ops);
+            batch = applyAtomically(ops, record.epoch, persist);
           } catch (firstError) {
+            if (persistenceError !== undefined) throw persistenceError;
             poisonStoreReads();
             try {
               restoreStoreReads();
-              batch = applyAtomically(ops);
+              batch = applyAtomically(ops, record.epoch, persist);
             } catch (error) {
               poisonStoreReads();
               noteApplyFailure();
@@ -81,12 +99,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           }
           if (envelope.operationTransitions.length > 0) getOperationState().applyTransitions(envelope.operationTransitions);
           if (checkpoint) {
-            const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
-            storage.set(commitPlan.entries);
-            commitPlan.commit();
             checkpoint.notePlan(touchedModelsOf(ops), epoch);
           } else {
-            persistImmediate(ops, record);
+            for (const model of touchedModelsOf(ops)) getApplyTarget(model).ackPersist();
           }
           noteCommit();
           return batch;
@@ -119,18 +134,23 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           let batch: IncrementalCommitBatch;
           try {
             restoreStoreReads();
-            batch = applyAtomically(ops);
+            batch = applyAtomically(ops, record.epoch, () => {
+              if (checkpoint) {
+                const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
+                storage.set(commitPlan.entries);
+                commitPlan.commit();
+              } else {
+                persistImmediate(ops, record);
+              }
+            });
           } catch (error) {
             poisonStoreReads();
             throw error;
           }
           if (checkpoint) {
-            const commitPlan = journal.committedEntry(record, checkpoint.flushedEpoch());
-            storage.set(commitPlan.entries);
-            commitPlan.commit();
             checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
           } else {
-            persistImmediate(ops, record);
+            for (const model of touchedModelsOf(ops)) getApplyTarget(model).ackPersist();
           }
           noteCommit();
           return batch;

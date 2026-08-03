@@ -1,4 +1,4 @@
-import { isUndefined, omitBy, union } from 'es-toolkit';
+import { isUndefined, omitBy } from 'es-toolkit';
 import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOnceKeyRecord } from '../../types';
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
@@ -8,6 +8,9 @@ import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '..
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
 
+const isRollbackMembership = (value: unknown): value is { id: string; scopeKey: string; orderKey: string } =>
+  isNonArrayRecord(value) && isNonEmptyString(value.id) && isNonEmptyString(value.scopeKey) && isNonEmptyString(value.orderKey);
+
 /**
  * A tracked-only mutation - deduped or `once`, declared without an optimistic model - owns no rows
  * and names no model, and the rest of the package already reads `''` as exactly that. The reader has
@@ -16,26 +19,34 @@ const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
  */
 const namesItsOwner = (value: Record<string, unknown>): boolean => {
   if (isNonEmptyString(value.model)) return true;
-  const rowIds = value.rowIds;
-  const ownsNoRows = (value.tempIds as unknown[]).length === 0 && (rowIds === undefined || (rowIds as unknown[]).length === 0);
+  const ownsNoRows = (value.tempIds as unknown[]).length === 0 && (value.rowIds as unknown[]).length === 0;
   return value.model === '' && ownsNoRows;
 };
 
 const isOperationRecord = (value: unknown): value is OperationRecord =>
   isNonArrayRecord(value) &&
   isNonEmptyString(value.operationId) &&
+  isNonEmptyString(value.actionKey) &&
+  (value.actionMode === 'request' || value.actionMode === 'durable') &&
   Array.isArray(value.tempIds) &&
   value.tempIds.every(isNonEmptyString) &&
-  (value.rowIds === undefined || (Array.isArray(value.rowIds) && value.rowIds.every(isNonEmptyString))) &&
+  Array.isArray(value.rowIds) &&
+  value.rowIds.every(isNonEmptyString) &&
   namesItsOwner(value) &&
   (value.intent === 'insert' || value.intent === 'patch' || value.intent === 'destroy') &&
   (value.status === 'pending' || value.status === 'committed' || value.status === 'rolledback' || value.status === 'failed') &&
   isNonNegativeSafeInteger(value.createdAt) &&
-  (value.kind === undefined || isNonEmptyString(value.kind)) &&
   (value.idempotencyKey === undefined || isNonEmptyString(value.idempotencyKey)) &&
   (value.once === undefined || typeof value.once === 'boolean') &&
   (value.patchedFields === undefined || (Array.isArray(value.patchedFields) && value.patchedFields.every(isNonEmptyString))) &&
-  (value.patchedValues === undefined || isNonArrayRecord(value.patchedValues));
+  (value.patchedValues === undefined || isNonArrayRecord(value.patchedValues)) &&
+  (!Object.hasOwn(value, 'input') || jsonRoundTrip(value.input).serializable) &&
+  Object.hasOwn(value, 'rollbackRow') === Object.hasOwn(value, 'rollbackMemberships') &&
+  (!Object.hasOwn(value, 'rollbackRow') ||
+    (isNonArrayRecord(value.rollbackRow) &&
+      jsonRoundTrip(value.rollbackRow).serializable &&
+      Array.isArray(value.rollbackMemberships) &&
+      value.rollbackMemberships.every(isRollbackMembership)));
 
 const isOperationRecordMap = (value: unknown): value is Record<string, OperationRecord> =>
   isNonArrayRecord(value) &&
@@ -90,12 +101,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   const pendingKeys = new Set<string>();
   const hydratedPendingIds = new Set<string>();
   let pendingPatchCount = 0;
-  /** Reverse index: compositeKey(model, rowId) -> every operation whose rowIds/tempIds union includes
-   * that rowId, regardless of status. Each accessor re-applies its own historical row-match predicate
-   * (rowIds-or-tempIds vs rowIds-only vs union) within the bucket - the union key is a safe superset for
-   * all three, so results stay identical to the prior full-array scans, just O(bucket-size). */
+  /** Reverse index: compositeKey(model, rowId) -> every operation whose canonical rowIds include
+   * that rowId, regardless of status. */
   const opsByRowKey = new Map<string, Set<OperationRecord>>();
-  const rowKeysFor = (record: OperationRecord): string[] => union(record.tempIds, record.rowIds ?? []).map(rowId => compositeKey(record.model, rowId));
+  const rowKeysFor = (record: OperationRecord): string[] => record.rowIds.map(rowId => compositeKey(record.model, rowId));
   const indexRecordRows = (record: OperationRecord): void => {
     for (const key of rowKeysFor(record)) {
       let bucket = opsByRowKey.get(key);
@@ -157,8 +166,12 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const next: OperationRecord = {
         ...transition.operation,
         tempIds: [...transition.operation.tempIds],
-        ...(transition.operation.rowIds ? { rowIds: [...transition.operation.rowIds] } : {}),
+        rowIds: [...transition.operation.rowIds],
         ...(transition.operation.patchedFields ? { patchedFields: [...transition.operation.patchedFields] } : {}),
+        ...(transition.operation.rollbackRow ? { rollbackRow: { ...transition.operation.rollbackRow } } : {}),
+        ...(transition.operation.rollbackMemberships
+          ? { rollbackMemberships: transition.operation.rollbackMemberships.map(membership => ({ ...membership })) }
+          : {}),
         status: 'pending'
       };
       const previous = records.get(next.operationId);
@@ -218,16 +231,14 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       const held = new Set<string>();
       for (const operation of operations.values()) {
         if (operation.model !== model || (operation.status !== 'pending' && operation.status !== 'failed')) continue;
-        for (const id of operation.tempIds) held.add(id);
-        for (const id of operation.rowIds ?? []) held.add(id);
+        for (const id of operation.rowIds) held.add(id);
       }
       return held;
     },
     pendingForRow: (model, rowId) => {
       const bucket = bucketFor(model, rowId);
       if (!bucket) return [];
-      // The bucket is keyed by (model, rowId); only the fallback semantics of rowIds need re-checking.
-      return [...bucket].filter(operation => operation.status === 'pending' && (operation.rowIds ?? operation.tempIds).includes(rowId));
+      return [...bucket].filter(operation => operation.status === 'pending');
     },
     failedForRow: (model, rowId) => {
       const bucket = bucketFor(model, rowId);
@@ -319,7 +330,6 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       for (const operation of bucket) {
         if (operation.status !== 'pending' || operation.intent !== 'patch' || !operation.patchedFields || operation.patchedFields.length === 0) continue;
         if (operation.operationId === excludeOpId) continue;
-        if (!(operation.rowIds ?? []).includes(rowId)) continue;
         owned ??= new Set<string>();
         for (const field of operation.patchedFields) owned.add(field);
       }
@@ -332,7 +342,6 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       let result: { found: boolean; value: unknown } = { found: false, value: undefined };
       for (const operation of bucket) {
         if (operation.status !== 'pending' || operation.intent !== 'patch' || operation.operationId === excludeOpId) continue;
-        if (!(operation.rowIds ?? []).includes(rowId)) continue;
         if (operation.patchedValues && field in operation.patchedValues) result = { found: true, value: operation.patchedValues[field] };
       }
       return result;

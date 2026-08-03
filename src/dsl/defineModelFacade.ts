@@ -16,6 +16,8 @@ import type {
   DbWhere,
   GraphqlActionDefinition,
   GraphqlLiveDefinition,
+  ModelConfigurationOwner,
+  ModelEventHandle,
   RelationDecl,
   RelationSpec
 } from '../types';
@@ -27,26 +29,45 @@ import { createAssociationRelation, createByIdsRelation, createNamedRelation, cr
 import { createAction, createOperation } from './facadeActions';
 import { compileRemoteRelations } from './facadeRemoteQueries';
 import { waitForCommittedRow } from '../core/waitForCommittedRow';
+import { registerModelEvent } from '../core/modelEventRegistry';
+import { createGraphqlDsl } from './graphql';
+import { createModelNormalization } from './modelNormalization';
 
 export const defineModelFacade = <
   const TKey extends string,
   TShape extends DbShape<any, AnyFields>,
-  const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>>,
-  const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>>,
-  const TEvents extends Record<string, { type: 'live' }>,
-  const TAssociations extends Record<string, RelationDecl<unknown>>,
-  TStatics extends Record<string, unknown>
+  const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>> = Record<never, never>,
+  const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>> = Record<never, never>,
+  const TEvents extends Record<string, GraphqlLiveDefinition<any, any, any, any, any>> = Record<never, never>,
+  const TAssociations extends Record<string, RelationDecl<unknown>> = Record<never, never>,
+  TStatics extends Record<string, unknown> = Record<never, never>
 >(
   key: TKey,
-  config: ModelFacadeConfig<TShape, TRelations, TActions, TEvents, TAssociations, TStatics>
-): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TStatics> => {
+  config: ModelFacadeConfig<TShape, TRelations, TActions, TEvents, TAssociations, TStatics, TKey>
+): ModelFacade<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TStatics, TKey> => {
   let associationCache: TAssociations | undefined;
   const associations = (): TAssociations => {
     associationCache ??= config.associations?.() ?? ({} as TAssociations);
     return associationCache;
   };
+  const ownerNormalization = createModelNormalization({
+    id: key,
+    name: key,
+    fields: config.schema.fields,
+    rowId: config.rowId,
+    guard: config.guard,
+    write: config.write
+  } as never);
+  const owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>> = {
+    key,
+    build: input => ownerNormalization.normalize(input, true) as ModelStoredValue<TShape>,
+    gql: createGraphqlDsl<TKey, ModelBuildInput<TShape>, ModelStoredValue<TShape>>()
+  };
+  const relationDefinitions = config.relations?.(owner) ?? ({} as TRelations);
+  const actionDefinitions = config.actions?.(owner) ?? ({} as TActions);
+  const eventDefinitions = config.events?.(owner) ?? ({} as TEvents);
   const relationSpecs = Object.fromEntries(
-    Object.entries(config.relations ?? {}).map(([name, relation]) => [
+    Object.entries(relationDefinitions).map(([name, relation]) => [
       name,
       {
         by: relation.by,
@@ -69,31 +90,38 @@ export const defineModelFacade = <
     write: config.write
   } as never, { sideloads: config.sideloads }) as FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>>;
 
-  const compiledRelations = compileRemoteRelations<TShape>(runtime, config.relations);
+  const eventOwner = {
+    modelId: key,
+    planRows: (rows: readonly ModelBuildInput<TShape>[]) => getInternalModelHandle(runtime).planRows([...rows], { origin: 'event' })
+  };
+  const compiledRelations = compileRemoteRelations<TShape>(runtime, relationDefinitions);
   const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>> = Object.create(null);
-  for (const name of Object.keys(config.relations ?? {})) {
+  for (const name of Object.keys(relationDefinitions)) {
     const method = (params: Record<string, unknown> | null) =>
-      createNamedRelation(runtime, name, params, compiledRelations[name], config.relations?.[name]?.remote?.type);
+      createNamedRelation(runtime, name, params, compiledRelations[name], relationDefinitions[name]?.remote?.type);
     Reflect.set(method, 'invalidate', () => compiledRelations[name]?.invalidate());
     Reflect.set(relationMethods, name, method);
   }
   const actions: ModelActionMethods<TActions> = Object.create(null);
-  const events = runtime.ingest(
-    Object.fromEntries(
-      Object.entries(config.events ?? {}).map(([name, definition]) => {
-        const live = definition as GraphqlLiveDefinition<any, any>;
-        return [
-          name,
-          {
-            document: live.document,
-            debounce: live.debounce,
-            handler: live.handler
-          }
-        ];
+  const events = Object.create(null) as ModelEventHandle<TEvents>;
+  for (const [name, definition] of Object.entries(eventDefinitions)) {
+    const live = definition as GraphqlLiveDefinition<any, any, ModelBuildInput<TShape>, ModelStoredValue<TShape>, TKey>;
+    Reflect.set(
+      events,
+      name,
+      registerModelEvent({
+        modelKey: key,
+        eventName: name,
+        document: live.document,
+        variables: live.variables,
+        debounce: live.debounce,
+        owner: eventOwner,
+        root: live.root,
+        write: live.write
       })
-    )
-  );
-  const base: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TActions, TEvents> = {
+    );
+  }
+  const base: ModelFacadeCore<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TActions, TEvents, TKey> = {
     key,
     find: runtime.find,
     wait: (id, options) => waitForCommittedRow({ key, find: runtime.find }, id, options),
@@ -112,20 +140,15 @@ export const defineModelFacade = <
     actions,
     events
   };
-  const modelBase: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations> = Object.assign(
+  const modelBase: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TKey> = Object.assign(
     base,
     relationMethods,
     Object.create(null) as ModelAssociationMethods<TAssociations>
   );
-  const actionOwner = modelBase as ModelFacadeCore<
-    ModelStoredValue<TShape>,
-    ModelBuildInput<TShape>,
-    Record<string, never>,
-    Record<string, never>
-  > &
-    ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>>;
-  const actionDefinitions = (typeof config.actions === 'function' ? config.actions(actionOwner) : config.actions) ?? ({} as TActions);
   for (const [name, definition] of Object.entries(actionDefinitions)) {
+    if ('optimistic' in definition && definition.optimistic?.root && 'insert' in definition.optimistic.root && config.maintenance?.dropTempRowsAfterMs === undefined) {
+      throw new Error(`${key}.${name}: optimistic insert requires maintenance.dropTempRowsAfterMs`);
+    }
     Reflect.set(actions, name, createAction(runtime, `${key}:${name}`, definition));
   }
   const associationMethods = new Map<string, (id: string | null | undefined) => Relation<any, any>>();

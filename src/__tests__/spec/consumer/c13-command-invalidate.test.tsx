@@ -1,11 +1,19 @@
-import { configureDb, defineCommand, defineFetch, defineModelRuntime, f } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle, renderCountedInProvider } from '../helpers/harness';
 
 type UserRow = { id: string; balance: number };
+type CampaignRow = { id: string; version: number };
 type CommandResult = { reward: { ok: true; user: UserRow } };
+type ActionInput = { campaignId: string };
 type FetchResponse = { version: number };
+type QueryVariables = Record<string, never>;
 
-const document = { kind: 'Document', definitions: [] } as never;
+const queryDocument: TypedDocumentNode<FetchResponse, QueryVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const actionDocument: TypedDocumentNode<CommandResult, ActionInput> = { kind: Kind.DOCUMENT, definitions: [] };
+const UserSchema = defineShape<UserRow>()({ balance: f.num() });
+const CampaignSchema = defineShape<CampaignRow>()({ version: f.num() });
 
 describe('command invalidation and dedupe contracts', () => {
   it('invalidates an active fetch key on commit so the next use refetches', async () => {
@@ -19,42 +27,38 @@ describe('command invalidation and dedupe contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
-    const users = defineModelRuntime({
-      id: 'SpecConsumerCommandInvalidateUsers',
-      name: 'SpecConsumerCommandInvalidateUsers',
-      fields: {
-        id: f.str(),
-        balance: f.num()
-      }
+    const Campaign = defineModel('SpecConsumerCommandInvalidateCampaigns', {
+      schema: CampaignSchema,
+      relations: owner => ({
+        active: {
+          remote: owner.gql.single(queryDocument, {
+            variables: () => ({}),
+            select: data => ({ id: 'active-campaigns', version: data.version }),
+            staleTime: Number.MAX_SAFE_INTEGER
+          })
+        }
+      })
     });
-
-    const activeCampaigns = defineFetch<FetchResponse, void, number>({
-      key: 'c13-active-campaigns',
-      document,
-      select: data => data.version,
-      staleTime: Number.MAX_SAFE_INTEGER
-    });
-    const invalidationTarget = {
-      invalidate: () => {
-        activeCampaigns.remove();
-      }
-    };
-
-    const redeem = defineCommand<CommandResult, { campaignId: string }, never, never>('specCommandInvalidate', {
-      document,
-      result: 'reward',
-      mapInput: input => ({ campaignId: input.campaignId }),
-      write: ({ data }, plan) => {
-        plan.upsert(users, data.reward.user);
-        plan.invalidate(invalidationTarget);
-      }
+    const activeCampaigns = Campaign.active({});
+    const users = defineModel('SpecConsumerCommandInvalidateUsers', {
+      schema: UserSchema,
+      actions: owner => ({
+        redeem: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'reward',
+          variables: (input: ActionInput) => input,
+          dedupe: false,
+          root: { insert: { select: ({ data }) => data.reward.user } },
+          write: (_context, plan) => plan.invalidate(activeCampaigns)
+        })
+      })
     });
 
     const fetchReader = renderCountedInProvider(() => activeCampaigns.use());
     await settle();
     expect(queryCalls).toBe(1);
 
-    await redeem.run({ campaignId: 'camp-1' });
+    await users.actions.redeem.run({ campaignId: 'camp-1' });
     fetchReader.unmount();
     const remountedFetch = renderCountedInProvider(() => activeCampaigns.use());
     await settle();
@@ -75,34 +79,37 @@ describe('command invalidation and dedupe contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
-    const users = defineModelRuntime({
-      id: 'SpecConsumerCommandInvalidateUsersNoInvalidate',
-      name: 'SpecConsumerCommandInvalidateUsersNoInvalidate',
-      fields: {
-        id: f.str(),
-        balance: f.num()
-      }
+    const Campaign = defineModel('SpecConsumerCommandInvalidateCampaignsNoInvalidate', {
+      schema: CampaignSchema,
+      relations: owner => ({
+        active: {
+          remote: owner.gql.single(queryDocument, {
+            variables: () => ({}),
+            select: data => ({ id: 'active-campaigns-no-invalidate', version: data.version }),
+            staleTime: Number.MAX_SAFE_INTEGER
+          })
+        }
+      })
     });
-
-    const activeCampaigns = defineFetch<FetchResponse, void, number>({
-      key: 'c13-active-campaigns-no-invalidate',
-      document,
-      select: data => data.version,
-      staleTime: Number.MAX_SAFE_INTEGER
-    });
-
-    const redeem = defineCommand<CommandResult, { campaignId: string }, never, never>('specCommandNoInvalidate', {
-      document,
-      result: 'reward',
-      mapInput: input => ({ campaignId: input.campaignId }),
-      write: ({ data }, plan) => plan.upsert(users, data.reward.user)
+    const activeCampaigns = Campaign.active({});
+    const users = defineModel('SpecConsumerCommandInvalidateUsersNoInvalidate', {
+      schema: UserSchema,
+      actions: owner => ({
+        redeem: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'reward',
+          variables: (input: ActionInput) => input,
+          dedupe: false,
+          root: { insert: { select: ({ data }) => data.reward.user } }
+        })
+      })
     });
 
     const fetchReader = renderCountedInProvider(() => activeCampaigns.use());
     await settle();
     expect(queryCalls).toBe(1);
 
-    await redeem.run({ campaignId: 'camp-1' });
+    await users.actions.redeem.run({ campaignId: 'camp-1' });
     fetchReader.unmount();
     const remountedFetch = renderCountedInProvider(() => activeCampaigns.use());
     await settle();
@@ -118,14 +125,21 @@ describe('command invalidation and dedupe contracts', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
 
-    const redeem = defineCommand<CommandResult, { campaignId: string }, never, never>('specCommandDedupe', {
-      document,
-      result: 'reward',
-      mapInput: input => ({ campaignId: input.campaignId })
+    const users = defineModel('SpecConsumerCommandDedupeUsers', {
+      schema: UserSchema,
+      actions: owner => ({
+        redeem: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'reward',
+          variables: (input: ActionInput) => input,
+          dedupe: false,
+          root: { insert: { select: ({ data }) => data.reward.user } }
+        })
+      })
     });
 
-    const first = await redeem.run({ campaignId: 'camp-1' });
-    const second = await redeem.run({ campaignId: 'camp-1' });
+    const first = await users.actions.redeem.run({ campaignId: 'camp-1' });
+    const second = await users.actions.redeem.run({ campaignId: 'camp-1' });
 
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();

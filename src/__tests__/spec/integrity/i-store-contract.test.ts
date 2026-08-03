@@ -20,6 +20,14 @@ const entriesFor = (ids: readonly string[]): Array<{ id: string; orderKey: strin
 };
 
 describe('model store', () => {
+  it('evicts one row through the composed store facade', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-evict' });
+
+    expect(store.evict('row-evict')).toBe(true);
+    expect(store.read('row-evict')).toBeUndefined();
+  });
+
   it('serves scope joins without falling back to a full entity collection load', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {

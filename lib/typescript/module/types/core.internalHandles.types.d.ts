@@ -24,8 +24,6 @@ export type InternalModelHandle = {
         orderKey: string;
     }>): WriteOp[];
     relations(): Record<string, RelationDecl>;
-    revision(): number;
-    dropTempRowsAfterMs(): number | undefined;
 };
 /** Opaque per-scope capabilities: apply plans, keying, order semantics, and resolution. */
 export type InternalScopeHandle = {

@@ -6,8 +6,8 @@ export declare const createModelApplyTarget: <TStored extends {
     scopes: Record<string, ScopeSpec<TStored>> | undefined;
     context: ModelContext<TStored>;
     scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-    prepareRow(row: unknown, previous: TStored | undefined, origin?: Exclude<WriteOrigin, "patch" | "snapshot">, mergeBase?: TStored, operationId?: string): PreparedRowWrite | null;
-    preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string, remove?: readonly string[]): PreparedRowWrite | null;
+    prepareRow(row: unknown, previous: TStored | undefined, origin?: Exclude<WriteOrigin, "patch" | "snapshot">, mergeBase?: TStored, operationId?: string, baseRevision?: number): PreparedRowWrite | null;
+    preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string, remove?: readonly string[], baseRevision?: number): PreparedRowWrite | null;
     putRows(rows: TStored[]): Array<{
         id: string;
         changedFields: string[] | null;

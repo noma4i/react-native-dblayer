@@ -1,14 +1,17 @@
-import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind, OperationTypeNode } from 'graphql';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
+import { configureDb, defineModel, defineModelRuntime, defineShape, f, useDbSubscriptions, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MomentRow = { id: string; userId: string; status: string };
 type ScopeValue = { userId: string };
 type QueryResponse = { moment: { id: string | number; userId: number; status: string } };
 type PatchResponse = { updateMoment: MomentRow };
-type RespondResponse = { send: MomentRow; sink: { id: number; userId: string; status: string } };
 
 const document = { kind: 'Document', definitions: [] } as never;
+const MomentSchema = defineShape<MomentRow>()({ userId: f.id(), status: f.str() });
 
 const createMoments = () =>
   defineModelRuntime({
@@ -220,15 +223,57 @@ describe('id-key normalization contracts (LC20)', () => {
     expect(moments.find('54')).toBeUndefined();
   });
 
-  it('destroys a string-keyed row for a numeric ingest payload id', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
-    const moments = createMoments();
-    const ingest = moments.ingest({ removed: { apply: 'destroy' } });
+  it('destroys a string-keyed row for a numeric model event id', () => {
+    type EventData = { removed: { id: string } };
+    const eventDocument: TypedDocumentNode<EventData, Record<string, never>> = {
+      kind: Kind.DOCUMENT,
+      definitions: [
+        {
+          kind: Kind.OPERATION_DEFINITION,
+          operation: OperationTypeNode.SUBSCRIPTION,
+          variableDefinitions: [],
+          directives: [],
+          selectionSet: {
+            kind: Kind.SELECTION_SET,
+            selections: [{ kind: Kind.FIELD, name: { kind: Kind.NAME, value: 'removed' }, arguments: [], directives: [] }]
+          }
+        }
+      ]
+    };
+    let next!: (data: unknown) => void;
+    const transport = createMockTransport({
+      subscribe: (
+        _options: Parameters<NonNullable<DbTransport['subscribe']>>[0],
+        handlers: Parameters<NonNullable<DbTransport['subscribe']>>[1]
+      ) => {
+        next = handlers.next;
+        return () => undefined;
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const moments = defineModel('SpecConsumerNumericEventId', {
+      schema: MomentSchema,
+      events: owner => ({
+        removed: owner.gql.live(eventDocument, {
+          variables: {},
+          root: { destroy: { select: ({ payload }) => payload.id } }
+        })
+      })
+    });
+    function Activation(): null {
+      useDbSubscriptions(true);
+      return null;
+    }
     moments.insert({ id: '54', userId: '54', status: 'active' });
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Activation));
+    });
 
-    ingest.apply('removed', { id: 54 });
+    act(() => next({ removed: { id: 54 } }));
 
     expect(moments.find('54')).toBeUndefined();
+    act(() => root.unmount());
   });
 
   it('tracks a numeric-id method patch through the normalized string lookup key', async () => {
@@ -240,19 +285,26 @@ describe('id-key normalization contracts (LC20)', () => {
         })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const moments = createMoments();
-    const update = moments.mutation<PatchResponse, { id: string }, MomentRow, MomentRow>('numeric-pending', {
-      document,
-      result: 'updateMoment',
-      dedupe: false,
-      optimistic: { method: 'patch', model: moments, selectId: input => input.id, selectPatch: () => ({ status: 'pending' }) }
+    type PatchVariables = { input: { id: string } };
+    const patchDocument: TypedDocumentNode<PatchResponse, PatchVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+    const moments = defineModel('SpecConsumerNumericActionId', {
+      schema: MomentSchema,
+      actions: owner => ({
+        update: owner.gql.action(patchDocument, {
+          mode: 'request',
+          result: 'updateMoment',
+          variables: input => ({ input }),
+          optimistic: { root: { update: { select: ({ input }) => ({ id: input.id, patch: { status: 'pending' } }) } } },
+          root: { update: { select: ({ data }) => ({ id: data.updateMoment.id, patch: { status: data.updateMoment.status } }) } }
+        })
+      })
     });
     moments.insert({ id: '54', userId: '54', status: 'active' });
-    const reader = renderCounted(() => moments.use.pending('54'));
+    const reader = renderCounted(() => moments.operation('54').use().pending);
     let request!: Promise<PatchResponse['updateMoment'] | null>;
 
     act(() => {
-      request = update.run({ id: 54 as unknown as string });
+      request = moments.actions.update.run({ id: 54 as unknown as string });
     });
     const pendingWhileInFlight = reader.result();
     resolveMutation({ data: { updateMoment: { id: '54', userId: '54', status: 'pending' } } });
@@ -263,41 +315,6 @@ describe('id-key normalization contracts (LC20)', () => {
     expect(pendingWhileInFlight).toBe(true);
     expect(reader.result()).toBe(false);
     reader.unmount();
-  });
-
-  it('rolls back a numeric-id respond node after transport failure', async () => {
-    let rejectMutation!: (error: Error) => void;
-    const transport = createMockTransport({
-      mutation: async <TData,>() =>
-        await new Promise<{ data: TData }>((_resolve, reject) => {
-          rejectMutation = reject;
-        })
-    });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const moments = createMoments();
-    const send = moments.mutation<RespondResponse, void, MomentRow, RespondResponse['sink']>('numeric-respond-inverse', {
-      document,
-      result: 'send',
-      dedupe: false,
-      optimistic: {
-        model: moments,
-        respond: () => ({ send: { id: '', userId: '54', status: 'sending' }, sink: { id: 54, userId: '54', status: 'sink' } }),
-        selectServerNode: data => data.sink
-      },
-    });
-    let request!: ReturnType<typeof send.run>;
-
-    act(() => {
-      request = send.run(undefined);
-    });
-    expect(moments.find('54')).toMatchObject({ id: '54', status: 'sink' });
-
-    rejectMutation(new Error('send failed'));
-    await act(async () => {
-      await expect(request).rejects.toThrow('send failed');
-    });
-
-    expect(moments.find('54')).toBeUndefined();
   });
 
   it('matches a numeric where filter against the primary id key when id is not a declared field', () => {

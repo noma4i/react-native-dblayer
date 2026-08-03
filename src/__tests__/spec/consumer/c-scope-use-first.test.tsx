@@ -44,4 +44,11 @@ describe('ScopeHandle.useFirst', () => {
     expect(reader.result()?.id).toBe('p-2');
     reader.unmount();
   });
+
+  it('rejects a null sequence scope', () => {
+    setupSpecRuntime();
+    const profiles = createProfiles('SequenceNull');
+
+    expect(() => profiles.scopes.ranked.issueSequence(null as never, 'score')).toThrow('requires a scope value');
+  });
 });

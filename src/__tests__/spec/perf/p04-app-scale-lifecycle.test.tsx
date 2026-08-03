@@ -1,15 +1,22 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, createSingletonStatics, defineFetch, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
+import { DbProvider, configureDb, createSingletonStatics, defineModel, defineModelRuntime, defineShape, f , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, settle, diagnostics } from '../helpers/harness';
 
 type ChatRow = { id: string; status: string; kind: string; lastActivityAt: string; memberIds: string[] };
 type MessageRow = { id: string; chatId: string; sequenceNumber: number; body: string };
 type CountersRow = { id: string; totalUnread: number };
+type DigestData = { value: number };
+type DigestVariables = { value: number };
+type DigestRow = { id: string; value: number };
 
 const CHAT_DOCUMENT = { kind: 'Document', definitions: [] } as never;
 const MESSAGE_DOCUMENT = { kind: 'Document', definitions: [] } as never;
+const DIGEST_DOCUMENT: TypedDocumentNode<DigestData, DigestVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const DigestSchema = defineShape<DigestRow>()({ value: f.num() });
 
 const CHAT_STATUSES = ['open', 'archived', 'pending'] as const;
 const CHATS_PER_STATUS = 100;
@@ -109,7 +116,8 @@ const createModels = (): EnsembleModels => {
 const setupEnsembleTransport = (resuming: { current: boolean }, releaseQueue: Array<() => void>, chunkSize = 4) => {
   const transport = createMockTransport({
     query: async <TData, TVariables = Record<string, unknown>>(operation: { query: unknown; variables?: TVariables }) => {
-      const variables = operation.variables as unknown as { status?: string; chatId?: string } | undefined;
+      const variables = operation.variables as unknown as { value: number; status?: string; chatId?: string } | undefined;
+      if (operation.query === DIGEST_DOCUMENT) return { data: { value: variables!.value } as TData };
       const result =
         operation.query === CHAT_DOCUMENT
           ? { rows: [{ id: `${variables!.status}-refresh`, status: variables!.status, kind: 'normal', lastActivityAt: new Date().toISOString(), memberIds: [] }] }
@@ -126,7 +134,7 @@ const setupEnsembleTransport = (resuming: { current: boolean }, releaseQueue: Ar
 
 type MountedQuery = { key: string; unmount: () => void };
 
-/** Mounts the "app in miniature" ensemble: 12 defineQuery reads, 2 defineFetch, 6 renderKeys scope reads,
+/** Mounts the "app in miniature" ensemble: 12 defineQuery reads, 2 model relation reads, 6 renderKeys scope reads,
  * 2 view reads with includes, and 1 counters-singleton reader, all live at once. `inactiveCount` unmounts
  * that many of the 12 query readers right after first render, leaving their cache entries but no observer. */
 const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: number }) => {
@@ -151,8 +159,20 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
     })
   );
 
-  const digestA = defineFetch<{ value: number }, void, number>({ key: 'app-scale-digest-a', fetcher: async () => ({ value: 1 }), select: data => data.value, staleTime: Infinity });
-  const digestB = defineFetch<{ value: number }, void, number>({ key: 'app-scale-digest-b', fetcher: async () => ({ value: 2 }), select: data => data.value, staleTime: Infinity });
+  const Digest = defineModel('SpecAppScaleDigest', {
+    schema: DigestSchema,
+    relations: owner => ({
+      byValue: {
+        remote: owner.gql.single(DIGEST_DOCUMENT, {
+          variables: (params: DigestVariables) => params,
+          select: data => ({ id: 'digest-' + data.value, value: data.value }),
+          staleTime: Infinity
+        })
+      }
+    })
+  });
+  const digestA = Digest.byValue({ value: 1 });
+  const digestB = Digest.byValue({ value: 2 });
 
 
   const renders: Record<string, number> = {};
@@ -174,12 +194,12 @@ const mountEnsemble = (models: EnsembleModels, options?: { inactiveCount?: numbe
     return null;
   };
   const DigestAReader = () => {
-    digestA.use(undefined);
+    digestA.use();
     bump('digestA');
     return null;
   };
   const DigestBReader = () => {
-    digestB.use(undefined);
+    digestB.use();
     bump('digestB');
     return null;
   };
@@ -341,9 +361,9 @@ describe('app-scale lifecycle', () => {
       }
       resuming.current = false;
 
-      // 12 queries total; the unmounted standalone reader has zero observers, so exactly 11 remain eligible.
+      // 14 active relation readers total; the unmounted query reader has zero observers, so exactly 13 transport refetch calls remain eligible.
       const activeRefetchCalls = transport.calls.length - callsBeforeResume;
-      expect(activeRefetchCalls).toBe(11);
+      expect(activeRefetchCalls).toBe(13);
       expect(diagnostics().snapshot().resumeDrains).toBe(1);
     } finally {
       resuming.current = false;

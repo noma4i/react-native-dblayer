@@ -35,6 +35,7 @@ const createTargetMock = () => {
       const row: StoredRow = { ...previous, ...patch, id };
       return { row, changedFields: Object.keys(row).filter(field => !Object.is(previous[field], row[field])) };
     },
+    admitDestroy: () => true,
     beginApply: () => {},
     commitApply: () => {},
     abortApply: () => {},

@@ -36,7 +36,7 @@ describe('residency drain', () => {
   it('holds no row bucket for an operation that was taken back', () => {
     createRows();
     expect(residencySnapshot().operationRowBuckets).toBe(0);
-    const operation = { operationId: 'op-resident', model: 'SpecResidencyOps', tempIds: [], rowIds: ['r-op'], intent: 'patch' as const, createdAt: 1 };
+    const operation = { operationId: 'op-resident', actionKey: 'SpecResidencyOps:action', actionMode: 'request' as const, model: 'SpecResidencyOps', tempIds: [], rowIds: ['r-op'], intent: 'patch' as const, createdAt: 1 };
     getOperationState().applyTransitions([{ kind: 'begin', operation }]);
     expect(residencySnapshot().operationRowBuckets).toBe(1);
 

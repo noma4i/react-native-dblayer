@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f, reportSyncError , getApplyRuntime , createCommitEnvelope , createJournal , encodePersistence , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
+import { configureDb, defineModelRuntime, f, getApplyRuntime , createCommitEnvelope , createJournal , encodePersistence , bootDb , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 describe('apply honesty (D5): mid-plan throw', () => {
@@ -28,110 +28,6 @@ describe('apply honesty (D5): mid-plan throw', () => {
     expect(rows.find('row-2')).toBeUndefined();
     expect(diagnostics().snapshot().applyFailure).toBe(0);
     expect(onSyncError).not.toHaveBeenCalled();
-  });
-});
-
-describe('ingest honesty (D11): failed apply is reported, not silently acknowledged', () => {
-  it('normalizes a thrown non-error value before reporting it', () => {
-    const onSyncError = jest.fn();
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport(),
-      defaults: { onSyncError }
-    });
-    reportSyncError('ingest failed', { source: 'ingest', model: 'Rows', event: 'remoteUpdate' }, 'defineIngest');
-    expect(onSyncError).toHaveBeenCalledWith(expect.objectContaining({ message: 'ingest failed' }), expect.any(Object));
-  });
-
-  it('contains both observer and logger failures', () => {
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport(),
-      logger: {
-        debug: () => {},
-        error: () => {
-          throw new Error('logger exploded');
-        }
-      },
-      defaults: {
-        onSyncError: () => {
-          throw new Error('observer exploded');
-        }
-      }
-    });
-    const rows = defineModelRuntime({
-      id: 'IngestObserverAndLoggerIsolationD11',
-      name: 'IngestObserverAndLoggerIsolationD11',
-      fields: { label: f.str() }
-    });
-    const ingest = rows.ingest({
-      remoteUpdate: {
-        apply: () => {
-          throw new Error('ingest apply exploded');
-        }
-      }
-    });
-
-    expect(() => ingest.apply('remoteUpdate', {})).not.toThrow();
-  });
-
-  it('isolates an onSyncError observer failure and reports it through the configured logger', () => {
-    const logger = { debug: jest.fn(), error: jest.fn() };
-    configureDb({
-      storage: createMemoryPlane(),
-      transport: createMockTransport(),
-      logger,
-      defaults: {
-        onSyncError: () => {
-          throw new Error('observer exploded');
-        }
-      }
-    });
-    const rows = defineModelRuntime({
-      id: 'IngestObserverIsolationD11',
-      name: 'IngestObserverIsolationD11',
-      fields: { label: f.str() }
-    });
-    const ingest = rows.ingest({
-      remoteUpdate: {
-        apply: () => {
-          throw new Error('ingest apply exploded');
-        }
-      }
-    });
-
-    expect(() => ingest.apply('remoteUpdate', {})).not.toThrow();
-    expect(logger.error).toHaveBeenCalledWith('defineIngest onSyncError failed', { error: expect.objectContaining({ message: 'observer exploded' }) });
-  });
-
-  it('reports onSyncError, counts ingestFailed, and applies a clean redelivery of the same event', () => {
-    const storage = createMemoryPlane();
-    const onSyncError = jest.fn();
-    configureDb({ storage, transport: createMockTransport(), defaults: { onSyncError } });
-    diagnostics().reset();
-
-    const rows = defineModelRuntime({
-      id: 'IngestHonestyD11',
-      name: 'IngestHonestyD11',
-      fields: { label: f.str() }
-    });
-    rows.insert({ id: 'row-1', label: 'baseline' });
-
-    const ingest = rows.ingest({ remoteUpdate: { apply: payload => {
-      if ((payload as { label: string }).label === 'poisoned') throw new Error('ingest apply exploded');
-      rows.update('row-1', payload as { label: string });
-    } } });
-
-    ingest.apply('remoteUpdate', { label: 'poisoned' });
-
-    expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), { source: 'ingest', model: rows.modelId, event: 'remoteUpdate' });
-    expect(diagnostics().snapshot().ingestFailed).toBe(1);
-    expect(rows.find('row-1')?.label).toBe('baseline');
-
-    ingest.apply('remoteUpdate', { label: 'accepted' });
-
-    expect(rows.find('row-1')?.label).toBe('accepted');
-    expect(diagnostics().snapshot().ingestFailed).toBe(1);
   });
 });
 

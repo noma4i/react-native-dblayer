@@ -1,174 +1,188 @@
-import { act } from 'react';
-import { configureDb, defineModelRuntime, defineShape, f } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind, OperationTypeNode } from 'graphql';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
+import {
+  configureDb,
+  defineModel,
+  defineShape,
+  f,
+  resetRuntime,
+  useDbSubscriptions,
+  type DbTransport
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
-const document = { kind: 'Document', definitions: [] } as never;
-
-const createMediaModel = (id: string) => {
-  const media = defineShape()({ width: f.num().nullable(), height: f.num().nullable(), fileUrl: f.str().nullable(), blurHash: f.str().nullable() });
-  return defineModelRuntime({
-    id,
-    name: id,
-    fields: { body: f.str(), media: f.object(media) },
-    maintenance: { dropTempRowsAfterMs: 1000 },
-    write: { groups: [{ fields: ['media'] as const, policy: { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', thumbUrl: 'nonEmpty', coverUrl: 'nonEmpty', blurHash: 'nonEmpty' } } }] }
-  });
+type Media = {
+  width: number | null;
+  height: number | null;
+  fileUrl: string | null;
+  blurHash: string | null;
 };
+type Row = { id: string; body: string; media: Media };
+type QueryData = { rows: Row[] };
+type QueryVariables = Record<string, never>;
+type ActionData = { send: { message: Row } };
+type ActionVariables = { input: { body: string } };
+type EventData = { received: { message: Row } };
+
+const MediaSchema = defineShape<Media>()({
+  width: f.num().nullable(),
+  height: f.num().nullable(),
+  fileUrl: f.str().nullable(),
+  blurHash: f.str().nullable()
+});
+const RowSchema = defineShape<Row>()({ body: f.str(), media: f.object(MediaSchema) });
+const queryDocument: TypedDocumentNode<QueryData, QueryVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const actionDocument: TypedDocumentNode<ActionData, ActionVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const eventDocument: TypedDocumentNode<EventData, Record<string, never>> = {
+  kind: Kind.DOCUMENT,
+  definitions: [
+    {
+      kind: Kind.OPERATION_DEFINITION,
+      operation: OperationTypeNode.SUBSCRIPTION,
+      variableDefinitions: [],
+      directives: [],
+      selectionSet: {
+        kind: Kind.SELECTION_SET,
+        selections: [{ kind: Kind.FIELD, name: { kind: Kind.NAME, value: 'received' }, arguments: [], directives: [] }]
+      }
+    }
+  ]
+};
+const write = {
+  groups: [
+    {
+      fields: ['media'] as const,
+      policy: {
+        keys: {
+          width: 'positive' as const,
+          height: 'positive' as const,
+          fileUrl: 'nonEmpty' as const,
+          blurHash: 'nonEmpty' as const
+        }
+      }
+    }
+  ]
+};
+const localMedia: Media = { width: 320, height: 240, fileUrl: 'file:///local.mp4', blurHash: null };
+const serverMedia: Media = { width: 0, height: 0, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' };
+const expectedMedia: Media = { width: 320, height: 240, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' };
+
+function Activation(): null {
+  useDbSubscriptions(true);
+  return null;
+}
+
+afterEach(resetRuntime);
 
 describe('model-owned write declarations', () => {
-  it('G3 does not apply a query response with GraphQL errors', async () => {
-    const transport = createMockTransport({ query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', body: 'rejected', media: { width: null, height: null, fileUrl: null, blurHash: null } }] } as TData, errors: [{ message: 'forbidden' }] }) });
+  it('does not apply a query response with GraphQL errors', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: { rows: [{ id: 'row-1', body: 'rejected', media: serverMedia }] } as TData,
+        errors: [{ message: 'forbidden' }]
+      })
+    });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = createMediaModel('WriteDeclarationGraphqlErrors');
-    const query = rows.query<{ rows: Array<{ id: string; body: string; media: { width: number | null; height: number | null; fileUrl: string | null; blurHash: string | null } }> }, void, Record<string, never>, { id: string; body: string; media: { width: number | null; height: number | null; fileUrl: string | null; blurHash: string | null } }>('graphql-errors', { document, select: data => data.rows, into: rows });
+    const rows = defineModel('WriteDeclarationGraphqlErrors', {
+      schema: RowSchema,
+      write,
+      relations: owner => ({
+        remote: {
+          remote: owner.gql.list(queryDocument, {
+            variables: (params: QueryVariables) => params,
+            select: data => data.rows
+          })
+        }
+      })
+    });
 
-    await expect(query.fetch({})).rejects.toThrow('forbidden');
+    await expect(rows.remote({}).fetch()).rejects.toThrow('forbidden');
 
     expect(rows.find('row-1')).toBeUndefined();
   });
 
-  it('keeps an optimistic patch through a foreign event patch and accepts its committed server value', async () => {
-    let resolveMutation!: (value: { data: { pin: { id: string; pinned: boolean } } }) => void;
-    const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>(resolve => (resolveMutation = resolve as typeof resolveMutation)) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const chats = defineModelRuntime({ id: 'WriteDeclarationOwnedCommit', name: 'WriteDeclarationOwnedCommit', fields: { pinned: f.bool() } });
-    chats.insert({ id: 'chat-1', pinned: false });
-    const pin = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
-      document,
-      result: 'pin',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) },
-      write: ({ data }, plan) => plan.upsert(chats, data.pin)
-    });
-    const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
-    let pending!: Promise<{ id: string; pinned: boolean } | null>;
-
-    act(() => {
-      pending = pin.run({});
-      ingest.apply('remotePatch', { pinned: false });
-    });
-    expect(chats.find('chat-1')?.pinned).toBe(true);
-
-    resolveMutation({ data: { pin: { id: 'chat-1', pinned: false } } });
-    await act(async () => {
-      await pending;
-    });
-    expect(chats.find('chat-1')?.pinned).toBe(false);
-  });
-
-  it('lets its own rollback restore the pre-mutation value after a foreign event patch is dropped', async () => {
-    let rejectMutation!: (error: Error) => void;
-    const transport = createMockTransport({ mutation: async <TData,>() => await new Promise<{ data: TData }>((_resolve, reject) => (rejectMutation = reject)) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const chats = defineModelRuntime({ id: 'WriteDeclarationOwnedRollback', name: 'WriteDeclarationOwnedRollback', fields: { pinned: f.bool() } });
-    chats.insert({ id: 'chat-1', pinned: false });
-    const pin = chats.mutation<{ pin: { id: string; pinned: boolean } }, Record<string, never>, { id: string; pinned: boolean }, { id: string; pinned: boolean }>('pin', {
-      document,
-      result: 'pin',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: () => 'chat-1', selectPatch: () => ({ pinned: true }) }
-    });
-    const ingest = chats.ingest({ remotePatch: { apply: payload => chats.update('chat-1', payload as { pinned: boolean }) } });
-    let pending!: Promise<{ id: string; pinned: boolean } | null>;
-
-    act(() => {
-      pending = pin.run({});
-      ingest.apply('remotePatch', { pinned: false });
-    });
-    expect(chats.find('chat-1')?.pinned).toBe(true);
-
-    rejectMutation(new Error('pin failed'));
-    await act(async () => {
-      await expect(pending).rejects.toThrow('pin failed');
-    });
-    expect(chats.find('chat-1')?.pinned).toBe(false);
-  });
-
-  it('keeps media guards for event ingest and commit replacement', async () => {
-    const server = { id: 'server-1', body: 'server body', media: { width: 0, height: 0, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' } };
-    const optimistic = { body: 'optimistic body', media: { width: 320, height: 240, fileUrl: 'file:///local.mp4', blurHash: null } };
-    const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: server } } as TData }) });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const committed = createMediaModel('WriteDeclarationCommit');
-    const send = committed.mutation('send', {
-      document,
-      result: 'send',
-      optimistic: {
-        model: committed,
-        build: (_input: Record<string, never>, context: { tempId: string | null }) => ({ id: context.tempId!, ...optimistic }),
-        selectServerNode: (data: any) => data.send.message
-      }
-    });
-
-    await act(async () => {
-      await send.run({});
-    });
-
-    const evented = createMediaModel('WriteDeclarationEvent');
-    evented.insert({ id: 'event-1', ...optimistic });
-    evented.ingest({ received: { handler: () => ({ upsert: { ...server, id: 'event-1' } }) } }).apply('received', {});
-
-    expect(committed.find('server-1')?.media).toEqual({ width: 320, height: 240, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' });
-    expect(evented.find('event-1')?.media).toEqual({ width: 320, height: 240, fileUrl: 'https://cdn/file.mp4', blurHash: 'server-blur' });
-  });
-
-  it('keeps continuity fields for nullish incoming values but accepts empty strings', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
-    const rows = defineModelRuntime({
-      id: 'WriteDeclarationContinuity',
-      name: 'WriteDeclarationContinuity',
-      fields: { localPreviewUrl: f.str().nullable() },
-      write: { groups: [{ fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
-    });
-    rows.insert({ id: 'row-1', localPreviewUrl: 'file:///preview.jpg' });
-    const ingest = rows.ingest({ received: { handler: payload => ({ upsert: payload }) } });
-
-    ingest.apply('received', { id: 'row-1', localPreviewUrl: null });
-    expect(rows.find('row-1')?.localPreviewUrl).toBe('file:///preview.jpg');
-    ingest.apply('received', { id: 'row-1', localPreviewUrl: 'file:///next.jpg' });
-    expect(rows.find('row-1')?.localPreviewUrl).toBe('file:///next.jpg');
-    rows.update('row-1', { localPreviewUrl: null });
-    expect(rows.find('row-1')?.localPreviewUrl).toBe('file:///next.jpg');
-    ingest.apply('received', { id: 'row-1', localPreviewUrl: '' });
-    expect(rows.find('row-1')?.localPreviewUrl).toBe('');
-  });
-
-  it('uses the server default for ungrouped fields across event, snapshot, and replace writes', async () => {
+  it('uses the same field policy for query and model event landings', async () => {
+    let next!: (data: unknown) => void;
     const transport = createMockTransport({
-      query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', body: 'next snapshot' }] } as TData }),
-      mutation: async <TData,>() => ({ data: { send: { message: { id: 'server-1', body: 'server' } } } as TData })
-    });
-    configureDb({ storage: createMemoryPlane(), transport });
-    const rows = defineModelRuntime({
-      id: 'WriteDeclarationAccept',
-      name: 'WriteDeclarationAccept',
-      fields: { body: f.str() },
-      maintenance: { dropTempRowsAfterMs: 1000 }
-    });
-    rows.insert({ id: 'row-1', body: 'snapshot' });
-    rows.ingest({ received: { handler: () => ({ upsert: { id: 'row-1', body: 'event' } }) } }).apply('received', {});
-    expect(rows.find('row-1')?.body).toBe('event');
-    const snapshot = rows.query<{ rows: Array<{ id: string; body: string }> }, void, Record<string, never>, { id: string; body: string }>('snapshot', {
-      document,
-      key: 'write-declaration-snapshot',
-      select: data => data.rows,
-      into: rows
-    });
-    await snapshot.fetch({});
-    expect(rows.find('row-1')?.body).toBe('next snapshot');
-
-    const send = rows.mutation('send', {
-      document,
-      result: 'send',
-      optimistic: {
-        model: rows,
-        build: (_input: Record<string, never>, context: { tempId: string | null }) => ({ id: context.tempId!, body: 'optimistic' }),
-        selectServerNode: (data: any) => data.send.message
+      query: async <TData,>() => ({ data: { rows: [{ id: 'query-1', body: 'query-server', media: serverMedia }] } as TData }),
+      subscribe: (
+        _options: Parameters<NonNullable<DbTransport['subscribe']>>[0],
+        handlers: Parameters<NonNullable<DbTransport['subscribe']>>[1]
+      ) => {
+        next = handlers.next;
+        return () => undefined;
       }
     });
-    await act(async () => {
-      await send.run({});
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModel('WriteDeclarationRemoteChannels', {
+      schema: RowSchema,
+      write,
+      relations: owner => ({
+        remote: {
+          remote: owner.gql.list(queryDocument, {
+            variables: (params: QueryVariables) => params,
+            select: data => data.rows
+          })
+        }
+      }),
+      events: owner => ({
+        received: owner.gql.live(eventDocument, {
+          variables: {},
+          root: { insert: { select: ({ payload }) => payload.message } }
+        })
+      })
     });
-    expect(rows.find('server-1')?.body).toBe('server');
+    rows.insertMany([
+      { id: 'query-1', body: 'query-local', media: localMedia },
+      { id: 'event-1', body: 'event-local', media: localMedia }
+    ]);
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Activation));
+    });
+
+    await rows.remote({}).fetch();
+    act(() => next({ received: { message: { id: 'event-1', body: 'event-server', media: serverMedia } } }));
+
+    expect(rows.find('query-1')).toEqual({ id: 'query-1', body: 'query-server', media: expectedMedia });
+    expect(rows.find('event-1')).toEqual({ id: 'event-1', body: 'event-server', media: expectedMedia });
+    act(() => root.unmount());
+  });
+
+  it('uses the same field policy during an action temp-to-server replace', async () => {
+    const transport = createMockTransport({
+      mutation: async <TData,>() => ({
+        data: { send: { message: { id: 'server-1', body: 'server-body', media: serverMedia } } } as TData
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModel('WriteDeclarationActionReplace', {
+      schema: RowSchema,
+      write,
+      maintenance: { dropTempRowsAfterMs: 1000 },
+      actions: owner => ({
+        send: owner.gql.action(actionDocument, {
+          mode: 'request',
+          result: 'send',
+          variables: (input: ActionVariables['input']) => ({ input }),
+          optimistic: {
+            root: {
+              insert: {
+                select: ({ input, tempId }) => ({ id: tempId, body: input.body, media: localMedia })
+              }
+            }
+          },
+          root: { insert: { select: ({ data }) => data.send.message } }
+        })
+      })
+    });
+
+    await act(async () => {
+      await rows.actions.send.run({ body: 'optimistic-body' });
+    });
+
+    expect(rows.find('server-1')).toEqual({ id: 'server-1', body: 'server-body', media: expectedMedia });
   });
 });

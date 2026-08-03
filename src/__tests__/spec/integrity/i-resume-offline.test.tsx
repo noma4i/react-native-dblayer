@@ -1,12 +1,17 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import React, { act } from 'react';
-import { AppState } from 'react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch } from '../../testApi';
+import { DbProvider, configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setTestNetworkOnline, settle } from '../helpers/harness';
 
-const document = { kind: 'Document', definitions: [] } as never;
+type ResponseData = { value: string };
+type ResultRow = { id: string; value: string };
+type Variables = Record<string, never>;
 
-type FetchResponse = { value: string };
+const document: TypedDocumentNode<ResponseData, Variables> = { kind: Kind.DOCUMENT, definitions: [] };
+const ResultSchema = defineShape<ResultRow>()({ value: f.str() });
 
 /**
  * Foreground resume combined with a dead network: the resume drain must not fire transport calls
@@ -14,13 +19,13 @@ type FetchResponse = { value: string };
  * the refetch the offline resume owed - the two states compose instead of cancelling each other.
  */
 describe('foreground resume while offline', () => {
-  let appStateHandler: ((state: string) => void) | undefined;
+  let appStateHandler: ((state: AppStateStatus) => void) | undefined;
 
   beforeEach(() => {
-    jest.spyOn(AppState, 'addEventListener').mockImplementation(((_event: string, handler: (state: string) => void) => {
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
       appStateHandler = handler;
       return { remove: jest.fn() };
-    }) as never);
+    });
   });
 
   afterEach(() => {
@@ -37,9 +42,21 @@ describe('foreground resume while offline', () => {
       transport: createMockTransport({ query: async <TData,>() => ({ data: { value: String(++calls) } as TData }) }),
       defaults: { resumeStaleTime: 1000 }
     });
-    const fetch = defineFetch<FetchResponse, void, string>({ document, key: 'resume-offline-fetch', select: data => data.value, staleTime: Infinity });
+    const ResultModel = defineModel('SpecResumeOfflineReconnect', {
+      schema: ResultSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(document, {
+            variables: () => ({}),
+            select: data => ({ id: 'resume-offline-result', value: data.value }),
+            staleTime: Infinity
+          })
+        }
+      })
+    });
+    const relation = ResultModel.result({});
     const Reader = () => {
-      fetch.use(undefined);
+      relation.use();
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -78,21 +95,33 @@ describe('foreground resume while offline', () => {
   });
 
   it('replays exactly one follow-up when resume staleness lands during an in-flight fetch', async () => {
-    const pending: Array<(value: { data: FetchResponse }) => void> = [];
+    const pending: Array<(value: { data: ResponseData }) => void> = [];
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
         query: <TData,>() =>
           new Promise<{ data: TData }>(resolve => {
-            pending.push(resolve as (value: { data: FetchResponse }) => void);
+            pending.push(resolve as (value: { data: ResponseData }) => void);
           })
       }),
       defaults: { resumeStaleTime: 1000 }
     });
-    const fetch = defineFetch<FetchResponse, void, string>({ document, key: 'resume-inflight-fetch', select: data => data.value, staleTime: Infinity });
+    const ResultModel = defineModel('SpecResumeOfflineInflight', {
+      schema: ResultSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(document, {
+            variables: () => ({}),
+            select: data => ({ id: 'resume-inflight-result', value: data.value }),
+            staleTime: Infinity
+          })
+        }
+      })
+    });
+    const relation = ResultModel.result({});
     let latest: string | undefined;
     const Reader = () => {
-      latest = fetch.use(undefined).data;
+      latest = relation.use().data?.value;
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;

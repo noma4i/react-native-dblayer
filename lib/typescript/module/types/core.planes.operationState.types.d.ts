@@ -2,11 +2,13 @@ export type OperationStatus = 'pending' | 'committed' | 'rolledback' | 'failed';
 export type OperationIntent = 'insert' | 'patch' | 'destroy';
 export type OperationRecord = {
     operationId: string;
-    /** Stable declaration kind for a detached operation. */
-    kind?: string;
+    /** Canonical model action identity. */
+    actionKey: string;
+    /** Model action mode that owns this operation; poll actions do not create records. */
+    actionMode: 'request' | 'durable';
     model: string;
     tempIds: string[];
-    rowIds?: string[];
+    rowIds: string[];
     intent: OperationIntent;
     status: OperationStatus;
     idempotencyKey?: string;
@@ -16,8 +18,16 @@ export type OperationRecord = {
     patchedFields?: string[];
     /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
     patchedValues?: Record<string, unknown>;
-    /** JSON-round-tripped input retained for durable retry of a failed optimistic insert. */
-    failedInput?: unknown;
+    /** JSON-round-tripped domain input retained for request or durable action persistence. */
+    input?: unknown;
+    /** Exact pre-optimistic stored owner row for request update or destroy rollback. */
+    rollbackRow?: Record<string, unknown>;
+    /** Exact pre-optimistic owner membership snapshot for request update or destroy rollback. */
+    rollbackMemberships?: Array<{
+        id: string;
+        scopeKey: string;
+        orderKey: string;
+    }>;
     createdAt: number;
 };
 /** Immutable operation-ledger change carried by a commit envelope. */
@@ -49,7 +59,7 @@ export type OperationState = {
     openInsertsFor(model: string): OperationRecord[];
     /** Row ids (temp and confirmed) held by open operations of one model - the same protection root projected for scope planning. */
     openRowIdsFor(model: string): ReadonlySet<string>;
-    /** Pending operations touching one model row (rowIds falling back to tempIds), in creation order. */
+    /** Pending operations touching one model row, in creation order. */
     pendingForRow(model: string, rowId: string): OperationRecord[];
     /** Failed operations touching one model row (rowIds union tempIds). */
     failedForRow(model: string, rowId: string): OperationRecord[];

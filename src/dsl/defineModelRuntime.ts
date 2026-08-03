@@ -14,7 +14,6 @@ import type {
   WriteOp
 } from '../types';
 import { registerRelationHost } from '../core/relations';
-import { registerKeyedReset } from '../core/reset';
 import { createModelNormalization } from './modelNormalization';
 import { createModelScopeKeys } from './modelScopeKeys';
 import { createModelCriteria } from './modelCriteria';
@@ -101,7 +100,7 @@ export const defineModelRuntime = <
     entityState: () => planes().entityState,
     normalize,
     isPlanRow,
-    bumpRevision: context.bumpRevision,
+    revisions: context.revisions,
     captureMembership
   });
   if (landing) {
@@ -167,7 +166,6 @@ export const defineModelRuntime = <
     applyEvent
   });
 
-  let consumerResetSequence = 0;
   const scopeHandles = Object.fromEntries(Object.keys(config.scopes ?? {}).map(name => [name, makeScopeHandle(name)])) as {
     [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields> & Record<string, unknown>, Record<string, unknown>, InferBuildInput<TFields>>;
   };
@@ -196,10 +194,7 @@ export const defineModelRuntime = <
       modelDep,
       whereRead
     }),
-    scopes: scopeHandles,
-    registerReset: fn => {
-      registerKeyedReset(`model-consumer:${config.id}:${(consumerResetSequence += 1)}`, fn);
-    }
+    scopes: scopeHandles
   };
   context.setModel(model);
   registerModelRuntime<InferStoredFields<TFields> & Record<string, unknown>, InferBuildInput<TFields>>({

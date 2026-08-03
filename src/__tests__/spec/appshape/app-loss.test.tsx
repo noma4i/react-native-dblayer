@@ -1,9 +1,62 @@
 import { act } from 'react';
-import { configureDb , bootDb , flushPersistence , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , stableSerialize } from '../../testApi';
+import { configureDb, bootDb, flushPersistence, DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest, stableSerialize, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
 const document = { kind: 'Document', definitions: [] } as never;
+
+type SendMessageInput = {
+  id: string;
+  chatId: string;
+  userId: string;
+  kind: string;
+  status: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  sequenceNumber: number | null;
+  localPreviewUrl?: string | null;
+  media?: Record<string, unknown> | null;
+};
+
+type SendData = { send: { message: SendMessageInput } };
+
+const SendMessageSchema = defineShape<SendMessageInput>()({
+  chatId: f.str(),
+  userId: f.str(),
+  kind: f.str(),
+  status: f.str(),
+  body: f.str(),
+  createdAt: f.str(),
+  updatedAt: f.str(),
+  sequenceNumber: f.num().nullable(),
+  localPreviewUrl: f.str().nullable().optional(),
+  media: f.raw<Record<string, unknown>>().nullable().optional()
+});
+
+const createSendModel = (key: string) =>
+  defineModel(key, {
+    schema: SendMessageSchema,
+    relations: () => ({
+      thread: { by: { chatId: 'chatId' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
+    }),
+    maintenance: { dropTempRowsAfterMs: 60_000 },
+    write: {
+      groups: [
+        { fields: ['media'], policy: { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty', blurHash: 'nonEmpty' } } },
+        { fields: ['localPreviewUrl'], policy: 'continuity' }
+      ]
+    },
+    actions: owner => ({
+      send: owner.gql.action<SendData, Record<string, never>, { row: SendMessageInput }, 'send'>(document, {
+        mode: 'request',
+        result: 'send',
+        variables: () => ({}),
+        optimistic: { root: { insert: { select: ({ input, tempId }) => ({ ...input.row, id: tempId }) } } },
+        root: { insert: { select: ({ data }) => data.send.message } }
+      })
+    })
+  });
 
 const write = (model: any, row: unknown): void => model.insert(row);
 const writeMany = (model: any, rows: unknown[]): void => model.insertMany(rows);
@@ -29,39 +82,27 @@ describe('app-shaped loss contracts', () => {
     let resolve!: (value: { data: any }) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => new Promise<{ data: TData }>(nextResolve => { resolve = nextResolve as never; }) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const models = createAppModels('LossL1');
-    write(models.chats, { id: 'chat-1', kind: 'personal', status: 'active', premium: false, isPublic: false, history: 'all', pinned: false, muted: false, read: false, unreadCount: 0, messagesCount: 0, lastActivityAt: '2026-07-26T00:00:00Z', userIds: [], createdAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z' });
-    const reader = renderCounted(() => models.messages.scopes.thread.useWindow({ chatId: 'chat-1' }, { pageSize: 30 }));
-    let tempId = '';
-    const send = models.messages.mutation('send-media', {
-      document,
-      result: 'send',
-      optimistic: {
-        model: models.messages,
-        build: (_input: void, context: { tempId: string | null }) => {
-          tempId = context.tempId!;
-          return { id: context.tempId!, chatId: 'chat-1', userId: 'me', kind: 'photo', status: 'Sending', body: 'optimistic', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:01Z', sequenceNumber: 1, localPreviewUrl: 'file:///spool/preview.jpg', media: { id: 'media-1', kind: 'photo', fileUrl: 'file:///spool/upload.jpg', thumbUrl: 'file:///spool/upload.jpg', width: 320, height: 240 } };
-        },
-        selectServerNode: (data: any) => data.send.message
-      }
-    });
+    const messages = createSendModel('AppLossL1Message');
+    const optimistic = { id: 'temp-message', chatId: 'chat-1', userId: 'me', kind: 'photo', status: 'Sending', body: 'optimistic', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:01Z', sequenceNumber: 1, localPreviewUrl: 'file:///spool/preview.jpg', media: { id: 'media-1', kind: 'photo', fileUrl: 'file:///spool/upload.jpg', thumbUrl: 'file:///spool/upload.jpg', width: 320, height: 240 } };
+    const reader = renderCounted(() => messages.thread({ chatId: 'chat-1' }).use({ pageSize: 30 }).data);
 
-    const pending = send.run();
+    const pending = messages.actions.send.run({ row: optimistic });
     await act(async () => {
       await Promise.resolve();
     });
-    expect(reader.result().rows.map((row: any) => row.id)).toEqual([tempId]);
+    const tempId = reader.result()[0]!.id;
+    expect(reader.result().map(row => row.id)).toEqual([tempId]);
     await act(async () => {
       resolve({ data: { send: { message: { id: 'message-server', chatId: 'chat-1', userId: 'me', kind: 'photo', status: 'Sent', body: 'server', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:02Z', sequenceNumber: 1, media: { id: 'media-1', kind: 'photo', fileUrl: 'https://cdn/media.jpg', thumbUrl: 'https://cdn/thumb.jpg', blurHash: 'server-blur', width: null, height: null } } } } });
       await pending;
     });
 
-    expect(models.messages.find(tempId)).toBeUndefined();
-    expect(models.messages.find('message-server')).toMatchObject({
+    expect(messages.find(tempId)).toBeUndefined();
+    expect(messages.find('message-server')).toMatchObject({
       localPreviewUrl: 'file:///spool/preview.jpg',
       media: { fileUrl: 'https://cdn/media.jpg', blurHash: 'server-blur', width: 320, height: 240 }
     });
-    expect(reader.result().rows.map((row: any) => row.id)).toEqual(['message-server']);
+    expect(reader.result().map(row => row.id)).toEqual(['message-server']);
     reader.unmount();
   });
 
@@ -116,34 +157,23 @@ describe('app-shaped loss contracts', () => {
       return { data: { send: { message: { id: 'message-server', chatId: 'chat-1', userId: 'me', kind: 'text', status: 'Sent', body: 'server', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:02Z', sequenceNumber: 1 } } } as TData };
     } });
     configureDb({ storage: createMemoryPlane(), transport });
-    const models = createAppModels('LossL4');
-    const reader = renderCounted(() => models.messages.scopes.thread.useWindow({ chatId: 'chat-1' }, { pageSize: 30 }));
-    let tempId = '';
-    const send = models.messages.mutation('send-retry', {
-      document,
-      result: 'send',
-      optimistic: {
-        model: models.messages,
-        failure: 'keep',
-        build: (_input: Record<string, never>, context: { tempId: string | null }) => {
-          tempId = context.tempId!;
-          return { id: tempId, chatId: 'chat-1', userId: 'me', kind: 'text', status: 'Sending', body: 'optimistic', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:01Z', sequenceNumber: 1 };
-        },
-        selectServerNode: (data: any) => data.send.message,
-        onFailurePatch: () => ({ status: 'Failed' }),
-        onRetryPatch: () => ({ status: 'Sending' })
-      }
-    });
+    const messages = createSendModel('AppLossL4Message');
+    const reader = renderCounted(() => messages.thread({ chatId: 'chat-1' }).use({ pageSize: 30 }).data);
+    const optimistic = { id: 'temp-message', chatId: 'chat-1', userId: 'me', kind: 'text', status: 'Sending', body: 'optimistic', createdAt: '2026-07-26T00:00:01Z', updatedAt: '2026-07-26T00:00:01Z', sequenceNumber: 1 };
 
-    await expect(send.run({})).rejects.toThrow('offline');
-    expect(models.messages.find(tempId)).toMatchObject({ status: 'Failed' });
-    await expect(send.retry(tempId)).resolves.toMatchObject({ message: { id: 'message-server' } });
+    await act(async () => {
+      await expect(messages.actions.send.run({ row: optimistic })).rejects.toThrow('offline');
+    });
+    const tempId = reader.result()[0]!.id;
+    expect(messages.find(tempId)).toMatchObject({ status: 'Sending' });
+    expect(messages.operation(tempId).read()).toMatchObject({ pending: false, failed: true });
+    await expect(messages.actions.send.retry(tempId)).resolves.toMatchObject({ message: { id: 'message-server' } });
     await act(async () => {
       await Promise.resolve();
     });
-    expect(models.messages.find(tempId)).toBeUndefined();
-    expect(reader.result().rows.map((row: any) => row.id)).toEqual(['message-server']);
-    expect(models.messages.scopes.thread.read({ chatId: 'chat-1' })).toHaveLength(1);
+    expect(messages.find(tempId)).toBeUndefined();
+    expect(reader.result().map(row => row.id)).toEqual(['message-server']);
+    expect(messages.thread({ chatId: 'chat-1' }).read()).toHaveLength(1);
     reader.unmount();
   });
 });

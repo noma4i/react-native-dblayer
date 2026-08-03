@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
-import { configureDb, createSingletonStatics, defineModel, defineShape, f, gql, type ModelInput, type ModelStored } from '../../testApi';
+import { configureDb, createSingletonStatics, defineModel, defineShape, f, type ModelInput, type ModelStored } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type MessageInput = {
@@ -63,7 +63,19 @@ type EdgeThreadData = {
 const threadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<ThreadData, ThreadVariables>;
 const sendDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<SendData, SendVariables>;
 const messageDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageData, MessageVariables>;
-const messageCreatedDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<MessageCreatedData, never>;
+const messageCreatedDocument = {
+  kind: 'Document',
+  definitions: [
+    {
+      kind: 'OperationDefinition',
+      operation: 'subscription',
+      selectionSet: {
+        kind: 'SelectionSet',
+        selections: [{ kind: 'Field', name: { kind: 'Name', value: 'messageCreated' } }]
+      }
+    }
+  ]
+} as unknown as TypedDocumentNode<MessageCreatedData, Record<string, never>>;
 const catalogDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<CatalogData, Record<string, never>>;
 const edgeThreadDocument = { kind: 'Document', definitions: [] } as unknown as TypedDocumentNode<EdgeThreadData, ThreadVariables>;
 
@@ -76,44 +88,45 @@ const MessageSchema = defineShape<MessageInput>()({
 const createMessageModel = (suffix: string) =>
   defineModel(`SpecMessage${suffix}`, {
     schema: MessageSchema,
-    relations: {
+    relations: owner => ({
       thread: {
-        by: { chatId: 'chatId' },
+        by: { chatId: 'chatId' as const },
         sort: 'server-order',
-        remote: gql.connection(threadDocument, {
+        remote: owner.gql.connection(threadDocument, {
           variables: (params: { chatId: string }) => ({ chatId: params.chatId }),
           connection: data => data.messages
         })
       },
       details: {
-        remote: gql.single(messageDocument, {
+        remote: owner.gql.single(messageDocument, {
           variables: (params: { id: string }) => ({ id: params.id }),
           select: data => data.message,
           required: ['id']
         })
       }
-    },
-    actions: () => ({
-      send: gql.action(sendDocument, {
+    }),
+    actions: owner => ({
+      send: owner.gql.action(sendDocument, {
+        mode: 'request',
         result: 'send',
         variables: input => ({ input }),
-        kind: 'insert',
-        select: data => data.send.message,
+        root: { insert: { select: ({ data }) => data.send.message } },
         optimistic: {
-          build: (input, context) => ({
-            id: context.tempId,
+          root: { insert: { select: ({ input, tempId }) => ({
+            id: tempId,
             chatId: input.chatId,
             body: input.body,
             status: 'sending'
-          })
+          }) } }
         }
       })
     }),
-    events: {
-      messageCreated: gql.live(messageCreatedDocument, {
-        handler: payload => ({ upsert: payload.message })
+    events: owner => ({
+      messageCreated: owner.gql.live(messageCreatedDocument, {
+        variables: {},
+        root: { insert: { select: ({ payload }) => payload.message } }
       })
-    },
+    }),
     maintenance: { dropTempRowsAfterMs: 1000 }
   });
 
@@ -224,12 +237,12 @@ describe('model surface', () => {
     configureRuntime(createMockTransport());
     const Message = defineModel('SpecLocalOnlyMessage', {
       schema: MessageSchema,
-      relations: {
+      relations: _owner => ({
         thread: {
           by: { chatId: 'chatId' },
           sort: { field: 'body', dir: 'asc' }
         }
-      }
+      })
     });
     Message.insertMany([
       { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' },
@@ -277,16 +290,16 @@ describe('model surface', () => {
     configureRuntime(transport);
     const Message = defineModel('SpecMessageCatalog', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         catalog: {
           sort: 'server-order',
-          remote: gql.list(catalogDocument, {
+          remote: owner.gql.list(catalogDocument, {
             variables: () => ({}),
             select: data => data.catalog,
             map: node => ({ ...node, body: node.body.toUpperCase() })
           })
         }
-      }
+      })
     });
     const relation = Message.catalog({});
 
@@ -304,20 +317,20 @@ describe('model surface', () => {
     configureRuntime(transport);
     const Message = defineModel('SpecNullMessageCatalog', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         catalog: {
-          remote: gql.list(catalogDocument, {
+          remote: owner.gql.list(catalogDocument, {
             variables: () => ({}),
             select: () => null
           })
         },
         plain: {
-          remote: gql.list(catalogDocument, {
+          remote: owner.gql.list(catalogDocument, {
             variables: () => ({}),
             select: data => data.catalog
           })
         }
-      }
+      })
     });
 
     await Message.catalog({}).fetch();
@@ -355,18 +368,18 @@ describe('model surface', () => {
     configureRuntime(transport);
     const Message = defineModel('SpecEdgeConnectionMessage', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         thread: {
           by: { chatId: 'chatId' },
           sort: 'server-order',
-          remote: gql.connection(edgeThreadDocument, {
+          remote: owner.gql.connection(edgeThreadDocument, {
             variables: (params: { chatId: string; after?: string | null }) => params,
             connection: data => data.messages,
             map: node => ({ ...node, body: node.body.toUpperCase() }),
             cursor: (_data, connection) => connection.pageInfo.endCursor
           })
         }
-      }
+      })
     });
     const reader = renderCountedInProvider(() => Message.thread({ chatId: 'chat-1' }).use({ loadMoreDebounceMs: 0 }));
 
@@ -379,9 +392,9 @@ describe('model surface', () => {
 
     const EmptyMessage = defineModel('SpecEmptyEdgeConnectionMessage', {
       schema: MessageSchema,
-      relations: {
+      relations: owner => ({
         thread: {
-          remote: gql.connection(edgeThreadDocument, {
+          remote: owner.gql.connection(edgeThreadDocument, {
             variables: (params: { chatId: string }) => params,
             connection: () => ({
               edges: null,
@@ -389,7 +402,7 @@ describe('model surface', () => {
             })
           })
         }
-      }
+      })
     });
     await EmptyMessage.thread({ chatId: 'chat-1' }).fetch();
     expect(EmptyMessage.thread({ chatId: 'chat-1' }).read()).toEqual([]);
@@ -537,22 +550,16 @@ describe('model surface', () => {
     reader.unmount();
   });
 
-  it('owns typed subscription landing through its event handle', () => {
+  it('exposes typed presentation subscription through its event handle', () => {
     configureRuntime(createMockTransport());
     const Message = createMessageModel('Event');
-
-    Message.events.apply('messageCreated', {
-      message: { id: 'm-live', chatId: 'chat-1', body: 'delivered', status: 'sent' }
+    const unsubscribe = Message.events.messageCreated.subscribe(payload => {
+      expect(payload.message.id).toBe('m-live');
     });
 
-    expect(Message.find('m-live')).toEqual({
-      id: 'm-live',
-      chatId: 'chat-1',
-      body: 'delivered',
-      status: 'sent'
-    });
-    expect(Message.events.entries).toHaveLength(1);
-    expect(Message.events.entries[0]?.key).toBe('messageCreated');
+    expect(typeof unsubscribe).toBe('function');
+    expect('apply' in Message.events.messageCreated).toBe(false);
+    unsubscribe();
   });
 });
 

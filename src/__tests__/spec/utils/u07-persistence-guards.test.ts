@@ -56,6 +56,7 @@ describe('persisted query record guards', () => {
 
     removePersistedQuery(DECLARATION);
     expect(readBack('chat-2')).toBeUndefined();
+    expect(() => removePersistedQuery(DECLARATION)).not.toThrow();
     expect(
       readPersistedQuery({ ...DECLARATION, family: 'query:other' }, 'other', candidate => ({ payload: candidate.payload, scope: candidate.scope }))
     ).toBeDefined();

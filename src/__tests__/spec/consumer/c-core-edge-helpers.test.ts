@@ -1,11 +1,14 @@
 import {
   compileWritePolicies,
+  configureDb,
   createCommitBus,
   createUpsertResolver,
   diffTopLevelFields,
   isSerializedNoop,
+  reportSyncError,
   retryDelayMs
 } from '../../testApi';
+import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('core edge helpers', () => {
   it('diffs deleted fields and rejects a serialized value change', () => {
@@ -71,6 +74,7 @@ describe('core edge helpers', () => {
   it('uses default retry delays and exercises idempotent commit-bus teardown', () => {
     const policy = { classify: () => 'network' as const, budgets: { network: 1 } };
     expect(retryDelayMs(policy, new Error('offline'), 0)).toBe(1000);
+    expect(retryDelayMs({ classify: () => 'network' }, new Error('offline'), 1)).toBeNull();
 
     const bus = createCommitBus();
     const subscription = bus.subscribe(() => undefined, [{ kind: 'row', model: 'CoreEdgeRows', id: 'row-1' }]);
@@ -78,5 +82,18 @@ describe('core edge helpers', () => {
     subscription.unsubscribe();
     subscription.unsubscribe();
     expect(bus.subscriberCount()).toBe(0);
+  });
+
+  it('contains failures from both the sync observer and logger', () => {
+    const loggerFailure = new Error('logger failed');
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport(),
+      defaults: { onSyncError: () => { throw new Error('observer failed'); } },
+      logger: { debug: () => undefined, error: () => { throw loggerFailure; } }
+    });
+    const source = new Error('source failed');
+
+    expect(reportSyncError(source, { source: 'query', key: 'edge' }, 'coreEdge')).toBe(source);
   });
 });

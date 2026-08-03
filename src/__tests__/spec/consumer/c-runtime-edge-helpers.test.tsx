@@ -5,15 +5,18 @@ import {
   configureDb,
   compositeKey,
   computePhase,
+  createCommitEnvelope,
   createModelContext,
   createModelCriteria,
   createModelScopeKeys,
   createProjectionGate,
-  defineModelRuntime,
+  defineModel,
+  defineShape,
   f,
   getCommitBus,
   getDbRuntimeConfig,
   getDbQueryClient,
+  getApplyRuntime,
   isFetchedResult,
   limitRows,
   isTempRowProtectedByModel,
@@ -23,7 +26,6 @@ import {
   resetRuntime,
   rowsShallowEqual,
   resumeFetchReaders,
-  purgeForeignStorageKeys,
   suspendDb,
   sortModelReadRows,
   useLiveRead,
@@ -52,37 +54,6 @@ describe('runtime edge helpers', () => {
     ).not.toThrow();
   });
 
-  it('purges foreign storage keys and executes model-owned fetch definitions', async () => {
-    const storage = createMemoryPlane();
-    storage.set([{ key: 'foreign', value: 'value' }]);
-    configureDb({ storage, transport: createMockTransport() });
-    const model = defineModelRuntime({
-      id: 'RuntimeEdgeFetchModel',
-      name: 'RuntimeEdgeFetchModel',
-      fields: { label: f.str() }
-    });
-    const defaultKey = model.fetch<{ value: string }, string, string>('default', {
-      fetcher: async input => ({ value: input }),
-      select: data => data.value
-    });
-    const explicitKey = model.fetch<{ value: string }, string, string>('explicit', {
-      key: 'runtime-edge-explicit-fetch',
-      fetcher: async input => ({ value: input }),
-      select: data => data.value
-    });
-
-    expect(purgeForeignStorageKeys()).toBe(1);
-    expect(storage.get('foreign')).toBeUndefined();
-    await expect(defaultKey.fetch('default-value')).resolves.toBe('default-value');
-    await expect(explicitKey.fetch('explicit-value')).resolves.toBe('explicit-value');
-    expect(getDbQueryClient().getQueryCache().getAll().map(query => query.queryKey)).toEqual(
-      expect.arrayContaining([
-        [`fetch:${compositeKey(model.modelId, 'default')}`, expect.any(String)],
-        ['fetch:runtime-edge-explicit-fetch', expect.any(String)]
-      ])
-    );
-  });
-
   it('memoizes model relations after their first resolution', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const relations = jest.fn(() => ({}));
@@ -93,11 +64,74 @@ describe('runtime edge helpers', () => {
       applyWriteGate: (_previous, incoming) => incoming
     });
 
-    expect(context.resolvedRelations()).toBe(context.resolvedRelations());
+    const resolvedRelations = context.resolvedRelations();
+    expect(context.resolvedRelations()).toBe(resolvedRelations);
     expect(relations).toHaveBeenCalledTimes(1);
-    expect(context.revision()).toBe(0);
-    context.bumpRevision();
-    expect(context.revision()).toBe(1);
+  });
+
+  it('enforces revision apply boundaries and filters fields newer than a response', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const context = createModelContext<{ id: string; changed?: string; removed?: string; untouched?: string }>({
+      modelId: 'SpecRuntimeEdgeRevisions',
+      scopeNames: [],
+      relations: () => ({}),
+      applyWriteGate: (_previous, incoming) => incoming
+    });
+    const revisions = context.revisions;
+
+    expect(() => revisions.notePut('row-1', ['changed'], false)).toThrow('revision apply is not active');
+    expect(() => revisions.noteDestroy('row-1')).toThrow('revision apply is not active');
+    expect(() => revisions.commitApply()).toThrow('revision apply is not active');
+
+    revisions.beginApply(2);
+    expect(() => revisions.beginApply(3)).toThrow('revision apply already active');
+    revisions.notePut('row-1', ['changed', 'removed'], false);
+    revisions.commitApply();
+
+    expect(revisions.admitRow({ id: 'row-1', changed: 'remote' }, undefined, 1)).toBeNull();
+    expect(revisions.admitRow({ id: 'row-1', changed: 'remote', removed: 'remote' }, { id: 'row-1', changed: 'local' }, 1)).toEqual({
+      id: 'row-1',
+      changed: 'local'
+    });
+    expect(revisions.admitPatch('row-2', { changed: 'remote' }, [], { id: 'row-2' }, 1)).toEqual({
+      patch: { changed: 'remote' },
+      remove: []
+    });
+    expect(revisions.admitPatch('row-1', { changed: 'remote' }, ['removed'], { id: 'row-1', changed: 'local' }, 1)).toBeNull();
+    expect(
+      revisions.admitPatch(
+        'row-1',
+        { changed: 'remote', untouched: 'accepted' },
+        ['removed', 'absent'],
+        { id: 'row-1', changed: 'local', removed: 'local' },
+        1
+      )
+    ).toEqual({ patch: { untouched: 'accepted' }, remove: ['absent'] });
+
+    revisions.beginApply(3);
+    revisions.noteDestroy('row-3');
+    revisions.commitApply();
+    expect(revisions.admitPatch('row-3', { changed: 'remote' }, [], { id: 'row-3' }, 2)).toBeNull();
+    expect(revisions.admitDestroy('row-3', 2)).toBe(false);
+    expect(revisions.admitDestroy('row-3', undefined)).toBe(true);
+  });
+
+  it('applies explicit field removal through the shared commit planner', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const schema = defineShape<{ id: string; retained: string; removed?: string }>()({
+      retained: f.str(),
+      removed: f.str().optional()
+    });
+    const Model = defineModel('SpecRuntimeEdgeRemove', { schema });
+    Model.insert({ id: 'row-1', retained: 'retained', removed: 'remove-me' });
+
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        { kind: 'patch', model: Model.key, id: 'row-1', patch: {}, remove: ['removed'] }
+      ])
+    );
+
+    expect(Model.find('row-1')).toEqual({ id: 'row-1', retained: 'retained' });
   });
 
   it('classifies an error-only observer result as fetched', () => {
@@ -144,6 +178,7 @@ describe('runtime edge helpers', () => {
     const emptyKeys = gate.projectRows(rows, { renderKeys: [] });
     expect(emptyKeys).toBe(withoutKeys);
     expect(gate.projectRows(rows, { renderKeys: ['label'] })).toBe(withoutKeys);
+    expect(gate.projectValue('direct', { version: 1 }, { id: 'direct', label: 'value' })).toEqual({ id: 'direct', label: 'value' });
   });
 
   it('recomputes a live read between render and subscription and accepts pending dependencies', () => {
@@ -166,6 +201,21 @@ describe('runtime edge helpers', () => {
       root = TestRenderer.create(React.createElement(Probe));
     });
     expect(latest).toBeGreaterThan(1);
+    act(() => root.unmount());
+  });
+
+  it('accepts a scope dependency in the shared live-read signature', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const Probe = () => {
+      useLiveRead(() => 1, [{ kind: 'scope', model: 'RuntimeScopeRows', scopeKey: 'scope-1' }]);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Probe));
+    });
+    expect(root.toJSON()).toBeNull();
     act(() => root.unmount());
   });
 

@@ -10,7 +10,7 @@ Full reference: [docs/README.md](./docs/README.md).
 ## Define a model
 
 ```ts
-import { defineModel, defineShape, f, gql } from '@noma4i/react-native-dblayer';
+import { defineModel, defineShape, f } from '@noma4i/react-native-dblayer';
 
 const MessageSchema = defineShape<MessageInput>()({
   chatId: f.id(),
@@ -20,44 +20,48 @@ const MessageSchema = defineShape<MessageInput>()({
 
 export const Message = defineModel('Message', {
   schema: MessageSchema,
-  relations: {
+  relations: owner => ({
     thread: {
       by: { chatId: 'chatId' },
       sort: 'server-order',
-      remote: gql.connection(MessagesDocument, {
+      remote: owner.gql.connection(MessagesDocument, {
         variables: ({ chatId }: { chatId: string }) => ({ chatId }),
         connection: data => data.messages
       })
     },
     details: {
-      remote: gql.single(MessageDocument, {
+      remote: owner.gql.single(MessageDocument, {
         variables: ({ id }: { id: string }) => ({ id }),
         select: data => data.message,
         required: ['id']
       })
     }
-  },
-  actions: {
-    send: gql.action(SendMessageDocument, {
+  }),
+  actions: owner => ({
+    send: owner.gql.action(SendMessageDocument, {
+      mode: 'request',
       result: 'sendMessage',
       variables: input => ({ input }),
-      kind: 'insert',
-      select: data => data.sendMessage.message,
       optimistic: {
-        build: (input, { tempId }) => ({
-          id: tempId,
-          chatId: input.chatId,
-          body: input.body,
-          status: 'sending'
-        })
-      }
+        root: {
+          insert: {
+            select: ({ input, tempId }) => ({
+              id: tempId,
+              chatId: input.chatId,
+              body: input.body,
+              status: 'sending'
+            })
+          }
+        }
+      },
+      root: { insert: { select: ({ data }) => data.sendMessage.message } }
     })
-  },
-  events: {
-    messageCreated: gql.live(MessageCreatedDocument, {
-      handler: payload => ({ upsert: payload.message })
+  }),
+  events: owner => ({
+    messageCreated: owner.gql.live(MessageCreatedDocument, {
+      root: { insert: { select: ({ payload }) => payload.message } }
     })
-  }
+  })
 });
 ```
 
@@ -98,16 +102,19 @@ await send.run({ chatId, body });
 
 Request actions own optimistic writes, correlation, rollback, deduplication, and invalidation.
 Actions, remote queries, and live ingest use one `write(context, plan)` callback and one `WritePlan`.
-Durable and poll modes use the same `gql.action` declaration.
+Durable and poll modes use the same `owner.gql.action` declaration.
 
-## Apply subscription events
+## Observe subscription events
 
 ```ts
-Message.events.apply('messageCreated', payload);
+const unsubscribe = Message.events.messageCreated.subscribe(payload => {
+  logger.info('message committed', payload.message.id);
+});
 ```
 
-Pass `Message.events.entries` to the shared subscription runtime. Manual delivery and transport
-delivery execute the same typed handler and atomic ingest pipeline.
+Mount `useDbSubscriptions(active)` once under the configured runtime. Transport delivery and
+event listeners use the same model event plan and atomic commit pipeline. Listeners run after the
+commit succeeds.
 
 ## Runtime
 
@@ -125,17 +132,14 @@ const Root = () => (
 
 Every write compiles into one plan, one write-ahead transaction, and one semantic publish.
 Canonical rows, relation membership, ordering, optimistic identity, and operation state remain
-consistent under one epoch. `resetRuntime()` clears persisted and in-memory state on logout.
+consistent under one epoch. Storage failure publishes nothing. `resetRuntime()` clears persisted
+and in-memory state on logout.
 
 Named queries with a finite positive freshness window persist query identity, selected data or
 pagination metadata, the original update timestamp, and invalidation state. A process restart
 therefore restores fresh data without transport and refreshes expired or invalidated data exactly
 once. Anonymous and zero-stale queries remain process-local. Increment `persistenceVersion` when a
 selected shape, destination, identity, or pagination contract changes.
-
-Standalone `defineFetch` and `defineCommand` remain available only for model-less service work.
-`defineFetch` exposes `read`, freshness-aware `fetch`, forced `refresh`, reactive `use`, and family
-`remove`; `validate` checks selected data after transport and durable restore.
 
 ## Verification
 

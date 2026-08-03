@@ -77,19 +77,33 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
 
 export const touchedModelsOf = (ops: JournalOp[]): string[] => uniq(ops.map(op => op.model));
 
-export const applyAtomically = (ops: JournalOp[]): IncrementalCommitBatch => {
+export const applyAtomically = (ops: JournalOp[], commitEpoch: number, persist: (targets: readonly ApplyTarget[]) => void): IncrementalCommitBatch => {
   const targets = touchedModelsOf(ops).map(model => getApplyTarget(model));
   const active: ApplyTarget[] = [];
+  let committed = false;
   try {
     for (const target of targets) {
-      target.beginApply();
+      target.beginApply(commitEpoch);
       active.push(target);
     }
-    const batch = runInApplyBatch(() => applyOperations(ops));
-    for (const target of active) target.commitApply();
+    const batch = runInApplyBatch(() => {
+      const applied = applyOperations(ops);
+      persist(active);
+      for (const target of active) target.commitApply();
+      committed = true;
+      return applied;
+    });
     return batch;
   } catch (error) {
-    for (const target of active.reverse()) target.abortApply();
+    if (!committed) {
+      for (const target of active.reverse()) {
+        try {
+          target.abortApply();
+        } catch {
+          // Preserve the first transaction failure. A partially finalized target is recovered by replay.
+        }
+      }
+    }
     throw error;
   }
 };

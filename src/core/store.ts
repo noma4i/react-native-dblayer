@@ -5,7 +5,7 @@ import { afterStoreTransaction, restoreStoreReads, runInStoreTransaction } from 
 import { createScopePlane } from './storeScopeCollections';
 import { createModelQueryPlane } from './storeModelQueries';
 
-export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransaction } from './storeSync';
+export { runInApplyBatch, poisonStoreReads, restoreStoreReads } from './storeSync';
 
 /** Store factories are a definition registry (registered at defineModel time, replaced per generation); active stores die on reset. */
 const storeFactories = new Map<string, () => ModelStore<RowRecord>>();

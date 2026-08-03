@@ -64,6 +64,8 @@ describe('resetRuntime failure isolation', () => {
 
 const beginOperation = (operationId: string, idempotencyKey: string, once = false) => ({
   operationId,
+  actionKey: 'LedgerLifecycleRows:action',
+  actionMode: 'request' as const,
   model: 'LedgerLifecycleRows',
   tempIds: [],
   rowIds: ['row-1'],
@@ -103,7 +105,7 @@ describe('operation ledger lifecycle invariants', () => {
     const storage = createMemoryPlane();
     const build = () => createOperationState({ storage, prefix: () => 'ledger:', now: () => 0 });
     const ledger = build();
-    ledger.begin({ operationId: 'op-tracked', model: '', tempIds: [], rowIds: [], intent: 'patch', idempotencyKey: 'key-tracked', once: true, createdAt: 0 });
+    ledger.begin({ operationId: 'op-tracked', actionKey: 'TrackedOnly:action', actionMode: 'request', model: '', tempIds: [], rowIds: [], intent: 'patch', idempotencyKey: 'key-tracked', once: true, createdAt: 0 });
     ledger.close('op-tracked', 'committed');
 
     const restarted = build();

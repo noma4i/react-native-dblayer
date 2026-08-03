@@ -1,6 +1,8 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineModelRuntime, f } from '../../testApi';
+import { DbProvider, configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimeline, settle } from '../helpers/harness';
 
 type ChatRow = { id: string; groupId: string; pinned: boolean; muted: boolean; read: boolean; rev: number };
@@ -8,13 +10,34 @@ type ScopeValue = { groupId: string };
 type QueryResponse = { chats: ChatRow[] };
 type PinResponse = { pinChat: ChatRow };
 type MuteResponse = { muteChat: ChatRow };
+type RevisionResponse = { setRevision: ChatRow };
+type PinInput = { id: string };
+type MuteInput = { id: string };
+type RevisionInput = { id: string; rev: number };
+type QueryVariables = ScopeValue;
+type PinVariables = { input: PinInput };
+type MuteVariables = { input: MuteInput };
+type RevisionVariables = { input: RevisionInput };
 type Deferred<T> = { resolve: (data: T) => void; reject: (error: Error) => void };
 
-const document = { kind: 'Document', definitions: [] } as never;
+const chatsDocument: TypedDocumentNode<QueryResponse, QueryVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const pinDocument: TypedDocumentNode<PinResponse, PinVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const muteDocument: TypedDocumentNode<MuteResponse, MuteVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const revisionDocument: TypedDocumentNode<RevisionResponse, RevisionVariables> = {
+  kind: Kind.DOCUMENT,
+  definitions: []
+};
+const ChatSchema = defineShape<ChatRow>()({
+  groupId: f.str(),
+  pinned: f.bool(),
+  muted: f.bool(),
+  read: f.bool(),
+  rev: f.num()
+});
 
-const createFixture = (suffix: string, guarded = false) => {
+const createQueues = () => {
   const queries: Deferred<QueryResponse>[] = [];
-  const mutations: Deferred<PinResponse | MuteResponse>[] = [];
+  const mutations: Deferred<PinResponse | MuteResponse | RevisionResponse>[] = [];
   const transport = createMockTransport({
     query: async <TData,>() =>
       await new Promise<{ data: TData }>((resolve, reject) => {
@@ -26,52 +49,135 @@ const createFixture = (suffix: string, guarded = false) => {
       })
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const chats = defineModelRuntime({
-    id: `SpecWriteCausality${suffix}`,
-    name: `SpecWriteCausality${suffix}`,
-    fields: {
-      id: f.str(),
-      groupId: f.str(),
-      pinned: f.bool(),
-      muted: f.bool(),
-      read: f.bool(),
-      rev: f.num()
-    },
+  return { queries, mutations };
+};
+
+const createFixture = (suffix: string, guarded = false) => {
+  const { queries, mutations } = createQueues();
+  const chats = defineModel(`SpecWriteCausality${suffix}`, {
+    schema: ChatSchema,
+    relations: owner => ({
+      byGroup: {
+        by: { groupId: 'groupId' },
+        sort: 'server-order',
+        remote: owner.gql.list(chatsDocument, {
+          variables: (scope: ScopeValue) => scope,
+          select: data => data.chats
+        })
+      }
+    }),
+    actions: owner => ({
+      pin: owner.gql.action(pinDocument, {
+        mode: 'request',
+        result: 'pinChat',
+        variables: (input: PinInput) => ({ input }),
+        optimistic: {
+          root: {
+            update: {
+              select: ({ input }) => ({ id: input.id, patch: { pinned: true } })
+            }
+          }
+        },
+        root: {
+          update: {
+            select: ({ data }) => ({
+              id: data.pinChat.id,
+              patch: {
+                groupId: data.pinChat.groupId,
+                pinned: data.pinChat.pinned,
+                muted: data.pinChat.muted,
+                read: data.pinChat.read,
+                rev: data.pinChat.rev
+              }
+            })
+          }
+        }
+      }),
+      mute: owner.gql.action(muteDocument, {
+        mode: 'request',
+        result: 'muteChat',
+        variables: (input: MuteInput) => ({ input }),
+        optimistic: {
+          root: {
+            update: {
+              select: ({ input }) => ({ id: input.id, patch: { muted: true } })
+            }
+          }
+        },
+        root: {
+          update: {
+            select: ({ data }) => ({
+              id: data.muteChat.id,
+              patch: {
+                groupId: data.muteChat.groupId,
+                pinned: data.muteChat.pinned,
+                muted: data.muteChat.muted,
+                read: data.muteChat.read,
+                rev: data.muteChat.rev
+              }
+            })
+          }
+        }
+      })
+    }),
     write: guarded
       ? {
           groups: [
             {
-              fields: ['pinned', 'muted', 'rev'] as const,
-              policy: { monotonic: { tuple: ['rev'] } }
+              fields: ['pinned', 'muted', 'rev'],
+              policy: { monotonic: { tuple: ['rev'] }, on: ['patch'] }
             }
           ]
         }
-      : undefined,
-    scopes: {
-      byGroup: ({ by: { groupId: 'groupId' } })
-    }
+      : undefined
   });
-  const query = chats.query<QueryResponse, ScopeValue, ScopeValue, ChatRow>('chats', {
-    document,
-    vars: value => value,
-    select: data => data.chats,
-    into: chats.scopes.byGroup
+  return { chats, queries, mutations };
+};
+
+const createRevisionFixture = (suffix: string, guarded = false) => {
+  const { mutations } = createQueues();
+  const chats = defineModel(`SpecWriteCausality${suffix}`, {
+    schema: ChatSchema,
+    actions: owner => ({
+      setRevision: owner.gql.action(revisionDocument, {
+        mode: 'request',
+        result: 'setRevision',
+        variables: (input: RevisionInput) => ({ input }),
+        optimistic: {
+          root: {
+            update: {
+              select: ({ input }) => ({ id: input.id, patch: { rev: input.rev } })
+            }
+          }
+        },
+        root: {
+          update: {
+            select: ({ data }) => ({
+              id: data.setRevision.id,
+              patch: {
+                groupId: data.setRevision.groupId,
+                pinned: data.setRevision.pinned,
+                muted: data.setRevision.muted,
+                read: data.setRevision.read,
+                rev: data.setRevision.rev
+              }
+            })
+          }
+        }
+      })
+    }),
+    write: guarded
+      ? {
+          groups: [
+            {
+              fields: ['pinned', 'muted', 'rev'],
+              policy: { monotonic: { tuple: ['rev'] }, on: ['patch'] }
+            }
+          ]
+        }
+      : undefined
   });
-  const pinChat = chats.mutation<PinResponse, { id: string }, ChatRow, ChatRow>('pin-chat', {
-    document,
-    result: 'pinChat',
-    dedupe: false,
-    optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: () => ({ pinned: true }) },
-    write: ({ data }, plan) => plan.upsert(chats, data.pinChat)
-  });
-  const muteChat = chats.mutation<MuteResponse, { id: string }, ChatRow, ChatRow>('mute-chat', {
-    document,
-    result: 'muteChat',
-    dedupe: false,
-    optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: () => ({ muted: true }) },
-    write: ({ data }, plan) => plan.upsert(chats, data.muteChat)
-  });
-  return { chats, query, pinChat, muteChat, queries, mutations };
+  return { chats, mutations };
 };
 
 const renderInProvider = <T,>(useHook: () => T) => {
@@ -94,22 +200,23 @@ const initialRow: ChatRow = { id: 'chat-1', groupId: 'g', pinned: false, muted: 
 
 describe('optimistic write causality', () => {
   it('W15 keeps a pending optimistic pin through a stale query snapshot', async () => {
-    const { chats, query, pinChat, queries, mutations } = createFixture('W15');
-    const frames = recordTimeline(() => chats.scopes.byGroup.use({ groupId: 'g' })[0]?.pinned);
-    const queryReader = renderInProvider(() => query.use({ groupId: 'g' }));
+    const { chats, queries, mutations } = createFixture('W15');
+    const byGroup = chats.byGroup({ groupId: 'g' });
+    const frames = recordTimeline(() => byGroup.use().data[0]?.pinned);
+    const queryReader = renderInProvider(() => byGroup.use().data);
 
     await settle(6, { macro: true });
     queries.shift()?.resolve({ chats: [initialRow] });
     await settle(6, { macro: true });
     let pin!: Promise<PinResponse['pinChat'] | null>;
     act(() => {
-      pin = pinChat.run({ id: 'chat-1' });
+      pin = chats.actions.pin.run({ id: 'chat-1' });
     });
     const frameStart = frames.frames().length;
     expect(frames.last()).toBe(true);
 
     act(() => {
-      void queryReader.result().refresh();
+      void byGroup.refresh();
     });
     await settle(6, { macro: true });
     queries.shift()?.resolve({ chats: [initialRow] });
@@ -127,13 +234,14 @@ describe('optimistic write causality', () => {
   });
 
   it('commits its own authoritative WritePlan write after releasing the optimistic patch overlay', async () => {
-    const { chats, pinChat, mutations } = createFixture('OwnWritePlan');
+    const { chats, mutations } = createFixture('OwnWritePlan');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
+    const byGroup = chats.byGroup({ groupId: 'g' });
+    const reader = recordTimeline(() => byGroup.use().data[0]);
     let pin!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
-      pin = pinChat.run({ id: 'chat-1' });
+      pin = chats.actions.pin.run({ id: 'chat-1' });
     });
     expect(reader.last()?.pinned).toBe(true);
 
@@ -147,15 +255,16 @@ describe('optimistic write causality', () => {
   });
 
   it('W17 preserves a later pending mute when an earlier pin rolls back', async () => {
-    const { chats, pinChat, muteChat, mutations } = createFixture('W17');
+    const { chats, mutations } = createFixture('W17');
     chats.insert(initialRow);
-    const frames = recordTimeline(() => chats.use.find('chat-1'));
+    const byGroup = chats.byGroup({ groupId: 'g' });
+    const frames = recordTimeline(() => byGroup.use().data[0]);
     let pin!: Promise<PinResponse['pinChat'] | null>;
     let mute!: Promise<MuteResponse['muteChat'] | null>;
 
     act(() => {
-      pin = pinChat.run({ id: 'chat-1' });
-      mute = muteChat.run({ id: 'chat-1' });
+      pin = chats.actions.pin.run({ id: 'chat-1' });
+      mute = chats.actions.mute.run({ id: 'chat-1' });
     });
     expect(frames.last()).toMatchObject({ pinned: true, muted: true });
     mutations.shift()?.reject(new Error('pin failed'));
@@ -174,21 +283,15 @@ describe('optimistic write causality', () => {
   });
 
   it('preserves a later pending patch on the same field when the earlier patch rolls back', async () => {
-    const { chats, mutations } = createFixture('SameFieldRollback');
-    const setRevision = chats.mutation<PinResponse, { id: string; rev: number }, ChatRow, ChatRow>('set-revision', {
-      document,
-      result: 'pinChat',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
-    });
+    const { chats, mutations } = createRevisionFixture('SameFieldRollback');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse['pinChat'] | null>;
-    let second!: Promise<PinResponse['pinChat'] | null>;
+    const reader = recordTimeline(() => chats.useFind('chat-1'));
+    let first!: Promise<RevisionResponse['setRevision'] | null>;
+    let second!: Promise<RevisionResponse['setRevision'] | null>;
 
     act(() => {
-      first = setRevision.run({ id: 'chat-1', rev: 11 });
-      second = setRevision.run({ id: 'chat-1', rev: 12 });
+      first = chats.actions.setRevision.run({ id: 'chat-1', rev: 11 });
+      second = chats.actions.setRevision.run({ id: 'chat-1', rev: 12 });
     });
     expect(reader.last()?.rev).toBe(12);
 
@@ -198,7 +301,7 @@ describe('optimistic write causality', () => {
     });
 
     expect(reader.last()?.rev).toBe(12);
-    mutations.shift()?.resolve({ pinChat: { ...initialRow, rev: 12 } });
+    mutations.shift()?.resolve({ setRevision: { ...initialRow, rev: 12 } });
     await act(async () => {
       await second;
     });
@@ -206,15 +309,16 @@ describe('optimistic write causality', () => {
   });
 
   it('preserves a later pending patch that writes the same field value when the earlier patch rolls back', async () => {
-    const { chats, pinChat, mutations } = createFixture('SameValueRollback');
+    const { chats, mutations } = createFixture('SameValueRollback');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
+    const byGroup = chats.byGroup({ groupId: 'g' });
+    const reader = recordTimeline(() => byGroup.use().data[0]);
     let first!: Promise<PinResponse['pinChat'] | null>;
     let second!: Promise<PinResponse['pinChat'] | null>;
 
     act(() => {
-      first = pinChat.run({ id: 'chat-1' });
-      second = pinChat.run({ id: 'chat-1' });
+      first = chats.actions.pin.run({ id: 'chat-1' });
+      second = chats.actions.pin.run({ id: 'chat-1' });
     });
     expect(reader.last()?.pinned).toBe(true);
 
@@ -232,21 +336,15 @@ describe('optimistic write causality', () => {
   });
 
   it('restores the latest earlier pending same-field value when the later patch rolls back first', async () => {
-    const { chats, mutations } = createFixture('LatestPendingRollback');
-    const setRevision = chats.mutation<PinResponse, { id: string; rev: number }, ChatRow, ChatRow>('set-revision', {
-      document,
-      result: 'pinChat',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
-    });
+    const { chats, mutations } = createRevisionFixture('LatestPendingRollback');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse['pinChat'] | null>;
-    let second!: Promise<PinResponse['pinChat'] | null>;
+    const reader = recordTimeline(() => chats.useFind('chat-1'));
+    let first!: Promise<RevisionResponse['setRevision'] | null>;
+    let second!: Promise<RevisionResponse['setRevision'] | null>;
 
     act(() => {
-      first = setRevision.run({ id: 'chat-1', rev: 11 });
-      second = setRevision.run({ id: 'chat-1', rev: 12 });
+      first = chats.actions.setRevision.run({ id: 'chat-1', rev: 11 });
+      second = chats.actions.setRevision.run({ id: 'chat-1', rev: 12 });
     });
     mutations[1]?.reject(new Error('later revision failed'));
     await act(async () => {
@@ -254,7 +352,7 @@ describe('optimistic write causality', () => {
     });
 
     expect(reader.last()?.rev).toBe(11);
-    mutations[0]?.resolve({ pinChat: { ...initialRow, rev: 11 } });
+    mutations[0]?.resolve({ setRevision: { ...initialRow, rev: 11 } });
     await act(async () => {
       await first;
     });
@@ -262,21 +360,15 @@ describe('optimistic write causality', () => {
   });
 
   it('restores the pre-optimistic value when all same-field patches roll back', async () => {
-    const { chats, mutations } = createFixture('AllSameFieldRollback');
-    const setRevision = chats.mutation<PinResponse, { id: string; rev: number }, ChatRow, ChatRow>('set-revision', {
-      document,
-      result: 'pinChat',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
-    });
+    const { chats, mutations } = createRevisionFixture('AllSameFieldRollback');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse['pinChat'] | null>;
-    let second!: Promise<PinResponse['pinChat'] | null>;
+    const reader = recordTimeline(() => chats.useFind('chat-1'));
+    let first!: Promise<RevisionResponse['setRevision'] | null>;
+    let second!: Promise<RevisionResponse['setRevision'] | null>;
 
     act(() => {
-      first = setRevision.run({ id: 'chat-1', rev: 11 });
-      second = setRevision.run({ id: 'chat-1', rev: 12 });
+      first = chats.actions.setRevision.run({ id: 'chat-1', rev: 11 });
+      second = chats.actions.setRevision.run({ id: 'chat-1', rev: 12 });
     });
     mutations[1]?.reject(new Error('later revision failed'));
     await act(async () => {
@@ -292,23 +384,17 @@ describe('optimistic write causality', () => {
   });
 
   it('keeps the latest remaining pending value in a three-patch same-field chain', async () => {
-    const { chats, mutations } = createFixture('ThreePatchChain');
-    const setRevision = chats.mutation<PinResponse, { id: string; rev: number }, ChatRow, ChatRow>('set-revision', {
-      document,
-      result: 'pinChat',
-      dedupe: false,
-      optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: input => ({ rev: input.rev }) }
-    });
+    const { chats, mutations } = createRevisionFixture('ThreePatchChain');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
-    let first!: Promise<PinResponse['pinChat'] | null>;
-    let second!: Promise<PinResponse['pinChat'] | null>;
-    let third!: Promise<PinResponse['pinChat'] | null>;
+    const reader = recordTimeline(() => chats.useFind('chat-1'));
+    let first!: Promise<RevisionResponse['setRevision'] | null>;
+    let second!: Promise<RevisionResponse['setRevision'] | null>;
+    let third!: Promise<RevisionResponse['setRevision'] | null>;
 
     act(() => {
-      first = setRevision.run({ id: 'chat-1', rev: 1 });
-      second = setRevision.run({ id: 'chat-1', rev: 2 });
-      third = setRevision.run({ id: 'chat-1', rev: 3 });
+      first = chats.actions.setRevision.run({ id: 'chat-1', rev: 1 });
+      second = chats.actions.setRevision.run({ id: 'chat-1', rev: 2 });
+      third = chats.actions.setRevision.run({ id: 'chat-1', rev: 3 });
     });
     mutations[1]?.reject(new Error('middle revision failed'));
     await act(async () => {
@@ -316,8 +402,8 @@ describe('optimistic write causality', () => {
     });
 
     expect(reader.last()?.rev).toBe(3);
-    mutations[0]?.resolve({ pinChat: { ...initialRow, rev: 1 } });
-    mutations[2]?.resolve({ pinChat: { ...initialRow, rev: 3 } });
+    mutations[0]?.resolve({ setRevision: { ...initialRow, rev: 1 } });
+    mutations[2]?.resolve({ setRevision: { ...initialRow, rev: 3 } });
     await act(async () => {
       await Promise.all([first, third]);
     });
@@ -325,15 +411,16 @@ describe('optimistic write causality', () => {
   });
 
   it('W18 write policy preserves a later successful mute when commits resolve out of order', async () => {
-    const { chats, pinChat, muteChat, mutations } = createFixture('W18Guarded', true);
+    const { chats, mutations } = createFixture('W18Guarded', true);
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
+    const byGroup = chats.byGroup({ groupId: 'g' });
+    const reader = recordTimeline(() => byGroup.use().data[0]);
     let pin!: Promise<PinResponse['pinChat'] | null>;
     let mute!: Promise<MuteResponse['muteChat'] | null>;
 
     act(() => {
-      pin = pinChat.run({ id: 'chat-1' });
-      mute = muteChat.run({ id: 'chat-1' });
+      pin = chats.actions.pin.run({ id: 'chat-1' });
+      mute = chats.actions.mute.run({ id: 'chat-1' });
     });
     mutations[1]?.resolve({ muteChat: { ...initialRow, pinned: true, muted: true, rev: 12 } });
     await act(async () => {
@@ -348,16 +435,17 @@ describe('optimistic write causality', () => {
     reader.unmount();
   });
 
-  it('W18 control allows a late stale commit to win without a write policy guard', async () => {
-    const { chats, pinChat, muteChat, mutations } = createFixture('W18Control');
+  it('causal admission rejects a late stale commit without a write policy guard', async () => {
+    const { chats, mutations } = createFixture('W18Control');
     chats.insert(initialRow);
-    const reader = recordTimeline(() => chats.use.find('chat-1'));
+    const byGroup = chats.byGroup({ groupId: 'g' });
+    const reader = recordTimeline(() => byGroup.use().data[0]);
     let pin!: Promise<PinResponse['pinChat'] | null>;
     let mute!: Promise<MuteResponse['muteChat'] | null>;
 
     act(() => {
-      pin = pinChat.run({ id: 'chat-1' });
-      mute = muteChat.run({ id: 'chat-1' });
+      pin = chats.actions.pin.run({ id: 'chat-1' });
+      mute = chats.actions.mute.run({ id: 'chat-1' });
     });
     mutations[1]?.resolve({ muteChat: { ...initialRow, pinned: true, muted: true, rev: 12 } });
     await act(async () => {
@@ -368,7 +456,7 @@ describe('optimistic write causality', () => {
       await pin;
     });
 
-    expect(reader.last()).toMatchObject({ pinned: true, muted: false, rev: 11 });
+    expect(reader.last()).toMatchObject({ pinned: true, muted: true, rev: 12 });
     reader.unmount();
   });
 });

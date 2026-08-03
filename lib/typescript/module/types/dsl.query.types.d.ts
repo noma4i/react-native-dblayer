@@ -5,9 +5,9 @@ import type { WindowPaginationBridge } from './dsl.pagination.types';
 import type { WritePlan } from './dsl.writePlan.types';
 /** GraphQL pageInfo subset the query DSL understands, in both pagination directions. */
 export type PageInfoLike = {
-    hasNextPage?: boolean;
+    hasNextPage?: boolean | null;
     endCursor?: string | null;
-    hasPreviousPage?: boolean;
+    hasPreviousPage?: boolean | null;
     startCursor?: string | null;
 };
 /** A relay-style connection or plain node list, as tolerated by the query `page`/`select` seams. */

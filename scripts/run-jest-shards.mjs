@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const timeoutMs = Number.parseInt(process.env.DBLAYER_JEST_TIMEOUT_MS ?? '30000', 10);
+const userArgs = process.argv.slice(2);
+const coverage = userArgs.includes('--coverage');
+const timeoutMs = Number.parseInt(process.env.DBLAYER_JEST_TIMEOUT_MS ?? (coverage ? '60000' : '30000'), 10);
 const requestedShardCount = Number.parseInt(
   process.env.DBLAYER_JEST_SHARDS ?? String(Math.min(4, Math.max(2, availableParallelism()))),
   10
@@ -104,8 +106,6 @@ const mergeCoverage = (directories, coverageDirectory) => {
   return 0;
 };
 
-const userArgs = process.argv.slice(2);
-const coverage = userArgs.includes('--coverage');
 const selectorArgs = userArgs.filter((argument) => argument !== '--coverage');
 
 if (selectorArgs.length > 0) {

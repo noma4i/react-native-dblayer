@@ -1,18 +1,18 @@
 # Subscription events
 
-Typed subscription handlers are declared in a model with `gql.live`.
+Typed subscription handlers are declared in a model with `owner.gql.live`.
 
-## `gql.live(document, options)`
+## `owner.gql.live(document, options)`
 
 ```ts
 const Message = defineModel('Message', {
   schema: MessageSchema,
   events: {
-    messageCreated: gql.live(MessageCreatedDocument, {
-      handler: payload => ({ upsert: payload.message })
+    messageCreated: owner.gql.live(MessageCreatedDocument, {
+      root: { insert: { select: ({ payload }) => payload.message } }
     }),
-    messageDeleted: gql.live(MessageDeletedDocument, {
-      handler: payload => ({ destroy: payload.id })
+    messageDeleted: owner.gql.live(MessageDeletedDocument, {
+      root: { destroy: { select: ({ payload }) => payload.id } }
     })
   }
 });
@@ -22,26 +22,22 @@ const Message = defineModel('Message', {
 
 | Option | Purpose |
 | --- | --- |
-| `handler` | Converts one typed payload into an `IngestDecl` or ignores it with `null`. |
-| `debounce` | Coalesces transport events under the shared subscription runtime. |
+| `variables` | Supplies static GraphQL subscription variables. |
+| `root` | Selects exactly one owner-model insert, update, or destroy root. |
+| `write` | Plans additional cross-model writes and invalidations in the same commit envelope. |
+| `debounce` | Coalesces transport events before planning. |
 
 ## `Model.events`
 
-`ModelEventHandle.entries` contains transport-ready declarations.
-`Model.events.apply(name, payload)` delivers a typed payload manually. Both routes execute the same
-handler, sideload traversal, relation effects, idempotency checks, and atomic plan commit.
-
-`IngestDecl` supports row upsert, destroy, operation echo identity, and additional
-`write(context, plan)` intents.
+`Model.events.name.subscribe(listener)` observes accepted typed payloads after their model commit.
+Transport events execute the root plan, sideload traversal, relation effects, idempotency checks,
+and atomic commit before listener notification.
 
 Live ingest uses the same `WritePlan` as actions and remote queries. The event root and additional
 intents enter one commit envelope. Invalidation intents run after a successful commit.
 
-## `createDbSubscriptionRuntime(entries)`
+## `useDbSubscriptions(active)`
 
-The runtime subscribes through configured `DbTransport.subscribe`, reference-counts consumers,
-reconnects after recoverable transport failure, and disposes every listener when the final
-consumer detaches.
-
-`defineDbSubscriptionEntry(entry)` preserves payload inference for custom entries.
-`createDbSubscriptionEffects(noopEffects)` connects a runtime to React lifecycle or a custom host.
+Mount `useDbSubscriptions` once under `DbProvider`. It acquires every registered model event while
+active and releases the shared lifecycle on cleanup. The lifecycle reconnects recoverable
+transport failures and disposes listeners when the final consumer releases it.

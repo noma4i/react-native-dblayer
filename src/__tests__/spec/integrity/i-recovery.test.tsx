@@ -1,4 +1,19 @@
-import { configureDb, defineModelRuntime, f , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest , bootDb , encodePersistence , compositeKey } from '../../testApi';
+import {
+  bootDb,
+  compositeKey,
+  computeSchemaFingerprints,
+  configureDb,
+  DB_FORMAT_VERSION,
+  defineModelRuntime,
+  encodePersistence,
+  f,
+  flushPersistence,
+  getCommitBus,
+  getOperationState,
+  noteMaintenancePersistence,
+  purgeForeignStorageKeys,
+  writePersistenceManifest
+} from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 
@@ -275,5 +290,79 @@ describe('persistence recovery protocol', () => {
     expect(storage.get('dbl:ops')).toBeUndefined();
     expect(diagnostics().snapshot().corruptionLedgerResets).toBe(1);
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
+  });
+
+  it('rolls back a crashed request insert and closes its operation in one replay commit', async () => {
+    const modelId = 'RecoveryRequestInsert';
+    const tempId = 'tmp_crashed_request';
+    const operationId = 'op-crashed-request';
+    const storage = configureRecoveryRuntime([
+      { key: compositeStorageKey('dbl:', 'row', modelId, tempId), value: encodePersistence({ id: tempId, bucket: 'a', label: 'Pending' }) },
+      {
+        key: 'dbl:ops',
+        value: encodePersistence({
+          [operationId]: {
+            operationId,
+            actionKey: `${modelId}:send`,
+            actionMode: 'request',
+            model: modelId,
+            tempIds: [tempId],
+            rowIds: [tempId],
+            intent: 'insert',
+            status: 'pending',
+            input: { label: 'Pending' },
+            createdAt: Date.now()
+          }
+        })
+      }
+    ]);
+    const model = defineRecoveryModel(modelId);
+    writeMatchingManifest();
+
+    await bootDb();
+
+    expect(model.find(tempId)).toBeUndefined();
+    expect(getOperationState().get(operationId)?.status).toBe('rolledback');
+    expect(storage.get(compositeStorageKey('dbl:', 'row', modelId, tempId))).toBeUndefined();
+  });
+
+  it('does not treat a temp row for an unregistered model as an actionable orphan', async () => {
+    const key = compositeStorageKey('dbl:', 'row', 'RecoveryDeferredModel', 'temp-deferred');
+    const value = encodePersistence({ id: 'temp-deferred', bucket: 'a', label: 'Deferred' });
+    const storage = configureRecoveryRuntime([{ key, value }]);
+    writeMatchingManifest();
+
+    await expect(bootDb()).resolves.toMatchObject({ reset: false });
+
+    expect(storage.get(key)).toBe(value);
+  });
+
+  it('purges foreign keys and schedules maintenance through the shared checkpoint', () => {
+    const storage = configureRecoveryRuntime([
+      { key: 'foreign:key', value: 'foreign' },
+      { key: 'dbl:owned', value: 'owned' }
+    ]);
+    const model = defineRecoveryModel('RecoveryMaintenanceCheckpoint');
+    const events: unknown[] = [];
+    const unsubscribe = getCommitBus().subscribeAll(batch => events.push(batch));
+
+    expect(purgeForeignStorageKeys()).toBe(1);
+    noteMaintenancePersistence([model.modelId]);
+    flushPersistence();
+    getOperationState().begin({
+      operationId: 'maintenance-operation',
+      actionKey: `${model.modelId}:action`,
+      actionMode: 'request',
+      model: model.modelId,
+      tempIds: [],
+      rowIds: ['row-1'],
+      intent: 'patch',
+      createdAt: 1
+    });
+
+    expect(storage.get('foreign:key')).toBeUndefined();
+    expect(storage.get('dbl:owned')).toBe('owned');
+    expect(events).toContainEqual({ rows: [], scopes: [], pending: [{ model: model.modelId, id: 'row-1' }] });
+    unsubscribe();
   });
 });

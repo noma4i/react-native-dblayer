@@ -47,11 +47,20 @@ export type ApplyTarget = {
     previous: StoredRow | undefined,
     origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
     mergeBase?: StoredRow,
-    operationId?: string
+    operationId?: string,
+    baseRevision?: number
   ): PreparedRowWrite | null;
-  preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string, remove?: readonly string[]): PreparedRowWrite | null;
+  preparePatch(
+    id: string,
+    patch: Record<string, unknown>,
+    previous: StoredRow | undefined,
+    operationId?: string,
+    remove?: readonly string[],
+    baseRevision?: number
+  ): PreparedRowWrite | null;
+  admitDestroy(id: string, baseRevision?: number): boolean;
   /** Begin, publish, or discard the target's apply-owned scope overlay. */
-  beginApply(): void;
+  beginApply(epoch: number): void;
   commitApply(): void;
   abortApply(): void;
   put(rows: StoredRow[]): Array<{ id: string; changedFields: string[] | null }>;

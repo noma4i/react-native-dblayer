@@ -1,11 +1,16 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineFetch } from '../../testApi';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, recordTimelineInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
-type Response = { value: number };
-type Deferred = { resolve: (data: Response) => void; reject: (error: Error) => void };
+type ResponseData = { value: number };
+type ResultRow = { id: string; value: number };
+type Deferred = { resolve: (data: ResponseData) => void; reject: (error: Error) => void };
+type Variables = Record<string, never>;
 
-const document = { kind: 'Document', definitions: [] } as never;
+const document: TypedDocumentNode<ResponseData, Variables> = { kind: Kind.DOCUMENT, definitions: [] };
+const ResultSchema = defineShape<ResultRow>()({ value: f.num() });
 
 const createDeferredTransport = () => {
   const pending: Deferred[] = [];
@@ -28,7 +33,20 @@ const configureRetry = (transport: ReturnType<typeof createMockTransport>) => {
   });
 };
 
-const createRequest = (key: string) => defineFetch<Response, void, number>({ document, key, select: data => data.value });
+const createRequest = (key: string) => {
+  const Model = defineModel(key, {
+    schema: ResultSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.single(document, {
+          variables: () => ({}),
+          select: data => ({ id: key, value: data.value })
+        })
+      }
+    })
+  });
+  return Model.result({});
+};
 
 describe('network resilience timelines', () => {
   it('holds loading through error -> retrying -> data without empty or error flash', async () => {
@@ -38,7 +56,7 @@ describe('network resilience timelines', () => {
     const request = createRequest('resilience-retry-no-flash');
     let latest!: ReturnType<typeof request.use>;
     const timeline = recordTimelineInProvider(() => {
-      latest = request.use(undefined);
+      latest = request.use();
       return latest.loadingState;
     });
 
@@ -63,7 +81,7 @@ describe('network resilience timelines', () => {
     const request = createRequest('resilience-retry-count');
     let latest!: ReturnType<typeof request.use>;
     const timeline = recordTimelineInProvider(() => {
-      latest = request.use(undefined);
+      latest = request.use();
       return latest.loadingState;
     });
 
@@ -90,7 +108,7 @@ describe('network resilience timelines', () => {
     const request = createRequest('resilience-offline-recover');
     let latest!: ReturnType<typeof request.use>;
     const timeline = recordTimelineInProvider(() => {
-      latest = request.use(undefined);
+      latest = request.use();
       return latest.loadingState;
     });
 
@@ -118,7 +136,7 @@ describe('network resilience timelines', () => {
     const request = createRequest('resilience-manual-retry');
     let latest!: ReturnType<typeof request.use>;
     const timeline = recordTimelineInProvider(() => {
-      latest = request.use(undefined);
+      latest = request.use();
       return latest.loadingState;
     });
 
@@ -127,7 +145,7 @@ describe('network resilience timelines', () => {
     await settle(6, { macro: true });
     const recoveryStart = timeline.frames().length;
     act(() => {
-      latest.refresh();
+      void request.refresh();
     });
     await settle(6, { macro: true });
     pending.shift()?.resolve({ value: 4 });

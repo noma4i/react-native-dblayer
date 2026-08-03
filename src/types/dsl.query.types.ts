@@ -5,7 +5,12 @@ import type { WindowPaginationBridge } from './dsl.pagination.types';
 import type { WritePlan } from './dsl.writePlan.types';
 
 /** GraphQL pageInfo subset the query DSL understands, in both pagination directions. */
-export type PageInfoLike = { hasNextPage?: boolean; endCursor?: string | null; hasPreviousPage?: boolean; startCursor?: string | null };
+export type PageInfoLike = {
+  hasNextPage?: boolean | null;
+  endCursor?: string | null;
+  hasPreviousPage?: boolean | null;
+  startCursor?: string | null;
+};
 /** A relay-style connection or plain node list, as tolerated by the query `page`/`select` seams. */
 export type ConnectionLike = {
   nodes?: ReadonlyArray<unknown> | null;

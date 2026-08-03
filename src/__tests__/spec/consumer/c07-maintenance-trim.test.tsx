@@ -1,5 +1,18 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f , bootDb , runPendingTempRowMaintenance , clearFailedOptimisticMutation , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
+import {
+  bootDb,
+  computeSchemaFingerprints,
+  configureDb,
+  DB_FORMAT_VERSION,
+  defineModel,
+  defineModelRuntime,
+  defineShape,
+  f,
+  runPendingTempRowMaintenance,
+  writePersistenceManifest
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, setupSpecRuntime, settle } from '../helpers/harness';
 
 type MessageRow = { id: string; chatId: string; sequence: number; payload: string };
@@ -156,6 +169,11 @@ describe('maintenance trim contracts', () => {
 });
 
 type TempRow = { id: string; createdAt: string; label: string };
+type SaveData = { save: TempRow };
+type SaveVariables = { input: Record<string, never> };
+
+const TempRowSchema = defineShape<TempRow>()({ createdAt: f.str(), label: f.str() });
+const saveDocument: TypedDocumentNode<SaveData, SaveVariables> = { kind: Kind.DOCUMENT, definitions: [] };
 
 const createTempRows = (id: string, maxAgeMs?: number, protectTempRows?: () => ReadonlySet<string>) =>
   defineModelRuntime({
@@ -164,6 +182,23 @@ const createTempRows = (id: string, maxAgeMs?: number, protectTempRows?: () => R
     
     fields: { createdAt: f.str(), label: f.str() },
     ...(maxAgeMs === undefined ? {} : { maintenance: { dropTempRowsAfterMs: maxAgeMs, ...(protectTempRows ? { protectTempRows } : {}) } })
+  });
+
+const createActionTempRows = (key: string, protectTempRows?: () => ReadonlySet<string>) =>
+  defineModel(key, {
+    schema: TempRowSchema,
+    maintenance: { dropTempRowsAfterMs: 1000, ...(protectTempRows ? { protectTempRows } : {}) },
+    actions: owner => ({
+      save: owner.gql.action(saveDocument, {
+        mode: 'request',
+        result: 'save',
+        variables: () => ({ input: {} }),
+        optimistic: {
+          root: { insert: { select: ({ tempId }) => ({ id: tempId, createdAt: new Date(Date.now() - 10_000).toISOString(), label: 'pending' }) } }
+        },
+        root: { insert: { select: ({ data }) => data.save } }
+      })
+    })
   });
 
 describe('unresolved temp row retention', () => {
@@ -189,17 +224,12 @@ describe('unresolved temp row retention', () => {
         })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = createTempRows('PendingTtlPending', 1000);
-    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', {
-      document,
-      result: 'save',
-      optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save }
-    });
-    const pending = save.run();
+    const rows = createActionTempRows('PendingTtlPending');
+    const pending = rows.actions.save.run({});
     act(() => {
       runPendingTempRowMaintenance();
     });
-    expect(rows.all()).toHaveLength(1);
+    expect(rows.where({}).read()).toHaveLength(1);
     resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
     await pending;
   });
@@ -207,20 +237,15 @@ describe('unresolved temp row retention', () => {
   it('keeps an aged failed temp row until its operation is discarded', async () => {
     const transport = createMockTransport({ mutation: async () => Promise.reject(new Error('offline')) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const rows = createTempRows('PendingTtlFailed', 1000);
-    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', {
-      document,
-      result: 'save',
-      optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'failed' }), selectServerNode: data => data.save }
-    });
-    await expect(save.run()).rejects.toThrow('offline');
+    const rows = createActionTempRows('PendingTtlFailed');
+    await expect(rows.actions.save.run({})).rejects.toThrow('offline');
 
     runPendingTempRowMaintenance();
-    expect(rows.all()).toHaveLength(1);
+    expect(rows.where({}).read()).toHaveLength(1);
 
-    clearFailedOptimisticMutation(rows.modelId, rows.all()[0]!.id);
+    rows.actions.save.discard(rows.where({}).read()[0]!.id);
     runPendingTempRowMaintenance();
-    expect(rows.all()).toEqual([]);
+    expect(rows.where({}).read()).toEqual([]);
   });
 
   it('keeps a fresh temp row', () => {
@@ -321,16 +346,11 @@ describe('unresolved temp row retention', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport });
     const protectedIds = new Set(['temp-model']);
-    const rows = createTempRows('PendingTtlProtectionUnion', 1000, () => protectedIds);
+    const rows = createActionTempRows('PendingTtlProtectionUnion', () => protectedIds);
     rows.insert({ id: 'temp-model', createdAt: old(), label: 'model' });
-    const save = rows.mutation<{ save: TempRow }, void, TempRow, TempRow>('save', {
-      document,
-      result: 'save',
-      optimistic: { model: rows, build: () => ({ id: '', createdAt: old(), label: 'pending' }), selectServerNode: data => data.save }
-    });
-    const pending = save.run();
+    const pending = rows.actions.save.run({});
     runPendingTempRowMaintenance();
-    expect(rows.all()).toHaveLength(2);
+    expect(rows.where({}).read()).toHaveLength(2);
     resolve({ data: { save: { id: 'server-1', createdAt: fresh(), label: 'done' } } });
     await pending;
   });

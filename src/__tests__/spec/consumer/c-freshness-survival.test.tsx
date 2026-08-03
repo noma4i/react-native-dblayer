@@ -1,14 +1,42 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, configureDb, defineFetch, defineModelRuntime, f, resetRuntime  , registerActiveFetchReaders , compositeKey } from '../../testApi';
+import { DbProvider, compositeKey, configureDb, defineModel, defineModelRuntime, defineShape, f, registerActiveFetchReaders, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
 type Response = { rows: Row[] };
-type FetchResponse = { value: string };
+type ValueData = { value: string };
+type ValueVariables = { index: number };
+type ValueRow = { id: string; value: string };
+type ForeignData = { ids: string[] };
+type ForeignRow = { id: string; ids: string[] };
+type EmptyVariables = Record<string, never>;
+type ValueRelationOptions = { staleTime?: number | string; resumeStaleTime?: number | null };
 
 const document = { kind: 'Document', definitions: [] } as never;
+const valueDocument: TypedDocumentNode<ValueData, ValueVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const foreignDocument: TypedDocumentNode<ForeignData, EmptyVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const ValueSchema = defineShape<ValueRow>()({ value: f.str() });
+const ForeignSchema = defineShape<ForeignRow>()({ ids: f.array(f.str()) });
+
+const createValueRelation = (key: string, transportValueKey = 0, options: ValueRelationOptions = {}) => {
+  const Model = defineModel(key, {
+    schema: ValueSchema,
+    relations: owner => ({
+      result: {
+        remote: owner.gql.single(valueDocument, {
+          variables: (params: ValueVariables) => params,
+          select: data => ({ id: key, value: data.value }),
+          ...options
+        })
+      }
+    })
+  });
+  return Model.result({ index: transportValueKey });
+};
 
 const createRowsModel = (id: string) =>
   defineModelRuntime({
@@ -139,20 +167,28 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
-        query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', name: 'Foreign', group: null }] } as TData })
+        query: async <TData,>() => ({ data: { ids: [compositeKey('FreshnessForeignIds', 'row-1')] } as TData })
       })
     });
     const rows = createRowsModel('FreshnessForeignIds');
     const foreignId = compositeKey('FreshnessForeignIds', 'row-1');
-    const fetch = defineFetch<Response, void, { ids: string[] }>({
-      document,
-      key: 'freshness-foreign-ids',
-      select: () => ({ ids: [foreignId] }),
-      staleTime: Infinity
+    const Foreign = defineModel('FreshnessForeignIdsResult', {
+      schema: ForeignSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(foreignDocument, {
+            variables: (_params: EmptyVariables) => ({}),
+            select: data => ({ id: 'foreign-result', ids: data.ids }),
+            staleTime: Infinity
+          })
+        }
+      })
     });
+    const relation = Foreign.result({});
     let observed: { ids: string[] } | undefined;
     const Reader = () => {
-      observed = fetch.use(undefined).data;
+      const row = relation.use().data;
+      observed = row === undefined ? undefined : { ids: row.ids };
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -359,9 +395,9 @@ describe('freshness follows committed-row survival and foreground resume', () =>
       transport: createMockTransport({ query: async <TData,>() => ({ data: { value: String(++calls) } as TData }) }),
       defaults: { resumeStaleTime: 1000 }
     });
-    const fetch = defineFetch<FetchResponse, void, string>({ document, key: 'freshness-fetch-resume', select: data => data.value, staleTime: Infinity });
+    const relation = createValueRelation('FreshnessFetchResume', 0, { staleTime: Infinity });
     const Reader = () => {
-      fetch.use(undefined);
+      relation.use();
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -420,12 +456,20 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     jest.useFakeTimers();
     let exemptCalls = 0;
     let inheritedCalls = 0;
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeStaleTime: 1000 } });
-    const exempt = defineFetch<{ value: string }, void, string>({ key: 'freshness-resume-exempt', fetcher: async () => ({ value: String(++exemptCalls) }), select: data => data.value, staleTime: Infinity, resumeStaleTime: null });
-    const inherited = defineFetch<{ value: string }, void, string>({ key: 'freshness-resume-inherited', fetcher: async () => ({ value: String(++inheritedCalls) }), select: data => data.value, staleTime: Infinity });
+    const transport = createMockTransport({
+      query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
+        const index = (operation.variables as unknown as ValueVariables).index;
+        if (index === 0) exemptCalls += 1;
+        if (index === 1) inheritedCalls += 1;
+        return { data: { value: String(index) } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { resumeStaleTime: 1000 } });
+    const exempt = createValueRelation('FreshnessResumeExempt', 0, { staleTime: Infinity, resumeStaleTime: null });
+    const inherited = createValueRelation('FreshnessResumeInherited', 1, { staleTime: Infinity });
     const Reader = () => {
-      exempt.use(undefined);
-      inherited.use(undefined);
+      exempt.use();
+      inherited.use();
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -513,21 +557,18 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     const calls: number[] = [];
     const releaseRefetches: Array<() => void> = [];
     let resuming = false;
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 2 } } });
-    const fetches = Array.from({ length: 5 }, (_, index) =>
-      defineFetch<{ value: string }, void, string>({
-        key: `freshness-resume-chunk-${index}`,
-        fetcher: async () => {
-          calls.push(index);
-          if (!resuming) return { value: String(index) };
-          return new Promise(resolve => releaseRefetches.push(() => resolve({ value: String(index) })));
-        },
-        select: data => data.value,
-        staleTime: Infinity
-      })
-    );
+    const transport = createMockTransport({
+      query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
+        const index = (operation.variables as unknown as ValueVariables).index;
+        calls.push(index);
+        if (!resuming) return { data: { value: String(index) } as TData };
+        return new Promise<{ data: TData }>(resolve => releaseRefetches.push(() => resolve({ data: { value: String(index) } as TData })));
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 2 } } });
+    const relations = Array.from({ length: 5 }, (_, index) => createValueRelation(`FreshnessResumeChunk${index}`, index, { staleTime: Infinity }));
     const Reader = () => {
-      for (const fetch of fetches) fetch.use(undefined);
+      for (const relation of relations) relation.use();
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -570,21 +611,18 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     const calls: number[] = [];
     const releaseRefetches: Array<() => void> = [];
     let resuming = false;
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 2 } } });
-    const fetches = Array.from({ length: 4 }, (_, index) =>
-      defineFetch<{ value: string }, void, string>({
-        key: `freshness-resume-cancel-${index}`,
-        fetcher: async () => {
-          calls.push(index);
-          if (!resuming) return { value: String(index) };
-          return new Promise(resolve => releaseRefetches.push(() => resolve({ value: String(index) })));
-        },
-        select: data => data.value,
-        staleTime: Infinity
-      })
-    );
+    const transport = createMockTransport({
+      query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
+        const index = (operation.variables as unknown as ValueVariables).index;
+        calls.push(index);
+        if (!resuming) return { data: { value: String(index) } as TData };
+        return new Promise<{ data: TData }>(resolve => releaseRefetches.push(() => resolve({ data: { value: String(index) } as TData })));
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { resumeStaleTime: 50, resumeRefetch: { chunkSize: 2 } } });
+    const relations = Array.from({ length: 4 }, (_, index) => createValueRelation(`FreshnessResumeCancel${index}`, index, { staleTime: Infinity }));
     const Reader = () => {
-      for (const fetch of fetches) fetch.use(undefined);
+      for (const relation of relations) relation.use();
       return null;
     };
     const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);

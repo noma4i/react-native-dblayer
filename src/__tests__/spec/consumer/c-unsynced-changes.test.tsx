@@ -1,12 +1,17 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
+import { configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 // use.unsyncedChanges: pending optimistic patch values, cleared on commit/failure.
 
 type ChatRow = { id: string; pinned: boolean; title: string };
+type PinInput = { id: string };
+type PinResponse = { pinChat: ChatRow };
+type PinVariables = { input: PinInput };
 
-const document = { kind: 'Document', definitions: [] } as never;
+const pinDocument: TypedDocumentNode<PinResponse, PinVariables> = { kind: Kind.DOCUMENT, definitions: [] };
 
 const setup = (suffix: string) => {
   const mutations: Array<{ resolve: (data: unknown) => void; reject: (error: unknown) => void }> = [];
@@ -17,30 +22,47 @@ const setup = (suffix: string) => {
       })
   });
   configureDb({ storage: createMemoryPlane(), transport });
-  const chats = defineModelRuntime({
-    id: `SpecUnsyncedChanges${suffix}`,
-    name: `SpecUnsyncedChanges${suffix}`,
-    fields: { id: f.str(), pinned: f.bool(), title: f.str() }
+  const ChatSchema = defineShape<ChatRow>()({
+    pinned: f.bool(),
+    title: f.str()
   });
-  const pinChat = chats.mutation<{ pinChat: ChatRow }, { id: string }, ChatRow, ChatRow>('pin-chat', {
-    document,
-    result: 'pinChat',
-    dedupe: false,
-    optimistic: { method: 'patch', model: chats, selectId: input => input.id, selectPatch: () => ({ pinned: true }) },
-    write: ({ data }, plan) => plan.upsert(chats, data.pinChat)
+  const chats = defineModel(`SpecUnsyncedChanges${suffix}`, {
+    schema: ChatSchema,
+    actions: owner => ({
+      pin: owner.gql.action(pinDocument, {
+        mode: 'request',
+        result: 'pinChat',
+        variables: (input: PinInput) => ({ input }),
+        optimistic: {
+          root: {
+            update: {
+              select: ({ input }) => ({ id: input.id, patch: { pinned: true } })
+            }
+          }
+        },
+        root: {
+          update: {
+            select: ({ data }) => ({
+              id: data.pinChat.id,
+              patch: { pinned: data.pinChat.pinned, title: data.pinChat.title }
+            })
+          }
+        }
+      })
+    })
   });
-  return { chats, pinChat, mutations };
+  return { chats, pin: chats.actions.pin, mutations };
 };
 
 describe('use.unsyncedChanges', () => {
   it('exposes pending optimistic patch values and clears on commit', async () => {
-    const { chats, pinChat, mutations } = setup('Commit');
+    const { chats, pin, mutations } = setup('Commit');
     chats.insert({ id: 'chat-1', pinned: false, title: 'General' });
-    const reader = renderCounted(() => chats.use.unsyncedChanges('chat-1'));
+    const reader = renderCounted(() => chats.operation('chat-1').use().unsyncedChanges);
     expect(reader.result()).toBeUndefined();
     let run!: Promise<unknown>;
     act(() => {
-      run = pinChat.run({ id: 'chat-1' });
+      run = pin.run({ id: 'chat-1' });
     });
     expect(reader.result()).toEqual({ pinned: true });
     await act(async () => {
@@ -52,12 +74,12 @@ describe('use.unsyncedChanges', () => {
   });
 
   it('clears when the operation fails', async () => {
-    const { chats, pinChat, mutations } = setup('Failure');
+    const { chats, pin, mutations } = setup('Failure');
     chats.insert({ id: 'chat-1', pinned: false, title: 'General' });
-    const reader = renderCounted(() => chats.use.unsyncedChanges('chat-1'));
+    const reader = renderCounted(() => chats.operation('chat-1').use().unsyncedChanges);
     let run!: Promise<unknown>;
     act(() => {
-      run = pinChat.run({ id: 'chat-1' });
+      run = pin.run({ id: 'chat-1' });
     });
     expect(reader.result()).toEqual({ pinned: true });
     await act(async () => {
@@ -71,7 +93,7 @@ describe('use.unsyncedChanges', () => {
   it('returns undefined for nullish ids without subscribing', () => {
     const { chats } = setup('Nullish');
     chats.insert({ id: 'chat-1', pinned: false, title: 'General' });
-    const reader = renderCounted(() => chats.use.unsyncedChanges(null));
+    const reader = renderCounted(() => chats.operation(null).use().unsyncedChanges);
     expect(reader.result()).toBeUndefined();
     reader.unmount();
   });

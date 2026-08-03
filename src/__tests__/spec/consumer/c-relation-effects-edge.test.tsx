@@ -1,4 +1,14 @@
-import { belongsTo, defineModel, defineModelRuntime, defineShape, f, hasMany } from '../../testApi';
+import {
+  belongsTo,
+  createCommitEnvelope,
+  defineModel,
+  defineShape,
+  f,
+  getApplyRuntime,
+  getInternalModelHandle,
+  hasMany,
+  type WriteOp
+} from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 /**
@@ -15,11 +25,9 @@ const createChatModels = (suffix: string) => {
   const chats = defineModel(`SpecEffectsChats${suffix}`, {
     schema: defineShape<Chat>()({ unreadCount: f.num(), lastActivityAt: f.num() })
   });
-  const messages = defineModelRuntime({
-    id: `SpecEffectsMessages${suffix}`,
-    name: `SpecEffectsMessages${suffix}`,
-    fields: { chatId: f.str(), createdAt: f.num() },
-    relations: () => ({
+  const messages = defineModel(`SpecEffectsMessages${suffix}`, {
+    schema: defineShape<Message>()({ chatId: f.str(), createdAt: f.num() }),
+    associations: () => ({
       chat: belongsTo<Message, Chat>(chats, {
         foreignKey: 'chatId',
         counterCache: { field: 'unreadCount' },
@@ -31,14 +39,17 @@ const createChatModels = (suffix: string) => {
   return { chats, messages };
 };
 
+const applyEvent = <TModel extends { key: string }>(model: TModel, rows: readonly unknown[], extra: WriteOp[] = []): void => {
+  const plan = getInternalModelHandle(model).planRows([...rows], { origin: 'event' });
+  getApplyRuntime().commit(createCommitEnvelope([...plan, ...extra]));
+};
+
 describe('relation effect in-batch edges', () => {
   it('nets a same-batch insert and destroy of one child to zero counter effects', () => {
     const { chats, messages } = createChatModels('NetZero');
-    const ingest = messages.ingest({
-      burst: { handler: () => ({ upsert: { id: 'msg-1', chatId: 'chat-1', createdAt: 1 }, destroy: 'msg-1' }) }
-    });
-
-    ingest.apply('burst', {});
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-1', createdAt: 1 }], [
+      { kind: 'destroy', model: messages.key, ids: ['msg-1'] }
+    ]);
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
     expect(messages.find('msg-1')).toBeUndefined();
@@ -46,83 +57,47 @@ describe('relation effect in-batch edges', () => {
 
   it('counts a child appearing twice in one batch exactly once', () => {
     const { chats, messages } = createChatModels('Dedupe');
-    const ingest = messages.ingest({
-      echo: {
-        handler: () => ({
-          upsert: [
-            { id: 'msg-1', chatId: 'chat-1', createdAt: 1 },
-            { id: 'msg-1', chatId: 'chat-1', createdAt: 2 }
-          ]
-        })
-      }
-    });
-
-    ingest.apply('echo', {});
+    applyEvent(messages, [
+      { id: 'msg-1', chatId: 'chat-1', createdAt: 1 },
+      { id: 'msg-1', chatId: 'chat-1', createdAt: 2 }
+    ]);
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
   });
 
   it('ignores an empty foreign key without counting', () => {
     const { chats, messages } = createChatModels('EmptyFk');
-    const ingest = messages.ingest({
-      orphan: { handler: () => ({ upsert: { id: 'msg-1', chatId: '', createdAt: 1 } }) }
-    });
-
-    ingest.apply('orphan', {});
+    applyEvent(messages, [{ id: 'msg-1', chatId: '', createdAt: 1 }]);
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0, lastActivityAt: 0 });
   });
 
   it('aggregates touches from several children into one monotonic parent patch per batch', () => {
     const { chats, messages } = createChatModels('TouchAgg');
-    const ingest = messages.ingest({
-      batch: {
-        handler: () => ({
-          upsert: [
-            { id: 'msg-1', chatId: 'chat-1', createdAt: 5 },
-            { id: 'msg-2', chatId: 'chat-1', createdAt: 9 }
-          ]
-        })
-      },
-      later: { handler: () => ({ upsert: { id: 'msg-3', chatId: 'chat-1', createdAt: 7 } }) }
-    });
-
-    ingest.apply('batch', {});
+    applyEvent(messages, [
+      { id: 'msg-1', chatId: 'chat-1', createdAt: 5 },
+      { id: 'msg-2', chatId: 'chat-1', createdAt: 9 }
+    ]);
     expect(chats.find('chat-1')).toMatchObject({ lastActivityAt: 9 });
 
-    ingest.apply('later', {});
+    applyEvent(messages, [{ id: 'msg-3', chatId: 'chat-1', createdAt: 7 }]);
     expect(chats.find('chat-1')).toMatchObject({ lastActivityAt: 9 });
   });
 
   it('trusts an authoritative parent snapshot over a derived counter in the same batch', () => {
     const { chats, messages } = createChatModels('Authoritative');
-    const ingest = messages.ingest({
-      combined: {
-        handler: () => ({
-          upsert: { id: 'msg-1', chatId: 'chat-1', createdAt: 1 },
-          write: ({ data }, plan) => {
-            const payload = data as { parent: Chat };
-            plan.upsert(chats, payload.parent);
-          }
-        })
-      }
-    });
-
-    ingest.apply('combined', { parent: { id: 'chat-1', unreadCount: 50, lastActivityAt: 40 } });
+    const parentPlan = getInternalModelHandle(chats).planRows([{ id: 'chat-1', unreadCount: 50, lastActivityAt: 40 }], { origin: 'event' });
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-1', createdAt: 1 }], parentPlan);
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 50 });
   });
 
   it('decrements the parent counter exactly once when an existing child is destroyed', () => {
     const { chats, messages } = createChatModels('Decrement');
-    const ingest = messages.ingest({
-      arrival: { handler: () => ({ upsert: { id: 'msg-1', chatId: 'chat-1', createdAt: 1 } }) },
-      removal: { handler: () => ({ destroy: 'msg-1' }) }
-    });
-    ingest.apply('arrival', {});
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-1', createdAt: 1 }]);
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
 
-    ingest.apply('removal', {});
+    messages.destroy('msg-1');
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
   });
@@ -130,16 +105,12 @@ describe('relation effect in-batch edges', () => {
   it('treats a destroy of an absent parent as a no-op for orphan children carrying its key', () => {
     setupSpecRuntime();
     type Child = { id: string; parentId: string };
-    const children = defineModelRuntime({
-      id: 'SpecEffectsOrphanChildren',
-      name: 'SpecEffectsOrphanChildren',
-      fields: { parentId: f.str() }
+    const children = defineModel('SpecEffectsOrphanChildren', {
+      schema: defineShape<Child>()({ parentId: f.str() })
     });
-    const parents = defineModelRuntime({
-      id: 'SpecEffectsGhostParents',
-      name: 'SpecEffectsGhostParents',
-      fields: { label: f.str() },
-      relations: () => ({
+    const parents = defineModel('SpecEffectsGhostParents', {
+      schema: defineShape<{ id: string; label: string }>()({ label: f.str() }),
+      associations: () => ({
         children: hasMany<{ id: string; label: string }, Child>(children, { foreignKey: 'parentId', dependent: 'destroy' })
       })
     });

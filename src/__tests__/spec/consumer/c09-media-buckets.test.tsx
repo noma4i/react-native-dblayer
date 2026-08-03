@@ -1,5 +1,8 @@
-import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind, OperationTypeNode } from 'graphql';
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
+import { configureDb, defineModel, defineModelRuntime, defineShape, f, useDbSubscriptions, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, settle, renderCountedInProvider } from '../helpers/harness';
 
 type MediaRow = { id: string; chatId: string; mediaBucket: string; sequenceNumber: number; label: string };
@@ -17,6 +20,21 @@ type MediaResponse = {
 type CallEntry = { kind: 'query'; operation: { variables: MediaScopeValue & { after?: string | null } } };
 
 const document = { kind: 'Document', definitions: [] } as never;
+const MediaSchema = defineShape<MediaRow>()({
+  chatId: f.str(),
+  mediaBucket: f.str(),
+  sequenceNumber: f.num(),
+  label: f.str()
+});
+const CarrierSchema = defineShape<{ id: string; label: string }>()({ label: f.str() });
+
+const defineFacadeMedia = (key: string) =>
+  defineModel(key, {
+    schema: MediaSchema,
+    relations: () => ({
+      media: { by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
+    })
+  });
 
 const createMediaModel = (onCompare?: () => void) =>
   defineModelRuntime({
@@ -384,6 +402,8 @@ describe('media scope bucket behavior', () => {
 
   it('derives composite membership for query write-plan targets', async () => {
     type QueryResponse = { carrier: { id: string; label: string }; media: MediaRow[] };
+    type QueryVariables = Record<string, never>;
+    const queryDocument: TypedDocumentNode<QueryResponse, QueryVariables> = { kind: Kind.DOCUMENT, definitions: [] };
     const transport = createMockTransport({
       query: async <TData,>() => ({
         data: {
@@ -393,23 +413,29 @@ describe('media scope bucket behavior', () => {
       })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const media = createMediaModel();
-    const carriers = defineModelRuntime({ id: 'SpecCompositeCarrierQuery', name: 'SpecCompositeCarrierQuery', fields: { label: f.str() } });
-    const query = carriers.query<QueryResponse, Record<string, never>, Record<string, never>, { id: string; label: string }>('with-media', {
-      document,
-      vars: value => value,
-      select: data => data.carrier,
-      into: carriers,
-      write: ({ data }, plan) => plan.upsert(media, data.media)
+    const media = defineFacadeMedia('SpecCompositeQueryMedia');
+    const carriers = defineModel('SpecCompositeCarrierQuery', {
+      schema: CarrierSchema,
+      relations: owner => ({
+        withMedia: {
+          remote: owner.gql.single(queryDocument, {
+            variables: (value: QueryVariables) => value,
+            select: data => data.carrier,
+            write: ({ data }, plan) => plan.upsert(media, data.media)
+          })
+        }
+      })
     });
 
-    await query.fetch({});
+    await carriers.withMedia({}).fetch();
 
-    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.id)).toEqual(['b-1']);
+    expect(media.media({ chatId: 'chat-1', mediaBucket: 'B' }).read().map(row => row.id)).toEqual(['b-1']);
   });
 
   it('keeps composite membership derivation for mutation WritePlan writes', async () => {
     type MutationResponse = { save: { id: string; label: string }; media: MediaRow[] };
+    type MutationVariables = { input: Record<string, never> };
+    const mutationDocument: TypedDocumentNode<MutationResponse, MutationVariables> = { kind: Kind.DOCUMENT, definitions: [] };
     const transport = createMockTransport({
       mutation: async <TData,>() => ({
         data: {
@@ -419,58 +445,110 @@ describe('media scope bucket behavior', () => {
       })
     });
     configureDb({ storage: createMemoryPlane(), transport });
-    const media = createMediaModel();
-    const carriers = defineModelRuntime({ id: 'SpecCompositeCarrierMutation', name: 'SpecCompositeCarrierMutation', fields: { label: f.str() } });
-    const mutation = carriers.mutation<MutationResponse, Record<string, never>, { id: string; label: string }, never>('with-media', {
-      document,
-      result: 'save',
-      write: ({ data }, plan) => plan.upsert(media, data.media)
+    const media = defineFacadeMedia('SpecCompositeActionMedia');
+    const carriers = defineModel('SpecCompositeCarrierMutation', {
+      schema: CarrierSchema,
+      actions: owner => ({
+        withMedia: owner.gql.action(mutationDocument, {
+          mode: 'request',
+          result: 'save',
+          variables: () => ({ input: {} }),
+          root: { insert: { select: ({ data }) => data.save } },
+          write: ({ data }, plan) => plan.upsert(media, data.media)
+        })
+      })
     });
 
-    await mutation.run({});
+    await carriers.actions.withMedia.run({});
 
-    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'A' }).map(row => row.id)).toEqual(['a-1']);
+    expect(media.media({ chatId: 'chat-1', mediaBucket: 'A' }).read().map(row => row.id)).toEqual(['a-1']);
   });
 
-  it('keeps composite membership derivation for ingest upserts', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const media = createMediaModel();
-    const ingest = media.ingest({ mediaReceived: { apply: 'upsert' } });
+  it('keeps composite membership derivation for model event upserts', () => {
+    type EventData = { mediaReceived: MediaRow };
+    const eventDocument: TypedDocumentNode<EventData, Record<string, never>> = {
+      kind: Kind.DOCUMENT,
+      definitions: [
+        {
+          kind: Kind.OPERATION_DEFINITION,
+          operation: OperationTypeNode.SUBSCRIPTION,
+          variableDefinitions: [],
+          directives: [],
+          selectionSet: {
+            kind: Kind.SELECTION_SET,
+            selections: [{ kind: Kind.FIELD, name: { kind: Kind.NAME, value: 'mediaReceived' }, arguments: [], directives: [] }]
+          }
+        }
+      ]
+    };
+    let next!: (data: unknown) => void;
+    const transport = createMockTransport({
+      subscribe: (
+        _options: Parameters<NonNullable<DbTransport['subscribe']>>[0],
+        handlers: Parameters<NonNullable<DbTransport['subscribe']>>[1]
+      ) => {
+        next = handlers.next;
+        return () => undefined;
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = defineModel('SpecCompositeEventMedia', {
+      schema: MediaSchema,
+      relations: () => ({
+        media: { by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
+      }),
+      events: owner => ({
+        received: owner.gql.live(eventDocument, {
+          variables: {},
+          root: { insert: { select: ({ payload }) => payload } }
+        })
+      })
+    });
+    function Activation(): null {
+      useDbSubscriptions(true);
+      return null;
+    }
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Activation));
+    });
 
-    ingest.apply('mediaReceived', { id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 10, label: 'bucket-b' });
+    act(() => next({ mediaReceived: { id: 'b-1', chatId: 'chat-1', mediaBucket: 'B', sequenceNumber: 10, label: 'bucket-b' } }));
 
-    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.id)).toEqual(['b-1']);
+    expect(media.media({ chatId: 'chat-1', mediaBucket: 'B' }).read().map(row => row.id)).toEqual(['b-1']);
+    act(() => root.unmount());
   });
 
   it('places optimistic rows into the selected composite server-order scope', () => {
     const transport = createMockTransport({ mutation: () => new Promise(() => undefined) });
     configureDb({ storage: createMemoryPlane(), transport });
-    const media = defineModelRuntime({
-      id: 'SpecCompositePlacement',
-      name: 'SpecCompositePlacement',
-      fields: { chatId: f.str(), mediaBucket: f.str(), label: f.str() },
+    type MutationResponse = { save: MediaRow };
+    type MutationVariables = { input: MediaScopeValue };
+    const mutationDocument: TypedDocumentNode<MutationResponse, MutationVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+    const media = defineModel('SpecCompositePlacement', {
+      schema: MediaSchema,
       maintenance: { dropTempRowsAfterMs: 1000 },
-      scopes: { media: ({ by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: 'server-order' }) }
-    });
-    const mutation = media.mutation<
-      { save: { id: string; chatId: string; mediaBucket: string; label: string } },
-      MediaScopeValue,
-      { id: string; chatId: string; mediaBucket: string; label: string },
-      { id: string; chatId: string; mediaBucket: string; label: string }
-    >('create', {
-      document,
-      result: 'save',
-      optimistic: {
-        model: media,
-        build: input => ({ id: '', chatId: input.chatId, mediaBucket: input.mediaBucket, label: 'pending' }),
-        selectServerNode: data => data.save,
-        prependTo: { scope: media.scopes.media, value: input => input }
-      }
+      relations: () => ({ media: { by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: 'server-order' } }),
+      actions: owner => ({
+        create: owner.gql.action(mutationDocument, {
+          mode: 'request',
+          result: 'save',
+          variables: (input: MediaScopeValue) => ({ input }),
+          optimistic: {
+            root: {
+              insert: {
+                select: ({ input, tempId }) => ({ ...input, id: tempId, sequenceNumber: 0, label: 'pending' })
+              }
+            }
+          },
+          root: { insert: { select: ({ data }) => data.save } }
+        })
+      })
     });
 
-    void mutation.run({ chatId: 'chat-1', mediaBucket: 'B' });
+    void media.actions.create.run({ chatId: 'chat-1', mediaBucket: 'B' });
 
-    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'A' })).toEqual([]);
-    expect(media.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'B' }).map(row => row.label)).toEqual(['pending']);
+    expect(media.media({ chatId: 'chat-1', mediaBucket: 'A' }).read()).toEqual([]);
+    expect(media.media({ chatId: 'chat-1', mediaBucket: 'B' }).read().map(row => row.label)).toEqual(['pending']);
   });
 });

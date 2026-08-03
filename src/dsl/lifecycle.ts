@@ -1,9 +1,7 @@
 import type { MaintenanceReport } from '../types';
 import { ensurePersistenceCompatibility } from '../core/schemaManifest';
-import { registerReset } from '../core/reset';
 import { runBootValidations } from './bootValidations';
-import { flushPersistence, getRuntimeGeneration, purgeForeignStorageKeys, replayJournal } from './configure';
-import { reconcileDetachedOperationsAtBoot } from './defineDetachedOperation';
+import { flushPersistence, purgeForeignStorageKeys, replayJournal } from './configure';
 import { runModelMaintenance } from './maintenanceRegistry';
 import { getApplyTargets } from '../core/apply/applyTargetRegistry';
 import { hydrateStoreScopes, markStoresReady } from '../core/store';
@@ -30,33 +28,21 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
 export const bootDb = async (): Promise<{ replayed: number; maintenance: MaintenanceReport[]; reset: boolean }> => {
   runBootValidations();
   const compatibility = ensurePersistenceCompatibility();
-  const generation = getRuntimeGeneration();
-  const generationFence = createGenerationFence({ generation });
+  const generationFence = createGenerationFence();
   const assertCurrentGeneration = (): void => {
     if (!generationFence.isCurrent()) throw new Error('runtime generation changed during boot');
   };
-  let rejectReset!: (error: Error) => void;
-  const resetSignal = new Promise<never>((_resolve, reject) => {
-    rejectReset = reject;
-  });
-  const unregisterReset = registerReset(() => {
-    rejectReset(new Error('runtime generation changed during boot'));
-  });
-
-  try {
-    const replayed = replayJournal();
-    assertCurrentGeneration();
-    hydrateStoreScopes(getApplyTargets());
-    markStoresReady();
-    await Promise.race([reconcileDetachedOperationsAtBoot(generation), resetSignal]);
-    assertCurrentGeneration();
-    purgeForeignStorageKeys();
-    const maintenance = runModelMaintenance();
-    assertCurrentGeneration();
-    return { replayed, maintenance, reset: compatibility.reset };
-  } finally {
-    unregisterReset();
-  }
+  const replayed = replayJournal();
+  assertCurrentGeneration();
+  hydrateStoreScopes(getApplyTargets());
+  assertCurrentGeneration();
+  markStoresReady();
+  assertCurrentGeneration();
+  purgeForeignStorageKeys();
+  assertCurrentGeneration();
+  const maintenance = runModelMaintenance();
+  assertCurrentGeneration();
+  return { replayed, maintenance, reset: compatibility.reset };
 };
 
 /**

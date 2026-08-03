@@ -1,5 +1,5 @@
 import type { IncrementalCommitBatch, ModelQueryHandle, ModelQuerySpec, ModelStore, RowRecord, StoragePlane, StoreScopeCollection, WriteCtx } from '../types';
-export { runInApplyBatch, poisonStoreReads, restoreStoreReads, runInStoreTransaction } from './storeSync';
+export { runInApplyBatch, poisonStoreReads, restoreStoreReads } from './storeSync';
 export declare const registerModelStoreFactory: <T extends RowRecord>(modelId: string, factory: () => ModelStore<T>) => void;
 /**
  * Per-model primary store facade: composes the entity plane (rows, transactional buffer,

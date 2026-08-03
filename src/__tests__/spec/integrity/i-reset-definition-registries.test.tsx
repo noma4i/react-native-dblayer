@@ -1,6 +1,26 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, createDbSubscriptionEffects, defineFetch, resetRuntime , registerBootValidation, runBootValidations , getDbSubscriptionEffect , setFetchNetworkOnline , invalidateModel, registerModelInvalidation } from '../../testApi';
+import {
+  configureDb,
+  defineModel,
+  defineShape,
+  f,
+  resetRuntime,
+  registerBootValidation,
+  runBootValidations,
+  setFetchNetworkOnline,
+  invalidateModel,
+  registerModelInvalidation
+} from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+
+type ResetData = { ok: boolean };
+type ResetVariables = Record<string, never>;
+type ResetRow = { id: string; ok: boolean };
+
+const resetDocument: TypedDocumentNode<ResetData, ResetVariables> = { kind: Kind.DOCUMENT, definitions: [] };
+const ResetSchema = defineShape<ResetRow>()({ ok: f.bool() });
 
 /**
  * Definitions (fetch/query handles, subscription-effect channels, boot validations) are created
@@ -10,19 +30,25 @@ import { createMemoryPlane, createMockTransport, renderCounted } from '../helper
  */
 describe('reset and definition registries', () => {
   it('starts the next generation unpaused after an offline pause and a reset', async () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    setFetchNetworkOnline(false);
-    const offline = defineFetch<{ ok: boolean }>({
-      key: 'reset-pause-probe',
-      fetcher: async () => {
-        throw new Error('offline');
-      },
-      select: data => data,
-      /** No mount refetch: the paused flag is the only thing a reader would see. */
-      enabled: () => false
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ query: async () => { throw new Error('offline'); } })
     });
-    await expect(offline.fetch()).rejects.toThrow('offline');
-    const paused = renderCounted(() => offline.use(undefined));
+    const ResetModel = defineModel('SpecResetPauseProbe', {
+      schema: ResetSchema,
+      relations: owner => ({
+        result: {
+          remote: owner.gql.single(resetDocument, {
+            variables: () => ({}),
+            select: data => ({ id: 'reset-pause-probe', ok: data.ok })
+          })
+        }
+      })
+    });
+    const relation = ResetModel.result({});
+    setFetchNetworkOnline(false);
+    await expect(relation.fetch()).rejects.toThrow('offline');
+    const paused = renderCounted(() => relation.use({ enabled: false }));
     expect(paused.result().loadingState.isOffline).toBe(true);
     paused.unmount();
 
@@ -32,21 +58,9 @@ describe('reset and definition registries', () => {
     });
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
 
-    const reader = renderCounted(() => offline.use(undefined));
+    const reader = renderCounted(() => relation.use({ enabled: false }));
     expect(reader.result().loadingState.isOffline).toBe(false);
     reader.unmount();
-  });
-
-  it('keeps subscription effects resolvable across a reset', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
-    const channel = createDbSubscriptionEffects({ resetProbePing: (payload: string) => void payload });
-    channel.configure({ resetProbePing: () => {} });
-
-    act(() => {
-      resetRuntime();
-    });
-
-    expect(typeof getDbSubscriptionEffect('resetProbePing')).toBe('function');
   });
 
   it('replaces the invalidation callback when the same definition registers again', () => {

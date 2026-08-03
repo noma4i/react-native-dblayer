@@ -37,7 +37,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       scopeKey: string,
       liveRows: Array<{ row: Record<string, unknown> }>,
       coverage: ScopeCoverage,
-      planOptions?: { resetOrder?: boolean }
+      planOptions?: { resetOrder?: boolean; releasedIds?: ReadonlySet<string> }
     ): WriteOp => {
       let incoming = liveRows.map(({ row }) => ({ id: options.normalize(row).id }) as { id: string; orderKey?: string });
       if (spec?.sort && spec.sort !== 'server-order') {
@@ -89,7 +89,10 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       // Rows held by open operations survive snapshot reconciliation and retention: the ledger is
       // the one protection root (TTL, replay cleanup, and both planning cuts below).
       const heldRowIds = coverage === 'complete' || planOptions?.resetOrder === true ? getOperationState().openRowIdsFor(options.modelId) : undefined;
-      const protectedIds = heldRowIds !== undefined && heldRowIds.size > 0 ? heldRowIds : undefined;
+      const protectedIds =
+        heldRowIds !== undefined && heldRowIds.size > 0
+          ? new Set([...heldRowIds].filter(id => !planOptions?.releasedIds?.has(id)))
+          : undefined;
       const reconciliation = planes().scopeIndex.reconcileNext(scopeKey, coverage, incoming, { ...planOptions, protectedIds });
       let { next } = reconciliation;
       const { detachedIds } = reconciliation;
@@ -111,7 +114,11 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(options.normalize(row).id));
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
       const rowOps = options.planRows(liveRows.map(({ row }) => row));
-      if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, planOptions)];
+      const releasedIds = new Set(
+        rowOps.flatMap(op => (op.kind === 'destroy' && op.origin === 'replace' ? op.ids : []))
+      );
+      const scopePlanOptions = releasedIds.size > 0 ? { ...planOptions, releasedIds } : planOptions;
+      if (!spec?.by) return [...rowOps, planScope(requestedScopeKey, liveRows, coverage, scopePlanOptions)];
 
       const rowsByScope = new Map<string, Array<{ row: Record<string, unknown> }>>();
       for (const entry of liveRows) {
@@ -127,7 +134,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       rowsByScope.delete(requestedScopeKey);
       return [
         ...rowOps,
-        planScope(requestedScopeKey, requestedRows, coverage, planOptions),
+        planScope(requestedScopeKey, requestedRows, coverage, scopePlanOptions),
         ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))
       ];
     };

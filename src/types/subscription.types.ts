@@ -1,11 +1,14 @@
 import type { Debouncer } from '@tanstack/pacer';
-import type { ResultOf, TypedDocumentNode, VariablesOf } from '@graphql-typed-document-node/core';
 import type { DbGraphQLDocument } from './db.types';
+import type { ModelRootOwner, ModelRootPlan } from './dsl.modelRoot.types';
+import type { WritePlan } from './dsl.writePlan.types';
 
-/** Static subscription registration consumed by `createDbSubscriptionRuntime`. */
-export type DbSubscriptionEntry<TPayload = unknown> = {
-  /** Payload key under response data and stable registry id. */
+/** Static subscription registration consumed by `createModelEventLifecycle`. */
+export type ModelEventLifecycleEntry<TPayload = unknown> = {
+  /** Stable registry id for this subscription entry. */
   key: string;
+  /** Response key under transport data, or `key` when omitted. */
+  payloadKey?: string;
   /** GraphQL subscription document passed to the configured transport. */
   query: DbGraphQLDocument;
   /** Static GraphQL variables passed unchanged to the transport. */
@@ -25,28 +28,8 @@ export type DbSubscriptionEntry<TPayload = unknown> = {
   onData: (payload: TPayload) => void;
 };
 
-/** Typed authoring form for a static subscription registration. */
-export type TypedDbSubscriptionEntry<TDocument extends TypedDocumentNode<unknown, never>, TKey extends Extract<keyof ResultOf<TDocument>, string>> = Omit<
-  DbSubscriptionEntry<ResultOf<TDocument>[TKey]>,
-  'key' | 'query' | 'vars'
-> & {
-  key: TKey;
-  query: TDocument;
-  vars?: VariablesOf<TDocument>;
-};
-
-/** Effects channel returned by `createDbSubscriptionEffects`. */
-export type DbSubscriptionEffectsChannel<TEffects extends Record<keyof TEffects, (...args: never[]) => void>> = {
-  /** Stable wrapper table with the same keys as the noop table. */
-  effects: TEffects;
-  /** Replace active effects; keys omitted from `overrides` fall back to the noop implementation. */
-  configure: (overrides: Partial<TEffects>) => void;
-  /** Restore every effect to its noop implementation and unregister this channel's named effects. */
-  reset: () => void;
-};
-
 /** Runtime inspection row for a registered subscription entry. */
-export type DbSubscriptionRuntimeInspectRow = {
+export type ModelEventLifecycleInspectRow = {
   /** Registry key for the subscription entry. */
   key: string;
   /** Whether this entry currently has an active transport subscription. */
@@ -59,8 +42,8 @@ export type DbSubscriptionRuntimeInspectRow = {
   errorCount: number;
 };
 
-/** Runtime controller returned by `createDbSubscriptionRuntime`. */
-export type DbSubscriptionRuntime = {
+/** Runtime controller returned by `createModelEventLifecycle`. */
+export type ModelEventLifecycle = {
   /** Activate or deactivate all registered transport subscriptions. */
   setActive(active: boolean): void;
   /** Read the runtime-wide active flag. */
@@ -68,14 +51,14 @@ export type DbSubscriptionRuntime = {
   /** Manually inject a payload into the transport event pipeline. */
   dispatch(key: string, payload: unknown): void;
   /** Inspect runtime counters for every registered entry. */
-  inspect(): DbSubscriptionRuntimeInspectRow[];
+  inspect(): ModelEventLifecycleInspectRow[];
   /** Final teardown for transport subscriptions and pending debounce/retry timers. */
   stop(): void;
 };
 
 /** Live state for one subscription entry: channel handle, pacing buckets, retry and telemetry. */
 export type SubscriptionEntryState = {
-  entry: DbSubscriptionEntry;
+  entry: ModelEventLifecycleEntry;
   unsubscribe: (() => void) | null;
   debounceBuckets: Map<string, Debouncer<(payload: unknown) => void>>;
   debouncePayloads: Map<string, unknown>;
@@ -95,4 +78,24 @@ export type SubscriptionLifecycleContext = {
   active: boolean;
   activationEpoch: number;
   generationFence: { isCurrent(): boolean; captureNow(): void };
+};
+
+export type ModelEventSubscription<TPayload> = {
+  subscribe(listener: (payload: TPayload) => void): () => void;
+};
+
+export type ModelEventRegistration<
+  TPayload,
+  TInput = unknown,
+  TStored extends { id: string } = { id: string },
+  TOwnerKey extends string = string
+> = {
+  modelKey: string;
+  eventName: string;
+  document: DbGraphQLDocument;
+  variables?: Record<string, unknown>;
+  debounce?: ModelEventLifecycleEntry<TPayload>['debounce'];
+  owner: ModelRootOwner<TInput>;
+  root: ModelRootPlan<{ payload: TPayload }, TInput, TStored>;
+  write?: (context: { payload: TPayload }, plan: WritePlan<TOwnerKey>) => void;
 };

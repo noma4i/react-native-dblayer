@@ -308,8 +308,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
       return [...touched];
     },
     persistEntries: () => {
-      const entries: Array<{ key: string; value: string | null }> = [...dirty].map(key => ({ key: storageKey(key), value: encodePersistence(scopes.get(key)!) }));
-      for (const key of removed) entries.push({ key: storageKey(key), value: null });
+      const changed = new Set([...dirty, ...removed, ...(stagedScopes?.keys() ?? [])]);
+      const entries: Array<{ key: string; value: string | null }> = [];
+      for (const key of changed) {
+        const value = stagedScopes?.has(key) ? stagedScopes.get(key) : scopes.get(key);
+        entries.push({ key: storageKey(key), value: value ? encodePersistence(value) : null });
+      }
       return entries;
     },
     ackPersist: () => {

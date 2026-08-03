@@ -10,8 +10,22 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
   scopes: Record<string, ScopeSpec<TStored>> | undefined;
   context: ModelContext<TStored>;
   scopeSortedRows(scopeName: string, scopeValue: unknown): TStored[];
-  prepareRow(row: unknown, previous: TStored | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: TStored, operationId?: string): PreparedRowWrite | null;
-  preparePatch(id: string, patch: Record<string, unknown>, previous: TStored | undefined, operationId?: string, remove?: readonly string[]): PreparedRowWrite | null;
+  prepareRow(
+    row: unknown,
+    previous: TStored | undefined,
+    origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>,
+    mergeBase?: TStored,
+    operationId?: string,
+    baseRevision?: number
+  ): PreparedRowWrite | null;
+  preparePatch(
+    id: string,
+    patch: Record<string, unknown>,
+    previous: TStored | undefined,
+    operationId?: string,
+    remove?: readonly string[],
+    baseRevision?: number
+  ): PreparedRowWrite | null;
   putRows(rows: TStored[]): Array<{ id: string; changedFields: string[] | null }>;
 }): ModelApplyTargetResult => {
   const { planes } = options.context;
@@ -89,28 +103,45 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       return { kind: 'field' as const, field: String(sort.field), dir: sort.dir };
     },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
-    prepareUpsert: (row, previous, origin, mergeBase, operationId) =>
-      options.prepareRow(row, previous as TStored | undefined, origin, mergeBase as TStored | undefined, operationId),
-    preparePatch: (id, patch, previous, operationId, remove) => options.preparePatch(id, patch, previous as TStored | undefined, operationId, remove),
-    beginApply: () => {
+    prepareUpsert: (row, previous, origin, mergeBase, operationId, baseRevision) =>
+      options.prepareRow(row, previous as TStored | undefined, origin, mergeBase as TStored | undefined, operationId, baseRevision),
+    preparePatch: (id, patch, previous, operationId, remove, baseRevision) =>
+      options.preparePatch(id, patch, previous as TStored | undefined, operationId, remove, baseRevision),
+    admitDestroy: (id, baseRevision) => options.context.revisions.admitDestroy(id, baseRevision),
+    beginApply: epoch => {
+      options.context.revisions.beginApply(epoch);
       planes().scopeIndex.beginApply();
     },
     commitApply: () => {
       planes().scopeIndex.commitApply();
+      options.context.revisions.commitApply();
     },
     abortApply: () => {
       planes().scopeIndex.abortApply();
+      options.context.revisions.abortApply();
     },
-    put: (rows: StoredRow[]) => options.putRows(rows as TStored[]),
+    put: (rows: StoredRow[]) => {
+      const typedRows = rows as TStored[];
+      const inserted = new Set(typedRows.filter(row => planes().entityState.read(row.id) === undefined).map(row => row.id));
+      const rowById = new Map(typedRows.map(row => [row.id, row] as const));
+      const changes = options.putRows(typedRows);
+      for (const change of changes) {
+        const row = rowById.get(change.id)!;
+        options.context.revisions.notePut(change.id, change.changedFields ?? Object.keys(row), inserted.has(change.id));
+      }
+      return changes;
+    },
     destroy: (ids: string[], tombstone?: boolean): string[] => {
       const removed: string[] = [];
       for (const id of ids) {
         const key = String(id);
         const existed = planes().entityState.read(key) !== undefined;
         planes().entityState.destroy(key, { tombstone });
-        if (existed) removed.push(key);
+        if (existed) {
+          removed.push(key);
+          options.context.revisions.noteDestroy(key);
+        }
       }
-      if (removed.length > 0) options.context.bumpRevision();
       return removed;
     },
     scope: (scopeKey: string, next: unknown): void => {

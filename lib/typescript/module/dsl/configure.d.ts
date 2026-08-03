@@ -8,7 +8,7 @@ import { advanceRuntimeGeneration, getRuntimeGeneration } from '../utils/runtime
  *
  * Call this before rendering `DbProvider`; the provider owns the subsequent `bootDb` data lifecycle.
  *
- * @param options.transport GraphQL transport (`query`/`mutation`) used by `defineQuery`/`defineMutation`.
+ * @param options.transport GraphQL transport used by model relations and actions.
  * @param options.storage Synchronous key/value seam for persistence; defaults to `mmkvStoragePlane()`.
  * @param options.logger Package logger seam; optional, defaults to the built-in logger.
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
@@ -16,7 +16,7 @@ import { advanceRuntimeGeneration, getRuntimeGeneration } from '../utils/runtime
 export declare const configureDb: (options: ConfigureDbOptions) => void;
 export declare const getDbRuntimeConfig: () => RuntimeConfig;
 /**
- * Internal: the package-owned TanStack QueryClient behind every `defineQuery`/`defineFetch`
+ * Internal: the package-owned TanStack QueryClient behind every remote relation
  * freshness decision. Never exposed to consumers - the library stays the only QueryClient owner.
  * Query retry policy maps our `DbRetryPolicy` formula onto react-query's retry/retryDelay pair;
  * `networkMode: 'always'` keeps react-query out of connectivity decisions - the coordinator's own

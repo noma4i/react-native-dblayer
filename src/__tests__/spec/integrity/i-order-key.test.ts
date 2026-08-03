@@ -105,7 +105,9 @@ describe('order key sequences', () => {
   });
 
   it('keeps every generated sequence deterministic for identical inputs', () => {
-    expect(keysForSequence(20, undefined, undefined)).toEqual(keysForSequence(20, undefined, undefined));
+    const firstSequence = keysForSequence(20, undefined, undefined);
+    const secondSequence = keysForSequence(20, undefined, undefined);
+    expect(firstSequence).toEqual(secondSequence);
   });
 
   it('sorting generated keys with the default lexical string comparison matches compareCodepoints', () => {

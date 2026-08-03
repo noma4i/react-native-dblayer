@@ -1,4 +1,6 @@
-import { bootDb, compositeStorageKey, configureDb, createJournal, defineCommand, defineModelRuntime, defineShape, encodePersistence, f, flushPersistence, DB_FORMAT_VERSION, computeSchemaFingerprints, getOperationState, registerSchemaDeclaration, stableSerialize, writePersistenceManifest } from '../../testApi';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind } from 'graphql';
+import { bootDb, compositeKey, compositeStorageKey, configureDb, createJournal, defineModel, defineModelRuntime, defineShape, encodePersistence, f, flushPersistence, DB_FORMAT_VERSION, computeSchemaFingerprints, getOperationState, registerSchemaDeclaration, stableSerialize, writePersistenceManifest } from '../../testApi';
 import type { OperationRecord, SchemaDeclaration } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -13,9 +15,28 @@ const declaration = (
   scopes
 });
 
-const document = { kind: 'Document', definitions: [] } as never;
 type OnceResult = { action: { ok: true } };
 type OnceInput = { value: string };
+type OnceRow = { id: string; value: string };
+const onceDocument: TypedDocumentNode<OnceResult, OnceInput> = { kind: Kind.DOCUMENT, definitions: [] };
+const OnceSchema = defineShape<OnceRow>()({ value: f.str() });
+
+const defineOnceAction = () => {
+  const model = defineModel('ManifestOnceMigration', {
+    schema: OnceSchema,
+    actions: owner => ({
+      run: owner.gql.action(onceDocument, {
+        mode: 'request',
+        result: 'action',
+        variables: (input: OnceInput) => input,
+        dedupe: { key: input => compositeKey('ManifestOnceMigration', stableSerialize(input)) },
+        once: true,
+        root: { insert: { select: () => null } }
+      })
+    })
+  });
+  return model.actions.run;
+};
 
 const configureManifestRuntime = (storage = createMemoryPlane(), dataVersion?: string) => {
   configureDb({ storage, transport: createMockTransport(), dataVersion });
@@ -34,6 +55,8 @@ const defineManifestModel = (id: string, extra: Record<string, unknown> = {}) =>
 
 const modelOperation = (operationId: string, model: string, overrides: Partial<Omit<OperationRecord, 'status'>> = {}): Omit<OperationRecord, 'status'> => ({
   operationId,
+  actionKey: `${model}:action`,
+  actionMode: 'request',
   model,
   tempIds: [],
   rowIds: [`${model}-row`],
@@ -147,11 +170,11 @@ describe('persistence schema manifest', () => {
     const transport = createMockTransport({ mutation: async <TData,>() => ({ data: { action: { ok: true } } as TData }) });
     configureDb({ storage, transport, dataVersion: 'build-1' });
     await bootDb();
-    const first = defineCommand<OnceResult, OnceInput>('ManifestOnceMigration', { document, result: 'action', once: true });
+    const first = defineOnceAction();
     await first.run({ value: 'once' });
 
     configureDb({ storage, transport, dataVersion: 'build-2' });
-    const restarted = defineCommand<OnceResult, OnceInput>('ManifestOnceMigration', { document, result: 'action', once: true });
+    const restarted = defineOnceAction();
     await bootDb();
 
     expect(storage.get('dbl:ops')).toBeUndefined();

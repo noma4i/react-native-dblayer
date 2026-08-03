@@ -1,15 +1,19 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
 import { Kind } from 'graphql';
-import { configureDb, defineModel, defineShape, f, gql } from '../../testApi';
+import { configureDb, defineModel, defineShape, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; value: string };
 type Scope = { bucket: string };
 type Response = { root: Row };
 type Variables = Scope;
+type ListResponse = { rows: Row[] };
+type ConnectionResponse = { rows: { nodes: Row[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } };
 
 const document: TypedDocumentNode<Response, Variables> = { kind: Kind.DOCUMENT, definitions: [] };
+const listDocument: TypedDocumentNode<ListResponse, Scope> = { kind: Kind.DOCUMENT, definitions: [] };
+const connectionDocument: TypedDocumentNode<ConnectionResponse, Scope> = { kind: Kind.DOCUMENT, definitions: [] };
 const RowSchema = defineShape<Row>()({ value: f.str() });
 
 describe('query write plan', () => {
@@ -25,9 +29,9 @@ describe('query write plan', () => {
     const Sibling = defineModel('SpecQueryWritePlanAtomicSibling', { schema: RowSchema });
     const Root = defineModel('SpecQueryWritePlanAtomicRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(document, {
+          remote: owner.gql.single(document, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -35,7 +39,7 @@ describe('query write plan', () => {
             }
           })
         }
-      }
+      })
     });
     const relation = Root.root({ bucket: 'all' });
     const beforeCommits = diagnostics().snapshot().commits;
@@ -59,9 +63,9 @@ describe('query write plan', () => {
     const Sibling = defineModel('SpecQueryWritePlanFailureSibling', { schema: RowSchema });
     const Root = defineModel('SpecQueryWritePlanFailureRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(document, {
+          remote: owner.gql.single(document, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -70,7 +74,7 @@ describe('query write plan', () => {
             }
           })
         }
-      }
+      })
     });
     const relation = Root.root({ bucket: 'all' });
     const beforeCommits = diagnostics().snapshot().commits;
@@ -97,9 +101,9 @@ describe('query write plan', () => {
     const snapshots: Array<{ root: Row | undefined; sibling: Row | undefined }> = [];
     const Root = defineModel('SpecQueryWritePlanInvalidationRoot', {
       schema: RowSchema,
-      relations: {
+      relations: owner => ({
         root: {
-          remote: gql.single(document, {
+          remote: owner.gql.single(document, {
             variables: (params: Scope) => params,
             select: data => data.root,
             write: (_context, plan) => {
@@ -109,7 +113,7 @@ describe('query write plan', () => {
             }
           })
         }
-      }
+      })
     });
     const relation = Root.root({ bucket: 'all' });
     const target = {
@@ -121,5 +125,65 @@ describe('query write plan', () => {
     await relation.fetch();
 
     expect(snapshots).toEqual([{ root: { id: 'root-3', value: 'root' }, sibling: { id: 'sibling-3', value: 'sibling' } }]);
+  });
+
+  it('passes list and connection response context into the shared write plan', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) =>
+        ({
+          data:
+            operation.query === listDocument
+              ? { rows: [{ id: 'list-1', value: 'list' }] }
+              : {
+                  rows: {
+                    nodes: [{ id: 'connection-1', value: 'connection' }],
+                    pageInfo: { hasNextPage: false, endCursor: null }
+                  }
+                }
+        }) as { data: TData }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Sibling = defineModel('SpecQueryWritePlanShapeSibling', { schema: RowSchema });
+    const seen: Array<{ kind: string; ids: string[]; bucket: string }> = [];
+    const List = defineModel('SpecQueryWritePlanList', {
+      schema: RowSchema,
+      relations: owner => ({
+        rows: {
+          remote: owner.gql.list(listDocument, {
+            variables: (params: Scope) => params,
+            select: data => data.rows,
+            write: ({ data, nodes, params }, plan) => {
+              seen.push({ kind: 'list', ids: nodes.map(node => node.id), bucket: params.bucket });
+              plan.upsert(Sibling, { id: 'list-sibling', value: data.rows[0]!.value });
+            }
+          })
+        }
+      })
+    });
+    const Connection = defineModel('SpecQueryWritePlanConnection', {
+      schema: RowSchema,
+      relations: owner => ({
+        rows: {
+          remote: owner.gql.connection(connectionDocument, {
+            variables: (params: Scope) => params,
+            connection: data => data.rows,
+            write: ({ data, nodes, params }, plan) => {
+              seen.push({ kind: 'connection', ids: nodes.map(node => node.id), bucket: params.bucket });
+              plan.upsert(Sibling, { id: 'connection-sibling', value: data.rows.nodes[0]!.value });
+            }
+          })
+        }
+      })
+    });
+
+    await List.rows({ bucket: 'list-bucket' }).fetch();
+    await Connection.rows({ bucket: 'connection-bucket' }).fetch();
+
+    expect(seen).toEqual([
+      { kind: 'list', ids: ['list-1'], bucket: 'list-bucket' },
+      { kind: 'connection', ids: ['connection-1'], bucket: 'connection-bucket' }
+    ]);
+    expect(Sibling.find('list-sibling')).toEqual({ id: 'list-sibling', value: 'list' });
+    expect(Sibling.find('connection-sibling')).toEqual({ id: 'connection-sibling', value: 'connection' });
   });
 });

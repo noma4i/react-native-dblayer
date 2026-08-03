@@ -1,4 +1,4 @@
-import type { EntityState, ModelMembership, ModelWrites } from '../types';
+import type { EntityState, ModelMembership, ModelRevisionOwner, ModelWrites } from '../types';
 export declare const createModelWrites: <TStored extends {
     id: string;
 } & Record<string, unknown>>(options: {
@@ -7,7 +7,7 @@ export declare const createModelWrites: <TStored extends {
     entityState(): EntityState<TStored>;
     normalize(input: unknown): TStored;
     isPlanRow(input: unknown): boolean;
-    bumpRevision(): void;
+    revisions: ModelRevisionOwner<TStored>;
     captureMembership(id: string): ModelMembership[];
 }) => ModelWrites<TStored>;
 //# sourceMappingURL=modelWrites.d.ts.map

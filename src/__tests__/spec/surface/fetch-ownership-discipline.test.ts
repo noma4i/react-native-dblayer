@@ -6,7 +6,7 @@ const readSource = (relativePath: string): string => fs.readFileSync(path.join(s
 
 describe('fetch ownership discipline', () => {
   it('delegates freshness decisions to React Query instead of comparing timestamps locally', () => {
-    const manualFreshness = ['dsl/defineQuery.ts', 'dsl/defineFetch.ts'].filter(relativePath => /Date\.now\(\)\s*-\s*\w+\.dataUpdatedAt/.test(readSource(relativePath)));
+    const manualFreshness = ['dsl/defineQuery.ts', 'dsl/facadeRemoteQueries.ts'].filter(relativePath => /Date\.now\(\)\s*-\s*\w+\.dataUpdatedAt/.test(readSource(relativePath)));
 
     expect(manualFreshness).toEqual([]);
     expect(readSource('core/fetch/queryFreshness.ts')).toContain('.isStaleByTime(');

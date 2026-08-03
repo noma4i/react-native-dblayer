@@ -1,16 +1,88 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { Kind, OperationTypeNode } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
 import * as dbl from '../../testApi';
-import { registerBootValidation , DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, setupSpecRuntime, settle } from '../helpers/harness';
 
-const DbProvider = (
-  dbl as unknown as {
-    DbProvider: React.ComponentType<{ children: React.ReactNode }>;
-  }
-).DbProvider;
-const document = { kind: 'Document', definitions: [] } as never;
+type EmptyVariables = Record<string, never>;
+
+type UserRow = {
+  id: string;
+  name: string;
+};
+
+type ScreenData = {
+  rows: UserRow[];
+};
+
+type SingleValueData = {
+  value: string;
+};
+
+type SingleValueRow = {
+  id: string;
+  value: string;
+};
+
+type EventPayload = {
+  value: string;
+};
+
+type EventData = {
+  event: EventPayload;
+};
+
+const screenDocument: TypedDocumentNode<ScreenData, EmptyVariables> = {
+  kind: Kind.DOCUMENT,
+  definitions: []
+};
+
+const singleValueDocument: TypedDocumentNode<SingleValueData, EmptyVariables> = {
+  kind: Kind.DOCUMENT,
+  definitions: []
+};
+
+const eventDocument: TypedDocumentNode<EventData, EmptyVariables> = {
+  kind: Kind.DOCUMENT,
+  definitions: [
+    {
+      kind: Kind.OPERATION_DEFINITION,
+      operation: OperationTypeNode.SUBSCRIPTION,
+      selectionSet: {
+        kind: Kind.SELECTION_SET,
+        selections: [
+          {
+            kind: Kind.FIELD,
+            name: { kind: Kind.NAME, value: 'event' }
+          }
+        ]
+      }
+    }
+  ]
+};
+
+const UserSchema = dbl.defineShape<UserRow>()({ name: dbl.f.str() });
+const SingleValueSchema = dbl.defineShape<SingleValueRow>()({ value: dbl.f.str() });
+
+const createSingleValueRelation = (key: string) => {
+  const Model = dbl.defineModel(key, {
+    schema: SingleValueSchema,
+    relations: owner => ({
+      value: {
+        remote: owner.gql.single(singleValueDocument, {
+          variables: (_params: EmptyVariables) => ({}),
+          select: data => ({ id: key, value: data.value })
+        })
+      }
+    })
+  });
+  return Model.value({});
+};
+
+const DbProvider = dbl.DbProvider;
+
 /** Minimal boundary to observe a render-thrown boot error the way a consumer's Sentry/ErrorBoundary would. */
 class BootErrorBoundary extends React.Component<{ children?: React.ReactNode; onError: (error: unknown) => void }, { hasError: boolean }> {
   state = { hasError: false };
@@ -30,15 +102,15 @@ class BootErrorBoundary extends React.Component<{ children?: React.ReactNode; on
 
 describe('provider-owned query runtime', () => {
   // Performance scale guarantee: N/A because provider lifecycle has no scale-dependent input.
-  let appStateHandler: ((state: string) => void) | undefined;
+  let appStateHandler: Parameters<typeof AppState.addEventListener>[1] | undefined;
   let removeAppStateListener: jest.Mock;
 
   beforeEach(() => {
     removeAppStateListener = jest.fn();
-    jest.spyOn(AppState, 'addEventListener').mockImplementation(((_event: string, handler: (state: string) => void) => {
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
       appStateHandler = handler;
       return { remove: removeAppStateListener };
-    }) as never);
+    });
   });
 
   afterEach(() => {
@@ -48,14 +120,18 @@ describe('provider-owned query runtime', () => {
 
   it('gates children until boot completes and then supports DSL reads', async () => {
     setupSpecRuntime();
-    const users = dbl.defineModelRuntime({ id: 'SpecProviderBoot', name: 'SpecProviderBoot', fields: { name: dbl.f.str() } });
-    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    const users = dbl.defineModel('SpecProviderBoot', { schema: UserSchema });
+    dbl.writePersistenceManifest('dbl:', {
+      formatVersion: dbl.DB_FORMAT_VERSION,
+      schemaFingerprints: dbl.computeSchemaFingerprints(),
+      dataVersion: null
+    });
     users.insert({ id: 'user', name: 'Ready' });
     let renders = 0;
     let value: string | undefined;
     const Child = () => {
       renders += 1;
-      value = users.use.find('user')?.name;
+      value = users.useFind('user')?.name;
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -153,7 +229,7 @@ describe('provider-owned query runtime', () => {
 
   it('throws the boot rejection in render instead of gating children forever', async () => {
     setupSpecRuntime();
-    registerBootValidation('s03-probe', () => {
+    dbl.registerBootValidation('s03-probe', () => {
       throw new Error('boot validation exploded');
     });
     let renders = 0;
@@ -184,12 +260,12 @@ describe('provider-owned query runtime', () => {
     expect((caught as Error)?.message).toBe('boot validation exploded');
     act(() => root.unmount());
     /** Definition registries survive reset; redefinition under the same key is the canonical cleanup. */
-    registerBootValidation('s03-probe', () => {});
+    dbl.registerBootValidation('s03-probe', () => {});
   });
 
   it('flushes pending persistence on background and drains readers after background or inactive', async () => {
     const { storage } = setupSpecRuntime();
-    const users = dbl.defineModelRuntime({ id: 'SpecProviderBackground', name: 'SpecProviderBackground', fields: { name: dbl.f.str() } });
+    const users = dbl.defineModel('SpecProviderBackground', { schema: UserSchema });
     let root!: TestRenderer.ReactTestRenderer;
     act(() => {
       root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement('screen')));
@@ -230,7 +306,8 @@ describe('provider-owned query runtime', () => {
       }
       return result;
     };
-    dbl.configureDb({ storage, transport: createMockTransport() } as never);
+    dbl.configureDb({ storage, transport: createMockTransport() });
+    dbl.defineModel('SpecProviderGenerationFence', { schema: UserSchema });
 
     await expect(dbl.bootDb()).rejects.toThrow('runtime generation changed during boot');
   });
@@ -243,15 +320,21 @@ describe('provider-owned query runtime', () => {
         return { data: { rows: [{ id: calls === 1 ? 'old' : 'fresh', name: calls === 1 ? 'Old' : 'Fresh' }] } as TData };
       }
     });
-    dbl.configureDb({ storage: createMemoryPlane(), transport } as never);
-    const users = dbl.defineModelRuntime({ id: 'SpecProviderReset', name: 'SpecProviderReset', fields: { name: dbl.f.str() } });
-    const query = users.query<{ rows: Array<{ id: string; name: string }> }, Record<string, never>, Record<string, never>, { id: string; name: string }>('screen', {
-      document,
-      key: 'spec-provider-reset',
-      select: data => data.rows
+    dbl.configureDb({ storage: createMemoryPlane(), transport });
+    const users = dbl.defineModel('SpecProviderReset', {
+      schema: UserSchema,
+      relations: owner => ({
+        screen: {
+          remote: owner.gql.list(screenDocument, {
+            variables: (_params: EmptyVariables) => ({}),
+            select: data => data.rows
+          })
+        }
+      })
     });
+    const relation = users.screen({});
     const Reader = () => {
-      query.use({});
+      relation.use();
       return null;
     };
     let root!: TestRenderer.ReactTestRenderer;
@@ -275,14 +358,14 @@ describe('provider-owned query runtime', () => {
   it('drops an in-flight response that lands after reset', async () => {
     let resolve!: (value: { data: { value: string } }) => void;
     const transport = createMockTransport({
-      query: <TData,>() =>
+      query: async <TData,>() =>
         new Promise<{ data: TData }>(done => {
-          resolve = done as never;
+          resolve = value => done(value as { data: TData });
         })
     });
-    dbl.configureDb({ storage: createMemoryPlane(), transport } as never);
-    const request = dbl.defineFetch<{ value: string }, void, string>({ document, key: 'spec-provider-fence', select: data => data.value });
-    const pending = request.fetch(undefined);
+    dbl.configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createSingleValueRelation('SpecProviderFence');
+    const pending = relation.fetch();
 
     act(() => dbl.resetRuntime());
     resolve({ data: { value: 'stale' } });
@@ -300,9 +383,11 @@ describe('provider-owned query runtime', () => {
         return unsubscribe;
       }
     });
-    dbl.configureDb({ storage: createMemoryPlane(), transport } as never);
+    dbl.configureDb({ storage: createMemoryPlane(), transport });
     const received: string[] = [];
-    const runtime = dbl.createDbSubscriptionRuntime([{ key: 'event', query: document, onData: payload => received.push((payload as { value: string }).value) }]);
+    const runtime = dbl.createModelEventLifecycle<EventPayload>([
+      { key: 'event', query: eventDocument, onData: payload => received.push(payload.value) }
+    ]);
 
     runtime.setActive(true);
     act(() => dbl.resetRuntime());
@@ -316,13 +401,19 @@ describe('provider-owned query runtime', () => {
   });
 
   it('preserves the child mount and cached request across provider rerenders', async () => {
-    setupSpecRuntime();
     let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return { data: { value: String(calls) } as TData };
+      }
+    });
+    dbl.configureDb({ storage: createMemoryPlane(), transport });
+    const relation = createSingleValueRelation('SpecProviderIdentity');
     let mounts = 0;
     let unmounts = 0;
-    const request = dbl.defineFetch<number, void, number>({ key: 'spec-provider-identity', fetcher: async () => ++calls, select: (data: number) => data } as never);
     const Child = () => {
-      request.use(undefined);
+      relation.use();
       React.useEffect(() => {
         mounts += 1;
         return () => {

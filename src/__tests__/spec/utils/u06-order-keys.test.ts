@@ -37,8 +37,12 @@ describe('fractional order keys', () => {
   });
 
   it('is deterministic for identical inputs', () => {
-    expect(keysForSequence(4, 'a', 'b')).toEqual(keysForSequence(4, 'a', 'b'));
-    expect(keysForSequence(3)).toEqual(keysForSequence(3));
+    const firstBoundedSequence = keysForSequence(4, 'a', 'b');
+    const secondBoundedSequence = keysForSequence(4, 'a', 'b');
+    expect(firstBoundedSequence).toEqual(secondBoundedSequence);
+    const firstDefaultSequence = keysForSequence(3);
+    const secondDefaultSequence = keysForSequence(3);
+    expect(firstDefaultSequence).toEqual(secondDefaultSequence);
   });
 
   it('falls back to a chained walk between adjacent bounds and stays strictly ordered', () => {

@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { bootDb, configureDb, flushPersistence, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineModel, defineShape, f, flushPersistence, suspendDb } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimeline } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -26,9 +26,61 @@ const videoMessage = (id: string, sequenceNumber: number) => ({
   mediaGroupId: null,
   replyToId: null,
   media: { id: `media-${id}`, kind: 'video', fileUrl: `https://cdn/${id}.mp4` },
-  localPreviewUrl: null,
-  clientId: null
+  localPreviewUrl: null
 });
+
+const CircleSchema = defineShape()({
+  chatId: f.str(),
+  userId: f.str(),
+  body: f.str(),
+  kind: f.str(),
+  status: f.str(),
+  createdAt: f.str(),
+  updatedAt: f.str(),
+  sequenceNumber: f.num().nullable(),
+  mediaGroupId: f.str().nullable(),
+  replyToId: f.str().nullable(),
+  mediaBucket: f.str(),
+  media: f.raw<Record<string, unknown>>(),
+  localPreviewUrl: f.str().nullable()
+});
+
+type CircleInput = {
+  id: string;
+  chatId: string;
+  userId: string;
+  body: string;
+  kind: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  sequenceNumber: number | null;
+  mediaGroupId: string | null;
+  replyToId: string | null;
+  mediaBucket: string;
+  media: Record<string, unknown>;
+  localPreviewUrl: string | null;
+};
+type CircleData = { send: { message: CircleInput } };
+
+const createCircleModel = (key: string) =>
+  defineModel(key, {
+    schema: CircleSchema,
+    relations: () => ({
+      thread: { by: { chatId: 'chatId' }, sort: { field: 'sequenceNumber', dir: 'desc' } },
+      media: { by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
+    }),
+    maintenance: { dropTempRowsAfterMs: 60_000 },
+    actions: owner => ({
+      send: owner.gql.action<CircleData, Record<string, never>, Omit<CircleInput, 'id'>, 'send'>({ kind: 'Document', definitions: [] } as never, {
+        mode: 'request',
+        result: 'send',
+        variables: () => ({}),
+        optimistic: { root: { insert: { select: ({ input, tempId }) => ({ id: tempId, ...input }) } } },
+        root: { insert: { select: ({ data }) => data.send.message } }
+      })
+    })
+  });
 
 /**
  * Two scopes of one model over the same rows must come back together.
@@ -79,40 +131,32 @@ describe('app-shaped scope restore', () => {
 
   it('S2 keeps both scopes after a circle is sent and the process restarts', async () => {
     const storage = createMemoryPlane();
-    const serverCircle = { ...videoMessage('server-circle', 4), clientId: 'temp-circle' };
+    const serverCircle = { ...videoMessage('server-circle', 4), mediaBucket: 'visual' };
     const build = () => {
       configureDb({
         storage,
         transport: createMockTransport({ mutation: async <TData,>() => ({ data: { send: { message: serverCircle } } as TData }) }),
         dataVersion: 'app-scope-restore'
       });
-      return createAppModels('ScopeRestoreCircle');
+      return createCircleModel('AppScopeRestoreCircleMessage');
     };
 
     const before = build();
     await act(async () => {
       await bootDb();
     });
-    before.chats.insert(chatRow());
-    before.messages.insertMany([1, 2, 3].map(index => videoMessage(`m-${index}`, index)));
+    before.insertMany([1, 2, 3].map(index => ({ ...videoMessage(`m-${index}`, index), mediaBucket: 'visual' })));
 
     // The real circle path: an optimistic row carrying local media, a patch that rewrites the whole
     // media object, the identity replace, and the transcode patch that lands afterwards.
-    const optimistic = { ...videoMessage('temp-circle', 4), status: 'Sending' as const, sequenceNumber: null, clientId: 'temp-circle', media: { id: 'local-circle', kind: 'video', fileUrl: 'file:///circle.mp4' } };
-    before.messages.insert(optimistic as never);
-    before.messages.update('temp-circle', { media: { ...optimistic.media, fileUrl: 'file:///spooled.mp4' } } as never);
-    const send = before.messages.mutation('send', {
-      document: { kind: 'Document', definitions: [] } as never,
-      result: 'send',
-      optimistic: { model: before.messages, existingTempId: () => 'temp-circle', build: () => optimistic, selectServerNode: (data: any) => data.send.message }
-    });
+    const optimistic = { ...videoMessage('ignored', 4), status: 'Sending' as const, sequenceNumber: null, mediaBucket: 'visual', media: { id: 'local-circle', kind: 'video', fileUrl: 'file:///spooled.mp4' } };
     await act(async () => {
-      await send.run({});
+      await before.actions.send.run(optimistic);
     });
-    before.messages.update('server-circle', { media: { ...serverCircle.media, transcodeStatus: 'ready' } } as never);
+    before.update('server-circle', { media: { ...serverCircle.media, transcodeStatus: 'ready' } });
 
-    const threadBefore = before.messages.scopes.thread.read({ chatId: 'chat-1' }).map((row: any) => row.id);
-    const mediaBefore = before.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' }).map((row: any) => row.id);
+    const threadBefore = before.thread({ chatId: 'chat-1' }).read().map(row => row.id);
+    const mediaBefore = before.media({ chatId: 'chat-1', mediaBucket: 'visual' }).read().map(row => row.id);
     expect(threadBefore).toHaveLength(4);
     expect(mediaBefore).toHaveLength(4);
     flushPersistence();
@@ -122,10 +166,10 @@ describe('app-shaped scope restore', () => {
     await act(async () => {
       await bootDb();
     });
-    const threadReader = recordTimeline(() => after.messages.scopes.thread.use({ chatId: 'chat-1' }));
-    const mediaReader = recordTimeline(() => after.messages.scopes.media.use({ chatId: 'chat-1', mediaBucket: 'visual' }));
-    const threadAfter = (threadReader.last() as any[]).map(row => row.id);
-    const mediaAfter = (mediaReader.last() as any[]).map(row => row.id);
+    const threadReader = recordTimeline(() => after.thread({ chatId: 'chat-1' }).use().data);
+    const mediaReader = recordTimeline(() => after.media({ chatId: 'chat-1', mediaBucket: 'visual' }).use().data);
+    const threadAfter = threadReader.last().map(row => row.id);
+    const mediaAfter = mediaReader.last().map(row => row.id);
     threadReader.unmount();
     mediaReader.unmount();
 

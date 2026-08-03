@@ -1,4 +1,4 @@
-import { belongsTo, defineModelRuntime, f } from '../../testApi';
+import { belongsTo, defineModel, defineShape, f } from '../../testApi';
 import { setupSpecRuntime } from '../helpers/harness';
 
 type Chat = { id: string; unreadCount: number };
@@ -11,16 +11,12 @@ type Message = { id: string; chatId: string; unread: boolean; body: string };
  */
 const createModels = (suffix: string) => {
   setupSpecRuntime();
-  const chats = defineModelRuntime({
-    id: `SpecCounterFilter${suffix}Chats`,
-    name: `SpecCounterFilter${suffix}Chats`,
-    fields: { unreadCount: f.num() }
+  const chats = defineModel(`SpecCounterFilter${suffix}Chats`, {
+    schema: defineShape<Chat>()({ unreadCount: f.num() })
   });
-  const messages = defineModelRuntime({
-    id: `SpecCounterFilter${suffix}Messages`,
-    name: `SpecCounterFilter${suffix}Messages`,
-    fields: { chatId: f.str(), unread: f.bool(), body: f.str() },
-    relations: () => ({
+  const messages = defineModel(`SpecCounterFilter${suffix}Messages`, {
+    schema: defineShape<Message>()({ chatId: f.str(), unread: f.bool(), body: f.str() }),
+    associations: () => ({
       chat: belongsTo<Message, Chat>(chats, {
         foreignKey: 'chatId',
         counterCache: { field: 'unreadCount', filter: (message: Message) => message.unread }
@@ -28,73 +24,58 @@ const createModels = (suffix: string) => {
     })
   });
   chats.insert({ id: 'chat-1', unreadCount: 0 });
-  const ingest = messages.ingest({
-    arrive: { handler: payload => ({ upsert: (payload as { rows: Message[] }).rows }) },
-    remove: { handler: payload => ({ destroy: (payload as { id: string }).id }) },
-    arriveAndRemove: { handler: payload => ({ upsert: (payload as { row: Message }).row, destroy: (payload as { row: Message }).row.id }) }
-  });
-  return { chats, messages, ingest };
+  return { chats, messages };
 };
 
 describe('filtered counter cache', () => {
   it('counts a child the filter admits', () => {
-    const { chats, ingest } = createModels('Admits');
+    const { chats, messages } = createModels('Admits');
 
-    ingest.apply('arrive', { rows: [{ id: 'm-1', chatId: 'chat-1', unread: true, body: 'hello' }] });
+    messages.insert({ id: 'm-1', chatId: 'chat-1', unread: true, body: 'hello' });
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
   });
 
   it('ignores a child the filter rejects', () => {
-    const { chats, ingest } = createModels('Rejects');
+    const { chats, messages } = createModels('Rejects');
 
-    ingest.apply('arrive', { rows: [{ id: 'm-1', chatId: 'chat-1', unread: false, body: 'hello' }] });
+    messages.insert({ id: 'm-1', chatId: 'chat-1', unread: false, body: 'hello' });
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
   });
 
   it('decrements only for the children it counted', () => {
-    const { chats, ingest } = createModels('Symmetry');
-    ingest.apply('arrive', {
-      rows: [
-        { id: 'm-counted', chatId: 'chat-1', unread: true, body: 'counted' },
-        { id: 'm-ignored', chatId: 'chat-1', unread: false, body: 'ignored' }
-      ]
-    });
+    const { chats, messages } = createModels('Symmetry');
+    messages.insertMany([
+      { id: 'm-counted', chatId: 'chat-1', unread: true, body: 'counted' },
+      { id: 'm-ignored', chatId: 'chat-1', unread: false, body: 'ignored' }
+    ]);
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
 
     // Removing the child that never counted must not move the counter.
-    ingest.apply('remove', { id: 'm-ignored' });
+    messages.destroy('m-ignored');
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
 
-    ingest.apply('remove', { id: 'm-counted' });
+    messages.destroy('m-counted');
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
   });
 
   it('counts a re-delivered child once, however many times it arrives', () => {
-    const { chats, ingest } = createModels('Redelivery');
+    const { chats, messages } = createModels('Redelivery');
     const row = { id: 'm-1', chatId: 'chat-1', unread: true, body: 'hello' };
 
-    ingest.apply('arrive', { rows: [row] });
+    messages.insert(row);
     // A re-delivery that also CHANGES content is still an update of the same child, not a new one.
-    ingest.apply('arrive', { rows: [{ ...row, body: 'edited' }] });
-    ingest.apply('arrive', { rows: [{ ...row, body: 'edited again' }] });
+    messages.insert({ ...row, body: 'edited' });
+    messages.insert({ ...row, body: 'edited again' });
 
     // Only the FIRST arrival creates the child; a re-delivery of the same id is the same message.
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
   });
 
-  it('nets a filtered child born and destroyed in one batch to zero', () => {
-    const { chats, ingest } = createModels('NetZero');
-
-    ingest.apply('arriveAndRemove', { row: { id: 'm-1', chatId: 'chat-1', unread: true, body: 'hello' } });
-
-    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
-  });
-
   it('leaves the counter untouched when an existing child changes its filter answer', () => {
-    const { chats, messages, ingest } = createModels('Patch');
-    ingest.apply('arrive', { rows: [{ id: 'm-1', chatId: 'chat-1', unread: true, body: 'hello' }] });
+    const { chats, messages } = createModels('Patch');
+    messages.insert({ id: 'm-1', chatId: 'chat-1', unread: true, body: 'hello' });
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
 
     // Effects model the EXISTENCE of a child, not its contents: a patch carries no counter effect,

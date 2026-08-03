@@ -125,14 +125,14 @@ describe('model-owned write policies', () => {
     const rows = defineModelRuntime({
       id: 'PolicyNonEmpty',
       name: 'PolicyNonEmpty',
-      fields: { clientId: f.str().nullable() },
-      write: { groups: [{ fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }] }
+      fields: { externalKey: f.str().nullable() },
+      write: { groups: [{ fields: ['externalKey'] as const, policy: { monotonic: { nonEmpty: true } } }] }
     });
-    rows.insert({ id: 'row-1', clientId: 'client-1' });
-    rows.insert({ id: 'row-1', clientId: '' });
-    rows.insert({ id: 'row-1', clientId: null });
+    rows.insert({ id: 'row-1', externalKey: 'external-1' });
+    rows.insert({ id: 'row-1', externalKey: '' });
+    rows.insert({ id: 'row-1', externalKey: null });
 
-    expect(rows.find('row-1')?.clientId).toBe('client-1');
+    expect(rows.find('row-1')?.externalKey).toBe('external-1');
   });
 
   it('preserves guarded media values during events and replace', () => {
@@ -143,11 +143,11 @@ describe('model-owned write policies', () => {
       write: { groups: [{ fields: ['media'] as const, policy: [{ monotonic: { all: [{ ladder: { path: 'media.status', tiers: [['processing'], ['ready', 'failed', 'completed']] } }, { tuple: ['media.progress'] }] } }, { keys: { width: 'positive', height: 'positive', fileUrl: 'nonEmpty' } }] }] }
     });
     media.insert({ id: 'row-1', media: { width: 320, height: 240, fileUrl: 'file:///local.mp4', status: 'processing', progress: 80 } });
-    media.ingest({ received: { handler: () => ({ upsert: { id: 'row-1', media: { width: 0, height: 0, fileUrl: '', status: 'processing', progress: 90 } } }) } }).apply('received', {});
+    media.insert({ id: 'row-1', media: { width: 0, height: 0, fileUrl: '', status: 'processing', progress: 90 } });
 
     expect(media.find('row-1')?.media).toMatchObject({ width: 320, height: 240, fileUrl: 'file:///local.mp4', progress: 90 });
-    media.ingest({ received: { handler: () => ({ upsert: { id: 'row-1', media: { width: 1, height: 1, fileUrl: 'https://cdn/server.mp4', status: 'ready', progress: 100 } } }) } }).apply('received', {});
-    media.ingest({ received: { handler: () => ({ upsert: { id: 'row-1', media: { width: 2, height: 2, fileUrl: 'https://cdn/regression.mp4', status: 'processing', progress: 99 } } }) } }).apply('received', {});
+    media.insert({ id: 'row-1', media: { width: 1, height: 1, fileUrl: 'https://cdn/server.mp4', status: 'ready', progress: 100 } });
+    media.insert({ id: 'row-1', media: { width: 2, height: 2, fileUrl: 'https://cdn/regression.mp4', status: 'processing', progress: 99 } });
 
     expect(media.find('row-1')?.media).toMatchObject({ width: 1, height: 1, fileUrl: 'https://cdn/server.mp4', status: 'ready', progress: 100 });
     media.replace('row-1', {
@@ -249,7 +249,7 @@ describe('model-owned write policies', () => {
     expect(rows.find('row-1')).toMatchObject({ localKey: 'first', body: 'snapshot' });
 
     rows.update('row-1', { localKey: 'patched' });
-    rows.ingest({ updated: { handler: () => ({ upsert: { id: 'row-1', localKey: null, body: 'event' } }) } }).apply('updated', {});
+    rows.insert({ id: 'row-1', localKey: null, body: 'event' });
 
     expect(rows.find('row-1')).toMatchObject({ localKey: 'patched', body: 'event' });
   });
@@ -441,13 +441,13 @@ describe('policy primitive edges', () => {
     const rows = defineModelRuntime({
       id: 'PolicyNonEmptyAbsent',
       name: 'PolicyNonEmptyAbsent',
-      fields: { clientId: f.str(), body: f.str() },
-      write: { groups: [{ fields: ['clientId'] as const, policy: { monotonic: { nonEmpty: true } } }] }
+      fields: { externalKey: f.str(), body: f.str() },
+      write: { groups: [{ fields: ['externalKey'] as const, policy: { monotonic: { nonEmpty: true } } }] }
     });
-    rows.insert({ id: 'row-1', clientId: 'client-1', body: 'first' });
+    rows.insert({ id: 'row-1', externalKey: 'external-1', body: 'first' });
     rows.insert({ id: 'row-1', body: 'second' } as never);
 
-    expect(rows.find('row-1')).toMatchObject({ clientId: 'client-1' });
+    expect(rows.find('row-1')).toMatchObject({ externalKey: 'external-1' });
   });
 
   it('treats numeric zero as a present nonEmpty value', () => {
