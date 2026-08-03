@@ -1,8 +1,9 @@
 # Actions
 
 Model commands are declared with `owner.gql.action` and exposed under `Model.actions`.
-When an action reads or changes its owning model, declare `actions` as a factory and use its typed
-model argument.
+When an action reads its owning model, use the factory owner's read-only `find`, `where`, `byIds`,
+or named relation methods inside a deferred action callback. The action root remains the only
+owner-model writer.
 
 ## `owner.gql.action(document, options)`
 

@@ -58,14 +58,29 @@ export const defineModelFacade = <
     guard: config.guard,
     write: config.write
   } as never);
-  const owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>> = {
+  const ownerState: {
+    runtime: FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>> | undefined;
+    readsEnabled: boolean;
+  } = { runtime: undefined, readsEnabled: false };
+  const readOwnerRuntime = (): FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>> => {
+    if (!ownerState.runtime || !ownerState.readsEnabled) throw new Error(`${key}: owner reads are only available inside deferred declaration callbacks`);
+    return ownerState.runtime;
+  };
+  const owner = {
     key,
+    find: (id: string | null | undefined) => readOwnerRuntime().find(id),
+    where: (where: DbWhere<ModelStoredValue<TShape>>, options?: DbReadOptions<ModelStoredValue<TShape>>) => {
+      const relation = createWhereRelation(readOwnerRuntime(), where, options);
+      return { read: relation.read, count: relation.count, issueSequence: relation.issueSequence };
+    },
+    byIds: (ids: readonly string[] | null | undefined) => {
+      const relation = createByIdsRelation(readOwnerRuntime(), ids);
+      return { read: relation.read, count: relation.count, issueSequence: relation.issueSequence };
+    },
     build: input => ownerNormalization.normalize(input, true) as ModelStoredValue<TShape>,
     gql: createGraphqlDsl<TKey, ModelBuildInput<TShape>, ModelStoredValue<TShape>>()
-  };
+  } as ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations>;
   const relationDefinitions = config.relations?.(owner) ?? ({} as TRelations);
-  const actionDefinitions = config.actions?.(owner) ?? ({} as TActions);
-  const eventDefinitions = config.events?.(owner) ?? ({} as TEvents);
   const relationSpecs = Object.fromEntries(
     Object.entries(relationDefinitions).map(([name, relation]) => [
       name,
@@ -89,6 +104,7 @@ export const defineModelFacade = <
     maintenance: config.maintenance,
     write: config.write
   } as never, { sideloads: config.sideloads }) as FacadeRuntimeModel<ModelStoredValue<TShape>, ModelBuildInput<TShape>>;
+  ownerState.runtime = runtime;
 
   const eventOwner = {
     modelId: key,
@@ -101,7 +117,14 @@ export const defineModelFacade = <
       createNamedRelation(runtime, name, params, compiledRelations[name], relationDefinitions[name]?.remote?.type);
     Reflect.set(method, 'invalidate', () => compiledRelations[name]?.invalidate());
     Reflect.set(relationMethods, name, method);
+    Reflect.set(owner, name, (params: Record<string, unknown> | null) => {
+      const relation = createNamedRelation(readOwnerRuntime(), name, params, compiledRelations[name], relationDefinitions[name]?.remote?.type);
+      return { read: relation.read, count: relation.count, issueSequence: relation.issueSequence };
+    });
   }
+  const actionDefinitions = config.actions?.(owner) ?? ({} as TActions);
+  const eventDefinitions = config.events?.(owner) ?? ({} as TEvents);
+  ownerState.readsEnabled = true;
   const actions: ModelActionMethods<TActions> = Object.create(null);
   const events = Object.create(null) as ModelEventHandle<TEvents>;
   for (const [name, definition] of Object.entries(eventDefinitions)) {

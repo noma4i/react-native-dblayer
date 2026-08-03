@@ -27,11 +27,34 @@ export type FacadeRuntimeModel<TStored extends { id: string; updatedAt?: string 
   scopes: Record<string, ScopeHandle<TStored, Record<string, unknown>, TInput>>;
 };
 
-export type ModelConfigurationOwner<TKey extends string, TStored extends { id: string }, TInput> = {
+export type ModelConfigurationRelation<TStored, TData> = {
+  read(): TData;
+  count(): number;
+  issueSequence(field: keyof TStored & string): number;
+};
+
+export type ModelConfigurationRelationMethods<TStored, TRelations extends Record<string, RelationSpec<TStored, any>>> = {
+  [K in keyof TRelations]: (
+    params: RelationParams<TStored, TRelations[K]> | null
+  ) => ModelConfigurationRelation<
+    TStored,
+    TRelations[K] extends { remote: GraphqlSingleDefinition<any, any, any, any> } ? TStored | undefined : TStored[]
+  >;
+};
+
+export type ModelConfigurationOwner<
+  TKey extends string,
+  TStored extends { id: string },
+  TInput,
+  TRelations extends Record<string, RelationSpec<TStored, any>> = Record<never, never>
+> = {
   readonly key: TKey;
+  find(id: string | null | undefined): TStored | undefined;
+  where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): ModelConfigurationRelation<TStored, TStored[]>;
+  byIds(ids: readonly string[] | null | undefined): ModelConfigurationRelation<TStored, TStored[]>;
   build(input: TInput): TStored;
   readonly gql: GraphqlDsl<TKey, TInput, TStored>;
-};
+} & ModelConfigurationRelationMethods<TStored, TRelations>;
 
 export type RelationOptions<TStored> = {
   pageSize?: number;
@@ -463,8 +486,8 @@ export type ModelFacadeConfig<
   schema: TShape;
   associations?: () => TAssociations;
   relations?: (owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>>) => TRelations;
-  actions?: (owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>>) => TActions;
-  events?: (owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>>) => TEvents;
+  actions?: (owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations>) => TActions;
+  events?: (owner: ModelConfigurationOwner<TKey, ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations>) => TEvents;
   sideloads?: () => Record<string, SideloadEdge<ModelBuildInput<TShape>>>;
   defaultOrder?: DbReadOptions<ModelStoredValue<TShape>>['orderBy'];
   rowId?: (input: ModelBuildInput<TShape>) => unknown;

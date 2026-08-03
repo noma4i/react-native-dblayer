@@ -86,6 +86,12 @@ key is the target model's persisted identity and the generic keeps the associati
 declarations do not create a second cache or public
 query builder.
 
+The configuration owner also exposes read-only `find`, `where`, `byIds`, and declared relation
+methods. Use them inside deferred query, action, or event callbacks when planning from the current
+committed owner state. Owner relations expose only `read`, `count`, and `issueSequence`. They do not
+expose hooks, fetching, invalidation, seeding, or writes. Calling an owner read while declaration
+factories are executing throws.
+
 ## Sideloads
 
 `sideloads` maps nested payload paths to destination models. The ingest planner walks the graph,

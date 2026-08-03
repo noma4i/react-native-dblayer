@@ -550,6 +550,72 @@ describe('model surface', () => {
     reader.unmount();
   });
 
+  it('reads owner rows from deferred action selectors', async () => {
+    const observed: Array<{ found: string | undefined; count: number; selected: string[]; sequence: number }> = [];
+    const transport = createMockTransport({
+      mutation: async <TData,>() => ({
+        data: {
+          send: {
+            message: { id: 'server-2', chatId: 'chat-1', body: 'reply', status: 'sent' }
+          }
+        } as TData
+      })
+    });
+    configureRuntime(transport);
+    const Message = defineModel('SpecOwnerReads', {
+      schema: MessageSchema,
+      relations: _owner => ({
+        thread: {
+          by: { chatId: 'chatId' as const },
+          sort: { field: 'body', dir: 'asc' }
+        }
+      }),
+      actions: owner => ({
+        send: owner.gql.action(sendDocument, {
+          mode: 'request',
+          result: 'send',
+          variables: input => ({ input }),
+          root: { insert: { select: ({ data }) => data.send.message } },
+          optimistic: {
+            root: {
+              insert: {
+                select: ({ input, tempId }) => {
+                  observed.push({
+                    found: owner.find('seed')?.body,
+                    count: owner.where({ chatId: input.chatId }).count(),
+                    selected: owner.byIds(['missing', 'seed']).read().map(row => row.id),
+                    sequence: owner.thread({ chatId: input.chatId }).issueSequence('body')
+                  });
+                  return { id: tempId, chatId: input.chatId, body: input.body, status: 'sending' };
+                }
+              }
+            }
+          }
+        })
+      }),
+      maintenance: { dropTempRowsAfterMs: 1000 }
+    });
+    Message.insert({ id: 'seed', chatId: 'chat-1', body: 'first', status: 'sent' });
+
+    await Message.actions.send.run({ chatId: 'chat-1', body: 'reply' });
+
+    expect(observed).toEqual([{ found: 'first', count: 1, selected: ['seed'], sequence: expect.any(Number) }]);
+  });
+
+  it('rejects owner reads while declarations are being created', () => {
+    configureRuntime(createMockTransport());
+
+    expect(() =>
+      defineModel('SpecImmediateOwnerRead', {
+        schema: MessageSchema,
+        actions: owner => {
+          owner.find('missing');
+          return {};
+        }
+      })
+    ).toThrow('owner reads are only available inside deferred declaration callbacks');
+  });
+
   it('exposes typed presentation subscription through its event handle', () => {
     configureRuntime(createMockTransport());
     const Message = createMessageModel('Event');
