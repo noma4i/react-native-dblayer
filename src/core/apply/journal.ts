@@ -1,9 +1,8 @@
 import { sortBy } from 'es-toolkit';
-import type { Journal, JournalOp, JournalRecord, PersistedJournalRecord, StoragePlane, VersionedValue } from '../../types';
-import type { SplitJournalRecord } from '../../types/core.persistenceInternals.types';
+import type { Journal, JournalOp, JournalRecord, PersistedJournalRecord, StoragePlane } from '../../types';
+import type { DecodedJournalRecord } from '../../types/core.persistenceInternals.types';
 import { isOperationTransition } from '../planes/operationState';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
-import { getDbLogger } from '../logger';
 import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger, isPositiveSafeInteger } from '../../utils/normalizeHelpers';
 import { isScopeEntrySet, isScopeIndexValue } from '../planes/scopeIndex';
@@ -54,23 +53,18 @@ const isValidJournalOp = (value: unknown): value is JournalOp => {
   return false;
 };
 
-const hasJournalIdentity = (value: Record<string, unknown>): boolean =>
-  isNonEmptyString(value.txId) && isPositiveSafeInteger(value.runtimeEpoch) && isPositiveSafeInteger(value.epoch);
-
-const hasVersionedValues = (value: unknown): value is Array<VersionedValue<unknown>> =>
-  Array.isArray(value) && value.every(entry => isNonArrayRecord(entry) && isPositiveSafeInteger(entry.schemaVersion) && 'payload' in entry);
-
-const isPersistedJournalRecord = (value: unknown): value is PersistedJournalRecord | SplitJournalRecord => {
-  if (!isNonArrayRecord(value) || !hasJournalIdentity(value) || !hasVersionedValues(value.ops)) return false;
-  if (value.recordVersion === JOURNAL_RECORD_VERSION) return hasVersionedValues(value.operationTransitions);
-  return value.recordVersion === undefined && (value.status === 'pending' || value.status === 'committed');
+const isPersistedJournalRecord = (value: unknown, expectedEpoch: number): value is DecodedJournalRecord => {
+  if (!isNonArrayRecord(value) || !isNonEmptyString(value.txId) || !isPositiveSafeInteger(value.runtimeEpoch) || value.epoch !== expectedEpoch || !('ops' in value)) return false;
+  return value.recordVersion === JOURNAL_RECORD_VERSION && 'operationTransitions' in value;
 };
 
-const decodeValues = <T>(values: Array<VersionedValue<unknown>>, version: number, accepts: (value: unknown) => value is T): T[] => {
+const decodeValues = <T>(values: unknown, version: number, accepts: (value: unknown) => value is T): T[] | null => {
+  if (!Array.isArray(values)) return null;
   const decoded: T[] = [];
   for (const value of values) {
+    if (!isNonArrayRecord(value) || !isPositiveSafeInteger(value.schemaVersion) || !('payload' in value)) return null;
     if (value.schemaVersion !== version) throw new Error(`Unsupported persistence schema version ${value.schemaVersion}`);
-    if (!accepts(value.payload)) return [];
+    if (!accepts(value.payload)) return null;
     decoded.push(value.payload);
   }
   return decoded;
@@ -90,28 +84,31 @@ const encodeJournalRecord = (record: JournalRecord): string =>
 export const readJournalRecord = (storage: StoragePlane, prefix: string, journalKey: string): JournalRecord | null => {
   const raw = storage.get(journalKey);
   if (!raw) return null;
-  const dropAsCorrupt = (): null => {
-    const epoch = epochFromKey(prefix, journalKey);
-    const lastCheckpointEpoch = readCheckpointEpoch(storage, prefix);
+  const journalEpoch = epochFromKey(prefix, journalKey);
+  const dropAsLoss = (): null => {
     storage.set(journalKey, null);
-    if (epoch !== undefined && epoch <= lastCheckpointEpoch) {
+    noteCorruptionJournalLoss();
+    noteDataLoss('journal-corruption-loss', '__runtime__', 1);
+    return null;
+  };
+  if (journalEpoch === undefined) return dropAsLoss();
+  const dropAsCorrupt = (): null => {
+    const lastCheckpointEpoch = readCheckpointEpoch(storage, prefix);
+    if (journalEpoch <= lastCheckpointEpoch) {
+      storage.set(journalKey, null);
       noteCorruptionJournalDrop();
       noteDataLoss('journal-corruption-checkpointed-drop', '__runtime__', 1);
       return null;
     }
-    noteCorruptionJournalLoss();
-    noteDataLoss('journal-corruption-loss', '__runtime__', 1);
-    getDbLogger().error('unrecoverable WAL corruption', { key: journalKey, epoch, lastCheckpointEpoch });
-    return null;
+    return dropAsLoss();
   };
-  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isPersistedJournalRecord);
+  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, (value): value is DecodedJournalRecord => isPersistedJournalRecord(value, journalEpoch));
   if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
   if (decoded.kind === 'corrupt') return dropAsCorrupt();
   const ops = decodeValues(decoded.value.ops, JOURNAL_OP_SCHEMA_VERSION, isValidJournalOp);
-  if (ops.length !== decoded.value.ops.length) return dropAsCorrupt();
-  const transitions = 'recordVersion' in decoded.value ? decodeValues(decoded.value.operationTransitions, OPERATION_TRANSITION_SCHEMA_VERSION, isOperationTransition) : [];
-  if ('recordVersion' in decoded.value && transitions.length !== decoded.value.operationTransitions.length) return dropAsCorrupt();
-  if (epochFromKey(prefix, journalKey) !== decoded.value.epoch) return dropAsCorrupt();
+  if (!ops) return dropAsCorrupt();
+  const transitions = decodeValues(decoded.value.operationTransitions, OPERATION_TRANSITION_SCHEMA_VERSION, isOperationTransition);
+  if (!transitions) return dropAsCorrupt();
   return {
     txId: decoded.value.txId,
     runtimeEpoch: decoded.value.runtimeEpoch,

@@ -1,11 +1,10 @@
-import type { JournalOp } from './core.apply.journal.types';
-import type { VersionedValue } from './core.persistenceCodec.types';
-export type SplitJournalRecord = {
+export type DecodedJournalRecord = {
+    recordVersion: 2;
     txId: string;
     runtimeEpoch: number;
     epoch: number;
-    status: 'pending' | 'committed';
-    ops: Array<VersionedValue<JournalOp>>;
+    ops: unknown;
+    operationTransitions: unknown;
 };
 export type QueryInvalidationRecord = {
     recordVersion: 1;

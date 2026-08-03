@@ -10,11 +10,14 @@ const config = JSON.parse(readFileSync(resolve(root, 'stryker.conf.json'), 'utf8
   timeoutMS?: number;
   mutator?: { excludedMutations?: string[] };
   eventReporter?: { baseDir?: string };
+  jest?: { enableFindRelatedTests?: boolean };
+  thresholds?: { break?: number };
 };
 const packageManifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as {
   scripts?: Record<string, string>;
 };
 const jestConfig = readFileSync(resolve(root, 'jest.stryker.config.js'), 'utf8');
+const runner = readFileSync(resolve(root, 'scripts/run-mutation.mjs'), 'utf8');
 
 /**
  * The mutation gate is the only instrument that separates a test which checks something from one
@@ -44,6 +47,21 @@ describe('mutation runner contract', () => {
   it('carries earlier verdicts forward instead of retesting untouched code', () => {
     expect(config.incremental).toBe(true);
     expect(config.incrementalFile).toBe('reports/mutation/incremental.json');
+  });
+
+  it('requires an explicit non-empty diff base', () => {
+    const emptyRangeBranch = /if \(ranges\.length === 0\) \{([\s\S]*?)\n\}/.exec(runner)?.[1] ?? '';
+
+    expect(runner).toContain("if (!requested) throw new Error('Mutation base ref is required')");
+    expect(emptyRangeBranch).toContain('process.exit(1)');
+  });
+
+  it('runs only tests related to the mutated production files', () => {
+    expect(config.jest?.enableFindRelatedTests).toBe(true);
+  });
+
+  it('fails the process when any mutant survives', () => {
+    expect(config.thresholds?.break).toBe(100);
   });
 
   it('leaves a mutant enough time to reach a real verdict', () => {

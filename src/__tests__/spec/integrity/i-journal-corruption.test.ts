@@ -75,6 +75,54 @@ describe('immutable WAL corruption policy', () => {
     expect(storage.get(key)).toBeDefined();
   });
 
+  it.each([
+    ['an empty transaction id', { recordVersion: 2, txId: '', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [] }],
+    ['a zero runtime epoch', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 0, epoch: 1, ops: [], operationTransitions: [] }],
+    ['missing operations', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, operationTransitions: [] }],
+    ['an unsupported record version', { recordVersion: 1, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [] }],
+    ['missing transitions', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [] }],
+    ['non-array operations', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: {}, operationTransitions: [] }],
+    ['a non-record operation wrapper', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [null], operationTransitions: [] }],
+    ['a zero operation schema', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [{ schemaVersion: 0, payload: {} }], operationTransitions: [] }],
+    ['an operation wrapper without payload', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [{ schemaVersion: 1 }], operationTransitions: [] }],
+    ['an invalid operation payload', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [{ schemaVersion: 1, payload: { kind: 'upsert' } }], operationTransitions: [] }],
+    ['non-array transitions', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: {} }],
+    ['a non-record transition wrapper', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [null] }],
+    ['a zero transition schema', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [{ schemaVersion: 0, payload: {} }] }],
+    ['a transition wrapper without payload', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [{ schemaVersion: 1 }] }],
+    ['an invalid transition payload', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [{ schemaVersion: 1, payload: { kind: 'other' } }] }]
+  ])('drops a valid-checksum record with %s', (_label, payload) => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:1`;
+    storage.set(key, encodePersistence(payload));
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(storage.get(key)).toBeUndefined();
+    expect(diagnostics().snapshot().corruptionJournalLosses).toBe(1);
+  });
+
+  it('returns a missing record without reporting corruption', () => {
+    const { storage } = setup();
+
+    expect(readJournalRecord(storage, PREFIX, `${PREFIX}journal:1`)).toBeNull();
+    expect(diagnostics().snapshot().corruptionJournalLosses).toBe(0);
+    expect(diagnostics().snapshot().corruptionJournalDrops).toBe(0);
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
+  });
+
+  it('routes a malformed journal key through uncheckpointed loss', () => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:not-an-epoch`;
+    storage.set(key, encodeRecord(record(1)));
+    const get = jest.spyOn(storage, 'get');
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(storage.get(key)).toBeUndefined();
+    expect(diagnostics().snapshot().corruptionJournalLosses).toBe(1);
+    expect(diagnostics().snapshot().corruptionJournalDrops).toBe(0);
+  });
+
   it('refuses an unsupported nested schema without deleting the record', () => {
     const { storage } = setup();
     const key = `${PREFIX}journal:1`;

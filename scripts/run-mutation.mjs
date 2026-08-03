@@ -10,8 +10,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
  * range. The incremental file carries every earlier verdict forward, so untouched code keeps its
  * result instead of being retested.
  *
- * Usage: node scripts/run-mutation.mjs [baseRef] [-- extra stryker args]
- *   baseRef defaults to origin/master, falling back to HEAD when the remote ref is absent.
+ * Usage: node scripts/run-mutation.mjs <baseRef> [-- extra stryker args]
  */
 
 const SOURCE = /^src\/.*\.tsx?$/;
@@ -20,13 +19,9 @@ const EXCLUDED = /^src\/(__tests__|types)\//;
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' });
 
 const resolveBase = requested => {
-  if (requested) return requested;
-  try {
-    git('rev-parse', '--verify', '--quiet', 'origin/master');
-    return 'origin/master';
-  } catch {
-    return 'HEAD';
-  }
+  if (!requested) throw new Error('Mutation base ref is required');
+  git('rev-parse', '--verify', '--quiet', requested);
+  return requested;
 };
 
 /** Changed line ranges per file, read from a zero-context diff so every hunk is exactly the changed lines. */
@@ -57,8 +52,8 @@ const passthrough = maybeBase && maybeBase.startsWith('-') ? [maybeBase, ...rest
 
 const ranges = [...changedRanges(base).values()].flat();
 if (ranges.length === 0) {
-  console.log(`No mutable source changes against ${base} - nothing to mutate.`);
-  process.exit(0);
+  console.error(`No mutable source changes against ${base}.`);
+  process.exit(1);
 }
 
 console.log(`Mutating ${ranges.length} changed range(s) against ${base}:`);

@@ -14,7 +14,7 @@
   },
   "jest": {
     "configFile": "jest.stryker.config.js",
-    "enableFindRelatedTests": false
+    "enableFindRelatedTests": true
   },
   "ignorePatterns": [
     "example",
@@ -38,6 +38,11 @@
   },
   "jsonReporter": {
     "fileName": "reports/mutation/full.json"
+  },
+  "thresholds": {
+    "high": 100,
+    "low": 100,
+    "break": 100
   },
   "concurrency": 12,
   "timeoutMS": 60000,
