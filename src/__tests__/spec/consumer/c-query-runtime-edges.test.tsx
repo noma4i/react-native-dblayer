@@ -1,5 +1,14 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
+import {
+  buildScopeKey,
+  compositeKey,
+  configureDb,
+  defineModelRuntime,
+  f,
+  getDbQueryClient,
+  invalidateModel,
+  resetRuntime
+} from '../../testApi';
 import {
   createMemoryPlane,
   createMockTransport,
@@ -299,6 +308,7 @@ describe('query runtime edges', () => {
   });
 
   it('exposes an ensured-row refetch that replaces the stored row', async () => {
+    const consoleError = jest.spyOn(console, 'error');
     let calls = 0;
     const transport = createMockTransport({
       query: async <TData,>() => {
@@ -328,6 +338,207 @@ describe('query runtime edges', () => {
 
     expect(calls).toBe(2);
     expect(reader.result().data?.label).toBe('second');
+    reader.unmount();
+    expect(consoleError.mock.calls.some(args => String(args[0]).includes('Cannot update a component'))).toBe(false);
+    consoleError.mockRestore();
+  });
+
+  it('refetches an imperative query when invalidation lands during transport', async () => {
+    const resolvers: Array<(rows: Row[]) => void> = [];
+    const transport = createMockTransport({
+      query: <TData,>() => new Promise<{ data: TData }>(resolve => {
+        resolvers.push(rows => resolve({ data: { rows } as TData }));
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ImperativeInvalidateInFlight');
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: 'query-runtime-imperative-invalidate',
+      select: data => data.rows,
+      into: rows.scopes.bucket,
+      coverage: 'page'
+    });
+    const scope = { bucket: 'main' };
+    const pending = query.fetch(scope);
+    await settle();
+
+    query.invalidate(scope);
+    resolvers.shift()!([{ id: 'old', bucket: 'main', label: 'old' }]);
+    await settle();
+    expect(transport.calls).toHaveLength(2);
+    resolvers.shift()!([{ id: 'new', bucket: 'main', label: 'new' }]);
+    await pending;
+
+    expect(query.read(scope).map(row => row.id).sort()).toEqual(['new', 'old']);
+  });
+
+  it('drops an imperative invalidation retry when the runtime resets before the retry', async () => {
+    let resolveQuery!: (rows: Row[]) => void;
+    const transport = createMockTransport({
+      query: <TData,>() => new Promise<{ data: TData }>(resolve => {
+        resolveQuery = rows => resolve({ data: { rows } as TData });
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ImperativeInvalidateReset');
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: 'query-runtime-imperative-invalidate-reset',
+      select: data => data.rows
+    });
+    const scope = { bucket: 'main' };
+    const client = getDbQueryClient();
+    const invalidateQueries = client.invalidateQueries.bind(client);
+    let invalidations = 0;
+    jest.spyOn(client, 'invalidateQueries').mockImplementation(async filters => {
+      invalidations += 1;
+      await invalidateQueries(filters);
+      if (invalidations === 2) resetRuntime();
+    });
+    const pending = query.fetch(scope);
+    await settle();
+
+    query.invalidate(scope);
+    resolveQuery([{ id: 'old', bucket: 'main', label: 'old' }]);
+
+    await expect(pending).rejects.toThrow('runtime was reset before it resolved');
+  });
+
+  it('drops an imperative refresh when persisted landing resets the runtime', async () => {
+    const storage = createMemoryPlane();
+    const write = storage.set.bind(storage);
+    let resetOnQueryWrite = false;
+    storage.set = entries => {
+      write(entries);
+      if (!resetOnQueryWrite || !entries.some(entry => entry.key.startsWith('dbl:query:'))) return;
+      resetOnQueryWrite = false;
+      resetRuntime();
+    };
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', bucket: 'main', label: 'landed' }] } as TData })
+    });
+    configureDb({ storage, transport });
+    const rows = createRows('PersistReset');
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: 'query-runtime-persist-reset',
+      select: data => data.rows,
+      staleTime: 60_000
+    });
+    const reader = renderCountedInProvider(() => query.use({ bucket: 'main' }));
+    await settle();
+    await settle(1, { macro: true });
+    resetOnQueryWrite = true;
+
+    await act(async () => {
+      await expect(reader.result().refresh()).resolves.toBeUndefined();
+    });
+
+    reader.unmount();
+  });
+
+  it('invalidates every registered query scope through its destination model', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = createRows('ModelInvalidation');
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: 'query-runtime-model-invalidation',
+      select: data => data.rows
+    });
+    query.read({ bucket: 'main' });
+
+    expect(() => invalidateModel(rows.modelId)).not.toThrow();
+  });
+
+  it('uses the current observer chain when a reset drops the transport result', async () => {
+    let resolveQuery!: (rows: Row[]) => void;
+    const transport = createMockTransport({
+      query: <TData,>() => new Promise<{ data: TData }>(resolve => {
+        resolveQuery = rows => resolve({ data: { rows } as TData });
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ObserverCurrentFallback');
+    const keyName = 'query-runtime-observer-current';
+    const scope = { bucket: 'main' };
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: keyName,
+      select: data => data.rows
+    });
+    const reader = renderCountedInProvider(() => query.use(scope));
+    await settle();
+    const client = getDbQueryClient();
+    const queryKey: [string, string] = [keyName, compositeKey(keyName, buildScopeKey(scope))];
+    act(() => resetRuntime());
+    client.setQueryData(queryKey, {
+      cursor: null,
+      pages: 1,
+      hasNextPage: false,
+      ids: [],
+      resultKind: 'many'
+    });
+    resolveQuery([{ id: 'stale', bucket: 'main', label: 'stale' }]);
+    await settle();
+
+    expect(client.getQueryData(queryKey)).toMatchObject({ pages: 1, ids: [] });
+    reader.unmount();
+  });
+
+  it('uses an empty observer chain when reset drops the first transport result', async () => {
+    let resolveQuery!: (rows: Row[]) => void;
+    const transport = createMockTransport({
+      query: <TData,>() => new Promise<{ data: TData }>(resolve => {
+        resolveQuery = rows => resolve({ data: { rows } as TData });
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ObserverEmptyFallback');
+    const scope = { bucket: 'main' };
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: 'query-runtime-observer-empty',
+      select: data => data.rows
+    });
+    const reader = renderCountedInProvider(() => query.use(scope));
+    await settle();
+    act(() => resetRuntime());
+    resolveQuery([{ id: 'stale', bucket: 'main', label: 'stale' }]);
+    await settle();
+
+    expect(rows.find('stale')).toBeUndefined();
+    reader.unmount();
+  });
+
+  it('keeps the first observer result when a reset drops its invalidation retry', async () => {
+    const resolvers: Array<(rows: Row[]) => void> = [];
+    const transport = createMockTransport({
+      query: <TData,>() => new Promise<{ data: TData }>(resolve => {
+        resolvers.push(rows => resolve({ data: { rows } as TData }));
+      })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ObserverRetryFallback');
+    const scope = { bucket: 'main' };
+    const query = rows.query<{ rows: Row[] }, Record<string, never>, { bucket: string }, Row>('list', {
+      document,
+      key: 'query-runtime-observer-retry-fallback',
+      select: data => data.rows,
+      into: rows.scopes.bucket,
+      coverage: 'page'
+    });
+    const reader = renderCountedInProvider(() => query.use(scope));
+    await settle();
+    act(() => query.invalidate(scope));
+    resolvers.shift()!([{ id: 'first', bucket: 'main', label: 'first' }]);
+    await settle();
+    expect(transport.calls).toHaveLength(2);
+    act(() => resetRuntime());
+    resolvers.shift()!([{ id: 'stale', bucket: 'main', label: 'stale' }]);
+    await settle();
+
+    expect(reader.result().data).toEqual([]);
     reader.unmount();
   });
 });

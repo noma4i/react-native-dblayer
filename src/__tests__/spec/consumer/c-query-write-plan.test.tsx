@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { act } from 'react';
 import { Kind } from 'graphql';
-import { configureDb, defineModel, defineShape, f, type DbTransport } from '../../testApi';
+import { compositeKey, configureDb, defineModel, defineShape, f, resetRuntime, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; value: string };
@@ -185,5 +185,68 @@ describe('query write plan', () => {
     ]);
     expect(Sibling.find('list-sibling')).toEqual({ id: 'list-sibling', value: 'list' });
     expect(Sibling.find('connection-sibling')).toEqual({ id: 'connection-sibling', value: 'connection' });
+  });
+
+  it('fences write compilation and invalidation callbacks at the runtime generation', async () => {
+    const responseTransport = () => createMockTransport({
+      query: async <TData,>() => ({ data: { root: { id: 'root', value: 'root' } } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport: responseTransport() });
+    const ResetScalar = f.custom<string, string>(value => {
+      resetRuntime();
+      return value;
+    });
+    const Sibling = defineModel('SpecQueryWriteFenceSibling', {
+      schema: defineShape<Row>()({ value: ResetScalar })
+    });
+    const WriteReset = defineModel('SpecQueryWriteFenceRoot', {
+      schema: RowSchema,
+      relations: owner => ({
+        root: {
+          remote: owner.gql.single(document, {
+            variables: (params: Scope) => params,
+            select: data => data.root,
+            write: (_context, plan) => plan.upsert(Sibling, { id: 'sibling', value: 'reset' })
+          })
+        }
+      })
+    });
+    await expect(WriteReset.root({ bucket: 'write' }).fetch()).rejects.toThrow('runtime was reset before it resolved');
+
+    const onSyncError = jest.fn();
+    configureDb({ storage: createMemoryPlane(), transport: responseTransport(), defaults: { onSyncError } });
+    const InvalidationFailure = defineModel('SpecQueryInvalidationFailure', {
+      schema: RowSchema,
+      relations: owner => ({
+        root: {
+          remote: owner.gql.single(document, {
+            variables: (params: Scope) => params,
+            select: data => data.root,
+            write: (_context, plan) => plan.invalidate({ invalidate: () => { throw new Error('invalidate failed'); } })
+          })
+        }
+      })
+    });
+    await expect(InvalidationFailure.root({ bucket: 'failure' }).fetch()).resolves.toBeUndefined();
+    expect(onSyncError).toHaveBeenCalledWith(expect.any(Error), {
+      source: 'query',
+      model: InvalidationFailure.key,
+      key: compositeKey(InvalidationFailure.key, 'root')
+    });
+
+    configureDb({ storage: createMemoryPlane(), transport: responseTransport() });
+    const InvalidationReset = defineModel('SpecQueryInvalidationReset', {
+      schema: RowSchema,
+      relations: owner => ({
+        root: {
+          remote: owner.gql.single(document, {
+            variables: (params: Scope) => params,
+            select: data => data.root,
+            write: (_context, plan) => plan.invalidate({ invalidate: () => resetRuntime() })
+          })
+        }
+      })
+    });
+    await expect(InvalidationReset.root({ bucket: 'reset' }).fetch()).rejects.toThrow('runtime was reset before it resolved');
   });
 });

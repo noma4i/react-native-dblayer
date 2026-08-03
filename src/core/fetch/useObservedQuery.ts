@@ -1,6 +1,6 @@
 import { QueryObserver } from '@tanstack/react-query';
 import type { QueryKey, QueryObserverOptions, QueryObserverResult } from '@tanstack/react-query';
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { getDbQueryClient, getRuntimeGeneration } from '../../dsl/configure';
 import type { KeyedLocalState } from '../../types';
 
@@ -31,11 +31,14 @@ export const useObservedQuery = <TData>(
   const observerRef = useRef<{ key: string; generation: number; signature: string; observer: QueryObserver<TData, Error, TData, TData, QueryKey> } | null>(null);
   if (observerRef.current === null || observerRef.current.key !== key || observerRef.current.generation !== generation) {
     observerRef.current = { key, generation, signature: optionsSignature, observer: new QueryObserver<TData, Error, TData, TData, QueryKey>(client, options) };
-  } else if (observerRef.current.signature !== optionsSignature) {
-    observerRef.current.signature = optionsSignature;
-    observerRef.current.observer.setOptions(options);
   }
   const observer = observerRef.current.observer;
+  useEffect(() => {
+    const current = observerRef.current;
+    if (current?.observer !== observer || current.signature === optionsSignature) return;
+    current.signature = optionsSignature;
+    observer.setOptions(options);
+  }, [observer, options, optionsSignature]);
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       const unsubscribeObserver = observer.subscribe(onStoreChange);

@@ -177,7 +177,6 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
    */
   const materializedIds = (scope: TScope): ReadonlySet<string> => {
     if (destinationScope) {
-      if (!destinationScope.isResolved(scope)) return new Set();
       return new Set(destinationScope.readRows(scope).map(row => compositeKey(destinationModelId, destinationScope.normalizeRowId(row))));
     }
     const destination = config.into as ModelDestination<TStored>;
