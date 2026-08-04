@@ -18,6 +18,7 @@ export type DataLossMechanism =
   | 'operation-ledger-corruption-reset'
   | 'corrupt-once-keys'
   | 'replacement-rejected'
+  | 'orphan-membership-dropped'
   | 'unranked-ladder-value';
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };

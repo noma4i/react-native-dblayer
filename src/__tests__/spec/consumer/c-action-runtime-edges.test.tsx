@@ -7,6 +7,7 @@ import {
   defineShape,
   f,
   getApplyRuntime,
+  getApplyTarget,
   getCommitBus,
   getOperationState,
   resetRuntime,
@@ -132,6 +133,93 @@ describe('action runtime edges', () => {
 
     await expect(Model.actions.apply.run({ value: 'boom' })).rejects.toThrow('SpecActionRejectedOptimisticRow rejected input');
     expect(transport.calls).toHaveLength(0);
+  });
+
+  it('replaces the optimistic row atomically while revisions advance in flight', async () => {
+    // Replace ops carry no baseRevision, so causal admission never splits the
+    // destroy(temp) from the upsert(server): wiring a base revision into either
+    // leg leaves the temp row alive or drops the server row and turns this red.
+    const pending: Array<{ resolve(data: Data): void }> = [];
+    const transport = createMockTransport({
+      mutation: <TData,>() =>
+        new Promise<{ data: TData }>(resolve => {
+          pending.push({ resolve: data => resolve({ data: data as TData }) });
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Model = defineModel('SpecActionReplaceChurn', {
+      schema: RowSchema,
+      relations: () => ({ byValue: { by: { value: 'value' } } }),
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      actions: owner => ({
+        apply: owner.gql.action(document, {
+          mode: 'request',
+          result: 'apply',
+          variables: (input: Input) => ({ input }),
+          optimistic: { root: { insert: { select: ({ input, tempId }) => ({ id: tempId, value: input.value }) } } },
+          root: { insert: { select: ({ data }) => data.apply.row } }
+        })
+      })
+    });
+
+    const run = Model.actions.apply.run({ value: 'v1' });
+    await settle();
+    const tempId = Model.byValue({ value: 'v1' }).read()[0]!.id;
+    Model.insert({ id: 'noise-1', value: 'v1' });
+    pending[0]!.resolve({ apply: { row: { id: 'server-1', value: 'v1' } } });
+    await expect(run).resolves.toEqual({ row: { id: 'server-1', value: 'v1' } });
+
+    expect(Model.find(tempId)).toBeUndefined();
+    expect(Model.find('server-1')).toEqual({ id: 'server-1', value: 'v1' });
+    expect(
+      Model.byValue({ value: 'v1' })
+        .read()
+        .map(row => row.id)
+        .sort()
+    ).toEqual(['noise-1', 'server-1']);
+  });
+
+  it('never lands scope membership for a response row rejected by causal admission', async () => {
+    // The response row id is created and deleted while the request is in flight, so
+    // admission rejects the replace upsert (deletion wins). The membership append
+    // from the same replace must not land: an entry without a row is corruption.
+    const pending: Array<{ resolve(data: Data): void }> = [];
+    const transport = createMockTransport({
+      mutation: <TData,>() =>
+        new Promise<{ data: TData }>(resolve => {
+          pending.push({ resolve: data => resolve({ data: data as TData }) });
+        })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Model = defineModel('SpecActionReplaceOrphan', {
+      schema: RowSchema,
+      relations: () => ({ byValue: { by: { value: 'value' } } }),
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      actions: owner => ({
+        apply: owner.gql.action(document, {
+          mode: 'request',
+          result: 'apply',
+          variables: (input: Input) => ({ input }),
+          optimistic: { root: { insert: { select: ({ input, tempId }) => ({ id: tempId, value: input.value }) } } },
+          root: { insert: { select: ({ data }) => data.apply.row } }
+        })
+      })
+    });
+
+    const run = Model.actions.apply.run({ value: 'v1' });
+    await settle();
+    const tempId = Model.byValue({ value: 'v1' }).read()[0]!.id;
+    Model.insert({ id: 'server-1', value: 'v1' });
+    Model.destroy('server-1');
+    pending[0]!.resolve({ apply: { row: { id: 'server-1', value: 'v1' } } });
+    await expect(run).resolves.toEqual({ row: { id: 'server-1', value: 'v1' } });
+
+    expect(Model.find('server-1')).toBeUndefined();
+    const target = getApplyTarget('SpecActionReplaceOrphan');
+    const scopeKey = target.readAllScopeKeys().find(key => key.includes('byValue'))!;
+    const entryIds = target.readScopeEntries(scopeKey).map(entry => entry.id);
+    expect(entryIds).not.toContain('server-1');
+    expect(entryIds).not.toContain(tempId);
   });
 
   it('does not send a request after before or variables resets runtime', async () => {

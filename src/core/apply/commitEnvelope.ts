@@ -1,5 +1,7 @@
 import type { AcceptedRow, CommitEnvelope, DestroyedRow, JournalOp, OperationTransition, StoredRow, WriteOp } from '../../types';
 import { getRuntimeGeneration } from '../../dsl/configure';
+import { noteDataLoss } from '../diagnostics';
+import { getDbLogger } from '../logger';
 import { deduplicateScopeEntriesById } from '../planes/scopeIndex';
 import { deriveEffects } from '../relations';
 import { compositeKey } from '../serialize';
@@ -33,7 +35,7 @@ const readPlannedRows = (overlay: Map<string, Map<string, StoredRow | null>>, mo
   return [...rows.values()];
 };
 
-const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, StoredRow | null>>) => {
+const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, StoredRow | null>>, rejectedReplacements: Set<string>) => {
   const preparedOps: JournalOp[] = [];
   const accepted: AcceptedRow[] = [];
   const destroyed: DestroyedRow[] = [];
@@ -47,6 +49,7 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         const previous = inputId ? readPlannedRow(overlay, op.model, inputId) : undefined;
         const mergeBase = op.origin === 'replace' && typeof op.mergeBase === 'object' && op.mergeBase !== null ? (op.mergeBase as StoredRow) : undefined;
         const prepared = target.prepareUpsert(input, previous, op.origin, mergeBase, op.operationId, op.baseRevision);
+        if (op.origin === 'replace' && inputId && !prepared) rejectedReplacements.add(compositeKey(op.model, inputId));
         if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
         const id = prepared.row.id;
         if (typeof id !== 'string' || id.length === 0) throw new Error(`Prepared row for ${op.model} has no string id`);
@@ -135,10 +138,11 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
 const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationTransitions: OperationTransition[] } => {
   for (const op of initialOps) getApplyTarget(op.model);
   const overlay = new Map<string, Map<string, StoredRow | null>>();
+  const rejectedReplacements = new Set<string>();
   const sourceOps = [...initialOps];
   const planned: JournalOp[] = [];
   const operationTransitions: OperationTransition[] = [];
-  let phase = prepareOperations(initialOps, overlay);
+  let phase = prepareOperations(initialOps, overlay, rejectedReplacements);
   planned.push(...phase.ops);
   operationTransitions.push(...phase.operationTransitions);
   const allAccepted = [...phase.accepted];
@@ -149,7 +153,7 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
     });
     if (effects.length === 0) break;
     sourceOps.push(...effects);
-    phase = prepareOperations(effects, overlay);
+    phase = prepareOperations(effects, overlay, rejectedReplacements);
     planned.push(...phase.ops);
     operationTransitions.push(...phase.operationTransitions);
     allAccepted.push(...phase.accepted);
@@ -189,7 +193,29 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
     }
   }
   planned.push(...repositioned.values());
-  return { ops: planned, operationTransitions };
+  if (rejectedReplacements.size === 0) return { ops: planned, operationTransitions };
+  // A replace whose upsert was rejected by causal admission must not leave the
+  // membership legs of the same plan behind: that row is never going to arrive,
+  // so the surviving scope entry would be a permanent orphan.
+  const gated: JournalOp[] = [];
+  for (const op of planned) {
+    if (op.kind !== 'scope-delta') {
+      gated.push(op);
+      continue;
+    }
+    const orphaned = op.append.filter(entry => rejectedReplacements.has(compositeKey(op.model, entry.id)) && readPlannedRow(overlay, op.model, entry.id) === undefined);
+    if (orphaned.length === 0) {
+      gated.push(op);
+      continue;
+    }
+    getDbLogger().error('membership append dropped for rejected replacement', { model: op.model, scopeKey: op.scopeKey, ids: orphaned.map(entry => entry.id) });
+    noteDataLoss('orphan-membership-dropped', op.model, orphaned.length);
+    const orphanedIds = new Set(orphaned.map(entry => entry.id));
+    const append = op.append.filter(entry => !orphanedIds.has(entry.id));
+    if (append.length === 0 && op.detach.length === 0) continue;
+    gated.push({ ...op, append });
+  }
+  return { ops: gated, operationTransitions };
 };
 
 /**
