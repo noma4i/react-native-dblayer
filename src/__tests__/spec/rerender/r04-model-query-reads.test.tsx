@@ -169,6 +169,27 @@ describe('model query reads', () => {
     act(() => root.unmount());
   });
 
+  it('scans no rows on a re-render without a data change', () => {
+    const rows = createRows();
+    rows.insertMany(seed(6));
+    const Reader = () => {
+      rows.use.where({ bucket: 'a' }).rows();
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(Reader));
+    });
+    diagnostics().reset();
+
+    act(() => {
+      root.update(React.createElement(Reader));
+    });
+
+    expect(diagnostics().snapshot().readEngineScanRows).toBe(0);
+    act(() => root.unmount());
+  });
+
   it('serves a fresh result after a runtime reset', () => {
     const rows = createRows();
     rows.insertMany(seed(4));

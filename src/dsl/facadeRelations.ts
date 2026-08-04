@@ -163,7 +163,7 @@ export const createWhereRelation = <TStored extends { id: string; updatedAt?: st
   runtime: FacadeRuntimeModel<TStored, TInput>,
   where: DbWhere<TStored>,
   options?: DbReadOptions<TStored>
-): Relation<TStored, TStored[], TInput> => ({
+): Relation<TStored, TStored[], TInput, never> => ({
   read: () => runtime.where(where, options),
   fetch: async () => {},
   refresh: async () => {},
@@ -187,7 +187,7 @@ export const createWhereRelation = <TStored extends { id: string; updatedAt?: st
 export const createByIdsRelation = <TStored extends { id: string; updatedAt?: string | null }, TInput>(
   runtime: FacadeRuntimeModel<TStored, TInput>,
   ids: readonly string[] | null | undefined
-): Relation<TStored, TStored[], TInput> => ({
+): Relation<TStored, TStored[], TInput, never> => ({
   read: () => (ids ?? []).flatMap(id => {
     const row = runtime.find(id);
     return row ? [row] : [];
@@ -215,7 +215,7 @@ export const createAssociationRelation = <
   runtime: FacadeRuntimeModel<TStored, TInput>,
   name: string,
   id: string | null | undefined
-): Relation<AssociationStored<TDefinition>, AssociationData<TDefinition>> => {
+): Relation<AssociationStored<TDefinition>, AssociationData<TDefinition>, AssociationStored<TDefinition>, never> => {
   const read = (): AssociationData<TDefinition> => readModelRelation<AssociationData<TDefinition>>(runtime.modelId, id, name);
   const use = (): AssociationData<TDefinition> => runtime.use.related(id, name) as AssociationData<TDefinition>;
   const count = (data: AssociationData<TDefinition>): number => (Array.isArray(data) ? data.length : data === undefined ? 0 : 1);

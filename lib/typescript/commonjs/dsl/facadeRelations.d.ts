@@ -12,13 +12,13 @@ export declare const createNamedRelation: <TStored extends {
 export declare const createWhereRelation: <TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, where: DbWhere<TStored>, options?: DbReadOptions<TStored>) => Relation<TStored, TStored[], TInput>;
+}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, where: DbWhere<TStored>, options?: DbReadOptions<TStored>) => Relation<TStored, TStored[], TInput, never>;
 export declare const createByIdsRelation: <TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, ids: readonly string[] | null | undefined) => Relation<TStored, TStored[], TInput>;
+}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, ids: readonly string[] | null | undefined) => Relation<TStored, TStored[], TInput, never>;
 export declare const createAssociationRelation: <TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TInput, TDefinition extends RelationDecl<unknown>>(runtime: FacadeRuntimeModel<TStored, TInput>, name: string, id: string | null | undefined) => Relation<AssociationStored<TDefinition>, AssociationData<TDefinition>>;
+}, TInput, TDefinition extends RelationDecl<unknown>>(runtime: FacadeRuntimeModel<TStored, TInput>, name: string, id: string | null | undefined) => Relation<AssociationStored<TDefinition>, AssociationData<TDefinition>, AssociationStored<TDefinition>, never>;
 //# sourceMappingURL=facadeRelations.d.ts.map

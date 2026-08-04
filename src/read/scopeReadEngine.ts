@@ -203,8 +203,18 @@ export function useScopeReadRows<TOutput extends Record<string, unknown> = RowRe
 }
 
 /** One count for one row set: the same engine source that feeds `use()`/`useWindow` (`totalCount`), so a membership without a materialized row is never counted. */
-export function useScopeReadCount(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta): number {
-  return useScopeReadSnapshot(modelId, scopeKey, sortMeta, rows => rows.length);
+export function useScopeReadCount(modelId: string, scopeKey: string | null, sortMeta: ScopeSortMeta, isResolved: () => boolean): number {
+  // The resolved flip is the snapshot's witness of a new runtime generation: a bare length stays 0
+  // across a reset of an empty scope, and a snapshot that never changes never re-renders the reader.
+  const storeRef = useRef<{ count: number; resolved: boolean } | null>(null);
+  const store = useScopeReadSnapshot(modelId, scopeKey, sortMeta, rows => {
+    const resolved = isResolved();
+    const current = storeRef.current;
+    if (current && current.count === rows.length && current.resolved === resolved) return current;
+    storeRef.current = { count: rows.length, resolved };
+    return storeRef.current;
+  });
+  return store.count;
 }
 
 export function useScopeReadWindowRows(

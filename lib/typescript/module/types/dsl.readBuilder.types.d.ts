@@ -4,6 +4,11 @@ import type { OrderableField, ReadOrder } from './dsl.ordering.types';
 export type RequiredFields<TStored, TFields extends keyof TStored> = TStored & {
     [K in TFields]-?: Exclude<TStored[K], undefined>;
 };
+/**
+ * Immutable reactive read declaration. Every terminal (`rows`, `last`, `pluck`, `exists`)
+ * subscribes one live query per declaration; a mounted terminal belongs to one runtime generation,
+ * and `resetRuntime` moves it onto the new runtime's data without a remount.
+ */
 export type ModelReadBuilder<TStored extends {
     id: string;
 }, TOutput extends Record<string, unknown> = TStored> = {

@@ -138,16 +138,20 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         ...[...rowsByScope].map(([scopeKey, scopeRows]) => planScope(scopeKey, scopeRows, 'delta'))
       ];
     };
-    const useScopeRows = (scopeValue: unknown, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
+    /** One prelude for every reactive scope read: key resolution, access note, sort meta and the resolved witness come from one place. */
+    const useScopeRead = (scopeValue: unknown) => {
       const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);
       options.useScopeAccess(scopeKey);
-      return useScopeReadRows(
-        options.modelId,
+      return {
         scopeKey,
-        options.applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
-        () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
-        readOptions
-      );
+        // Stryker disable next-line StringLiteral: the null-scope fallback key only names an inert engine signature.
+        sortMeta: options.applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
+        isResolved: () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0
+      };
+    };
+    const useScopeRows = (scopeValue: unknown, readOptions: ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
+      const read = useScopeRead(scopeValue);
+      return useScopeReadRows(options.modelId, read.scopeKey, read.sortMeta, read.isResolved, readOptions);
     };
     const scopeHandle = {
       modelId: options.modelId,
@@ -156,20 +160,13 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         useScopeRows(scopeValue, readOptions as ProjectionOptions<StoredRowShape, Record<string, unknown>>)[0],
       useWindow: (scopeValue: unknown, readOptions: { pageSize?: number; keepPrevious?: boolean } & ProjectionOptions<StoredRowShape, Record<string, unknown>> = {}) => {
         const pageSize = readOptions?.pageSize ?? getDbRuntimeConfig().defaults?.pageSize ?? 20;
-        const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);
+        const read = useScopeRead(scopeValue);
+        const scopeKey = read.scopeKey;
         const windowStateRef = useRef({ scopeKey, size: pageSize });
         const [, setWindowRevision] = useState(0);
         if (windowStateRef.current.scopeKey !== scopeKey) windowStateRef.current = { scopeKey, size: pageSize };
         const windowSize = windowStateRef.current.size;
-        options.useScopeAccess(scopeKey);
-        const window = useScopeReadWindowRows(
-          options.modelId,
-          scopeKey,
-          options.applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')),
-          windowSize,
-          () => scopeKey == null || planes().scopeIndex.read(scopeKey).generation > 0,
-          readOptions
-        );
+        const window = useScopeReadWindowRows(options.modelId, scopeKey, read.sortMeta, windowSize, read.isResolved, readOptions);
         return {
           rows: window.rows,
           totalCount: window.totalCount,
@@ -184,9 +181,8 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         };
       },
       useCount: (scopeValue: unknown) => {
-        const scopeKey = scopeValue === null ? null : options.keyForScope(scopeName, scopeValue);
-        options.useScopeAccess(scopeKey);
-        return useScopeReadCount(options.modelId, scopeKey, options.applyTarget.scopeSortMeta(scopeKey ?? compositeKey(scopeName, '')));
+        const read = useScopeRead(scopeValue);
+        return useScopeReadCount(options.modelId, read.scopeKey, read.sortMeta, read.isResolved);
       },
       invalidate: (scopeValue?: unknown) => {
         invalidateModel(options.modelId, scopeValue);

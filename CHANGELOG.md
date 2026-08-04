@@ -1,5 +1,16 @@
 # Changelog
 
+## 10.0.0-beta.21 - 2026-08-05
+
+### Fixed
+
+- `resetRuntime` no longer orphans mounted readers. A mounted `where()`/`use.where()`/`use.first`/`use.count` reader held its live query by key only: after a reset (account switch) it kept serving the previous runtime's rows forever while imperative `read()` was already fresh. The reader now holds its query per runtime generation and `publishAll` wakes it, so the first post-reset render serves the new runtime's data - and the previous account's rows vanish at reset, before any new write. Scope `useCount` no longer freezes on 0 when its scope was empty at reset.
+- Relation options are consumed or inexpressible, never silently dropped: `where()`/`byIds()`/association `use()` accept no options (they consume none), a local named relation accepts only the window keys (`pageSize`, `renderKeys`, `require`, `keepPrevious`).
+
+### Added
+
+- JSDoc for every `Relation`, `QueryHandle`, and `ModelReadBuilder` member, with reset semantics stated on the read surface; the jsdoc gate now checks these type members.
+
 ## 10.0.0-beta.20 - 2026-08-05
 
 ### Fixed

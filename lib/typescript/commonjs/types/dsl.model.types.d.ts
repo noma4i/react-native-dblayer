@@ -357,6 +357,13 @@ export type ModelCore<TStored extends {
             renderKeys?: readonly (keyof TStored & string)[];
             require?: readonly (keyof TStored & string)[];
         }): TStored | undefined;
+        /**
+         * Declare a reactive filtered read as an immutable builder chain; terminals (`rows`, `last`,
+         * `pluck`, `exists`) subscribe a live query the engine maintains incrementally. `null` declares
+         * an inactive read that serves an empty result through the same hook chain. A mounted terminal
+         * belongs to one runtime generation: `resetRuntime` wakes it and the first post-reset render
+         * serves the new runtime's data.
+         */
         where(where: DbWhere<TStored> | null): ModelReadBuilder<TStored>;
         /**
          * Read only found rows in input-id order with stable projections and a map keyed by each found
@@ -377,6 +384,11 @@ export type ModelCore<TStored extends {
             rows: TStored[];
             byId: ReadonlyMap<string, TStored>;
         };
+        /**
+         * Reactively count matching rows through the same live-query engine as `where().rows()`:
+         * re-renders only when the count changes, and a runtime reset moves a mounted counter onto the
+         * new runtime's count.
+         */
         count(where?: DbWhere<TStored> | null): number;
         /**
          * Read a declared relation reactively. `hasMany` returns the target model's rows (projection

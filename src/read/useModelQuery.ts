@@ -1,11 +1,17 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { storeModelQuery } from '../core/store';
-import type { ModelQueryHandle, ModelQuerySpec, RowRecord } from '../types';
+import { getCommitBus, getRuntimeGeneration } from '../dsl/configure';
+import type { Dependency, ModelQueryHandle, ModelQuerySpec, RowRecord } from '../types';
+
+/** Empty dependency set: out of every publish fanout, reachable only by `publishAll`. */
+const BUS_WAKE_ONLY: ReadonlyArray<Dependency> = [];
 
 /**
  * Read a declared model query through the collection engine. The reader holds the live query while
  * it is mounted and gives it back when it leaves, so a screen that walks through filters leaves no
- * queries behind it.
+ * queries behind it. A held query belongs to one runtime generation: `resetRuntime` wakes every
+ * mounted reader through the commit bus, and the reader re-acquires its query from the new runtime,
+ * so the first post-reset value already comes from the new generation without a remount.
  *
  * @param modelId Owning model.
  * @param key Stable identity of the declaration: same key, same live query.
@@ -21,46 +27,67 @@ export const useModelQuery = <TValue>(
   select: (rows: RowRecord[]) => TValue,
   isEqual: (left: TValue, right: TValue) => boolean = Object.is
 ): TValue => {
-  const heldRef = useRef<{ key: string; handle: ModelQueryHandle } | null>(null);
+  const heldRef = useRef<{ key: string; generation: number; handle: ModelQueryHandle } | null>(null);
   const selectRef = useRef(select);
   const isEqualRef = useRef(isEqual);
   const specRef = useRef(spec);
   const valueRef = useRef<{ value: TValue; version: number } | null>(null);
-  const renderedKeyRef = useRef<string | null>(null);
+  const renderedHandleRef = useRef<ModelQueryHandle | null>(null);
   selectRef.current = select;
   isEqualRef.current = isEqual;
   specRef.current = spec;
 
   const hold = useCallback((): ModelQueryHandle => {
+    const generation = getRuntimeGeneration();
     const current = heldRef.current;
-    if (current && current.key === key) return current.handle;
+    if (current && current.key === key && current.generation === generation) return current.handle;
+    // Releasing a handle whose store died with the previous generation is a safe no-op.
     current?.handle.release();
     const handle = storeModelQuery(modelId, key, specRef.current);
-    heldRef.current = { key, handle };
+    heldRef.current = { key, generation, handle };
     return handle;
   }, [modelId, key]);
   const handle = hold();
-  // The declaration can change under a mounted reader: a new query means a new value on this very
-  // render, not on the next change of the old one.
+  // The declaration or the runtime generation can change under a mounted reader: a new query means
+  // a new value on this very render, not on the next change of the old one.
   const state = valueRef.current;
-  if (state === null || heldRef.current!.key !== renderedKeyRef.current) {
-    renderedKeyRef.current = key;
+  // Stryker disable next-line ConditionalExpression: a null state implies a null rendered handle, so the null clause only narrows the type.
+  if (state === null || renderedHandleRef.current !== handle) {
+    renderedHandleRef.current = handle;
     const value = selectRef.current(handle.rows());
     valueRef.current = state === null ? { value, version: 0 } : { value, version: state.version + 1 };
   }
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      const active = hold();
-      const unsubscribe = active.subscribe(() => {
-        const next = selectRef.current(active.rows());
-        const state = valueRef.current!;
-        if (isEqualRef.current(state.value, next)) return;
-        valueRef.current = { value: next, version: state.version + 1 };
+      let active = hold();
+      const listen = (target: ModelQueryHandle): (() => void) =>
+        target.subscribe(() => {
+          const next = selectRef.current(target.rows());
+          const current = valueRef.current!;
+          if (isEqualRef.current(current.value, next)) return;
+          // Stryker disable next-line ArithmeticOperator: the version must only change, not grow.
+          valueRef.current = { value: next, version: current.version + 1 };
+          onStoreChange();
+        });
+      let detach = listen(active);
+      // The query's own collection dies silently on reset; the bus is the reader's wake-up channel.
+      // Empty deps keep this subscriber out of every publish fanout - only publishAll reaches it.
+      const bus = getCommitBus().subscribe(() => {
+        detach();
+        active = hold();
+        detach = listen(active);
+        renderedHandleRef.current = active;
+        const value = selectRef.current(active.rows());
+        const current = valueRef.current!;
+        if (isEqualRef.current(current.value, value)) return;
+        // Stryker disable next-line ArithmeticOperator: the version must only change, not grow.
+        valueRef.current = { value, version: current.version + 1 };
         onStoreChange();
-      });
+      }, BUS_WAKE_ONLY);
       return () => {
-        unsubscribe();
+        bus.unsubscribe();
+        detach();
         heldRef.current?.handle.release();
         heldRef.current = null;
       };

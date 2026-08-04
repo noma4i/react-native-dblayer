@@ -59,6 +59,13 @@ export type RelationOptions<TStored> = {
   loadMoreDebounceMs?: number;
 };
 
+/**
+ * Options a LOCAL named relation consumes: the window and projection keys. `enabled` and
+ * `loadMoreDebounceMs` govern remote fetching and are inexpressible without a remote half - every
+ * accepted option is consumed, never silently dropped.
+ */
+export type LocalRelationOptions<TStored> = Pick<RelationOptions<TStored>, 'pageSize' | 'renderKeys' | 'require' | 'keepPrevious'>;
+
 export type ModelWaitOptions = {
   timeoutMs: number;
   signal?: AbortSignal;
@@ -75,15 +82,32 @@ export type RelationResult<TData> = {
   refresh(): Promise<void>;
 };
 
-export type Relation<TStored, TData = TStored[], TInput = TStored> = {
+/**
+ * One relation surface for every declaration kind. `TOptions` names exactly the options that kind
+ * consumes: an option a kind cannot honor is inexpressible in its type (`never` accepts no options
+ * at all), so a passed option is never silently dropped.
+ */
+export type Relation<TStored, TData = TStored[], TInput = TStored, TOptions = RelationOptions<TStored>> = {
+  /** Synchronous snapshot of the relation's local rows. */
   read(): TData;
+  /** Freshness-aware remote readiness; no-op for a local-only relation. */
   fetch(): Promise<void>;
+  /** Forced remote first-page request; no-op for a local-only relation. */
   refresh(): Promise<void>;
+  /** Normalize rows and set this relation's membership. */
   seed(rows: TInput[]): void;
-  use(options?: RelationOptions<TStored>): RelationResult<TData>;
+  /**
+   * Subscribed data plus network state. A mounted reader belongs to one runtime generation:
+   * `resetRuntime` wakes it and the first post-reset render serves the new runtime's data.
+   */
+  use(options?: TOptions): RelationResult<TData>;
+  /** Snapshot count of the require-gated relation rows. */
   count(): number;
+  /** Subscribed count from the same materialized row set `use()` serves. */
   useCount(): number;
+  /** Mark the relation stale and refetch connected readers. */
   invalidate(): void;
+  /** Scope-local optimistic sequence; requires a named relation with ordered membership. */
   issueSequence(field: keyof TStored & string): number;
 };
 
@@ -542,7 +566,12 @@ export type ModelRelationMethods<TStored, TRelations extends Record<string, Rela
   [K in keyof TRelations]: {
     (
       params: RelationParams<TStored, TRelations[K]> | null
-    ): Relation<TStored, TRelations[K] extends { remote: GraphqlSingleDefinition<any, any, any, any> } ? TStored | undefined : TStored[], TInput>;
+    ): Relation<
+      TStored,
+      TRelations[K] extends { remote: GraphqlSingleDefinition<any, any, any, any> } ? TStored | undefined : TStored[],
+      TInput,
+      TRelations[K] extends { remote: unknown } ? RelationOptions<TStored> : LocalRelationOptions<TStored>
+    >;
     invalidate(): void;
   };
 };
@@ -550,7 +579,9 @@ export type ModelRelationMethods<TStored, TRelations extends Record<string, Rela
 export type AssociationStored<TDefinition> = TDefinition extends RelationDecl<infer TStored> ? TStored : never;
 export type AssociationData<TDefinition> = TDefinition extends { kind: 'belongsTo' | 'hasOne' } ? AssociationStored<TDefinition> | undefined : AssociationStored<TDefinition>[];
 export type ModelAssociationMethods<TAssociations extends Record<string, RelationDecl<unknown>>> = {
-  [K in keyof TAssociations]: (id: string | null | undefined) => Relation<AssociationStored<TAssociations[K]>, AssociationData<TAssociations[K]>>;
+  [K in keyof TAssociations]: (
+    id: string | null | undefined
+  ) => Relation<AssociationStored<TAssociations[K]>, AssociationData<TAssociations[K]>, AssociationStored<TAssociations[K]>, never>;
 };
 
 export type ModelActionMethods<TActions extends Record<string, GraphqlActionDefinition<any, any, any, any>>> = {
@@ -578,8 +609,8 @@ export type ModelFacadeCore<
   find(id: string | null | undefined): TStored | undefined;
   wait(id: string | null | undefined, options: ModelWaitOptions): Promise<TStored | undefined>;
   useFind(id: string | null | undefined, options?: { renderKeys?: readonly (keyof TStored & string)[]; require?: readonly (keyof TStored & string)[] }): TStored | undefined;
-  where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored, TStored[], TInput>;
-  byIds(ids: readonly string[] | null | undefined): Relation<TStored, TStored[], TInput>;
+  where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored, TStored[], TInput, never>;
+  byIds(ids: readonly string[] | null | undefined): Relation<TStored, TStored[], TInput, never>;
   insert(row: TInput): void;
   insertMany(rows: TInput[]): void;
   update(id: string, patch: Partial<TStored>): void;

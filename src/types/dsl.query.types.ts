@@ -87,10 +87,19 @@ export type EnsuredRowResult<TStored> = {
 };
 
 export type QueryHandle<TStored, TScope, TData = TStored[] | TStored | undefined> = {
+  /** Synchronous snapshot of the query's landed rows for one scope. */
   read(scope: TScope | null): TData;
+  /**
+   * Subscribed rows plus fetch state for one scope; `enabled: false` keeps the read mounted without
+   * fetching. A mounted reader survives `resetRuntime`: the first post-reset render serves the new
+   * runtime's data.
+   */
   use(scope: TScope | null, options?: { enabled?: boolean }): QueryResult<TStored, TData>;
+  /** Freshness-aware fetch for one scope; resolves when the scope is fresh enough to serve. */
   fetch(scope: TScope | null): Promise<void>;
+  /** Forced first-page refetch for one scope. */
   refresh(scope: TScope | null): Promise<void>;
+  /** Mark one scope (or every scope) stale and refetch connected readers. */
   invalidate(scope?: TScope): void;
 };
 

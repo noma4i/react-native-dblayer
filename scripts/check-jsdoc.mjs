@@ -88,9 +88,35 @@ const collectExportTasks = (entryPath, entrySource) => {
   return tasks;
 };
 
+// Read-surface types whose EVERY member must carry JSDoc: the value-export walk cannot see type
+// members, and an undocumented facade member is where stale reset semantics hid before.
+const surfaceTypes = [
+  { file: 'src/types/dsl.modelFacade.types.ts', typeName: 'Relation' },
+  { file: 'src/types/dsl.query.types.ts', typeName: 'QueryHandle' },
+  { file: 'src/types/dsl.readBuilder.types.ts', typeName: 'ModelReadBuilder' }
+];
+
+const collectTypeMemberViolations = () => {
+  const found = [];
+  for (const { file, typeName } of surfaceTypes) {
+    const filePath = path.resolve(process.cwd(), file);
+    const sourceFile = readSource(filePath);
+    const alias = sourceFile.statements.find(
+      statement => ts.isTypeAliasDeclaration(statement) && isExported(statement) && statement.name.text === typeName
+    );
+    if (!alias) throw new Error(`check-jsdoc: type "${typeName}" not found in ${file}`);
+    if (!ts.isTypeLiteralNode(alias.type)) throw new Error(`check-jsdoc: type "${typeName}" in ${file} is not a type literal`);
+    for (const member of alias.type.members) {
+      if (!member.name || hasJsDoc(member)) continue;
+      found.push(`MISSING-JSDOC ${typeName}.${member.name.getText(sourceFile)} ${file}:${lineOf(sourceFile, member)}`);
+    }
+  }
+  return found;
+};
+
 const entrySource = readSource(entryPath);
 const tasks = collectExportTasks(entryPath, entrySource);
-const violations = [];
+const violations = collectTypeMemberViolations();
 const warnings = [];
 
 for (const { exportedName, localName, targetFile, targetSource } of tasks) {
@@ -118,7 +144,7 @@ for (const line of violations) console.log(line);
 for (const line of warnings) console.log(line);
 
 if (violations.length > 0) {
-  console.log(`jsdoc coverage FAILED (${violations.length} missing, ${tasks.length} value exports checked)`);
+  console.log(`jsdoc coverage FAILED (${violations.length} missing, ${tasks.length} value exports + ${surfaceTypes.length} surface types checked)`);
   process.exit(1);
 }
-console.log(`jsdoc coverage OK (${tasks.length} value exports checked)`);
+console.log(`jsdoc coverage OK (${tasks.length} value exports + ${surfaceTypes.length} surface types checked)`);
