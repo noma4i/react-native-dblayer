@@ -41,6 +41,17 @@ Named methods, `Model.where(where, options)`, `Model.byIds(ids)`, and associatio
 `RelationResult` contains `data`, `loadingState`, `error`, `hasMore`, `isFetchingMore`,
 `isPreviousData`, `loadMore()`, and `refresh()`.
 
+## Options by relation kind
+
+Each relation kind accepts exactly the options it consumes; a passed option is never silently
+dropped. Association relations accept no options.
+
+| Type | Relation kind | Accepted options |
+| --- | --- | --- |
+| `RelationOptions` | Named relation with a remote half | all options |
+| `LocalRelationOptions` | Named relation without a remote half | `pageSize`, `renderKeys`, `require`, `keepPrevious` |
+| `ReadRelationOptions` | `where()` and `byIds()` | `renderKeys` |
+
 ## Snapshot and subscribed reads
 
 `DbWhere` supports exact values and `DbWhereOp` operators. `where` performs scoped local matching

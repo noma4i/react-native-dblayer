@@ -55,6 +55,8 @@ The reference below matches `src/index.ts` exactly.
 | `ModelWaitOptions` | type | [reading.md](./reading.md) |
 | `Relation` | type | [reading.md](./reading.md) |
 | `RelationOptions` | type | [reading.md](./reading.md) |
+| `LocalRelationOptions` | type | [reading.md](./reading.md) |
+| `ReadRelationOptions` | type | [reading.md](./reading.md) |
 | `RelationResult` | type | [reading.md](./reading.md) |
 | `RowOperation` | type | [reading.md](./reading.md) |
 | `RowOperationState` | type | [reading.md](./reading.md) |

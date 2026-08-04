@@ -9,7 +9,7 @@ export { MutationDeliveryUnknownError } from './core/mutationDeliveryError';
 export type { StoragePlane } from './types';
 export { defineModel } from './dsl/defineModel';
 export type { WritePlan } from './types';
-export type { ModelAction, ModelActionHook, ModelEventHandle, ModelWaitOptions, Relation, RelationOptions, RelationResult, RowOperation, RowOperationState } from './types';
+export type { LocalRelationOptions, ModelAction, ModelActionHook, ModelEventHandle, ModelWaitOptions, ReadRelationOptions, Relation, RelationOptions, RelationResult, RowOperation, RowOperationState } from './types';
 export { belongsTo, hasMany, hasOne, modelRef, references } from './core/relations';
 export { f } from './schema/f';
 export { scalar } from './schema/scalar';

@@ -82,7 +82,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(63);
+    expect(first.split('\n')).toHaveLength(65);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -97,6 +97,7 @@ InferShapeStored: any
 LoadMoreOptions: any
 LoadMoreTarget: any
 LoadingState: any
+LocalRelationOptions: any
 ModelAction: any
 ModelActionHook: any
 ModelEventHandle: any
@@ -107,6 +108,7 @@ MutationDeliveryUnknownError: typeof import("<root>/src/core/mutationDeliveryErr
 NumericField: any
 PatchModel: any
 QueryResult: any
+ReadRelationOptions: any
 Relation: any
 RelationOptions: any
 RelationResult: any
