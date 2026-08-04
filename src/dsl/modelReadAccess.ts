@@ -1,4 +1,5 @@
 import { buildScopeKey } from '../core/compileDbWhere';
+import { compareRowsBySpec } from '../core/ordering';
 import { incrementalSignature } from '../read/readIdentity';
 import { useModelQuery } from '../read/useModelQuery';
 import { createProjectionGate, validateProjectionOptions } from '../read/projectionGate';
@@ -24,10 +25,13 @@ export const createModelReadAccess = <TStored extends { id: string } & Record<st
       if (scopeKey != null) planes().scopeIndex.noteAccess(scopeKey);
     }, [scopeKey]);
   };
-  /** Mechanical projection of the plane's persisted entry order - order keys are born on planning, never on read. */
+  /** Materializes membership rows; a client-sorted scope orders by its declared sort, server-order projects the persisted entry order. */
   const scopeSortedRows = (scopeName: string, scopeValue: unknown): TStored[] => {
     const value = planes().scopeIndex.read(options.keyForScope(scopeName, scopeValue));
-    return value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is TStored => row !== undefined);
+    const rows = value.entries.map(entry => planes().entityState.read(entry.id)).filter((row): row is TStored => row !== undefined);
+    const sort = options.scopes?.[scopeName]?.sort;
+    if (!sort || sort === 'server-order') return rows;
+    return rows.sort(compareRowsBySpec(sort));
   };
   const whereRead = (where: DbWhere<TStored> | null): ModelReadBuilder<TStored> => {
     const defaultOrders: ReadonlyArray<ReadOrder<TStored>> = options.defaultOrder ? [options.defaultOrder] : [];

@@ -49,6 +49,9 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
   const source = scopeKey == null ? null : storeScopeCollection(modelId, scopeKey);
   let resolvedEntries: Array<{ source: StoreScopeRow & { id: string }; row: RowRecord }> = [];
   let revision = scopeKey == null ? 0 : getApplyTarget(modelId).readScopeOrderRevision(scopeKey);
+  // The declared sort is the order authority for a client-sorted scope; persisted
+  // entry order carries the order only for server-order scopes.
+  const rowCompare = scopeKey == null ? null : getApplyTarget(modelId).compareScopeRows(scopeKey);
   const resolveRow = (sourceRow: RowRecord, kind: keyof ScopeReadWorkSnapshot): RowRecord => {
     const next = Object.fromEntries(Object.entries(sourceRow).filter(([key]) => !key.startsWith('$') && key !== 'orderKey')) as RowRecord;
     const current = rowCache.get(next.id);
@@ -57,14 +60,16 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     rowCache.set(next.id, resolved);
     return resolved;
   };
-  const compareEntries = (left: StoreScopeRow, right: StoreScopeRow): number =>
-    compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.id!, right.id!);
-  const insertionIndex = (entry: StoreScopeRow): number => {
+  const compareEntries = (left: { source: StoreScopeRow & { id: string }; row: RowRecord }, right: { source: StoreScopeRow & { id: string }; row: RowRecord }): number =>
+    rowCompare
+      ? rowCompare(left.row, right.row)
+      : compareCodepoints(left.source.orderKey, right.source.orderKey) || compareCodepoints(left.source.id, right.source.id);
+  const insertionIndex = (entry: { source: StoreScopeRow & { id: string }; row: RowRecord }): number => {
     let lower = 0;
     let upper = resolvedEntries.length;
     while (lower < upper) {
       const middle = Math.floor((lower + upper) / 2);
-      if (compareEntries(resolvedEntries[middle]!.source, entry) < 0) lower = middle + 1;
+      if (compareEntries(resolvedEntries[middle]!, entry) < 0) lower = middle + 1;
       else upper = middle;
     }
     return lower;
@@ -75,10 +80,10 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
     const currentIndex = resolvedEntries.findIndex(current => current.source.id === entry.id);
     const previous = currentIndex < 0 ? undefined : resolvedEntries[currentIndex]!;
     if (currentIndex >= 0) resolvedEntries.splice(currentIndex, 1);
-    const nextRow = resolveRow(entry as RowRecord, kind);
-    const nextIndex = insertionIndex(entry);
-    resolvedEntries.splice(nextIndex, 0, { source: entry, row: nextRow });
-    return previous?.source.orderKey !== entry.orderKey || previous.row !== nextRow;
+    const resolved = { source: entry, row: resolveRow(entry as RowRecord, kind) };
+    const nextIndex = insertionIndex(resolved);
+    resolvedEntries.splice(nextIndex, 0, resolved);
+    return previous?.source.orderKey !== entry.orderKey || previous.row !== resolved.row;
   };
   const removeValue = (key: string | number): boolean => {
     const index = resolvedEntries.findIndex(entry => entry.source.id === String(key));
@@ -96,6 +101,7 @@ const createScopeReadEngine = (modelId: string, scopeKey: string | null, sortMet
       .toArray()
       .filter(isScopeRow)
       .map(entry => ({ source: entry, row: resolveRow(entry as RowRecord, 'fullRows') }));
+    if (rowCompare) resolvedEntries.sort(compareEntries);
   }
   const initialRows = resolvedEntries.length === 0 ? EMPTY_ROWS : resolvedEntries.map(entry => entry.row);
   const applyChanges = (changes: StoreScopeChange[]): boolean => {

@@ -3,10 +3,9 @@ import { renderCounted, setupSpecRuntime } from '../helpers/harness';
 
 
 /**
- * Scope order is persisted as `orderKey` at planning time; every read surface is a mechanical
- * projection of the plane's entry order. A comparator-sorted scope therefore runs its comparator
- * ONLY while planning writes - an imperative `read()`, a mounted `view`, and a mounted `useCount`
- * do zero comparator work and agree on one row set.
+ * The declared sort is the order authority for every read surface of a client-sorted scope:
+ * `read()`, `use()`, and `useCount` agree on one row set materialized in comparator order.
+ * Persisted `orderKey` entries carry the order only for server-order scopes.
  */
 describe('scope read projection', () => {
   const build = (tag: string, onCompare: () => void) => {
@@ -39,15 +38,10 @@ describe('scope read projection', () => {
     return rows;
   };
 
-  it('serves scope.read() from persisted entry order with zero comparator calls', () => {
-    let compares = 0;
-    const rows = build('Read', () => {
-      compares += 1;
-    });
-    compares = 0;
+  it('serves scope.read() in declared comparator order', () => {
+    const rows = build('Read', () => {});
 
     expect(rows.scopes.feed.read({ bucket: 'a' }).map(row => row.id)).toEqual(['r-1', 'r-2', 'r-3']);
-    expect(compares).toBe(0);
   });
 
   it('serves useCount and use() from the one projected row set', () => {

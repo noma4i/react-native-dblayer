@@ -25,6 +25,7 @@ const createTargetMock = () => {
     readScopeGeneration: () => 0,
     scopeOrderAffected: () => false,
     scopeSortMeta: () => ({ kind: 'server-order' }),
+    compareScopeRows: () => null,
     readAllScopeKeys: () => [],
     prepareUpsert: (incoming, previous) => {
       const row: StoredRow = { ...previous, ...(incoming as StoredRow), id: String((incoming as { id: unknown }).id) };

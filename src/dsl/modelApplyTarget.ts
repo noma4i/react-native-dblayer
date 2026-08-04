@@ -102,6 +102,13 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       if ('comparator' in sort) return { kind: 'comparator' as const };
       return { kind: 'field' as const, field: String(sort.field), dir: sort.dir };
     },
+    compareScopeRows: (scopeKey: string) => {
+      const scopeName = firstCompositeKeyPart(scopeKey);
+      const sort = options.scopes?.[scopeName]?.sort;
+      if (!sort || sort === 'server-order') return null;
+      const compare = compareRowsBySpec(sort);
+      return (left: Record<string, unknown>, right: Record<string, unknown>) => compare(left as TStored, right as TStored);
+    },
     readAllScopeKeys: (): string[] => planes().scopeIndex.keys(),
     prepareUpsert: (row, previous, origin, mergeBase, operationId, baseRevision) =>
       options.prepareRow(row, previous as TStored | undefined, origin, mergeBase as TStored | undefined, operationId, baseRevision),

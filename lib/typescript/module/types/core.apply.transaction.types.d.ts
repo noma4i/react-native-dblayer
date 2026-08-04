@@ -45,6 +45,8 @@ export type ApplyTarget = {
     readScopeGeneration(scopeKey: string): number;
     scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
     scopeSortMeta(scopeKey: string): ScopeSortMeta;
+    /** Declared row comparator for a client-sorted scope; `null` for server-order scopes. */
+    compareScopeRows(scopeKey: string): ((left: Record<string, unknown>, right: Record<string, unknown>) => number) | null;
     readAllScopeKeys(): string[];
     prepareUpsert(row: unknown, previous: StoredRow | undefined, origin?: Exclude<WriteOrigin, 'patch' | 'snapshot'>, mergeBase?: StoredRow, operationId?: string, baseRevision?: number): PreparedRowWrite | null;
     preparePatch(id: string, patch: Record<string, unknown>, previous: StoredRow | undefined, operationId?: string, remove?: readonly string[], baseRevision?: number): PreparedRowWrite | null;
