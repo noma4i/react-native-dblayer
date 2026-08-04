@@ -105,10 +105,15 @@ describe('operation input serialization', () => {
     expect(serializeOperationInput(new Date(5)).serializable).toBe(false);
     expect(serializeOperationInput(nullPrototype).serializable).toBe(false);
     expect(serializeOperationInput(() => 1).serializable).toBe(false);
-    expect(serializeOperationInput({ value: undefined }).serializable).toBe(false);
     expect(serializeOperationInput([undefined]).serializable).toBe(false);
     expect(serializeOperationInput(sparse).serializable).toBe(false);
     expect(serializeOperationInput({ [Symbol('hidden')]: true }).serializable).toBe(false);
+  });
+
+  it('drops own undefined object keys at the boundary, matching JSON.stringify semantics', () => {
+    const result = serializeOperationInput({ text: 'x', replyToId: undefined, nested: { keep: 1, drop: undefined } });
+    expect(result.serializable).toBe(true);
+    expect(result.value).toEqual({ text: 'x', nested: { keep: 1 } });
   });
 
   it('deep-clones a valid input so the ledger never aliases caller state', () => {

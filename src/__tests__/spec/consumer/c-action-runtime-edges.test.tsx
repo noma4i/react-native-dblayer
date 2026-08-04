@@ -86,6 +86,32 @@ describe('action runtime edges', () => {
     expect(transport.calls).toHaveLength(0);
   });
 
+  it('drops own undefined input keys at the boundary instead of rejecting the action', async () => {
+    const transport = createMockTransport({
+      mutation: async <TData,>() => ({ data: { apply: { row: { id: 'server-undef', value: 'plain' } } } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Model = defineModel('SpecActionUndefinedKey', {
+      schema: RowSchema,
+      actions: owner => ({
+        apply: owner.gql.action(document, {
+          mode: 'request',
+          result: 'apply',
+          variables: (input: Input) => ({ input }),
+          root: { insert: { select: ({ data }) => data.apply.row } }
+        })
+      })
+    });
+
+    const input = { value: 'plain', replyToId: undefined, nested: { keep: 'yes', drop: undefined } } as Input;
+    await expect(Model.actions.apply.run(input)).resolves.toEqual({ row: { id: 'server-undef', value: 'plain' } });
+    expect(transport.calls).toHaveLength(1);
+
+    const sparseList = { value: 'plain', list: ['a', undefined] } as unknown as Input;
+    await expect(Model.actions.apply.run(sparseList)).rejects.toThrow('action input is not JSON serializable');
+    expect(transport.calls).toHaveLength(1);
+  });
+
   it('does not send a request after before or variables resets runtime', async () => {
     const transport = createMockTransport();
     configureDb({ storage: createMemoryPlane(), transport });

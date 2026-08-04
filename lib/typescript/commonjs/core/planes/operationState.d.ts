@@ -12,7 +12,8 @@ export declare const committedOnceKeysEntry: (prefix: string, keys: readonly str
     key: string;
     value: string;
 } | undefined;
-/** JSON-round-trip an operation input before it enters the persistent ledger. */
+/** Normalize the action-input boundary (JSON semantics), then JSON-round-trip the value before it
+ * enters the persistent ledger. */
 export declare const serializeOperationInput: (input: unknown) => {
     serializable: boolean;
     value: unknown;

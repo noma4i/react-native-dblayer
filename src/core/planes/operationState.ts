@@ -134,9 +134,38 @@ export const committedOnceKeysEntry = (prefix: string, keys: readonly string[]):
         })
       };
 
-/** JSON-round-trip an operation input before it enters the persistent ledger. */
+/** Drop own enumerable undefined keys from plain objects, matching JSON.stringify semantics.
+ * Arrays, cycles, and non-plain objects pass through untouched for the lossless gate to reject. */
+const dropUndefinedOwnKeys = (input: unknown, ancestors = new Set<object>()): unknown => {
+  if (Array.isArray(input)) {
+    if (ancestors.has(input)) return input;
+    ancestors.add(input);
+    const mapped = input.map(entry => dropUndefinedOwnKeys(entry, ancestors));
+    ancestors.delete(input);
+    return mapped;
+  }
+  if (input === null || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype) return input;
+  if (ancestors.has(input)) return input;
+  const rebuildable = Reflect.ownKeys(input).every(key => {
+    if (typeof key !== 'string') return false;
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    return descriptor?.enumerable === true && 'value' in descriptor;
+  });
+  if (!rebuildable) return input;
+  ancestors.add(input);
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(input)) {
+    if (entry === undefined) continue;
+    output[key] = dropUndefinedOwnKeys(entry, ancestors);
+  }
+  ancestors.delete(input);
+  return output;
+};
+
+/** Normalize the action-input boundary (JSON semantics), then JSON-round-trip the value before it
+ * enters the persistent ledger. */
 export const serializeOperationInput = (input: unknown): { serializable: boolean; value: unknown } => {
-  return jsonRoundTrip(input);
+  return jsonRoundTrip(dropUndefinedOwnKeys(input));
 };
 
 const CLOSED_TTL_MS = 60 * 60 * 1000;

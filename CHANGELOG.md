@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.0.0-beta.16 - 2026-08-04
+
+### Fixed
+
+- Action input boundary drops own enumerable undefined object keys before the lossless JSON gate, matching JSON.stringify semantics. A plain-text chat send with `replyToId: undefined` no longer rejects with `action input is not JSON serializable`, which silently lost the message before the optimistic row and transport. Undefined array items, sparse arrays, cycles, symbol keys, accessors, and non-plain objects are still rejected.
+
 ## 10.0.0-beta.15 - 2026-08-04
 
 ### Fixed
