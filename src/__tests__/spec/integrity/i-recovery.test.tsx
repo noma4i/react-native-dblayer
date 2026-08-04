@@ -12,7 +12,6 @@ import {
   getCommitBus,
   getApplyRuntime,
   getOperationState,
-  noteMaintenancePersistence,
   purgeForeignStorageKeys,
   writePersistenceManifest
 } from '../../testApi';
@@ -339,7 +338,7 @@ describe('persistence recovery protocol', () => {
     expect(storage.get(key)).toBe(value);
   });
 
-  it('purges foreign keys and schedules maintenance through the shared checkpoint', () => {
+  it('purges foreign keys and publishes ledger-only envelopes', () => {
     const storage = configureRecoveryRuntime([
       { key: 'foreign:key', value: 'foreign' },
       { key: 'dbl:owned', value: 'owned' }
@@ -349,7 +348,6 @@ describe('persistence recovery protocol', () => {
     const unsubscribe = getCommitBus().subscribeAll(batch => events.push(batch));
 
     expect(purgeForeignStorageKeys()).toBe(1);
-    noteMaintenancePersistence([model.modelId]);
     flushPersistence();
     getApplyRuntime().commit(
       createCommitEnvelope([], [{

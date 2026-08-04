@@ -117,11 +117,6 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
   return { keys: [...keys].sort(), corruptSources };
 };
 
-export const writeCommittedOnceKeys = (storage: StoragePlane, prefix: string, keys: readonly string[]): void => {
-  const entry = committedOnceKeysEntry(prefix, keys);
-  if (entry) storage.set(entry.key, entry.value);
-};
-
 export const committedOnceKeysEntry = (prefix: string, keys: readonly string[]): { key: string; value: string } | undefined =>
   keys.length === 0
     ? undefined

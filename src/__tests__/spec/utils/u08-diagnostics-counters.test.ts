@@ -34,14 +34,6 @@ describe('diagnostics counters', () => {
     expect(read('commitFanoutNotified')).toBe(2);
   });
 
-  it('counts a full fk index build as one build and an incremental one by its rows', () => {
-    diagnosticsModule.noteFkIndex('full', 40);
-    diagnosticsModule.noteFkIndex('incremental', 3);
-
-    expect(read('fkIndexFullBuilds')).toBe(1);
-    expect(read('fkIndexIncrementalUpdates')).toBe(3);
-  });
-
   it('counts one read engine apply and its moved rows', () => {
     diagnosticsModule.noteReadEngineApply(5);
     diagnosticsModule.noteReadEngineApply(2);
@@ -88,8 +80,7 @@ describe('diagnostics counters', () => {
       [diagnosticsModule.noteCorruptionLedgerReset, 'corruptionLedgerResets'],
       [diagnosticsModule.noteManifestReset, 'manifestResets'],
       [diagnosticsModule.noteReplaceRejected, 'replaceRejected'],
-      [diagnosticsModule.noteApplyFailure, 'applyFailure'],
-      [diagnosticsModule.noteIngestFailure, 'ingestFailed']
+      [diagnosticsModule.noteApplyFailure, 'applyFailure']
     ];
 
     for (const [note] of singleShot) note();

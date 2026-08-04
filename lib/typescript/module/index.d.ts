@@ -23,7 +23,7 @@ export type { LoadingState, DbTransport, DbTransportError, DbWhere, DbWhereOp } 
 export type { ModelInput, ModelStored, InferShapeStored, ScalarValue } from './types';
 export { generateTempId, isTempId } from './utils/generateTempId';
 export { pickDefined, pickPresent } from './utils/pickDefined';
-export { createThrottledSingleFlight, createSingleFlight } from './utils/singleFlight';
+export { createThrottledSingleFlight } from './utils/singleFlight';
 export { createKeyedArrayPatcher, createIdArrayPatcher, createNestedObjectPatcher } from './utils/modelPatchers';
 export { createSingletonStatics } from './utils/singletonStatics';
 export type { NumericField, PatchModel, RowId, SingletonModel, SingletonStatics } from './types';

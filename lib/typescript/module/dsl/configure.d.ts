@@ -43,8 +43,6 @@ export declare const getApplyRuntime: () => ApplyRuntime;
  * as part of the recommended background/teardown sequence.
  */
 export declare const flushPersistence: () => void;
-/** Persist plane mutations made by maintenance outside an apply-plan epoch. */
-export declare const noteMaintenancePersistence: (models: ReadonlyArray<string>) => void;
 /**
  * Idempotently re-apply journal records not yet covered by each model's persisted applied-epoch
  * marker. The host app must call this ONCE at startup, after configureDb and after every model

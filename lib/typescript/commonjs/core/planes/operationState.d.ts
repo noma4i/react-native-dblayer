@@ -7,7 +7,6 @@ export declare const readCommittedOnceKeys: (storage: StoragePlane, prefix: stri
     keys: string[];
     corruptSources: number;
 };
-export declare const writeCommittedOnceKeys: (storage: StoragePlane, prefix: string, keys: readonly string[]) => void;
 export declare const committedOnceKeysEntry: (prefix: string, keys: readonly string[]) => {
     key: string;
     value: string;

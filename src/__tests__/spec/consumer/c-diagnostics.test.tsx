@@ -66,8 +66,6 @@ describe('read diagnostics', () => {
       commits: 0,
       commitFanoutCandidates: 0,
       commitFanoutNotified: 0,
-      fkIndexFullBuilds: 0,
-      fkIndexIncrementalUpdates: 0,
       readEngineApplies: 0,
       readEngineDeltaRows: 0,
       readEngineScanRows: 0,
@@ -84,7 +82,6 @@ describe('read diagnostics', () => {
       corruptionLedgerResets: 0,
       manifestResets: 0,
       applyFailure: 0,
-      ingestFailed: 0,
       dataLossEvents: []
     });
   });

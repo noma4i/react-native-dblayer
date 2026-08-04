@@ -132,8 +132,6 @@ export type DiagnosticsSnapshot = {
   commits: number;
   commitFanoutCandidates: number;
   commitFanoutNotified: number;
-  fkIndexFullBuilds: number;
-  fkIndexIncrementalUpdates: number;
   readEngineApplies: number;
   readEngineDeltaRows: number;
   readEngineScanRows: number;
@@ -150,7 +148,6 @@ export type DiagnosticsSnapshot = {
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;
-  ingestFailed: number;
   dataLossEvents: Array<{ mechanism: string; model: string; count: number }>;
 };
 

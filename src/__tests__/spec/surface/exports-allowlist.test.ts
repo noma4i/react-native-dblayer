@@ -10,7 +10,6 @@ const runtimeExportAllowlist = [
   'createIdArrayPatcher',
   'createKeyedArrayPatcher',
   'createNestedObjectPatcher',
-  'createSingleFlight',
   'createSingletonStatics',
   'createThrottledSingleFlight',
   'defineModel',

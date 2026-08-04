@@ -17,7 +17,7 @@ export const createCheckpointScheduler = (options: {
   extraEntries?: () => Array<{ key: string; value: string | null }>;
 }): CheckpointScheduler => {
   const dirty = new Map<string, number | undefined>();
-  /** Every model ever seen via notePlan/noteMaintenance - a superset of `dirty` that survives across
+  /** Every model ever seen via notePlan - a superset of `dirty` that survives across
    *  flushes, so a quiescent model (no new writes since the last flush) still gets its
    *  persistEntries()/pruneTombstones() called on every cycle instead of being skipped entirely. */
   const knownModels = new Set<string>();
@@ -71,12 +71,6 @@ export const createCheckpointScheduler = (options: {
         knownModels.add(model);
       }
       latestEpoch = Math.max(latestEpoch, epoch);
-      schedule();
-    },
-    noteMaintenance: models => {
-      for (const model of models) {
-        knownModels.add(model);
-      }
       schedule();
     },
     flushNow,

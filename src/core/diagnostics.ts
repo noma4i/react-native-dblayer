@@ -6,8 +6,6 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   commits: 0,
   commitFanoutCandidates: 0,
   commitFanoutNotified: 0,
-  fkIndexFullBuilds: 0,
-  fkIndexIncrementalUpdates: 0,
   readEngineApplies: 0,
   readEngineDeltaRows: 0,
   readEngineScanRows: 0,
@@ -24,7 +22,6 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   manifestResets: 0,
   replaceRejected: 0,
   applyFailure: 0,
-  ingestFailed: 0,
   dataLossEvents: []
 });
 
@@ -37,11 +34,6 @@ export const noteCommit = (): void => {
 export const noteCommitFanout = (candidates: number, notified: number): void => {
   diagnostics.commitFanoutCandidates += candidates;
   diagnostics.commitFanoutNotified += notified;
-};
-
-export const noteFkIndex = (kind: 'full' | 'incremental', rows: number): void => {
-  if (kind === 'full') diagnostics.fkIndexFullBuilds += 1;
-  else diagnostics.fkIndexIncrementalUpdates += rows;
 };
 
 /** One incremental update of a declared query, sized by the rows it moved. */
@@ -102,11 +94,6 @@ export const noteReplaceRejected = (): void => {
 /** A plan failed both its initial atomic apply and clean retry; its WAL stays pending and reads remain poisoned. */
 export const noteApplyFailure = (): void => {
   diagnostics.applyFailure += 1;
-};
-
-/** An ingest declaration threw before or during apply: the event is reported through `onSyncError`, not silently dropped. */
-export const noteIngestFailure = (): void => {
-  diagnostics.ingestFailed += 1;
 };
 
 /** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */

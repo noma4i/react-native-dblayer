@@ -28,8 +28,6 @@ export type DiagnosticsState = {
   commits: number;
   commitFanoutCandidates: number;
   commitFanoutNotified: number;
-  fkIndexFullBuilds: number;
-  fkIndexIncrementalUpdates: number;
   readEngineApplies: number;
   readEngineDeltaRows: number;
   readEngineScanRows: number;
@@ -46,6 +44,5 @@ export type DiagnosticsState = {
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;
-  ingestFailed: number;
   dataLossEvents: DataLossEvent[];
 };

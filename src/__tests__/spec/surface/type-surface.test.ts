@@ -82,7 +82,7 @@ describe('public type surface', () => {
     // Blind-spot gate: an `unknown:` row means an export whose symbol the program failed to resolve.
     for (const row of first.split('\n')) expect(row).not.toMatch(/^unknown: /);
     // Intent gate: update the export count and signature snapshot together for reviewed public surface changes.
-    expect(first.split('\n')).toHaveLength(64);
+    expect(first.split('\n')).toHaveLength(63);
     expect(first).toMatchInlineSnapshot(`
 "DbDefaults: any
 DbProvider: ({ children }: import("<root>/src/types/dsl.dbProvider.types").DbProviderProps) => React.ReactNode
@@ -123,7 +123,6 @@ configureDb: (options: import("<root>/src/types/dsl.configure.types").ConfigureD
 createIdArrayPatcher: () => import("<root>/src/types/utils.modelPatchers.types").IdArrayPatcher
 createKeyedArrayPatcher: <TShape extends AnyDbShape, TSub extends InferShapeStored<TShape>, TKey extends Extract<keyof TSub, string>>(shape: TShape, options: { key: TKey; }) => import("<root>/src/types/utils.modelPatchers.types").KeyedArrayPatcher<TSub, TKey>
 createNestedObjectPatcher: <TRow extends RowId, TField extends Extract<keyof TRow, string>, TArgs extends unknown[], TNested extends object = TRow[TField] & object>(model: import("<root>/src/types/utils.singletonStatics.types").PatchModel<TRow>, field: TField, transform: (current: TNested, ...args: TArgs) => Partial<TNested>) => import("<root>/src/types/utils.modelPatchers.types").NestedObjectPatcher<TRow, TField, TArgs>
-createSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options?: import("<root>/src/types/utils.singleFlight.types").SingleFlightOptions | undefined) => (...args: TArgs) => Promise<TResult>
 createSingletonStatics: <TStored extends RowId>(model: import("<root>/src/types/utils.singletonStatics.types").SingletonModel<TStored>, recordId: string, defaults: TStored) => import("<root>/src/types/utils.singletonStatics.types").SingletonStatics<TStored>
 createThrottledSingleFlight: <TArgs extends unknown[], TResult>(fn: (...args: TArgs) => Promise<TResult>, options: import("<root>/src/types/utils.singleFlight.types").ThrottledSingleFlightOptions<TArgs>) => (...args: TArgs) => Promise<TResult | undefined>
 defineModel: <const TKey extends string, TShape extends DbShape<any, AnyFields>, const TRelations extends Record<string, RelationSpec<ModelStoredValue<TShape>, any>> = Record<never, never>, const TActions extends Record<string, GraphqlActionDefinition<any, any, any, any, any>> = Record<never, never>, const TEvents extends Record<string, GraphqlLiveDefinition<any, any, any, any, any>> = Record<never, never>, const TAssociations extends Record<string, RelationDecl<unknown>> = Record<never, never>, TStatics extends Record<string, unknown> = Record<never, never>>(key: TKey, config: import("<root>/src/types/dsl.modelFacade.types").ModelFacadeConfig<TShape, TRelations, TActions, TEvents, TAssociations, TStatics, TKey>) => import("<root>/src/types/dsl.modelFacade.types").ModelFacade<import("<root>/src/types/dsl.modelFacade.types").ModelStoredValue<TShape>, import("<root>/src/types/dsl.modelFacade.types").ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TStatics, TKey>

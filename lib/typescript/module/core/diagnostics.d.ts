@@ -1,7 +1,6 @@
 import type { DataLossMechanism } from '../types';
 export declare const noteCommit: () => void;
 export declare const noteCommitFanout: (candidates: number, notified: number) => void;
-export declare const noteFkIndex: (kind: "full" | "incremental", rows: number) => void;
 /** One incremental update of a declared query, sized by the rows it moved. */
 export declare const noteReadEngineApply: (rows: number) => void;
 /** Record one model-read scan by its row count, without per-row instrumentation. */
@@ -20,8 +19,6 @@ export declare const noteManifestReset: () => void;
 export declare const noteReplaceRejected: () => void;
 /** A plan failed both its initial atomic apply and clean retry; its WAL stays pending and reads remain poisoned. */
 export declare const noteApplyFailure: () => void;
-/** An ingest declaration threw before or during apply: the event is reported through `onSyncError`, not silently dropped. */
-export declare const noteIngestFailure: () => void;
 /** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */
 export declare const noteDataLoss: (mechanism: DataLossMechanism, model: string, count: number) => void;
 //# sourceMappingURL=diagnostics.d.ts.map

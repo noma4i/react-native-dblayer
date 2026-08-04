@@ -20,7 +20,7 @@ const setup = (maxPendingPlans = 10) => {
 };
 
 describe('checkpoint scheduler pacing', () => {
-  it('writes nothing without a model or when maintenance produces no entries', () => {
+  it('writes nothing without a dirty model', () => {
     const storage = createMemoryPlane();
     const write = jest.spyOn(storage, 'set');
     const scheduler = createCheckpointScheduler({
@@ -32,14 +32,13 @@ describe('checkpoint scheduler pacing', () => {
     });
 
     scheduler.flushNow();
-    scheduler.noteMaintenance(['Rows']);
     scheduler.flushNow();
 
     expect(write).not.toHaveBeenCalled();
     expect(scheduler.pendingPlans()).toBe(0);
   });
 
-  it('preserves a dirty epoch through maintenance and writes marker-only checkpoints', () => {
+  it('writes marker-only checkpoints for a dirty epoch', () => {
     const storage = createMemoryPlane();
     const write = jest.spyOn(storage, 'set');
     const target: CheckpointTarget = { persistEntries: () => [], ackPersist: jest.fn() };
@@ -52,7 +51,6 @@ describe('checkpoint scheduler pacing', () => {
     });
 
     scheduler.notePlan(['Rows'], 7);
-    scheduler.noteMaintenance(['Rows']);
     scheduler.flushNow();
 
     expect(write.mock.calls).toEqual([
@@ -63,30 +61,6 @@ describe('checkpoint scheduler pacing', () => {
     expect(scheduler.flushedEpoch()).toBe(7);
   });
 
-  it('writes maintenance-only entries without an applied marker', () => {
-    const storage = createMemoryPlane();
-    const write = jest.spyOn(storage, 'set');
-    const target: CheckpointTarget = {
-      persistEntries: () => [{ key: 'checkpoint:row:Rows:1', value: 'row' }],
-      ackPersist: jest.fn()
-    };
-    const scheduler = createCheckpointScheduler({
-      storage,
-      prefix: () => 'checkpoint:',
-      getTarget: () => target,
-      delayMs: 10_000,
-      maxPendingPlans: 100
-    });
-
-    scheduler.noteMaintenance(['Rows']);
-    scheduler.flushNow();
-
-    expect(write.mock.calls).toEqual([
-      ['checkpoint:row:Rows:1', 'row'],
-      ['checkpoint:meta', encodePersistence({ lastCheckpointEpoch: 0 })]
-    ]);
-    expect(target.ackPersist).toHaveBeenCalledTimes(1);
-  });
 
   it('keeps the pending-plan backlog when a flush write fails', () => {
     const storage = createMemoryPlane();

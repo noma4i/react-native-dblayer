@@ -39,10 +39,6 @@ unchanged references while updating nested stored values. `PatchModel` is the mi
 Builds model-owned singleton methods. `SingletonModel`, `SingletonStatics`, `NumericField`, and
 `RowId` describe its type contract.
 
-## `createSingleFlight(fn, options)`
-
-Deduplicates concurrent work by key and clears entries on settlement.
-
 ## `createThrottledSingleFlight(fn, options)`
 
 Adds a bounded start interval to keyed single-flight execution without retaining settled keys.

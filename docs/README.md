@@ -112,7 +112,6 @@ The reference below matches `src/index.ts` exactly.
 | `registerReset` | value | [runtime.md](./runtime.md) |
 | `setFetchNetworkOnline` | value | [runtime.md](./runtime.md) |
 | `createThrottledSingleFlight` | value | [runtime.md](./runtime.md) |
-| `createSingleFlight` | value | [runtime.md](./runtime.md) |
 | `createKeyedArrayPatcher` | value | [runtime.md](./runtime.md) |
 | `createIdArrayPatcher` | value | [runtime.md](./runtime.md) |
 | `createNestedObjectPatcher` | value | [runtime.md](./runtime.md) |
