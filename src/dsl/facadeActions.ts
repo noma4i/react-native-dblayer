@@ -58,6 +58,16 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     if (!isNonArrayRecord(value)) throw new Error(`${name}: ${selector} selector must return exactly one row`);
     return value;
   };
+  /** Optimistic-insert plan owner: exactly one selected row, planned through the landing graph,
+   * which throws on guard/id rejection before the ledger and transport ever start. */
+  const createOptimisticInsertOwner = (insertTempId: string) => ({
+    modelId: runtime.modelId,
+    planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
+      if (rows.length !== 1) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
+      const row = selectOneRow(rows[0], 'optimistic insert');
+      return rootOwner.planRows([{ ...row, id: insertTempId }]);
+    }
+  });
   const actionKey = name;
   const reportCallbackError = (error: unknown, callback: string): void => {
     reportSyncError(error, { source: 'action', model: runtime.modelId, key: callback }, 'modelAction');
@@ -194,14 +204,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         if (!serialized.serializable) throw new Error(`${name}: action input is not JSON serializable`);
         const operationId = generateTempId('op');
         const tempId = generateTempId('row');
-        const optimisticOwner = {
-          modelId: runtime.modelId,
-          planRows: (rows: readonly unknown[]) => {
-            if (rows.length !== 1) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
-            const row = selectOneRow(rows[0], 'optimistic insert');
-            return rootOwner.planRows([{ ...row, id: tempId }]);
-          }
-        };
+        const optimisticOwner = createOptimisticInsertOwner(tempId);
         const optimisticOps = compileModelRootPlan(optimisticOwner, durableDefinition.optimistic.root, { input, tempId, operationId });
         if (optimisticOps.length === 0) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
         const beginOperation: Omit<OperationRecord, 'status'> = {
@@ -387,14 +390,7 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
     const intent = modelRootIntentOf(optimistic.root);
     if (intent === 'insert') {
       const insertTempId = tempId!;
-      const optimisticOwner = {
-        modelId: runtime.modelId,
-        planRows: (rows: readonly unknown[], _options?: { origin?: 'event' }) => {
-          if (rows.length !== 1) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
-          const row = selectOneRow(rows[0], 'optimistic insert');
-          return rootOwner.planRows([{ ...row, id: insertTempId }]);
-        }
-      };
+      const optimisticOwner = createOptimisticInsertOwner(insertTempId);
       const ops = compileModelRootPlan(optimisticOwner, optimistic.root as never, { input, tempId: insertTempId, operationId } as never);
       if (ops.length === 0) throw new Error(`${name}: optimistic insert selector must return exactly one row`);
       return { ops, intent, tempIds: [insertTempId], rowIds: [insertTempId] };

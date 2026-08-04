@@ -75,6 +75,22 @@ describe('durable action edges', () => {
     cyclic.self = cyclic;
     expect(() => Cyclic.actions.start.start(cyclic)).toThrow('action input is not JSON serializable');
 
+    const Rejected = defineModel('SpecDurableRejectedOptimisticRow', {
+      schema: JobSchema,
+      guard: input => (input as Job).label !== 'boom',
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      actions: owner => ({
+        start: owner.gql.action(document, {
+          mode: 'durable',
+          result: 'startJob',
+          variables: (input: Input, transportInput: TransportInput) => ({ input: { label: input.label, token: transportInput.token } }),
+          optimistic: { root: { insert: { select: ({ input, tempId }: OptimisticContext) => ({ id: tempId, label: input.label, status: 'pending' as const }) } } },
+          root: { insert: { select: ({ data }: ResponseContext) => data.startJob?.job ?? null } }
+        })
+      })
+    });
+    expect(() => Rejected.actions.start.start({ label: 'boom' })).toThrow('SpecDurableRejectedOptimisticRow rejected input');
+
     const Primitive = defineDurable('SpecDurableOptimisticPrimitive', { optimisticSelect: () => 'invalid' });
     const Multiple = defineDurable('SpecDurableOptimisticMultiple', {
       optimisticSelect: ({ tempId }) => [

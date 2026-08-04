@@ -112,6 +112,28 @@ describe('action runtime edges', () => {
     expect(transport.calls).toHaveLength(1);
   });
 
+  it('fails loudly before transport when the optimistic row is rejected by schema normalization', async () => {
+    const transport = createMockTransport();
+    configureDb({ storage: createMemoryPlane(), transport });
+    const Model = defineModel('SpecActionRejectedOptimisticRow', {
+      schema: RowSchema,
+      guard: input => (input as Row).value !== 'boom',
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      actions: owner => ({
+        apply: owner.gql.action(document, {
+          mode: 'request',
+          result: 'apply',
+          variables: (input: Input) => ({ input }),
+          root: { insert: { select: ({ data }) => data.apply.row } },
+          optimistic: { root: { insert: { select: ({ input, tempId }) => ({ id: tempId, value: input.value }) } } }
+        })
+      })
+    });
+
+    await expect(Model.actions.apply.run({ value: 'boom' })).rejects.toThrow('SpecActionRejectedOptimisticRow rejected input');
+    expect(transport.calls).toHaveLength(0);
+  });
+
   it('does not send a request after before or variables resets runtime', async () => {
     const transport = createMockTransport();
     configureDb({ storage: createMemoryPlane(), transport });
