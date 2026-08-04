@@ -1,5 +1,11 @@
 # Changelog
 
+## 10.0.0-beta.22 - 2026-08-05
+
+### Added
+
+- `where()` and `byIds()` relation `use({ renderKeys })` is consumed: rows keep identity and readers skip re-renders while unlisted fields change. Before this, those options were silently dropped and every consumer re-rendered on any field change. New `ModelReadBuilder.renderKeys(...)` chain method carries the same gate on builder reads.
+
 ## 10.0.0-beta.21 - 2026-08-05
 
 ### Fixed

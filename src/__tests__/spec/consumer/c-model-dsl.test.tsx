@@ -170,6 +170,38 @@ describe('model surface', () => {
     reader.unmount();
   });
 
+  it('gates where and id-list readers to their render keys', () => {
+    configureRuntime(createMockTransport());
+    const Message = createMessageModel('RenderKeysGate');
+    Message.insertMany([
+      { id: 'm1', chatId: 'chat-1', body: 'first', status: 'sent' },
+      { id: 'm2', chatId: 'chat-1', body: 'second', status: 'sent' }
+    ]);
+
+    const whereReader = renderCounted(() => Message.where({ chatId: 'chat-1' }).use({ renderKeys: ['id', 'status'] }).data);
+    const byIdsReader = renderCounted(() => Message.byIds(['m1', 'm2']).use({ renderKeys: ['id', 'status'] }).data);
+    const whereRenders = whereReader.renders();
+    const byIdsRenders = byIdsReader.renders();
+
+    act(() => {
+      Message.update('m1', { body: 'edited' });
+    });
+
+    // A change outside the listed keys reaches neither reader.
+    expect(whereReader.renders()).toBe(whereRenders);
+    expect(byIdsReader.renders()).toBe(byIdsRenders);
+
+    act(() => {
+      Message.update('m1', { status: 'sending' });
+    });
+
+    expect(whereReader.result().find(row => row.id === 'm1')).toMatchObject({ status: 'sending' });
+    expect(byIdsReader.result().find(row => row.id === 'm1')).toMatchObject({ status: 'sending' });
+
+    whereReader.unmount();
+    byIdsReader.unmount();
+  });
+
   it('uses the same Relation contract for local named, where, and id-list reads', async () => {
     configureRuntime(createMockTransport());
     const Message = createMessageModel('LocalMatrix');

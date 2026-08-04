@@ -22,6 +22,8 @@ export type ModelReadBuilder<TStored extends { id: string }, TOutput extends Rec
   require<K extends keyof TStored & string>(...fields: K[]): ModelReadBuilder<RequiredFields<TStored, K>>;
   /** Project each reactive row with shallow value gating; selector identity is not a dependency. */
   select<TProjection extends Record<string, unknown>>(selector: (row: TStored) => TProjection): ModelReadBuilder<TStored, TProjection>;
+  /** Gate re-renders to the listed stored fields: rows keep identity while unlisted fields change. Exclusive with `select`; a later call replaces the projection. */
+  renderKeys(...fields: (keyof TStored & string)[]): ModelReadBuilder<TStored, TOutput>;
   /** Reactively read rows for this builder declaration. Call `orderBy` for deterministic ordering; without it rows follow internal storage order. */
   rows(): TOutput[];
   /** Reactively read the last row of the ordered (and limited) result; `undefined` when empty. */

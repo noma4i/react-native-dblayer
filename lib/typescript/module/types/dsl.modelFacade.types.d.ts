@@ -58,6 +58,8 @@ export type RelationOptions<TStored> = {
  * accepted option is consumed, never silently dropped.
  */
 export type LocalRelationOptions<TStored> = Pick<RelationOptions<TStored>, 'pageSize' | 'renderKeys' | 'require' | 'keepPrevious'>;
+/** Options a filter (`where`) or id-list (`byIds`) relation consumes: the row-level render-key gate. */
+export type ReadRelationOptions<TStored> = Pick<RelationOptions<TStored>, 'renderKeys'>;
 export type ModelWaitOptions = {
     timeoutMs: number;
     signal?: AbortSignal;
@@ -534,8 +536,8 @@ export type ModelFacadeCore<TStored extends {
         renderKeys?: readonly (keyof TStored & string)[];
         require?: readonly (keyof TStored & string)[];
     }): TStored | undefined;
-    where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored, TStored[], TInput, never>;
-    byIds(ids: readonly string[] | null | undefined): Relation<TStored, TStored[], TInput, never>;
+    where(where: DbWhere<TStored>, options?: DbReadOptions<TStored>): Relation<TStored, TStored[], TInput, ReadRelationOptions<TStored>>;
+    byIds(ids: readonly string[] | null | undefined): Relation<TStored, TStored[], TInput, ReadRelationOptions<TStored>>;
     insert(row: TInput): void;
     insertMany(rows: TInput[]): void;
     update(id: string, patch: Partial<TStored>): void;

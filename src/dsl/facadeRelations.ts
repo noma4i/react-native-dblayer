@@ -6,6 +6,7 @@ import type {
   FacadeRuntimeModel,
   LoadingState,
   QueryHandle,
+  ReadRelationOptions,
   Relation,
   RelationDecl,
   RelationResult,
@@ -163,13 +164,14 @@ export const createWhereRelation = <TStored extends { id: string; updatedAt?: st
   runtime: FacadeRuntimeModel<TStored, TInput>,
   where: DbWhere<TStored>,
   options?: DbReadOptions<TStored>
-): Relation<TStored, TStored[], TInput, never> => ({
+): Relation<TStored, TStored[], TInput, ReadRelationOptions<TStored>> => ({
   read: () => runtime.where(where, options),
   fetch: async () => {},
   refresh: async () => {},
   seed: rows => runtime.seed(rows),
-  use: () => {
+  use: useOptions => {
     let builder = runtime.use.where(where);
+    if (useOptions?.renderKeys) builder = builder.renderKeys(...useOptions.renderKeys);
     const order = options?.orderBy;
     if (order && 'field' in order) builder = builder.orderBy(order.field, order.direction);
     if (options?.limit !== undefined) builder = builder.limit(options.limit);
@@ -187,7 +189,7 @@ export const createWhereRelation = <TStored extends { id: string; updatedAt?: st
 export const createByIdsRelation = <TStored extends { id: string; updatedAt?: string | null }, TInput>(
   runtime: FacadeRuntimeModel<TStored, TInput>,
   ids: readonly string[] | null | undefined
-): Relation<TStored, TStored[], TInput, never> => ({
+): Relation<TStored, TStored[], TInput, ReadRelationOptions<TStored>> => ({
   read: () => (ids ?? []).flatMap(id => {
     const row = runtime.find(id);
     return row ? [row] : [];
@@ -195,8 +197,8 @@ export const createByIdsRelation = <TStored extends { id: string; updatedAt?: st
   fetch: async () => {},
   refresh: async () => {},
   seed: rows => runtime.seed(rows),
-  use: () => {
-    const rows = runtime.use.byIds(ids).rows;
+  use: useOptions => {
+    const rows = runtime.use.byIds(ids, useOptions?.renderKeys ? { renderKeys: useOptions.renderKeys } : {}).rows;
     return createLocalResult(rows, rows.length > 0, false, () => {});
   },
   count: () => (ids ?? []).reduce((count, id) => count + (runtime.find(id) ? 1 : 0), 0),

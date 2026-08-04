@@ -1,4 +1,4 @@
-import type { AssociationData, AssociationStored, DbReadOptions, DbWhere, FacadeRuntimeModel, LoadingState, QueryHandle, Relation, RelationDecl, RelationResult, ScopeQueryHandle } from '../types';
+import type { AssociationData, AssociationStored, DbReadOptions, DbWhere, FacadeRuntimeModel, LoadingState, QueryHandle, ReadRelationOptions, Relation, RelationDecl, RelationResult, ScopeQueryHandle } from '../types';
 /**
  * Every way a model exposes rows becomes the same `Relation`: a named relation with or without a
  * remote half, an ad-hoc filter, a list of ids, or a declared association. One shape for all of
@@ -12,11 +12,11 @@ export declare const createNamedRelation: <TStored extends {
 export declare const createWhereRelation: <TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, where: DbWhere<TStored>, options?: DbReadOptions<TStored>) => Relation<TStored, TStored[], TInput, never>;
+}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, where: DbWhere<TStored>, options?: DbReadOptions<TStored>) => Relation<TStored, TStored[], TInput, ReadRelationOptions<TStored>>;
 export declare const createByIdsRelation: <TStored extends {
     id: string;
     updatedAt?: string | null;
-}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, ids: readonly string[] | null | undefined) => Relation<TStored, TStored[], TInput, never>;
+}, TInput>(runtime: FacadeRuntimeModel<TStored, TInput>, ids: readonly string[] | null | undefined) => Relation<TStored, TStored[], TInput, ReadRelationOptions<TStored>>;
 export declare const createAssociationRelation: <TStored extends {
     id: string;
     updatedAt?: string | null;

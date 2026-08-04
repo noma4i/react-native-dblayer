@@ -13,6 +13,7 @@ export const createReadBuilder = <TStored extends { id: string }>(
   limit: nextCount => createReadBuilder(where, terminals, orders, nextCount, required, projection),
   require: (...fields) => createReadBuilder(where, terminals, orders, count, [...required, ...fields], projection) as never,
   select: selector => createReadBuilder(where, terminals, orders, count, required, { select: selector } as never) as never,
+  renderKeys: (...fields) => createReadBuilder(where, terminals, orders, count, required, { renderKeys: fields } as never),
   rows: () => terminals.rows(where, orders, count, required, projection),
   last: () => {
     const rows = terminals.rows(where, orders, count, required, projection);
