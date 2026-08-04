@@ -56,6 +56,13 @@ describe('committed once-key persistence format', () => {
     expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: ['keep'], corruptSources: 0 });
   });
 
+  it('drops a stale-version ops record as routine evolution, not a corrupt source', () => {
+    const { storage } = setup();
+    storage.set(`${PREFIX}ops`, encodePersistence({ recordVersion: 1, operations: {}, committedKeys: [] }));
+
+    expect(readCommittedOnceKeys(storage, PREFIX)).toEqual({ keys: [], corruptSources: 0 });
+  });
+
   it('counts each corrupt source separately', () => {
     const { storage } = setup();
     [

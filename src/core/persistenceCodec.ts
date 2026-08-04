@@ -1,4 +1,4 @@
-import type { JsonRoundTripResult, PersistenceDecodeResult, PersistenceEnvelope, VersionedValue } from '../types';
+import type { JsonRoundTripResult, PersistenceDecodeResult, PersistenceEnvelope, VersionedRecordDecodeResult, VersionedValue } from '../types';
 import { stableSerialize } from './serialize';
 
 export const PERSISTENCE_SCHEMA_VERSION = 1;
@@ -79,6 +79,26 @@ export const decodePersistence = <T>(
   if (typeof envelope.checksum !== 'string' || !accepts(envelope.payload)) return { kind: 'corrupt' };
   const checksum = checksumOf({ schemaVersion: envelope.schemaVersion, payload: envelope.payload });
   return checksum === envelope.checksum ? { kind: 'ok', value: envelope.payload } : { kind: 'corrupt' };
+};
+
+const isRecordWithVersion = (value: unknown): value is { recordVersion: number } =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) && Number.isSafeInteger((value as { recordVersion?: unknown }).recordVersion);
+
+/**
+ * Decode one versioned record. The record version is discriminated BEFORE the shape gate, so a
+ * record written by another library version is routine evolution (`stale-version`, silent drop),
+ * never corruption. `corrupt` is reserved for malformed payloads and checksum mismatches.
+ */
+export const decodeVersionedRecord = <T extends { recordVersion: number }>(
+  raw: string,
+  expectedSchemaVersion: number,
+  expectedRecordVersion: number,
+  accepts: (value: unknown) => value is T
+): VersionedRecordDecodeResult<T> => {
+  const decoded = decodePersistence(raw, expectedSchemaVersion, isRecordWithVersion);
+  if (decoded.kind !== 'ok') return decoded;
+  if (decoded.value.recordVersion !== expectedRecordVersion) return { kind: 'stale-version', recordVersion: decoded.value.recordVersion };
+  return accepts(decoded.value) ? { kind: 'ok', value: decoded.value } : { kind: 'corrupt' };
 };
 
 /** Decode one payload, returning null only for localized corruption and throwing on unknown versions. */

@@ -2,7 +2,7 @@ import type { QueryPersistenceDeclaration, QueryPersistenceRecord, QueryPersiste
 import type { QueryInvalidationRecord } from '../types/core.persistenceInternals.types';
 import { getDbRuntimeConfig, getStoragePrefix } from '../dsl/configure';
 import { isRecord } from '../utils/normalizeHelpers';
-import { decodePersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
+import { decodeVersionedRecord, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { compositeStorageKey } from './serialize';
 import { reportSyncError } from './syncError';
 
@@ -11,7 +11,6 @@ const QUERY_INVALIDATION_RECORD_VERSION = 1;
 
 const isQueryPersistenceRecord = (value: unknown): value is QueryPersistenceRecord =>
   isRecord(value) &&
-  value.recordVersion === QUERY_RECORD_VERSION &&
   typeof value.family === 'string' &&
   typeof value.identity === 'string' &&
   Number.isSafeInteger(value.persistenceVersion) &&
@@ -29,7 +28,6 @@ const isQueryPersistenceRecord = (value: unknown): value is QueryPersistenceReco
 
 const isQueryInvalidationRecord = (value: unknown): value is QueryInvalidationRecord =>
   isRecord(value) &&
-  value.recordVersion === QUERY_INVALIDATION_RECORD_VERSION &&
   typeof value.revision === 'number' &&
   Number.isSafeInteger(value.revision) &&
   value.revision >= 0 &&
@@ -60,10 +58,12 @@ const readInvalidationRecord = (family: string): QueryInvalidationRecord | undef
   const storage = getDbRuntimeConfig().storage;
   const raw = storage.get(invalidationKey(family));
   if (raw === undefined) return emptyInvalidationRecord();
-  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isQueryInvalidationRecord);
+  const decoded = decodeVersionedRecord(raw, PERSISTENCE_SCHEMA_VERSION, QUERY_INVALIDATION_RECORD_VERSION, isQueryInvalidationRecord);
   if (decoded.kind === 'ok') return decoded.value;
   removeKeys([...storage.keys(familyPrefix(family)), invalidationKey(family)]);
-  reportRejectedRecord(family, new Error('react-native-dblayer: corrupt persisted query invalidation record'));
+  if (decoded.kind === 'corrupt') {
+    reportRejectedRecord(family, new Error('react-native-dblayer: corrupt persisted query invalidation record'));
+  }
   return undefined;
 };
 
@@ -86,7 +86,7 @@ export const readPersistedQuery = <TPayload, TScope>(
   const key = recordKey(declaration.family, identity);
   const raw = storage.get(key);
   if (raw === undefined) return undefined;
-  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isQueryPersistenceRecord);
+  const decoded = decodeVersionedRecord(raw, PERSISTENCE_SCHEMA_VERSION, QUERY_RECORD_VERSION, isQueryPersistenceRecord);
   if (decoded.kind !== 'ok') {
     removeKeys([key]);
     if (decoded.kind === 'corrupt') {
@@ -122,7 +122,7 @@ export const readPersistedQueryFamily = (declaration: QueryPersistenceDeclaratio
   for (const key of storage.keys(familyPrefix(declaration.family))) {
     const raw = storage.get(key);
     if (raw === undefined) continue;
-    const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isQueryPersistenceRecord);
+    const decoded = decodeVersionedRecord(raw, PERSISTENCE_SCHEMA_VERSION, QUERY_RECORD_VERSION, isQueryPersistenceRecord);
     if (
       decoded.kind !== 'ok' ||
       decoded.value.family !== declaration.family ||

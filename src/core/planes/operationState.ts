@@ -3,7 +3,7 @@ import type { OperationRecord, OperationState, OperationTransition, StoragePlane
 import { compositeKey } from '../serialize';
 import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { decodePersistence, decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
@@ -78,10 +78,26 @@ const isPreviousOnceKeyRecord = (value: unknown): value is { keys: string[] } =>
 
 const isPersistedOperationState = (value: unknown): value is PersistedOperationState =>
   isNonArrayRecord(value) &&
-  value.recordVersion === OPERATION_STATE_RECORD_VERSION &&
+  Number.isSafeInteger(value.recordVersion) &&
   isOperationRecordMap(value.operations) &&
   Array.isArray(value.committedKeys) &&
   value.committedKeys.every(isNonEmptyString);
+
+/**
+ * Decode the persisted ops record. A versioned state whose record version moved is routine
+ * evolution (`stale-version`), never a corrupt source; the plain un-versioned map stays readable.
+ */
+const decodeOperationStateValue = (raw: string): PersistedOperationState | Record<string, OperationRecord> | 'stale-version' | null => {
+  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, (value): value is Record<string, unknown> => isNonArrayRecord(value));
+  if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
+  if (decoded.kind === 'corrupt') return null;
+  const value = decoded.value;
+  if (Number.isSafeInteger(value.recordVersion)) {
+    if (value.recordVersion !== OPERATION_STATE_RECORD_VERSION) return 'stale-version';
+    return isPersistedOperationState(value) ? value : null;
+  }
+  return isOperationRecordMap(value) ? value : null;
+};
 
 /** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`
  * (which clears diagnostics) right after this read, so it reports the loss itself once reset is done. */
@@ -99,19 +115,15 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
   }
   const rawOperations = storage.get(`${prefix}ops`);
   if (rawOperations) {
-    const state = decodeSupportedPersistence(
-      rawOperations,
-      PERSISTENCE_SCHEMA_VERSION,
-      (value): value is PersistedOperationState | Record<string, OperationRecord> => isPersistedOperationState(value) || isOperationRecordMap(value)
-    );
-    if (state) {
+    const state = decodeOperationStateValue(rawOperations);
+    if (state === null) {
+      corruptSources += 1;
+    } else if (state !== 'stale-version') {
       const records = isPersistedOperationState(state) ? state.operations : state;
       if (isPersistedOperationState(state)) for (const key of state.committedKeys) keys.add(key);
       for (const record of Object.values(records)) {
         if (record.status === 'committed' && record.once === true && typeof record.idempotencyKey === 'string') keys.add(record.idempotencyKey);
       }
-    } else {
-      corruptSources += 1;
     }
   }
   return { keys: [...keys].sort(), corruptSources };
@@ -462,12 +474,11 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       hydratedPendingIds.clear();
       const rawOps = storage.get(opsKey());
       if (rawOps) {
-        const state = decodeSupportedPersistence(
-          rawOps,
-          PERSISTENCE_SCHEMA_VERSION,
-          (value): value is PersistedOperationState | Record<string, OperationRecord> => isPersistedOperationState(value) || isOperationRecordMap(value)
-        );
-        if (state) {
+        const state = decodeOperationStateValue(rawOps);
+        if (state === 'stale-version') {
+          storage.set(opsKey(), null);
+          noteDataLoss('operation-ledger-stale-version-reset', '__operations__', 1);
+        } else if (state) {
           const records = isPersistedOperationState(state) ? state.operations : state;
           for (const [operationId, record] of Object.entries(records)) {
             const retainKey = record.status === 'pending' || (record.status === 'committed' && record.once === true);

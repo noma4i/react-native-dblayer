@@ -31,6 +31,18 @@ const encodeRecord = (value: JournalRecord, overrides: Record<string, unknown> =
   });
 
 describe('immutable WAL corruption policy', () => {
+  it('drops a stale-version record as routine evolution, not corruption', () => {
+    const { storage } = setup();
+    const key = `${PREFIX}journal:1`;
+    storage.set(key, encodeRecord(record(1), { recordVersion: 1 }));
+
+    expect(readJournalRecord(storage, PREFIX, key)).toBeNull();
+    expect(storage.get(key)).toBeUndefined();
+    expect(diagnostics().snapshot().corruptionJournalLosses).toBe(0);
+    expect(diagnostics().snapshot().corruptionJournalDrops).toBe(0);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-stale-version-drop', model: '__runtime__', count: 1 });
+  });
+
   it('writes one versioned checksummed record containing row work and transitions', () => {
     const { journal } = setup();
     const value: JournalRecord = {
@@ -79,7 +91,6 @@ describe('immutable WAL corruption policy', () => {
     ['an empty transaction id', { recordVersion: 2, txId: '', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [] }],
     ['a zero runtime epoch', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 0, epoch: 1, ops: [], operationTransitions: [] }],
     ['missing operations', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, operationTransitions: [] }],
-    ['an unsupported record version', { recordVersion: 1, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [], operationTransitions: [] }],
     ['missing transitions', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [] }],
     ['non-array operations', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: {}, operationTransitions: [] }],
     ['a non-record operation wrapper', { recordVersion: 2, txId: 'test:1', runtimeEpoch: 1, epoch: 1, ops: [null], operationTransitions: [] }],

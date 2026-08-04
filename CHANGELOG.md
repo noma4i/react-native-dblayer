@@ -1,5 +1,29 @@
 # Changelog
 
+## 10.0.0-beta.20 - 2026-08-05
+
+### Fixed
+
+- Persisted record version mismatch is routine evolution, not corruption. `decodeVersionedRecord` discriminates `recordVersion` before the shape gate: a record written by another library version is dropped silently (`stale-version`) instead of firing `onSyncError` ("corrupt persisted query record"), corruption counters, or corruption data-loss classes. Affects query records, query invalidation records, the WAL journal (`journal-stale-version-drop`), the operation ledger (`operation-ledger-stale-version-reset`), and the reset intent. An app upgrade over an old on-disk state no longer floods Sentry with false corruption errors on every launch.
+
+## 10.0.0-beta.19 - 2026-08-04
+
+### Removed
+
+- Dead public surface swept after the read-path rework; no behavior change for live consumers.
+
+## 10.0.0-beta.18 - 2026-08-04
+
+### Fixed
+
+- Read path owns scope order: thread and list ordering comes from the read declaration, not incidental membership order. Rejected replace no longer strands orphan membership rows.
+
+## 10.0.0-beta.17 - 2026-08-04
+
+### Fixed
+
+- Rejected optimistic replace cleans up its membership instead of leaving orphan rows behind.
+
 ## 10.0.0-beta.16 - 2026-08-04
 
 ### Fixed

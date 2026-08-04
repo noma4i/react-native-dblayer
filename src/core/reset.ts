@@ -1,7 +1,7 @@
 import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperationState, getStoragePrefix, isDbConfigured, resetPersistenceRuntime } from '../dsl/configure';
 import type { Resetter, SyncResetter } from '../types';
 import type { StorageResetEntry, StorageResetIntent } from '../types/core.persistenceInternals.types';
-import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
+import { decodeVersionedRecord, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { restartModelEventRegistry } from './modelEventRegistry';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 
@@ -13,17 +13,16 @@ const STORAGE_RESET_INTENT_VERSION = 1;
 
 const isStorageResetIntent = (value: unknown): value is StorageResetIntent =>
   isNonArrayRecord(value) &&
-  value.recordVersion === STORAGE_RESET_INTENT_VERSION &&
+  Number.isSafeInteger(value.recordVersion) &&
   Array.isArray(value.restore) &&
   value.restore.every(entry => isNonArrayRecord(entry) && typeof entry.key === 'string' && typeof entry.value === 'string');
 
 const readStorageResetIntent = (): StorageResetIntent | undefined => {
   const raw = getDbRuntimeConfig().storage.get(resetIntentKey(getStoragePrefix()));
   if (raw === undefined) return undefined;
-  return decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isStorageResetIntent) ?? {
-    recordVersion: STORAGE_RESET_INTENT_VERSION,
-    restore: []
-  };
+  const decoded = decodeVersionedRecord(raw, PERSISTENCE_SCHEMA_VERSION, STORAGE_RESET_INTENT_VERSION, isStorageResetIntent);
+  if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
+  return decoded.kind === 'ok' ? decoded.value : { recordVersion: STORAGE_RESET_INTENT_VERSION, restore: [] };
 };
 
 /**

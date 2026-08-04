@@ -3,7 +3,7 @@ import type { Journal, JournalOp, JournalRecord, PersistedJournalRecord, Storage
 import type { DecodedJournalRecord } from '../../types/core.persistenceInternals.types';
 import { isOperationTransition } from '../planes/operationState';
 import { noteCorruptionJournalDrop, noteCorruptionJournalLoss, noteDataLoss } from '../diagnostics';
-import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
+import { decodePersistence, decodeVersionedRecord, encodePersistence, PERSISTENCE_SCHEMA_VERSION, versionPersistenceValue } from '../persistenceCodec';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger, isPositiveSafeInteger } from '../../utils/normalizeHelpers';
 import { isScopeEntrySet, isScopeIndexValue } from '../planes/scopeIndex';
 
@@ -55,7 +55,7 @@ const isValidJournalOp = (value: unknown): value is JournalOp => {
 
 const isPersistedJournalRecord = (value: unknown, expectedEpoch: number): value is DecodedJournalRecord => {
   if (!isNonArrayRecord(value) || !isNonEmptyString(value.txId) || !isPositiveSafeInteger(value.runtimeEpoch) || value.epoch !== expectedEpoch || !('ops' in value)) return false;
-  return value.recordVersion === JOURNAL_RECORD_VERSION && 'operationTransitions' in value;
+  return 'operationTransitions' in value;
 };
 
 const decodeValues = <T>(values: unknown, version: number, accepts: (value: unknown) => value is T): T[] | null => {
@@ -102,8 +102,13 @@ export const readJournalRecord = (storage: StoragePlane, prefix: string, journal
     }
     return dropAsLoss();
   };
-  const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, (value): value is DecodedJournalRecord => isPersistedJournalRecord(value, journalEpoch));
+  const decoded = decodeVersionedRecord(raw, PERSISTENCE_SCHEMA_VERSION, JOURNAL_RECORD_VERSION, (value): value is DecodedJournalRecord => isPersistedJournalRecord(value, journalEpoch));
   if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
+  if (decoded.kind === 'stale-version') {
+    storage.set(journalKey, null);
+    noteDataLoss('journal-stale-version-drop', '__runtime__', 1);
+    return null;
+  }
   if (decoded.kind === 'corrupt') return dropAsCorrupt();
   const ops = decodeValues(decoded.value.ops, JOURNAL_OP_SCHEMA_VERSION, isValidJournalOp);
   if (!ops) return dropAsCorrupt();

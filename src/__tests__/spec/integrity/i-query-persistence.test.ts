@@ -104,6 +104,54 @@ describe('query persistence records', () => {
     expect(storage.get(keyOf(declaration.family, 'declared-identity'))).toBeUndefined();
   });
 
+  it('drops stale-version exact and family records silently without a corruption report', () => {
+    const onSyncError = jest.fn();
+    const storage = createMemoryPlane();
+    configureDb({
+      storage,
+      transport: createMockTransport(),
+      defaults: { onSyncError }
+    });
+
+    storage.set(keyOf(), encodePersistence({ ...(record() as Record<string, unknown>), recordVersion: 1 }));
+    expect(
+      readPersistedQuery(declaration, 'identity', value => ({
+        payload: value.payload as string,
+        scope: null
+      }))
+    ).toBeUndefined();
+    expect(onSyncError).not.toHaveBeenCalled();
+    expect(storage.get(keyOf())).toBeUndefined();
+
+    storage.set(keyOf(declaration.family, 'stale'), encodePersistence({ ...(record({ identity: 'stale' }) as Record<string, unknown>), recordVersion: 1 }));
+    storage.set(keyOf(declaration.family, 'valid'), encodePersistence(record({ identity: 'valid' })));
+    expect(readPersistedQueryFamily(declaration).map(value => value.identity)).toEqual(['valid']);
+    expect(onSyncError).not.toHaveBeenCalled();
+    expect(storage.get(keyOf(declaration.family, 'stale'))).toBeUndefined();
+  });
+
+  it('drops a stale-version invalidation record without a corruption report', () => {
+    const onSyncError = jest.fn();
+    const storage = createMemoryPlane();
+    configureDb({
+      storage,
+      transport: createMockTransport(),
+      defaults: { onSyncError }
+    });
+
+    const invalidationKey = compositeStorageKey('dbl:', 'query-invalidation', declaration.family);
+    storage.set(invalidationKey, encodePersistence({ recordVersion: 0, revision: 1, identities: {} }));
+    storage.set(keyOf(), encodePersistence(record()));
+    expect(
+      readPersistedQuery(declaration, 'identity', value => ({
+        payload: value.payload as string,
+        scope: null
+      }))
+    ).toBeUndefined();
+    expect(onSyncError).not.toHaveBeenCalled();
+    expect(storage.get(invalidationKey)).toBeUndefined();
+  });
+
   it('ignores a disappeared family key and rejects non-JSON scope and payload values', () => {
     const base = createMemoryPlane();
     const ghostKey = keyOf(declaration.family, 'ghost');
