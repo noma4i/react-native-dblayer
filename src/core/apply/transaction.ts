@@ -149,7 +149,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       if (envelope.epoch !== getRuntimeGeneration()) throw new Error(`Stale commit envelope ${envelope.txId}`);
       const ops = [...envelope.entityOps, ...envelope.scopeOps];
       const transitions = [...envelope.operationTransitions];
-      if (ops.length === 0 && transitions.length === 0) return { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+      if (ops.length === 0 && transitions.length === 0) return { rows: [], scopes: [], scopeChanges: [] };
       epoch += 1;
       const commitEpoch = epoch;
       return publishProjectedBatch(

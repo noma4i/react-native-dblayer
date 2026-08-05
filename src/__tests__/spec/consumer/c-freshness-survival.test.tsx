@@ -379,6 +379,159 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
+  it('[F42] keeps the deferred judgment when unrelated cache events land before the failed settle', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    let failNext = false;
+    const rejects: Array<(error: Error) => void> = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          if (failNext) return new Promise<{ data: TData }>((_resolve, reject) => rejects.push(reject));
+          return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'doomed', name: 'Doomed', group: null }] } as TData };
+        }
+      }),
+      defaults: { resumeStaleTime: 50 }
+    });
+    const rows = createRowsModel('FreshnessRejudgeObserverNoise');
+    const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-rejudge-observer-noise', select: data => data.rows, staleTime: Infinity });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ readers }: { readers: number }) =>
+      React.createElement(DbProvider, null, Array.from({ length: readers }, (_unused, index) => React.createElement(Reader, { key: index })));
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { readers: 1 }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+    const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
+    failNext = true;
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+    expect(calls).toBe(2);
+    act(() => rows.destroy('doomed'));
+    await settle();
+    // Unrelated cache traffic on the judged key (a second observer mounts) is not a settle:
+    // consuming the deferred judgment on it would drop the recorded loss unjudged.
+    act(() => root.update(React.createElement(Root, { readers: 2 })));
+    await settle();
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore);
+
+    act(() => {
+      rejects.splice(0).forEach(reject => reject(new Error('network down')));
+    });
+    await settle();
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore + 1);
+    act(() => root.unmount());
+  });
+
+  it('[F43] follows both identity swaps merged into one deferred judgment without a shrink or refetch', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    let failNext = false;
+    const rejects: Array<(error: Error) => void> = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          if (failNext) return new Promise<{ data: TData }>((_resolve, reject) => rejects.push(reject));
+          return { data: { rows: [{ id: 'a', name: 'A', group: null }, { id: 'b', name: 'B', group: null }] } as TData };
+        }
+      }),
+      defaults: { resumeStaleTime: 50 }
+    });
+    const rows = createRowsModel('FreshnessRejudgeSwapMerge');
+    const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-rejudge-swap-merge', select: data => data.rows, staleTime: Infinity });
+    let observedIds: string[] = [];
+    const Reader = () => {
+      const raw: unknown = query.use(undefined).data;
+      observedIds = Array.isArray(raw) ? (raw as Row[]).map(row => row.id) : [];
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+    const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
+    failNext = true;
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+    expect(calls).toBe(2);
+    // Two landing swaps arrive while the refetch is in flight: their successor map must merge
+    // into the ONE deferred judgment instead of the second swap overwriting or dropping the first.
+    act(() => {
+      getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('a', { id: 'srv-a', name: 'A', group: null })));
+    });
+    await settle();
+    act(() => {
+      getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('b', { id: 'srv-b', name: 'B', group: null })));
+    });
+    await settle();
+    act(() => {
+      rejects.splice(0).forEach(reject => reject(new Error('network down')));
+    });
+    await settle();
+
+    // A full-length identity rewrite is not a loss: no shrink, no follow-up refetch.
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore);
+    expect(calls).toBe(2);
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+    expect(calls).toBe(2);
+    expect([...observedIds].sort()).toEqual(['srv-a', 'srv-b']);
+    act(() => root.unmount());
+  });
+
+  it('[F45] survives a loss touch on a chain that never landed data', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>(): Promise<{ data: TData }> => {
+          throw new Error('transport down');
+        }
+      })
+    });
+    const rows = createRowsModel('FreshnessJudgeNoMeta');
+    const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-judge-no-meta', select: data => data.rows, staleTime: Infinity });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle(4);
+
+    // The chain is registered but never landed: judging its touches must be a no-op, not a crash.
+    act(() => rows.seed([{ id: 'x', name: 'X', group: null }]));
+    await settle();
+    act(() => rows.destroy('x'));
+    await settle();
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(0);
+    act(() => root.unmount());
+  });
+
   it('keeps emptyStaleTime semantics for zero-row results', async () => {
     jest.useFakeTimers();
     let calls = 0;

@@ -5,7 +5,7 @@ import { compositeKey } from '../serialize';
 import { getApplyTarget } from './applyTargetRegistry';
 
 const applyOperations = (ops: AppliedOp[]): IncrementalCommitBatch => {
-  const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+  const batch: IncrementalCommitBatch = { rows: [], scopes: [], scopeChanges: [] };
   const scopeChanges = new Map<string, IncrementalScopeChange>();
   const noteScope = (
     model: string,
@@ -48,7 +48,6 @@ const applyOperations = (ops: AppliedOp[]): IncrementalCommitBatch => {
         target,
         changes.map(change => change.id)
       );
-      if (op.origin === 'replace') batch.mode = 'replace';
     }
     if (op.kind === 'destroy') {
       const ids = target.destroy(op.ids, op.tombstone);

@@ -422,7 +422,6 @@ describe('persistence recovery protocol', () => {
     expect(storage.get('foreign:key')).toBeUndefined();
     expect(storage.get('dbl:owned')).toBe('owned');
     expect(events).toContainEqual({
-      mode: 'delta',
       rows: [],
       scopes: [],
       scopeChanges: [],

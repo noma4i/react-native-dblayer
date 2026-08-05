@@ -358,15 +358,6 @@ describe('apply pipeline batching', () => {
     expect(destroyOp && destroyOp.kind === 'destroy' ? destroyOp.ids : []).toEqual(['42']);
   });
 
-  it('escalates the published batch mode to replace when any upsert is a replace', () => {
-    const { storage, bus, published } = setup();
-    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
-
-    runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }], origin: 'replace' }]));
-
-    expect(published[0]!.mode).toBe('replace');
-  });
-
   it('compiles chained counters into one callback-free effective row plan', () => {
     const { storage, mock, bus } = setup();
     mock.rows.set('row-1', { id: 'row-1', likes: 10, views: 94 });

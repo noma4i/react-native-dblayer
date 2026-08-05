@@ -21,7 +21,7 @@ const reconcilers = new Set<MaterializationReconciler>();
 registerReset(() => reconcilers.clear());
 
 /** Chains that skipped a loss judgment mid-fetch, keyed by serialized query key: judged again once that fetch settles. */
-type PendingRejudge = { reconciler: MaterializationReconciler; swap: Map<string, string> | undefined; maintenance: boolean };
+type PendingRejudge = { reconciler: MaterializationReconciler; swap: Map<string, string> | undefined };
 const pendingRejudges = new Map<string, PendingRejudge>();
 let releasePendingWatch: (() => void) | undefined;
 
@@ -40,7 +40,7 @@ const rejudgePending = (pending: PendingRejudge, target: string): void => {
   const client = getDbQueryClient();
   for (const chain of pending.reconciler.chains()) {
     if (serializedKeyOf(chain.queryKey) !== target) continue;
-    judgeChain(client, pending.reconciler, chain, pending.swap, pending.maintenance);
+    judgeChain(client, pending.reconciler, chain, pending.swap);
   }
 };
 
@@ -62,27 +62,24 @@ const watchPendingSettles = (): void => {
   });
 };
 
-const rememberPendingRejudge = (reconciler: MaterializationReconciler, chain: MaterializedChain, swap: Map<string, string> | undefined, maintenance: boolean): void => {
+const rememberPendingRejudge = (reconciler: MaterializationReconciler, chain: MaterializedChain, swap: Map<string, string> | undefined): void => {
   const target = serializedKeyOf(chain.queryKey);
   const pending = pendingRejudges.get(target);
   if (pending === undefined) {
-    pendingRejudges.set(target, { reconciler, swap: swap && new Map(swap), maintenance });
-  } else {
-    if (swap !== undefined) {
-      pending.swap ??= new Map<string, string>();
-      for (const [from, to] of swap) pending.swap.set(from, to);
-    }
-    pending.maintenance = pending.maintenance && maintenance;
+    pendingRejudges.set(target, { reconciler, swap: swap && new Map(swap) });
+  } else if (swap !== undefined) {
+    pending.swap ??= new Map<string, string>();
+    for (const [from, to] of swap) pending.swap.set(from, to);
   }
   watchPendingSettles();
 };
 
-const judgeChain = (client: QueryClient, reconciler: MaterializationReconciler, chain: MaterializedChain, swap: Map<string, string> | undefined, maintenance: boolean): void => {
+const judgeChain = (client: QueryClient, reconciler: MaterializationReconciler, chain: MaterializedChain, swap: Map<string, string> | undefined): void => {
   const state = client.getQueryState(chain.queryKey);
   if (state === undefined) return;
   // A chain writing its own result is mid-flight: judge it again once that fetch settles.
   if (state.fetchStatus === 'fetching') {
-    rememberPendingRejudge(reconciler, chain, swap, maintenance);
+    rememberPendingRejudge(reconciler, chain, swap);
     return;
   }
   const meta = state.data as { ids?: string[] } | undefined;
@@ -106,7 +103,7 @@ const judgeChain = (client: QueryClient, reconciler: MaterializationReconciler, 
     noteChainSurvivorShrink();
     return;
   }
-  if (!maintenance) refetchActiveFetchReaders(chain.queryKey);
+  refetchActiveFetchReaders(chain.queryKey);
 };
 
 const noteLostMaterialization = (batch: IncrementalCommitBatch): void => {
@@ -133,7 +130,6 @@ const noteLostMaterialization = (batch: IncrementalCommitBatch): void => {
   }
   if (touched.size === 0) return;
   const client = getDbQueryClient();
-  const maintenance = batch.mode === 'maintenance';
   for (const reconciler of reconcilers) {
     const keys = touched.get(reconciler.modelId);
     if (!keys) continue;
@@ -141,7 +137,7 @@ const noteLostMaterialization = (batch: IncrementalCommitBatch): void => {
     for (const chain of reconciler.chains()) {
       // A model-destination chain depends on row presence alone, so any touch of its model applies.
       if (chain.scopeKey !== null && !keys.has(chain.scopeKey)) continue;
-      judgeChain(client, reconciler, chain, swap, maintenance);
+      judgeChain(client, reconciler, chain, swap);
     }
   }
 };

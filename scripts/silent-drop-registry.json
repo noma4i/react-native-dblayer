@@ -7602,16 +7602,6 @@
       "ref": "a removed record holds no chain data and no freshness stamp to protect"
     },
     {
-      "key": "src/core/fetch/fetchReaderRegistry.ts|pendingRejudges.set(target, { reconciler, swap: swap && new Map(swap), maintenance });|1",
-      "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 67,
-      "drops": "nothing",
-      "condition": "loss lands mid-fetch",
-      "verdict": "CONTRACT",
-      "ref": "specs/08-freshness-pacing.md F41: a loss judgment skipped mid-fetch is re-run after that fetch settles, including failure",
-      "note": "Deferral, not a drop: the judgment is remembered and re-run at settle."
-    },
-    {
       "key": "src/core/fetch/fetchReaderRegistry.ts|for (const [from, to] of swap) pending.swap.set(from, to);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
       "line": 71,
@@ -7736,16 +7726,6 @@
       "note": ""
     },
     {
-      "key": "src/core/quarantine.ts|const diagnosticTickets = state.entries.filter(candidate => candidate.kind === 'row' && candidate.reason === 'plan-row-rejected');|1",
-      "file": "src/core/quarantine.ts",
-      "line": 54,
-      "drops": "nothing",
-      "condition": "cap selection over the diagnostic plan-row-rejected class only",
-      "verdict": "NONDROP",
-      "ref": "selection for the cap check; the eviction (the drop point) is the splice below; orphan-temp-row and every non-row entry never enter the capped set (spec 04 W-exception, [P44])",
-      "note": ""
-    },
-    {
       "key": "src/core/quarantine.ts|state.entries.splice(state.entries.indexOf(oldest), 1);|1",
       "file": "src/core/quarantine.ts",
       "line": 57,
@@ -7844,6 +7824,16 @@
       "verdict": "NONDROP",
       "ref": "W44 isolated completion drain: error captured, remaining completions still run, first failure rethrown",
       "note": "coordinator W44 fix"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|pendingRejudges.set(target, { reconciler, swap: swap && new Map(swap) });|1",
+      "verdict": "CONTRACT",
+      "ref": "specs/08-freshness-pacing.md F41: a loss judgment skipped mid-fetch is re-run after that fetch settles, including failure"
+    },
+    {
+      "key": "src/core/quarantine.ts|const diagnosticTickets = state.entries.filter(candidate => candidate.reason === 'plan-row-rejected');|1",
+      "verdict": "NONDROP",
+      "ref": "selection for the cap check; the eviction (the drop point) is the splice below; orphan-temp-row and every non-row entry never enter the capped set (spec 04 W-exception, [P44])"
     }
   ]
 }

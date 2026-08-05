@@ -18,7 +18,6 @@ export type CommitBatch = {
     scopes: ScopeChange[];
     pending?: PendingChange[];
 };
-type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 export type IncrementalScopeChange = {
     model: string;
     scopeKey: string;
@@ -35,9 +34,7 @@ export type IncrementalScopeChange = {
     detachIds?: string[];
 };
 export type IncrementalCommitBatch = CommitBatch & {
-    mode?: IncrementalBatchMode;
     scopeChanges?: IncrementalScopeChange[];
-    maintenanceModels?: string[];
 };
 export type Dependency = {
     kind: 'row';

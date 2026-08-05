@@ -2,7 +2,6 @@ export type RowChange = { model: string; id: string; fields: string[] | null; ki
 type ScopeChange = { model: string; scopeKey: string };
 type PendingChange = { model: string; id: string };
 export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[]; pending?: PendingChange[] };
-type IncrementalBatchMode = 'delta' | 'bulk' | 'replace' | 'maintenance';
 
 export type IncrementalScopeChange = {
   model: string;
@@ -14,7 +13,7 @@ export type IncrementalScopeChange = {
   detachIds?: string[];
 };
 
-export type IncrementalCommitBatch = CommitBatch & { mode?: IncrementalBatchMode; scopeChanges?: IncrementalScopeChange[]; maintenanceModels?: string[] };
+export type IncrementalCommitBatch = CommitBatch & { scopeChanges?: IncrementalScopeChange[] };
 
 export type Dependency =
   | { kind: 'row'; model: string; id: string; fields?: ReadonlyArray<string> }
