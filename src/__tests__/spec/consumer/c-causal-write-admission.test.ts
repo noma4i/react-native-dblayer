@@ -370,6 +370,52 @@ describe('causal write admission', () => {
     fixture.unmount();
   });
 
+  it('[W45] refuses a slow response for an identity destroyed and server-reborn after the fetch base', async () => {
+    const fixture = createFieldFixture('AdmissionExistenceGate');
+    const reborn = { ...initialRow(), localValue: 'reborn-local' };
+    const { pending: slow } = await fixture.start('slow');
+
+    // The identity dies locally, then the LIVE channel re-lands it: no tombstone shields the
+    // landing and no field epoch moved, so only the existence epoch can refuse the stale response.
+    act(() => {
+      fixture.rows.destroy('row-1');
+    });
+    fixture.emitLive(reborn);
+    await settle();
+    expect(fixture.rows.find('row-1')).toEqual(reborn);
+    diagnostics().reset();
+    await fixture.resolve('slow', { ...initialRow(), localValue: 'slow-local' }, slow);
+
+    expect(fixture.rows.find('row-1')).toEqual(reborn);
+    expect(diagnostics().snapshot().causalAdmissionDrops).toBe(1);
+    fixture.unmount();
+  });
+
+  it('[W46] a fully admitted response and a fully admitted patch never touch the drop counter', async () => {
+    const fixture = createFieldFixture('AdmissionCleanCounters');
+    const { pending: slow } = await fixture.start('slow');
+
+    // Bump field epochs so the eviction loop RUNS and admits every field cleanly.
+    act(() => {
+      fixture.rows.update('row-1', { auxiliaryValue: 'pre-base-noise' });
+    });
+    const { pending: fresh } = await fixture.start('fresh');
+    diagnostics().reset();
+    // This response starts AFTER the local update: nothing was evicted, nothing is counted.
+    await fixture.resolve('fresh', { ...initialRow(), auxiliaryValue: 'fresh-auxiliary' }, fresh);
+    expect(fixture.rows.find('row-1')).toMatchObject({ auxiliaryValue: 'fresh-auxiliary' });
+    expect(diagnostics().snapshot().causalAdmissionDrops).toBe(0);
+
+    // A patch admitted in full is not a shrink: the counter stays untouched.
+    act(() => {
+      fixture.rows.update('row-1', { protectedValue: 'clean-patch' });
+    });
+    expect(fixture.rows.find('row-1')).toMatchObject({ protectedValue: 'clean-patch' });
+    expect(diagnostics().snapshot().causalAdmissionDrops).toBe(0);
+    await fixture.resolve('slow', initialRow(), slow).catch(() => {});
+    fixture.unmount();
+  });
+
   it('drops a slow remote destroy after a later local update', async () => {
     let deferred: DeferredMutation<DestroyData> | undefined;
     const storage = createMemoryPlane();

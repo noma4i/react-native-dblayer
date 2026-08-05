@@ -312,10 +312,13 @@ describe('zero-loss lifecycle', () => {
     await bootOn(createMemoryPlane());
     const invalid = { chatId: 'chat-1', userId: 'other', body: 'row without id', status: 'Sent', createdAt: NOW, updatedAt: NOW, sequenceNumber: 9 };
     Message.where({ chatId: 'chat-1' }).seed([serverRow('server-ok', 'kept', 1), invalid as never]);
-    expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id)).toEqual(['server-ok']);
+    expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id)).toStrictEqual(['server-ok']);
     const tickets = readQuarantineEntries().filter(entry => entry.reason === 'plan-row-rejected');
     expect(tickets).toHaveLength(1);
     expect(tickets[0]).toMatchObject({ kind: 'row', model: 'ZeroLossMessage', raw: invalid });
+    // The rejected row never reaches the scope membership either: no ghost member is written.
+    expect(Message.thread({ chatId: 'chat-1' }).read().map(row => row.id)).toStrictEqual(['server-ok']);
+    expect(diagnostics().snapshot().membershipMissingEntity).toBe(0);
   });
 
   it('completes the destroy leg without resurrecting the server row when the user deleted the landed identity', async () => {

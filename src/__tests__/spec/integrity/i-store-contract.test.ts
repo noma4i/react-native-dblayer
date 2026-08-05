@@ -156,8 +156,12 @@ describe('model store', () => {
           throw new Error('completion failed');
         });
         afterStoreTransaction(() => order.push('second'));
-        afterStoreTransaction(() => order.push('third'));
+        afterStoreTransaction(() => {
+          order.push('third');
+          throw new Error('later completion failed');
+        });
       })
+    // 2 completions threw: the caller sees the FIRST failure, not the last one to fire.
     ).toThrow('completion failed');
 
     expect(order).toEqual(['first', 'second', 'third']);
@@ -175,7 +179,7 @@ describe('model store', () => {
         .scopeCollection('scope-1')
         .toArray()
         .map(row => row.id)
-    ).toEqual(['row-1']);
+    ).toStrictEqual(['row-1']);
     expect(diagnostics().snapshot().membershipMissingEntity).toBe(2);
   });
 
@@ -188,7 +192,7 @@ describe('model store', () => {
     const unsubscribe = scope.subscribe(() => undefined);
     diagnostics().reset();
 
-    expect(scope.toArray().map(row => row.id)).toEqual(['row-1']);
+    expect(scope.toArray().map(row => row.id)).toStrictEqual(['row-1']);
     expect(diagnostics().snapshot().membershipMissingEntity).toBe(1);
     unsubscribe();
   });

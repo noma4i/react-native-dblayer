@@ -494,7 +494,7 @@ describe('hydrate key retention', () => {
 
     fresh.hydrate();
 
-    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ model: '__operations__', reason: 'corrupt-once-keys', raw: 'garbage' }));
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ id: 'ops-once', model: '__operations__', reason: 'corrupt-once-keys', raw: 'garbage' }));
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-once-keys', model: '__operations__', count: 1 });
   });
 

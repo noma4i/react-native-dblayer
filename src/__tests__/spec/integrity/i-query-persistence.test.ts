@@ -252,6 +252,20 @@ describe('query persistence records', () => {
     expect(readPersistedQueryFamily(declaration)).toEqual([]);
     expect(onSyncError).toHaveBeenCalledTimes(2);
     expect(fingerprintResets()).toBe(3);
+
+    // Exact read judges EVERY fingerprint-class field, not only the fingerprint itself.
+    storage.set(keyOf(), encodePersistence(record({ family: 'other-family' })));
+    expect(readPersistedQuery(declaration, 'identity', validate)).toBeUndefined();
+    expect(fingerprintResets()).toBe(4);
+    storage.set(keyOf(), encodePersistence(record({ persistenceVersion: 9 })));
+    expect(readPersistedQuery(declaration, 'identity', validate)).toBeUndefined();
+    expect(fingerprintResets()).toBe(5);
+    // Family read judges the fingerprint field too.
+    storage.set(keyOf(declaration.family, 'd'), encodePersistence(record({ identity: 'd', fingerprint: 'moved' })));
+    expect(readPersistedQueryFamily(declaration)).toEqual([]);
+    expect(fingerprintResets()).toBe(6);
+    // The loss event carries its full identity: mechanism, runtime model, unit count.
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'query-record-fingerprint-reset', model: '__runtime__', count: 1 });
   });
 
   it('[P23] invalidates every accepted family record with one physical write', () => {
