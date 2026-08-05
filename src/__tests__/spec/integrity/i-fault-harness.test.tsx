@@ -1,4 +1,5 @@
 import {
+  bootDb,
   configureDb,
   defineModelRuntime,
   f,
@@ -9,10 +10,11 @@ import {
   getApplyRuntime,
   DB_FORMAT_VERSION,
   computeSchemaFingerprints,
+  resetRuntime,
   writePersistenceManifest
 } from '../../testApi';
 import { createFaultStorage } from '../helpers/faultStorage';
-import { compositeStorageKey, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
+import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
 type FaultRow = { id: string; label: string };
 type FaultResponse = { detail: FaultRow };
@@ -24,6 +26,14 @@ const createRows = (suffix: string) =>
     id: `SpecFaultRows${suffix}`,
     name: `SpecFaultRows${suffix}`,
     fields: { label: f.str() }
+  });
+
+const createScopedRows = (suffix: string) =>
+  defineModelRuntime({
+    id: `SpecFaultScoped${suffix}`,
+    name: `SpecFaultScoped${suffix}`,
+    fields: { chatId: f.str(), label: f.str() },
+    scopes: { thread: { by: { chatId: 'chatId' } } }
   });
 
 const configureFaultRuntime = (storage: ReturnType<typeof createFaultStorage>) => {
@@ -185,5 +195,83 @@ describe('persistence fault invariants', () => {
     getApplyRuntime().flushCacheSnapshots();
     expect(storage.plane.get(compositeStorageKey('dbl:', 'tombstones', rows.modelId))).toBeUndefined();
     reader.unmount();
+  });
+
+  it('persists the commit as one atomic delta key carrying the row and its membership', () => {
+    const storage = createFaultStorage();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('DeltaPair');
+
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+
+    // Kill NOW: no flush ran. The commit's only cache write is ONE delta key holding the row
+    // AND its membership - the pair cannot tear because it is one physical write.
+    const deltaWrites = storage.setCalls().filter(write => write.key.startsWith('dbl:delta:'));
+    expect(deltaWrites).toHaveLength(1);
+    const delta = JSON.parse(deltaWrites[0]!.value!) as { seq: number; ops: Array<{ kind: string }> };
+    expect(delta.ops.some(op => op.kind === 'upsert')).toBe(true);
+    expect(delta.ops.some(op => op.kind === 'scope' || op.kind === 'scope-delta')).toBe(true);
+    expect(storage.setCalls().some(write => write.key.startsWith(`dbl:row:${rows.modelId}`))).toBe(false);
+  });
+
+  it('cuts the delta tail on corruption, wipes query records, and counts the loss', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('DeltaTailCut');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+    rows.insert({ id: 'row-3', chatId: 'chat-1', label: 'third' });
+
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    disk.set('dbl:query:probe', 'cached-query-record');
+    const deltaKeys = disk.keys('dbl:delta:').sort();
+    expect(deltaKeys.length).toBeGreaterThanOrEqual(3);
+    disk.set(deltaKeys[1]!, '{corrupt');
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    await bootDb();
+
+    // Commits before the corrupt delta live; the corrupt one and everything after are cut.
+    expect(rows.find('row-1')).toMatchObject({ label: 'first' });
+    expect(rows.find('row-2')).toBeUndefined();
+    expect(rows.find('row-3')).toBeUndefined();
+    expect(disk.get('dbl:query:probe')).toBeUndefined();
+    expect(disk.keys('dbl:delta:').length).toBeLessThan(deltaKeys.length);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual(expect.objectContaining({ mechanism: 'delta-tail-cut' }));
+  });
+
+  it('converges from every kill point inside the compaction flush', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const left = createScopedRows('CompactLeft');
+    const right = createScopedRows('CompactRight');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    left.insert({ id: 'left-1', chatId: 'chat-1', label: 'left' });
+    right.insert({ id: 'right-1', chatId: 'chat-1', label: 'right' });
+    const beforeFlush = storage.setCalls().length;
+    getApplyRuntime().flushCacheSnapshots();
+    const writes = storage.setCalls();
+
+    // The compaction order is snapshots -> snapseq -> delta deletion: a kill between ANY two
+    // physical writes replays the still-covered deltas over whatever snapshots landed and
+    // converges to the same rows and memberships.
+    for (let kill = beforeFlush; kill <= writes.length; kill += 1) {
+      const disk = createMemoryPlane();
+      for (const write of writes.slice(0, kill)) disk.set(write.key, write.value);
+      resetRuntime();
+      configureDb({ storage: disk, transport: createMockTransport() });
+      await bootDb();
+      expect(left.find('left-1')).toMatchObject({ label: 'left' });
+      expect(right.find('right-1')).toMatchObject({ label: 'right' });
+      expect(left.scopes.thread.read({ chatId: 'chat-1' }).map(row => row.id)).toEqual(['left-1']);
+      expect(right.scopes.thread.read({ chatId: 'chat-1' }).map(row => row.id)).toEqual(['right-1']);
+    }
   });
 });

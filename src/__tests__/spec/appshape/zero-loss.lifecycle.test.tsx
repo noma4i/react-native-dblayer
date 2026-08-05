@@ -78,6 +78,8 @@ const Message = defineModel('ZeroLossMessage', {
     mediaItems: { by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
   }),
   maintenance: { dropTempRowsAfterMs: 600_000 },
+  // The app-shaped media contract: a trimmed fragment channel must not regress landed media.
+  write: { groups: [{ fields: ['media'], policy: 'continuity' }] },
   actions: owner => ({
     send: owner.gql.action<SendData, Record<string, never>, { row: SendInput }, 'send'>(document, {
       mode: 'request',
@@ -426,6 +428,137 @@ describe('zero-loss lifecycle', () => {
     expect(row).toBeDefined();
     // Boot rollback is field-level, like the runtime path: media landed AFTER the edit started and survives.
     expect(row!.media?.fileUrl).toBe('https://cdn/video.mp4');
+  });
+
+  it('fuzz: full lifecycle with dual-channel delivery holds every assert class', async () => {
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      const random = mulberry32(seed + 20_000);
+      const storage = createFaultStorage();
+      const responseQueue: Array<(value: { data: SendData | EditData }) => void> = [];
+      resetRuntime();
+      configureDb({
+        storage: storage.plane,
+        transport: createMockTransport({
+          mutation: async <TData,>() => new Promise<{ data: TData }>(resolve => responseQueue.push(resolve as (value: { data: SendData | EditData }) => void))
+        })
+      });
+      seedManifest();
+      await bootDb();
+      const media = (id: string): SendMedia => ({ id: `m-${id}`, kind: 'video', fileUrl: `https://cdn/${id}.mp4`, thumbUrl: null });
+      const serverTruth = new Map<string, SendInput>();
+      const openSends: Array<{ tempId: string; input: SendInput }> = [];
+      const ackedTempIds: string[] = [];
+      let seq = 0;
+      let localIndex = 0;
+      const landedRow = (id: string, withMedia: boolean): SendInput => {
+        seq += 1;
+        return { ...serverRow(id, `landed-${id}`, seq), ...(withMedia ? { media: media(id) } : {}) };
+      };
+      try {
+        for (let step = 0; step < 14; step += 1) {
+          const roll = Math.floor(random() * 6);
+          if (roll === 0) {
+            const row = landedRow(`srv-live-${step}`, random() < 0.5);
+            serverTruth.set(row.id, row);
+            Message.where({ chatId: 'chat-1' }).seed([row]);
+          } else if (roll === 1 && serverTruth.size > 0) {
+            // Trimmed fragment channel: the same server row arrives without its media payload.
+            // The continuity policy keeps the landed media; the derived bucket must not flip.
+            const ids = [...serverTruth.keys()];
+            const id = ids[Math.floor(random() * ids.length)]!;
+            const truth = serverTruth.get(id)!;
+            const trimmed = { ...truth };
+            delete trimmed.media;
+            delete trimmed.mediaBucket;
+            Message.where({ chatId: 'chat-1' }).seed([trimmed as SendInput]);
+          } else if (roll === 2) {
+            localIndex += 1;
+            seq += 1;
+            const withMedia = random() < 0.5;
+            const input: SendInput = {
+              id: `local-${localIndex}`,
+              chatId: 'chat-1',
+              userId: 'me',
+              body: `draft-${localIndex}`,
+              status: 'Sending',
+              createdAt: NOW,
+              updatedAt: NOW,
+              sequenceNumber: seq,
+              ...(withMedia ? { media: media(`local-${localIndex}`) } : {})
+            };
+            Message.actions.send.run({ row: input }).catch(() => {});
+            await Promise.resolve();
+            const tempId = Message.where({ chatId: 'chat-1' })
+              .read()
+              .find(row => row.status === 'Sending' && row.body === input.body)!.id;
+            openSends.push({ tempId, input });
+          } else if (roll === 3 && openSends.length > 0 && responseQueue.length > 0) {
+            const send = openSends.shift()!;
+            const serverId = `srv-ack-${send.tempId}`;
+            const acked: SendInput = { ...send.input, id: serverId, status: 'Sent', ...(send.input.media ? { media: media(serverId) } : {}) };
+            serverTruth.set(serverId, acked);
+            // Dual-channel delivery in both orders: half the time the same server row lands
+            // through the live channel BEFORE the response replace swaps the temp row - and the
+            // live copy is TRIMMED (no media), so only the response merge can land the media.
+            if (random() < 0.5) {
+              const trimmedEcho = { ...acked };
+              delete trimmedEcho.media;
+              delete trimmedEcho.mediaBucket;
+              Message.where({ chatId: 'chat-1' }).seed([trimmedEcho as SendInput]);
+            }
+            responseQueue.shift()!({ data: { send: { message: acked } } });
+            await Promise.resolve();
+            await Promise.resolve();
+            ackedTempIds.push(send.tempId);
+          } else if (roll === 4 && serverTruth.size > 0) {
+            const ids = [...serverTruth.keys()];
+            const id = ids[Math.floor(random() * ids.length)]!;
+            Message.destroy(id);
+            serverTruth.delete(id);
+          } else if (roll === 5) {
+            getApplyRuntime().flushCacheSnapshots();
+          }
+        }
+        getApplyRuntime().flushCacheSnapshots();
+        const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length);
+        await bootOn(disk);
+
+        // loss: no user-data loss events on a clean lifecycle.
+        expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+        // row parity + field parity: every server row is served with its landed fields.
+        for (const [id, truth] of serverTruth) {
+          const row = Message.find(id);
+          expect(row).toBeDefined();
+          expect(row!.body).toBe(truth.body);
+          if (truth.media) expect(row!.media?.fileUrl).toBe(truth.media.fileUrl);
+        }
+        // no-resurrect: a destroyed server id never comes back through any channel.
+        const allRows = Message.where({ chatId: 'chat-1' }).read();
+        for (const row of allRows) {
+          if (row.id.startsWith('srv-') && !serverTruth.has(row.id)) throw new Error(`resurrected server row ${row.id}`);
+        }
+        // no-duplicates + no-eternal-temp: an acked temp is gone; an open temp survives with an open operation.
+        for (const tempId of ackedTempIds) expect(Message.find(tempId)).toBeUndefined();
+        for (const send of openSends) {
+          expect(Message.find(send.tempId)).toBeDefined();
+          const operation = Message.operation(send.tempId).read();
+          expect(operation.pending || operation.failed).toBe(true);
+        }
+        // membership parity: the thread scope serves exactly the server truth plus open temps.
+        const memberIds = Message.thread({ chatId: 'chat-1' }).read().map(row => row.id).sort();
+        const expectedIds = [...serverTruth.keys(), ...openSends.map(send => send.tempId)].sort();
+        expect(memberIds).toEqual(expectedIds);
+        // derived by-scope parity: the media bucket serves exactly the rows whose media landed.
+        const mediaIds = Message.mediaItems({ chatId: 'chat-1', mediaBucket: 'visual' }).read().map(row => row.id).sort();
+        const expectedMediaIds = [
+          ...[...serverTruth.values()].filter(truth => truth.media).map(truth => truth.id),
+          ...openSends.filter(send => send.input.media).map(send => send.tempId)
+        ].sort();
+        expect(mediaIds).toEqual(expectedMediaIds);
+      } catch (error) {
+        throw new Error(`seed ${seed}: ${(error as Error).message}`);
+      }
+    }
   });
 
   it('never loses user rows to random corruption of cache keys', async () => {
