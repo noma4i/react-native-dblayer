@@ -84,6 +84,42 @@ describe('relation effect in-batch edges', () => {
     expect(chats.find('chat-1')).toMatchObject({ lastActivityAt: 9 });
   });
 
+  it('lets the replace upsert leg touch the parent so the preview follows the swap', () => {
+    setupSpecRuntime();
+    const chats = defineModel('SpecEffectsChatsSwapTouch', {
+      schema: defineShape<{ id: string; unreadCount: number; lastActivityAt: number; lastMessageId: string | null }>()({
+        unreadCount: f.num(),
+        lastActivityAt: f.num(),
+        lastMessageId: f.str().nullable()
+      })
+    });
+    const messages = defineModel('SpecEffectsMessagesSwapTouch', {
+      schema: defineShape<Message>()({ chatId: f.str(), createdAt: f.num() }),
+      associations: () => ({
+        chat: belongsTo<Message, { id: string; unreadCount: number; lastActivityAt: number; lastMessageId: string | null }>(chats, {
+          foreignKey: 'chatId',
+          counterCache: { field: 'unreadCount' },
+          touch: (message, chat) => (message.createdAt >= chat.lastActivityAt ? { lastMessageId: message.id, lastActivityAt: message.createdAt } : null)
+        })
+      })
+    });
+    chats.insert({ id: 'chat-1', unreadCount: 0, lastActivityAt: 0, lastMessageId: null });
+    applyEvent(messages, [{ id: 'tmp:1', chatId: 'chat-1', createdAt: 5 }]);
+    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'tmp:1' });
+
+    // The response swap: the server row replaces the temp row in one plan. The parent preview
+    // must follow the swap - a dangling reference to the destroyed temp id is the defect class.
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        { kind: 'upsert', model: messages.key, rows: [{ id: 'srv-1', chatId: 'chat-1', createdAt: 5 }], origin: 'replace' },
+        { kind: 'destroy', model: messages.key, ids: ['tmp:1'], origin: 'replace' }
+      ])
+    );
+
+    expect(messages.find('tmp:1')).toBeUndefined();
+    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'srv-1', unreadCount: 1 });
+  });
+
   it('trusts an authoritative parent snapshot over a derived counter in the same batch', () => {
     const { chats, messages } = createChatModels('Authoritative');
     const parentPlan = getInternalModelHandle(chats).planRows([{ id: 'chat-1', unreadCount: 50, lastActivityAt: 40 }], { origin: 'event' });
