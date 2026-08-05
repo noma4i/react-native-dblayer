@@ -201,7 +201,8 @@ export const createAppModels = (tag: string) => {
     scopes: { all: ({ sort: { field: 'createdAt', dir: 'desc' } }), byKind: ({ by: { kind: 'kind' }, sort: { field: 'createdAt', dir: 'desc' } }) }
   });
 
-  const messages: any = defineModelRuntime({
+  const messages: any = defineModelRuntime(
+    {
     id: `AppShapeMessage:${tag}`,
     name: `AppShapeMessage:${tag}`,
     fields: {
@@ -229,9 +230,12 @@ export const createAppModels = (tag: string) => {
       ]
     },
     maintenance: { dropTempRowsAfterMs: 60_000, maxRowsPerScope: [{ scopeField: 'chatId', limit: 300, compare: compareMessagesNewest, protect: () => { const ids = new Set(chats.all().flatMap((chat: any) => chat.lastMessageId ? [chat.lastMessageId] : [])); return (message: any) => ids.has(message.id); } }] }
-  });
+    },
+    {}
+  );
 
-  const chats = defineModelRuntime({
+  const chats = defineModelRuntime(
+    {
     id: `AppShapeChat:${tag}`,
     name: `AppShapeChat:${tag}`,
     fields: {
@@ -246,7 +250,11 @@ export const createAppModels = (tag: string) => {
     },
     relations: () => ({ messages: hasMany<any, any>(messages, { foreignKey: 'chatId', dependent: 'destroy' }), lastMessage: hasOne<any, any>(messages, { foreignKey: 'chatId', comparator: compareMessagesNewest }), memberUsers: references<any, any>(users, { ids: chat => chat.userIds ?? [] }) }),
     write: { groups: [{ fields: ['lastMessageId', 'lastMessageAt', 'lastSequenceNumber'] as const, policy: { monotonic: { tuple: ['lastSequenceNumber', 'lastMessageAt', 'lastMessageId'] } } }, { fields: ['pinned', 'muted'] as const, policy: { monotonic: { newerBy: 'updatedAt' } } }] }
-  });
+    },
+    // The app's ChatModel sideload channel: a chat payload lands its lastMessage node into the
+    // messages model with the chat's string id stamped as chatId.
+    { sideloads: () => ({ lastMessage: { model: messages, select: (chat: any) => (chat.lastMessage ? { ...chat.lastMessage, chatId: chat.id } : null) } }) }
+  );
 
   const moments = defineModelRuntime({
     id: `AppShapeMoment:${tag}`,

@@ -430,23 +430,27 @@ describe('zero-loss lifecycle', () => {
     expect(row!.media?.fileUrl).toBe('https://cdn/video.mp4');
   });
 
-  it('[T13] fuzz: full lifecycle with dual-channel delivery holds every assert class', async () => {
+  it('[T13] fuzz: full lifecycle with dual-channel delivery and session operators holds every assert class', async () => {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       const random = mulberry32(seed + 20_000);
-      const storage = createFaultStorage();
+      let storage = createFaultStorage();
       const responseQueue: Array<(value: { data: SendData | EditData }) => void> = [];
-      resetRuntime();
-      configureDb({
-        storage: storage.plane,
-        transport: createMockTransport({
+      const makeTransport = () =>
+        createMockTransport({
           mutation: async <TData,>() => new Promise<{ data: TData }>(resolve => responseQueue.push(resolve as (value: { data: SendData | EditData }) => void))
-        })
-      });
+        });
+      resetRuntime();
+      configureDb({ storage: storage.plane, transport: makeTransport() });
       seedManifest();
       await bootDb();
       const media = (id: string): SendMedia => ({ id: `m-${id}`, kind: 'video', fileUrl: `https://cdn/${id}.mp4`, thumbUrl: null });
+      /** What the mock server holds - survives every reset, reboot and account switch. */
       const serverTruth = new Map<string, SendInput>();
+      /** What the LOCAL store must serve - starts empty again on every sanctioned wipe. */
+      const localTruth = new Map<string, SendInput>();
       const openSends: Array<{ tempId: string; input: SendInput }> = [];
+      /** Sends whose session died under them (reboot): unackable, but their ledger record survives. */
+      const orphanSends: Array<{ tempId: string; input: SendInput }> = [];
       const ackedTempIds: string[] = [];
       let seq = 0;
       let localIndex = 0;
@@ -454,22 +458,68 @@ describe('zero-loss lifecycle', () => {
         seq += 1;
         return { ...serverRow(id, `landed-${id}`, seq), ...(withMedia ? { media: media(id) } : {}) };
       };
+      /** The manifest invariant after EVERY step: a nonempty namespace always carries the manifest. */
+      const assertManifestPresence = (): void => {
+        const keys = storage.plane.keys('dbl:');
+        if (keys.some(key => key !== 'dbl:manifest')) expect(keys).toContain('dbl:manifest');
+      };
+      /** Sanctioned flows never classify the store as corrupt: `model-corruption-recovery` is impossible. */
+      const assertNoCorruptionClassification = (): void => {
+        expect(diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'model-corruption-recovery')).toEqual([]);
+      };
+      /** Logout: the local store empties, the outbox discard is DECLARED loss, never silence. */
+      const resetAsLogout = (): void => {
+        const pending = openSends.length + orphanSends.length;
+        resetRuntime();
+        const discards = diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'user-reset-discard');
+        if (pending > 0) expect(discards).toEqual([{ mechanism: 'user-reset-discard', model: '__operations__', count: pending }]);
+        else expect(discards).toEqual([]);
+        localTruth.clear();
+        openSends.length = 0;
+        orphanSends.length = 0;
+        responseQueue.length = 0;
+      };
+      /** Process restart on the current disk snapshot: in-flight responses die, the ledger rides. */
+      const rebootOnCurrentDisk = async (): Promise<void> => {
+        getApplyRuntime().flushCacheSnapshots();
+        const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length) as StoragePlane & { snapshotKeys: () => string[] };
+        const next = createFaultStorage();
+        for (const key of disk.snapshotKeys()) next.plane.set(key, disk.get(key) ?? null);
+        storage = next;
+        orphanSends.push(...openSends.splice(0));
+        responseQueue.length = 0;
+        resetRuntime();
+        configureDb({ storage: storage.plane, transport: makeTransport() });
+        await bootDb();
+        assertNoCorruptionClassification();
+      };
+      /** Account switch: logout reset, then a full re-login boot on the SAME plane. */
+      const switchAccountOnSamePlane = async (): Promise<void> => {
+        resetAsLogout();
+        configureDb({ storage: storage.plane, transport: makeTransport() });
+        await bootDb();
+        assertNoCorruptionClassification();
+      };
       try {
         for (let step = 0; step < 14; step += 1) {
-          const roll = Math.floor(random() * 6);
+          const roll = Math.floor(random() * 9);
           if (roll === 0) {
             const row = landedRow(`srv-live-${step}`, random() < 0.5);
             serverTruth.set(row.id, row);
+            localTruth.set(row.id, row);
             Message.where({ chatId: 'chat-1' }).seed([row]);
           } else if (roll === 1 && serverTruth.size > 0) {
             // Trimmed fragment channel: the same server row arrives without its media payload.
             // The continuity policy keeps the landed media; the derived bucket must not flip.
+            // After a wipe the trimmed copy is the row's FIRST local delivery: no media to keep.
             const ids = [...serverTruth.keys()];
             const id = ids[Math.floor(random() * ids.length)]!;
             const truth = serverTruth.get(id)!;
             const trimmed = { ...truth };
             delete trimmed.media;
             delete trimmed.mediaBucket;
+            const existing = localTruth.get(id);
+            localTruth.set(id, existing?.media ? { ...(trimmed as SendInput), media: existing.media } : (trimmed as SendInput));
             Message.where({ chatId: 'chat-1' }).seed([trimmed as SendInput]);
           } else if (roll === 2) {
             localIndex += 1;
@@ -497,6 +547,7 @@ describe('zero-loss lifecycle', () => {
             const serverId = `srv-ack-${send.tempId}`;
             const acked: SendInput = { ...send.input, id: serverId, status: 'Sent', ...(send.input.media ? { media: media(serverId) } : {}) };
             serverTruth.set(serverId, acked);
+            localTruth.set(serverId, acked);
             // Dual-channel delivery in both orders: half the time the same server row lands
             // through the live channel BEFORE the response replace swaps the temp row - and the
             // live copy is TRIMMED (no media), so only the response merge can land the media.
@@ -515,44 +566,56 @@ describe('zero-loss lifecycle', () => {
             const id = ids[Math.floor(random() * ids.length)]!;
             Message.destroy(id);
             serverTruth.delete(id);
+            localTruth.delete(id);
           } else if (roll === 5) {
             getApplyRuntime().flushCacheSnapshots();
+          } else if (roll === 6) {
+            resetAsLogout();
+          } else if (roll === 7) {
+            await rebootOnCurrentDisk();
+          } else if (roll === 8) {
+            await switchAccountOnSamePlane();
           }
+          assertManifestPresence();
         }
         getApplyRuntime().flushCacheSnapshots();
-        const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length);
+        const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length) as StoragePlane & { snapshotKeys: () => string[] };
         await bootOn(disk);
 
-        // loss: no user-data loss events on a clean lifecycle.
+        // loss: no user-data loss events on a clean lifecycle; a wipe never reads as corruption.
         expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
-        // row parity + field parity: every server row is served with its landed fields.
-        for (const [id, truth] of serverTruth) {
+        expect(diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'model-corruption-recovery')).toEqual([]);
+        // manifest: the disk this session ends on is manifested whenever it is nonempty.
+        if (disk.snapshotKeys().some(key => key !== 'dbl:manifest')) expect(disk.snapshotKeys()).toContain('dbl:manifest');
+        // row parity + field parity: every locally landed row is served with its landed fields.
+        for (const [id, truth] of localTruth) {
           const row = Message.find(id);
           expect(row).toBeDefined();
           expect(row!.body).toBe(truth.body);
           if (truth.media) expect(row!.media?.fileUrl).toBe(truth.media.fileUrl);
         }
-        // no-resurrect: a destroyed server id never comes back through any channel.
+        // no-resurrect: a destroyed server id never comes back through any channel or session.
         const allRows = Message.where({ chatId: 'chat-1' }).read();
         for (const row of allRows) {
           if (row.id.startsWith('srv-') && !serverTruth.has(row.id)) throw new Error(`resurrected server row ${row.id}`);
         }
-        // no-duplicates + no-eternal-temp: an acked temp is gone; an open temp survives with an open operation.
+        // no-duplicates + no-eternal-temp: an acked temp is gone; an open or orphaned temp survives
+        // with an open operation - a dead session's response is lost, its ledger record is not.
         for (const tempId of ackedTempIds) expect(Message.find(tempId)).toBeUndefined();
-        for (const send of openSends) {
+        for (const send of [...openSends, ...orphanSends]) {
           expect(Message.find(send.tempId)).toBeDefined();
           const operation = Message.operation(send.tempId).read();
           expect(operation.pending || operation.failed).toBe(true);
         }
-        // membership parity: the thread scope serves exactly the server truth plus open temps.
+        // membership parity: the thread scope serves exactly the local truth plus live temps.
         const memberIds = Message.thread({ chatId: 'chat-1' }).read().map(row => row.id).sort();
-        const expectedIds = [...serverTruth.keys(), ...openSends.map(send => send.tempId)].sort();
+        const expectedIds = [...localTruth.keys(), ...openSends.map(send => send.tempId), ...orphanSends.map(send => send.tempId)].sort();
         expect(memberIds).toEqual(expectedIds);
         // derived by-scope parity: the media bucket serves exactly the rows whose media landed.
         const mediaIds = Message.mediaItems({ chatId: 'chat-1', mediaBucket: 'visual' }).read().map(row => row.id).sort();
         const expectedMediaIds = [
-          ...[...serverTruth.values()].filter(truth => truth.media).map(truth => truth.id),
-          ...openSends.filter(send => send.input.media).map(send => send.tempId)
+          ...[...localTruth.values()].filter(truth => truth.media).map(truth => truth.id),
+          ...[...openSends, ...orphanSends].filter(send => send.input.media).map(send => send.tempId)
         ].sort();
         expect(mediaIds).toEqual(expectedMediaIds);
       } catch (error) {
