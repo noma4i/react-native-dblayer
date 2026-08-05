@@ -120,6 +120,7 @@ export type ModelRuntimeRegistrationOptions<TStored extends {
         }>;
     };
     normalize(input: unknown): TStored;
+    admitPlanRow(value: unknown): TStored | undefined;
     applySnapshot(ops: WriteOp[]): void;
     planRows(rows: unknown[]): WriteOp[];
     planReplace(oldId: string, next: unknown): WriteOp[];

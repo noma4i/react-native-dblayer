@@ -40,6 +40,7 @@ export const registerModelRuntime = <TStored extends { id: string; updatedAt?: s
   registerInternalModelHandle(model, {
     modelId: options.modelId,
     normalizeRowId: row => options.normalize(row).id,
+    admitRowId: row => options.admitPlanRow(row)?.id,
     readRow: id => planes().entityState.read(id),
     applyRows: rows => options.applySnapshot(options.planRows(rows)),
     applyPatch: (id, patch, operationId) => getApplyRuntime().commit(createCommitEnvelope([{ kind: 'patch', model: options.modelId, id: String(id), patch, operationId }])),

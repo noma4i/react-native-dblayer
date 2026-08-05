@@ -279,6 +279,33 @@ describe('app-shaped fresh login thread window', () => {
     expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 
+  it('[F55] lands the valid page rows when the response carries a malformed node, and quarantines the reject', async () => {
+    const storage = createMemoryPlane();
+    configureDb({
+      storage,
+      transport: createMockTransport({
+        query: async <TData,>(operation: { variables?: unknown }) => {
+          const variables = operation.variables as Record<string, unknown>;
+          if ('statusFilter' in variables) return { data: chatListResponse() as TData };
+          const malformed = { ...threadMessage(3), id: undefined };
+          return { data: threadResponse([threadMessage(1), malformed, threadMessage(2)]) as TData };
+        }
+      })
+    });
+    const models = createAppModels('FreshLoginF55');
+    const { threadQuery } = declareQueries(models);
+    await act(async () => {
+      await bootDb();
+    });
+
+    // One rotten node must not take the page down with it: the valid siblings land and render.
+    await threadQuery.fetch({ chatId: 'chat-1' });
+    expect(threadIds(models)).toEqual(['m-2', 'm-1']);
+    expect(models.messages.find('m-1')).toMatchObject({ body: 'body-1' });
+    expect(models.messages.find('m-2')).toMatchObject({ body: 'body-2' });
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
+  });
+
   it('[F54] a zombie thread reader of session A does not land its flight into session B on the same plane', async () => {
     const storage = createMemoryPlane();
     let threadResolverA: ((data: ThreadResponse) => void) | undefined;

@@ -254,9 +254,15 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     isCurrent: () => boolean
   ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
-    const nodes = nodesOf(selected, config.page !== undefined);
+    const rawNodes = nodesOf(selected, config.page !== undefined);
     const pageMeta = config.page ? pageMetaOf(selected as ConnectionLike | null | undefined) : { endCursor: null, hasNextPage: false };
     const destinationModel = destinationScope === null ? getInternalModelHandle(config.into) : null;
+    // Landing admission judges each node ONCE: a malformed node is quarantined as
+    // plan-row-rejected and dropped here, so it can neither crash the landing nor take its
+    // valid siblings down with it. The chain below is built from the same admitted set.
+    const admitRowId = destinationScope ? (row: unknown) => destinationScope.admitRowId(row) : (row: unknown) => destinationModel!.admitRowId(row);
+    const admitted = (rawNodes as unknown[]).map(row => ({ row, id: admitRowId(row) })).filter(entry => entry.id !== undefined) as Array<{ row: unknown; id: string }>;
+    const nodes = admitted.map(entry => entry.row);
     const rootOwner = destinationScope
       ? {
           modelId: destinationModelId,
@@ -292,9 +298,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       reportSyncError(error, { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery')
     );
     if (!invalidationsCurrent) throw new Error('react-native-dblayer: defineQuery response dropped - runtime was reset before it resolved');
-    const committedRows = nodes;
-    const normalizeRowId = destinationScope ? (row: unknown) => destinationScope.normalizeRowId(row) : (row: unknown) => destinationModel!.normalizeRowId(row);
-    const ids = committedRows.map(row => compositeKey(destinationModelId, normalizeRowId(row)));
+    const ids = admitted.map(entry => compositeKey(destinationModelId, entry.id));
     return { meta: pageMeta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {

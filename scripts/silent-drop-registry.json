@@ -7834,6 +7834,11 @@
       "key": "src/core/quarantine.ts|const diagnosticTickets = state.entries.filter(candidate => candidate.reason === 'plan-row-rejected');|1",
       "verdict": "NONDROP",
       "ref": "selection for the cap check; the eviction (the drop point) is the splice below; orphan-temp-row and every non-row entry never enter the capped set (spec 04 W-exception, [P44])"
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|const admitted = (rawNodes as unknown[]).map(row => ({ row, id: admitRowId(row) })).filter(entry => entry.id !== undefined) as Array<{ row: unknown; id: string }>;|1",
+      "verdict": "CONTRACT",
+      "ref": "08-freshness-pacing.md: a malformed node inside a valid page is judged once by the admission seam, quarantined as plan-row-rejected, and never takes the landing down"
     }
   ]
 }

@@ -228,6 +228,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
     } as ScopeHandle<TStored, Record<string, unknown>, TInput>;
     registerInternalScopeHandle(scopeHandle, {
       normalizeRowId: row => options.normalize(row).id,
+      admitRowId: row => options.admitPlanRow(row)?.id,
       apply: (scopeValue, rows, coverage, planOptions) => {
         options.applySnapshot(
           planApply(

@@ -502,6 +502,52 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
+  it('[F44] keeps the original freshness stamp through a full-length identity rewrite', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          return { data: { rows: [{ id: 'row-1', name: 'First', group: null }] } as TData };
+        }
+      })
+    });
+    const rows = createRowsModel('FreshnessRewriteStamp');
+    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-rewrite-stamp', select: data => data.rows, staleTime: 100 });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+    // The swap lands 50ms in: rewriting the chain onto the successor must NOT restamp freshness.
+    act(() => {
+      jest.advanceTimersByTime(50);
+    });
+    act(() => {
+      getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('row-1', { id: 'server-1', name: 'First', group: null })));
+    });
+    await settle();
+    act(() => {
+      jest.advanceTimersByTime(70);
+    });
+    // 120ms after the LANDING the data is stale (staleTime 100). A rewrite stamped at +50ms
+    // would still read fresh here and silently suppress this refetch.
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+    expect(calls).toBe(2);
+    act(() => root.unmount());
+  });
+
   it('[F45] survives a loss touch on a chain that never landed data', async () => {
     configureDb({
       storage: createMemoryPlane(),

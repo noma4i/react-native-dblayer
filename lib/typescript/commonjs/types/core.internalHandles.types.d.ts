@@ -6,6 +6,8 @@ import type { RowRecord } from './db.types';
 export type InternalModelHandle = {
     readonly modelId: string;
     normalizeRowId(row: unknown): string;
+    /** Landing admission: the normalized id, or undefined after the row was quarantined as plan-row-rejected. */
+    admitRowId(row: unknown): string | undefined;
     readRow(id: string): RowRecord | undefined;
     applyRows(rows: unknown[]): void;
     applyPatch(id: string, patch: Record<string, unknown>, operationId?: string): void;
@@ -28,6 +30,8 @@ export type InternalModelHandle = {
 /** Opaque per-scope capabilities: apply plans, keying, order semantics, and resolution. */
 export type InternalScopeHandle = {
     normalizeRowId(row: unknown): string;
+    /** Landing admission: the normalized id, or undefined after the row was quarantined as plan-row-rejected. */
+    admitRowId(row: unknown): string | undefined;
     apply(scopeValue: unknown, rows: unknown[], coverage: ScopeCoverage, options?: {
         resetOrder?: boolean;
     }): void;
