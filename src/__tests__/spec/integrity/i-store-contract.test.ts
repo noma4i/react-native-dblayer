@@ -153,7 +153,7 @@ describe('model store', () => {
       runInStoreTransaction(() => {
         afterStoreTransaction(() => {
           order.push('first');
-          throw new Error('completion failed');
+          throw new Error('first completion failed');
         });
         afterStoreTransaction(() => order.push('second'));
         afterStoreTransaction(() => {
@@ -162,7 +162,7 @@ describe('model store', () => {
         });
       })
     // 2 completions threw: the caller sees the FIRST failure, not the last one to fire.
-    ).toThrow('completion failed');
+    ).toThrow(/^first completion failed$/);
 
     expect(order).toEqual(['first', 'second', 'third']);
   });

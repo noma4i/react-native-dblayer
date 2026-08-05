@@ -264,8 +264,10 @@ describe('query persistence records', () => {
     storage.set(keyOf(declaration.family, 'd'), encodePersistence(record({ identity: 'd', fingerprint: 'moved' })));
     expect(readPersistedQueryFamily(declaration)).toEqual([]);
     expect(fingerprintResets()).toBe(6);
-    // The loss event carries its full identity: mechanism, runtime model, unit count.
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'query-record-fingerprint-reset', model: '__runtime__', count: 1 });
+    // EVERY fingerprint-class loss event carries its full identity: mechanism, runtime model, unit count.
+    expect(diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'query-record-fingerprint-reset')).toStrictEqual(
+      Array.from({ length: 6 }, () => ({ mechanism: 'query-record-fingerprint-reset', model: '__runtime__', count: 1 }))
+    );
   });
 
   it('[P23] invalidates every accepted family record with one physical write', () => {
