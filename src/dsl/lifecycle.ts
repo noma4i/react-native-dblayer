@@ -1,15 +1,16 @@
 import type { MaintenanceReport } from '../types';
-import { ensurePersistenceCompatibility } from '../core/schemaManifest';
+import { reconcilePersistence } from '../core/schemaManifest';
 import { runBootValidations } from './bootValidations';
-import { flushPersistence, purgeForeignStorageKeys, replayJournal } from './configure';
+import { purgeForeignStorageKeys } from './configure';
 import { runModelMaintenance } from './maintenanceRegistry';
 import { getApplyTargets } from '../core/apply/applyTargetRegistry';
+import { runBootFsck } from '../core/bootFsck';
 import { hydrateStoreScopes, markStoresReady } from '../core/store';
 import { createGenerationFence } from '../utils/runtimeGeneration';
 
 /**
- * Recommended data-startup sequence after `configureDb`: deferred definition validation, persistence
- * compatibility validation, then `replayJournal()` to recover any WAL-only writes from a crash, then
+ * Recommended data-startup sequence after `configureDb`: deferred definition validation, the
+ * persistence reconcile, then the boot fsck to repair any partially-written commit, then
  * `purgeForeignStorageKeys()` to clear any pre-migration/foreign storage keys, then the declared model
  * maintenance - in exactly that order, once, before the first render that reads a model.
  *
@@ -17,22 +18,21 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
  * it, so nothing here decides that stored data has outlived its usefulness.
  *
  * Every model module MUST be imported (so `defineModel` has registered its apply target) before calling
- * this - `replayJournal` throws on a journal record whose model has no registered apply target, and that
- * throw is intentionally loud here: `bootDb` does not catch or swallow validation or replay errors, since a
- * silent partial boot is worse than a startup crash.
+ * this - the fsck commits repairs through registered apply targets, and a missing target is intentionally
+ * loud here: `bootDb` does not catch or swallow validation or repair errors, since a silent partial boot
+ * is worse than a startup crash.
  *
- * @returns `replayed` - the journal record count `replayJournal` recovered; `maintenance` - reports of
- * every declared model maintenance task; `reset` - whether a full incompatible namespace reset cleared persisted state.
- * Model-level schema migrations leave `reset` false.
+ * @returns `maintenance` - reports of every declared model maintenance task; `reset` - whether a full
+ * incompatible namespace reset cleared persisted state. Model-level schema migrations leave `reset` false.
  */
-export const bootDb = async (): Promise<{ replayed: number; maintenance: MaintenanceReport[]; reset: boolean }> => {
+export const bootDb = async (): Promise<{ maintenance: MaintenanceReport[]; reset: boolean }> => {
   runBootValidations();
-  const compatibility = ensurePersistenceCompatibility();
+  const reconciliation = reconcilePersistence();
   const generationFence = createGenerationFence();
   const assertCurrentGeneration = (): void => {
     if (!generationFence.isCurrent()) throw new Error('runtime generation changed during boot');
   };
-  const replayed = replayJournal();
+  runBootFsck();
   assertCurrentGeneration();
   hydrateStoreScopes(getApplyTargets());
   assertCurrentGeneration();
@@ -42,21 +42,5 @@ export const bootDb = async (): Promise<{ replayed: number; maintenance: Mainten
   assertCurrentGeneration();
   const maintenance = runModelMaintenance();
   assertCurrentGeneration();
-  return { replayed, maintenance, reset: compatibility.reset };
-};
-
-/**
- * Recommended app-background/teardown sequence: write pending checkpoint snapshots to storage now, so
- * that everything held in memory survives a process kill. Call this on app background/inactive and
- * before logout teardown (a full state wipe still goes through `resetRuntime`'s kill-switch).
- *
- * Backgrounding discards nothing. The app going out of view says nothing about which rows the user
- * still wants, and this runs immediately before the process may be killed - the one moment where
- * discarding a row makes it unrecoverable.
- *
- * Safe to call repeatedly, and safe to call before `configureDb` has run: it no-ops when there is
- * nothing scheduled.
- */
-export const suspendDb = (): void => {
-  flushPersistence();
+  return { maintenance, reset: reconciliation.reset };
 };

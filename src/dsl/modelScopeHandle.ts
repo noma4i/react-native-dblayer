@@ -21,7 +21,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   normalizeScopeValue(scopeName: string, scopeValue: unknown): unknown;
   isScopeValueComplete(scopeName: string, scopeValue: unknown): boolean;
   scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
-  isPlanRow(input: unknown): boolean;
+  admitPlanRow(input: unknown): TStored | undefined;
   normalize(input: unknown): TStored;
   applyTarget: Pick<ApplyTarget, 'scopeSortMeta'>;
   useScopeAccess(scopeKey: string | null): void;
@@ -111,7 +111,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp[] => {
-      const liveRows = rows.filter(({ row }) => options.isPlanRow(row)).filter(({ row }) => !planes().entityState.isTombstoned(options.normalize(row).id));
+      const liveRows = rows.filter(({ row }) => options.admitPlanRow(row) !== undefined).filter(({ row }) => !planes().entityState.isTombstoned(options.normalize(row).id));
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
       const rowOps = options.planRows(liveRows.map(({ row }) => row));
       const releasedIds = new Set(
@@ -208,7 +208,7 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       },
       seed: (scopeValue: unknown, rows: TInput[]) => {
         const liveRows = rows
-          .filter(options.isPlanRow)
+          .filter(row => options.admitPlanRow(row) !== undefined)
           .filter(row => !planes().entityState.isTombstoned(options.normalize(row).id))
           .map(row => ({ row: row as Record<string, unknown> }));
         options.applyEvent([

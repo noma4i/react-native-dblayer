@@ -1,10 +1,10 @@
 import { uniq, uniqBy } from 'es-toolkit';
-import type { ApplyTarget, IncrementalCommitBatch, IncrementalScopeChange, JournalOp } from '../../types';
+import type { ApplyTarget, IncrementalCommitBatch, IncrementalScopeChange, AppliedOp } from '../../types';
 import { runInApplyBatch } from '../store';
 import { compositeKey } from '../serialize';
 import { getApplyTarget } from './applyTargetRegistry';
 
-const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
+const applyOperations = (ops: AppliedOp[]): IncrementalCommitBatch => {
   const batch: IncrementalCommitBatch = { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
   const scopeChanges = new Map<string, IncrementalScopeChange>();
   const noteScope = (
@@ -75,9 +75,9 @@ const applyOperations = (ops: JournalOp[]): IncrementalCommitBatch => {
   return batch;
 };
 
-export const touchedModelsOf = (ops: JournalOp[]): string[] => uniq(ops.map(op => op.model));
+export const touchedModelsOf = (ops: AppliedOp[]): string[] => uniq(ops.map(op => op.model));
 
-export const applyAtomically = (ops: JournalOp[], commitEpoch: number, persist: (targets: readonly ApplyTarget[]) => void): IncrementalCommitBatch => {
+export const applyAtomically = (ops: AppliedOp[], commitEpoch: number, persist: (targets: readonly ApplyTarget[]) => void): IncrementalCommitBatch => {
   const targets = touchedModelsOf(ops).map(model => getApplyTarget(model));
   const active: ApplyTarget[] = [];
   let committed = false;

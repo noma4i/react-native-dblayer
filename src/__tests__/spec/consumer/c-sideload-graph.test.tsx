@@ -1,5 +1,5 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { configureDb, defineModel, defineShape, f } from '../../testApi';
+import { configureDb, defineModel, defineShape, f, readQuarantineEntries } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCountedInProvider, settleUntil } from '../helpers/harness';
 
 type UserInput = {
@@ -135,7 +135,7 @@ describe('sideload graph', () => {
     expect(diagnostics().snapshot().commits).toBe(1);
   });
 
-  it('aborts the whole direct graph when a sideload row cannot normalize', () => {
+  it('quarantines a sideload row that cannot normalize and lands the rest of the graph', () => {
     configureRuntime(createMockTransport());
     diagnostics().reset();
     const { Chat, User } = createGraphModels('Abort');
@@ -146,10 +146,11 @@ describe('sideload graph', () => {
       owner: { username: 'missing-id' }
     };
 
-    expect(() => (Chat.insert as (input: unknown) => void)(payload)).toThrow('requires id');
-    expect(Chat.find('chat-invalid')).toBeUndefined();
+    (Chat.insert as (input: unknown) => void)(payload);
+    expect(Chat.find('chat-invalid')).toEqual({ id: 'chat-invalid', ownerId: 'missing', title: 'Invalid' });
     expect(User.where({ username: 'missing-id' }).count()).toBe(0);
-    expect(diagnostics().snapshot().commits).toBe(0);
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', reason: 'plan-row-rejected', raw: { username: 'missing-id' } }));
+    expect(diagnostics().snapshot().commits).toBe(1);
   });
 
   it('terminates a cyclic graph and lands each model id once', () => {

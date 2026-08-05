@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
 import { act } from 'react';
-import { bootDb, configureDb, defineModel, defineShape, f, getOperationState, MutationDeliveryUnknownError, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineModel, defineShape, f, getOperationState, MutationDeliveryUnknownError } from '../../testApi';
 import type { DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle } from '../helpers/harness';
 
@@ -33,7 +33,6 @@ const startDocument: TypedDocumentNode<StartData, StartVariables> = { kind: Kind
 const unrelatedRow: Job = { id: 'unrelated', label: 'unrelated', status: 'done' };
 
 const workSnapshot = (storage: MemoryPlane, owner: Reader, audit: Reader, unrelated: Reader) => ({
-  wal: storage.keys('dbl:journal:').length,
   commits: diagnostics().snapshot().commits,
   ownerTicks: owner.renders(),
   auditTicks: audit.renders(),
@@ -44,9 +43,8 @@ const expectWork = (
   storage: MemoryPlane,
   readers: { owner: Reader; audit: Reader; unrelated: Reader },
   before: ReturnType<typeof workSnapshot>,
-  expected: { wal: number; commits: number; ownerTicks: number; auditTicks: number }
+  expected: { commits: number; ownerTicks: number; auditTicks: number }
 ): void => {
-  expect(storage.keys('dbl:journal:').length - before.wal).toBe(expected.wal);
   expect(diagnostics().snapshot().commits - before.commits).toBe(expected.commits);
   expect(readers.owner.renders() - before.ownerTicks).toBe(expected.ownerTicks);
   expect(readers.audit.renders() - before.auditTicks).toBe(expected.auditTicks);
@@ -122,7 +120,7 @@ describe('durable action transport', () => {
     expect(JobModel.find(handle.tempId)).toEqual({ id: handle.tempId, label: 'created', status: 'pending' });
     expect(JobModel.operation(handle.tempId).read()).toMatchObject({ pending: true, failed: false });
     expect(getOperationState().pending()[0]).toMatchObject({ operationId: handle.operationId, tempIds: [handle.tempId] });
-    expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 0 });
+    expectWork(storage, readers, before, { commits: 1, ownerTicks: 1, auditTicks: 0 });
     unmountReaders(readers);
   });
 
@@ -169,7 +167,7 @@ describe('durable action transport', () => {
       deliveryUnknown: false,
       unsyncedChanges: undefined
     });
-    expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 1 });
+    expectWork(storage, readers, before, { commits: 1, ownerTicks: 1, auditTicks: 1 });
     unmountReaders(readers);
   });
 
@@ -216,7 +214,7 @@ describe('durable action transport', () => {
     expect(JobModel.find(handle.tempId)).toBeUndefined();
     expect(JobModel.where({}).read()).toEqual([{ id: 'single-server', label: 'single-flight', status: 'done' }]);
     expect(AuditModel.where({}).read()).toEqual([{ id: 'single-audit', jobId: 'single-server', label: 'single-flight' }]);
-    expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 1 });
+    expectWork(storage, readers, before, { commits: 1, ownerTicks: 1, auditTicks: 1 });
     unmountReaders(readers);
   });
 
@@ -246,7 +244,7 @@ describe('durable action transport', () => {
 
     expect(JobModel.find(handle.tempId)).toEqual({ id: handle.tempId, label: 'retry', status: 'pending' });
     expect(JobModel.operation(handle.tempId).read()).toMatchObject({ pending: false, failed: true });
-    expectWork(storage, readers, failedBefore, { wal: 1, commits: 1, ownerTicks: 0, auditTicks: 0 });
+    expectWork(storage, readers, failedBefore, { commits: 1, ownerTicks: 0, auditTicks: 0 });
 
     const resumed = JobModel.actions.start.resume(handle.operationId);
     expect(resumed).toBeDefined();
@@ -276,7 +274,7 @@ describe('durable action transport', () => {
     expect(transport.calls).toHaveLength(2);
     expect(JobModel.find(handle.tempId)).toBeUndefined();
     expect(JobModel.find('retry-server')).toEqual({ id: 'retry-server', label: 'retry', status: 'done' });
-    expectWork(storage, readers, retryBefore, { wal: 2, commits: 2, ownerTicks: 1, auditTicks: 1 });
+    expectWork(storage, readers, retryBefore, { commits: 2, ownerTicks: 1, auditTicks: 1 });
     unmountReaders(readers);
   });
 
@@ -320,7 +318,7 @@ describe('durable action transport', () => {
       deliveryUnknown: false,
       unsyncedChanges: undefined
     });
-    expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 0 });
+    expectWork(storage, readers, before, { commits: 1, ownerTicks: 1, auditTicks: 0 });
     expect(transport.calls).toHaveLength(0);
     unmountReaders(readers);
   });
@@ -395,7 +393,7 @@ describe('durable action transport', () => {
       operationId: handle.operationId,
       tempId: handle.tempId
     });
-    expectWork(storage, readers, before, { wal: 0, commits: 0, ownerTicks: 0, auditTicks: 0 });
+    expectWork(storage, readers, before, { commits: 0, ownerTicks: 0, auditTicks: 0 });
     expect(transport.calls).toHaveLength(0);
     unmountReaders(readers);
   });
@@ -405,7 +403,6 @@ describe('durable action transport', () => {
     const firstTransport = createMockTransport();
     const first = await defineFixture(storage, firstTransport, 'SpecDurableRestart');
     const handle = first.JobModel.actions.start.start({ label: 'restart' });
-    suspendDb();
     let capturedOperation: Parameters<DbTransport['mutation']>[0] | undefined;
     const secondTransport = createMockTransport({
       mutation: async <TData,>(operation: Parameters<DbTransport['mutation']>[0]) => {
@@ -449,7 +446,7 @@ describe('durable action transport', () => {
     expect(second.JobModel.where({}).read()).toEqual([{ id: 'restart-server', label: 'restart', status: 'done' }]);
     expect(second.AuditModel.where({}).read()).toEqual([{ id: 'restart-audit', jobId: 'restart-server', label: 'restart' }]);
     expect(getOperationState().open()).toEqual([]);
-    expectWork(storage, readers, before, { wal: 1, commits: 1, ownerTicks: 1, auditTicks: 1 });
+    expectWork(storage, readers, before, { commits: 1, ownerTicks: 1, auditTicks: 1 });
     expect(firstTransport.calls).toHaveLength(0);
     expect(secondTransport.calls).toHaveLength(1);
     unmountReaders(readers);

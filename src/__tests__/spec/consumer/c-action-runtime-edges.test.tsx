@@ -10,6 +10,7 @@ import {
   getApplyTarget,
   getCommitBus,
   getOperationState,
+  readQuarantineEntries,
   resetRuntime,
   type DbTransport
 } from '../../testApi';
@@ -131,8 +132,11 @@ describe('action runtime edges', () => {
       })
     });
 
-    await expect(Model.actions.apply.run({ value: 'boom' })).rejects.toThrow('SpecActionRejectedOptimisticRow rejected input');
+    // The rejected optimistic row is ticketed by the admission seam, so the selector
+    // yields no rows and the action fails before any transport call.
+    await expect(Model.actions.apply.run({ value: 'boom' })).rejects.toThrow('optimistic insert selector must return exactly one row');
     expect(transport.calls).toHaveLength(0);
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', model: 'SpecActionRejectedOptimisticRow', reason: 'plan-row-rejected' }));
   });
 
   it('replaces the optimistic row atomically while revisions advance in flight', async () => {
@@ -179,10 +183,11 @@ describe('action runtime edges', () => {
     ).toEqual(['noise-1', 'server-1']);
   });
 
-  it('never lands scope membership for a response row rejected by causal admission', async () => {
+  it('keeps the temp row seated when the replace pair is rejected by causal admission', async () => {
     // The response row id is created and deleted while the request is in flight, so
-    // admission rejects the replace upsert (deletion wins). The membership append
-    // from the same replace must not land: an entry without a row is corruption.
+    // admission rejects the replace upsert (deletion wins). Refusing the upsert leg
+    // cancels the destroy and detach legs of the same pair: the temp row keeps its
+    // seat, the refused payload is ticketed, and no entry without a row can land.
     const pending: Array<{ resolve(data: Data): void }> = [];
     const transport = createMockTransport({
       mutation: <TData,>() =>
@@ -215,11 +220,13 @@ describe('action runtime edges', () => {
     await expect(run).resolves.toEqual({ row: { id: 'server-1', value: 'v1' } });
 
     expect(Model.find('server-1')).toBeUndefined();
+    expect(Model.find(tempId)).toBeDefined();
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', model: 'SpecActionReplaceOrphan', id: 'server-1', reason: 'replace-rejected-by-admission' }));
     const target = getApplyTarget('SpecActionReplaceOrphan');
     const scopeKey = target.readAllScopeKeys().find(key => key.includes('byValue'))!;
     const entryIds = target.readScopeEntries(scopeKey).map(entry => entry.id);
     expect(entryIds).not.toContain('server-1');
-    expect(entryIds).not.toContain(tempId);
+    expect(entryIds).toContain(tempId);
   });
 
   it('does not send a request after before or variables resets runtime', async () => {

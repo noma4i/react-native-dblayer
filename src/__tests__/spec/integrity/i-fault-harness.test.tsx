@@ -2,17 +2,16 @@ import {
   configureDb,
   defineModelRuntime,
   f,
-  flushPersistence,
   createCommitEnvelope,
   createApplyRuntime,
   createCommitBus,
-  createJournal,
   encodePersistence,
+  getApplyRuntime,
   DB_FORMAT_VERSION,
   computeSchemaFingerprints,
   writePersistenceManifest
 } from '../../testApi';
-import { createFaultStorage, failAfterSettledBatches } from '../helpers/faultStorage';
+import { createFaultStorage } from '../helpers/faultStorage';
 import { compositeStorageKey, createMockTransport, diagnostics, renderCountedInProvider, settle } from '../helpers/harness';
 
 type FaultRow = { id: string; label: string };
@@ -28,11 +27,7 @@ const createRows = (suffix: string) =>
   });
 
 const configureFaultRuntime = (storage: ReturnType<typeof createFaultStorage>) => {
-  configureDb({
-    storage: storage.plane,
-    transport: createMockTransport(),
-    defaults: { persistence: { checkpointDelayMs: 60_000, maxPendingPlans: 100 } }
-  });
+  configureDb({ storage: storage.plane, transport: createMockTransport() });
 };
 
 describe('fault storage harness', () => {
@@ -72,7 +67,9 @@ describe('persistence fault invariants', () => {
       rows.destroy('row-1');
       clock.mockReturnValue(24 * 60 * 60 * 1000 + 1);
 
-      flushPersistence();
+      // Tombstones decay by TTL on the model's next persisted flush.
+      rows.insert({ id: 'row-2', label: 'touch' });
+      getApplyRuntime().flushCacheSnapshots();
 
       expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'tombstone-expiry', model: rows.modelId, count: 1 });
     } finally {
@@ -80,25 +77,18 @@ describe('persistence fault invariants', () => {
     }
   });
 
-  it('writes the immutable journal record before applying an insert', () => {
+  it('lands the row entry on the coalescing flush after the insert', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
-    const rows = createRows('WriteAhead');
+    const rows = createRows('ImmediateWrite');
 
     rows.insert({ id: 'row-1', label: 'local' });
+    getApplyRuntime().flushCacheSnapshots();
 
-    const journalKey = storage.plane.keys('dbl:journal:')[0];
-    expect(journalKey).toBe('dbl:journal:1');
-    const journal = JSON.parse(storage.plane.get(journalKey!)!) as {
-      payload: { ops: Array<{ payload: { kind: string; model: string; rows?: FaultRow[] } }> };
-    };
-    expect(journal.payload).toMatchObject({
-      ops: [{ payload: { kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'local' }] } }]
-    });
-    expect(storage.setCalls()[0]!.key).toBe('dbl:journal:1');
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'local' }));
   });
 
-  it('stores row work and its operation transition in one immutable WAL value', () => {
+  it('writes the ledger synchronously and the cache snapshot on the flush', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('TransitionEnvelope');
@@ -125,80 +115,28 @@ describe('persistence fault invariants', () => {
       )
     );
 
-    expect(storage.setCalls()[0]!.key).toBe('dbl:journal:1');
-    expect(JSON.parse(storage.setCalls()[0]!.value!) as { payload: unknown }).toMatchObject({
-      payload: {
-        ops: [{ payload: { kind: 'upsert', model: rows.modelId } }],
-        operationTransitions: [{ payload: { kind: 'begin', operation: { operationId: 'operation-1' } } }]
-      }
+    // The ledger write is synchronous with the commit; the cache snapshot lands on the flush.
+    expect(storage.setCalls().map(write => write.key)).toContain('dbl:ops');
+    runtime.flushCacheSnapshots();
+    const keys = storage.setCalls().map(write => write.key);
+    expect(keys).toContain(compositeStorageKey('dbl:', 'row', rows.modelId, 'temp-1'));
+    expect(JSON.parse(storage.plane.get('dbl:ops')!) as { payload: unknown }).toMatchObject({
+      payload: { operations: { 'operation-1': expect.objectContaining({ operationId: 'operation-1' }) } }
     });
   });
 
-  it('retries a failed checkpoint with the original rows and applied marker intact', () => {
+  it('keeps a refused cache snapshot dirty and retries it on the next flush', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
-    const rows = createRows('Retry');
+    const rows = createRows('FailedWrite');
+
     rows.insert({ id: 'row-1', label: 'local' });
-
     storage.failNextSet();
-    expect(() => flushPersistence()).toThrow('fault: set failed');
-    expect(storage.plane.get('dbl:journal:1')).not.toBeUndefined();
+    expect(() => getApplyRuntime().flushCacheSnapshots()).toThrow('fault: set failed');
 
-    flushPersistence();
-
+    // The refused model stayed dirty: the retry lands the same snapshot.
+    getApplyRuntime().flushCacheSnapshots();
     expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'local' }));
-    expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
-  });
-
-  it('retries a partially written checkpoint with every row and its applied marker', () => {
-    const storage = createFaultStorage();
-    configureFaultRuntime(storage);
-    const rows = createRows('TruncatedRetry');
-    rows.insertMany([
-      { id: 'row-1', label: 'first' },
-      { id: 'row-2', label: 'second' }
-    ]);
-
-    failAfterSettledBatches(storage, 1);
-    expect(() => flushPersistence()).toThrow('fault: set failed');
-    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
-    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBeUndefined();
-
-    flushPersistence();
-
-    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'first' }));
-    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBe(encodePersistence({ id: 'row-2', label: 'second' }));
-    expect(storage.plane.get(`dbl:applied:${rows.modelId}`)).toBe(encodePersistence(1));
-  });
-
-  it('keeps WAL records through a failed flush and deletes every covered record after checkpoint', () => {
-    const storage = createFaultStorage();
-    configureFaultRuntime(storage);
-    const rows = createRows('PruneSafety');
-    for (let index = 0; index < 51; index += 1) rows.insert({ id: `row-${index}`, label: String(index) });
-
-    storage.failNextSet();
-    expect(() => flushPersistence()).toThrow('fault: set failed');
-    expect(storage.plane.get('dbl:journal:1')).not.toBeUndefined();
-
-    flushPersistence();
-
-    expect(storage.plane.get('dbl:journal:1')).toBeUndefined();
-    expect(storage.plane.keys('dbl:journal:')).toHaveLength(0);
-  });
-
-  it('does not advance the prune checkpoint after a failed checkpoint write', () => {
-    const storage = createFaultStorage();
-    configureFaultRuntime(storage);
-    const rows = createRows('FailedCheckpointPruneGate');
-    rows.insert({ id: 'row-0', label: '0' });
-
-    storage.failNextSet();
-    expect(() => flushPersistence()).toThrow('fault: set failed');
-
-    for (let index = 1; index <= 50; index += 1) rows.insert({ id: `row-${index}`, label: String(index) });
-
-    expect(storage.plane.get('dbl:journal:1')).not.toBeUndefined();
   });
 
   it('acknowledges immediate persistence before the next direct transaction', () => {
@@ -208,10 +146,12 @@ describe('persistence fault invariants', () => {
     const runtime = createApplyRuntime({ storage: storage.plane, prefix: () => 'dbl:', bus: createCommitBus() });
 
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', label: 'first' }] }]));
+    runtime.flushCacheSnapshots();
+    const firstCommitWrites = storage.setCalls().length;
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-2', label: 'second' }] }]));
+    runtime.flushCacheSnapshots();
 
-    const secondJournalIndex = storage.setCalls().findIndex(write => write.key === 'dbl:journal:2');
-    const secondWrites = storage.setCalls().slice(secondJournalIndex + 1);
+    const secondWrites = storage.setCalls().slice(firstCommitWrites);
     expect(secondWrites).toContainEqual({
       key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'),
       value: encodePersistence({ id: 'row-2', label: 'second' })
@@ -219,35 +159,10 @@ describe('persistence fault invariants', () => {
     expect(secondWrites).not.toContainEqual(expect.objectContaining({ key: compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1') }));
   });
 
-  it('does not replay a journal record already covered by its applied marker', () => {
-    const storage = createFaultStorage();
-    configureFaultRuntime(storage);
-    const rows = createRows('ReplayCoverage');
-    const record = {
-      txId: 'test:1',
-      runtimeEpoch: 1,
-      epoch: 1,
-      ops: [{ kind: 'upsert' as const, model: rows.modelId, rows: [{ id: 'row-1', label: 'persisted' }] }],
-      operationTransitions: []
-    };
-    const journalEntry = createJournal(storage.plane, () => 'dbl:').entry(record);
-    [
-      { key: `dbl:applied:${rows.modelId}`, value: encodePersistence(1) },
-      journalEntry
-    ].forEach(entry => storage.plane.set(entry.key, entry.value));
-    const bus = createCommitBus();
-    const batches: unknown[] = [];
-    bus.subscribeAll(batch => batches.push(batch));
-    const runtime = createApplyRuntime({ storage: storage.plane, prefix: () => 'dbl:', bus });
-
-    expect(runtime.replay()).toBe(0);
-    expect(batches).toEqual([]);
-  });
-
   it('rejects a server snapshot after destroy but lets an event-origin insert restore the row', async () => {
     const storage = createFaultStorage();
     const transport = createMockTransport({ query: async <TData,>() => ({ data: { detail: { id: 'row-1', label: 'server' } } as TData }) });
-    configureDb({ storage: storage.plane, transport, defaults: { persistence: { checkpointDelayMs: 60_000, maxPendingPlans: 100 } } });
+    configureDb({ storage: storage.plane, transport });
     const rows = createRows('Tombstone');
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     const query = rows.query<FaultResponse, { id: string }, { id: string }, FaultRow>('detail', {
@@ -267,7 +182,7 @@ describe('persistence fault invariants', () => {
     expect(rows.find('row-1')).toBeUndefined();
     rows.insert({ id: 'row-1', label: 'event' });
     expect(rows.find('row-1')).toEqual({ id: 'row-1', label: 'event' });
-    flushPersistence();
+    getApplyRuntime().flushCacheSnapshots();
     expect(storage.plane.get(compositeStorageKey('dbl:', 'tombstones', rows.modelId))).toBeUndefined();
     reader.unmount();
   });

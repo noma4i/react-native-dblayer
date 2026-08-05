@@ -1,7 +1,6 @@
-export type * from './core.apply.checkpoint.types';
 export type * from './core.apply.transaction.types';
 export type * from './core.schemaManifest.types';
-export type * from './core.apply.journal.types';
+export type * from './core.apply.ops.types';
 export type * from './core.persistenceCodec.types';
 export type * from './core.queryPersistence.types';
 export type * from './core.diagnostics.types';
@@ -49,7 +48,6 @@ export type * from './subscription.types';
 export type * from './utils.singletonStatics.types';
 export type * from './utils.singleFlight.types';
 export type * from './utils.modelPatchers.types';
-export type * from './utils.modelStatusPoller.types';
 export type * from './core.internalHandles.types';
 export type * from './core.modelEventRegistry.types';
 export type * from './core.fetch.types';

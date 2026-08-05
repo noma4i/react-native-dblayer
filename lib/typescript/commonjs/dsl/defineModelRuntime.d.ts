@@ -1,6 +1,6 @@
 import type { InferBuildInput, InferStoredFields, ModelFieldSpecs, ModelLandingOptions, ModelConfig, ModelCore, QueryScopeReads, RequiredReadUse, ScopeHandle } from '../types';
 /**
- * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
+ * Define a persistent, reactive collection model backed by `EntityState` and the shared
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
  * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
  *

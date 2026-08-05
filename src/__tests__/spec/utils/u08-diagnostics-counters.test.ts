@@ -75,8 +75,6 @@ describe('diagnostics counters', () => {
     const singleShot: Array<[() => void, CounterName]> = [
       [diagnosticsModule.noteEntityUpsertGuardHit, 'entityUpsertGuardHits'],
       [diagnosticsModule.noteRelationChildScan, 'relationChildScans'],
-      [diagnosticsModule.noteCorruptionJournalDrop, 'corruptionJournalDrops'],
-      [diagnosticsModule.noteCorruptionJournalLoss, 'corruptionJournalLosses'],
       [diagnosticsModule.noteCorruptionLedgerReset, 'corruptionLedgerResets'],
       [diagnosticsModule.noteManifestReset, 'manifestResets'],
       [diagnosticsModule.noteReplaceRejected, 'replaceRejected'],

@@ -14,7 +14,7 @@ export const registerBootValidation = (key: string, validation: () => void): voi
   validations.set(key, validation);
 };
 
-/** Run all deferred definition checks before journal replay starts. */
+/** Run all deferred definition checks before the boot fsck starts. */
 export const runBootValidations = (): void => {
   for (const validation of validations.values()) validation();
 };

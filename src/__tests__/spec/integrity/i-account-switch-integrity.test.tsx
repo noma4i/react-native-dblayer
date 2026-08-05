@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f, resetRuntime , flushPersistence, replayJournal } from '../../testApi';
+import { configureDb, defineModelRuntime, f, getApplyRuntime, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Row = { id: string; accountId: string; label: string };
@@ -17,7 +17,7 @@ describe('account switch integrity', () => {
     const rows = defineModelRuntime({ id: 'AccountSwitchPlanes', name: 'AccountSwitchPlanes', fields: { accountId: f.str(), label: f.str() } });
 
     rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
-    flushPersistence();
+    getApplyRuntime().flushCacheSnapshots();
     preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })).forEach(entry => storageB.set(entry.key, entry.value));
 
     resetRuntime();
@@ -39,7 +39,7 @@ describe('account switch integrity', () => {
     const rows = defineModelRuntime({ id: 'ConfigureReentryPlanes', name: 'ConfigureReentryPlanes', fields: { accountId: f.str(), label: f.str() } });
 
     rows.insert({ id: 'row-1', accountId: 'B', label: 'persisted account' });
-    flushPersistence();
+    getApplyRuntime().flushCacheSnapshots();
     preparedStorage.snapshotKeys().map(key => ({ key, value: preparedStorage.get(key) ?? null })).forEach(entry => storageB.set(entry.key, entry.value));
 
     configureDb({ storage: storageA, transport });
@@ -49,18 +49,16 @@ describe('account switch integrity', () => {
     expect(rows.find('row-1')).toMatchObject({ accountId: 'B', label: 'persisted account' });
   });
 
-  it('recovers unflushed committed rows from the WAL after configureDb re-entry', () => {
+  it('keeps committed rows across configureDb re-entry without any flush step', () => {
     const storage = createMemoryPlane();
     const transport = createMockTransport();
     configureDb({ storage, transport });
-    const rows = defineModelRuntime({ id: 'ReentryWalRecovery', name: 'ReentryWalRecovery', fields: { label: f.str() } });
+    const rows = defineModelRuntime({ id: 'ReentryImmediatePersist', name: 'ReentryImmediatePersist', fields: { label: f.str() } });
     rows.insert({ id: 'row-1', label: 'unflushed' });
 
     configureDb({ storage, transport });
 
-    expect(storage.keys('dbl:journal:').length).toBeGreaterThan(0);
-    expect(rows.find('row-1')).toBeUndefined();
-    replayJournal();
+    // Persistence is immediate: the new runtime hydrates the row straight from the commit's write.
     expect(rows.find('row-1')).toMatchObject({ label: 'unflushed' });
   });
 

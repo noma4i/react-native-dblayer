@@ -1,11 +1,11 @@
-import { belongsTo, configureDb, defineModelRuntime, f, flushPersistence, bootDb, DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
+import { belongsTo, configureDb, defineModelRuntime, f, bootDb, DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Chat = { id: string; unreadCount: number; lastMessageId: string | null; lastActivityAt: number };
 type Message = { id: string; chatId: string; body: string; createdAt: number };
 
 describe('effects derive from accepted rows', () => {
-  it('stores the complete relation plan and replays it without invoking relation callbacks', async () => {
+  it('rehydrates derived relation state without invoking relation callbacks', async () => {
     const storage = createMemoryPlane();
     const replayTouch = jest.fn((_message: Message, _chat: Chat) => {
       throw new Error('relation callback ran during replay');
@@ -35,30 +35,20 @@ describe('effects derive from accepted rows', () => {
     first.chats.insert({ id: 'chat-1', unreadCount: 0, lastMessageId: null, lastActivityAt: 0 });
     first.messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
 
-    const records = storage.keys('dbl:journal:').map(key => {
-      const record = (JSON.parse(storage.get(key)!) as { payload: { ops: Array<{ payload: { model: string; kind: string } }> } }).payload;
-      return { ...record, ops: record.ops.map(op => op.payload) };
-    });
-    expect(records.find(record => record.ops.some(op => op.model === first.messages.modelId))?.ops.map(op => ({ kind: op.kind, model: op.model }))).toEqual([
-      { kind: 'upsert', model: first.messages.modelId },
-      { kind: 'upsert', model: first.chats.modelId },
-      { kind: 'upsert', model: first.chats.modelId }
-    ]);
     expect(first.chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1' });
 
     configureDb({ storage, transport: createMockTransport() });
     const replayed = defineRows(true);
-    await expect(bootDb()).resolves.toMatchObject({ reset: false, replayed: 2 });
+    await expect(bootDb()).resolves.toMatchObject({ reset: false });
 
     expect(replayTouch).not.toHaveBeenCalled();
     expect(replayed.messages.find('message-1')).toMatchObject({ chatId: 'chat-1', body: 'stored' });
     expect(replayed.chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1' });
-    flushPersistence();
   });
 
-  it('runs relation callbacks before writing the pending WAL record', () => {
+  it('runs relation callbacks once during planning', () => {
     const storage = createMemoryPlane();
-    let journalRecordsDuringTouch = -1;
+    let touchCalls = 0;
     configureDb({ storage, transport: createMockTransport() });
     const chats = defineModelRuntime({
       id: 'EffectsAcceptancePreflightChat',
@@ -73,7 +63,7 @@ describe('effects derive from accepted rows', () => {
         chat: belongsTo<Message, Chat>(chats, {
           foreignKey: 'chatId',
           touch: message => {
-            journalRecordsDuringTouch = storage.keys('dbl:journal:').length;
+            touchCalls += 1;
             return { lastMessageId: message.id, lastActivityAt: message.createdAt };
           },
           counterCache: { field: 'unreadCount' }
@@ -84,7 +74,7 @@ describe('effects derive from accepted rows', () => {
 
     messages.insert({ id: 'message-1', chatId: 'chat-1', body: 'stored', createdAt: 1 });
 
-    expect(journalRecordsDuringTouch).toBe(1);
-    expect(storage.keys('dbl:journal:')).toHaveLength(2);
+    expect(touchCalls).toBe(1);
+    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1' });
   });
 });

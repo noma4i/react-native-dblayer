@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
-import { bootDb, compositeKey, configureDb, computeSchemaFingerprints, DB_FORMAT_VERSION, defineModel, defineShape, f, flushPersistence, resetRuntime, stableSerialize, writePersistenceManifest } from '../../testApi';
+import { bootDb, compositeKey, configureDb, computeSchemaFingerprints, DB_FORMAT_VERSION, defineModel, defineShape, f, resetRuntime, stableSerialize, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Result = { action: { ok: true } };
@@ -108,7 +108,6 @@ describe('mutation dedupe semantics', () => {
     const firstAction = defineAction('OnceRestart', { once: true });
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     await firstAction.run({ value: 'same' });
-    flushPersistence();
 
     const restartTime = Date.now() + 2 * 60 * 60 * 1000;
     const now = jest.spyOn(Date, 'now').mockReturnValue(restartTime);
@@ -154,7 +153,6 @@ describe('mutation dedupe semantics', () => {
 
     await regular.run({ value: 'regular' });
     await once.run({ value: 'once' });
-    flushPersistence();
     const persisted = JSON.parse(storage.get('dbl:ops') ?? '{}') as {
       payload?: { operations: Record<string, { once?: boolean; idempotencyKey?: string }> };
     };

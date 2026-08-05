@@ -10,7 +10,7 @@ export declare const createModelScopeHandle: <TStored extends {
     normalizeScopeValue(scopeName: string, scopeValue: unknown): unknown;
     isScopeValueComplete(scopeName: string, scopeValue: unknown): boolean;
     scopeValueFromRow(by: Record<string, string>, row: Record<string, unknown>): Record<string, unknown> | null;
-    isPlanRow(input: unknown): boolean;
+    admitPlanRow(input: unknown): TStored | undefined;
     normalize(input: unknown): TStored;
     applyTarget: Pick<ApplyTarget, "scopeSortMeta">;
     useScopeAccess(scopeKey: string | null): void;

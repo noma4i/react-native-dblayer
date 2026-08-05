@@ -43,6 +43,7 @@ export {
   toTimestamp
 } from '../utils/normalizeHelpers';
 export { noteDataLoss } from '../core/diagnostics';
+export { putQuarantine, readQuarantineEntries, takeQuarantineEntries } from '../core/quarantine';
 export { createSingleFlight } from '../utils/singleFlight';
 export { registerResidency, residencySnapshot } from '../core/residency';
 export { afterStoreTransaction, OWNED_COLLECTION_LIFETIME, runInStoreTransaction, SyncFeed } from '../core/storeSync';
@@ -52,13 +53,12 @@ export { getCommitBus, getDbQueryClient, getDbRuntimeConfig, purgeForeignStorage
 export { getApplyRuntime } from '../dsl/configure';
 export { createCommitEnvelope } from '../core/apply/commitEnvelope';
 export { defineQuery } from '../dsl/defineQuery';
-export { bootDb, suspendDb } from '../dsl/lifecycle';
+export { bootDb } from '../dsl/lifecycle';
 export { compareOrderValues, compareRowsBySpec, createFieldOrderComparator, limitRows, sortModelReadRows, withIdTieBreak } from '../core/ordering';
 export { isOrderKey, keyAfter, keyBefore, keyBetween, keysForSequence } from '../core/orderKey';
 export { createModelContext } from '../dsl/modelContext';
 export { createModelCriteria } from '../dsl/modelCriteria';
 export { createModelScopeKeys } from '../dsl/modelScopeKeys';
-export { createModelStatusPoller } from '../utils/modelStatusPoller';
 export { isTempRowProtectedByModel } from '../dsl/maintenanceRegistry';
 export { createProjectionGate } from '../read/projectionGate';
 export { incrementalSignature } from '../read/readIdentity';
@@ -102,10 +102,8 @@ export * from '../core/schemaManifest';
 export * from '../core/serialize';
 export * from '../core/persistenceCodec';
 export * from '../core/apply/commitEnvelope';
-export * from '../core/apply/journal';
 export * from '../core/apply/transaction';
 export * from '../core/apply/commitBus';
-export * from '../core/apply/checkpoint';
 export * from '../core/fetch/networkState';
 export * from '../core/fetch/keyedLocalState';
 export * from '../core/planes/operationState';
@@ -126,10 +124,9 @@ export { compileModelRootPlan } from '../dsl/modelRootPlan';
 export { createWritePlanCollector, runWritePlanInvalidations, stampCausalRevision } from '../dsl/writePlan';
 export * from '../dsl/bootValidations';
 export * from '../dsl/maintenanceRegistry';
-export * from '../utils/modelStatusPoller';
 export * from '../utils/modelMaintenance';
 export * from '../utils/mmkvStorage';
-export { replayJournal, flushPersistence, resetPersistenceRuntime } from '../dsl/configure';
+export { runBootFsck } from '../core/bootFsck';
 /**
  * Spy seams: the live module namespaces, so a spec can `jest.spyOn` a function AT ITS DEFINITION
  * SITE and intercept internal callers. Spying on a re-exported binding of this facade never

@@ -1,4 +1,4 @@
-import { configureDb , createOperationState, readCommittedOnceKeys, serializeOperationInput , encodePersistence, jsonRoundTrip } from '../../testApi';
+import { configureDb , createOperationState, readCommittedOnceKeys, readQuarantineEntries, serializeOperationInput , encodePersistence, jsonRoundTrip } from '../../testApi';
 import type { OperationRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
@@ -436,7 +436,7 @@ describe('hydrate key retention', () => {
     expect(writes).toEqual([]);
   });
 
-  it('cold-resets a corrupt ops record and reports the loss', () => {
+  it('quarantines an unreadable ops record verbatim instead of dropping it', () => {
     const { storage } = setup();
     storage.set(`${PREFIX}ops`, '{corrupt');
     const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
@@ -444,7 +444,9 @@ describe('hydrate key retention', () => {
     fresh.hydrate();
 
     expect(storage.get(`${PREFIX}ops`)).toBeUndefined();
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
+    expect(readQuarantineEntries()).toContainEqual({ kind: 'ledger', model: '__operations__', id: 'ops', raw: '{corrupt', reason: 'unreadable-ledger-envelope' });
+    expect(diagnostics().snapshot().quarantinePuts).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 
   it.each([
@@ -465,16 +467,24 @@ describe('hydrate key retention', () => {
     ['invalid patched values', { ...baseRecord('op-1'), patchedValues: [], status: 'pending' }],
     ['negative creation time', { ...baseRecord('op-1'), createdAt: -1, status: 'pending' }],
     ['fractional creation time', { ...baseRecord('op-1'), createdAt: 1.5, status: 'pending' }]
-  ])('cold-resets a semantically invalid operation record: %s', (_label, record) => {
+  ])('quarantines a semantically invalid operation record beside a surviving one: %s', (_label, record) => {
     const { storage } = setup();
-    storage.set(`${PREFIX}ops`, encodePersistence({ [String(record.operationId)]: record }));
+    const keeper = { ...baseRecord('op-keeper'), status: 'pending' };
+    storage.set(`${PREFIX}ops`, encodePersistence({ [String(record.operationId)]: record, 'op-keeper': keeper }));
     const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
 
     fresh.hydrate();
 
-    expect(storage.get(`${PREFIX}ops`)).toBeUndefined();
-    expect(fresh.pending()).toEqual([]);
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
+    // The records in the map are independent: one invalid record quarantines THAT record only.
+    expect(fresh.get('op-keeper')?.status).toBe('pending');
+    expect(readQuarantineEntries()).toHaveLength(1);
+    expect(diagnostics().snapshot().quarantinePuts).toBe(1);
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
+    // The salvaged state is rewritten clean: a second hydrate quarantines nothing new.
+    const again = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    again.hydrate();
+    expect(again.get('op-keeper')?.status).toBe('pending');
+    expect(diagnostics().snapshot().quarantinePuts).toBe(1);
   });
 
   it('writes null persist entries once the ledger empties so stale storage keys clear', () => {

@@ -1,29 +1,21 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { ApplyRuntime, CheckpointScheduler, CommitBus, ConfigureDbOptions, OperationState, OperationTransition, RuntimeConfig, WriteOp } from '../types';
+import type { ApplyRuntime, CommitBus, ConfigureDbOptions, OperationState, RuntimeConfig } from '../types';
 import { retryDelayMs } from '../core/fetch/retryPolicy';
 import { mmkvStoragePlane } from '../core/planes/storagePlane';
 import { setDbLogger } from '../core/logger';
 import { setDbTransport } from '../core/transport';
 import { createCommitBus } from '../core/apply/commitBus';
-import { createCheckpointScheduler } from '../core/apply/checkpoint';
-import { getApplyTarget } from '../core/apply/applyTargetRegistry';
-import { createCommitEnvelope } from '../core/apply/commitEnvelope';
 import { createApplyRuntime } from '../core/apply/transaction';
-import { readJournalRecord } from '../core/apply/journal';
 import { createOperationState } from '../core/planes/operationState';
-import { isTempId } from '../utils/generateTempId';
 import { registerReset, resetInMemoryRuntime } from '../core/reset';
 import { registerResidency } from '../core/residency';
-import { isTempRowProtectedByModel } from './maintenanceRegistry';
 import { resetStores } from '../core/store';
-import { compositeKey, compositeStorageKey, parseCompositeKey } from '../core/serialize';
 import { advanceRuntimeGeneration, getRuntimeGeneration } from '../utils/runtimeGeneration';
 import { restartModelEventRegistry } from '../core/modelEventRegistry';
 
 let runtimeConfig: RuntimeConfig | null = null;
 let applyRuntime: ApplyRuntime | null = null;
 let operationState: OperationState | null = null;
-let checkpointScheduler: CheckpointScheduler | null = null;
 let queryClient: QueryClient | null = null;
 const commitBus = createCommitBus();
 let storeResetRegistered = false;
@@ -45,6 +37,8 @@ const STORAGE_PREFIX = 'dbl:';
  * @param options.defaults Package-wide freshness/pagination/error-observation defaults (see `DbDefaults`).
  */
 export const configureDb = (options: ConfigureDbOptions): void => {
+  // Land coalesced cache snapshots of the outgoing runtime before its generation dies.
+  applyRuntime?.flushCacheSnapshots();
   advanceRuntimeGeneration();
   resetInMemoryRuntime();
   const declaredChunkSize = options.defaults?.resumeRefetch?.chunkSize;
@@ -56,8 +50,6 @@ export const configureDb = (options: ConfigureDbOptions): void => {
   applyRuntime = null;
   operationState = null;
   queryClient = null; // Orphan, never clear(): cancelling in-flight fetches rejects their retryer promises as unhandled CancelledErrors.
-  checkpointScheduler?.cancel();
-  checkpointScheduler = null;
   setDbTransport(options.transport);
   if (options.logger) setDbLogger(options.logger);
   getApplyRuntime();
@@ -119,7 +111,7 @@ export const isDbConfigured = (): boolean => runtimeConfig !== null;
 
 export const getStoragePrefix = (): string => STORAGE_PREFIX;
 
-/** Internal: consumer-owned cache version used by the persistence manifest compatibility gate. */
+/** Internal: consumer-owned cache version checked by the persistence manifest reconcile on boot. */
 export const getPersistenceDataVersion = (): string | null => getDbRuntimeConfig().dataVersion;
 
 export { advanceRuntimeGeneration, getRuntimeGeneration };
@@ -127,115 +119,16 @@ export { advanceRuntimeGeneration, getRuntimeGeneration };
 export const getCommitBus = (): CommitBus => commitBus;
 
 /**
- * One apply runtime per configured database: every model shares the same journal, epoch counter
- * and commit bus, so one plan touching several models applies and persists as one transaction.
- * Persistence is WAL + checkpoint: plans write only their journal record; model snapshots flush
- * through the checkpoint scheduler off the hot path.
+ * One apply runtime per configured database: every model shares the same epoch counter and commit
+ * bus, so one plan touching several models applies and persists as one transaction. Persistence is
+ * immediate: every commit writes its dirty row, scope and ledger entries before it publishes.
  */
 export const getApplyRuntime = (): ApplyRuntime => {
   if (!applyRuntime) {
-    const { storage, defaults } = getDbRuntimeConfig();
-    checkpointScheduler = createCheckpointScheduler({
-      storage,
-      prefix: getStoragePrefix,
-      getTarget: getApplyTarget,
-      delayMs: defaults?.persistence?.checkpointDelayMs ?? 500,
-      maxPendingPlans: defaults?.persistence?.maxPendingPlans ?? 25,
-      extraEntries: () => {
-        const operations = getOperationState();
-        operations.prune();
-        return operations.persistEntries();
-      }
-    });
-    applyRuntime = createApplyRuntime({ storage, prefix: getStoragePrefix, bus: commitBus, checkpoint: checkpointScheduler });
+    const { storage } = getDbRuntimeConfig();
+    applyRuntime = createApplyRuntime({ storage, prefix: getStoragePrefix, bus: commitBus });
   }
   return applyRuntime;
-};
-
-/**
- * Force a checkpoint flush NOW - pending model snapshots hit storage in one batch. The host app
- * must call this on background/inactive and before logout teardown. `suspendDb()` calls this for you
- * as part of the recommended background/teardown sequence.
- */
-export const flushPersistence = (): void => {
-  checkpointScheduler?.flushNow();
-};
-
-/**
- * Idempotently re-apply journal records not yet covered by each model's persisted applied-epoch
- * marker. The host app must call this ONCE at startup, after configureDb and after every model
- * module has been imported (apply targets registered) - records touching unregistered models throw.
- * Returns the number of replayed records.
- *
- * `bootDb` calls this before foreign-key cleanup and surfaces the result as
- * `{ replayed }`.
- *
- * @returns The number of journal records replayed.
- */
-export const replayJournal = (): number => {
-  const runtime = getApplyRuntime();
-  const storage = getDbRuntimeConfig().storage;
-  const rowPrefix = compositeStorageKey(getStoragePrefix(), 'row');
-  const replayed = runtime.replay();
-  const operations = getOperationState();
-  const crashedRequests = operations.takeHydratedPending(operation => operation.actionMode === 'request');
-  if (crashedRequests.length > 0) {
-    const rollbackOps: WriteOp[] = [];
-    const rollbackTransitions: OperationTransition[] = [];
-    for (const operation of crashedRequests) {
-      const rollbackRow = operation.rollbackRow;
-      const rollbackMemberships = operation.rollbackMemberships;
-      if (rollbackRow !== undefined && rollbackMemberships !== undefined) {
-        rollbackOps.push({ kind: 'upsert', model: operation.model, rows: [rollbackRow], origin: 'replace' });
-        for (const membership of rollbackMemberships) {
-          rollbackOps.push({
-            kind: 'scope-delta',
-            model: operation.model,
-            scopeKey: membership.scopeKey,
-            append: [{ id: membership.id, orderKey: membership.orderKey }],
-            detach: [membership.id]
-          });
-        }
-      } else if (operation.intent === 'insert' && operation.tempIds.length > 0) {
-        rollbackOps.push({ kind: 'destroy', model: operation.model, ids: operation.tempIds, tombstone: false });
-      }
-      rollbackTransitions.push({ kind: 'close', operationId: operation.operationId, status: 'rolledback' });
-    }
-    runtime.commit(createCommitEnvelope(rollbackOps, rollbackTransitions));
-  }
-  const hasApplyTarget = (model: string): boolean => {
-    try {
-      getApplyTarget(model);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const candidates = new Map<string, Set<string>>();
-  const noteCandidate = (model: string, id: unknown): void => {
-    if (typeof id !== 'string' || !isTempId(id)) return;
-    const ids = candidates.get(model) ?? new Set<string>();
-    ids.add(id);
-    candidates.set(model, ids);
-  };
-  for (const key of storage.keys(rowPrefix)) {
-    const parts = parseCompositeKey(key.slice(rowPrefix.length));
-    if (parts?.length === 2) noteCandidate(parts[0]!, parts[1]);
-  }
-  for (const key of storage.keys(`${getStoragePrefix()}journal:`)) {
-    const record = readJournalRecord(storage, getStoragePrefix(), key)!;
-    for (const operation of record.ops) {
-      if (operation.kind !== 'upsert') continue;
-      for (const row of operation.rows) noteCandidate(operation.model, row.id);
-    }
-  }
-  const openTempIds = new Set(operations.open().flatMap(operation => operation.tempIds.map(id => compositeKey(operation.model, id))));
-  for (const [model, ids] of candidates) {
-    const orphanIds = [...ids].filter(id => !openTempIds.has(compositeKey(model, id)) && !operations.failedFor(model, id) && !isTempRowProtectedByModel(model, id));
-    if (orphanIds.length > 0 && hasApplyTarget(model)) runtime.commit(createCommitEnvelope([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
-  }
-  flushPersistence();
-  return replayed;
 };
 
 /**
@@ -253,10 +146,8 @@ export const purgeForeignStorageKeys = (): number => {
   return foreign.length;
 };
 
-/** Internal: discard per-runtime WAL/checkpoint caches after storage has been wiped. */
+/** Internal: discard per-runtime apply and ledger caches after storage has been wiped. */
 export const resetPersistenceRuntime = (): void => {
-  checkpointScheduler?.cancel();
-  checkpointScheduler = null;
   applyRuntime = null;
   operationState = null;
 };

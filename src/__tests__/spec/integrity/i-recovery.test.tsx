@@ -8,11 +8,11 @@ import {
   defineModelRuntime,
   encodePersistence,
   f,
-  flushPersistence,
   getCommitBus,
   getApplyRuntime,
   getOperationState,
   purgeForeignStorageKeys,
+  readQuarantineEntries,
   writePersistenceManifest
 } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
@@ -254,35 +254,7 @@ describe('persistence recovery protocol', () => {
     reader.unmount();
   });
 
-  it('safe-drops corrupt checkpointed WAL records', async () => {
-    diagnostics().reset();
-    const storage = configureRecoveryRuntime([
-      { key: 'dbl:meta', value: encodePersistence({ lastCheckpointEpoch: 3 }) },
-      { key: 'dbl:journal:3', value: '{broken' }
-    ]);
-    writeMatchingManifest();
-
-    await expect(bootDb()).resolves.toMatchObject({ reset: false });
-    expect(storage.get('dbl:journal:3')).toBeUndefined();
-    expect(diagnostics().snapshot()).toMatchObject({ corruptionJournalDrops: 1, corruptionJournalLosses: 0 });
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-checkpointed-drop', model: '__runtime__', count: 1 });
-  });
-
-  it('reports loss for corrupt WAL records newer than the checkpoint', async () => {
-    diagnostics().reset();
-    const storage = configureRecoveryRuntime([
-      { key: 'dbl:meta', value: encodePersistence({ lastCheckpointEpoch: 2 }) },
-      { key: 'dbl:journal:3', value: '{broken' }
-    ]);
-    writeMatchingManifest();
-
-    await expect(bootDb()).resolves.toMatchObject({ reset: false });
-    expect(storage.get('dbl:journal:3')).toBeUndefined();
-    expect(diagnostics().snapshot()).toMatchObject({ corruptionJournalDrops: 0, corruptionJournalLosses: 1 });
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'journal-corruption-loss', model: '__runtime__', count: 1 });
-  });
-
-  it('cold-resets a corrupt operation ledger', async () => {
+  it('quarantines an unreadable operation ledger on boot instead of dropping it', async () => {
     const storage = configureRecoveryRuntime([{ key: 'dbl:ops', value: '{broken' }]);
     writeMatchingManifest();
     diagnostics().reset();
@@ -290,10 +262,11 @@ describe('persistence recovery protocol', () => {
     await expect(bootDb()).resolves.toMatchObject({ reset: false });
     expect(storage.get('dbl:ops')).toBeUndefined();
     expect(diagnostics().snapshot().corruptionLedgerResets).toBe(1);
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'operation-ledger-corruption-reset', model: '__operations__', count: 1 });
+    expect(readQuarantineEntries()).toContainEqual({ kind: 'ledger', model: '__operations__', id: 'ops', raw: '{broken', reason: 'unreadable-ledger-envelope' });
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 
-  it('rolls back a crashed request insert and closes its operation in one replay commit', async () => {
+  it('keeps a crashed request insert as a failed retryable operation with its row alive', async () => {
     const modelId = 'RecoveryRequestInsert';
     const tempId = 'tmp_crashed_request';
     const operationId = 'op-crashed-request';
@@ -322,9 +295,11 @@ describe('persistence recovery protocol', () => {
 
     await bootDb();
 
-    expect(model.find(tempId)).toBeUndefined();
-    expect(getOperationState().get(operationId)?.status).toBe('rolledback');
-    expect(storage.get(compositeStorageKey('dbl:', 'row', modelId, tempId))).toBeUndefined();
+    // A kill mid-mutation closes exactly like a runtime transport failure: the unsent row stays,
+    // the operation is retryable - it never silently vanishes on boot.
+    expect(model.find(tempId)).toMatchObject({ label: 'Pending' });
+    expect(getOperationState().get(operationId)?.status).toBe('failed');
+    expect(storage.get(compositeStorageKey('dbl:', 'row', modelId, tempId))).toBeDefined();
   });
 
   it('does not treat a temp row for an unregistered model as an actionable orphan', async () => {
@@ -348,7 +323,6 @@ describe('persistence recovery protocol', () => {
     const unsubscribe = getCommitBus().subscribeAll(batch => events.push(batch));
 
     expect(purgeForeignStorageKeys()).toBe(1);
-    flushPersistence();
     getApplyRuntime().commit(
       createCommitEnvelope([], [{
         kind: 'begin',

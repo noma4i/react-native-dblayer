@@ -1,4 +1,4 @@
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 import type { RelationDecl } from './core.relations.types';
 import type { ScopeCoverage } from './core.planes.scopeIndex.types';
 import type { RowRecord } from './db.types';

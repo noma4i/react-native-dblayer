@@ -3,7 +3,7 @@ import { Kind, OperationTypeNode } from 'graphql';
 import React, { act } from 'react';
 import TestRenderer from 'react-test-renderer';
 import { configureDb, defineModel, defineShape, f, resetRuntime, useDbSubscriptions, type DbTransport } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
 type Moment = { id: string; uuid: string; status: string };
 type Audit = { id: string; momentId: string };
@@ -73,7 +73,7 @@ describe('multi-model event idempotency', () => {
       moment: momentReader.renders(),
       audit: auditReader.renders(),
       unrelated: unrelatedReader.renders(),
-      wal: storage.keys('dbl:journal:').length
+      commits: diagnostics().snapshot().commits
     };
     const payload: Payload = {
       moment: { id: 'moment-1', uuid: 'uuid-1', status: 'ready' },
@@ -88,7 +88,7 @@ describe('multi-model event idempotency', () => {
     expect(momentReader.renders() - before.moment).toBe(1);
     expect(auditReader.renders() - before.audit).toBe(1);
     expect(unrelatedReader.renders() - before.unrelated).toBe(0);
-    expect(storage.keys('dbl:journal:').length - before.wal).toBe(1);
+    expect(diagnostics().snapshot().commits - before.commits).toBe(1);
     momentReader.unmount();
     auditReader.unmount();
     unrelatedReader.unmount();

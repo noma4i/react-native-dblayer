@@ -1,4 +1,4 @@
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 import type { OperationIntent } from './core.planes.operationState.types';
 import type {
   ActionInput,

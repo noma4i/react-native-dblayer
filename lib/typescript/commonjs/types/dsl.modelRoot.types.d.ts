@@ -1,4 +1,4 @@
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 export type ModelRootUpdate<TStored extends {
     id: string;
 }> = {

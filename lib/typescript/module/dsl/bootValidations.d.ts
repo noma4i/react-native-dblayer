@@ -4,6 +4,6 @@
  * @param validation Check to run on every boot; throw to fail the boot.
  */
 export declare const registerBootValidation: (key: string, validation: () => void) => void;
-/** Run all deferred definition checks before journal replay starts. */
+/** Run all deferred definition checks before the boot fsck starts. */
 export declare const runBootValidations: () => void;
 //# sourceMappingURL=bootValidations.d.ts.map

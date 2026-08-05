@@ -26,7 +26,6 @@ import {
   resetRuntime,
   rowsShallowEqual,
   resumeFetchReaders,
-  suspendDb,
   sortModelReadRows,
   useLiveRead,
   useMergedScopeRows
@@ -43,7 +42,6 @@ describe('runtime edge helpers', () => {
 
   it('ignores loss notifications before runtime configuration', () => {
     expect(() => getDbRuntimeConfig()).toThrow('configureDb must be called');
-    expect(() => suspendDb()).not.toThrow();
     expect(() =>
       getCommitBus().publish({
         rows: [{ model: 'Rows', id: 'row-1', fields: null, kind: 'destroy' }],

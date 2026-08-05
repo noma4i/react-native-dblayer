@@ -1,5 +1,6 @@
 import type { SparseModelField, InferStoredFields, ModelConfig, ModelFieldSpecs, ModelNormalization } from '../types';
 import { getDbLogger } from '../core/logger';
+import { putQuarantine } from '../core/quarantine';
 import { compileWritePolicies } from '../core/writePolicies';
 import { scalarFieldCodecs } from '../schema/fieldCodec';
 import { fieldSpecSparseRead } from '../schema/fieldSpec';
@@ -47,15 +48,16 @@ export const createModelNormalization = <
     return output as InferStoredFields<TFields> & Record<string, unknown>;
   };
 
-  const isPlanRow = (value: unknown): boolean => {
+  /** THE plan-row admission seam: a row that fails validation is quarantined with a ticket, never silently dropped. */
+  const admitPlanRow = (value: unknown): (InferStoredFields<TFields> & Record<string, unknown>) | undefined => {
     try {
-      normalize(value);
-      return true;
+      return normalize(value);
     } catch (error) {
       getDbLogger().error(`[${config.name}] plan row rejected`, { error });
-      return false;
+      putQuarantine({ kind: 'row', model: config.id, id: isRecord(value) && value.id !== undefined ? String(value.id) : '', raw: value, reason: 'plan-row-rejected' });
+      return undefined;
     }
   };
 
-  return { applyWriteGate, isPlanRow, normalize };
+  return { applyWriteGate, admitPlanRow, normalize };
 };

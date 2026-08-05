@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, bootDb, flushPersistence, DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest, stableSerialize, defineModel, defineShape, f } from '../../testApi';
+import { configureDb, bootDb, DB_FORMAT_VERSION, computeSchemaFingerprints, writePersistenceManifest, stableSerialize, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -113,7 +113,6 @@ describe('app-shaped loss contracts', () => {
     const beforeModels = createAppModels(tag);
     writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
     addAccount(beforeModels, 'A');
-    flushPersistence();
     const beforeRows = allModels(beforeModels).map(model => stableSerialize(model.all()));
     const beforeScopes = {
       chats: beforeModels.chats.scopes.list.read({ statusFilter: 'active' }).map((row: any) => row.id),

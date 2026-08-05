@@ -8,10 +8,9 @@ import {
   encodePersistence,
   f,
   getDbQueryClient,
-  type QueryPersistenceRecord,
-  suspendDb
+  type QueryPersistenceRecord
 } from '../../testApi';
-import { bootDb } from '../../testApi';
+import { bootDb, getApplyRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type FetchPayload = { value: string };
@@ -235,7 +234,6 @@ describe('durable freshness', () => {
     const firstResult = first.result({}) as ValueRelation;
     await bootDb();
     await firstResult.fetch();
-    suspendDb();
     rewriteQueryRecord(storage, record => ({ ...record, invalidated: true }));
 
     configureDb({
@@ -311,7 +309,6 @@ describe('durable freshness', () => {
     });
     await bootDb();
     await Message.thread({ chatId: 'chat-1' }).fetch();
-    suspendDb();
     jest.advanceTimersByTime(999);
 
     configure(storage, transport);
@@ -371,7 +368,6 @@ describe('durable freshness', () => {
     await Message.thread({ chatId: 'chat-1' }).fetch();
     await Message.thread({ chatId: 'chat-2' }).fetch();
     await Message.sibling({ chatId: 'chat-3' }).fetch();
-    suspendDb();
 
     configure(storage, transport);
     await bootDb();
@@ -419,7 +415,6 @@ describe('durable freshness', () => {
     await bootDb();
     const relation = Message.thread({ chatId: 'chat-1' });
     await relation.fetch();
-    suspendDb();
 
     rewriteQueryRecord(storage, record => ({
       ...record,
@@ -432,21 +427,20 @@ describe('durable freshness', () => {
     await bootDb();
     await relation.fetch();
     expect(calls).toBe(2);
-    suspendDb();
 
     const scopePrefix = compositeStorageKey('dbl:', 'scope', 'DurableFreshnessDestinationValidation');
+    getApplyRuntime().flushCacheSnapshots();
     storage.keys(scopePrefix).map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
     configure(storage, transport);
     await bootDb();
     await relation.fetch();
     expect(calls).toBe(3);
-    suspendDb();
 
     relation.seed([
       ...relation.read(),
       { id: 'keep-row', chatId: 'chat-1', body: 'keep' }
     ]);
-    suspendDb();
+    getApplyRuntime().flushCacheSnapshots();
     storage.set(compositeStorageKey('dbl:', 'row', 'DurableFreshnessDestinationValidation', 'm-3'), null);
     configure(storage, transport);
     await bootDb();
@@ -459,7 +453,6 @@ describe('durable freshness', () => {
     expect(calls).toBe(5);
     await expect(Message.thread(null).refresh()).resolves.toBeUndefined();
 
-    suspendDb();
     rewriteQueryRecord(storage, record => ({ ...record, scope: { chatId: null } }));
     configure(storage, transport);
     await bootDb();
@@ -502,9 +495,9 @@ describe('durable freshness', () => {
     await bootDb();
     const details = Message.details({ id: 'm-1' });
     await details.fetch();
-    suspendDb();
 
     const rowPrefix = compositeStorageKey('dbl:', 'row', 'DurableFreshnessDirectDestination');
+    getApplyRuntime().flushCacheSnapshots();
     storage.keys(rowPrefix).map(key => ({ key, value: null })).forEach(entry => storage.set(entry.key, entry.value));
     configureDb({
       storage,

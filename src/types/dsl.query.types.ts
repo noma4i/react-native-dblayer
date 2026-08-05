@@ -43,7 +43,8 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
   connection?: (data: TResponse) => ConnectionLike | null | undefined;
   select?: (data: TResponse) => unknown;
   into: QueryDestination<TStored, TScope>;
-  coverage?: ScopeCoverage;
+  /** Delta coverage is an internal event-landing mode; a fetch declares page or complete. */
+  coverage?: Exclude<ScopeCoverage, 'delta'>;
   write?: (context: { data: TResponse; nodes: unknown[]; scope: TScope }, plan: WritePlan) => void;
   enabled?: (scope: TScope) => boolean;
   /** Scope keys that must be non-nullish for the query to run; a nullish key holds the query inactive (same as `scope: null`). Replaces hand-written `enabled: s => s.x != null` guards and composes with `enabled`. */

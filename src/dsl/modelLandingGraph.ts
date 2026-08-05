@@ -31,7 +31,9 @@ const planLandingGraph = (
     const entry = queue[index]!;
     const host = hosts.get(entry.model);
     if (!host) throw new Error(`Model landing target ${entry.model} is not defined`);
-    const id = entry.id ?? host.normalize(entry.input).id;
+    // Sideload entries carry the id admitted at enqueue time; root rows pass admission here.
+    const id = entry.id ?? host.admitPlanRow(entry.input)?.id;
+    if (id === undefined) continue;
     const modelRows = planned.get(entry.model) ?? new Map<string, unknown>();
     modelRows.set(id, entry.input);
     planned.set(entry.model, modelRows);
@@ -52,7 +54,8 @@ const planLandingGraph = (
         const targetKey = 'key' in edge.model ? edge.model.key : edge.model.modelId;
         const target = hosts.get(targetKey);
         if (!target) throw new Error(`Model landing target ${targetKey} is not defined`);
-        const targetId = target.normalize(value).id;
+        const targetId = target.admitPlanRow(value)?.id;
+        if (targetId === undefined) continue;
         const edgeKey = compositeKey(entry.model, id, edgeName, targetKey, targetId);
         if (expandedEdges.has(edgeKey)) continue;
         expandedEdges.add(edgeKey);

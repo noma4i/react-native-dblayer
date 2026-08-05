@@ -1,11 +1,9 @@
-export type DecodedJournalRecord = {
-  recordVersion: 2;
-  txId: string;
-  runtimeEpoch: number;
-  epoch: number;
-  ops: unknown;
-  operationTransitions: unknown;
-};
+/**
+ * Server-cache storage namespaces: losing them is eviction, never user-data loss. The composite
+ * key builder accepts ONLY these, so a durable key (`ops`, `ops-once`, `quarantine`) cannot be
+ * built - and therefore cannot be wiped - through the cache-key surface.
+ */
+export type CacheNamespace = 'row' | 'scope' | 'tombstones' | 'query' | 'query-invalidation';
 
 export type QueryInvalidationRecord = {
   recordVersion: 1;

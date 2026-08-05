@@ -1,4 +1,5 @@
 import {
+  compositeKey,
   compositeStorageKey,
   createEntityPlane,
   createRowCleaner,
@@ -127,7 +128,7 @@ describe('entity plane edges', () => {
       },
       keys: requestedPrefix => {
         rowsPrefix = requestedPrefix;
-        return [`${requestedPrefix}${compositeStorageKey('', '', 'missing').slice(1)}`, ...[...values.keys()].filter(key => key.startsWith(requestedPrefix))];
+        return [`${requestedPrefix}${compositeKey('missing')}`, ...[...values.keys()].filter(key => key.startsWith(requestedPrefix))];
       }
     };
     const { modelId, plane } = createPlane(storage);

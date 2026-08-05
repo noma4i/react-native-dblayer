@@ -1,4 +1,4 @@
-import type { DbGraphQLDocument, DbReadOptions, DbWhere, ModelFieldSpecs } from './db.types';
+import type { DbReadOptions, DbWhere, ModelFieldSpecs } from './db.types';
 import type { RelationDecl } from './core.relations.types';
 import type { KeepPreviousOption } from './read.scopeRetention.types';
 import type { defineQuery } from '../dsl/defineQuery';
@@ -6,10 +6,9 @@ import type { ConnectionLike, EnsuredRowQueryHandle, ScopeQueryHandle } from './
 import type { ModelReadBuilder, RequiredFields } from './dsl.readBuilder.types';
 import type { ScopeSpec } from './dsl.scope.types';
 import type { InferBuildInput, InferStoredFields } from './schema.infer.types';
-import type { ModelStatusPoller } from './utils.modelStatusPoller.types';
 import type { WritePolicy, WriteCtx, WriteOrigin } from './core.writePolicies.types';
 import type { ModelContext } from './dsl.modelContext.types';
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 import type { Dependency } from './core.apply.commitBus.types';
 import type { ApplyTarget } from './core.apply.transaction.types';
 import type { ClientSort, ReadOrder } from './dsl.ordering.types';
@@ -25,7 +24,7 @@ export type ModelApplyTargetResult = {
 
 export type ModelNormalization<TStored extends Record<string, unknown>> = {
   applyWriteGate(previous: TStored, incoming: TStored, ctx: WriteCtx): TStored;
-  isPlanRow(value: unknown): boolean;
+  admitPlanRow(value: unknown): TStored | undefined;
   normalize(input: unknown, complete?: boolean): TStored;
 };
 
@@ -90,7 +89,7 @@ export type ModelQueryConfig<TResponse, TVars, TScope, TStored> = Omit<Parameter
   into?: Parameters<typeof defineQuery<TResponse, TVars, TScope, TStored>>[0]['into'];
 };
 
-export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<ModelCore<TStored, TInput>, 'query' | 'poller'>;
+export type ModelDefinitions<TStored extends { id: string; updatedAt?: string | null }, TInput> = Pick<ModelCore<TStored, TInput>, 'query'>;
 
 export type ModelDefinitionsOptions<TStored extends { id: string; updatedAt?: string | null }, _TInput> = {
   modelId: string;
@@ -207,7 +206,7 @@ export type ScopeHandle<TStored extends { id: string }, TScope, TInput = TStored
   issueSequence(scopeValue: TScope, field: keyof TStored & string): number;
   /**
    * Seed dev/test rows and replace this scope's explicit membership in the provided order.
-   * Rows still normalize and upsert through the journalled apply pipeline, including automatic
+   * Rows still normalize and upsert through the shared apply pipeline, including automatic
    * membership. Production data flows should use queries, mutations, or ingest instead.
    *
    * @param scopeValue Explicit scope key receiving the seeded membership.
@@ -235,19 +234,6 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     name: string,
     config: ModelQueryConfig<TResponse, TVars, TScope, TRow>
   ): EnsuredRowQueryHandle<TRow, TScope, TRow | undefined>;
-  /** Internal refcounted status poller compiled by a model action. */
-  poller<TData>(
-    name: string,
-    config: {
-      document: DbGraphQLDocument<TData, { id: string }>;
-      vars?: (id: string) => Record<string, unknown>;
-      apply: (id: string, data: TData) => void;
-      classify?: (data: TData) => 'ready' | 'failed' | null;
-      intervalMs: number;
-      maxAttempts: number;
-      onSessionStop?: (id: string, reason: 'terminal-payload' | 'budget-exhausted' | 'stopped') => void;
-    }
-  ): ModelStatusPoller;
   find(id: string | null | undefined): TStored | undefined;
   where(where: DbWhere<TStored>, opts?: DbReadOptions<TStored>): TStored[];
   /** Full snapshot - library/maintenance channel; app code stays on scoped reads. */
@@ -256,7 +242,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
   destroy(id: string): void;
   destroyMany(ids: string[]): void;
   /**
-   * Patch every row matching `where` in ONE journal plan: single transaction, single commit publish,
+   * Patch every row matching `where` in ONE plan: single transaction, single commit publish,
    * one render per mounted reader. Snapshot semantics - the match set is computed once against
    * current rows before applying; rows that start matching because of the patch itself are not
    * re-visited.
@@ -267,7 +253,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
    */
   updateAll(where: DbWhere<TStored>, patch: Partial<TStored>): number;
   /**
-   * Destroy every row matching `where` in ONE journal plan: single transaction, single commit
+   * Destroy every row matching `where` in ONE plan: single transaction, single commit
    * publish. Snapshot semantics as in `updateAll`.
    *
    * @param where Local `DbWhere` predicate selecting the rows to destroy.
@@ -276,8 +262,8 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
   destroyAll(where: DbWhere<TStored>): number;
   insert(row: TStored): void;
   /**
-   * Insert several rows as ONE plan: one journal record, one apply transaction, one commit publish -
-   * unlike calling `insert` in a loop, which would journal/publish once per row. Each row still
+   * Insert several rows as ONE plan: one apply transaction, one commit publish -
+   * unlike calling `insert` in a loop, which would commit/publish once per row. Each row still
    * goes through the same per-row normalize, `guard`, and event-origin tombstone gate as `insert`;
    * relation side effects (`touch`, `counterCache`, declarative scope membership) are expanded once over
    * the whole batch, so a `belongsTo` `counterCache` increments by the batch's full count in one step
@@ -370,7 +356,7 @@ export type ModelCore<TStored extends { id: string; updatedAt?: string | null },
     related(id: string | null | undefined, relation: string, opts?: { select?: never; renderKeys?: readonly string[] }): unknown;
   };
   /**
-   * Seed dev/test rows through one normal journalled apply transaction with automatic membership.
+   * Seed dev/test rows through one normal apply transaction with automatic membership.
    * Production data flows should use queries, mutations, or ingest instead.
    *
    * @param rows Raw model inputs to normalize and seed.

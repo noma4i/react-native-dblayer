@@ -4,7 +4,7 @@ export type OperationRecord = {
   operationId: string;
   /** Canonical model action identity. */
   actionKey: string;
-  /** Model action mode that owns this operation; poll actions do not create records. */
+  /** Model action mode that owns this operation. */
   actionMode: 'request' | 'durable';
   model: string;
   tempIds: string[];
@@ -14,7 +14,7 @@ export type OperationRecord = {
   idempotencyKey?: string;
   /** Retain a committed idempotency key until reset. Default operations guard only while pending. */
   once?: boolean;
-  /** Top-level fields an optimistic method-patch owns while pending; its ledger record is created before the optimistic journal patch so that internal optimistic patches and rollbacks bypass overlay, while foreign writes keep the current value until the op closes. */
+  /** Top-level fields an optimistic method-patch owns while pending; its ledger record is created before the optimistic patch applies so that internal optimistic patches and rollbacks bypass overlay, while foreign writes keep the current value until the op closes. */
   patchedFields?: string[];
   /** The concrete field->value map an optimistic method-patch wrote; used to resolve a field to the latest still-pending patch on rollback. */
   patchedValues?: Record<string, unknown>;
@@ -61,8 +61,6 @@ export type OperationState = {
   clearFailed(operationId: string): void;
   /** Re-open a retained failed operation for durable retry. */
   reopen(operationId: string): OperationRecord | undefined;
-  /** Remove every operation owned by the named models and persist the remaining ledger once. */
-  discardModels(modelIds: ReadonlySet<string>): number;
   /** Row buckets still held by at least one operation - a gauge, so a bucket left behind is visible. */
   residentRowBuckets(): number;
   /** Remove any operation after an explicit discard or failed atomic start. */

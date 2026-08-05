@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { bootDb, configureDb, defineModel, defineShape, f, flushPersistence, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineModel, defineShape, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimeline } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -109,8 +109,6 @@ describe('app-shaped scope restore', () => {
     const mediaBefore = before.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' }).map((row: any) => row.id);
     expect(threadBefore).toHaveLength(3);
     expect(mediaBefore).toHaveLength(3);
-    flushPersistence();
-    suspendDb();
 
     const after = build();
     await act(async () => {
@@ -159,8 +157,6 @@ describe('app-shaped scope restore', () => {
     const mediaBefore = before.media({ chatId: 'chat-1', mediaBucket: 'visual' }).read().map(row => row.id);
     expect(threadBefore).toHaveLength(4);
     expect(mediaBefore).toHaveLength(4);
-    flushPersistence();
-    suspendDb();
 
     const after = build();
     await act(async () => {

@@ -1,5 +1,5 @@
 import type { CommitBatch } from './core.apply.commitBus.types';
-import type { JournalOp } from './core.apply.journal.types';
+import type { AppliedOp } from './core.apply.ops.types';
 import type { WriteOrigin } from './core.writePolicies.types';
 import type { StoredRow } from './core.relations.types';
 import type { OperationTransition } from './core.planes.operationState.types';
@@ -10,8 +10,8 @@ export type CommitEnvelope = {
     schemaVersion: 1;
     txId: string;
     epoch: number;
-    entityOps: JournalOp[];
-    scopeOps: JournalOp[];
+    entityOps: AppliedOp[];
+    scopeOps: AppliedOp[];
     operationTransitions: OperationTransition[];
     readonly [commitEnvelopeBrand]: true;
 };
@@ -23,7 +23,7 @@ export type PreparedRowWrite = {
 /**
  * Model-owned application target. Planning methods are pure; `put`/`destroy` report per-row change granularity so the
  * commit bus can notify per-(model, id, field) subscribers; `persistEntries` contributes the
- * model's dirty state to checkpoint flushes (or, on bare runtimes, to the immediate batch).
+ * model's dirty state to coalesced cache snapshot flushes.
  */
 export type ApplyTarget = {
     readRow(id: string): Record<string, unknown> | undefined;
@@ -79,15 +79,11 @@ export type ApplyTarget = {
 export type ApplyRuntime = {
     /**
      * Apply one callback-free plan. All normalization, write policies, relation callbacks, cascade
-     * discovery, and storage-entry producers have already completed before the pending WAL write.
+     * discovery, and storage-entry producers have already completed before the commit.
      */
     commit(envelope: CommitEnvelope): CommitBatch;
-    /**
-     * Startup recovery: idempotently re-apply journal records not yet covered by each model's
-     * persisted applied-epoch marker (survives torn checkpoint batches - the marker sits AFTER its
-     * snapshot in the flush order); returns replayed record count.
-     */
-    replay(): number;
+    /** Write every coalesced dirty cache snapshot NOW instead of on the scheduled tick. */
+    flushCacheSnapshots(): void;
     currentEpoch(): number;
 };
 export {};

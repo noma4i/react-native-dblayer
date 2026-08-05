@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { belongsTo, configureDb, defineModel, defineShape, f, resetRuntime, type StoragePlane } from '../../testApi';
+import { belongsTo, configureDb, defineModel, defineShape, f, getApplyRuntime, resetRuntime, type StoragePlane } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type Parent = { id: string; childCount: number };
@@ -11,7 +11,7 @@ const ChildSchema = defineShape<Child>()({ parentId: f.str() });
 afterEach(resetRuntime);
 
 describe('storage transaction', () => {
-  it('publishes neither the root row nor cascade effects when durable commit fails', () => {
+  it('publishes the cascade once and retries a refused cache flush', () => {
     const memory = createMemoryPlane();
     let writeCount = 0;
     let failAtWrite = Number.POSITIVE_INFINITY;
@@ -42,14 +42,16 @@ describe('storage transaction', () => {
     const childRenders = childReader.renders();
 
     failAtWrite = writeCount + 1;
-    expect(() => {
-      act(() => children.insert({ id: 'child-1', parentId: 'parent-1' }));
-    }).toThrow('durable commit failed');
+    act(() => children.insert({ id: 'child-1', parentId: 'parent-1' }));
 
-    expect(children.find('child-1')).toBeUndefined();
-    expect(parents.find('parent-1')).toEqual({ id: 'parent-1', childCount: 0 });
-    expect(parentReader.renders()).toBe(parentRenders);
-    expect(childReader.renders()).toBe(childRenders);
+    // The commit applies and publishes atomically in memory; the refused cache flush retries.
+    expect(children.find('child-1')).toMatchObject({ parentId: 'parent-1' });
+    expect(parents.find('parent-1')).toEqual({ id: 'parent-1', childCount: 1 });
+    expect(parentReader.renders()).toBe(parentRenders + 1);
+    expect(childReader.renders()).toBe(childRenders + 1);
+    expect(() => getApplyRuntime().flushCacheSnapshots()).toThrow('durable commit failed');
+    getApplyRuntime().flushCacheSnapshots();
+    expect(memory.keys('dbl:row:').length).toBeGreaterThan(0);
     parentReader.unmount();
     childReader.unmount();
   });

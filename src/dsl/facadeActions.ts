@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import type {
   ActionInput,
   ActionDefinitionData,
@@ -34,7 +33,7 @@ import { MutationDeliveryUnknownError } from '../core/mutationDeliveryError';
 
 /**
  * A declared action becomes its runtime handle here. The declared mode decides which action lifecycle
- * carries it - a durable operation, a poller, or a request - and the caller sees one handle either
+ * carries it - a durable operation or a request - and the caller sees one handle either
  * way, so a consumer never reproduces the lifecycle of the mode it happened to get.
  */
 export const createOperation = <TStored extends { id: string; updatedAt?: string | null }, TInput>(
@@ -247,82 +246,6 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
             input: record.input as ActionInput<TDefinition>,
             handle: createHandle(record.operationId, record.tempIds[0]!)
           }))
-    } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
-  }
-  if (definition.mode === 'poll') {
-    const inputs = new Map<string, ActionInput<TDefinition>>();
-    const refs = new Map<string, number>();
-    const baseRevisions = new Map<string, number>();
-    const poller = runtime.poller<ActionDefinitionData<TDefinition>>(name, {
-      document: definition.document,
-      vars: id => {
-        baseRevisions.set(id, getApplyRuntime().currentEpoch());
-        return definition.variables(inputs.get(id)!, { sessionKey: id }) as Record<string, unknown>;
-      },
-      apply: (id, data) => {
-        const baseRevision = baseRevisions.get(id)!;
-        const ops = stampCausalRevision(compileModelRootPlan(rootOwner, definition.root, data), baseRevision);
-        if (ops.length > 0) getApplyRuntime().commit(createCommitEnvelope(ops));
-      },
-      classify: definition.poll.classify,
-      intervalMs: definition.poll.intervalMs,
-      maxAttempts: definition.poll.maxAttempts
-    });
-    const idFor = (input: ActionInput<TDefinition>): string => {
-      const id = definition.poll.key(input);
-      if (id.length === 0) throw new Error('Poll action key must be a non-empty string');
-      return id;
-    };
-    const retain = (id: string): void => {
-      refs.set(id, (refs.get(id) ?? 0) + 1);
-    };
-    const release = (id: string): void => {
-      const next = refs.get(id)! - 1;
-      if (next > 0) {
-        refs.set(id, next);
-        return;
-      }
-      refs.delete(id);
-      inputs.delete(id);
-      baseRevisions.delete(id);
-    };
-    return {
-      run: async (input: ActionInput<TDefinition>) => {
-        const id = idFor(input);
-        inputs.set(id, input);
-        try {
-          await poller.refresh(id);
-        } finally {
-          if (!refs.has(id)) inputs.delete(id);
-        }
-      },
-      use: (input: ActionInput<TDefinition> | null) => {
-        const id = input == null ? null : idFor(input);
-        if (id) inputs.set(id, input!);
-        const phase = poller.usePhase(id ?? `${name}:inactive`);
-        useEffect(() => {
-          if (!id) return;
-          retain(id);
-          const detach = poller.attach(id);
-          return () => {
-            detach();
-            release(id);
-          };
-        }, [id]);
-        return {
-          ...(id ? phase : { phase: 'idle' as const, attempts: 0 }),
-          refresh: async () => {
-            if (!id || input == null) return;
-            inputs.set(id, input);
-            const currentPhase = poller.getPhase(id).phase;
-            if (currentPhase === 'ready' || currentPhase === 'failed' || currentPhase === 'stalled') {
-              await poller.refresh(id, { resetBudget: true });
-              return;
-            }
-            await poller.refresh(id);
-          }
-        };
-      }
     } as ModelActionMethods<Record<'defined', TDefinition>>['defined'];
   }
   const requestDefinition = definition as ActionRequestDefinition<TDefinition, TStored>;

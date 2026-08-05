@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f , getApplyTarget , createCommitEnvelope , createJournal , getApplyRuntime, getCommitBus } from '../../testApi';
+import { configureDb, defineModelRuntime, f, getApplyTarget, createCommitEnvelope, getApplyRuntime, getCommitBus } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const createModels = () => {
@@ -17,7 +17,7 @@ const createModels = () => {
   return { first, second };
 };
 
-describe('post-WAL apply recovery', () => {
+describe('apply recovery', () => {
   let storage: ReturnType<typeof createMemoryPlane>;
 
   beforeEach(() => {
@@ -111,26 +111,6 @@ describe('post-WAL apply recovery', () => {
     }
   });
 
-  it('recovers a commit that failed after its WAL record became durable via a later replay', () => {
-    const { first } = createModels();
-    const target = getApplyTarget(first.modelId);
-    const originalPut = target.put;
-    target.put = () => {
-      throw new Error('persistent row apply failure');
-    };
-
-    try {
-      expect(() => getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: first.modelId, rows: [{ id: 'wal-row', label: 'durable' }] }]))).toThrow(
-        'persistent row apply failure'
-      );
-    } finally {
-      target.put = originalPut;
-    }
-
-    expect(getApplyRuntime().replay()).toBeGreaterThanOrEqual(1);
-    expect(first.find('wal-row')).toMatchObject({ label: 'durable' });
-  });
-
   it('poisons reads and publishes nothing when clean replay also fails', () => {
     const { first, second } = createModels();
     const target = getApplyTarget(second.modelId);
@@ -157,63 +137,5 @@ describe('post-WAL apply recovery', () => {
       target.put = originalPut;
       unsubscribe();
     }
-  });
-
-  it('keeps a failed boot replay pending and closes public reads', () => {
-    const { first, second } = createModels();
-    const target = getApplyTarget(second.modelId);
-    const originalPut = target.put;
-    target.put = () => {
-      throw new Error('boot replay failure');
-    };
-    const journal = createJournal(storage, () => 'dbl:');
-    const entry = journal.entry({
-        txId: 'boot-replay',
-        runtimeEpoch: 1,
-        epoch: 1,
-        ops: [
-          { kind: 'upsert', model: first.modelId, rows: [{ id: 'first-row', label: 'first' }] },
-          { kind: 'upsert', model: second.modelId, rows: [{ id: 'second-row', label: 'second' }] }
-        ],
-        operationTransitions: []
-      });
-    storage.set(entry.key, entry.value);
-    const published: unknown[] = [];
-    const unsubscribe = getCommitBus().subscribeAll(batch => published.push(batch));
-
-    try {
-      expect(() => getApplyRuntime().replay()).toThrow('boot replay failure');
-      expect(() => first.find('first-row')).toThrow('poisoned');
-      expect(published).toHaveLength(0);
-      expect(journal.allRecords()).toHaveLength(1);
-    } finally {
-      target.put = originalPut;
-      unsubscribe();
-    }
-  });
-
-  it('replays every pending record even when txIds collide across process lifetimes', () => {
-    const { second } = createModels();
-    const journal = createJournal(storage, () => 'dbl:');
-    [
-      journal.entry({
-        txId: '1:1',
-        runtimeEpoch: 1,
-        epoch: 1,
-        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-a', label: 'a' }] }],
-        operationTransitions: []
-      }),
-      journal.entry({
-        txId: '1:1',
-        runtimeEpoch: 1,
-        epoch: 2,
-        ops: [{ kind: 'upsert', model: second.modelId, rows: [{ id: 'boot-b', label: 'b' }] }],
-        operationTransitions: []
-      })
-    ].forEach(entry => storage.set(entry.key, entry.value));
-
-    expect(getApplyRuntime().replay()).toBe(2);
-    expect(second.find('boot-a')).toMatchObject({ label: 'a' });
-    expect(second.find('boot-b')).toMatchObject({ label: 'b' });
   });
 });

@@ -1,4 +1,4 @@
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 
 /** Registered model target accepted by a write plan. */
 export type WriteTarget<TInput, TStored extends { id: string }> = {

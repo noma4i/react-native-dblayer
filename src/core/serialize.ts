@@ -1,4 +1,5 @@
 import { isNonArrayRecord, isRecord } from '../utils/normalizeHelpers';
+import type { CacheNamespace } from '../types/core.persistenceInternals.types';
 
 /** Locale-independent string comparator (codepoint order) shared by every deterministic ordering path: serialization keys and read tie-breaks. */
 export const compareCodepoints = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
@@ -81,5 +82,5 @@ export const firstCompositeKeyPart = (key: string): string => {
   return first;
 };
 
-/** Build one storage namespace key from a static prefix, a namespace, and injective variable segments. */
-export const compositeStorageKey = (prefix: string, namespace: string, ...parts: ReadonlyArray<string>): string => `${prefix}${namespace}:${compositeKey(...parts)}`;
+/** Build one CACHE storage key from a static prefix, a cache namespace, and injective variable segments. Durable keys (`ops`, `quarantine`) are not expressible here by type. */
+export const compositeStorageKey = (prefix: string, namespace: CacheNamespace, ...parts: ReadonlyArray<string>): string => `${prefix}${namespace}:${compositeKey(...parts)}`;

@@ -22,8 +22,6 @@ export interface DbDefaults {
   resumeStaleTime?: number | null;
   /** Foreground-resume refetch pacing. Mounted db queries invalidated on resume refetch in sequential chunks of chunkSize (default 4) awaited one after another, instead of one synchronous burst. Unmounted cache entries are only marked stale and refetch on next mount. */
   resumeRefetch?: { chunkSize?: number };
-  /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
-  persistence?: { checkpointDelayMs?: number; maxPendingPlans?: number };
   /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
   onSyncError?: (error: Error, ctx: { source: string; model?: string; scope?: unknown; key?: string; event?: string }) => void;
 }

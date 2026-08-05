@@ -151,7 +151,7 @@ describe('provider-owned query runtime', () => {
     let resolveBoot!: () => void;
     const boot = jest.spyOn(dbl.lifecycleModule, 'bootDb').mockReturnValue(
       new Promise(resolve => {
-        resolveBoot = () => resolve({ replayed: 0, maintenance: [], reset: false });
+        resolveBoot = () => resolve({ maintenance: [], reset: false });
       })
     );
     let root!: TestRenderer.ReactTestRenderer;
@@ -180,7 +180,7 @@ describe('provider-owned query runtime', () => {
     const boot = jest
       .spyOn(dbl.lifecycleModule, 'bootDb')
       .mockReturnValueOnce(firstBoot)
-      .mockResolvedValueOnce({ replayed: 0, maintenance: [], reset: false });
+      .mockResolvedValueOnce({ maintenance: [], reset: false });
     let root!: TestRenderer.ReactTestRenderer;
 
     act(() => {
@@ -203,12 +203,12 @@ describe('provider-owned query runtime', () => {
     setupSpecRuntime();
     let resolveFirstBoot!: () => void;
     const firstBoot = new Promise<Awaited<ReturnType<typeof dbl.bootDb>>>(resolve => {
-      resolveFirstBoot = () => resolve({ replayed: 0, maintenance: [], reset: false });
+      resolveFirstBoot = () => resolve({ maintenance: [], reset: false });
     });
     const boot = jest
       .spyOn(dbl.lifecycleModule, 'bootDb')
       .mockReturnValueOnce(firstBoot)
-      .mockResolvedValueOnce({ replayed: 0, maintenance: [], reset: false });
+      .mockResolvedValueOnce({ maintenance: [], reset: false });
     let root!: TestRenderer.ReactTestRenderer;
 
     act(() => {
@@ -263,7 +263,7 @@ describe('provider-owned query runtime', () => {
     dbl.registerBootValidation('s03-probe', () => {});
   });
 
-  it('flushes pending persistence on background and drains readers after background or inactive', async () => {
+  it('lands coalesced cache snapshots on background and drains readers after background or inactive', async () => {
     const { storage } = setupSpecRuntime();
     const users = dbl.defineModel('SpecProviderBackground', { schema: UserSchema });
     let root!: TestRenderer.ReactTestRenderer;
@@ -278,9 +278,9 @@ describe('provider-owned query runtime', () => {
       refetch
     });
     act(() => users.insert({ id: 'user', name: 'Pending' }));
-    expect(storage.snapshotKeys().some(key => key.startsWith(compositeStorageKey('dbl:', 'row', 'SpecProviderBackground')))).toBe(false);
 
     act(() => appStateHandler?.('background'));
+    // Backgrounding lands every coalesced cache snapshot: the row is durable before a possible kill.
     expect(storage.snapshotKeys().some(key => key.startsWith(compositeStorageKey('dbl:', 'row', 'SpecProviderBackground')))).toBe(true);
     act(() => appStateHandler?.('active'));
     await settle(2);

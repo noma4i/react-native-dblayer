@@ -1,7 +1,9 @@
 import type { EntityState, ModelMembership, ModelRevisionOwner, ModelWriteResult, ModelWrites, OperationRecord, OperationTransition, WriteOp, WriteOrigin } from '../types';
 import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
+import { putQuarantine } from '../core/quarantine';
 import { diffTopLevelFields } from '../core/storeUpsertResolver';
+import { isRecord } from '../utils/normalizeHelpers';
 import { correlateIncomingRow, modelHasCorrelators } from './mutationCorrelation';
 import { getOperationState } from './configure';
 
@@ -10,7 +12,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
   modelName: string;
   entityState(): EntityState<TStored>;
   normalize(input: unknown): TStored;
-  isPlanRow(input: unknown): boolean;
+  admitPlanRow(input: unknown): TStored | undefined;
   revisions: ModelRevisionOwner<TStored>;
   captureMembership(id: string): ModelMembership[];
 }): ModelWrites<TStored> => {
@@ -75,6 +77,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
       getDbLogger().error('replace rejected', { model: options.modelId, oldId, error });
       noteReplaceRejected();
       noteDataLoss('replacement-rejected', options.modelId, 1);
+      putQuarantine({ kind: 'row', model: options.modelId, id: isRecord(next) && next.id !== undefined ? String(next.id) : '', raw: next, reason: 'replace-normalize-rejected' });
       throw new Error(`replace rejected for ${options.modelId}:${oldId}`);
     }
     const failedOperation = getOperationState().failedFor(options.modelId, oldId);
@@ -86,15 +89,17 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
           : [];
     const mergeBase = options.entityState().read(oldId);
     const memberships = options.captureMembership(oldId);
+    // The upsert leg compiles first so an admission refusal cancels the destroy and detach
+    // legs of the same pair; a same-id replace keeps only the transitions of its destroy leg.
     return [
+      { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase, replaceOf: oldId },
       {
         kind: 'destroy',
         model: options.modelId,
-        ids: [oldId],
+        ids: normalized.id === oldId ? [] : [oldId],
         origin: 'replace',
         ...(operationTransitions.length > 0 ? { operationTransitions } : {})
       },
-      { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase },
       ...restoreMembership(normalized.id, memberships)
     ];
   };
@@ -122,7 +127,7 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     return { plain, replaceOps };
   };
   const planRows = (rows: unknown[], planOptions?: { origin?: 'event' }): WriteOp[] => {
-    const split = splitCorrelatedRows(rows.filter(options.isPlanRow));
+    const split = splitCorrelatedRows(rows.filter(row => options.admitPlanRow(row) !== undefined));
     const upsert: WriteOp[] = split.plain.length > 0 || split.replaceOps.length === 0 ? [{ kind: 'upsert', model: options.modelId, rows: split.plain, ...(planOptions?.origin ? { origin: planOptions.origin } : {}) }] : [];
     return [...upsert, ...split.replaceOps];
   };

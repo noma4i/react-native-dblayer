@@ -14,6 +14,7 @@ import {
   planModelLanding,
   planModelLandingWithRoot,
   readModelField,
+  readQuarantineEntries,
   registerModelLandingHost,
   type ModelLandingHost,
   type WriteOp
@@ -22,11 +23,10 @@ import { act } from 'react';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 const createLandingHost = (model: string, sideloads?: ModelLandingHost['sideloads']): ModelLandingHost => ({
-  normalize: input => {
+  admitPlanRow: input => {
     if (typeof input === 'string') return { id: input };
     const id = (input as { id?: unknown }).id;
-    if (typeof id !== 'string') throw new Error(`${model} requires id`);
-    return { id };
+    return typeof id === 'string' ? { id } : undefined;
   },
   planOwnRows: (rows, options) => [{ kind: 'upsert', model, rows: rows as Array<Record<string, unknown>>, ...(options?.origin ? { origin: options.origin } : {}) }],
   sideloads
@@ -77,7 +77,9 @@ describe('model pure helper edges', () => {
       rowId: () => undefined
     } as never);
     expect(fallback.normalize({ id: 'fallback-id' })).toEqual({ id: 'fallback-id' });
-    expect(fallback.isPlanRow({})).toBe(false);
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    expect(fallback.admitPlanRow({})).toBeUndefined();
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', model: 'NormalizationRowIdFallback', reason: 'plan-row-rejected' }));
   });
 
   it('derives scope values without re-reading stored custom fields and normalizes scalar keys', () => {

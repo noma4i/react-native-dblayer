@@ -1,3 +1,4 @@
+import type { CacheNamespace } from '../types/core.persistenceInternals.types';
 /** Locale-independent string comparator (codepoint order) shared by every deterministic ordering path: serialization keys and read tie-breaks. */
 export declare const compareCodepoints: (left: string, right: string) => number;
 /**
@@ -13,6 +14,6 @@ export declare const compositeKey: (...parts: ReadonlyArray<string>) => string;
 export declare const parseCompositeKey: (key: string) => string[] | undefined;
 /** Decode the first segment of a canonical composite key. */
 export declare const firstCompositeKeyPart: (key: string) => string;
-/** Build one storage namespace key from a static prefix, a namespace, and injective variable segments. */
-export declare const compositeStorageKey: (prefix: string, namespace: string, ...parts: ReadonlyArray<string>) => string;
+/** Build one CACHE storage key from a static prefix, a cache namespace, and injective variable segments. Durable keys (`ops`, `quarantine`) are not expressible here by type. */
+export declare const compositeStorageKey: (prefix: string, namespace: CacheNamespace, ...parts: ReadonlyArray<string>) => string;
 //# sourceMappingURL=serialize.d.ts.map

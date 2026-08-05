@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { getDbRuntimeConfig } from './configure';
-import { bootDb, suspendDb } from './lifecycle';
+import { getApplyRuntime, getDbRuntimeConfig } from './configure';
+import { bootDb } from './lifecycle';
 import { noteResumeDrain } from '../core/diagnostics';
 import { resumeFetchReaders } from '../core/fetch/fetchReaderRegistry';
 import type { DbProviderProps } from '../types';
@@ -66,7 +66,8 @@ export const DbProvider = ({ children }: DbProviderProps): React.ReactNode => {
         });
       } else if (state === 'background') {
         resumeDrainGeneration.current += 1;
-        suspendDb();
+        // The process may be killed while backgrounded: land the coalesced cache snapshots now.
+        getApplyRuntime().flushCacheSnapshots();
       }
       previousAppState.current = state;
     });

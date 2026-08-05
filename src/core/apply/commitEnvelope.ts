@@ -1,13 +1,14 @@
-import type { AcceptedRow, CommitEnvelope, DestroyedRow, JournalOp, OperationTransition, StoredRow, WriteOp } from '../../types';
+import type { AcceptedRow, CommitEnvelope, DestroyedRow, AppliedOp, OperationTransition, StoredRow, WriteOp } from '../../types';
 import { getRuntimeGeneration } from '../../dsl/configure';
 import { noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
+import { putQuarantine } from '../quarantine';
 import { deduplicateScopeEntriesById } from '../planes/scopeIndex';
 import { deriveEffects } from '../relations';
 import { compositeKey } from '../serialize';
 import { getApplyTarget } from './applyTargetRegistry';
 
-const isScopeOperation = (op: JournalOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
+const isScopeOperation = (op: AppliedOp): boolean => op.kind === 'scope' || op.kind === 'scope-delta';
 let transactionSequence = 0;
 
 const readPlannedRow = (overlay: Map<string, Map<string, StoredRow | null>>, model: string, id: string): StoredRow | undefined => {
@@ -35,8 +36,8 @@ const readPlannedRows = (overlay: Map<string, Map<string, StoredRow | null>>, mo
   return [...rows.values()];
 };
 
-const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, StoredRow | null>>, rejectedReplacements: Set<string>) => {
-  const preparedOps: JournalOp[] = [];
+const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, StoredRow | null>>, rejectedReplacements: Set<string>, rejectedReplaceSources: Set<string>) => {
+  const preparedOps: AppliedOp[] = [];
   const accepted: AcceptedRow[] = [];
   const destroyed: DestroyedRow[] = [];
   const operationTransitions: OperationTransition[] = [];
@@ -49,7 +50,15 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         const previous = inputId ? readPlannedRow(overlay, op.model, inputId) : undefined;
         const mergeBase = op.origin === 'replace' && typeof op.mergeBase === 'object' && op.mergeBase !== null ? (op.mergeBase as StoredRow) : undefined;
         const prepared = target.prepareUpsert(input, previous, op.origin, mergeBase, op.operationId, op.baseRevision);
-        if (op.origin === 'replace' && inputId && !prepared) rejectedReplacements.add(compositeKey(op.model, inputId));
+        if (op.origin === 'replace' && inputId && !prepared) {
+          rejectedReplacements.add(compositeKey(op.model, inputId));
+          // The refused upsert leg cancels the whole replace pair: the source row stays as it
+          // was, and the refused payload keeps a ticket instead of vanishing.
+          if (op.replaceOf !== undefined) {
+            rejectedReplaceSources.add(compositeKey(op.model, op.replaceOf));
+            putQuarantine({ kind: 'row', model: op.model, id: inputId, raw: input, reason: 'replace-rejected-by-admission' });
+          }
+        }
         if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
         const id = prepared.row.id;
         if (typeof id !== 'string' || id.length === 0) throw new Error(`Prepared row for ${op.model} has no string id`);
@@ -94,7 +103,8 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
     }
     if (op.kind === 'destroy') {
       operationTransitions.push(...(op.operationTransitions ?? []));
-      const destroyIds = op.ids.map(String);
+      // The destroy leg of a refused replace pair is cancelled; its transitions still apply.
+      const destroyIds = op.ids.map(String).filter(id => op.origin !== 'replace' || !rejectedReplaceSources.has(compositeKey(op.model, id)));
       const existingDestroyIds: string[] = [];
       for (const id of destroyIds) {
         if (!target.admitDestroy(id, op.baseRevision)) continue;
@@ -126,7 +136,8 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         model: op.model,
         scopeKey: op.scopeKey,
         append: append.map(entry => ({ id: entry.id, orderKey: entry.orderKey ?? placed.get(entry.id)! })),
-        detach: op.detach
+        // The detach leg of a refused replace pair is cancelled: the surviving row keeps its scope seat.
+        detach: op.detach.filter(id => !rejectedReplaceSources.has(compositeKey(op.model, id)))
       });
       continue;
     }
@@ -135,14 +146,15 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
   return { ops: preparedOps, accepted, destroyed, operationTransitions };
 };
 
-const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationTransitions: OperationTransition[] } => {
+const compileWritePlan = (initialOps: WriteOp[]): { ops: AppliedOp[]; operationTransitions: OperationTransition[] } => {
   for (const op of initialOps) getApplyTarget(op.model);
   const overlay = new Map<string, Map<string, StoredRow | null>>();
   const rejectedReplacements = new Set<string>();
+  const rejectedReplaceSources = new Set<string>();
   const sourceOps = [...initialOps];
-  const planned: JournalOp[] = [];
+  const planned: AppliedOp[] = [];
   const operationTransitions: OperationTransition[] = [];
-  let phase = prepareOperations(initialOps, overlay, rejectedReplacements);
+  let phase = prepareOperations(initialOps, overlay, rejectedReplacements, rejectedReplaceSources);
   planned.push(...phase.ops);
   operationTransitions.push(...phase.operationTransitions);
   const allAccepted = [...phase.accepted];
@@ -153,13 +165,13 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
     });
     if (effects.length === 0) break;
     sourceOps.push(...effects);
-    phase = prepareOperations(effects, overlay, rejectedReplacements);
+    phase = prepareOperations(effects, overlay, rejectedReplacements, rejectedReplaceSources);
     planned.push(...phase.ops);
     operationTransitions.push(...phase.operationTransitions);
     allAccepted.push(...phase.accepted);
   }
 
-  const repositioned = new Map<string, JournalOp>();
+  const repositioned = new Map<string, AppliedOp>();
   const repositionGroups = new Map<string, { model: string; scopeKey: string; ids: Set<string> }>();
   const planTouched = new Set<string>();
   for (const op of planned) {
@@ -197,7 +209,7 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
   // A replace whose upsert was rejected by causal admission must not leave the
   // membership legs of the same plan behind: that row is never going to arrive,
   // so the surviving scope entry would be a permanent orphan.
-  const gated: JournalOp[] = [];
+  const gated: AppliedOp[] = [];
   for (const op of planned) {
     if (op.kind !== 'scope-delta') {
       gated.push(op);
@@ -219,7 +231,7 @@ const compileWritePlan = (initialOps: WriteOp[]): { ops: JournalOp[]; operationT
 };
 
 /**
- * Compile raw model intents into one complete callback-free plan before WAL.
+ * Compile raw model intents into one complete callback-free plan before the commit.
  *
  * @param ops Raw model write intents.
  * @param explicitOperationTransitions Durable operation-ledger transitions composed with the plan.

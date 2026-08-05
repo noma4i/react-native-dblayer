@@ -77,11 +77,10 @@ describe('read diagnostics', () => {
       resumeRefetches: 0,
       entityUpsertGuardHits: 0,
       membershipWrites: 0,
-      corruptionJournalDrops: 0,
-      corruptionJournalLosses: 0,
       corruptionLedgerResets: 0,
       manifestResets: 0,
       applyFailure: 0,
+      quarantinePuts: 0,
       dataLossEvents: []
     });
   });

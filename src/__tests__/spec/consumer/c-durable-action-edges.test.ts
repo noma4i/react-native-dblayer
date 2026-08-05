@@ -6,6 +6,7 @@ import {
   defineShape,
   f,
   getCommitBus,
+  readQuarantineEntries,
   resetRuntime,
   type WritePlan
 } from '../../testApi';
@@ -89,7 +90,9 @@ describe('durable action edges', () => {
         })
       })
     });
-    expect(() => Rejected.actions.start.start({ label: 'boom' })).toThrow('SpecDurableRejectedOptimisticRow rejected input');
+    // The rejected optimistic row is ticketed by the admission seam and the selector yields no rows.
+    expect(() => Rejected.actions.start.start({ label: 'boom' })).toThrow('optimistic insert selector must return exactly one row');
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', model: 'SpecDurableRejectedOptimisticRow', reason: 'plan-row-rejected' }));
 
     const Primitive = defineDurable('SpecDurableOptimisticPrimitive', { optimisticSelect: () => 'invalid' });
     const Multiple = defineDurable('SpecDurableOptimisticMultiple', {

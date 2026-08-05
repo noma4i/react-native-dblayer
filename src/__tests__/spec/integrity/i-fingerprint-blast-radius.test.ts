@@ -1,4 +1,4 @@
-import { bootDb, compositeStorageKey, computeSchemaFingerprints, configureDb, DB_FORMAT_VERSION, defineModelRuntime, f, flushPersistence, writePersistenceManifest } from '../../testApi';
+import { bootDb, compositeStorageKey, computeSchemaFingerprints, configureDb, DB_FORMAT_VERSION, defineModelRuntime, f, getApplyRuntime, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 /**
@@ -33,7 +33,7 @@ describe('schema fingerprint blast radius', () => {
     await bootDb();
     alphaBefore.insert({ id: 'a-1', label: 'alpha' });
     betaBefore.insert({ id: 'b-1', label: 'beta' });
-    flushPersistence();
+    getApplyRuntime().flushCacheSnapshots();
     expect(storage.snapshotKeys().filter(key => key.includes('BlastBeta')).length).toBeGreaterThan(0);
 
     // The only change between the two runs: one extra field on Alpha. Beta is untouched.
@@ -70,7 +70,6 @@ describe('schema fingerprint blast radius', () => {
     const betaBefore = defineBeta();
     await bootDb();
     betaBefore.insert({ id: 'b-added-1', label: 'beta' });
-    flushPersistence();
 
     configureDb({ storage, transport: createMockTransport(), dataVersion: 'added-model' });
     const betaAfter = defineBeta();
@@ -93,7 +92,6 @@ describe('schema fingerprint blast radius', () => {
     expect(manifest.payload.schemaFingerprints).toEqual(computeSchemaFingerprints());
 
     added.insert({ id: 'added-1', label: 'added' });
-    flushPersistence();
 
     configureDb({ storage, transport: createMockTransport(), dataVersion: 'added-model' });
     const betaAfterSchemaChange = defineBeta();
@@ -129,7 +127,6 @@ describe('schema fingerprint blast radius', () => {
     const keptBefore = defineModelRuntime({ id: keptId, name: keptId, fields: { label: f.str() } });
     await bootDb();
     keptBefore.insert({ id: 'kept-1', label: 'kept' });
-    flushPersistence();
     storage.set(compositeStorageKey('dbl:', 'row', removedId, 'removed-1'), 'stale');
 
     configureDb({ storage, transport: createMockTransport(), dataVersion: 'removed-model' });

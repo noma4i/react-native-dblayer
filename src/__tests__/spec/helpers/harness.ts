@@ -142,12 +142,11 @@ export type DiagnosticsSnapshot = {
   entityUpsertGuardHits: number;
   membershipWrites: number;
   relationChildScans: number;
-  corruptionJournalDrops: number;
-  corruptionJournalLosses: number;
   corruptionLedgerResets: number;
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;
+  quarantinePuts: number;
   dataLossEvents: Array<{ mechanism: string; model: string; count: number }>;
 };
 

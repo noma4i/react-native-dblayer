@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, resetRuntime } from '../../testApi';
+import { configureDb, getApplyRuntime, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted, guardDataLoss } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -28,6 +28,7 @@ const addAccount = (models: ReturnType<typeof createAppModels>, account: string)
   models.counters.upsertCurrent({ unreadChatsCount: account === 'A' ? 7 : 0, unreadCompassCount: account === 'A' ? 5 : 0 });
   write(models.vibes, { id: `vibe-${account}`, name: `Vibe ${account}`, color: 'blue', position: account === 'A' ? 1 : 2, createdAt: now, updatedAt: now });
   write(models.walletTransactions, { id: `wallet-${account}`, amount: 1, kind: 'gift', createdAt: now, updatedAt: now });
+  getApplyRuntime().flushCacheSnapshots();
 };
 
 describe('app-shaped data mixing contracts', () => {

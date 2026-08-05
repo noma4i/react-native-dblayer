@@ -20,7 +20,7 @@ export declare const registerKeyedReset: <TReset extends Resetter>(key: string, 
 /** Internal: rebind all registered in-memory state to the current runtime config WITHOUT touching storage. `configureDb` re-entry runs this so no definition keeps planes hydrated from a previously configured storage. */
 export declare const resetInMemoryRuntime: () => void;
 /**
- * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
+ * KILL-SWITCH: full invalidation in one call. Discards pending cache snapshots, deletes every
  * persisted key under the library namespace, clears all registered in-memory state and notifies
  * every live subscriber. The commit bus `publishAll` is the single wake-up channel for mounted
  * readers: each one re-acquires its handle from the new generation, so the first post-reset render
@@ -33,6 +33,8 @@ export declare const resetInMemoryRuntime: () => void;
  * storage and in-memory state are fully reset.
  */
 export declare const resetRuntime: () => void;
+/** Internal: the manifest-reset entry. Wipes the namespace like `resetRuntime`, then restores the carried entries (manifest, outbox, quarantine). */
+export declare const resetRuntimeKeeping: (restore: readonly StorageResetEntry[]) => void;
+/** Internal: finish a reset that a crash interrupted - the persisted intent record replays the wipe and its restore set. */
 export declare const resumeInterruptedStorageReset: () => boolean;
-export declare const resetRuntimeForCompatibility: (restore: readonly StorageResetEntry[]) => void;
 //# sourceMappingURL=reset.d.ts.map

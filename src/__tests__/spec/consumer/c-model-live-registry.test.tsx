@@ -383,7 +383,6 @@ describe('model live subscription registry', () => {
     });
     const nullSubscriber = subscriberFor(subscribers, nullVariables);
     const zeroWorkSubscriber = subscriberFor(subscribers, zeroWorkVariables);
-    const beforeJournalKeys = storage.keys('dbl:journal:').length;
     const beforeCommits = diagnostics().snapshot().commits;
 
     act(() => {
@@ -393,7 +392,7 @@ describe('model live subscription registry', () => {
 
     expect(nullListener).not.toHaveBeenCalled();
     expect(zeroWorkListener).not.toHaveBeenCalled();
-    expect(storage.keys('dbl:journal:').length - beforeJournalKeys).toBe(0);
+    expect(diagnostics().snapshot().commits - beforeCommits).toBe(0);
     expect(diagnostics().snapshot().commits - beforeCommits).toBe(0);
     act(() => root.unmount());
     unsubscribeNull();

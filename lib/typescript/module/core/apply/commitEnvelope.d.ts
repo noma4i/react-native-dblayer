@@ -1,6 +1,6 @@
 import type { CommitEnvelope, OperationTransition, WriteOp } from '../../types';
 /**
- * Compile raw model intents into one complete callback-free plan before WAL.
+ * Compile raw model intents into one complete callback-free plan before the commit.
  *
  * @param ops Raw model write intents.
  * @param explicitOperationTransitions Durable operation-ledger transitions composed with the plan.

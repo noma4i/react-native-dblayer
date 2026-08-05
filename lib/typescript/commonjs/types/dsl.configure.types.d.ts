@@ -25,11 +25,6 @@ export interface DbDefaults {
     resumeRefetch?: {
         chunkSize?: number;
     };
-    /** Checkpoint flush tuning: snapshots leave the hot path and batch here. */
-    persistence?: {
-        checkpointDelayMs?: number;
-        maxPendingPlans?: number;
-    };
     /** Observes contained pipeline failures from `query`, `mutation`, and `ingest` without changing their control flow. */
     onSyncError?: (error: Error, ctx: {
         source: string;

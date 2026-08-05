@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f, registerReset, resetRuntime } from '../../testApi';
+import { configureDb, defineModelRuntime, f, getApplyRuntime, registerReset, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
 
 // Named behavioral contracts for the logout wipe, reset registration, and subscription utilities.
@@ -15,6 +15,7 @@ describe('resetRuntime logout wipe', () => {
     });
     rows.scopes.all.seed({}, [{ id: 'row-1', label: 'persisted' }]);
     rows.insert({ id: 'row-2', label: 'written' });
+    getApplyRuntime().flushCacheSnapshots();
     expect(storage.keys('').length).toBeGreaterThan(0);
 
     resetRuntime();

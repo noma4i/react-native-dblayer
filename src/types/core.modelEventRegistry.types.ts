@@ -1,4 +1,4 @@
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 import type { InvalidationTarget } from './dsl.writePlan.types';
 import type { ModelEventLifecycleEntry, ModelEventLifecycle, ModelEventRegistration } from './subscription.types';
 

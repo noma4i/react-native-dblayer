@@ -16,12 +16,11 @@ const emptyDiagnostics = (): DiagnosticsState => ({
   entityUpsertGuardHits: 0,
   membershipWrites: 0,
   relationChildScans: 0,
-  corruptionJournalDrops: 0,
-  corruptionJournalLosses: 0,
   corruptionLedgerResets: 0,
   manifestResets: 0,
   replaceRejected: 0,
   applyFailure: 0,
+  quarantinePuts: 0,
   dataLossEvents: []
 });
 
@@ -70,14 +69,6 @@ export const noteMembershipWrites = (count: number): void => {
   diagnostics.membershipWrites += count;
 };
 
-export const noteCorruptionJournalDrop = (): void => {
-  diagnostics.corruptionJournalDrops += 1;
-};
-
-export const noteCorruptionJournalLoss = (): void => {
-  diagnostics.corruptionJournalLosses += 1;
-};
-
 export const noteCorruptionLedgerReset = (): void => {
   diagnostics.corruptionLedgerResets += 1;
 };
@@ -91,9 +82,14 @@ export const noteReplaceRejected = (): void => {
   diagnostics.replaceRejected += 1;
 };
 
-/** A plan failed both its initial atomic apply and clean retry; its WAL stays pending and reads remain poisoned. */
+/** A plan failed both its initial atomic apply and clean retry; reads remain poisoned. */
 export const noteApplyFailure = (): void => {
   diagnostics.applyFailure += 1;
+};
+
+/** Count payloads kept in the quarantine instead of being dropped. */
+export const noteQuarantinePut = (): void => {
+  diagnostics.quarantinePuts += 1;
 };
 
 /** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */

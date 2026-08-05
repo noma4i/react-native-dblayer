@@ -2,6 +2,7 @@ import { advanceRuntimeGeneration, getCommitBus, getDbRuntimeConfig, getOperatio
 import type { Resetter, SyncResetter } from '../types';
 import type { StorageResetEntry, StorageResetIntent } from '../types/core.persistenceInternals.types';
 import { decodeVersionedRecord, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
+import { noteDataLoss } from './diagnostics';
 import { restartModelEventRegistry } from './modelEventRegistry';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 
@@ -79,6 +80,7 @@ export const resetInMemoryRuntime = (): void => {
 
 const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void => {
   if (!isDbConfigured()) return;
+  const discardedOpenOperations = getOperationState().open().length;
   advanceRuntimeGeneration();
   const resetErrors: unknown[] = [];
   const attempt = (reset: () => void): void => {
@@ -132,11 +134,13 @@ const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void =
   }
   if (finalStorageClearSucceeded) attempt(() => storage.set(intentKey, null));
   attempt(restartModelEventRegistry);
+  // The user's explicit reset is the ONE sanctioned way the outbox goes away - and it goes loudly.
+  if (discardedOpenOperations > 0) attempt(() => noteDataLoss('user-reset-discard', '__operations__', discardedOpenOperations));
   if (resetErrors.length > 0) throw new AggregateError(resetErrors, 'resetRuntime failed to run one or more resetters');
 };
 
 /**
- * KILL-SWITCH: full invalidation in one call. Discards pending checkpoint snapshots, deletes every
+ * KILL-SWITCH: full invalidation in one call. Discards pending cache snapshots, deletes every
  * persisted key under the library namespace, clears all registered in-memory state and notifies
  * every live subscriber. The commit bus `publishAll` is the single wake-up channel for mounted
  * readers: each one re-acquires its handle from the new generation, so the first post-reset render
@@ -150,6 +154,10 @@ const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void =
  */
 export const resetRuntime = (): void => resetRuntimeWithRecovery([]);
 
+/** Internal: the manifest-reset entry. Wipes the namespace like `resetRuntime`, then restores the carried entries (manifest, outbox, quarantine). */
+export const resetRuntimeKeeping = (restore: readonly StorageResetEntry[]): void => resetRuntimeWithRecovery(restore);
+
+/** Internal: finish a reset that a crash interrupted - the persisted intent record replays the wipe and its restore set. */
 export const resumeInterruptedStorageReset = (): boolean => {
   if (!isDbConfigured()) return false;
   const intent = readStorageResetIntent();
@@ -157,5 +165,3 @@ export const resumeInterruptedStorageReset = (): boolean => {
   resetRuntimeWithRecovery(intent.restore);
   return true;
 };
-
-export const resetRuntimeForCompatibility = (restore: readonly StorageResetEntry[]): void => resetRuntimeWithRecovery(restore);

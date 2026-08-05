@@ -6,7 +6,7 @@ export declare const createModelWrites: <TStored extends {
     modelName: string;
     entityState(): EntityState<TStored>;
     normalize(input: unknown): TStored;
-    isPlanRow(input: unknown): boolean;
+    admitPlanRow(input: unknown): TStored | undefined;
     revisions: ModelRevisionOwner<TStored>;
     captureMembership(id: string): ModelMembership[];
 }) => ModelWrites<TStored>;

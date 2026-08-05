@@ -1,5 +1,30 @@
 # Changelog
 
+## 10.0.0-beta.24 - 2026-08-05
+
+### Breaking changes and migration
+
+- BREAKING: the WAL persistence complex is removed - journal, checkpoint scheduler, applied markers, meta epoch, `flushPersistence`, `replayJournal`, `suspendDb`, and `bootDb().replayed`. The commit now writes the operation ledger synchronously and coalesces cache snapshots (row/scope/tombstones) onto a `setTimeout(0)` flush with retry on refusal; `DbProvider` flushes on background and `configureDb` flushes the outgoing runtime. Migration: none - `DB_FORMAT_VERSION` 10 cold-resets old on-disk state once (cache wiped, outbox and quarantine carried through).
+- BREAKING: poll action mode is removed - `mode: 'poll'`, the `poll` config block, the poll `use(input)` hook, and `createModelStatusPoller`. Migration: declare the action as a request action (`result` + `root`) and drive polling from an app hook over `action.run(input)`.
+- BREAKING: fetch coverage `'delta'` is removed from the public DSL. Migration: use `page` or `complete`.
+- BREAKING: the single-fingerprint (v7) persistence manifest form no longer decodes. Migration: none - an unreadable manifest cold-resets the cache; outbox and quarantine ride through.
+
+### Added
+
+- Quarantine namespace (`quarantine:`): a durable payload that fails decode, admission, or migration is stored with a diagnostics ticket and an `onSyncError` report instead of being dropped. Boot re-decodes quarantined rows with current codecs and restores the ones that admit again.
+- `runBootFsck` boot pass: closes crashed pending requests as failed retryable (rollback restored), quarantines ownerless temp rows, detaches rowless scope entries with a `fsck-scope-detach` counter, and restores readmitted quarantine rows.
+- `admitPlanRow` admission seam: every plan row (landing roots, sideloads, scope filters) either normalizes or lands in the quarantine with a `plan-row-rejected` ticket - no silent row drops in write planning.
+- `CacheNamespace` type on the composite storage key builder: cache keys (`row`, `scope`, `tombstones`, `query`, `query-invalidation`) are the only wipeable class; durable keys (`ops`, `quarantine`) are not expressible through the cache-key surface.
+- Zero-loss lifecycle suite (`zero-loss.lifecycle.test.tsx`): seeded fuzz over configure/boot/write/kill/corrupt/restart/switch cycles asserting user rows survive every kill point that touched disk.
+
+### Fixed
+
+- Kill mid-mutation no longer destroys the user's row on boot: the crashed request closes as failed retryable with its rollback restored, matching the runtime failure path.
+- Replace is an atomic pair: when admission refuses the upsert leg, the destroy and detach legs of the same plan are cancelled and the payload is quarantined (`replace-rejected-by-admission`) instead of erasing the row.
+- Ledger decode failure salvages per record instead of resetting the whole operation state; a stale record version migrates instead of wiping.
+- Schema migration wipes only the model's cache namespaces; pending operations keep their domain input and stay retryable across the bump.
+- `resetRuntime` discards open operations only with a loud `user-reset-discard` data-loss event.
+
 ## 10.0.0-beta.23 - 2026-08-05
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "@noma4i/react-native-dblayer",
-  "version": "10.0.0-beta.23",
+  "version": "10.0.0-beta.24",
   "description": "Reactive, persistent data-layer DSL for React Native with injectable storage and transport",
   "author": "Alexander Tsirel",
   "license": "MIT",
@@ -40,6 +40,7 @@
     "check:build": "node scripts/check-build-artifacts.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-jest-shards.mjs",
+    "test:invariant": "jest src/__tests__/spec/appshape/zero-loss.lifecycle.test.tsx --no-coverage",
     "test:coverage": "node scripts/run-jest-shards.mjs --coverage",
     "test:mutation": "node scripts/run-mutation.mjs",
     "lint": "eslint .",

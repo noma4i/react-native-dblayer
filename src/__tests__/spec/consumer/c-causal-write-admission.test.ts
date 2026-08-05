@@ -189,7 +189,6 @@ const createFieldFixture = (suffix: string, withPolicies = false) => {
   const affectedReader = renderCounted(() => rows.useFind('row-1'));
   const unrelatedReader = renderCounted(() => unrelated.useFind('unrelated-1'));
   const baseline = {
-    wal: storage.keys('dbl:journal:').length,
     affectedTicks: affectedReader.renders(),
     unrelatedTicks: unrelatedReader.renders()
   };
@@ -216,9 +215,9 @@ const createFieldFixture = (suffix: string, withPolicies = false) => {
       subscriber!.handlers.next({ changed: { row } });
     });
   };
-  const assertOutcome = (expected: Row, walCount: number, affectedTicks: number): void => {
+  const assertOutcome = (expected: Row, affectedTicks: number): void => {
     expect(rows.find('row-1')).toEqual(expected);
-    expect(storage.keys('dbl:journal:').length - baseline.wal).toBe(walCount);
+
     expect(affectedReader.renders() - baseline.affectedTicks).toBe(affectedTicks);
     expect(unrelatedReader.renders() - baseline.unrelatedTicks).toBe(0);
     expect(unrelated.find('unrelated-1')).toEqual({ id: 'unrelated-1', value: 'unchanged' });
@@ -241,7 +240,7 @@ describe('causal write admission', () => {
     await fixture.resolve('later', laterRow, later);
     await fixture.resolve('earlier', { ...initialRow(), protectedValue: 'earlier-response' }, earlier);
 
-    fixture.assertOutcome(laterRow, 1, 1);
+    fixture.assertOutcome(laterRow, 1);
     fixture.unmount();
   });
 
@@ -253,7 +252,7 @@ describe('causal write admission', () => {
     fixture.emitLive(liveRow);
     await fixture.resolve('slow', { ...initialRow(), protectedValue: 'slow-response' }, slow);
 
-    fixture.assertOutcome(liveRow, 1, 1);
+    fixture.assertOutcome(liveRow, 1);
     fixture.unmount();
   });
 
@@ -267,7 +266,7 @@ describe('causal write admission', () => {
     });
     await fixture.resolve('slow', { ...initialRow(), protectedValue: 'slow-response' }, slow);
 
-    fixture.assertOutcome(expected, 1, 1);
+    fixture.assertOutcome(expected, 1);
     fixture.unmount();
   });
 
@@ -280,7 +279,7 @@ describe('causal write admission', () => {
     await fixture.resolve('first', response, first);
     await fixture.resolve('duplicate', response, duplicate);
 
-    fixture.assertOutcome(response, 1, 1);
+    fixture.assertOutcome(response, 1);
     fixture.unmount();
   });
 
@@ -293,7 +292,7 @@ describe('causal write admission', () => {
       'runtime was reset before it resolved'
     );
 
-    fixture.assertOutcome(initialRow(), 0, 0);
+    fixture.assertOutcome(initialRow(), 0);
     fixture.unmount();
   });
 
@@ -329,7 +328,7 @@ describe('causal write admission', () => {
       slow
     );
 
-    fixture.assertOutcome(expected, 1, 1);
+    fixture.assertOutcome(expected, 1);
     fixture.unmount();
   });
 
@@ -347,7 +346,7 @@ describe('causal write admission', () => {
       slow
     );
 
-    fixture.assertOutcome(expected, 2, 2);
+    fixture.assertOutcome(expected, 2);
     fixture.unmount();
   });
 
@@ -387,7 +386,7 @@ describe('causal write admission', () => {
       model.update('row-1', { value: 'later-local' });
     });
     const baseline = {
-      wal: storage.keys('dbl:journal:').length,
+  
       affectedTicks: affectedReader.renders(),
       unrelatedTicks: unrelatedReader.renders()
     };
@@ -397,7 +396,7 @@ describe('causal write admission', () => {
     });
 
     expect(model.find('row-1')).toEqual({ id: 'row-1', value: 'later-local' });
-    expect(storage.keys('dbl:journal:').length - baseline.wal).toBe(0);
+
     expect(affectedReader.renders() - baseline.affectedTicks).toBe(0);
     expect(unrelatedReader.renders() - baseline.unrelatedTicks).toBe(0);
     expect(unrelated.find('unrelated-1')).toEqual({ id: 'unrelated-1', value: 'unchanged' });
@@ -441,7 +440,7 @@ describe('causal write admission', () => {
       model.destroy('row-1');
     });
     const baseline = {
-      wal: storage.keys('dbl:journal:').length,
+  
       affectedTicks: affectedReader.renders(),
       unrelatedTicks: unrelatedReader.renders()
     };
@@ -451,7 +450,7 @@ describe('causal write admission', () => {
     });
 
     expect(model.find('row-1')).toBeUndefined();
-    expect(storage.keys('dbl:journal:').length - baseline.wal).toBe(0);
+
     expect(affectedReader.renders() - baseline.affectedTicks).toBe(0);
     expect(unrelatedReader.renders() - baseline.unrelatedTicks).toBe(0);
     expect(unrelated.find('unrelated-1')).toEqual({ id: 'unrelated-1', value: 'unchanged' });

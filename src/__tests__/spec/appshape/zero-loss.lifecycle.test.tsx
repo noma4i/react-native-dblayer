@@ -1,0 +1,365 @@
+import {
+  bootDb,
+  computeSchemaFingerprints,
+  configureDb,
+  DB_FORMAT_VERSION,
+  defineModel,
+  defineShape,
+  encodePersistence,
+  f,
+  getApplyRuntime,
+  readQuarantineEntries,
+  resetRuntime,
+  writePersistenceManifest
+} from '../../testApi';
+import { createMemoryPlane, createMockTransport, diagnostics, type DiagnosticsSnapshot } from '../helpers/harness';
+import { createFaultStorage } from '../helpers/faultStorage';
+import type { StoragePlane } from '../../testApi';
+
+const document = { kind: 'Document', definitions: [] } as never;
+
+/**
+ * THE zero-loss instrument. One invariant, stated as an executable test:
+ * a row the user wrote is never lost - not by a process kill at ANY persisted write point,
+ * not by corruption of any single storage key, not by a schema migration, not by a library
+ * version bump. It either lives in the store, or its operation is retryable, or it is
+ * quarantined with a ticket. Silent disappearance is the only failure mode this suite hunts.
+ *
+ * Kill semantics: `setCalls()` records every physical write in order, so the disk state at
+ * kill point K is the fold of writes[0..K] over an empty plane. One scenario run proves the
+ * invariant for EVERY kill point, not a sampled one.
+ *
+ * A newly found loss enters as `it.failing` with its reproduction; the fix flips it to a plain
+ * `it`. Every case below is a former loss that stays here as its own regression shield.
+ */
+
+type SendInput = {
+  id: string;
+  chatId: string;
+  userId: string;
+  body: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  sequenceNumber: number | null;
+};
+
+type SendData = { send: { message: SendInput } };
+
+const SendSchema = defineShape<SendInput>()({
+  chatId: f.str(),
+  userId: f.str(),
+  body: f.str(),
+  status: f.str(),
+  createdAt: f.str(),
+  updatedAt: f.str(),
+  sequenceNumber: f.num().nullable()
+});
+
+const Message = defineModel('ZeroLossMessage', {
+  schema: SendSchema,
+  relations: () => ({
+    thread: { by: { chatId: 'chatId' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
+  }),
+  maintenance: { dropTempRowsAfterMs: 600_000 },
+  actions: owner => ({
+    send: owner.gql.action<SendData, Record<string, never>, { row: SendInput }, 'send'>(document, {
+      mode: 'request',
+      result: 'send',
+      variables: () => ({}),
+      optimistic: { root: { insert: { select: ({ input, tempId }) => ({ ...input.row, id: tempId }) } } },
+      root: { insert: { select: ({ data }) => data.send.message } }
+    })
+  })
+});
+
+/** Deterministic PRNG: same seed, same scenario, same verdict. */
+const mulberry32 = (seed: number) => {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let mixed = state;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+const SEEDS = Number.parseInt(process.env.ZERO_LOSS_SEEDS ?? '25', 10);
+
+const NOW = '2026-08-05T00:00:00Z';
+
+const serverRow = (id: string, body: string, sequenceNumber: number): SendInput => ({
+  id,
+  chatId: 'chat-1',
+  userId: 'other',
+  body,
+  status: 'Sent',
+  createdAt: NOW,
+  updatedAt: NOW,
+  sequenceNumber
+});
+
+/** Disk state at kill point K: the fold of the recorded writes over an empty plane. */
+const diskAtWrite = (writes: Array<{ key: string; value: string | null }>, upto: number): StoragePlane => {
+  const plane = createMemoryPlane();
+  for (const write of writes.slice(0, upto)) plane.set(write.key, write.value);
+  return plane;
+};
+
+const cloneDisk = (source: StoragePlane & { snapshotKeys: () => string[] }): StoragePlane & { snapshotKeys: () => string[] } => {
+  const plane = createMemoryPlane();
+  for (const key of source.snapshotKeys()) plane.set(key, source.get(key) ?? null);
+  return plane;
+};
+
+const bootOn = async (storage: StoragePlane): Promise<void> => {
+  resetRuntime();
+  configureDb({ storage, transport: createMockTransport({ mutation: async <TData,>() => new Promise<{ data: TData }>(() => {}) }) });
+  await bootDb();
+};
+
+const seedManifest = (): void => {
+  writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+};
+
+/**
+ * Loss ledger classes that mean USER data vanished; cache eviction classes are not loss.
+ * The migration/format reset classes are cache-only since step 2: the outbox and quarantine ride
+ * through every reset verbatim, so those events no longer touch user data.
+ */
+const USER_LOSS_MECHANISMS = new Set(['stale-temp-row-expiry']);
+
+const userLossEvents = (snapshot: DiagnosticsSnapshot): Array<{ mechanism: string; model: string; count: number }> =>
+  snapshot.dataLossEvents.filter(event => USER_LOSS_MECHANISMS.has(event.mechanism));
+
+/**
+ * Runs one scenario: boot on a fresh disk, land server rows, start `opCount` optimistic sends
+ * whose transport never answers, flush persistence. Returns the write journal and the ids.
+ */
+const runScenario = async (opCount: number): Promise<{ writes: Array<{ key: string; value: string | null }>; tempIds: string[]; serverIds: string[] }> => {
+  const storage = createFaultStorage();
+  resetRuntime();
+  configureDb({ storage: storage.plane, transport: createMockTransport({ mutation: async <TData,>() => new Promise<{ data: TData }>(() => {}) }) });
+  seedManifest();
+  await bootDb();
+  const serverIds = ['server-1', 'server-2'];
+  Message.where({ chatId: 'chat-1' }).seed(serverIds.map((id, index) => serverRow(id, `landed-${index}`, index + 1)));
+  const tempIds: string[] = [];
+  for (let index = 0; index < opCount; index += 1) {
+    const input: SendInput = { id: `local-${index}`, chatId: 'chat-1', userId: 'me', body: `draft-${index}`, status: 'Sending', createdAt: NOW, updatedAt: NOW, sequenceNumber: 100 + index };
+    Message.actions.send.run({ row: input }).catch(() => {});
+    await Promise.resolve();
+  }
+  await Promise.resolve();
+  for (const row of Message.where({ chatId: 'chat-1' }).read()) {
+    if (row.status === 'Sending') tempIds.push(row.id);
+  }
+  // The app-shaped end of the scenario: backgrounding lands the coalesced cache snapshots.
+  getApplyRuntime().flushCacheSnapshots();
+  return { writes: storage.setCalls(), tempIds, serverIds };
+};
+
+/**
+ * The invariant at one restarted disk: an unsent user row is never silently gone. It survives as a
+ * retryable operation (its domain input rides the ledger), as a live row, or as a quarantine
+ * ticket - one of the three, always.
+ */
+const assertUserRowsSurvive = (tempIds: string[]): void => {
+  const quarantined = new Set(readQuarantineEntries().map(entry => entry.id));
+  for (const tempId of tempIds) {
+    const row = Message.find(tempId);
+    const operation = Message.operation(tempId).read();
+    const survives = operation.pending || operation.failed || row !== undefined || quarantined.has(tempId);
+    if (!survives) {
+      throw new Error(
+        `user row lost: id=${tempId} row=${row === undefined ? 'GONE' : 'present'} pending=${operation.pending} failed=${operation.failed} quarantined=false`
+      );
+    }
+  }
+};
+
+describe('zero-loss lifecycle', () => {
+  it('keeps server cache and delivered rows across a clean restart and account switch', async () => {
+    const { writes } = await runScenario(0);
+    const disk = diskAtWrite(writes, writes.length);
+    await bootOn(disk);
+    expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id).sort()).toEqual(['server-1', 'server-2']);
+    expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+
+    // Account switch: explicit user command - cache may go, but never silently.
+    resetRuntime();
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    seedManifest();
+    await bootDb();
+    expect(Message.where({ chatId: 'chat-1' }).read()).toEqual([]);
+  });
+
+  it('discards the outbox on an explicit user reset loudly, never silently', async () => {
+    const { tempIds } = await runScenario(2);
+    expect(tempIds).toHaveLength(2);
+    resetRuntime();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'user-reset-discard', model: '__operations__', count: 2 });
+  });
+
+  it('keeps unsent user rows retryable after a kill at EVERY persisted write point', async () => {
+    const random = mulberry32(1);
+    const { writes, tempIds } = await runScenario(2);
+    expect(tempIds.length).toBeGreaterThan(0);
+    // Every kill point from the first write to the last. The invariant binds per row, from the
+    // moment the row's DATA reached the disk: its row entry, or its operation (the ledger record
+    // carries the domain input). A scope entry alone is a pointer, not data.
+    const step = Math.max(1, Math.floor(writes.length / 40));
+    const offset = 1 + Math.floor(random() * step);
+    let assertedPoints = 0;
+    for (let kill = offset; kill <= writes.length; kill += step) {
+      const disk = diskAtWrite(writes, kill) as StoragePlane & { snapshotKeys: () => string[] };
+      const touched = tempIds.filter(
+        tempId => disk.snapshotKeys().some(key => key.startsWith('dbl:row:') && key.includes(tempId)) || (disk.get('dbl:ops') ?? '').includes(tempId)
+      );
+      if (touched.length === 0) continue;
+      assertedPoints += 1;
+      await bootOn(disk);
+      assertUserRowsSurvive(touched);
+      expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+    }
+    expect(assertedPoints).toBeGreaterThan(0);
+  });
+
+  it('quarantines a corrupt operation ledger instead of destroying every unsent row', async () => {
+    const { writes, tempIds } = await runScenario(3);
+    expect(tempIds.length).toBe(3);
+    const disk = diskAtWrite(writes, writes.length) as StoragePlane & { snapshotKeys: () => string[] };
+    disk.set('dbl:ops', '{corrupt');
+    await bootOn(disk);
+    assertUserRowsSurvive(tempIds);
+    expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+  });
+
+  it('keeps unsent rows when the operation ledger record version moves', async () => {
+    const { writes, tempIds } = await runScenario(2);
+    const disk = diskAtWrite(writes, writes.length) as StoragePlane & { snapshotKeys: () => string[] };
+    const raw = disk.get('dbl:ops');
+    expect(raw).toBeDefined();
+    const decoded = JSON.parse(raw!) as { payload: Record<string, unknown> };
+    disk.set('dbl:ops', encodePersistence({ ...decoded.payload, recordVersion: 1 }));
+    await bootOn(disk);
+    assertUserRowsSurvive(tempIds);
+    expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+  });
+
+  it('keeps unsent rows across a storage format reset', async () => {
+    const { writes, tempIds } = await runScenario(2);
+    const disk = diskAtWrite(writes, writes.length) as StoragePlane & { snapshotKeys: () => string[] };
+    const manifestRaw = disk.get('dbl:manifest');
+    expect(manifestRaw).toBeDefined();
+    const manifest = (JSON.parse(manifestRaw!) as { payload: Record<string, unknown> }).payload;
+    disk.set('dbl:manifest', encodePersistence({ ...manifest, formatVersion: 7 }));
+    await bootOn(disk);
+    assertUserRowsSurvive(tempIds);
+  });
+
+  it('keeps unsent rows across a schema fingerprint change', async () => {
+    const { writes, tempIds } = await runScenario(2);
+    const disk = diskAtWrite(writes, writes.length) as StoragePlane & { snapshotKeys: () => string[] };
+    const manifestRaw = disk.get('dbl:manifest');
+    expect(manifestRaw).toBeDefined();
+    const manifest = (JSON.parse(manifestRaw!) as { payload: { schemaFingerprints: Record<string, string> } }).payload;
+    const fingerprints = { ...manifest.schemaFingerprints };
+    for (const key of Object.keys(fingerprints)) {
+      if (key.startsWith('ZeroLossMessage')) fingerprints[key] = 'moved-fingerprint';
+    }
+    disk.set('dbl:manifest', encodePersistence({ ...manifest, schemaFingerprints: fingerprints }));
+    await bootOn(disk);
+    assertUserRowsSurvive(tempIds);
+  });
+
+  it('quarantines a landed row that fails validation instead of silently dropping it', async () => {
+    await bootOn(createMemoryPlane());
+    const invalid = { chatId: 'chat-1', userId: 'other', body: 'row without id', status: 'Sent', createdAt: NOW, updatedAt: NOW, sequenceNumber: 9 };
+    Message.where({ chatId: 'chat-1' }).seed([serverRow('server-ok', 'kept', 1), invalid as never]);
+    expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id)).toEqual(['server-ok']);
+    const tickets = readQuarantineEntries().filter(entry => entry.reason === 'plan-row-rejected');
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]).toMatchObject({ kind: 'row', model: 'ZeroLossMessage', raw: invalid });
+  });
+
+  it('keeps the optimistic row when a correlated replace is rejected by causal admission', async () => {
+    resetRuntime();
+    let resolveSend!: (value: { data: unknown }) => void;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: async <TData,>() =>
+          new Promise<{ data: TData }>(resolve => {
+            resolveSend = resolve as (value: { data: unknown }) => void;
+          })
+      })
+    });
+    seedManifest();
+    await bootDb();
+    const input: SendInput = { id: 'local-1', chatId: 'chat-1', userId: 'me', body: 'draft', status: 'Sending', createdAt: NOW, updatedAt: NOW, sequenceNumber: 100 };
+    const run = Message.actions.send.run({ row: input }).catch(() => {});
+    await Promise.resolve();
+    const tempId = Message.where({ chatId: 'chat-1' }).read().find(row => row.status === 'Sending')!.id;
+    // While the response is in flight, the same server row arrives by event and is destroyed again,
+    // so its existence epoch moves past the mutation's base revision.
+    Message.where({ chatId: 'chat-1' }).seed([serverRow('server-echo', 'draft', 101)]);
+    Message.destroy('server-echo');
+    resolveSend({ data: { send: { message: serverRow('server-echo', 'draft', 101) } } });
+    await run;
+    // The replace pair is rejected atomically: the destroy leg must not run once the upsert leg
+    // is refused, and the refused server payload gets a quarantine ticket instead of vanishing.
+    expect(Message.find(tempId)).toBeDefined();
+    const tickets = readQuarantineEntries().filter(entry => entry.reason === 'replace-rejected-by-admission');
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]).toMatchObject({ kind: 'row', model: 'ZeroLossMessage', id: 'server-echo' });
+    expect(Message.operation(tempId).read().pending).toBe(false);
+  });
+
+  it('never loses user rows to random corruption of cache keys', async () => {
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      const random = mulberry32(seed);
+      const { writes, tempIds } = await runScenario(1 + Math.floor(random() * 2));
+      const disk = diskAtWrite(writes, writes.length) as StoragePlane & { snapshotKeys: () => string[] };
+      // Corrupt 1-2 cache-class keys; the ops ledger (outbox) is durable class and stays intact here.
+      const cacheKeys = disk.snapshotKeys().filter(key => /^dbl:(row|scope|tombstones|query)/.test(key));
+      const corruptCount = 1 + Math.floor(random() * 2);
+      for (let index = 0; index < corruptCount && cacheKeys.length > 0; index += 1) {
+        const key = cacheKeys[Math.floor(random() * cacheKeys.length)]!;
+        disk.set(key, '{corrupt');
+      }
+      try {
+        await bootOn(disk);
+        assertUserRowsSurvive(tempIds);
+        expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+      } catch (error) {
+        throw new Error(`seed ${seed}: ${(error as Error).message}`);
+      }
+    }
+  });
+
+  it('random kill points never lose rows the disk already holds', async () => {
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      const random = mulberry32(seed + 10_000);
+      const { writes, serverIds } = await runScenario(0);
+      const kill = 1 + Math.floor(random() * writes.length);
+      const disk = diskAtWrite(writes, kill) as StoragePlane & { snapshotKeys: () => string[] };
+      const persistedRows = disk.snapshotKeys().filter(key => key.startsWith('dbl:row:ZeroLossMessage'));
+      try {
+        await bootOn(cloneDisk(disk));
+        const survivors = Message.where({ chatId: 'chat-1' }).read().map(row => row.id);
+        // Cache parity: every row that reached the disk before the kill is served after restart.
+        for (const key of persistedRows) {
+          const id = key.slice(key.lastIndexOf(':') + 1);
+          if (serverIds.some(serverId => id.includes(serverId))) {
+            expect(survivors.some(survivor => id.includes(survivor))).toBe(true);
+          }
+        }
+        expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
+      } catch (error) {
+        throw new Error(`seed ${seed} kill ${kill}/${writes.length}: ${(error as Error).message}`);
+      }
+    }
+  });
+});

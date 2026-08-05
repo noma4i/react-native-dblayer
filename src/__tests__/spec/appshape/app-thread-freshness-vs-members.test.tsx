@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { bootDb, configureDb, suspendDb } from '../../testApi';
+import { bootDb, configureDb, getApplyRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, recordTimelineInProvider, settle } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -73,7 +73,6 @@ describe('app-shaped thread freshness against lost members', () => {
     expect(calls).toBe(1);
     expect((firstReader.last().data as Array<{ id: string }>).map(row => row.id)).toHaveLength(3);
     firstReader.unmount();
-    suspendDb();
 
     // The membership record is lost while the freshness record survives - the split this case is about.
     const scopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:'));
@@ -137,9 +136,9 @@ describe('app-shaped thread freshness against lost members', () => {
     before.models.messages.insert({ ...message('m-media', 4), kind: 'video', media: { id: 'media-4', kind: 'video', fileUrl: 'https://cdn/m-4.mp4' } } as never);
     expect(before.models.messages.scopes.media.read({ chatId: 'chat-1', mediaBucket: 'visual' })).toHaveLength(1);
     firstReader.unmount();
-    suspendDb();
 
     // Exactly the reported split: the thread loses its members while the sibling keeps its own.
+    getApplyRuntime().flushCacheSnapshots();
     const threadScopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:') && key.includes('thread'));
     const mediaScopeKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:scope:') && key.includes('media'));
     expect(threadScopeKeys).not.toEqual([]);
@@ -201,7 +200,6 @@ describe('app-shaped thread freshness against lost members', () => {
     await settle(1, { macro: true });
     expect(calls).toBe(1);
     firstReader.unmount();
-    suspendDb();
 
     // The mirror split of T2: membership and freshness survive, the rows behind them do not.
     const rowKeys = storage.snapshotKeys().filter(key => key.startsWith('dbl:row:'));

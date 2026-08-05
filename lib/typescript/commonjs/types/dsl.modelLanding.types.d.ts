@@ -1,9 +1,9 @@
-import type { WriteOp } from './core.apply.journal.types';
+import type { WriteOp } from './core.apply.ops.types';
 import type { SideloadEdge } from './dsl.modelFacade.types';
 export type ModelLandingHost = {
-    normalize(input: unknown): {
+    admitPlanRow(input: unknown): {
         id: string;
-    };
+    } | undefined;
     planOwnRows(rows: unknown[], options?: {
         origin?: 'event';
     }): WriteOp[];

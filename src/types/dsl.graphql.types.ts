@@ -2,8 +2,6 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import type {
   GraphqlActionDurableDefinition,
   GraphqlActionDurableOptions,
-  GraphqlActionPollDefinition,
-  GraphqlActionPollOptions,
   GraphqlActionRequestDefinition,
   GraphqlActionRequestOptions,
   GraphqlConnectionDefinition,
@@ -75,28 +73,6 @@ export type GraphqlDsl<TOwnerKey extends string = string, TBuildInput = unknown,
     TInput,
     TResultKey,
     TTransportInput,
-    TOwnerKey,
-    TBuildInput,
-    TStored
-  >;
-  action<
-    TData,
-    TVariables,
-    TInput
-  >(
-    document: TypedDocumentNode<TData, TVariables>,
-    options: GraphqlActionPollOptions<
-      TData,
-      TVariables,
-      TInput,
-      TOwnerKey,
-      TBuildInput,
-      TStored
-    >
-  ): GraphqlActionPollDefinition<
-    TData,
-    TVariables,
-    TInput,
     TOwnerKey,
     TBuildInput,
     TStored

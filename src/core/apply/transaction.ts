@@ -1,16 +1,13 @@
 import { uniqBy } from 'es-toolkit';
-import type { ApplyRuntime, CheckpointScheduler, CommitBus, IncrementalCommitBatch, JournalOp, JournalRecord, OperationTransition, StoragePlane } from '../../types';
+import type { ApplyRuntime, CommitBus, IncrementalCommitBatch, AppliedOp, OperationTransition, StoragePlane } from '../../types';
 import { getOperationState, getRuntimeGeneration } from '../../dsl/configure';
-import { isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
-import { noteApplyFailure, noteCommit, noteDataLoss } from '../diagnostics';
+import { noteApplyFailure, noteCommit } from '../diagnostics';
 import { getDbLogger } from '../logger';
-import { decodePersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
-import { compositeKey } from '../serialize';
 import { poisonStoreReads, publishProjectedBatch, restoreStoreReads } from '../store';
 import { reportSyncError } from '../syncError';
+import { compositeKey } from '../serialize';
 import { applyAtomically, touchedModelsOf } from './applyExecution';
 import { getApplyTarget } from './applyTargetRegistry';
-import { createJournal, readCheckpointEpoch } from './journal';
 
 const pendingChanges = (transitions: readonly OperationTransition[]): Array<{ model: string; id: string }> =>
   uniqBy(
@@ -21,122 +18,108 @@ const pendingChanges = (transitions: readonly OperationTransition[]): Array<{ mo
     change => compositeKey(change.model, change.id)
   );
 
-export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () => string; bus: CommitBus; checkpoint?: CheckpointScheduler }): ApplyRuntime => {
-  const { storage, prefix, bus, checkpoint } = options;
-  const journal = createJournal(storage, prefix);
-  let epoch = journal.lastEpoch();
-  checkpoint?.setAfterFlush(flushedEpoch => {
-    const keys = journal.coveredKeys(flushedEpoch);
-    for (const key of keys) storage.set(key, null);
-  });
+/**
+ * One apply runtime per configured database: every model shares the same epoch counter and commit
+ * bus, so one plan touching several models applies and persists as one transaction.
+ *
+ * Persistence splits by data class. The operation ledger (the user's unacked writes) is written
+ * SYNCHRONOUSLY inside the commit - a kill right after a send still finds the operation and its
+ * domain input on disk. Model cache snapshots (rows, scopes) coalesce per tick: back-to-back
+ * commits in one tick encode each dirty model once, and a kill inside that window costs only
+ * refetchable cache that the ledger can rebuild.
+ */
+export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () => string; bus: CommitBus }): ApplyRuntime => {
+  const { storage, bus } = options;
+  const generation = getRuntimeGeneration();
+  let epoch = 0;
+  const dirtyModels = new Set<string>();
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const persistedAppliedEpoch = (model: string): number => {
-    const markerKey = `${prefix()}applied:${model}`;
-    const raw = storage.get(markerKey);
-    if (raw == null) return 0;
-    const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, isNonNegativeSafeInteger);
-    if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
-    if (decoded.kind === 'ok') return decoded.value;
-    storage.set(markerKey, null);
-    noteDataLoss('corrupt-applied-epoch', model, 1);
-    return 0;
-  };
-
-  const persistImmediate = (record: JournalRecord): void => {
-    const models = touchedModelsOf(record.ops);
-    const entries: Array<{ key: string; value: string | null }> = [];
-    for (const model of models) {
-      entries.push(...getApplyTarget(model).persistEntries());
-      entries.push({ key: `${prefix()}applied:${model}`, value: encodePersistence(record.epoch) });
+  const flushCacheSnapshots = (): void => {
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
     }
-    entries.push(...getOperationState().prepareTransitions(record.operationTransitions));
-    entries.push({ key: `${prefix()}meta`, value: encodePersistence({ lastCheckpointEpoch: record.epoch }) });
-    for (const entry of entries) storage.set(entry.key, entry.value);
+    if (getRuntimeGeneration() !== generation) {
+      dirtyModels.clear();
+      return;
+    }
+    // A model leaves the dirty set only after its snapshot landed: a refused write keeps it
+    // dirty and the next flush retries it with the freshest state.
+    for (const model of [...dirtyModels]) {
+      const target = getApplyTarget(model);
+      for (const entry of target.persistEntries()) storage.set(entry.key, entry.value);
+      target.ackPersist();
+      dirtyModels.delete(model);
+    }
   };
 
-  const applyRecord = (record: JournalRecord, ops: JournalOp[], transitions: OperationTransition[], readyAfterApply: boolean): IncrementalCommitBatch =>
-    publishProjectedBatch(
-      bus,
-      () => {
-        let batch: IncrementalCommitBatch;
-        let persistenceError: unknown;
-        const persist = (): void => {
-          if (checkpoint) return;
-          try {
-            persistImmediate({ ...record, ops, operationTransitions: transitions });
-          } catch (error) {
-            persistenceError = error;
-            throw error;
-          }
-        };
+  const persistCommit = (ops: AppliedOp[], transitions: readonly OperationTransition[]): void => {
+    // The ledger write is the durability boundary of the commit; it never waits for the tick.
+    if (transitions.length > 0) {
+      for (const entry of getOperationState().prepareTransitions(transitions)) storage.set(entry.key, entry.value);
+    }
+    for (const model of touchedModelsOf(ops)) dirtyModels.add(model);
+    if (dirtyModels.size > 0 && flushTimer === null) {
+      flushTimer = setTimeout(() => {
+        // A refused cache write is not a crash: the model stays dirty, the next
+        // commit or explicit flush retries it, and the refusal is reported.
         try {
-          batch = applyAtomically(ops, record.epoch, persist);
-        } catch (firstError) {
-          if (persistenceError !== undefined) throw persistenceError;
-          poisonStoreReads();
-          try {
-            restoreStoreReads();
-            batch = applyAtomically(ops, record.epoch, persist);
-          } catch (error) {
-            poisonStoreReads();
-            noteApplyFailure();
-            getDbLogger().error('apply failed after recovery replay', { epoch, firstError, error });
-            reportSyncError(error, { source: 'apply' }, 'apply');
-            throw error;
-          }
+          flushCacheSnapshots();
+        } catch (error) {
+          getDbLogger().error('cache snapshot flush failed, will retry', { error });
+          reportSyncError(error, { source: 'apply' }, 'apply');
         }
-        batch.pending = pendingChanges(transitions);
-        if (checkpoint) {
-          checkpoint.notePlan(touchedModelsOf(ops), record.epoch);
-        } else {
-          for (const model of touchedModelsOf(ops)) getApplyTarget(model).ackPersist();
-        }
-        noteCommit();
-        return batch;
-      },
-      { readyAfterApply }
-    );
+      }, 0);
+    }
+  };
 
   return {
     commit: envelope => {
       if (envelope.schemaVersion !== 1) throw new Error(`Unsupported commit envelope schema version ${String(envelope.schemaVersion)}`);
       if (envelope.epoch !== getRuntimeGeneration()) throw new Error(`Stale commit envelope ${envelope.txId}`);
       const ops = [...envelope.entityOps, ...envelope.scopeOps];
-      if (ops.length === 0 && envelope.operationTransitions.length === 0) return { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
+      const transitions = [...envelope.operationTransitions];
+      if (ops.length === 0 && transitions.length === 0) return { rows: [], scopes: [], mode: 'delta', scopeChanges: [] };
       epoch += 1;
-      const record: JournalRecord = {
-        txId: envelope.txId,
-        runtimeEpoch: envelope.epoch,
-        epoch,
-        ops,
-        operationTransitions: [...envelope.operationTransitions]
-      };
-      const journalEntry = journal.entry(record);
-      storage.set(journalEntry.key, journalEntry.value);
-      return applyRecord(record, record.ops, record.operationTransitions, true);
+      const commitEpoch = epoch;
+      return publishProjectedBatch(
+        bus,
+        () => {
+          let batch: IncrementalCommitBatch;
+          let persistenceError: unknown;
+          const persist = (): void => {
+            try {
+              persistCommit(ops, transitions);
+            } catch (error) {
+              persistenceError = error;
+              throw error;
+            }
+          };
+          try {
+            batch = applyAtomically(ops, commitEpoch, persist);
+          } catch (firstError) {
+            if (persistenceError !== undefined) throw persistenceError;
+            poisonStoreReads();
+            try {
+              restoreStoreReads();
+              batch = applyAtomically(ops, commitEpoch, persist);
+            } catch (error) {
+              poisonStoreReads();
+              noteApplyFailure();
+              getDbLogger().error('apply failed after recovery replay', { epoch, firstError, error });
+              reportSyncError(error, { source: 'apply' }, 'apply');
+              throw error;
+            }
+          }
+          batch.pending = pendingChanges(transitions);
+          noteCommit();
+          return batch;
+        },
+        { readyAfterApply: true }
+      );
     },
-    replay: () => {
-      let replayed = 0;
-      const appliedCache = new Map<string, number>();
-      const appliedFor = (model: string): number => {
-        const cached = appliedCache.get(model);
-        if (cached !== undefined) return cached;
-        const value = persistedAppliedEpoch(model);
-        appliedCache.set(model, value);
-        return value;
-      };
-      getOperationState();
-      const operationCheckpointEpoch = readCheckpointEpoch(storage, prefix());
-      for (const record of journal.allRecords()) {
-        const ops = record.ops.filter(op => appliedFor(op.model) < record.epoch);
-        const transitions = record.epoch > operationCheckpointEpoch ? record.operationTransitions : [];
-        epoch = Math.max(epoch, record.epoch);
-        if (ops.length === 0 && transitions.length === 0) continue;
-        applyRecord(record, ops, transitions, false);
-        replayed += 1;
-      }
-      return replayed;
-    },
+    flushCacheSnapshots,
     currentEpoch: () => epoch
   };
 };

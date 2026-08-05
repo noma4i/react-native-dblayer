@@ -11,9 +11,7 @@ import {
   getApplyRuntime,
   getInternalModelHandle,
   getOperationState,
-  hasMany,
-  resetRuntime,
-  suspendDb
+  hasMany
 } from '../../testApi';
 import type { DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle } from '../helpers/harness';
@@ -54,7 +52,6 @@ const CorrelationMessageSchema = defineShape<CorrelationMessage>()({
 const unrelatedRow: Job = { id: 'unrelated', label: 'unrelated', status: 'queued' };
 
 const workSnapshot = (storage: MemoryPlane, affected: Reader, unrelated: Reader) => ({
-  wal: storage.keys('dbl:journal:').length,
   commits: diagnostics().snapshot().commits,
   affectedTicks: affected.renders(),
   unrelatedTicks: unrelated.renders()
@@ -65,9 +62,8 @@ const expectWork = (
   affected: Reader,
   unrelated: Reader,
   before: ReturnType<typeof workSnapshot>,
-  expected: { wal: number; commits: number; affectedTicks: number }
+  expected: { commits: number; affectedTicks: number }
 ): void => {
-  expect(storage.keys('dbl:journal:').length - before.wal).toBe(expected.wal);
   expect(diagnostics().snapshot().commits - before.commits).toBe(expected.commits);
   expect(affected.renders() - before.affectedTicks).toBe(expected.affectedTicks);
   expect(unrelated.renders() - before.unrelatedTicks).toBe(0);
@@ -124,7 +120,7 @@ describe('action modes', () => {
 
     expect(JobModel.find('request-server')).toEqual({ id: 'request-server', label: 'request', status: 'done' });
     expect(calls).toEqual(['before', 'transport', 'track']);
-    expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, before, { commits: 1, affectedTicks: 1 });
     affected.unmount();
     unrelated.unmount();
   });
@@ -190,7 +186,7 @@ describe('action modes', () => {
 
     expect(attempt).toBe(2);
     expect(JobModel.find(id)).toEqual({ id, label: 'target', status: 'done' });
-    expectWork(storage, affected, unrelated, before, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, before, { commits: 2, affectedTicks: 1 });
 
     const failureBefore = workSnapshot(storage, affected, unrelated);
     rejectFirst(new Error('first concurrent update failed'));
@@ -199,7 +195,7 @@ describe('action modes', () => {
     });
 
     expect(JobModel.find(id)).toEqual({ id, label: 'target', status: 'done' });
-    expectWork(storage, affected, unrelated, failureBefore, { wal: 1, commits: 1, affectedTicks: 0 });
+    expectWork(storage, affected, unrelated, failureBefore, { commits: 1, affectedTicks: 0 });
 
     const responseBefore = workSnapshot(storage, affected, unrelated);
     resolveSecond({ data: { jobStatus: { id, status: 'queued' } } });
@@ -218,7 +214,7 @@ describe('action modes', () => {
       rowIds: [id],
       status: 'failed'
     });
-    expectWork(storage, affected, unrelated, responseBefore, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, responseBefore, { commits: 1, affectedTicks: 1 });
     affected.unmount();
     unrelated.unmount();
   });
@@ -265,7 +261,7 @@ describe('action modes', () => {
     expect(transport.calls).toHaveLength(0);
     expect(ParentModel.find('cascade-parent')).toEqual({ id: 'cascade-parent', label: 'parent', status: 'queued' });
     expect(ChildModel.find('cascade-child')).toEqual({ id: 'cascade-child', parentId: 'cascade-parent', label: 'child' });
-    expectWork(storage, parentReader, childReader, before, { wal: 0, commits: 0, affectedTicks: 0 });
+    expectWork(storage, parentReader, childReader, before, { commits: 0, affectedTicks: 0 });
     parentReader.unmount();
     childReader.unmount();
   });
@@ -413,7 +409,7 @@ describe('action modes', () => {
     expect(failedOperation).toMatchObject({ status: 'failed', tempIds: [tempId] });
     expect(JobModel.find(tempId)).toEqual({ id: tempId, label: 'retry', status: 'pending' });
     expect(JobModel.operation(tempId).read()).toMatchObject({ pending: false, failed: true });
-    expectWork(storage, affected, unrelated, failedBefore, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, failedBefore, { commits: 2, affectedTicks: 1 });
 
     const retryBefore = workSnapshot(storage, affected, unrelated);
     let retry!: Promise<unknown>;
@@ -433,7 +429,7 @@ describe('action modes', () => {
     expect(JobModel.find(tempId)).toBeUndefined();
     expect(JobModel.find('retry-server')).toEqual({ id: 'retry-server', label: 'retry', status: 'done' });
     expect(JobModel.where({}).read()).toEqual([{ id: 'retry-server', label: 'retry', status: 'done' }]);
-    expectWork(storage, affected, unrelated, retryBefore, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, retryBefore, { commits: 2, affectedTicks: 1 });
     affected.unmount();
     unrelated.unmount();
   });
@@ -477,7 +473,7 @@ describe('action modes', () => {
 
     expect(JobModel.find(tempId)).toBeUndefined();
     expect(JobModel.operation(tempId).read()).toEqual({ pending: false, failed: false, deliveryUnknown: false, unsyncedChanges: undefined });
-    expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, before, { commits: 1, affectedTicks: 1 });
     affected.unmount();
     unrelated.unmount();
   });
@@ -529,7 +525,7 @@ describe('action modes', () => {
 
     expect(JobModel.find(`${name}-job`)).toEqual({ id: `${name}-job`, label: name, status: 'queued' });
     expect(JobModel.operation(`${name}-job`).read()).toMatchObject({ pending: false, failed: true });
-    expectWork(storage, affected, unrelated, before, { wal: 2, commits: 2, affectedTicks: expectedTicks });
+    expectWork(storage, affected, unrelated, before, { commits: 2, affectedTicks: expectedTicks });
     affected.unmount();
     unrelated.unmount();
   });
@@ -588,9 +584,8 @@ describe('action modes', () => {
 
     expect(JobModel.find('update-target')).toEqual({ id: 'update-target', label: 'target', status: 'pending' });
     expect(JobModel.byLabel({ label: 'target' }).read().map(row => row.id)).toEqual(['update-before', 'update-target', 'update-after']);
-    expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, before, { commits: 1, affectedTicks: 1 });
 
-    suspendDb();
     affected.unmount();
     unrelated.unmount();
 
@@ -623,8 +618,10 @@ describe('action modes', () => {
     expect(RestartedJobModel.find('update-target')).toEqual(preActionRows[1]);
     expect(RestartedJobModel.byLabel({ label: 'target' }).read()).toEqual(preActionRows);
     expect(RestartedUnrelated.find(unrelatedRow.id)).toEqual(unrelatedRow);
+    // The crashed request closes like a runtime failure: rolled back row, retryable operation.
     expect(getOperationState().pending()).toEqual([]);
-    expect(getOperationState().open()).toEqual([]);
+    expect(getOperationState().open().map(operation => operation.status)).toEqual(['failed']);
+    expect(RestartedJobModel.operation('update-target').read()).toMatchObject({ pending: false, failed: true });
     expect(restartedTransport.calls).toHaveLength(0);
 
     const restartedAffected = renderCounted(() => RestartedJobModel.byLabel({ label: 'target' }).use().data);
@@ -638,7 +635,7 @@ describe('action modes', () => {
     });
     expect(RestartedJobModel.find('update-target')).toEqual(restoredTarget);
     expect(RestartedJobModel.byLabel({ label: 'target' }).read()).toEqual(restoredMembership);
-    expectWork(storage, restartedAffected, restartedUnrelated, lateResponseBefore, { wal: 0, commits: 0, affectedTicks: 0 });
+    expectWork(storage, restartedAffected, restartedUnrelated, lateResponseBefore, { commits: 0, affectedTicks: 0 });
     restartedAffected.unmount();
     restartedUnrelated.unmount();
   });
@@ -693,9 +690,8 @@ describe('action modes', () => {
 
     expect(JobModel.find('destroy-target')).toBeUndefined();
     expect(JobModel.byLabel({ label: 'target' }).read().map(row => row.id)).toEqual(['destroy-before', 'destroy-after']);
-    expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, before, { commits: 1, affectedTicks: 1 });
 
-    suspendDb();
     affected.unmount();
     unrelated.unmount();
 
@@ -724,8 +720,10 @@ describe('action modes', () => {
     expect(RestartedJobModel.find('destroy-target')).toEqual(preActionRows[1]);
     expect(RestartedJobModel.byLabel({ label: 'target' }).read()).toEqual(preActionRows);
     expect(RestartedUnrelated.find(unrelatedRow.id)).toEqual(unrelatedRow);
+    // The crashed request closes like a runtime failure: restored row, retryable operation.
     expect(getOperationState().pending()).toEqual([]);
-    expect(getOperationState().open()).toEqual([]);
+    expect(getOperationState().open().map(operation => operation.status)).toEqual(['failed']);
+    expect(RestartedJobModel.operation('destroy-target').read()).toMatchObject({ pending: false, failed: true });
     expect(restartedTransport.calls).toHaveLength(0);
 
     const restartedAffected = renderCounted(() => RestartedJobModel.byLabel({ label: 'target' }).use().data);
@@ -739,7 +737,7 @@ describe('action modes', () => {
     });
     expect(RestartedJobModel.find('destroy-target')).toEqual(restoredTarget);
     expect(RestartedJobModel.byLabel({ label: 'target' }).read()).toEqual(restoredMembership);
-    expectWork(storage, restartedAffected, restartedUnrelated, lateResponseBefore, { wal: 0, commits: 0, affectedTicks: 0 });
+    expectWork(storage, restartedAffected, restartedUnrelated, lateResponseBefore, { commits: 0, affectedTicks: 0 });
     restartedAffected.unmount();
     restartedUnrelated.unmount();
   });
@@ -801,7 +799,7 @@ describe('action modes', () => {
     expect(getOperationState().open()).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: 'failed', rowIds: ['update-retry-target'] })])
     );
-    expectWork(storage, affected, unrelated, failedBefore, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, failedBefore, { commits: 2, affectedTicks: 1 });
 
     const retryBefore = workSnapshot(storage, affected, unrelated);
     let retry!: ReturnType<typeof JobModel.actions.change.retry>;
@@ -813,7 +811,7 @@ describe('action modes', () => {
     expect(getOperationState().pending()).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: 'pending', rowIds: ['update-retry-target'] })])
     );
-    expectWork(storage, affected, unrelated, retryBefore, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, retryBefore, { commits: 1, affectedTicks: 1 });
 
     const responseBefore = workSnapshot(storage, affected, unrelated);
     resolveRetry({ data: { jobStatus: { id: 'update-retry-target', status: 'done' } } });
@@ -824,7 +822,7 @@ describe('action modes', () => {
     expect(JobModel.find('update-retry-target')).toEqual({ id: 'update-retry-target', label: 'target', status: 'done' });
     expect(JobModel.byLabel({ label: 'target' }).read().map(row => row.id)).toEqual(['update-retry-before', 'update-retry-target', 'update-retry-after']);
     expect(getOperationState().open()).toEqual([]);
-    expectWork(storage, affected, unrelated, responseBefore, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, responseBefore, { commits: 1, affectedTicks: 1 });
 
     const secondFailureBefore = workSnapshot(storage, affected, unrelated);
     await act(async () => {
@@ -834,7 +832,7 @@ describe('action modes', () => {
     expect(JobModel.find('update-retry-target')).toEqual({ id: 'update-retry-target', label: 'target', status: 'done' });
     expect(JobModel.byLabel({ label: 'target' }).read().map(row => row.id)).toEqual(['update-retry-before', 'update-retry-target', 'update-retry-after']);
     expect(JobModel.operation('update-retry-target').read()).toMatchObject({ pending: false, failed: true });
-    expectWork(storage, affected, unrelated, secondFailureBefore, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, secondFailureBefore, { commits: 2, affectedTicks: 1 });
 
     const failedOperation = getOperationState().open().find(operation => operation.status === 'failed');
     expect(failedOperation).toBeDefined();
@@ -847,7 +845,7 @@ describe('action modes', () => {
     expect(JobModel.byLabel({ label: 'target' }).read().map(row => row.id)).toEqual(['update-retry-before', 'update-retry-target', 'update-retry-after']);
     expect(getOperationState().get(failedOperation!.operationId)).toBeUndefined();
     expect(getOperationState().open()).toEqual([]);
-    expectWork(storage, affected, unrelated, discardBefore, { wal: 1, commits: 1, affectedTicks: 0 });
+    expectWork(storage, affected, unrelated, discardBefore, { commits: 1, affectedTicks: 0 });
 
     const callsAfterDiscard = transport.calls.length;
     await expect(JobModel.actions.change.retry('update-retry-target')).resolves.toBeNull();
@@ -910,7 +908,7 @@ describe('action modes', () => {
     expect(getOperationState().open()).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: 'failed', rowIds: ['destroy-retry-target'] })])
     );
-    expectWork(storage, affected, unrelated, failedBefore, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, failedBefore, { commits: 2, affectedTicks: 1 });
 
     const retryBefore = workSnapshot(storage, affected, unrelated);
     let retry!: ReturnType<typeof JobModel.actions.change.retry>;
@@ -923,7 +921,7 @@ describe('action modes', () => {
     expect(getOperationState().pending()).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: 'pending', rowIds: ['destroy-retry-target'] })])
     );
-    expectWork(storage, affected, unrelated, retryBefore, { wal: 1, commits: 1, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, retryBefore, { commits: 1, affectedTicks: 1 });
 
     const responseBefore = workSnapshot(storage, affected, unrelated);
     resolveRetry({ data: { jobStatus: { id: 'destroy-retry-target', status: 'done' } } });
@@ -934,7 +932,7 @@ describe('action modes', () => {
     expect(JobModel.find('destroy-retry-target')).toBeUndefined();
     expect(JobModel.byLabel({ label: 'target' }).read().map(row => row.id)).toEqual(['destroy-retry-before', 'destroy-retry-after']);
     expect(getOperationState().open()).toEqual([]);
-    expectWork(storage, affected, unrelated, responseBefore, { wal: 1, commits: 1, affectedTicks: 0 });
+    expectWork(storage, affected, unrelated, responseBefore, { commits: 1, affectedTicks: 0 });
 
     const secondFailureRows: Job[] = [
       { id: 'destroy-retry-second-before', label: 'target', status: 'queued' },
@@ -951,7 +949,7 @@ describe('action modes', () => {
     expect(JobModel.find(secondFailureId)).toEqual(secondFailureRows[1]);
     expect(JobModel.byLabel({ label: 'target' }).read()).toEqual(secondFailureRows);
     expect(JobModel.operation(secondFailureId).read()).toMatchObject({ pending: false, failed: true });
-    expectWork(storage, affected, unrelated, secondFailureBefore, { wal: 2, commits: 2, affectedTicks: 1 });
+    expectWork(storage, affected, unrelated, secondFailureBefore, { commits: 2, affectedTicks: 1 });
 
     const failedOperation = getOperationState().open().find(operation => operation.status === 'failed');
     expect(failedOperation).toBeDefined();
@@ -964,7 +962,7 @@ describe('action modes', () => {
     expect(JobModel.byLabel({ label: 'target' }).read()).toEqual(secondFailureRows);
     expect(getOperationState().get(failedOperation!.operationId)).toBeUndefined();
     expect(getOperationState().open()).toEqual([]);
-    expectWork(storage, affected, unrelated, discardBefore, { wal: 1, commits: 1, affectedTicks: 0 });
+    expectWork(storage, affected, unrelated, discardBefore, { commits: 1, affectedTicks: 0 });
 
     const callsAfterDiscard = transport.calls.length;
     await expect(JobModel.actions.change.retry(secondFailureId)).resolves.toBeNull();
@@ -972,220 +970,5 @@ describe('action modes', () => {
     expect(JobModel.operation(secondFailureId).read()).toEqual({ pending: false, failed: false, deliveryUnknown: false, unsyncedChanges: undefined });
     affected.unmount();
     unrelated.unmount();
-  });
-
-  it('rejects an empty poll key before transport and root planning', async () => {
-    const storage = createMemoryPlane();
-    const transport = createMockTransport();
-    configureDb({ storage, transport });
-    const Unrelated = defineUnrelated('SpecActionModePollKeyUnrelated');
-    let rootCalls = 0;
-    const JobModel = defineModel('SpecActionModePollKey', {
-      schema: JobSchema,
-      actions: owner => ({
-        status: owner.gql.action(statusDocument, {
-          mode: 'poll',
-          variables: (input: StatusInput) => input,
-          root: {
-            update: {
-              select: () => {
-                rootCalls += 1;
-                return null;
-              }
-            }
-          },
-          poll: { key: () => '', intervalMs: 10, maxAttempts: 2 }
-        })
-      })
-    });
-    JobModel.insert({ id: 'poll-empty', label: 'poll', status: 'queued' });
-    const affected = renderCounted(() => JobModel.useFind('poll-empty'));
-    const unrelated = renderCounted(() => Unrelated.useFind(unrelatedRow.id));
-    const before = workSnapshot(storage, affected, unrelated);
-
-    await expect(JobModel.actions.status.run({ id: 'poll-empty' })).rejects.toThrow('Poll action key must be a non-empty string');
-
-    expect(transport.calls).toHaveLength(0);
-    expect(rootCalls).toBe(0);
-    expectWork(storage, affected, unrelated, before, { wal: 0, commits: 0, affectedTicks: 0 });
-    affected.unmount();
-    unrelated.unmount();
-  });
-
-  it('runs one poll request and commits its accepted payload once', async () => {
-    const storage = createMemoryPlane();
-    const transport = createMockTransport({
-      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
-        expect(operation.query).toBe(statusDocument);
-        expect(operation.variables).toEqual({ id: 'poll-once' });
-        return { data: { jobStatus: { id: 'poll-once', status: 'done' } } as TData };
-      }
-    });
-    configureDb({ storage, transport });
-    const Unrelated = defineUnrelated('SpecActionModePollRunUnrelated');
-    const JobModel = defineModel('SpecActionModePollRun', {
-      schema: JobSchema,
-      actions: owner => ({
-        status: owner.gql.action(statusDocument, {
-          mode: 'poll',
-          variables: (input: StatusInput) => input,
-          root: {
-            update: {
-              select: data => ({
-                id: data.jobStatus.id,
-                patch: { status: data.jobStatus.status }
-              })
-            }
-          },
-          poll: { key: (input: StatusInput) => input.id, intervalMs: 10, maxAttempts: 2 }
-        })
-      })
-    });
-    JobModel.insert({ id: 'poll-once', label: 'poll', status: 'queued' });
-    const affected = renderCounted(() => JobModel.useFind('poll-once'));
-    const unrelated = renderCounted(() => Unrelated.useFind(unrelatedRow.id));
-    const before = workSnapshot(storage, affected, unrelated);
-
-    await act(async () => {
-      await JobModel.actions.status.run({ id: 'poll-once' });
-    });
-
-    expect(transport.calls).toHaveLength(1);
-    expect(JobModel.find('poll-once')).toEqual({ id: 'poll-once', label: 'poll', status: 'done' });
-    expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
-    affected.unmount();
-    unrelated.unmount();
-  });
-
-  it('owns poll phase, attempts, refresh and terminal teardown', async () => {
-    jest.useFakeTimers();
-    const order: string[] = [];
-    let response = 0;
-    const storage = createMemoryPlane();
-    const transport = createMockTransport({
-      query: async <TData,>() => {
-        order.push('transport');
-        response += 1;
-        return {
-          data: { jobStatus: { id: 'poll-job', status: response === 1 ? 'pending' : 'done' } } as TData
-        };
-      }
-    });
-    configureDb({ storage, transport });
-    const Unrelated = defineUnrelated('SpecActionModePollUnrelated');
-    const JobModel = defineModel('SpecActionModePoll', {
-      schema: JobSchema,
-      actions: owner => ({
-        status: owner.gql.action(statusDocument, {
-          mode: 'poll',
-          variables: (input: StatusInput) => {
-            order.push('variables');
-            return input;
-          },
-          root: {
-            update: {
-              select: data => ({ id: data.jobStatus.id, patch: { status: data.jobStatus.status } })
-            }
-          },
-          poll: {
-            key: (input: StatusInput) => {
-              order.push('key');
-              return input.id;
-            },
-            intervalMs: 10,
-            maxAttempts: 3,
-            classify: (data: StatusData) => (data.jobStatus.status === 'done' ? 'ready' : null)
-          }
-        })
-      })
-    });
-    JobModel.insert({ id: 'poll-job', label: 'poll', status: 'queued' });
-    const affected = renderCounted(() => JobModel.useFind('poll-job'));
-    const unrelated = renderCounted(() => Unrelated.useFind(unrelatedRow.id));
-    const phase = renderCounted(() => JobModel.actions.status.use({ id: 'poll-job' }));
-    const sibling = renderCounted(() => JobModel.actions.status.use({ id: 'poll-job' }));
-    const inactive = renderCounted(() => JobModel.actions.status.use(null));
-    const before = workSnapshot(storage, affected, unrelated);
-
-    await settle();
-
-    expect(inactive.result()).toMatchObject({ phase: 'idle', attempts: 0 });
-    await act(async () => inactive.result().refresh());
-    expect(order.slice(0, 3)).toEqual(['key', 'variables', 'transport']);
-    expect(phase.result()).toMatchObject({ phase: 'polling', attempts: 1 });
-    expect(JobModel.find('poll-job')?.status).toBe('pending');
-    expectWork(storage, affected, unrelated, before, { wal: 1, commits: 1, affectedTicks: 1 });
-
-    const refreshBefore = workSnapshot(storage, affected, unrelated);
-    await act(async () => phase.result().refresh());
-
-    expect(phase.result()).toEqual({ phase: 'ready', reason: 'terminal-payload', attempts: 2, refresh: phase.result().refresh });
-    expect(sibling.result().phase).toBe('ready');
-    expect(JobModel.find('poll-job')?.status).toBe('done');
-    expectWork(storage, affected, unrelated, refreshBefore, { wal: 1, commits: 1, affectedTicks: 1 });
-
-    await act(async () => phase.result().refresh());
-    expect(transport.calls).toHaveLength(3);
-    act(() => jest.advanceTimersByTime(100));
-    await settle();
-    expect(transport.calls).toHaveLength(3);
-    inactive.unmount();
-    phase.unmount();
-    sibling.unmount();
-    affected.unmount();
-    unrelated.unmount();
-  });
-
-  it('drops a pending poll landing after reset and stops its interval', async () => {
-    jest.useFakeTimers();
-    let resolveStatus!: (value: { data: StatusData }) => void;
-    const response = new Promise<{ data: StatusData }>(resolve => {
-      resolveStatus = resolve;
-    });
-    const storage = createMemoryPlane();
-    const transport = createMockTransport({
-      query: async <TData,>() => {
-        const result = await response;
-        return { data: result.data as TData };
-      }
-    });
-    configureDb({ storage, transport });
-    const JobModel = defineModel('SpecActionModePollReset', {
-      schema: JobSchema,
-      actions: owner => ({
-        status: owner.gql.action(statusDocument, {
-          mode: 'poll',
-          variables: (input: StatusInput) => input,
-          root: { update: { select: data => ({ id: data.jobStatus.id, patch: { status: data.jobStatus.status } }) } },
-          poll: { key: (input: StatusInput) => input.id, intervalMs: 10, maxAttempts: 3 }
-        })
-      })
-    });
-    const affected = renderCounted(() => JobModel.useFind('poll-reset'));
-    const phase = renderCounted(() => JobModel.actions.status.use({ id: 'poll-reset' }));
-    await settle();
-    expect(transport.calls).toHaveLength(1);
-    const before = {
-      wal: storage.keys('dbl:journal:').length,
-      commits: diagnostics().snapshot().commits,
-      affectedTicks: affected.renders()
-    };
-
-    act(() => resetRuntime());
-    await act(async () => {
-      resolveStatus({ data: { jobStatus: { id: 'poll-reset', status: 'done' } } });
-      await response;
-    });
-    act(() => jest.advanceTimersByTime(100));
-    await settle();
-
-    expect(JobModel.find('poll-reset')).toBeUndefined();
-    expect(storage.keys('dbl:journal:').length - before.wal).toBe(0);
-    expect(diagnostics().snapshot().commits - before.commits).toBe(0);
-    expect(affected.renders() - before.affectedTicks).toBe(0);
-    expect(transport.calls).toHaveLength(1);
-    expect(phase.result()).toMatchObject({ phase: 'idle', attempts: 0 });
-    phase.unmount();
-    affected.unmount();
   });
 });

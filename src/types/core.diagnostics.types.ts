@@ -7,21 +7,18 @@ export type DataLossMechanism =
   | 'corrupt-row'
   | 'corrupt-tombstones'
   | 'corrupt-scope'
-  | 'corrupt-applied-epoch'
-  | 'corrupt-checkpoint-meta'
   | 'failed-input-unserializable'
   | 'data-version-migration-reset'
   | 'schema-migration-reset'
   | 'model-corruption-recovery'
-  | 'journal-corruption-checkpointed-drop'
-  | 'journal-corruption-loss'
-  | 'journal-stale-version-drop'
   | 'operation-ledger-corruption-reset'
   | 'operation-ledger-stale-version-reset'
   | 'corrupt-once-keys'
   | 'replacement-rejected'
   | 'orphan-membership-dropped'
-  | 'unranked-ladder-value';
+  | 'unranked-ladder-value'
+  | 'user-reset-discard'
+  | 'fsck-scope-detach';
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
 
@@ -40,11 +37,10 @@ export type DiagnosticsState = {
   entityUpsertGuardHits: number;
   membershipWrites: number;
   relationChildScans: number;
-  corruptionJournalDrops: number;
-  corruptionJournalLosses: number;
   corruptionLedgerResets: number;
   manifestResets: number;
   replaceRejected: number;
   applyFailure: number;
+  quarantinePuts: number;
   dataLossEvents: DataLossEvent[];
 };

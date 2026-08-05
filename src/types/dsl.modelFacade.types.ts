@@ -7,7 +7,6 @@ import type { DbShape } from './schema.shape.types';
 import type { AnyFields, InferBuildInput, InferStoredFields } from './schema.infer.types';
 import type { ModelCore, ScopeHandle } from './dsl.model.types';
 import type { ModelEventLifecycleEntry, ModelEventSubscription } from './subscription.types';
-import type { ModelStatusPollerPhase } from './utils.modelStatusPoller.types';
 import type { WritePlan } from './dsl.writePlan.types';
 import type { GraphqlDsl } from './dsl.graphql.types';
 import type { ModelRootPlan, ModelRootUpdate } from './dsl.modelRoot.types';
@@ -134,7 +133,8 @@ export type GraphqlConnectionOptions<TData, TVariables, TParams, TConnection, TN
   write?(context: { data: TData; nodes: readonly TMapped[]; params: TParams }, plan: WritePlan<TOwnerKey>): void;
   cursor?(data: TData, connection: TConnection): string | null;
   mapCursor?(cursor: string): unknown;
-  coverage?: ScopeCoverage;
+  /** Delta coverage is an internal event-landing mode; a fetch declares page or complete. */
+  coverage?: Exclude<ScopeCoverage, 'delta'>;
   required?: readonly (keyof TParams & string)[];
   staleTime?: number | string;
   persistenceVersion?: number;
@@ -221,10 +221,9 @@ export type GraphqlLiveDefinition<
   document: TypedDocumentNode<TData, TVariables>;
 };
 
-export type ActionMode = 'request' | 'durable' | 'poll';
+export type ActionMode = 'request' | 'durable';
 export type ActionContext = { tempId: string | null; operationId: string };
 export type OptimisticContext = { tempId: string; operationId: string };
-export type PollActionContext = { sessionKey: string };
 
 export type MutationCorrelate = {
   fields: readonly string[];
@@ -350,22 +349,6 @@ export type GraphqlActionDurableOptions<
   error?(error: Error, context: OptimisticContext & { input: TInput }): void;
 };
 
-export type GraphqlActionPollOptions<TData, TVariables, TInput, TOwnerKey extends string = string, TBuildInput = unknown, TStored extends { id: string } = { id: string }> = {
-  root: ModelRootPlan<TData, TBuildInput, TStored>;
-  write?(context: TData, plan: WritePlan<TOwnerKey>): void;
-  track?(context: TData): void;
-  mode: 'poll';
-  variables(input: TInput, context: PollActionContext): TVariables;
-  poll: {
-    key(input: TInput): string;
-    intervalMs: number;
-    maxAttempts: number;
-    classify?(data: TData): 'ready' | 'failed' | null;
-  };
-  before?(input: TInput, context: PollActionContext): void;
-  error?(error: Error, context: PollActionContext & { input: TInput }): void;
-};
-
 export type GraphqlActionRequestDefinition<
   TData,
   TVariables,
@@ -394,18 +377,6 @@ export type GraphqlActionDurableDefinition<
   document: TypedDocumentNode<TData, TVariables>;
 };
 
-export type GraphqlActionPollDefinition<
-  TData,
-  TVariables,
-  TInput,
-  TOwnerKey extends string = string,
-  TBuildInput = unknown,
-  TStored extends { id: string } = { id: string }
-> = GraphqlActionPollOptions<TData, TVariables, TInput, TOwnerKey, TBuildInput, TStored> & {
-  type: 'action';
-  document: TypedDocumentNode<TData, TVariables>;
-};
-
 export type GraphqlActionOptions<
   TData,
   TVariables,
@@ -418,8 +389,7 @@ export type GraphqlActionOptions<
 > =
   | GraphqlActionRequestOptions<TData, TVariables, TInput, TResultKey, TOwnerKey, TBuildInput, TStored, false>
   | GraphqlActionRequestOptions<TData, TVariables, TInput, TResultKey, TOwnerKey, TBuildInput, TStored, true>
-  | GraphqlActionDurableOptions<TData, TVariables, TInput, TResultKey, TTransportInput, TOwnerKey, TBuildInput, TStored>
-  | GraphqlActionPollOptions<TData, TVariables, TInput, TOwnerKey, TBuildInput, TStored>;
+  | GraphqlActionDurableOptions<TData, TVariables, TInput, TResultKey, TTransportInput, TOwnerKey, TBuildInput, TStored>;
 
 export type GraphqlActionDefinition<
   TData,
@@ -433,8 +403,7 @@ export type GraphqlActionDefinition<
 > =
   | GraphqlActionRequestDefinition<TData, TVariables, TInput, TResultKey, TOwnerKey, TBuildInput, TStored, false>
   | GraphqlActionRequestDefinition<TData, TVariables, TInput, TResultKey, TOwnerKey, TBuildInput, TStored, true>
-  | GraphqlActionDurableDefinition<TData, TVariables, TInput, TResultKey, TTransportInput, TOwnerKey, TBuildInput, TStored>
-  | GraphqlActionPollDefinition<TData, TVariables, TInput, TOwnerKey, TBuildInput, TStored>;
+  | GraphqlActionDurableDefinition<TData, TVariables, TInput, TResultKey, TTransportInput, TOwnerKey, TBuildInput, TStored>;
 
 export type RelationSpec<
   TStored,
@@ -548,11 +517,6 @@ export type DurableModelAction<TInput, TTransportInput = never, TResult = unknow
   open(): OpenDurableAction<TInput, TTransportInput, TResult>[];
 };
 
-export type PollModelAction<TInput> = {
-  run(input: TInput): Promise<void>;
-  use(input: TInput | null): ModelStatusPollerPhase & { refresh(): Promise<void> };
-};
-
 export type RowOperationState<TStored> = {
   pending: boolean;
   failed: boolean;
@@ -592,9 +556,7 @@ export type ModelActionMethods<TActions extends Record<string, GraphqlActionDefi
     ? ModelAction<TInput, ActionPayload<TActions[K]>, TOptimistic>
     : TActions[K] extends GraphqlActionDurableDefinition<any, any, infer TInput, any, infer TTransportInput, any, any, any>
       ? DurableModelAction<TInput, TTransportInput, ActionPayload<TActions[K]>>
-      : TActions[K] extends GraphqlActionPollDefinition<any, any, infer TInput, any, any, any>
-        ? PollModelAction<TInput>
-        : never;
+      : never;
 };
 
 export type ModelEventHandle<TEvents extends Record<string, GraphqlLiveDefinition<any, any, any, any, any>>> = {

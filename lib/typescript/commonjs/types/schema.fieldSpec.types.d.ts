@@ -4,7 +4,7 @@ export type FieldDefault<TOut> = TOut | (() => TOut);
 export type NullableMode<TMode extends FieldMode> = TMode extends 'optional' | 'optionalNullable' ? 'optionalNullable' : 'nullable';
 export type OptionalMode<TMode extends FieldMode> = TMode extends 'nullable' | 'optionalNullable' ? 'optionalNullable' : 'optional';
 export interface FieldSpec<TInput, TOut, TMode extends FieldMode = 'required', THasDefault extends boolean = false> {
-    /** Stable field-builder identity used by persistence compatibility checks. */
+    /** Stable field-builder identity fingerprinted by the persistence manifest. */
     readonly kind: string;
     /** Read this field from a full input object and object key. */
     read: (input: TInput, key: string) => TOut | null | undefined;

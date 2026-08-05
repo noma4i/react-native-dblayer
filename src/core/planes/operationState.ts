@@ -1,9 +1,11 @@
 import { isUndefined, omitBy } from 'es-toolkit';
 import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOperationState } from '../../types';
+import type { LedgerSalvage } from '../../types/core.quarantine.types';
 import { compositeKey } from '../serialize';
-import { noteCorruptionLedgerReset, noteDataLoss } from '../diagnostics';
+import { noteCorruptionLedgerReset } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { decodePersistence, decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
+import { putQuarantine } from '../quarantine';
 import { isNonArrayRecord, isNonEmptyString, isNonNegativeSafeInteger } from '../../utils/normalizeHelpers';
 
 const onceKeysKey = (prefix: string): string => `${prefix}ops-once`;
@@ -49,10 +51,6 @@ export const isOperationRecord = (value: unknown): value is OperationRecord =>
       Array.isArray(value.rollbackMemberships) &&
       value.rollbackMemberships.every(isRollbackMembership)));
 
-const isOperationRecordMap = (value: unknown): value is Record<string, OperationRecord> =>
-  isNonArrayRecord(value) &&
-  Object.entries(value).every(([operationId, record]) => isNonEmptyString(operationId) && isOperationRecord(record) && record.operationId === operationId);
-
 export const isOperationTransition = (value: unknown): value is OperationTransition => {
   if (!isNonArrayRecord(value)) return false;
   if (value.kind === 'begin') return isNonArrayRecord(value.operation) && isOperationRecord({ ...value.operation, status: 'pending' });
@@ -76,27 +74,28 @@ export const isOperationTransition = (value: unknown): value is OperationTransit
 const isPreviousOnceKeyRecord = (value: unknown): value is { keys: string[] } =>
   isNonArrayRecord(value) && Array.isArray(value.keys) && value.keys.every(isNonEmptyString);
 
-const isPersistedOperationState = (value: unknown): value is PersistedOperationState =>
-  isNonArrayRecord(value) &&
-  Number.isSafeInteger(value.recordVersion) &&
-  isOperationRecordMap(value.operations) &&
-  Array.isArray(value.committedKeys) &&
-  value.committedKeys.every(isNonEmptyString);
-
 /**
- * Decode the persisted ops record. A versioned state whose record version moved is routine
- * evolution (`stale-version`), never a corrupt source; the plain un-versioned map stays readable.
+ * Salvage the persisted ops record entry by entry. The records in the map are independent, so one
+ * invalid record quarantines THAT record - it never discards the ledger. A moved record version is
+ * routine evolution: every record the current validator still accepts is kept, the rest are
+ * quarantined verbatim. Only an unreadable envelope (malformed JSON / checksum) salvages nothing.
  */
-const decodeOperationStateValue = (raw: string): PersistedOperationState | Record<string, OperationRecord> | 'stale-version' | null => {
+const salvageLedgerValue = (raw: string): LedgerSalvage => {
   const decoded = decodePersistence(raw, PERSISTENCE_SCHEMA_VERSION, (value): value is Record<string, unknown> => isNonArrayRecord(value));
   if (decoded.kind === 'unsupported') throw new Error(`Unsupported persistence schema version ${decoded.schemaVersion}`);
-  if (decoded.kind === 'corrupt') return null;
+  if (decoded.kind === 'corrupt') return { kind: 'unreadable' };
   const value = decoded.value;
-  if (Number.isSafeInteger(value.recordVersion)) {
-    if (value.recordVersion !== OPERATION_STATE_RECORD_VERSION) return 'stale-version';
-    return isPersistedOperationState(value) ? value : null;
+  const versioned = Number.isSafeInteger(value.recordVersion);
+  const staleVersion = versioned && value.recordVersion !== OPERATION_STATE_RECORD_VERSION;
+  const candidates = versioned ? (isNonArrayRecord(value.operations) ? value.operations : {}) : value;
+  const operations: Record<string, OperationRecord> = {};
+  const quarantined: Array<{ id: string; raw: unknown; reason: string }> = [];
+  for (const [operationId, record] of Object.entries(candidates)) {
+    if (isOperationRecord(record) && record.operationId === operationId) operations[operationId] = record;
+    else quarantined.push({ id: operationId, raw: record, reason: staleVersion ? 'stale-record-version' : 'invalid-operation-record' });
   }
-  return isOperationRecordMap(value) ? value : null;
+  const committedKeys = versioned && Array.isArray(value.committedKeys) ? value.committedKeys.filter(isNonEmptyString) : [];
+  return { kind: 'salvaged', operations, committedKeys, quarantined, rewrite: staleVersion || !versioned || quarantined.length > 0 };
 };
 
 /** Corrupt sources are counted, not reported here: the manifest cold-reset caller runs `resetRuntime`
@@ -115,13 +114,12 @@ export const readCommittedOnceKeys = (storage: StoragePlane, prefix: string): { 
   }
   const rawOperations = storage.get(`${prefix}ops`);
   if (rawOperations) {
-    const state = decodeOperationStateValue(rawOperations);
-    if (state === null) {
+    const salvage = salvageLedgerValue(rawOperations);
+    if (salvage.kind === 'unreadable') {
       corruptSources += 1;
-    } else if (state !== 'stale-version') {
-      const records = isPersistedOperationState(state) ? state.operations : state;
-      if (isPersistedOperationState(state)) for (const key of state.committedKeys) keys.add(key);
-      for (const record of Object.values(records)) {
+    } else {
+      for (const key of salvage.committedKeys) keys.add(key);
+      for (const record of Object.values(salvage.operations)) {
         if (record.status === 'committed' && record.once === true && typeof record.idempotencyKey === 'string') keys.add(record.idempotencyKey);
       }
     }
@@ -375,20 +373,6 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       persist();
       return record;
     },
-    discardModels: modelIds => {
-      const committedOnceKeys = new Set(committedKeys);
-      let discarded = 0;
-      for (const [operationId, operation] of operations) {
-        if (!modelIds.has(operation.model)) continue;
-        operations.delete(operationId);
-        hydratedPendingIds.delete(operationId);
-        discarded += 1;
-      }
-      rebuildIndexes();
-      for (const key of committedOnceKeys) committedKeys.add(key);
-      persist();
-      return discarded;
-    },
     residentRowBuckets: () => opsByRowKey.size,
     remove: operationId => {
       const operation = operations.get(operationId);
@@ -473,25 +457,28 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       operations.clear();
       hydratedPendingIds.clear();
       const rawOps = storage.get(opsKey());
+      let rewriteSalvaged = false;
       if (rawOps) {
-        const state = decodeOperationStateValue(rawOps);
-        if (state === 'stale-version') {
+        const salvage = salvageLedgerValue(rawOps);
+        if (salvage.kind === 'unreadable') {
+          // The raw ledger is kept verbatim in the quarantine - an unreadable envelope is loud, not a wipe.
+          putQuarantine({ kind: 'ledger', model: '__operations__', id: 'ops', raw: rawOps, reason: 'unreadable-ledger-envelope' });
           storage.set(opsKey(), null);
-          noteDataLoss('operation-ledger-stale-version-reset', '__operations__', 1);
-        } else if (state) {
-          const records = isPersistedOperationState(state) ? state.operations : state;
-          for (const [operationId, record] of Object.entries(records)) {
+          noteCorruptionLedgerReset();
+          getDbLogger().error('ledger quarantined', { key: opsKey() });
+        } else {
+          for (const [operationId, record] of Object.entries(salvage.operations)) {
             const retainKey = record.status === 'pending' || (record.status === 'committed' && record.once === true);
             const hydratedRecord = retainKey ? record : { ...record, idempotencyKey: undefined };
             operations.set(operationId, hydratedRecord);
             if (hydratedRecord.status === 'pending') hydratedPendingIds.add(operationId);
           }
-          if (isPersistedOperationState(state)) for (const key of state.committedKeys) committedKeys.add(key);
-        } else {
-          storage.set(opsKey(), null);
-          noteCorruptionLedgerReset();
-          noteDataLoss('operation-ledger-corruption-reset', '__operations__', 1);
-          getDbLogger().error('cold-ledger recovery', { key: opsKey() });
+          for (const key of salvage.committedKeys) committedKeys.add(key);
+          for (const entry of salvage.quarantined) {
+            const model = isNonArrayRecord(entry.raw) && isNonEmptyString(entry.raw.model) ? entry.raw.model : '__operations__';
+            putQuarantine({ kind: 'operation', model, id: entry.id, raw: entry.raw, reason: entry.reason });
+          }
+          rewriteSalvaged = salvage.rewrite;
         }
       }
       rebuildIndexes();
@@ -499,6 +486,9 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
       if (storage.get(onceKeysKey(prefix())) !== undefined) {
         persist();
         storage.set(onceKeysKey(prefix()), null);
+      } else if (rewriteSalvaged) {
+        // Rewrite the salvaged state under the current record version so the next boot reads it clean.
+        persist();
       }
       pendingPatchCount = 0;
       for (const op of operations.values()) if (isPendingPatchOwner(op)) pendingPatchCount += 1;

@@ -30,7 +30,7 @@ import { registerModelRuntime, registerModelSchema } from './modelRegistrations'
 import { planModelLanding, planModelLandingWithRoot, registerModelLandingHost } from './modelLandingGraph';
 import { registerApplyTarget } from '../core/apply/applyTargetRegistry';
 /**
- * Define a persistent, reactive collection model backed by `EntityState` and the shared journalled
+ * Define a persistent, reactive collection model backed by `EntityState` and the shared
  * apply pipeline. State planes (entity rows and scope membership) are created and hydrated from storage
  * lazily on first touch, so models can be declared at module scope before `configureDb` runs.
  *
@@ -51,7 +51,7 @@ export const defineModelRuntime = <
     QueryScopeReads<InferStoredFields<TFields>, TQueryScopeNames>;
   scopes: { [K in TScopeNames]: ScopeHandle<InferStoredFields<TFields>, Record<string, unknown>, InferBuildInput<TFields>> };
 } & TExt => {
-  const { applyWriteGate, isPlanRow, normalize } = createModelNormalization(config);
+  const { applyWriteGate, admitPlanRow, normalize } = createModelNormalization(config);
   const context = createModelContext<InferStoredFields<TFields> & Record<string, unknown>>({
     modelId: config.id,
     scopeNames: Object.keys(config.scopes ?? {}),
@@ -99,13 +99,13 @@ export const defineModelRuntime = <
     modelName: config.name,
     entityState: () => planes().entityState,
     normalize,
-    isPlanRow,
+    admitPlanRow,
     revisions: context.revisions,
     captureMembership
   });
   if (landing) {
     registerModelLandingHost(config.id, {
-      normalize,
+      admitPlanRow,
       planOwnRows,
       sideloads: landing.sideloads
     });
@@ -156,7 +156,7 @@ export const defineModelRuntime = <
     normalizeScopeValue,
     isScopeValueComplete,
     scopeValueFromRow,
-    isPlanRow,
+    admitPlanRow,
     normalize,
     applyTarget,
     useScopeAccess,

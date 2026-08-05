@@ -27,7 +27,7 @@ import { pickLowestRow } from './ordering';
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
- * plan) and `counterCache` increments/decrements before WAL, emitting them as extra `patch`/`counter` intents
+ * plan) and `counterCache` increments/decrements at plan compile time, emitting them as extra `patch`/`counter` intents
  * in the same compiled plan as the triggering event.
  *
  * @param model The parent model reference.
@@ -191,7 +191,7 @@ export const hasDependentCascade = (modelId: string): boolean => {
 
 /**
  * Derive relation effects from rows accepted by pure write previews. The returned intents are compiled
- * into callback-free journal operations before WAL; replay never invokes relation callbacks.
+ * into callback-free applied operations before the commit; the apply pipeline never invokes relation callbacks.
  */
 export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedRow[], rawOps: WriteOp[], reader: RelationPlanReader): WriteOp[] => {
   const queue: WriteOp[] = [];

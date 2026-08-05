@@ -1,7 +1,7 @@
 import type { FacadeRuntimeModel, GraphqlActionDefinition, ModelActionMethods, RowOperation } from '../types';
 /**
  * A declared action becomes its runtime handle here. The declared mode decides which action lifecycle
- * carries it - a durable operation, a poller, or a request - and the caller sees one handle either
+ * carries it - a durable operation or a request - and the caller sees one handle either
  * way, so a consumer never reproduces the lifecycle of the mode it happened to get.
  */
 export declare const createOperation: <TStored extends {

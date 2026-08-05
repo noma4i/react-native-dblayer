@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f, suspendDb } from '../../testApi';
+import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 /**
@@ -20,7 +20,6 @@ describe('durability under idle', () => {
       { id: 'row-2', bucket: 'a', body: 'second' }
     ]);
 
-    suspendDb();
 
     expect(scoped.all().map(row => row.id)).toEqual(['row-1', 'row-2']);
   });
@@ -33,7 +32,6 @@ describe('durability under idle', () => {
       { id: 'row-2', body: 'second' }
     ]);
 
-    suspendDb();
 
     expect(rows.all().map(row => row.id)).toEqual(['row-1', 'row-2']);
   });

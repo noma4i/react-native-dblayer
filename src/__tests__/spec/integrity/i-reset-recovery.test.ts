@@ -3,7 +3,7 @@ import {
   computeSchemaFingerprints,
   configureDb,
   encodePersistence,
-  ensurePersistenceCompatibility,
+  reconcilePersistence,
   readCommittedOnceKeys,
   resetRuntime,
   writePersistenceManifest
@@ -24,7 +24,7 @@ describe('interrupted namespace reset recovery', () => {
     storage.set('dbl:row:InterruptedResetRows:stale', encodePersistence({ id: 'stale' }));
     storage.set('dbl:reset-intent', encodePersistence({ recordVersion: 1 }));
 
-    expect(ensurePersistenceCompatibility()).toEqual({ reset: true });
+    expect(reconcilePersistence()).toEqual({ reset: true });
     expect(storage.snapshotKeys()).toEqual(['dbl:manifest']);
   });
 
@@ -53,7 +53,7 @@ describe('interrupted namespace reset recovery', () => {
       })
     );
 
-    expect(ensurePersistenceCompatibility()).toEqual({ reset: true });
+    expect(reconcilePersistence()).toEqual({ reset: true });
     expect(readCommittedOnceKeys(storage, 'dbl:').keys).toEqual(['PaymentRows:charge:payment-1']);
     expect(storage.snapshotKeys()).toEqual(['dbl:manifest', 'dbl:ops']);
   });

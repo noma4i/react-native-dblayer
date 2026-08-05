@@ -42,7 +42,7 @@ type RuntimeModel = {
 type MemoryPlane = ReturnType<typeof createMemoryPlane>;
 
 type WorkProbe = {
-  assert(expected: { wal: number; commits: number; affectedTicks: readonly number[] }): void;
+  assert(expected: { commits: number; affectedTicks: readonly number[] }): void;
   unmount(): void;
 };
 
@@ -73,7 +73,6 @@ const createWorkProbe = (
   const affectedReaders = affectedIds.map(id => renderCounted(() => model.useFind(id)));
   const unrelatedReader = renderCounted(() => unrelated.useFind(unrelatedRow.id));
   const baseline = {
-    wal: storage.keys('dbl:journal:').length,
     commits: diagnostics().snapshot().commits,
     affectedTicks: affectedReaders.map(reader => reader.renders()),
     unrelatedTicks: unrelatedReader.renders()
@@ -81,7 +80,6 @@ const createWorkProbe = (
 
   return {
     assert(expected) {
-      expect(storage.keys('dbl:journal:').length - baseline.wal).toBe(expected.wal);
       expect(diagnostics().snapshot().commits - baseline.commits).toBe(expected.commits);
       expect(affectedReaders.map((reader, index) => reader.renders() - baseline.affectedTicks[index]!)).toEqual(expected.affectedTicks);
       expect(unrelatedReader.renders() - baseline.unrelatedTicks).toBe(0);
@@ -133,7 +131,7 @@ const expectNoResponseWrite = async (
 
   expect(model.find(expected.id)).toEqual(expected);
   for (const id of absentIds) expect(model.find(id)).toBeUndefined();
-  work.assert({ wal: 0, commits: 0, affectedTicks: Array.from({ length: absentIds.length + 1 }, () => 0) });
+  work.assert({ commits: 0, affectedTicks: Array.from({ length: absentIds.length + 1 }, () => 0) });
   work.unmount();
 };
 
@@ -234,7 +232,7 @@ describe('model root planner', () => {
     });
 
     expect(model.find(row.id)).toEqual(row);
-    work.assert({ wal: 1, commits: 1, affectedTicks: [1] });
+    work.assert({ commits: 1, affectedTicks: [1] });
     work.unmount();
   });
 
@@ -260,7 +258,7 @@ describe('model root planner', () => {
 
     expect(model.find(rows[0]!.id)).toEqual(rows[0]);
     expect(model.find(rows[1]!.id)).toEqual(rows[1]);
-    work.assert({ wal: 1, commits: 1, affectedTicks: [1, 1] });
+    work.assert({ commits: 1, affectedTicks: [1, 1] });
     work.unmount();
   });
 
@@ -283,7 +281,7 @@ describe('model root planner', () => {
     });
 
     expect(model.find(existing.id)).toEqual({ ...existing, label: 'after' });
-    work.assert({ wal: 1, commits: 1, affectedTicks: [1] });
+    work.assert({ commits: 1, affectedTicks: [1] });
     work.unmount();
   });
 
@@ -316,7 +314,7 @@ describe('model root planner', () => {
 
     expect(model.find(rows[0]!.id)).toEqual({ ...rows[0], label: 'first-updated' });
     expect(model.find(rows[1]!.id)).toEqual({ ...rows[1], count: 20 });
-    work.assert({ wal: 1, commits: 1, affectedTicks: [1, 1] });
+    work.assert({ commits: 1, affectedTicks: [1, 1] });
     work.unmount();
   });
 
@@ -335,7 +333,7 @@ describe('model root planner', () => {
     });
 
     expect(model.find(existing.id)).toBeUndefined();
-    work.assert({ wal: 1, commits: 1, affectedTicks: [1] });
+    work.assert({ commits: 1, affectedTicks: [1] });
     work.unmount();
   });
 
@@ -359,7 +357,7 @@ describe('model root planner', () => {
 
     expect(model.find(rows[0]!.id)).toBeUndefined();
     expect(model.find(rows[1]!.id)).toBeUndefined();
-    work.assert({ wal: 1, commits: 1, affectedTicks: [1, 1] });
+    work.assert({ commits: 1, affectedTicks: [1, 1] });
     work.unmount();
   });
 
@@ -385,7 +383,7 @@ describe('model root planner', () => {
 
     expect(model.find(existing.id)).toEqual(existing);
     expect(model.find(responseRow.id)).toBeUndefined();
-    work.assert({ wal: 0, commits: 0, affectedTicks: [0, 0] });
+    work.assert({ commits: 0, affectedTicks: [0, 0] });
     work.unmount();
   });
 
@@ -419,8 +417,7 @@ describe('model root planner', () => {
       root: rootReader.renders(),
       sibling: siblingReader.renders(),
       unrelated: unrelatedReader.renders(),
-      commits: diagnostics().snapshot().commits,
-      wal: storage.keys('dbl:journal:').length
+      commits: diagnostics().snapshot().commits
     };
 
     await act(async () => {
@@ -431,7 +428,6 @@ describe('model root planner', () => {
     expect(siblingReader.renders() - before.sibling).toBe(1);
     expect(unrelatedReader.renders() - before.unrelated).toBe(0);
     expect(diagnostics().snapshot().commits - before.commits).toBe(1);
-    expect(storage.keys('dbl:journal:').length - before.wal).toBe(1);
     expect(Root.find('root-envelope')).toEqual({ id: 'root-envelope', label: 'root', count: 1 });
     expect(Sibling.find('sibling-envelope')).toEqual({ id: 'sibling-envelope', label: 'sibling', count: 2 });
 
@@ -768,7 +764,7 @@ describe('model root planner type surface', () => {
       });
     `;
     expectFixtureDiagnostic(source, {
-      anchor: 'root:',
+      anchor: 'action(document',
       code: 2769,
       message: /^No overload matches this call\.[\s\S]+(?:undefined|never)/
     });
@@ -794,7 +790,7 @@ describe('model root planner type surface', () => {
       });
     `;
     expectFixtureDiagnostic(source, {
-      anchor: 'id: 1',
+      anchor: 'action(document',
       code: 2769,
       message: /^No overload matches this call\.[\s\S]+Type 'number' is not assignable to type 'string'/
     });
@@ -820,7 +816,7 @@ describe('model root planner type surface', () => {
       });
     `;
     expectFixtureDiagnostic(source, {
-      anchor: "patch: 'invalid'",
+      anchor: 'action(document',
       code: 2769,
       message: /^No overload matches this call\.[\s\S]+Type 'string' has no properties in common with type 'Partial<Omit<.+, "id">>'/
     });
@@ -846,7 +842,7 @@ describe('model root planner type surface', () => {
       });
     `;
     expectFixtureDiagnostic(source, {
-      anchor: "id: 'forbidden'",
+      anchor: 'action(document',
       code: 2769,
       message: /^No overload matches this call\.[\s\S]+'id' does not exist in type 'Partial<Omit<.+, "id">>'/
     });
@@ -872,7 +868,7 @@ describe('model root planner type surface', () => {
       });
     `;
     expectFixtureDiagnostic(source, {
-      anchor: 'patch: { label: undefined }',
+      anchor: 'action(document',
       code: 2769,
       message: /^No overload matches this call\.[\s\S]+Type 'undefined' is not assignable to type 'string'/
     });

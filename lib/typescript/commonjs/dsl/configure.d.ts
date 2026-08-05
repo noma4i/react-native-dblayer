@@ -26,35 +26,16 @@ export declare const getDbQueryClient: () => QueryClient;
 /** Internal: true once `configureDb` has run. Lets lifecycle helpers no-op safely before configuration. */
 export declare const isDbConfigured: () => boolean;
 export declare const getStoragePrefix: () => string;
-/** Internal: consumer-owned cache version used by the persistence manifest compatibility gate. */
+/** Internal: consumer-owned cache version checked by the persistence manifest reconcile on boot. */
 export declare const getPersistenceDataVersion: () => string | null;
 export { advanceRuntimeGeneration, getRuntimeGeneration };
 export declare const getCommitBus: () => CommitBus;
 /**
- * One apply runtime per configured database: every model shares the same journal, epoch counter
- * and commit bus, so one plan touching several models applies and persists as one transaction.
- * Persistence is WAL + checkpoint: plans write only their journal record; model snapshots flush
- * through the checkpoint scheduler off the hot path.
+ * One apply runtime per configured database: every model shares the same epoch counter and commit
+ * bus, so one plan touching several models applies and persists as one transaction. Persistence is
+ * immediate: every commit writes its dirty row, scope and ledger entries before it publishes.
  */
 export declare const getApplyRuntime: () => ApplyRuntime;
-/**
- * Force a checkpoint flush NOW - pending model snapshots hit storage in one batch. The host app
- * must call this on background/inactive and before logout teardown. `suspendDb()` calls this for you
- * as part of the recommended background/teardown sequence.
- */
-export declare const flushPersistence: () => void;
-/**
- * Idempotently re-apply journal records not yet covered by each model's persisted applied-epoch
- * marker. The host app must call this ONCE at startup, after configureDb and after every model
- * module has been imported (apply targets registered) - records touching unregistered models throw.
- * Returns the number of replayed records.
- *
- * `bootDb` calls this before foreign-key cleanup and surfaces the result as
- * `{ replayed }`.
- *
- * @returns The number of journal records replayed.
- */
-export declare const replayJournal: () => number;
 /**
  * Remove storage keys outside the library namespace during startup housekeeping for the dedicated
  * storage instance. Idempotent: a second run finds nothing.
@@ -64,7 +45,7 @@ export declare const replayJournal: () => number;
  * @returns The number of removed foreign storage keys.
  */
 export declare const purgeForeignStorageKeys: () => number;
-/** Internal: discard per-runtime WAL/checkpoint caches after storage has been wiped. */
+/** Internal: discard per-runtime apply and ledger caches after storage has been wiped. */
 export declare const resetPersistenceRuntime: () => void;
 /** One operation ledger per configured database - optimistic identity, dedupe and keyed sequences. */
 export declare const getOperationState: () => OperationState;

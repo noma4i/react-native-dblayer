@@ -1,4 +1,4 @@
-export type DataLossMechanism = 'deferred-patch-timeout' | 'scope-retention-trim' | 'scope-complete-detach' | 'stale-temp-row-expiry' | 'tombstone-expiry' | 'corrupt-row' | 'corrupt-tombstones' | 'corrupt-scope' | 'corrupt-applied-epoch' | 'corrupt-checkpoint-meta' | 'failed-input-unserializable' | 'data-version-migration-reset' | 'schema-migration-reset' | 'model-corruption-recovery' | 'journal-corruption-checkpointed-drop' | 'journal-corruption-loss' | 'journal-stale-version-drop' | 'operation-ledger-corruption-reset' | 'operation-ledger-stale-version-reset' | 'corrupt-once-keys' | 'replacement-rejected' | 'orphan-membership-dropped' | 'unranked-ladder-value';
+export type DataLossMechanism = 'deferred-patch-timeout' | 'scope-retention-trim' | 'scope-complete-detach' | 'stale-temp-row-expiry' | 'tombstone-expiry' | 'corrupt-row' | 'corrupt-tombstones' | 'corrupt-scope' | 'failed-input-unserializable' | 'data-version-migration-reset' | 'schema-migration-reset' | 'model-corruption-recovery' | 'operation-ledger-corruption-reset' | 'operation-ledger-stale-version-reset' | 'corrupt-once-keys' | 'replacement-rejected' | 'orphan-membership-dropped' | 'unranked-ladder-value' | 'user-reset-discard' | 'fsck-scope-detach';
 export type DataLossEvent = {
     mechanism: DataLossMechanism;
     model: string;
@@ -19,12 +19,11 @@ export type DiagnosticsState = {
     entityUpsertGuardHits: number;
     membershipWrites: number;
     relationChildScans: number;
-    corruptionJournalDrops: number;
-    corruptionJournalLosses: number;
     corruptionLedgerResets: number;
     manifestResets: number;
     replaceRejected: number;
     applyFailure: number;
+    quarantinePuts: number;
     dataLossEvents: DataLossEvent[];
 };
 //# sourceMappingURL=core.diagnostics.types.d.ts.map

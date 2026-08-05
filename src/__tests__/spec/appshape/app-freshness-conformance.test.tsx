@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { focusManager } from '@tanstack/react-query';
 import { act } from 'react';
-import { bootDb, configureDb, defineModel, defineShape, f, setFetchNetworkOnline, suspendDb } from '../../testApi';
+import { bootDb, configureDb, defineModel, defineShape, f, setFetchNetworkOnline } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
 
 /**
@@ -142,7 +142,6 @@ describe('app-shaped freshness conformance', () => {
     await bootDb();
     await first.catalog({}).fetch();
     expect(calls).toBe(1);
-    suspendDb();
     jest.advanceTimersByTime(FRESHNESS.CATALOG - 1);
 
     configure(storage, createCatalogTransport(() => { calls += 1; }));
@@ -164,7 +163,6 @@ describe('app-shaped freshness conformance', () => {
     const first = defineCatalogModel('ColdExpired');
     await bootDb();
     await first.catalog({}).fetch();
-    suspendDb();
     jest.advanceTimersByTime(FRESHNESS.CATALOG + 1);
 
     configure(storage, createCatalogTransport(() => { calls += 1; }));
@@ -214,7 +212,6 @@ describe('app-shaped freshness conformance', () => {
     await bootDb();
     await Chat.list({ statusFilter: 'active' }).fetch();
     expect(calls).toBe(1);
-    suspendDb();
     jest.advanceTimersByTime(FRESHNESS.PUSH_BACKED - 1);
 
     configure(storage, transport);
@@ -242,7 +239,6 @@ describe('app-shaped freshness conformance', () => {
     const Chat = defineChats('ColdExpired');
     await bootDb();
     await Chat.list({ statusFilter: 'active' }).fetch();
-    suspendDb();
     jest.advanceTimersByTime(FRESHNESS.PUSH_BACKED + 1);
 
     configure(storage, transport);

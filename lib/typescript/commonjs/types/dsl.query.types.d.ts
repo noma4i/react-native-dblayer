@@ -55,7 +55,8 @@ export type QueryConfig<TResponse, TVars, TScope, TStored> = {
     connection?: (data: TResponse) => ConnectionLike | null | undefined;
     select?: (data: TResponse) => unknown;
     into: QueryDestination<TStored, TScope>;
-    coverage?: ScopeCoverage;
+    /** Delta coverage is an internal event-landing mode; a fetch declares page or complete. */
+    coverage?: Exclude<ScopeCoverage, 'delta'>;
     write?: (context: {
         data: TResponse;
         nodes: unknown[];
