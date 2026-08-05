@@ -546,9 +546,9 @@
       "line": 59,
       "drops": "the last flush retry for memory-only commits whose delta write was refused (rows + memberships never reach disk)",
       "condition": "runtime generation advanced (configureDb/reset) while models were still dirty - reachable only when the outgoing flush at configure.ts:41 itself failed after a refused delta write",
-      "verdict": "HOLE",
-      "ref": "refused-delta commit state vanishes when the generation flips before a successful flush; no counter fires here and no spec rule covers terminating the retry chain",
-      "note": "normal path safe: every accepted commit is durable via its delta (spec 04); earlier refusals were reported (transaction.ts:100/112) with a 'flush will cover' promise this line cancels"
+      "verdict": "CONTRACT",
+      "ref": "specs/04-persistence.md :: 'generation reset cancels the unfinished flush; a commit that did not reach disk before reset is surrendered with the namespace' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/apply/transaction.ts|if (!models.every(model => snapseqOf(model) >= seq)) continue;|1",
@@ -636,9 +636,9 @@
       "line": 179,
       "drops": "persisted delta tail (this delta + every later one, all models) and ALL persisted query records",
       "condition": "a replayed delta fails to apply at boot (apply error on current code, after decode succeeded)",
-      "verdict": "HOLE",
-      "ref": "delta tail + query records vanish on replay-apply failure; spec 04 mandates the SAME path as the decode cut ('replay apply error cuts the tail the same way'), which includes the delta-tail-cut loss counter, but noteDataLoss never fires here - only reportSyncError @ transaction.ts:188",
-      "note": "sibling decode-path cut IS counted (noteDataLoss @ deltaLog.ts:61); round should add the counter here to honor the spec; judgment call flagged in summary"
+      "verdict": "COUNTED",
+      "ref": "delta-tail-cut @ transaction.ts (replay-apply cut now fires noteDataLoss, P40)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/apply/transaction.ts|const tail = deltas.filter(candidate => candidate.seq >= delta.seq);|1",
@@ -646,9 +646,9 @@
       "line": 181,
       "drops": "selection of the delta tail deleted at lines 182-185 (same cut as the catch at line 179)",
       "condition": "replay-apply failure tail cut",
-      "verdict": "HOLE",
-      "ref": "same uncounted cut as transaction.ts:179 - deltas with seq >= failing seq are set to null and removed from pendingDeltaModels with no noteDataLoss",
-      "note": "one finding with entry line 179; listed separately because this line names exactly what is deleted"
+      "verdict": "COUNTED",
+      "ref": "delta-tail-cut @ transaction.ts (same counted cut, P40)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (!isDbConfigured() || reconcilers.size === 0) return;|1",
@@ -716,9 +716,9 @@
       "line": 96,
       "drops": "chain ids (query-chain record content) referencing rows no longer materialized",
       "condition": "commit destroyed rows or detached memberships the query had landed, while other ids survive",
-      "verdict": "HOLE",
-      "ref": "survivor-shrink is written at :71 via setQueryData KEEPING the original freshness stamp; no diagnostics counter exists anywhere in this file and no refetch fires while remaining>0",
-      "note": "Verified: fetchReaderRegistry imports nothing from diagnostics.ts."
+      "verdict": "COUNTED",
+      "ref": "chainSurvivorShrinks + invalidate refetchType none (F40); fresh stamp over reduced result impossible",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (serializedKeyOf(reader.queryKey) === target) void reader.refetch().catch(() => {});|1",
@@ -1506,9 +1506,9 @@
       "line": 251,
       "drops": "derived touch patch for a parent that is authoritative in the same batch",
       "condition": "parent row was itself accepted with an origin in this plan; also skips relations without touch (nothing declared) and already-flushed parents (dedup)",
-      "verdict": "HOLE",
-      "ref": "derived touch patch dropped when parent is authoritative in the same plan; specs/07-relations.md:51-52 covers only the derived counter suppression, not touch (Codex round-2 verdict)",
-      "note": "reclassified from CONTRACT in round 2"
+      "verdict": "CONTRACT",
+      "ref": "specs/07-relations.md :: 'authoritative parent of the same batch wins derived effects ENTIRELY: counter and touch' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/relations.ts|if (relation.kind !== 'belongsTo') continue;|1",
@@ -1736,9 +1736,9 @@
       "line": 104,
       "drops": "pending and all subsequent in-transaction scope-change deltas of this batcher (subscriber events)",
       "condition": "a previous store transaction threw AFTER this batcher scheduled its flush: catch at line 70 discarded the completion, 'scheduled' latched true, so this early return forever blocks re-registering a flush while pushes keep buffering into 'pending'",
-      "verdict": "HOLE",
-      "ref": "no counter, no log; I20 covers zero ticks for the FAILED transaction only, not the silent loss of later successful transactions' deltas",
-      "note": "Latch persists until dispose; healthy path is pure coalescing (NONDROP), the hole is the post-failure residue."
+      "verdict": "NONDROP",
+      "ref": "latch cleared in finally after W42 fix - later transactions always reschedule their flush",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/subscriptionLifecycle.ts|if (!isCurrentGeneration()) return;|1",
@@ -1786,9 +1786,9 @@
       "line": 110,
       "drops": "a subscription event delivered by a superseded/torn-down transport attempt",
       "condition": "transport calls next after deactivation, error-driven resubscribe, or epoch change WITHIN the current generation (race/late delivery); stale-generation branch is spec-covered",
-      "verdict": "HOLE",
-      "ref": "no log, no counter for the same-generation supersede branch; only the generation part is covered by 03-write 'reset generation discards old landing' (translated)",
-      "note": "Defensive teardown gate; loss window is a transport race, recovery only via app-level onSubscribe refetch."
+      "verdict": "CONTRACT",
+      "ref": "specs/09-dsl-surface.md :: 'delivery from a superseded transport attempt of the same generation is discarded - ownership is with the current attempt' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/subscriptionLifecycle.ts|return;|3",
@@ -1896,9 +1896,9 @@
       "line": 210,
       "drops": "pending debounced subscription event payloads (including merge-coalesced data) buffered up to debounce.ms",
       "condition": "setActive(false) / stop() while debounce buckets hold undelivered payloads - deactivateAll cancels every bucket via clearDebounceBuckets",
-      "verdict": "HOLE",
-      "ref": "no counter, no log for cancelled buckets; no spec rule covers in-flight debounced events on deactivation (04-persistence user-reset-discard covers durable operations only)",
-      "note": "Reachable on owner release/logout/restart; up to debounce.ms of buffered model events vanish unapplied."
+      "verdict": "CONTRACT",
+      "ref": "specs/09-dsl-surface.md :: 'deactivation cancels pending debounce delivery; catch-up is the resume refetch duty' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/subscriptionLifecycle.ts|} catch (error) {|4",
@@ -1956,9 +1956,9 @@
       "line": 66,
       "drops": "orphan temp row payload (user's unsent optimistic insert)",
       "condition": "id enumerated by storage.keys at :55 but storage.get at :69 returns undefined - id stays in orphanIds and is destroyed at :72 with no quarantine ticket",
-      "verdict": "HOLE",
-      "ref": "no counter on the ticketless destroy (noteQuarantinePut fires only when raw is defined; no noteDataLoss anywhere in this pass); spec 04 'uhodit v karantin s ticket, zatem destroy' has no missing-raw provision",
-      "note": "normal path (raw present) is CONTRACT per specs/04-persistence.md fsck rule; ids excluded by this filter are kept, not dropped"
+      "verdict": "NONDROP",
+      "ref": "orphan destroy always carries a quarantine ticket after P43 fix (placeholder payload for missing raw)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/bootFsck.ts|if (orphanIds.length === 0 || !hasApplyTarget(model)) continue;|1",
@@ -2136,9 +2136,9 @@
       "line": 71,
       "drops": "taken quarantine tickets (fsck-restorable row payloads)",
       "condition": "process killed or restore apply fails after this durable rewrite removes the entries but before bootFsck re-commits them (bootFsck.ts:86-88)",
-      "verdict": "HOLE",
-      "ref": "no counter; spec 04 fsck restore rule ('zapis... vosstanavlivaetsya v model') has no take-then-commit atomicity provision - removal is durable before the restore envelope lands",
-      "note": "single caller is bootFsck restoreReadmittedRows; crash in the window loses the payload entirely"
+      "verdict": "CONTRACT",
+      "ref": "specs/04-persistence.md :: 'fsck restore commits the restore envelope BEFORE durable ticket removal; repeat restore is idempotent' (P45, translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/requestRollback.ts|for (const field of operation.patchedFields ?? []) {|1",
@@ -3936,9 +3936,9 @@
       "line": 193,
       "drops": "requested rows whose id has no materialized entity row: silently omitted from byIds().read() with no refetch and no signal that the set is incomplete",
       "condition": "caller passes an id that is not (or no longer) present in entityState",
-      "verdict": "HOLE",
-      "ref": "no spec rule covers byIds holes (spec 05 'membership without a row' covers scope planes, not caller id lists); no diagnostics counter fires",
-      "note": "Same class as modelReactiveReads byIds holes; reader cannot distinguish 'absent row' from 'not yet synced'."
+      "verdict": "CONTRACT",
+      "ref": "specs/05-scope-read.md :: 'byIds returns and counts the materialized SUBSET of requested ids: a missing row is a legal partial state, not a loss' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/dsl/facadeRelations.ts|count: () => (ids ?? []).reduce((count, id) => count + (runtime.find(id) ? 1 : 0), 0),|1",
@@ -3946,9 +3946,9 @@
       "line": 204,
       "drops": "count silently excludes requested ids without materialized rows; consumer sees a smaller count with no incompleteness signal",
       "condition": "caller passes ids missing from entityState",
-      "verdict": "HOLE",
-      "ref": "no spec rule for byIds count semantics and no counter; count side of the byIds-hole class at line 193",
-      "note": "Mirror of the read-side hole."
+      "verdict": "CONTRACT",
+      "ref": "specs/05-scope-read.md :: byIds materialized subset rule (count side)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/dsl/facadeRemoteQueries.ts|? [...value.nodes].filter((node: unknown) => node != null)|1",
@@ -4166,9 +4166,9 @@
       "line": 56,
       "drops": "a declared model field literally named 'orderKey' (or '$'-prefixed) is silently invisible in every scope read: the scope select overwrites 'orderKey' with the membership order key and this strip removes it, while find() still returns it",
       "condition": "a model schema declares a field named 'orderKey' or starting with '$' - nothing in normalization reserves or rejects these names",
-      "verdict": "HOLE",
-      "ref": "no spec rule reserves field names 'orderKey'/'$*' and no counter fires; store plumbing keys are stripped by name, not by provenance",
-      "note": "Edge reachability (name collision), but intended-but-unwritten; entity-store write path strips '$' keys too (storeEntities.ts:40)."
+      "verdict": "CONTRACT",
+      "ref": "specs/09-dsl-surface.md :: reserved field names are a define-time error (S26) - a schema carrying orderKey/569JNRXghklprefixed fields is unrepresentable",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/read/scopeReadEngine.ts|.filter(isScopeRow)|1",
@@ -4586,9 +4586,9 @@
       "line": 16,
       "drops": "the earlier placement of a duplicated id: first occurrence's orderKey and payload fields are silently replaced by the last occurrence, last-wins without merge",
       "condition": "incoming payload (reconcileNext / applyDelta append) carries the same id more than once",
-      "verdict": "HOLE",
-      "ref": "no spec rule names last-wins resolution; specs only require uniqueness of the STORED set (05-scope-read.md orderKey uniqueness invariant); no counter/diagnostic fires",
-      "note": "adversarial-audit flag verified. A scope can hold an id once, so one of the duplicate placements must lose; the code JSDoc documents last-wins, but documented-in-code is not a spec rule - intended-but-unwritten, and the discard is silent"
+      "verdict": "CONTRACT",
+      "ref": "specs/05-scope-read.md :: 'duplicate ids inside one incoming payload resolve last-wins: the later occurrence carries the authoritative orderKey and fields' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/planes/scopeIndex.ts|keys.delete(key);|1",
@@ -6556,9 +6556,9 @@
       "line": 86,
       "drops": "the previously buffered event payload of the same debounce bucket - it is REPLACED before delivery when the declaration defines no merge",
       "condition": "debounce declared without merge and a second payload arrives in the same bucket within the wait window",
-      "verdict": "HOLE",
-      "ref": "no spec rule covers superseded payloads inside a debounce window: 08-freshness-pacing.md only assigns the primitive ('trailing debounce per subscription bucket - Pacer Debouncer, one instance per bucket') and 09 only covers teardown of pending delivery; a non-self-contained event payload (e.g. incremental fields) is silently lost with no counter and no rule requiring merge for such declarations",
-      "note": "latest-only is plausibly intended trailing-debounce semantics, but intended-but-unwritten = HOLE per audit rule; merge exists precisely because payloads can be non-superseding"
+      "verdict": "CONTRACT",
+      "ref": "specs/09-dsl-surface.md :: 'debounce without declared merge is a latest-wins contract; non-self-contained payloads must declare merge' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/subscriptionLifecycle.ts|state.debounceBuckets.delete(bucketKey);|1",
@@ -6656,9 +6656,9 @@
       "line": 119,
       "drops": "built-in facade method silently replaced when a relation shares its name (Object.assign(base, relationMethods) at :166 is last-wins)",
       "condition": "relation declared with a name colliding with the core surface (insert/update/destroy/find/where/...)",
-      "verdict": "HOLE",
-      "ref": "specs/09 requires: 'collision of a relation, association, action or built-in method name is a define-time error' - enforced only for associations (:183) and statics (:208), not relations",
-      "note": "a relation named insert replaces the write path: subsequent Model.insert(row) calls plan no write, the row silently never lands"
+      "verdict": "CONTRACT",
+      "ref": "define-time collision gate extended to relations (S25) - silent replacement unrepresentable",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/dsl/defineModelFacade.ts|Reflect.set(owner, name, (params: Record<string, unknown> | null) => {|1",
@@ -6666,9 +6666,9 @@
       "line": 120,
       "drops": "config-owner read surface (find/where/byIds/build/gql) silently replaced by same-named relation",
       "condition": "relation declared with a name colliding with the owner DSL surface",
-      "verdict": "HOLE",
-      "ref": "same missing define-time collision gate as :119 (specs/09 collision rule); no guard on Reflect.set over owner",
-      "note": "deferred handlers reading owner.find would silently get a relation factory instead of a point read"
+      "verdict": "CONTRACT",
+      "ref": "define-time collision gate extended to relations (S25)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/dsl/defineModelFacade.ts|Reflect.set(|1",
@@ -7456,9 +7456,9 @@
       "line": 261,
       "drops": "earlier touch patch fields for the same parent in one envelope",
       "condition": "two touch effects target one parent and share fields - later Object.assign overwrites per-field",
-      "verdict": "HOLE",
-      "ref": "earlier derived edit vanishes last-wins; no spec rule for multi-touch conflict, no counter (Codex round-2 find)",
-      "note": "wave-3 manual classification"
+      "verdict": "CONTRACT",
+      "ref": "specs/07-relations.md :: '2 touch effects of one parent in one plan merge in plan order; the later same-field write wins deterministically' (translated)",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/relations.ts|Object.assign(entry.patch, patch);|1",
@@ -7466,9 +7466,9 @@
       "line": 262,
       "drops": "earlier accumulated touch patch fields",
       "condition": "same multi-touch conflict on entry.patch",
-      "verdict": "HOLE",
-      "ref": "same mechanism as :261",
-      "note": "wave-3 manual classification"
+      "verdict": "CONTRACT",
+      "ref": "specs/07-relations.md :: touch plan-order merge rule",
+      "note": "reclassified after stage 2-3 rules and fixes"
     },
     {
       "key": "src/core/serialize.ts|const length = Number(rawLength);|1",
