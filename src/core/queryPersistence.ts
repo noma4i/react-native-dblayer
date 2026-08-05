@@ -1,6 +1,7 @@
 import type { QueryPersistenceDeclaration, QueryPersistenceRecord, QueryPersistenceWrite } from '../types';
 import type { QueryInvalidationRecord } from '../types/core.persistenceInternals.types';
 import { getDbRuntimeConfig, getStoragePrefix } from '../dsl/configure';
+import { noteDataLoss } from './diagnostics';
 import { isRecord } from '../utils/normalizeHelpers';
 import { decodeVersionedRecord, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
 import { compositeStorageKey } from './serialize';
@@ -95,13 +96,15 @@ export const readPersistedQuery = <TPayload, TScope>(
     return undefined;
   }
   const record = decoded.value;
-  if (
-    record.family !== declaration.family ||
-    record.identity !== identity ||
-    record.persistenceVersion !== declaration.persistenceVersion ||
-    record.fingerprint !== declaration.fingerprint
-  ) {
+  if (record.identity !== identity) {
+    // A payload identity disagreeing with its storage key is corruption, not declaration drift.
     removeKeys([key]);
+    reportRejectedRecord(declaration.family, new Error('react-native-dblayer: persisted query record identity does not match its storage key'));
+    return undefined;
+  }
+  if (record.family !== declaration.family || record.persistenceVersion !== declaration.persistenceVersion || record.fingerprint !== declaration.fingerprint) {
+    removeKeys([key]);
+    noteDataLoss('query-record-fingerprint-reset', '__runtime__', 1);
     return undefined;
   }
   try {
@@ -123,17 +126,22 @@ export const readPersistedQueryFamily = (declaration: QueryPersistenceDeclaratio
     const raw = storage.get(key);
     if (raw === undefined) continue;
     const decoded = decodeVersionedRecord(raw, PERSISTENCE_SCHEMA_VERSION, QUERY_RECORD_VERSION, isQueryPersistenceRecord);
-    if (
-      decoded.kind !== 'ok' ||
-      decoded.value.family !== declaration.family ||
-      key !== recordKey(declaration.family, decoded.value.identity) ||
-      decoded.value.persistenceVersion !== declaration.persistenceVersion ||
-      decoded.value.fingerprint !== declaration.fingerprint
-    ) {
+    if (decoded.kind !== 'ok') {
+      // The stale-version leg stays silent (P24); only a matched-version decode failure is corruption.
       removeKeys([key]);
       if (decoded.kind === 'corrupt') {
         reportRejectedRecord(declaration.family, new Error('react-native-dblayer: corrupt persisted query record'));
       }
+      continue;
+    }
+    if (key !== recordKey(declaration.family, decoded.value.identity)) {
+      removeKeys([key]);
+      reportRejectedRecord(declaration.family, new Error('react-native-dblayer: persisted query record identity does not match its storage key'));
+      continue;
+    }
+    if (decoded.value.family !== declaration.family || decoded.value.persistenceVersion !== declaration.persistenceVersion || decoded.value.fingerprint !== declaration.fingerprint) {
+      removeKeys([key]);
+      noteDataLoss('query-record-fingerprint-reset', '__runtime__', 1);
       continue;
     }
     records.push(withInvalidation(decoded.value, invalidation));

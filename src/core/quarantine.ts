@@ -1,19 +1,20 @@
 import { getDbRuntimeConfig, getStoragePrefix } from '../dsl/configure';
 import { getDbLogger } from './logger';
 import { decodePersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
-import { noteQuarantinePut } from './diagnostics';
+import { noteDataLoss, noteQuarantinePut } from './diagnostics';
 import { reportSyncError } from './syncError';
 import { isNonArrayRecord, isNonEmptyString } from '../utils/normalizeHelpers';
 import type { QuarantineEntry, QuarantineState } from '../types/core.quarantine.types';
 
 /**
  * THE quarantine: the single writer of the `quarantine` durable namespace. A payload that fails
- * validation is kept here verbatim with its reason - never dropped. User-class entries (`ledger`,
- * `operation`) are never removed automatically; cache-class entries (`row`) are a bounded FIFO.
- * Removal happens only through an explicit take (fsck restore) or the user's own runtime reset.
+ * validation is kept here verbatim with its reason - never dropped. Only diagnostic
+ * `plan-row-rejected` tickets are a bounded FIFO; every other entry (user-input `orphan-temp-row`
+ * rows included) is invariant-W state and never leaves through the cap. Removal happens only
+ * through an explicit take (fsck restore) or the user's own runtime reset.
  */
 
-const CACHE_ENTRY_CAP = 100;
+const PLAN_ROW_REJECTED_CAP = 100;
 
 const quarantineKey = (prefix: string): string => `${prefix}quarantine`;
 
@@ -50,10 +51,11 @@ export const putQuarantine = (entry: QuarantineEntry): void => {
   // The writer normalizes its own keys: a nameless payload must not make the stored state unreadable.
   const id = isNonEmptyString(entry.id) ? entry.id : '(unnamed)';
   state.entries.push({ ...entry, id, raw: raw.serializable ? raw.value : String(entry.raw) });
-  const cacheEntries = state.entries.filter(candidate => candidate.kind === 'row');
-  if (cacheEntries.length > CACHE_ENTRY_CAP) {
-    const oldestCache = cacheEntries[0]!;
-    state.entries.splice(state.entries.indexOf(oldestCache), 1);
+  const diagnosticTickets = state.entries.filter(candidate => candidate.kind === 'row' && candidate.reason === 'plan-row-rejected');
+  if (diagnosticTickets.length > PLAN_ROW_REJECTED_CAP) {
+    const oldest = diagnosticTickets[0]!;
+    state.entries.splice(state.entries.indexOf(oldest), 1);
+    noteDataLoss('quarantine-evicted', oldest.model, 1);
   }
   writeState(state);
   noteQuarantinePut();

@@ -88,6 +88,46 @@ describe('query definition edges', () => {
     expect(query.read({})).toBeUndefined();
   });
 
+  it('[F46] compacts dead ids out of an imperative read instead of returning undefined holes', async () => {
+    let resolveSecond: ((rows: Row[]) => void) | null = null;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        if (resolveSecond === null) {
+          resolveSecond = () => {};
+          return {
+            data: {
+              rows: [
+                { id: 'row-1', label: 'first' },
+                { id: 'row-2', label: 'second' }
+              ]
+            } as TData
+          };
+        }
+        return await new Promise<{ data: TData }>(resolve => {
+          resolveSecond = rows => resolve({ data: { rows } as TData });
+        });
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = createRows('ReadCompaction');
+    const query = defineQuery<{ rows: Row[] }, Record<string, never>, Record<string, never>, Row>({
+      document: namedDocument,
+      key: 'query-read-compaction',
+      into: rows,
+      select: data => data.rows
+    });
+    await query.fetch({});
+
+    // The loss court defers a chain with an in-flight fetch, so the stale id stays in the chain
+    // until that fetch settles; the imperative read still may not hand out undefined holes.
+    const second = query.refresh({});
+    rows.destroy('row-1');
+    expect(query.read({})).toEqual([{ id: 'row-2', label: 'second' }]);
+
+    resolveSecond!([{ id: 'row-2', label: 'second' }]);
+    await second;
+  });
+
   it('skips transport when the definition-level enabled predicate rejects the scope', async () => {
     let queryCalls = 0;
     const transport = createMockTransport({

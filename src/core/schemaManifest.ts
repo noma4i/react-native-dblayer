@@ -1,6 +1,6 @@
 import { getDbRuntimeConfig, getOperationState, getPersistenceDataVersion, getStoragePrefix } from '../dsl/configure';
 import { committedOnceKeysEntry, readCommittedOnceKeys } from './planes/operationState';
-import { resetRuntimeKeeping, resumeInterruptedStorageReset } from './reset';
+import { registerCurrentManifestEntryProvider, resetRuntimeKeeping, resumeInterruptedStorageReset } from './reset';
 import { noteDataLoss, noteManifestReset } from './diagnostics';
 import { compareCodepoints, compositeStorageKey, stableSerialize } from './serialize';
 import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSION } from './persistenceCodec';
@@ -20,6 +20,19 @@ export const computeSchemaFingerprints = (): SchemaFingerprints =>
   Object.fromEntries([...declarations.entries()].sort(([left], [right]) => compareCodepoints(left, right)).map(([id, declaration]) => [id, stableSerialize(declaration)]));
 
 const manifestKey = (prefix: string): string => `${prefix}manifest`;
+
+const currentPersistenceManifest = (): PersistenceManifest => ({
+  formatVersion: DB_FORMAT_VERSION,
+  schemaFingerprints: computeSchemaFingerprints(),
+  dataVersion: getPersistenceDataVersion()
+});
+
+// Every sanctioned wipe restores the current manifest in the same reset intent (spec 04): a
+// nonempty namespace of a configured runtime always carries the manifest of its configuration.
+registerCurrentManifestEntryProvider(() => ({
+  key: manifestKey(getStoragePrefix()),
+  value: encodePersistence(currentPersistenceManifest())
+}));
 
 const committedOnceKeysForReset = (storage: ReturnType<typeof getDbRuntimeConfig>['storage'], prefix: string) => {
   const persisted = readCommittedOnceKeys(storage, prefix);
@@ -82,7 +95,7 @@ const clearModelPersistence = (storage: ReturnType<typeof getDbRuntimeConfig>['s
 export const reconcilePersistence = (): { reset: boolean } => {
   const { storage } = getDbRuntimeConfig();
   const prefix = getStoragePrefix();
-  const current: PersistenceManifest = { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: getPersistenceDataVersion() };
+  const current = currentPersistenceManifest();
   const interruptedReset = resumeInterruptedStorageReset();
   const stored = readPersistenceManifest(prefix);
   const nonempty = storage.keys(prefix).some(key => key !== manifestKey(prefix));

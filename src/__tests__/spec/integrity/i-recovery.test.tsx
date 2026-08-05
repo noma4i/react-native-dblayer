@@ -12,8 +12,11 @@ import {
   getApplyRuntime,
   getOperationState,
   purgeForeignStorageKeys,
+  putQuarantine,
   readQuarantineEntries,
-  writePersistenceManifest
+  resetRuntime,
+  writePersistenceManifest,
+  type StoragePlane
 } from '../../testApi';
 import { compositeStorageKey, createMemoryPlane, createMockTransport, diagnostics, renderCounted } from '../helpers/harness';
 
@@ -224,6 +227,83 @@ describe('persistence recovery protocol', () => {
 
     expect(storage.get(storageKey)).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: modelId, count: 1 });
+  });
+
+  it('[P41] deletes an empty persisted scope value as corrupt instead of silently skipping it', async () => {
+    const modelId = 'RecoveryEmptyScopeValue';
+    const storageKey = compositeStorageKey('dbl:', 'scope', modelId, compositeKey('feed', '{"bucket":"a"}'));
+    const storage = configureRecoveryRuntime([{ key: storageKey, value: '' }]);
+    defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    // An empty raw value is unreadable state, not a skippable key: it leaves the disk and is counted.
+    expect(storage.get(storageKey)).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-scope', model: modelId, count: 1 });
+  });
+
+  it('[P43] tickets an orphan temp row with a placeholder payload when its value is unreadable', async () => {
+    const modelId = 'RecoveryGhostOrphan';
+    const ghostKey = compositeStorageKey('dbl:', 'row', modelId, 'temp-ghost-1-0');
+    const base = createMemoryPlane();
+    const storage: StoragePlane = {
+      get: key => (key === ghostKey ? undefined : base.get(key)),
+      set: base.set,
+      keys: prefix => [...base.keys(prefix), ...(ghostKey.startsWith(prefix) ? [ghostKey] : [])]
+    };
+    configureDb({ storage, transport: createMockTransport() });
+    const model = defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    diagnostics().reset();
+
+    await bootDb();
+
+    // Orphan destroy ALWAYS carries a quarantine ticket: a missing payload is replaced by a
+    // placeholder with the reason, never by cancelling the ticket.
+    expect(model.find('temp-ghost-1-0')).toBeUndefined();
+    expect(readQuarantineEntries()).toContainEqual(
+      expect.objectContaining({ kind: 'row', model: modelId, id: 'temp-ghost-1-0', reason: 'orphan-temp-row', raw: { placeholder: 'missing-row-payload' } })
+    );
+  });
+
+  it('[P45] commits the quarantine restore envelope before durably removing the taken tickets', async () => {
+    const modelId = 'RecoveryRestoreOrder';
+    const base = createMemoryPlane();
+    const writes: Array<{ key: string; value: string | null }> = [];
+    const recording: StoragePlane = {
+      get: base.get,
+      set: (key, value) => {
+        writes.push({ key, value });
+        base.set(key, value);
+      },
+      keys: base.keys
+    };
+    configureDb({ storage: recording, transport: createMockTransport() });
+    const model = defineRecoveryModel(modelId);
+    writeMatchingManifest();
+    putQuarantine({ kind: 'row', model: modelId, id: 'q-1', raw: { id: 'q-1', bucket: 'a', label: 'Q' }, reason: 'plan-row-rejected' });
+
+    await bootDb();
+    const log = [...writes];
+
+    expect(model.find('q-1')).toMatchObject({ label: 'Q' });
+    const deltaIndex = log.findIndex(write => write.key.startsWith('dbl:delta:') && write.value !== null && write.value.includes('q-1'));
+    const removalIndex = log.findIndex(write => write.key === 'dbl:quarantine' && write.value !== null && !write.value.includes('q-1'));
+    expect(deltaIndex).toBeGreaterThanOrEqual(0);
+    expect(removalIndex).toBeGreaterThanOrEqual(0);
+    // The restore envelope is durable BEFORE the ticket leaves the quarantine.
+    expect(deltaIndex).toBeLessThan(removalIndex);
+
+    // Kill right after the ticket removal write: the restore commit already covers the row.
+    const killDisk = createMemoryPlane();
+    for (const write of log.slice(0, removalIndex + 1)) killDisk.set(write.key, write.value);
+    resetRuntime();
+    configureDb({ storage: killDisk, transport: createMockTransport() });
+    await bootDb();
+    expect(model.find('q-1')).toMatchObject({ label: 'Q' });
+    expect(readQuarantineEntries().filter(entry => entry.reason === 'plan-row-rejected')).toEqual([]);
   });
 
   it('counts only materialized members after a corrupt member row is dropped on boot', async () => {

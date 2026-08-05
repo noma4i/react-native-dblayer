@@ -1,6 +1,7 @@
-import type { QueryKey } from '@tanstack/react-query';
-import type { IncrementalCommitBatch , ActiveFetchReader, MaterializationReconciler } from '../../types';
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import type { IncrementalCommitBatch , ActiveFetchReader, MaterializationReconciler, MaterializedChain } from '../../types';
 import { getCommitBus, getDbQueryClient, isDbConfigured } from '../../dsl/configure';
+import { noteChainSurvivorShrink } from '../diagnostics';
 import { registerReset } from '../reset';
 import { compositeKey, parseCompositeKey, stableSerialize } from '../serialize';
 
@@ -18,6 +19,95 @@ const serializedKeyOf = (queryKey: QueryKey): string => stableSerialize(queryKey
  */
 const reconcilers = new Set<MaterializationReconciler>();
 registerReset(() => reconcilers.clear());
+
+/** Chains that skipped a loss judgment mid-fetch, keyed by serialized query key: judged again once that fetch settles. */
+type PendingRejudge = { reconciler: MaterializationReconciler; swap: Map<string, string> | undefined; maintenance: boolean };
+const pendingRejudges = new Map<string, PendingRejudge>();
+let releasePendingWatch: (() => void) | undefined;
+
+const stopPendingWatch = (): void => {
+  releasePendingWatch?.();
+  releasePendingWatch = undefined;
+};
+
+registerReset(() => {
+  pendingRejudges.clear();
+  stopPendingWatch();
+});
+
+const rejudgePending = (pending: PendingRejudge, target: string): void => {
+  if (!isDbConfigured() || !reconcilers.has(pending.reconciler)) return;
+  const client = getDbQueryClient();
+  for (const chain of pending.reconciler.chains()) {
+    if (serializedKeyOf(chain.queryKey) !== target) continue;
+    judgeChain(client, pending.reconciler, chain, pending.swap, pending.maintenance);
+  }
+};
+
+const watchPendingSettles = (): void => {
+  if (releasePendingWatch !== undefined) return;
+  releasePendingWatch = getDbQueryClient().getQueryCache().subscribe(event => {
+    if (event.type !== 'updated' && event.type !== 'removed') return;
+    const target = serializedKeyOf(event.query.queryKey);
+    const pending = pendingRejudges.get(target);
+    if (pending === undefined) return;
+    if (event.type === 'updated' && event.query.state.fetchStatus !== 'idle') return;
+    pendingRejudges.delete(target);
+    if (pendingRejudges.size === 0) stopPendingWatch();
+    if (event.type === 'removed') return;
+    // A successful landing re-establishes the chain itself; only a failed fetch leaves the
+    // recorded loss unjudged (spec 08).
+    if (event.query.state.status !== 'error') return;
+    rejudgePending(pending, target);
+  });
+};
+
+const rememberPendingRejudge = (reconciler: MaterializationReconciler, chain: MaterializedChain, swap: Map<string, string> | undefined, maintenance: boolean): void => {
+  const target = serializedKeyOf(chain.queryKey);
+  const pending = pendingRejudges.get(target);
+  if (pending === undefined) {
+    pendingRejudges.set(target, { reconciler, swap: swap && new Map(swap), maintenance });
+  } else {
+    if (swap !== undefined) {
+      pending.swap ??= new Map<string, string>();
+      for (const [from, to] of swap) pending.swap.set(from, to);
+    }
+    pending.maintenance = pending.maintenance && maintenance;
+  }
+  watchPendingSettles();
+};
+
+const judgeChain = (client: QueryClient, reconciler: MaterializationReconciler, chain: MaterializedChain, swap: Map<string, string> | undefined, maintenance: boolean): void => {
+  const state = client.getQueryState(chain.queryKey);
+  if (state === undefined) return;
+  // A chain writing its own result is mid-flight: judge it again once that fetch settles.
+  if (state.fetchStatus === 'fetching') {
+    rememberPendingRejudge(reconciler, chain, swap, maintenance);
+    return;
+  }
+  const meta = state.data as { ids?: string[] } | undefined;
+  if (!meta?.ids || meta.ids.length === 0) return;
+  // Rewrite swapped identities BEFORE the materialization check: the successor id is what
+  // the chain now holds, so it is what must be judged for presence.
+  const candidates = meta.ids.map(id => {
+    const rowId = parseCompositeKey(id)?.[1];
+    const successor = rowId !== undefined ? swap?.get(rowId) : undefined;
+    return successor !== undefined ? compositeKey(reconciler.modelId, successor) : id;
+  });
+  const materialized = chain.materialized(candidates);
+  const remaining = candidates.filter(id => materialized.has(id));
+  if (remaining.length === meta.ids.length && remaining.every((id, index) => id === meta.ids![index])) return;
+  // Keep the original freshness stamp: rewriting the survivor set must never make a query fresher.
+  client.setQueryData(chain.queryKey, { ...meta, ids: remaining }, { updatedAt: state.dataUpdatedAt });
+  // A full-length identity rewrite is not a loss; any shrink forfeits freshness.
+  if (remaining.length === meta.ids.length) return;
+  void client.invalidateQueries({ queryKey: chain.queryKey, exact: true, refetchType: 'none' });
+  if (remaining.length > 0) {
+    noteChainSurvivorShrink();
+    return;
+  }
+  if (!maintenance) refetchActiveFetchReaders(chain.queryKey);
+};
 
 const noteLostMaterialization = (batch: IncrementalCommitBatch): void => {
   if (!isDbConfigured() || reconcilers.size === 0) return;
@@ -51,27 +141,7 @@ const noteLostMaterialization = (batch: IncrementalCommitBatch): void => {
     for (const chain of reconciler.chains()) {
       // A model-destination chain depends on row presence alone, so any touch of its model applies.
       if (chain.scopeKey !== null && !keys.has(chain.scopeKey)) continue;
-      const state = client.getQueryState(chain.queryKey);
-      // A chain writing its own result is mid-flight: judge it once that write lands.
-      if (state === undefined || state.fetchStatus === 'fetching') continue;
-      const meta = state.data as { ids?: string[] } | undefined;
-      if (!meta?.ids || meta.ids.length === 0) continue;
-      // Rewrite swapped identities BEFORE the materialization check: the successor id is what
-      // the chain now holds, so it is what must be judged for presence.
-      const candidates = meta.ids.map(id => {
-        const rowId = parseCompositeKey(id)?.[1];
-        const successor = rowId !== undefined ? swap?.get(rowId) : undefined;
-        return successor !== undefined ? compositeKey(reconciler.modelId, successor) : id;
-      });
-      const materialized = chain.materialized(candidates);
-      const remaining = candidates.filter(id => materialized.has(id));
-      if (remaining.length === meta.ids.length && remaining.every((id, index) => id === meta.ids![index])) continue;
-      // Keep the original freshness stamp: rewriting or shrinking the survivor set must never
-      // make a query fresher.
-      client.setQueryData(chain.queryKey, { ...meta, ids: remaining }, { updatedAt: state.dataUpdatedAt });
-      if (remaining.length > 0) continue;
-      void client.invalidateQueries({ queryKey: chain.queryKey, exact: true, refetchType: 'none' });
-      if (!maintenance) refetchActiveFetchReaders(chain.queryKey);
+      judgeChain(client, reconciler, chain, swap, maintenance);
     }
   }
 };

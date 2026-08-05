@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
 import { act } from 'react';
-import { configureDb, defineModel, defineShape, f, resetRuntime, type DbTransport } from '../../testApi';
+import { configureDb, defineModel, defineModelRuntime, defineShape, f, resetRuntime, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, isTestNetworkOnline, renderCountedInProvider, setTestNetworkOnline, settle } from '../helpers/harness';
 
 type FetchData = { value: string };
@@ -359,6 +359,73 @@ describe('fetch lifecycle contracts', () => {
     expect(calls).toBe(2);
     expect(relation.read().map(row => row.version)).toEqual([2]);
     reader.unmount();
+  });
+
+  const createSharedScopeFixture = (keyPrefix: string, modelId: string) => {
+    const resolvers = new Map<string, (rows: ScopeRow[]) => void>();
+    const transport = createMockTransport({
+      query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) =>
+        await new Promise<{ data: TData }>(resolve => {
+          const which = (operation.variables as { which: string }).which;
+          resolvers.set(which, rows => resolve({ data: { rows } as TData }));
+        })
+    });
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport });
+    const rows = defineModelRuntime({
+      id: modelId,
+      name: modelId,
+      fields: { bucket: f.str(), version: f.num() },
+      scopes: { byBucket: { by: { bucket: 'bucket' } } }
+    });
+    const declare = (which: string) =>
+      rows.query<ScopeData, ScopeValue & { which: string }, ScopeValue, ScopeRow>('byBucket', {
+        document: listDocument as never,
+        key: `${keyPrefix}-${which}`,
+        vars: scope => ({ bucket: scope.bucket, which }),
+        select: data => data.rows,
+        into: rows.scopes.byBucket,
+        staleTime: 60_000,
+        emptyStaleTime: 60_000
+      });
+    const raceResetsIntoOneScope = async (queryA: ReturnType<typeof declare>, queryB: ReturnType<typeof declare>) => {
+      const first = queryA.refresh({ bucket: 'main' });
+      await settle(2);
+      expect(resolvers.has('a')).toBe(true);
+      const second = queryB.refresh({ bucket: 'main' });
+      await settle(2);
+      expect(resolvers.has('b')).toBe(true);
+      resolvers.get('b')!([{ id: 'b-row', bucket: 'main', version: 1 }]);
+      await second;
+      resolvers.get('a')!([{ id: 'a-row', bucket: 'main', version: 1 }]);
+      await first;
+    };
+    return { storage, declare, raceResetsIntoOneScope };
+  };
+
+  it('[F42] keeps a reset of one declaration from swallowing the landing of another declaration in the same scope', async () => {
+    const fixture = createSharedScopeFixture('f42', 'SpecFetchContractsSharedScopeF42');
+    const queryA = fixture.declare('a');
+    const queryB = fixture.declare('b');
+
+    await fixture.raceResetsIntoOneScope(queryA, queryB);
+
+    expect((queryA.read({ bucket: 'main' }) as ScopeRow[]).map(row => row.id)).toEqual(['a-row']);
+  });
+
+  it('[F43] does not fabricate a fresh-empty chain or persist an empty record for a superseded flight without cached meta', async () => {
+    const fixture = createSharedScopeFixture('f43', 'SpecFetchContractsSharedScopeF43');
+    const queryA = fixture.declare('a');
+    const queryB = fixture.declare('b');
+
+    await fixture.raceResetsIntoOneScope(queryA, queryB);
+
+    const persistedA = fixture.storage
+      .snapshotKeys()
+      .filter(key => key.includes('f43-a'))
+      .map(key => JSON.parse(fixture.storage.get(key)!) as { payload: { empty?: boolean; payload?: { ids?: string[] } } });
+    expect(persistedA.filter(envelope => envelope.payload.empty === true)).toEqual([]);
+    expect(persistedA.filter(envelope => envelope.payload.payload?.ids?.length === 0)).toEqual([]);
   });
 
   it('F8 keeps transport idle while offline and resumes it after connectivity returns', async () => {

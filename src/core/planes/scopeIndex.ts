@@ -347,12 +347,12 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         const encoded = parseCompositeKey(fullKey.slice(storagePrefix().length));
         const key = encoded?.length === 1 ? encoded[0] : undefined;
         const raw = storage.get(fullKey);
-        if (!raw) continue;
         /** A key that does not belong to a declared scope (renamed/removed scope, foreign format) is stale state: drop it as corrupt. */
         const scopeParts = key === undefined ? undefined : parseCompositeKey(key);
         const declared =
           scopeParts?.length === 2 && isNonEmptyString(scopeParts[0]) && isNonEmptyString(scopeParts[1]) && (scopeNames === undefined || scopeNames.includes(scopeParts[0]));
-        const value = declared ? decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isScopeIndexValue) : undefined;
+        // An absent or empty raw value is unreadable state: it takes the corrupt branch, never a silent skip.
+        const value = raw && declared ? decodeSupportedPersistence(raw, PERSISTENCE_SCHEMA_VERSION, isScopeIndexValue) : undefined;
         if (key !== undefined && value) {
           scopes.set(key, value);
           accessTimes.set(key, Date.now());

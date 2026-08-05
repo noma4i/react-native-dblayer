@@ -7,7 +7,7 @@ import {
   resetRuntime,
   setFetchNetworkOnline
 } from '../../testApi';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 const document = { kind: 'Document', definitions: [] } as never;
 
@@ -110,7 +110,16 @@ describe('subscription runtime correctness', () => {
   it('debounces each bucket on its own trailing window and delivers only the latest payload', () => {
     jest.useFakeTimers();
     try {
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          subscribe: (_options, nextHandlers) => {
+            handlers = nextHandlers;
+            return jest.fn();
+          }
+        })
+      });
       const received: string[] = [];
       const runtime = createModelEventLifecycle([
         {
@@ -120,11 +129,12 @@ describe('subscription runtime correctness', () => {
           onData: payload => received.push((payload as { bucket: string; value: string }).value)
         }
       ]);
+      runtime.setActive(true);
 
-      runtime.dispatch('event', { bucket: 'first', value: 'first-v1' });
-      runtime.dispatch('event', { bucket: 'second', value: 'second-v1' });
+      handlers.next({ event: { bucket: 'first', value: 'first-v1' } });
+      handlers.next({ event: { bucket: 'second', value: 'second-v1' } });
       jest.advanceTimersByTime(49);
-      runtime.dispatch('event', { bucket: 'first', value: 'first-v2' });
+      handlers.next({ event: { bucket: 'first', value: 'first-v2' } });
       jest.advanceTimersByTime(1);
       expect(received).toEqual(['second-v1']);
       jest.advanceTimersByTime(48);
@@ -140,7 +150,16 @@ describe('subscription runtime correctness', () => {
   it('merges partial payloads inside one debounce bucket without losing fields', () => {
     jest.useFakeTimers();
     try {
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          subscribe: (_options, nextHandlers) => {
+            handlers = nextHandlers;
+            return jest.fn();
+          }
+        })
+      });
       const received: Array<Record<string, number>> = [];
       const runtime = createModelEventLifecycle([
         {
@@ -153,10 +172,11 @@ describe('subscription runtime correctness', () => {
           onData: payload => received.push(payload as Record<string, number>)
         }
       ]);
+      runtime.setActive(true);
 
-      runtime.dispatch('userCounters', { unreadChatsCount: 2 });
-      runtime.dispatch('userCounters', { secondaryChatsCount: 4 });
-      runtime.dispatch('userCounters', { unreadChatsCount: 0 });
+      handlers.next({ userCounters: { unreadChatsCount: 2 } });
+      handlers.next({ userCounters: { secondaryChatsCount: 4 } });
+      handlers.next({ userCounters: { unreadChatsCount: 0 } });
       jest.advanceTimersByTime(50);
 
       expect(received).toEqual([{ unreadChatsCount: 0, secondaryChatsCount: 4 }]);
@@ -229,7 +249,13 @@ describe('subscription runtime correctness', () => {
   });
 
   it('does not count a delivery whose onData handler throws', () => {
-    const transport = createMockTransport({ subscribe: () => jest.fn() });
+    let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+    const transport = createMockTransport({
+      subscribe: (_options, nextHandlers) => {
+        handlers = nextHandlers;
+        return jest.fn();
+      }
+    });
     configureDb({ storage: createMemoryPlane(), transport });
     let calls = 0;
     const runtime = createModelEventLifecycle([
@@ -244,7 +270,7 @@ describe('subscription runtime correctness', () => {
     ]);
     runtime.setActive(true);
 
-    expect(() => runtime.dispatch('event', { id: 'row-1' })).toThrow('onData exploded');
+    expect(() => handlers.next({ event: { id: 'row-1' } })).toThrow('onData exploded');
     expect(calls).toBe(1);
     expect(runtime.inspect().find(entry => entry.key === 'event')?.eventCount).toBe(0);
 
@@ -255,9 +281,15 @@ describe('subscription runtime correctness', () => {
     jest.useFakeTimers();
     try {
       const errors: string[] = [];
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
       configureDb({
         storage: createMemoryPlane(),
-        transport: createMockTransport({ subscribe: () => jest.fn() }),
+        transport: createMockTransport({
+          subscribe: (_options, nextHandlers) => {
+            handlers = nextHandlers;
+            return jest.fn();
+          }
+        }),
         defaults: {
           onSyncError: error => {
             errors.push(error.message);
@@ -275,7 +307,7 @@ describe('subscription runtime correctness', () => {
         }
       ]);
       runtime.setActive(true);
-      runtime.dispatch('event', { id: 'row-1' });
+      handlers.next({ event: { id: 'row-1' } });
 
       expect(() => jest.advanceTimersByTime(50)).not.toThrow();
       expect(errors).toEqual(['debounced exploded']);
@@ -288,18 +320,23 @@ describe('subscription runtime correctness', () => {
   });
 
   it('recaptures its generation and keeps delivering after a runtime re-configuration', () => {
-    const transport = createMockTransport({ subscribe: () => jest.fn() });
+    let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+    const captureSubscribe = (_options: unknown, nextHandlers: { next: (data: unknown) => void; error: (error: unknown) => void }) => {
+      handlers = nextHandlers;
+      return jest.fn();
+    };
+    const transport = createMockTransport({ subscribe: captureSubscribe });
     configureDb({ storage: createMemoryPlane(), transport });
     const received: string[] = [];
     const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push((payload as { id: string }).id) }]);
     runtime.setActive(true);
-    runtime.dispatch('event', { id: 'first' });
+    handlers.next({ event: { id: 'first' } });
     expect(received).toEqual(['first']);
 
-    const transport2 = createMockTransport({ subscribe: () => jest.fn() });
+    const transport2 = createMockTransport({ subscribe: captureSubscribe });
     configureDb({ storage: createMemoryPlane(), transport: transport2 });
     runtime.setActive(true);
-    runtime.dispatch('event', { id: 'second' });
+    handlers.next({ event: { id: 'second' } });
 
     expect(received).toEqual(['first', 'second']);
     runtime.stop();
@@ -333,16 +370,24 @@ describe('subscription runtime correctness', () => {
     }
   });
 
-  it('skips stale, malformed, and unknown dispatch payloads', () => {
-    configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
+  it('skips stale and malformed transport payloads', () => {
+    let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        subscribe: (_options, nextHandlers) => {
+          handlers = nextHandlers;
+          return jest.fn();
+        }
+      })
+    });
     const received: unknown[] = [];
     const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
 
-    runtime.dispatch('event', 7);
-    runtime.dispatch('missing', { id: 'unknown' });
     runtime.setActive(true);
+    handlers.next({ event: 7 });
     advanceRuntimeGeneration();
-    runtime.dispatch('event', { id: 'stale' });
+    handlers.next({ event: { id: 'stale' } });
 
     expect(received).toEqual([]);
     runtime.stop();
@@ -366,6 +411,32 @@ describe('subscription runtime correctness', () => {
     handlers.next(7);
 
     expect(received).toEqual([]);
+    runtime.stop();
+  });
+
+  it('[S23] records a loss event for a scalar transport response and a scalar payload', () => {
+    let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        subscribe: (_options, nextHandlers) => {
+          handlers = nextHandlers;
+          return jest.fn();
+        }
+      })
+    });
+    const received: unknown[] = [];
+    const runtime = createModelEventLifecycle([{ key: 'event', query: document, onData: payload => received.push(payload) }]);
+    runtime.setActive(true);
+
+    handlers.next(7);
+    handlers.next({ event: 7 });
+
+    expect(received).toEqual([]);
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([
+      { mechanism: 'subscription-payload-mismatch', model: 'event', count: 1 },
+      { mechanism: 'subscription-payload-mismatch', model: 'event', count: 1 }
+    ]);
     runtime.stop();
   });
 
@@ -544,11 +615,20 @@ describe('subscription attempt races', () => {
   it('cancels pending debounced deliveries when deactivated', () => {
     jest.useFakeTimers();
     try {
-      configureDb({ storage: createMemoryPlane(), transport: createMockTransport({ subscribe: () => jest.fn() }) });
+      let handlers!: { next: (data: unknown) => void; error: (error: unknown) => void };
+      configureDb({
+        storage: createMemoryPlane(),
+        transport: createMockTransport({
+          subscribe: (_options, nextHandlers) => {
+            handlers = nextHandlers;
+            return jest.fn();
+          }
+        })
+      });
       const received: string[] = [];
       const runtime = createModelEventLifecycle([{ key: 'event', query: document, debounce: { ms: 50 }, onData: payload => received.push((payload as { id: string }).id) }]);
       runtime.setActive(true);
-      runtime.dispatch('event', { id: 'buffered' });
+      handlers.next({ event: { id: 'buffered' } });
 
       runtime.setActive(false);
       jest.advanceTimersByTime(200);

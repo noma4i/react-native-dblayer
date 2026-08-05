@@ -1,6 +1,6 @@
 import { BasicIndex, createCollection, createLiveQueryCollection, eq, type ChangeMessageOrDeleteKeyMessage } from '@tanstack/db';
 import { compareCodepoints, compositeKey } from './serialize';
-import { noteMembershipWrites } from './diagnostics';
+import { noteMembershipMissingEntity, noteMembershipWrites } from './diagnostics';
 import type { ScopePlane, ScopePlaneOptions, StoreMembershipRow, StoreScopeChange, StoreScopeSyncChange } from '../types';
 import { createStoreTransactionBatcher, OWNED_COLLECTION_LIFETIME, SyncFeed, assertStoreReadable } from './storeSync';
 import { createDerivedCollectionCache } from './storeDerivedCollections';
@@ -29,14 +29,19 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
         q
           .from({ membership: memberships })
           .where(({ membership }) => eq(membership.scopeKey, scopeKey))
-          .join({ entity: entities }, ({ membership, entity }) => eq(membership.entityId, entity.id))
+          // Inner join: a membership whose entity row is absent must be skipped, not emitted as a
+          // row of undefined entity fields (the render then crashes on the missing id).
+          .join({ entity: entities }, ({ membership, entity }) => eq(membership.entityId, entity.id), 'inner')
           .orderBy(({ membership }) => membership.orderKey, { direction: 'asc', stringSort: 'lexical' })
           .select(({ membership, entity }) => ({ ...entity, orderKey: membership.orderKey })),
       getKey: row => row.$key
     });
 
   const scopeMembers = (scopeKey: string): StoreMembershipRow[] =>
-    [...membershipsByScope.equalityLookup(scopeKey)].map(key => memberships.get(key as string)!);
+    [...membershipsByScope.equalityLookup(scopeKey)].flatMap(key => {
+      const row = memberships.get(key as string);
+      return row ? [row] : [];
+    });
 
   const writeMemberships = (messages: ReadonlyArray<ChangeMessageOrDeleteKeyMessage<StoreMembershipRow, string>>): void => {
     if (messages.length === 0) return;
@@ -79,13 +84,24 @@ export const createScopePlane = (options: ScopePlaneOptions): ScopePlane => {
         assertStoreReadable();
         if (!isReady()) return [];
         const existing = scopeCollections.peek(scopeKey);
-        if (existing) return [...existing.toArray];
-        return scopeMembers(scopeKey)
+        if (existing) {
+          const joined = [...existing.toArray];
+          noteMembershipMissingEntity(scopeMembers(scopeKey).length - joined.length);
+          return joined;
+        }
+        let misses = 0;
+        const rows = scopeMembers(scopeKey)
           .sort((left, right) => compareCodepoints(left.orderKey, right.orderKey) || compareCodepoints(left.entityId, right.entityId))
           .flatMap(membership => {
             const entity = readCommitted(membership.entityId);
-            return entity ? [{ ...entity, orderKey: membership.orderKey }] : [];
+            if (!entity) {
+              misses += 1;
+              return [];
+            }
+            return [{ ...entity, orderKey: membership.orderKey }];
           });
+        noteMembershipMissingEntity(misses);
+        return rows;
       },
       subscribe: listener => {
         const held = scopeCollections.acquire(scopeKey, () => buildScopeCollection(scopeKey));

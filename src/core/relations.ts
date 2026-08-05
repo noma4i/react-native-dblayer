@@ -22,7 +22,7 @@ import type {
   WriteOp
 } from '../types';
 import { createGenerationRegistry } from './generationRegistry';
-import { noteRelationChildScan } from './diagnostics';
+import { noteNonResidentTouchDrop, noteRelationChildScan } from './diagnostics';
 import { pickLowestRow } from './ordering';
 
 /**
@@ -252,7 +252,10 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
     let entry = touchViews.get(parentKey);
     if (!entry) {
       const parent = reader.read(relation.model.modelId, parentId);
-      if (!parent) return;
+      if (!parent) {
+        noteNonResidentTouchDrop();
+        return;
+      }
       entry = { model: relation.model.modelId, id: parentId, view: { ...parent }, patch: {} };
       touchViews.set(parentKey, entry);
     }

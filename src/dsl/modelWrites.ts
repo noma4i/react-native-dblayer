@@ -1,5 +1,5 @@
 import type { EntityState, ModelMembership, ModelRevisionOwner, ModelWriteResult, ModelWrites, OperationRecord, OperationTransition, WriteOp, WriteOrigin } from '../types';
-import { noteDataLoss, noteReplaceRejected } from '../core/diagnostics';
+import { noteDataLoss, noteReplaceRejected, noteTombstoneWriteDrop } from '../core/diagnostics';
 import { getDbLogger } from '../core/logger';
 import { putQuarantine } from '../core/quarantine';
 import { diffTopLevelFields } from '../core/storeUpsertResolver';
@@ -25,7 +25,10 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     baseRevision?: number
   ) => {
     const incoming = options.normalize(value);
-    if (origin === undefined && options.entityState().isTombstoned(incoming.id)) return null;
+    if (origin === undefined && options.entityState().isTombstoned(incoming.id)) {
+      noteTombstoneWriteDrop();
+      return null;
+    }
     // Replace is a server identity fact: it never fails the causal gate. When the server row
     // already landed through another channel, the response merges into it under snapshot-mode
     // policies instead of leaving the temp row behind.
@@ -100,7 +103,10 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     };
     // Deletion wins over the landing swap: when the user destroyed this identity while the
     // request was in flight, the temp leg is destroyed too and the server row never lands.
-    if (options.entityState().isTombstoned(normalized.id)) return [destroyLeg];
+    if (options.entityState().isTombstoned(normalized.id)) {
+      noteTombstoneWriteDrop();
+      return [destroyLeg];
+    }
     const mergeBase = options.entityState().read(oldId);
     const memberships = options.captureMembership(oldId);
     // The landing swap carries the successor id on its destroy leg: freshness chains and other

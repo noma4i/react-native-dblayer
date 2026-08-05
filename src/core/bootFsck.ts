@@ -4,7 +4,8 @@ import { isTempRowProtectedByModel } from '../dsl/maintenanceRegistry';
 import { createCommitEnvelope } from './apply/commitEnvelope';
 import { getApplyTarget } from './apply/applyTargetRegistry';
 import { getInternalModelHandleById } from './internalHandles';
-import { putQuarantine, takeQuarantineEntries } from './quarantine';
+import { putQuarantine, readQuarantineEntries, takeQuarantineEntries } from './quarantine';
+import type { QuarantineEntry } from '../types/core.quarantine.types';
 import { planRequestFailureRollback } from './requestRollback';
 import { compositeKey, compositeStorageKey, parseCompositeKey } from './serialize';
 import { isTempId } from '../utils/generateTempId';
@@ -67,7 +68,8 @@ const quarantineOrphanTempRows = (): void => {
     if (orphanIds.length === 0 || !hasApplyTarget(model)) continue;
     for (const id of orphanIds) {
       const raw = storage.get(compositeStorageKey(getStoragePrefix(), 'row', model, id));
-      if (raw !== undefined) putQuarantine({ kind: 'row', model, id, raw, reason: 'orphan-temp-row' });
+      // A missing payload becomes a placeholder: the orphan destroy always carries its ticket.
+      putQuarantine({ kind: 'row', model, id, raw: raw ?? { placeholder: 'missing-row-payload' }, reason: 'orphan-temp-row' });
     }
     getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model, ids: orphanIds, tombstone: false }]));
   }
@@ -75,17 +77,21 @@ const quarantineOrphanTempRows = (): void => {
 
 /** A quarantined row that the current codecs admit again returns to its model and drops its ticket. */
 const restoreReadmittedRows = (): void => {
-  const restored = takeQuarantineEntries(entry => {
+  const readmits = (entry: QuarantineEntry): boolean => {
     if (entry.kind !== 'row' || entry.reason !== 'plan-row-rejected' || !hasApplyTarget(entry.model)) return false;
     try {
       return getApplyTarget(entry.model).prepareUpsert(entry.raw, undefined, undefined, undefined, undefined, undefined) !== null;
     } catch {
       return false;
     }
-  });
+  };
+  const restored = readQuarantineEntries().filter(readmits);
+  if (restored.length === 0) return;
   for (const entry of restored) {
     getApplyRuntime().commit(createCommitEnvelope([{ kind: 'upsert', model: entry.model, rows: [entry.raw] }]));
   }
+  // The restore envelope is durable first; a kill before this removal re-restores idempotently.
+  takeQuarantineEntries(readmits);
 };
 
 /** Run every boot integrity check once, after hydrate and before the first render that reads a model. */

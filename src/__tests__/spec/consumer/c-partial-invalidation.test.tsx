@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { bootDb, configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
+import { bootDb, configureDb, defineModelRuntime, encodePersistence, f, type DbTransport, type QueryPersistenceRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle } from '../helpers/harness';
 
 type MessageRow = {
@@ -189,5 +189,34 @@ describe('partial model invalidation', () => {
     expect(fetches).toEqual({ thread: 2, mediaItems: 1 });
     restartedThreadReader.unmount();
     restartedMediaReader.unmount();
+  });
+
+  it('[F45] treats a matcher throw on a malformed persisted scope as a match: the record is invalidated and reported', async () => {
+    const onSyncError = jest.fn();
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { messages: [{ id: 'message-1', chatId: 'chat-1', mediaBucket: null }] } as TData })
+    });
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport, defaults: { onSyncError } });
+    const messages = createMessageModel();
+    const query = messages.query<MessageResponse, ThreadScope, ThreadScope, MessageRow>('f45-matcher-throw', {
+      document,
+      vars: scope => scope,
+      select: data => data.messages,
+      into: messages.scopes.thread,
+      staleTime: Number.MAX_SAFE_INTEGER
+    });
+    await query.fetch({ chatId: 'chat-1' });
+    const recordKey = storage.snapshotKeys().find(key => key.includes('f45-matcher-throw') && !key.includes('query-invalidation'))!;
+    const record = (JSON.parse(storage.get(recordKey)!) as { payload: QueryPersistenceRecord }).payload;
+    storage.set(recordKey, encodePersistence({ ...record, scope: {} }));
+
+    query.invalidate({ chatId: 'chat-1' });
+
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect((onSyncError.mock.calls[0]![0] as Error).message).toContain('must provide chatId');
+    const invalidationKey = storage.snapshotKeys().find(key => key.includes('query-invalidation') && key.includes('f45-matcher-throw'))!;
+    const identities = (JSON.parse(storage.get(invalidationKey)!) as { payload: { identities: Record<string, number> } }).payload.identities;
+    expect(Object.keys(identities)).toEqual([record.identity]);
   });
 });

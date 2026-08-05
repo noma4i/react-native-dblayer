@@ -248,6 +248,37 @@ describe('persistence fault invariants', () => {
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'delta-tail-cut', model: '__runtime__', count: 2 });
   });
 
+  it('[P40] counts the loss when a decodable delta fails to apply, cutting the tail like a decode failure', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('ReplayApplyCut');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    disk.set('dbl:query:probe', 'cached-query-record');
+    const deltaKeys = disk.keys('dbl:delta:').sort();
+    expect(deltaKeys.length).toBeGreaterThanOrEqual(2);
+    // The delta DECODES fine but cannot APPLY: its model has no apply target in this build.
+    disk.set(deltaKeys[1]!, JSON.stringify({ recordVersion: 1, seq: 1, ops: [{ kind: 'upsert', model: 'SpecFaultUnknownModel', rows: [{ id: 'row-x' }] }] }));
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    await bootDb();
+
+    // A replay-apply failure is the SAME loss as a decode failure: tail cut, query records wiped,
+    // and the identical delta-tail-cut counter names the dropped count.
+    expect(rows.find('row-1')).toMatchObject({ label: 'first' });
+    expect(rows.find('row-2')).toBeUndefined();
+    expect(disk.get('dbl:query:probe')).toBeUndefined();
+    expect(disk.keys('dbl:delta:')).toEqual([deltaKeys[0]!]);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'delta-tail-cut', model: '__runtime__', count: 1 });
+  });
+
   it('[P24] evicts a stale-version delta tail silently as format evolution, not corruption', async () => {
     const storage = createFaultStorage();
     resetRuntime();

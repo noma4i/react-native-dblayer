@@ -1,4 +1,5 @@
 import type { EntityState, ModelContext, ModelRevisionOwner, ModelStore, RelationDecl, ScopeIndex, WriteCtx } from '../types';
+import { noteCausalAdmissionDrop } from '../core/diagnostics';
 import { createModelStore, registerModelStoreFactory } from '../core/store';
 import { createScopeIndex } from '../core/planes/scopeIndex';
 import { getDbRuntimeConfig, getOperationState, getStoragePrefix } from './configure';
@@ -25,26 +26,40 @@ export const createModelContext = <TStored extends { id: string }>(options: {
   const revisions: ModelRevisionOwner<TStored> = {
     admitRow: (incoming, previous, baseRevision) => {
       if (baseRevision === undefined) return incoming;
-      if (changedAfter(existenceEpochs, incoming.id, baseRevision)) return null;
-      if (!previous) return changedAfter(rowEpochs, incoming.id, baseRevision) ? null : incoming;
+      if (changedAfter(existenceEpochs, incoming.id, baseRevision)) {
+        noteCausalAdmissionDrop();
+        return null;
+      }
+      if (!previous) {
+        if (!changedAfter(rowEpochs, incoming.id, baseRevision)) return incoming;
+        noteCausalAdmissionDrop();
+        return null;
+      }
       const epochs = fieldEpochs.get(incoming.id);
       if (!epochs) return incoming;
       const admitted = { ...incoming };
+      let evictedFields = 0;
       for (const field of Object.keys(incoming)) {
         if (field === 'id' || (epochs.get(field) ?? 0) <= baseRevision) continue;
+        evictedFields += 1;
         if (Object.hasOwn(previous, field)) admitted[field as keyof TStored] = previous[field as keyof TStored];
         else delete admitted[field as keyof TStored];
       }
+      if (evictedFields > 0) noteCausalAdmissionDrop();
       return admitted;
     },
     admitPatch: (id, patch, remove, previous, baseRevision) => {
       if (!previous) return null;
       if (baseRevision === undefined) return { patch, remove: [...remove] };
-      if (changedAfter(existenceEpochs, id, baseRevision)) return null;
+      if (changedAfter(existenceEpochs, id, baseRevision)) {
+        noteCausalAdmissionDrop();
+        return null;
+      }
       const epochs = fieldEpochs.get(id);
       if (!epochs) return { patch, remove: [...remove] };
       const admittedPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => (epochs.get(field) ?? 0) <= baseRevision));
       const admittedRemove = remove.filter(field => (epochs.get(field) ?? 0) <= baseRevision);
+      if (Object.keys(admittedPatch).length < Object.keys(patch).length || admittedRemove.length < remove.length) noteCausalAdmissionDrop();
       return Object.keys(admittedPatch).length > 0 || admittedRemove.length > 0 ? { patch: admittedPatch, remove: admittedRemove } : null;
     },
     admitDestroy: (id, baseRevision) =>

@@ -1,4 +1,5 @@
 import { backoffDelayMs } from './fetch/retryPolicy';
+import { noteDataLoss } from './diagnostics';
 import { reportSyncError } from './syncError';
 import { isFetchNetworkOnline, subscribeFetchNetwork } from './fetch/networkState';
 import { getDbLogger } from './logger';
@@ -35,7 +36,6 @@ export const createModelEventLifecycle = <TPayload = unknown>(entries: readonly 
   }));
   const context: SubscriptionLifecycleContext = {
     states,
-    byKey: new Map(states.map(state => [state.entry.key, state])),
     active: false,
     activationEpoch: 0,
     generationFence: createGenerationFence({ lazy: true })
@@ -70,6 +70,7 @@ export const createModelEventLifecycle = <TPayload = unknown>(entries: readonly 
   };
   const handlePayload = (state: SubscriptionEntryState, payload: unknown): void => {
     if (!isNonArrayRecord(payload)) {
+      noteDataLoss('subscription-payload-mismatch', state.entry.key, 1);
       getDbLogger().debug(LOG_PREFIX, 'payload skipped', { key: state.entry.key });
       return;
     }
@@ -109,6 +110,7 @@ export const createModelEventLifecycle = <TPayload = unknown>(entries: readonly 
   const handleTransportNext = (state: SubscriptionEntryState, data: unknown, epoch: number, token: number): void => {
     if (!isCurrentAttempt(state, epoch, token) || !state.unsubscribe) return;
     if (!isNonArrayRecord(data)) {
+      noteDataLoss('subscription-payload-mismatch', state.entry.key, 1);
       getDbLogger().debug(LOG_PREFIX, 'response skipped', { key: state.entry.key });
       return;
     }
@@ -224,14 +226,6 @@ export const createModelEventLifecycle = <TPayload = unknown>(entries: readonly 
       }
     },
     isActive: () => context.active,
-    dispatch(key, payload) {
-      const state = context.byKey.get(key);
-      if (!state) {
-        getDbLogger().debug(LOG_PREFIX, 'dispatch skipped', { key });
-        return;
-      }
-      handlePayload(state, payload);
-    },
     inspect,
     stop() {
       reset();

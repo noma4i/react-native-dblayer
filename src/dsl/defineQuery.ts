@@ -228,13 +228,22 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       invalidationRevision: invalidationRevision ?? persistenceRevisionByBucket.get(identity) ?? readQueryPersistenceRevision(persistenceDeclaration, identity)
     });
   };
-  const pageMetaOf = (connection: ConnectionLike): PageMeta => {
-    const info = connection.pageInfo ?? {};
+  const landingError = (message: string): Error => reportSyncError(new Error(message), { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery');
+  /**
+   * Landing gate for a paged response, judged BEFORE the page commits: a page without applicable
+   * pageInfo, or one claiming a next page without a cursor, cannot move the chain. Refusing it here
+   * keeps the accumulated chain and its memberships intact instead of landing silent exhaustion.
+   */
+  const pageMetaOf = (connection: ConnectionLike | null | undefined): PageMeta => {
+    const info = connection?.pageInfo;
+    if (!isRecord(info)) throw landingError('react-native-dblayer: connection landing has no usable pageInfo');
     const backward = config.direction === 'backward';
-    return {
-      endCursor: config.getCursor ? config.getCursor(connection) : backward ? (info.startCursor ?? null) : (info.endCursor ?? null),
+    const meta = {
+      endCursor: config.getCursor ? config.getCursor(connection!) : backward ? (info.startCursor ?? null) : (info.endCursor ?? null),
       hasNextPage: backward ? (info.hasPreviousPage ?? false) : (info.hasNextPage ?? false)
     };
+    if (meta.hasNextPage && meta.endCursor == null) throw landingError('react-native-dblayer: connection landing claims hasNextPage without a cursor');
+    return meta;
   };
   const applyResponse = (
     scope: TScope,
@@ -246,6 +255,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
   ): { meta: PageMeta; ids: string[]; resultKind: ChainMeta['resultKind'] } => {
     const selected = config.page ? config.page(data) : config.select ? config.select(data) : (data as unknown);
     const nodes = nodesOf(selected, config.page !== undefined);
+    const pageMeta = config.page ? pageMetaOf(selected as ConnectionLike | null | undefined) : { endCursor: null, hasNextPage: false };
     const destinationModel = destinationScope === null ? getInternalModelHandle(config.into) : null;
     const rootOwner = destinationScope
       ? {
@@ -285,8 +295,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const committedRows = nodes;
     const normalizeRowId = destinationScope ? (row: unknown) => destinationScope.normalizeRowId(row) : (row: unknown) => destinationModel!.normalizeRowId(row);
     const ids = committedRows.map(row => compositeKey(destinationModelId, normalizeRowId(row)));
-    const meta = config.page ? pageMetaOf(selected as ConnectionLike) : { endCursor: null, hasNextPage: false };
-    return { meta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
+    return { meta: pageMeta, ids, resultKind: config.page || Array.isArray(selected) ? 'many' : 'one' };
   };
   const execute = async (scope: TScope, key: string, resurrectDestroyed: boolean, context: { cursor: string | null; isCurrent: () => boolean }): Promise<ChainMeta | null> => {
     const cursorVar = config.cursorVar ?? (config.direction === 'backward' ? 'before' : 'after');
@@ -295,7 +304,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       ...(context.cursor != null ? { [cursorVar]: config.mapCursor ? config.mapCursor(context.cursor) : context.cursor } : {})
     };
     const scopeKey = buildScopeKey(scope);
-    const guardKey = isScopeDestination(config.into) ? compositeKey(destinationModelId, getInternalScopeHandle(config.into).key(scope)) : compositeKey(keyName, scopeKey);
+    // The supersession gate carries the declaration identity: 2 declarations landing into one
+    // scope destination race their OWN resets, a reset of one must not swallow the other's landing.
+    const guardKey = isScopeDestination(config.into)
+      ? compositeKey(keyName, destinationModelId, getInternalScopeHandle(config.into).key(scope))
+      : compositeKey(keyName, scopeKey);
     const reset = context.cursor === null;
     const issued = reset ? (issuedResetSeqByBucket.get(guardKey) ?? 0) + 1 : issuedResetSeqByBucket.get(guardKey)!;
     if (reset) issuedResetSeqByBucket.set(guardKey, issued);
@@ -378,15 +391,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
           const cursor = options.nextPage ? chainCursor : null;
           const meta = await execute(scope, key, options.resurrectDestroyed === true, { cursor, isCurrent: generationFence.isCurrent });
           if (meta === null) {
-            return (
-              (client.getQueryData(queryKey) as ChainMeta | undefined) ?? {
-                cursor: null,
-                pages: 0,
-                hasNextPage: false,
-                ids: [],
-                resultKind: 'one'
-              }
-            );
+            const cached = client.getQueryData(queryKey) as ChainMeta | undefined;
+            // A superseded flight owns no result. Without cached meta there is nothing truthful to
+            // return: fabricating a fresh-empty chain would stamp data that never landed. Cancel.
+            if (cached === undefined) throw new CancelledError();
+            return cached;
           }
           return meta;
         },
@@ -452,8 +461,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         const scope = normalizeScope(record.scope as TScope);
         destinationScope?.key(scope);
         return matchesPartialScope(scope, partial);
-      } catch {
-        return false;
+      } catch (error) {
+        // A persisted scope the matcher cannot even read must not dodge its family invalidation:
+        // a throw is a match, and the rejected record is reported.
+        reportSyncError(error, { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery');
+        return true;
       }
     });
     for (const registered of registeredScopes.values()) {
@@ -613,7 +625,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     if (isScopeDestination(config.into)) return config.into.read(scope);
     const destination = config.into as ModelDestination<TStored>;
     const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta | undefined;
-    const rows = (meta?.ids ?? []).map(id => destination.find(parseCompositeKey(id)![1]!)!);
+    // A landed id whose row died since is not a hole in the result: readers get survivors only.
+    const rows = (meta?.ids ?? []).flatMap(id => {
+      const row = destination.find(parseCompositeKey(id)![1]!);
+      return row === undefined ? [] : [row];
+    });
     return meta?.resultKind === 'many' ? rows : rows[0];
   };
   const useDestinationRows: (scope: TScope | null, state: RequestState) => TStored[] | TStored | undefined = isScopeDestination(config.into)

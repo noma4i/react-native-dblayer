@@ -178,8 +178,8 @@ describe('query runtime edges', () => {
     expect(replacementTransport.calls).toHaveLength(0);
   });
 
-  it('reads null and populated scope destinations when a page omits connection metadata', async () => {
-    let response: { connection: { nodes: Row[] } | null } = { connection: null };
+  it('refuses a page without connection metadata and reads null and populated scope destinations', async () => {
+    let response: { connection: { nodes: Row[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } } | null } = { connection: null };
     const transport = createMockTransport({
       query: async <TData,>() => ({ data: response as TData })
     });
@@ -193,7 +193,7 @@ describe('query runtime edges', () => {
       coverage: 'page'
     });
 
-    await query.fetch({ bucket: 'main' });
+    await expect(query.fetch({ bucket: 'main' })).rejects.toThrow('no usable pageInfo');
     expect(query.read(null)).toEqual([]);
     expect(query.read({ bucket: 'main' })).toEqual([]);
 
@@ -203,6 +203,18 @@ describe('query runtime edges', () => {
           { id: 'row-1', bucket: 'main', label: 'first' },
           { id: 'row-2', bucket: 'main', label: 'second' }
         ]
+      }
+    };
+    await expect(query.fetch({ bucket: 'main' })).rejects.toThrow('no usable pageInfo');
+    expect(query.read({ bucket: 'main' })).toEqual([]);
+
+    response = {
+      connection: {
+        nodes: [
+          { id: 'row-1', bucket: 'main', label: 'first' },
+          { id: 'row-2', bucket: 'main', label: 'second' }
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null }
       }
     };
     await query.fetch({ bucket: 'main' });
@@ -278,7 +290,7 @@ describe('query runtime edges', () => {
     await expect(query.fetch({})).rejects.toThrow('defineQuery select/page must return rows, a row, or a connection');
   });
 
-  it('derives backward page metadata from edges and defaults missing metadata to exhaustion', async () => {
+  it('derives backward page metadata from edges and keeps the chain when metadata goes missing', async () => {
     let response: { page: { edges?: Array<{ node: Row }>; pageInfo?: Record<string, never> } } = {
       page: {
         edges: [{ node: { id: 'edge-row', bucket: 'main', label: 'edge' } }],

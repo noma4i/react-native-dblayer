@@ -121,6 +121,62 @@ describe('model store', () => {
     ).toEqual(['b:c']);
   });
 
+  it('[W42] flushes deltas of a later transaction after an earlier transaction failed', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-1' });
+    store.upsert({ id: 'row-2' });
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);
+    store.markReady();
+    const scope = store.scopeCollection('scope-1');
+    const batches: unknown[][] = [];
+    const unsubscribe = scope.subscribe(changes => batches.push([...changes]));
+
+    expect(() =>
+      runInStoreTransaction(() => {
+        store.applyScopeChanges([{ scopeKey: 'scope-1', upserts: [{ id: 'row-2', orderKey: 'zz' }] }]);
+        throw new Error('transaction failed');
+      })
+    ).toThrow('transaction failed');
+
+    runInStoreTransaction(() => {
+      store.applyScopeChanges([{ scopeKey: 'scope-1', detachIds: ['row-2'] }]);
+    });
+
+    expect(batches.length).toBeGreaterThanOrEqual(1);
+    expect(batches.flat().map(change => (change as { type: string }).type)).toContain('delete');
+    unsubscribe();
+  });
+
+  it('[W43] skips membership entries with no entity row, counts the misses, and does not throw', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-1' });
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1', 'ghost-1', 'ghost-2']) }]);
+    store.markReady();
+    diagnostics().reset();
+
+    expect(
+      store
+        .scopeCollection('scope-1')
+        .toArray()
+        .map(row => row.id)
+    ).toEqual(['row-1']);
+    expect(diagnostics().snapshot().membershipMissingEntity).toBe(2);
+  });
+
+  it('[W43] counts join misses on the live scope collection read', () => {
+    const store = buildStore();
+    store.upsert({ id: 'row-1' });
+    store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1', 'ghost-1']) }]);
+    store.markReady();
+    const scope = store.scopeCollection('scope-1');
+    const unsubscribe = scope.subscribe(() => undefined);
+    diagnostics().reset();
+
+    expect(scope.toArray().map(row => row.id)).toEqual(['row-1']);
+    expect(diagnostics().snapshot().membershipMissingEntity).toBe(1);
+    unsubscribe();
+  });
+
   it('keeps persisted row identities distinct across model and row segments', () => {
     const storage = createMemoryPlane();
     const create = (modelId: string) =>

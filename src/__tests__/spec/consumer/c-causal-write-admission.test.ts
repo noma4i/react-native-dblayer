@@ -12,7 +12,7 @@ import {
   type DbTransport,
   useDbSubscriptions
 } from '../../testApi';
-import { createMemoryPlane, createMockTransport, renderCounted, settle } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, renderCounted, settle } from '../helpers/harness';
 
 type ObjectValue = Record<string, string | number>;
 type Row = {
@@ -347,6 +347,26 @@ describe('causal write admission', () => {
     );
 
     fixture.assertOutcome(expected, 2);
+    fixture.unmount();
+  });
+
+  it('[W41] counts one causal admission drop per stale response row, not per evicted field', async () => {
+    const fixture = createFieldFixture('AdmissionDropCounter');
+    const { pending: slow } = await fixture.start('slow');
+    const expected = { ...initialRow(), protectedValue: 'post-base', auxiliaryValue: 'post-base-auxiliary' };
+
+    act(() => {
+      fixture.rows.update('row-1', { protectedValue: 'post-base', auxiliaryValue: 'post-base-auxiliary' });
+    });
+    diagnostics().reset();
+    await fixture.resolve(
+      'slow',
+      { ...initialRow(), protectedValue: 'slow-protected', auxiliaryValue: 'slow-auxiliary' },
+      slow
+    );
+
+    expect(fixture.rows.find('row-1')).toEqual(expected);
+    expect(diagnostics().snapshot().causalAdmissionDrops).toBe(1);
     fixture.unmount();
   });
 

@@ -20,6 +20,9 @@ export const createModelNormalization = <
 >(
   config: ModelConfig<TFields, TScopeNames, TExt, any>
 ): ModelNormalization<InferStoredFields<TFields> & Record<string, unknown>> => {
+  for (const field of Object.keys(config.fields)) {
+    if (field === 'orderKey' || field.startsWith('$')) throw new Error(`${config.name} field ${field} is reserved by the store plane`);
+  }
   const applyWriteGate = (() => {
     const groups = config.write?.groups;
     if (config.write && (!groups || groups.length === 0)) throw new Error(`${config.name} write groups must not be empty`);

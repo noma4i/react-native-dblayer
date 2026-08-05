@@ -173,12 +173,12 @@
     {
       "key": "src/core/apply/commitEnvelope.ts|if (!previous) continue;|1",
       "file": "src/core/apply/commitEnvelope.ts",
-      "line": 81,
-      "drops": "counter cache delta (relation-derived +1/-1 increment)",
-      "condition": "counter op targets a parent row not resident in cache/overlay (child event lands before parent materializes, or parent destroyed earlier in same plan)",
-      "verdict": "HOLE",
-      "ref": "counter increment vanishes when the parent row is non-resident; specs 07/03 never state missing-parent counter behavior and no counter/report fires",
-      "note": "producers relations.ts:294/338/340; nearest rule (07: destroy of an id absent from the collection is a no-op) covers cascade authority, not counter deltas"
+      "line": 106,
+      "drops": "destroy intent for a non-resident row (including its would-be tombstone)",
+      "condition": "destroy id has no row in cache/overlay",
+      "verdict": "CONTRACT",
+      "ref": "03-write.md :: missing-row rule (translated: 'a patch or destroy for a missing row does not create the row and does not retain the intent'); also 07-relations.md (translated: 'destroy of an id absent from the collection is a no-op')",
+      "note": "skipped tombstone means a later stale snapshot could re-materialize the id - consequence of the declared no-op"
     },
     {
       "key": "src/core/apply/commitEnvelope.ts|if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;|3",
@@ -193,12 +193,12 @@
     {
       "key": "src/core/apply/commitEnvelope.ts|continue;|3",
       "file": "src/core/apply/commitEnvelope.ts",
-      "line": 90,
-      "drops": "nothing",
-      "condition": "end of counter branch",
-      "verdict": "NONDROP",
-      "ref": "unconditional branch terminator after successful push",
-      "note": "control flow only"
+      "line": 84,
+      "drops": "counter cache delta aimed at a non-resident parent",
+      "condition": "counter op targets a parent row not resident in cache/overlay",
+      "verdict": "COUNTED",
+      "ref": "noteCounterOpDrop @ commitEnvelope.ts:83",
+      "note": "07-relations.md :: RE40 'Counter op requires a resident parent and a numeric base; skipped ops increment counterOpDrops; fabricating base 0 is forbidden' (translated)"
     },
     {
       "key": "src/core/apply/commitEnvelope.ts|operationTransitions.push(...(op.operationTransitions ?? []));|1",
@@ -221,16 +221,6 @@
       "note": "causal admission drops the stale destroy to protect newer committed state; verified against modelContext.ts:50-51"
     },
     {
-      "key": "src/core/apply/commitEnvelope.ts|if (!previous) continue;|2",
-      "file": "src/core/apply/commitEnvelope.ts",
-      "line": 99,
-      "drops": "destroy intent for a non-resident row (including its would-be tombstone)",
-      "condition": "destroy id has no row in cache/overlay",
-      "verdict": "CONTRACT",
-      "ref": "03-write.md :: missing-row rule (translated: 'a patch or destroy for a missing row does not create the row and does not retain the intent'); also 07-relations.md (translated: 'destroy of an id absent from the collection is a no-op')",
-      "note": "skipped tombstone means a later stale snapshot could re-materialize the id - consequence of the declared no-op"
-    },
-    {
       "key": "src/core/apply/commitEnvelope.ts|if (existingDestroyIds.length === 0) continue;|1",
       "file": "src/core/apply/commitEnvelope.ts",
       "line": 104,
@@ -243,12 +233,22 @@
     {
       "key": "src/core/apply/commitEnvelope.ts|continue;|4",
       "file": "src/core/apply/commitEnvelope.ts",
-      "line": 113,
-      "drops": "nothing",
-      "condition": "end of destroy branch",
+      "line": 89,
+      "drops": "counter cache delta over a non-numeric or non-finite base",
+      "condition": "parent counter field is missing, null, a string, NaN or Infinity",
+      "verdict": "COUNTED",
+      "ref": "noteCounterOpDrop @ commitEnvelope.ts:88",
+      "note": "07-relations.md :: RE40 'Counter op requires a resident parent and a numeric base; skipped ops increment counterOpDrops; fabricating base 0 is forbidden' (translated); base 0 is never fabricated"
+    },
+    {
+      "key": "src/core/apply/commitEnvelope.ts|if (typeof value !== 'number' || !Number.isFinite(value)) {|1",
+      "file": "src/core/apply/commitEnvelope.ts",
+      "line": 87,
+      "drops": "nothing at this line",
+      "condition": "guard condition for the non-numeric counter base skip",
       "verdict": "NONDROP",
-      "ref": "unconditional branch terminator after successful push",
-      "note": "control flow only"
+      "ref": "the skip itself is adjudicated and counted at the continue below (noteCounterOpDrop @ commitEnvelope.ts:88)",
+      "note": "decision guard; see continue;|4 entry"
     },
     {
       "key": "src/core/apply/commitEnvelope.ts|preparedOps.push({ ...op, next: { ...op.next, entries: op.next.entries.filter(entryBelongs(op.scopeKey)) } });|1",
@@ -263,9 +263,9 @@
     {
       "key": "src/core/apply/commitEnvelope.ts|continue;|5",
       "file": "src/core/apply/commitEnvelope.ts",
-      "line": 124,
+      "line": 97,
       "drops": "nothing",
-      "condition": "end of scope branch",
+      "condition": "end of counter branch",
       "verdict": "NONDROP",
       "ref": "unconditional branch terminator after successful push",
       "note": "control flow only"
@@ -293,12 +293,112 @@
     {
       "key": "src/core/apply/commitEnvelope.ts|continue;|6",
       "file": "src/core/apply/commitEnvelope.ts",
-      "line": 140,
+      "line": 120,
+      "drops": "nothing",
+      "condition": "end of destroy branch",
+      "verdict": "NONDROP",
+      "ref": "unconditional branch terminator after successful push",
+      "note": "control flow only"
+    },
+    {
+      "key": "src/core/apply/commitEnvelope.ts|continue;|7",
+      "file": "src/core/apply/commitEnvelope.ts",
+      "line": 131,
+      "drops": "nothing",
+      "condition": "end of scope branch",
+      "verdict": "NONDROP",
+      "ref": "unconditional branch terminator after successful push",
+      "note": "control flow only"
+    },
+    {
+      "key": "src/core/apply/commitEnvelope.ts|continue;|8",
+      "file": "src/core/apply/commitEnvelope.ts",
+      "line": 147,
       "drops": "nothing",
       "condition": "end of scope-delta branch",
       "verdict": "NONDROP",
       "ref": "unconditional branch terminator after successful push",
       "note": "control flow only"
+    },
+    {
+      "key": "src/core/relations.ts|return;|1",
+      "file": "src/core/relations.ts",
+      "line": 257,
+      "drops": "the entire derived parent update (touch patch fields) for this plan",
+      "condition": "belongsTo touch fires but the parent row is not resident in the plan snapshot",
+      "verdict": "COUNTED",
+      "ref": "noteNonResidentTouchDrop @ relations.ts:256",
+      "note": "07-relations.md :: RE41 'touch on a non-resident parent is skipped and counted by nonResidentTouchDrops' (translated)"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|return null;|1",
+      "file": "src/dsl/modelContext.ts",
+      "line": 31,
+      "drops": "whole async landing row (admitRow) whose identity was destroyed/recreated after the landing's baseRevision",
+      "condition": "existence epoch of the id is newer than the landing's baseRevision",
+      "verdict": "COUNTED",
+      "ref": "noteCausalAdmissionDrop @ modelContext.ts:30",
+      "note": "03-write.md :: 'a row or field evicted by the causal gate is counted by causalAdmissionDrops' (translated)"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|return null;|2",
+      "file": "src/dsl/modelContext.ts",
+      "line": 36,
+      "drops": "whole async landing row (admitRow) for a currently-absent id whose row epoch moved past the landing's baseRevision",
+      "condition": "no previous row and the row epoch is newer than baseRevision",
+      "verdict": "COUNTED",
+      "ref": "noteCausalAdmissionDrop @ modelContext.ts:35",
+      "note": "03-write.md :: 'a row or field evicted by the causal gate is counted by causalAdmissionDrops' (translated)"
+    },
+    {
+      "key": "src/dsl/modelContext.ts|return null;|3",
+      "file": "src/dsl/modelContext.ts",
+      "line": 56,
+      "drops": "whole async patch (admitPatch) whose target identity was destroyed/recreated after the patch's baseRevision",
+      "condition": "existence epoch of the id is newer than the patch's baseRevision",
+      "verdict": "COUNTED",
+      "ref": "noteCausalAdmissionDrop @ modelContext.ts:55",
+      "note": "03-write.md :: 'a row or field evicted by the causal gate is counted by causalAdmissionDrops' (translated)"
+    },
+    {
+      "key": "src/dsl/modelScopeHandle.ts|entries.filter(entry => {|1",
+      "file": "src/dsl/modelScopeHandle.ts",
+      "line": 35,
+      "drops": "every scope-landing or seed row whose id is tombstoned (row + membership excluded from the plan)",
+      "condition": "the id was destroyed locally within the tombstone TTL (~24h)",
+      "verdict": "COUNTED",
+      "ref": "noteTombstoneWriteDrop @ modelScopeHandle.ts:38 (shared dropTombstonedRows filter used by planApply and seed)",
+      "note": "03-write.md :: W40 tombstone-gated landings are counted on all 3 seams (translated); identity gate itself remains 02-identity 'deleted does not resurrect'"
+    },
+    {
+      "key": "src/dsl/modelScopeHandle.ts|rows.filter(({ row }) => options.admitPlanRow(row) !== undefined),|1",
+      "file": "src/dsl/modelScopeHandle.ts",
+      "line": 121,
+      "drops": "admission-rejected landing rows (row + membership excluded from the plan)",
+      "condition": "normalize throws for a landing row",
+      "verdict": "COUNTED",
+      "ref": "noteQuarantinePut via putQuarantine('plan-row-rejected') @ src/dsl/modelNormalization.ts:60 -> src/core/quarantine.ts:59",
+      "note": "Same quarantine seam as all landings; raw payload preserved."
+    },
+    {
+      "key": "src/dsl/modelScopeHandle.ts|rows.filter(row => options.admitPlanRow(row) !== undefined),|1",
+      "file": "src/dsl/modelScopeHandle.ts",
+      "line": 220,
+      "drops": "seed rows rejected by admission",
+      "condition": "normalize throws for a seed row",
+      "verdict": "COUNTED",
+      "ref": "noteQuarantinePut via putQuarantine('plan-row-rejected') @ src/dsl/modelNormalization.ts:60 -> src/core/quarantine.ts:59",
+      "note": "Same quarantine seam as landings; raw seed payload preserved."
+    },
+    {
+      "key": "src/dsl/modelWrites.ts|return null;|1",
+      "file": "src/dsl/modelWrites.ts",
+      "line": 30,
+      "drops": "whole snapshot-origin row (snapshot/query re-landing of a tombstoned id)",
+      "condition": "origin undefined (snapshot mode) and id tombstoned - lasts the full tombstone TTL (~24h)",
+      "verdict": "COUNTED",
+      "ref": "noteTombstoneWriteDrop @ modelWrites.ts:29",
+      "note": "03-write.md :: W40 tombstone-gated landings are counted on all 3 seams (translated); deletion stays intentional (no dataLossEvents per spec 03), the counter restores observability across the TTL"
     },
     {
       "key": "src/core/apply/commitEnvelope.ts|if (op.kind !== 'scope-delta') continue;|1",
@@ -553,7 +653,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (!isDbConfigured() || reconcilers.size === 0) return;|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 23,
+      "line": 111,
       "drops": "nothing",
       "condition": "runtime unconfigured or zero registered chains",
       "verdict": "NONDROP",
@@ -563,7 +663,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (row.kind !== 'destroy') continue;|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 37,
+      "line": 125,
       "drops": "nothing",
       "condition": "batch row is upsert/patch, not destroy",
       "verdict": "NONDROP",
@@ -573,7 +673,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (row.replacedBy === undefined) continue;|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 39,
+      "line": 127,
       "drops": "nothing",
       "condition": "destroy leg names no successor",
       "verdict": "NONDROP",
@@ -583,7 +683,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (touched.size === 0) return;|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 44,
+      "line": 132,
       "drops": "nothing",
       "condition": "batch touched no scopes and destroyed no rows",
       "verdict": "NONDROP",
@@ -593,7 +693,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (!keys) continue;|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 49,
+      "line": 137,
       "drops": "nothing",
       "condition": "reconciler's model untouched by this batch",
       "verdict": "NONDROP",
@@ -603,7 +703,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (chain.scopeKey !== null && !keys.has(chain.scopeKey)) continue;|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 53,
+      "line": 141,
       "drops": "nothing",
       "condition": "scoped chain whose scope this batch did not touch",
       "verdict": "NONDROP",
@@ -611,29 +711,9 @@
       "note": "Model-destination chains (scopeKey null) intentionally pass on any model touch."
     },
     {
-      "key": "src/core/fetch/fetchReaderRegistry.ts|if (state === undefined || state.fetchStatus === 'fetching') continue;|1",
-      "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 56,
-      "drops": "the materialization-loss judgment for one chain: chain keeps ids of destroyed rows / lost memberships with its original freshness stamp",
-      "condition": "loss batch lands while the chain's fetchStatus is 'fetching' and that in-flight fetch then FAILS - the skipped judgment is never re-run",
-      "verdict": "HOLE",
-      "ref": "loss signal for an in-flight chain vanishes when the concurrent fetch fails; no re-judgment, no counter; spec 08 only re-applies invalidation ON LANDING ('landing restores the invalidated mark', translated) - a failed fetch never lands",
-      "note": "The 'judge it once that write lands' comment assumes success; failure leaves phantom ids fresh."
-    },
-    {
-      "key": "src/core/fetch/fetchReaderRegistry.ts|if (!meta?.ids || meta.ids.length === 0) continue;|1",
-      "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 58,
-      "drops": "nothing",
-      "condition": "chain has no cached ids",
-      "verdict": "NONDROP",
-      "ref": "an empty or dataless chain has nothing to prune",
-      "note": "Read of query cache meta only."
-    },
-    {
       "key": "src/core/fetch/fetchReaderRegistry.ts|const remaining = candidates.filter(id => materialized.has(id));|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 67,
+      "line": 96,
       "drops": "chain ids (query-chain record content) referencing rows no longer materialized",
       "condition": "commit destroyed rows or detached memberships the query had landed, while other ids survive",
       "verdict": "HOLE",
@@ -641,29 +721,9 @@
       "note": "Verified: fetchReaderRegistry imports nothing from diagnostics.ts."
     },
     {
-      "key": "src/core/fetch/fetchReaderRegistry.ts|if (remaining.length === meta.ids.length && remaining.every((id, index) => id === meta.ids![index])) continue;|1",
-      "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 68,
-      "drops": "nothing",
-      "condition": "survivor set identical to stored chain",
-      "verdict": "NONDROP",
-      "ref": "no-change guard; chain untouched",
-      "note": "Includes the identity-swap rewrite case where ids map 1:1."
-    },
-    {
-      "key": "src/core/fetch/fetchReaderRegistry.ts|if (remaining.length > 0) continue;|1",
-      "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 72,
-      "drops": "the staleness marking owed to a partially-shrunk chain: query stays fresh over a silently reduced result",
-      "condition": "at least one chain id survives the loss (remaining.length > 0)",
-      "verdict": "HOLE",
-      "ref": "spec 08 rule says loss of landed rows AND scope membership 'marks its readers stale' (translated), but only the emptied-chain branch (:73) invalidates; partial loss gets no invalidate, no refetch, no counter",
-      "note": "Pairs with :67; F16 detach-refetch criterion is only honored for the empty-chain case."
-    },
-    {
       "key": "src/core/fetch/fetchReaderRegistry.ts|if (serializedKeyOf(reader.queryKey) === target) void reader.refetch().catch(() => {});|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 97,
+      "line": 165,
       "drops": "nothing",
       "condition": "loss-driven follow-up refetch of an emptied chain rejects",
       "verdict": "NONDROP",
@@ -673,7 +733,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|const refetches = [...readers].filter(reader => reader.markResumeStale());|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 103,
+      "line": 171,
       "drops": "nothing",
       "condition": "reader still inside its resume window or window null",
       "verdict": "NONDROP",
@@ -683,7 +743,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|await Promise.all(chunk.map(reader => Promise.resolve().then(reader.refetch).catch(() => {})));|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 109,
+      "line": 177,
       "drops": "nothing",
       "condition": "resume refetch of a lapsed reader rejects",
       "verdict": "NONDROP",
@@ -761,16 +821,6 @@
       "note": "New instructions always carry a new signature by the documented caller contract."
     },
     {
-      "key": "src/core/planes/operationState.ts|const committedKeys = versioned && Array.isArray(value.committedKeys) ? value.committedKeys.filter(isNonEmptyString) : [];|1",
-      "file": "src/core/planes/operationState.ts",
-      "line": 97,
-      "drops": "committed once-keys (ledger safety records that stop destructive calls from re-running)",
-      "condition": "versioned envelope whose committedKeys field is missing/non-array (all keys defaulted to []) or contains non-string entries (silently filtered)",
-      "verdict": "HOLE",
-      "ref": "once keys vanish with no quarantine ticket and no counter when committedKeys is malformed; spec 04 requires a durable user record failing decode to go to quarantine, and spec 06 requires the committed-once mark to survive process restart",
-      "note": "salvageLedgerValue quarantines invalid operation RECORDS only; committedKeys corruption is invisible. Legacy v1 (unversioned) is fine - its once keys live in the separate ops-once key."
-    },
-    {
       "key": "src/core/planes/operationState.ts|if (entry === undefined) continue;|1",
       "file": "src/core/planes/operationState.ts",
       "line": 163,
@@ -799,16 +849,6 @@
       "verdict": "NONDROP",
       "ref": "entriesFor returns [] only when there is neither anything to write nor a stored key to delete",
       "note": "Avoids a redundant storage delete."
-    },
-    {
-      "key": "src/core/planes/operationState.ts|if (!operation || operation.status !== 'pending') return;|1",
-      "file": "src/core/planes/operationState.ts",
-      "line": 305,
-      "drops": "a terminal ledger transition (committed/failed/rolledback/delivery_unknown ack) aimed at an operation absent from the ledger or already non-pending",
-      "condition": "close() called with an unknown operationId (record pruned by TTL, quarantined at salvage, or removed) or an already-closed operation",
-      "verdict": "HOLE",
-      "ref": "the ack is silently ignored with no counter; a committed 'once' outcome never records its idempotency key when the record was quarantined or pruned; spec 06 idempotency section (client storage is the sole idempotency carrier; repeated payload with same server id is idempotent) has no rule covering a no-op close on an unknown id",
-      "note": "Same class as applyTransition's unknown-id no-op at :275; the :447 comment shows no-op transitions are anticipated but nowhere written as a rule or counted."
     },
     {
       "key": "src/core/planes/operationState.ts|pending: () => [...operations.values()].filter(operation => operation.status === 'pending'),|1",
@@ -1101,16 +1141,6 @@
       "note": "Write-set computation."
     },
     {
-      "key": "src/core/planes/scopeIndex.ts|if (!raw) continue;|1",
-      "file": "src/core/planes/scopeIndex.ts",
-      "line": 350,
-      "drops": "all memberships of one persisted scope: the scope value is skipped at hydrate and never enters the index",
-      "condition": "storage.keys() lists the scope key but storage.get() returns undefined or EMPTY STRING (!raw is falsy-wide)",
-      "verdict": "HOLE",
-      "ref": "scope entries vanish with no noteDataLoss and the key is NOT deleted, unlike the sibling corrupt branch at :359-362 which removes the key and counts 'corrupt-scope'; spec 04 requires a localizable corrupt cache key to be removed WITH the loss recorded via noteDataLoss",
-      "note": "An empty-string value is corruption by any codec, yet this branch is silent and leaves the corpse on disk."
-    },
-    {
       "key": "src/core/planes/storagePlane.ts|.filter(key => key.startsWith(prefix))|1",
       "file": "src/core/planes/storagePlane.ts",
       "line": 24,
@@ -1163,12 +1193,12 @@
     {
       "key": "src/core/queryPersistence.ts|return undefined;|3",
       "file": "src/core/queryPersistence.ts",
-      "line": 105,
-      "drops": "one persisted query record removed SILENTLY (removeKeys at :104, no report, no counter)",
-      "condition": "record.family, record.identity, persistenceVersion or fingerprint mismatches the declaration or storage key",
-      "verdict": "HOLE",
-      "ref": "non-restore is sanctioned (spec 04 P14: 'a record with another version or fingerprint is not restored', translated) but spec 04 also mandates that an incompatible query record removal is RECORDED IN DIAGNOSTICS - this path fires no report and no counter; the identity-mismatch leg is P10 corruption-class and equally silent",
-      "note": "Contrast with :91-94 where the corrupt leg reports; the incompatible leg drops the record invisibly."
+      "line": 103,
+      "drops": "one persisted query record whose payload identity disagrees with its storage key (removed at :102)",
+      "condition": "record.identity !== requested identity under the key built from it",
+      "verdict": "CONTRACT",
+      "ref": "specs/04-persistence.md :: 'identity mismatch with the storage key is corruption-class: the record is removed with reportRejectedRecord' (translated); reported via reportRejectedRecord at :104, [P46] in i-query-persistence",
+      "note": "corruption class (P10): reported, never a silent declaration-drift removal"
     },
     {
       "key": "src/core/queryPersistence.ts|} catch (error) {|1",
@@ -1183,12 +1213,12 @@
     {
       "key": "src/core/queryPersistence.ts|return undefined;|4",
       "file": "src/core/queryPersistence.ts",
-      "line": 113,
-      "drops": "same event as :110 - the validate-rejected record (already removed and reported)",
-      "condition": "validate(record) threw",
-      "verdict": "CONTRACT",
-      "ref": "specs/04-persistence.md :: same rule as :110 - invalid query record removed separately and recorded in diagnostics",
-      "note": "Terminator of the catch at :110."
+      "line": 108,
+      "drops": "one persisted query record incompatible with the declaration (family, persistenceVersion or fingerprint mismatch; removed at :106)",
+      "condition": "declaration drift between sessions",
+      "verdict": "COUNTED",
+      "ref": "noteDataLoss('query-record-fingerprint-reset') fires per removal at :107; specs/04-persistence.md :: 'query record removal by fingerprint, family or persistenceVersion mismatch is recorded by the query-record-fingerprint-reset event' (translated), [P46]",
+      "note": "reader refetches on next mount; rows and scopes untouched"
     },
     {
       "key": "src/core/queryPersistence.ts|if (raw === undefined) continue;|1",
@@ -1203,12 +1233,12 @@
     {
       "key": "src/core/queryPersistence.ts|continue;|1",
       "file": "src/core/queryPersistence.ts",
-      "line": 137,
-      "drops": "persisted query records removed during the family scan; the identity-key/version/fingerprint-mismatch legs are removed SILENTLY",
-      "condition": "decode failure (corrupt reported / stale-version silent - both covered) OR family mismatch / key-vs-identity mismatch / persistenceVersion / fingerprint mismatch (silent, no report, no counter)",
-      "verdict": "HOLE",
-      "ref": "same gap as :105 - spec 04 mandates diagnostics fixation for incompatible query-record removal, but only the corrupt leg reports; the incompatible and key-mismatch (P10) legs vanish invisibly",
-      "note": "One line terminates 5 removal reasons; 3 of them are unreported."
+      "line": 135,
+      "drops": "one family record failing the versioned decoder (removed at :131)",
+      "condition": "corrupt envelope/shape on matching version (reported at :133) or stale recordVersion (silent removal)",
+      "verdict": "CONTRACT",
+      "ref": "specs/04-persistence.md :: 'corrupt, incompatible or invalid relation query record is removed separately and recorded in diagnostics' + P24 'version mismatch is a stale-drop, not corruption - silent removal for a cache record' (translated)",
+      "note": "the mismatch legs of the former bundled condition moved to their own counted/reported branches below"
     },
     {
       "key": "src/core/queryPersistence.ts|const records = readPersistedQueryFamily(declaration).filter(accepts);|1",
@@ -1481,16 +1511,6 @@
       "note": "reclassified from CONTRACT in round 2"
     },
     {
-      "key": "src/core/relations.ts|if (!parent) return;|1",
-      "file": "src/core/relations.ts",
-      "line": 255,
-      "drops": "the entire derived parent update (touch patch fields, e.g. denormalized last-child refs) for this plan",
-      "condition": "belongsTo touch fires but the parent row is not resident in the plan snapshot (reader.read returns undefined)",
-      "verdict": "HOLE",
-      "ref": "no spec rule covers touch on a non-resident parent (spec 07 residency rule covers cascade authority only); no diagnostics counter, no log",
-      "note": "Confirmed prior finding; a parent landing later never replays the missed touch."
-    },
-    {
       "key": "src/core/relations.ts|if (relation.kind !== 'belongsTo') continue;|1",
       "file": "src/core/relations.ts",
       "line": 286,
@@ -1673,12 +1693,12 @@
     {
       "key": "src/core/storeSync.ts|} catch (error) {|1",
       "file": "src/core/storeSync.ts",
-      "line": 69,
-      "drops": "queued completion callbacks of the failed transaction (deferred subscriber ticks / batched scope-change deliveries)",
-      "condition": "the outer runInStoreTransaction body throws",
+      "line": 127,
+      "drops": "buffered store writes (row buffers, scope overlay) of every participant in the failed apply batch",
+      "condition": "runInApplyBatch body throws; finally aborts all pending batch flushes",
       "verdict": "CONTRACT",
-      "ref": "specs/00-principles.md I20 :: 'affected gets one tick; unrelated gets zero; failure, stale and no-op get zero' (translated)",
-      "note": "Error rethrown; side effect: batcher 'scheduled' flag stays latched - see HOLE at storeSync.ts:104."
+      "ref": "specs/03-write.md :: 'A failure discards all row buffers, dirty/tombstone markers and the scope overlay' (translated)",
+      "note": "Error rethrown; terminal double failure is counted by diagnostics.applyFailure inside the apply plan. runInStoreTransaction no longer drops completions on failure: they drain in finally so the batcher latch cannot stick (W42)."
     },
     {
       "key": "src/core/storeSync.ts|return;|1",
@@ -1721,16 +1741,6 @@
       "note": "Latch persists until dispose; healthy path is pure coalescing (NONDROP), the hole is the post-failure residue."
     },
     {
-      "key": "src/core/storeSync.ts|} catch (error) {|2",
-      "file": "src/core/storeSync.ts",
-      "line": 130,
-      "drops": "buffered store writes (row buffers, scope overlay) of every participant in the failed apply batch",
-      "condition": "runInApplyBatch body throws; finally aborts all pending batch flushes",
-      "verdict": "CONTRACT",
-      "ref": "specs/03-write.md :: 'A failure discards all row buffers, dirty/tombstone markers and the scope overlay' (translated)",
-      "note": "Error rethrown; terminal double failure is counted by diagnostics.applyFailure inside the apply plan."
-    },
-    {
       "key": "src/core/subscriptionLifecycle.ts|if (!isCurrentGeneration()) return;|1",
       "file": "src/core/subscriptionLifecycle.ts",
       "line": 67,
@@ -1743,12 +1753,12 @@
     {
       "key": "src/core/subscriptionLifecycle.ts|return;|1",
       "file": "src/core/subscriptionLifecycle.ts",
-      "line": 74,
+      "line": 77,
       "drops": "the entire subscription event payload",
       "condition": "payload is not a non-array record - null/undefined/scalar/array, including alias/payloadKey mismatch where data[payloadKey] resolved to undefined upstream",
-      "verdict": "HOLE",
-      "ref": "only getDbLogger().debug('payload skipped') - debug log, no counter, no spec rule for malformed live payloads",
-      "note": "Confirmed prior finding; a persistent shape mismatch silently kills every event of the entry."
+      "verdict": "COUNTED",
+      "ref": "noteDataLoss('subscription-payload-mismatch') @ subscriptionLifecycle.ts:75 (+ debug log)",
+      "note": "09-dsl-surface.md :: S23 'a payload that is not a non-array record is recorded as subscription-payload-mismatch' (translated)"
     },
     {
       "key": "src/core/subscriptionLifecycle.ts|return;|2",
@@ -1783,12 +1793,12 @@
     {
       "key": "src/core/subscriptionLifecycle.ts|return;|3",
       "file": "src/core/subscriptionLifecycle.ts",
-      "line": 113,
+      "line": 115,
       "drops": "the entire transport response envelope for one event",
       "condition": "transport next() data is not a non-array record, so data[payloadKey] can never be extracted",
-      "verdict": "HOLE",
-      "ref": "only getDbLogger().debug('response skipped') - debug log, no counter, no spec rule",
-      "note": "Confirmed prior finding; same class as line 74."
+      "verdict": "COUNTED",
+      "ref": "noteDataLoss('subscription-payload-mismatch') @ subscriptionLifecycle.ts:114 (+ debug log)",
+      "note": "09-dsl-surface.md :: S23; same class as the payload leg at line 77"
     },
     {
       "key": "src/core/subscriptionLifecycle.ts|if (!context.active || !isCurrentGeneration() || state.unsubscribe) return;|1",
@@ -1899,16 +1909,6 @@
       "verdict": "NONDROP",
       "ref": "full deactivation then rethrow; no buffered payloads exist at activation time",
       "note": "Exotic sync-delivery-then-throw edge would fall into the line-210 class."
-    },
-    {
-      "key": "src/core/subscriptionLifecycle.ts|return;|7",
-      "file": "src/core/subscriptionLifecycle.ts",
-      "line": 231,
-      "drops": "a dispatched subscription payload addressed to an unknown entry key",
-      "condition": "lifecycle.dispatch(key, payload) called with a key not in context.byKey",
-      "verdict": "HOLE",
-      "ref": "only getDbLogger().debug('dispatch skipped') - debug log, no counter, no spec rule",
-      "note": "Dead in production today (modelEventRegistry never calls dispatch; no other consumer of createModelEventLifecycle), but the surface is live on the returned object."
     },
     {
       "key": "src/core/bootFsck.ts|} catch {|1",
@@ -2121,16 +2121,6 @@
       "note": ""
     },
     {
-      "key": "src/core/quarantine.ts|const cacheEntries = state.entries.filter(candidate => candidate.kind === 'row');|1",
-      "file": "src/core/quarantine.ts",
-      "line": 53,
-      "drops": "oldest row-kind quarantine ticket (orphan-temp-row or plan-row-rejected payload)",
-      "condition": "putQuarantine pushes an entry while row-kind entries exceed CACHE_ENTRY_CAP=100 - oldest row entry spliced out at :56",
-      "verdict": "HOLE",
-      "ref": "no counter on the eviction splice (quarantinePuts counts adds only, no noteDataLoss) and no spec rule: specs/04-persistence.md places quarantine wholesale under invariant W ('Fizicheskih wipe-putej net... nikogda ne drop'); the cache-class FIFO exists only in the module comment",
-      "note": "ledger/operation-kind entries are never evicted; only kind='row' - but an orphan-temp-row payload is the user's unsent write"
-    },
-    {
       "key": "src/core/quarantine.ts|const taken = state.entries.filter(accepts);|1",
       "file": "src/core/quarantine.ts",
       "line": 69,
@@ -2193,27 +2183,27 @@
     {
       "key": "src/core/reset.ts|if (raw === undefined) return undefined;|1",
       "file": "src/core/reset.ts",
-      "line": 23,
+      "line": 36,
       "drops": "nothing",
       "condition": "reset-intent key absent",
       "verdict": "NONDROP",
       "ref": "absent intent = no interrupted reset to resume; nothing exists to drop",
-      "note": "ADJACENT :26 is a HOLE not present in this slice: corrupt/stale intent decodes to an EMPTY restore set and resumes the wipe, losing carried ops/quarantine/manifest uncounted"
+      "note": "ADJACENT :39 is a HOLE not present in this slice: corrupt/stale intent decodes to an EMPTY restore set and resumes the wipe, losing carried ops/quarantine uncounted (the manifest is re-appended by the reset itself)"
     },
     {
       "key": "src/core/reset.ts|} catch (error) {|1",
       "file": "src/core/reset.ts",
-      "line": 73,
+      "line": 86,
       "drops": "nothing",
       "condition": "an in-memory resetter throws during configureDb re-entry rebind",
       "verdict": "NONDROP",
-      "ref": "errors collected and rethrown as AggregateError at :78; storage untouched, nothing swallowed",
+      "ref": "errors collected and rethrown as AggregateError at :91; storage untouched, nothing swallowed",
       "note": ""
     },
     {
       "key": "src/core/reset.ts|if (!isDbConfigured()) return;|1",
       "file": "src/core/reset.ts",
-      "line": 82,
+      "line": 95,
       "drops": "nothing",
       "condition": "resetRuntime called before configureDb ever ran",
       "verdict": "NONDROP",
@@ -2223,27 +2213,27 @@
     {
       "key": "src/core/reset.ts|} catch (error) {|2",
       "file": "src/core/reset.ts",
-      "line": 89,
+      "line": 103,
       "drops": "nothing",
       "condition": "a resetter/clearStorage attempt throws during the sanctioned reset",
       "verdict": "NONDROP",
-      "ref": "attempt collector: errors gathered and rethrown at :139; the wipe itself is the user's explicit reset, open ops counted user-reset-discard @ reset.ts:138",
+      "ref": "attempt collector: errors gathered and rethrown at :153; the wipe itself is the user's explicit reset, open ops counted user-reset-discard @ reset.ts:152",
       "note": ""
     },
     {
       "key": "src/core/reset.ts|} catch (error) {|3",
       "file": "src/core/reset.ts",
-      "line": 104,
+      "line": 118,
       "drops": "nothing",
       "condition": "persisting the reset-intent key fails",
       "verdict": "NONDROP",
       "ref": "throws AggregateError BEFORE any storage key is cleared; committed cache remains recoverable via per-commit deltas (spec 04 write model), live stores untouched",
-      "note": "resetPersistenceRuntime at :93 already dropped the pending snapshot-flush state, but every commit is already durable as a delta"
+      "note": "resetPersistenceRuntime at :107 already dropped the pending snapshot-flush state, but every commit is already durable as a delta"
     },
     {
       "key": "src/core/reset.ts|} catch (error) {|4",
       "file": "src/core/reset.ts",
-      "line": 120,
+      "line": 134,
       "drops": "nothing",
       "condition": "final clearStorage pass fails",
       "verdict": "NONDROP",
@@ -2253,7 +2243,7 @@
     {
       "key": "src/core/reset.ts|} catch (error) {|5",
       "file": "src/core/reset.ts",
-      "line": 128,
+      "line": 142,
       "drops": "nothing",
       "condition": "writing a carried restore entry (manifest/ops/quarantine) fails",
       "verdict": "NONDROP",
@@ -3031,16 +3021,6 @@
       "note": "The exclusion IS the loss sensor: a shrunken set marks the chain stale and triggers the follow-up refetch (spec 08 F3/F16), not a silent discard."
     },
     {
-      "key": "src/dsl/defineQuery.ts|const info = connection.pageInfo ?? {};|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 232,
-      "drops": "missing pageInfo (or missing hasNextPage/hasPreviousPage field) silently yields endCursor=null, hasNextPage=false: the chain reports exhaustion and further pages are never fetched",
-      "condition": "paged declaration whose page/connection result carries no pageInfo or an incomplete one (ConnectionLike types pageInfo optional/null, src/types/dsl.query.types.ts:15)",
-      "verdict": "HOLE",
-      "ref": "no spec rule for defaulting exhaustion on absent pageInfo; no define-time error, no landing error, no counter",
-      "note": "Availability drop: real next pages exist server-side but fetchNextPage stops issuing requests; config.getCursor only overrides the cursor, hasNextPage still defaults to false."
-    },
-    {
       "key": "src/dsl/defineQuery.ts|...((config.vars?.(scope) ?? {}) as Record<string, unknown>),|1",
       "file": "src/dsl/defineQuery.ts",
       "line": 294,
@@ -3074,11 +3054,11 @@
       "key": "src/dsl/defineQuery.ts|if ((reset && issued < applied) || (!reset && issued < issuedResetSeqByBucket.get(guardKey)!)) return null;|1",
       "file": "src/dsl/defineQuery.ts",
       "line": 313,
-      "drops": "a superseded flight's entire response: rows never reach applyResponse; run()'s queryFn (:380-390) then substitutes cached meta or fabricates {pages:0, ids:[], hasNextPage:false} stamped fresh and persists it (:404)",
-      "condition": "another reset on the same guardKey was issued/applied after this flight started",
-      "verdict": "HOLE",
-      "ref": "same-queryKey restart supersession is spec-covered (specs/08 F6, 'cancellation of the overlapped flight is swallowed by the supersession owner' (translated)), but guardKey for scope destinations omits keyName (:298) and the seq maps are module-global (:47): 2 declarations landing into one scope share the guard - no rule, no counter",
-      "note": "Cross-declaration lane: loser declaration is not cancelled (different queryKey, no react-query dedup), its fetched rows vanish and its bucket becomes fabricated fresh-empty (pages:0, exhausted) in the LIVE cache and in durable storage for the full window."
+      "drops": "nothing",
+      "condition": "a flight of the SAME declaration and scope was superseded by a newer reset",
+      "verdict": "CONTRACT",
+      "ref": "specs/08 F42/F43: the gate key carries the declaration identity, so only same-declaration flights supersede; the null is answered with cached meta or CancelledError, never a fabricated chain",
+      "note": "cross-declaration landings into one scope no longer share this gate"
     },
     {
       "key": "src/dsl/defineQuery.ts|if (config.enabled && !config.enabled(scope)) return;|1",
@@ -3191,16 +3171,6 @@
       "note": "Same gate as fetch(null)."
     },
     {
-      "key": "src/dsl/defineQuery.ts|} catch {|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 455,
-      "drops": "a persisted record whose scope fails normalizeScope or destinationScope.key silently escapes family/partial invalidation and keeps its fresh stamp",
-      "condition": "invalidatePersistedQuery matcher throws for one record (malformed persisted scope, or scope that destinationScope.key rejects)",
-      "verdict": "HOLE",
-      "ref": "specs/08-freshness-pacing.md requires family/partial invalidation to mark ALL persisted scopes of the declaration and states 'a miss on the address is an error, not silence' (translated); no counter fires here (reportRejectedRecord only fires on restore)",
-      "note": "Asymmetry: matcher calls destinationScope.key (:453) while restore validate only calls bucketKeyOf/buildScopeKey (:208), so a record can restore fine yet permanently escape invalidation; the in-memory cached bucket lane (restore :200-201) never re-validates at all, so the un-invalidated bucket stays fresh for its whole window."
-    },
-    {
       "key": "src/dsl/defineQuery.ts|if (!matchesPartialScope(registered, partial)) continue;|1",
       "file": "src/dsl/defineQuery.ts",
       "line": 460,
@@ -3249,16 +3219,6 @@
       "verdict": "CONTRACT",
       "ref": "specs/08-freshness-pacing.md: 'Invalidation without a live reader produces no network: everything matched is marked stale, refetch runs only for readers from the live registry' (translated)",
       "note": "Stale mark persists; the reader refetches on mount/enable via refetchOnMount + staleness."
-    },
-    {
-      "key": "src/dsl/defineQuery.ts|const rows = (meta?.ids ?? []).map(id => destination.find(parseCompositeKey(id)![1]!)!);|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 616,
-      "drops": "chain ids whose rows died after landing map to undefined!: read() returns arrays with undefined holes typed as TStored (or undefined single) with no error and no refetch on this path",
-      "condition": "cached meta ids reference rows no longer in the model destination (destroy, eviction) - the in-memory cache lane of restore (:200-201) bypasses persisted-record validation entirely",
-      "verdict": "HOLE",
-      "ref": "no counter on this sync read; the materialization reconciler only marks freshness stale and never rewrites cached meta.ids; specs/08 F20 covers the reactive lane, not imperative read()",
-      "note": "validateDestination protects only the durable-restore lane; a caller of handle.read() gets fabricated non-null-typed holes immediately, regardless of the staleness the reconciler recorded."
     },
     {
       "key": "src/dsl/modelApplyTarget.ts|const tail = entries.filter(entry => !pending.has(entry.id)).at(-1)?.orderKey;|1",
@@ -3311,16 +3271,6 @@
       "note": "Pure classification of insert vs update for epoch notes."
     },
     {
-      "key": "src/dsl/modelContext.ts|if (changedAfter(existenceEpochs, incoming.id, baseRevision)) return null;|1",
-      "file": "src/dsl/modelContext.ts",
-      "line": 28,
-      "drops": "whole incoming row of an async landing",
-      "condition": "row existence (insert/destroy) committed after the landing captured its baseRevision",
-      "verdict": "CONTRACT",
-      "ref": "specs/03-write.md, Causal admission :: 'slow response, earlier request, partial response and duplicate payload do not reduce committed state' (translated)",
-      "note": "Causal admission whole-row cut; silent (no counter), but the drop is the written causal rule; replace bypasses via baseRevision=undefined."
-    },
-    {
       "key": "src/dsl/modelContext.ts|if (field === 'id' || (epochs.get(field) ?? 0) <= baseRevision) continue;|1",
       "file": "src/dsl/modelContext.ts",
       "line": 34,
@@ -3339,16 +3289,6 @@
       "verdict": "CONTRACT",
       "ref": "specs/03-write.md, missing-row section :: 'a patch or destroy for a missing row does not create the row and does not keep the intent' (translated)",
       "note": "Deferred-patch mechanisms are explicitly forbidden (W21); intent is dropped by rule."
-    },
-    {
-      "key": "src/dsl/modelContext.ts|if (changedAfter(existenceEpochs, id, baseRevision)) return null;|1",
-      "file": "src/dsl/modelContext.ts",
-      "line": 43,
-      "drops": "whole patch of an async landing",
-      "condition": "row existence changed after the landing's baseRevision",
-      "verdict": "CONTRACT",
-      "ref": "specs/03-write.md, Causal admission :: 'slow response, earlier request, partial response and duplicate payload do not reduce committed state' (translated)",
-      "note": "Existence-epoch causal cut for patches; silent by design."
     },
     {
       "key": "src/dsl/modelContext.ts|const admittedPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => (epochs.get(field) ?? 0) <= baseRevision));|1",
@@ -3551,16 +3491,6 @@
       "note": "Released temp membership transfers to the successor via restoreMembership in the same envelope; any detach lands in detachedIds and is counted."
     },
     {
-      "key": "src/dsl/modelScopeHandle.ts|const liveRows = rows.filter(({ row }) => options.admitPlanRow(row) !== undefined).filter(({ row }) => !planes().entityState.isTombstoned(options.normalize(row).id));|1",
-      "file": "src/dsl/modelScopeHandle.ts",
-      "line": 114,
-      "drops": "admission-rejected rows and every scope-landing row whose id is tombstoned (row + membership excluded from the plan)",
-      "condition": "normalize failure, or the id was destroyed locally within the tombstone TTL (~24h)",
-      "verdict": "CONTRACT",
-      "ref": "specs/02-identity.md, tombstone gate section :: 'the write planner checks isTombstoned of the store plane before putting the row into the plan' (translated; + 00-principles I6 'deleted does not resurrect')",
-      "note": "Admission side is counted (quarantine); tombstone side is uncounted for the whole TTL by written intent (spec 03: quarantine and dataLossEvents are not written for deletion) - still the top prod-blackhole suspect operationally."
-    },
-    {
       "key": "src/dsl/modelScopeHandle.ts|if (!matchesMemberPredicate<TStored>(spec, entry.row as TStored)) continue;|1",
       "file": "src/dsl/modelScopeHandle.ts",
       "line": 125,
@@ -3599,36 +3529,6 @@
       "verdict": "COUNTED",
       "ref": "noteDataLoss('scope-complete-detach') @ src/dsl/modelScopeHandle.ts:99",
       "note": "The empty-group default itself is benign; the resulting detaches are counted inside planScope."
-    },
-    {
-      "key": "src/dsl/modelScopeHandle.ts|.filter(row => options.admitPlanRow(row) !== undefined)|1",
-      "file": "src/dsl/modelScopeHandle.ts",
-      "line": 211,
-      "drops": "seed rows rejected by admission",
-      "condition": "normalize throws for a seed row",
-      "verdict": "COUNTED",
-      "ref": "noteQuarantinePut via putQuarantine('plan-row-rejected') @ src/dsl/modelNormalization.ts:57 -> src/core/quarantine.ts:59",
-      "note": "Same quarantine seam as landings; raw seed payload preserved."
-    },
-    {
-      "key": "src/dsl/modelScopeHandle.ts|.filter(row => !planes().entityState.isTombstoned(options.normalize(row).id))|1",
-      "file": "src/dsl/modelScopeHandle.ts",
-      "line": 212,
-      "drops": "seed rows whose id is tombstoned (row + membership never planned)",
-      "condition": "seeding an id destroyed locally within the tombstone TTL",
-      "verdict": "CONTRACT",
-      "ref": "specs/02-identity.md, tombstone gate section :: 'the write planner checks isTombstoned of the store plane before putting the row into the plan' (translated)",
-      "note": "Same TTL blackhole as line 114, uncounted by written intent (spec 03: deletion is not a loss)."
-    },
-    {
-      "key": "src/dsl/modelWrites.ts|if (origin === undefined && options.entityState().isTombstoned(incoming.id)) return null;|1",
-      "file": "src/dsl/modelWrites.ts",
-      "line": 28,
-      "drops": "whole snapshot-origin row (every snapshot/query re-landing of a tombstoned id blackholed)",
-      "condition": "origin undefined (snapshot mode) and id tombstoned - lasts the full tombstone TTL (~24h)",
-      "verdict": "CONTRACT",
-      "ref": "specs/02-identity.md, tombstone gate section :: 'a late server node after a local delete does not create the entity: the write planner checks isTombstoned of the store plane before putting the row into the plan' (translated; + 00-principles I6)",
-      "note": "Spec-covered and deliberately uncounted (spec 03: quarantine and dataLossEvents are not written for intentional deletion); prior audit flags this exact gate as the top live-defect suspect - the rule exists, so CONTRACT, but zero observability across the TTL stands."
     },
     {
       "key": "src/dsl/modelWrites.ts|if (!admitted) return null;|1",
@@ -4051,16 +3951,6 @@
       "note": "Mirror of the read-side hole."
     },
     {
-      "key": "src/dsl/facadeRemoteQueries.ts|select: (data: unknown) => (list.select(data) ?? []).flatMap(node => (node == null ? [] : [list.map ? list.map(node) : node])),|1",
-      "file": "src/dsl/facadeRemoteQueries.ts",
-      "line": 64,
-      "drops": "existing scope memberships: a nullish list.select(data) result (missing/partial server payload) is coerced by '?? []' into an EMPTY complete-coverage landing, which detaches every current member of the scope",
-      "condition": "GraphQL list field resolves to null/undefined (nullable field, partial data) while the declaration lands with coverage 'complete'",
-      "verdict": "HOLE",
-      "ref": "no spec rule equates a nullish list payload with an empty list; the resulting detach is uncounted (membership rewrite by landing is legitimate work, not noteDataLoss)",
-      "note": "The 'node == null' half drops only null placeholders (no row data); the risky half is '?? []'. Freshness spec F16 covers crash loss, not landings."
-    },
-    {
       "key": "src/dsl/facadeRemoteQueries.ts|? [...value.nodes].filter((node: unknown) => node != null)|1",
       "file": "src/dsl/facadeRemoteQueries.ts",
       "line": 92,
@@ -4069,16 +3959,6 @@
       "verdict": "NONDROP",
       "ref": "a null node carries no row fields and no identity; nothing landable is discarded",
       "note": "Executes only when value.nodes is present; same class as fromNodes."
-    },
-    {
-      "key": "src/dsl/facadeRemoteQueries.ts|: (value?.edges ?? []).flatMap((edge: { node?: unknown } | null | undefined) => (edge?.node == null ? [] : [edge.node]));|1",
-      "file": "src/dsl/facadeRemoteQueries.ts",
-      "line": 93,
-      "drops": "existing scope memberships: a nullish connection payload (connection(data) returns null/undefined) yields an empty page with undefined pageInfo; a first-page refresh landing that empty page under complete coverage empties the accumulated chain and detaches members",
-      "condition": "GraphQL connection field resolves to null (nullable field, partial data) on a refresh/first-page fetch",
-      "verdict": "HOLE",
-      "ref": "no spec rule equates a nullish connection payload with an empty page; detach path uncounted. Null-edge/node skipping itself is harmless",
-      "note": "Same class as line 64; spec 08 'a connection counts as empty only with an empty accumulated identity chain' (translated) governs emptyStaleTime, not this coercion."
     },
     {
       "key": "src/dsl/lifecycle.ts|* loud here: `bootDb` does not catch or swallow validation or repair errors, since a silent partial boot|1",
@@ -4433,12 +4313,12 @@
     {
       "key": "src/core/planes/operationState.ts|committedKeys.clear();|1",
       "file": "src/core/planes/operationState.ts",
-      "line": 225,
-      "drops": "standalone committed once keys (persisted with operations:{} by the keeping-reset carry, loaded at hydrate:485) - clear rebuilds only from live committed+once records; next persist() writes the reduced set durably",
-      "condition": "rebuildIndexes invoked outside hydrate: clearFailed/reopen/remove/prune after boot loaded standalone once keys",
-      "verdict": "HOLE",
-      "ref": "violates 06-operations.md idempotency 1: 'the committed-once marker survives process restart AND schema-incompatible reset' (translated); no counter on this path",
-      "note": "hydrate is safe (line 485 re-adds from storage after rebuild). The 4 rebuild-calling mutators have 0 production call sites today (verified: production flows use applyTransitions only) but sit on the exported OperationState surface; committedKeys is not purely derivable from operations, so treating it as derived is the defect class"
+      "line": 467,
+      "drops": "nothing durable - cleared at hydrate() start, then re-populated from the persisted ledger envelope and the previous ops-once placement in the same call",
+      "condition": "hydrate() start",
+      "verdict": "NONDROP",
+      "ref": "hydrate re-adds salvage.committedKeys (:488) and readCommittedOnceKeys (:497); rebuildIndexes no longer clears the set, so standalone once-keys survive every later rebuild (spec 06 rule 5, [OP41] in i-operation-ledger)",
+      "note": "the former HOLE (rebuildIndexes wiping standalone once-keys) is closed: rebuild preserves committedKeys"
     },
     {
       "key": "src/core/planes/operationState.ts|pendingKeys.clear();|1",
@@ -5823,7 +5703,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|registerReset(() => readers.clear());|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 8,
+      "line": 9,
       "drops": "in-memory registry of active fetch-reader callbacks",
       "condition": "resetRuntime / configureDb re-entry",
       "verdict": "NONDROP",
@@ -5833,7 +5713,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|registerReset(() => reconcilers.clear());|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 20,
+      "line": 21,
       "drops": "in-memory registry of materialization reconcilers",
       "condition": "resetRuntime / configureDb re-entry",
       "verdict": "NONDROP",
@@ -5843,7 +5723,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|touched.set(model, keys);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 27,
+      "line": 115,
       "drops": "nothing",
       "condition": "accumulating touched scope keys per model for one batch",
       "verdict": "NONDROP",
@@ -5853,7 +5733,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|swap.set(row.id, row.replacedBy);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 41,
+      "line": 129,
       "drops": "nothing",
       "condition": "recording replace successor ids from destroy legs of one batch",
       "verdict": "NONDROP",
@@ -5863,7 +5743,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|successors.set(row.model, swap);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 42,
+      "line": 130,
       "drops": "nothing",
       "condition": "storing per-model swap map",
       "verdict": "NONDROP",
@@ -5873,7 +5753,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|return () => reconcilers.delete(reconciler);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 84,
+      "line": 152,
       "drops": "one reconciler registration",
       "condition": "caller invokes the release callback (reader unmounts)",
       "verdict": "NONDROP",
@@ -5883,7 +5763,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|return () => readers.delete(reader);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 90,
+      "line": 158,
       "drops": "one reader registration",
       "condition": "caller invokes the release callback (reader unmounts)",
       "verdict": "NONDROP",
@@ -5893,7 +5773,7 @@
     {
       "key": "src/core/fetch/fetchReaderRegistry.ts|const chunk = refetches.slice(index, index + chunkSize);|1",
       "file": "src/core/fetch/fetchReaderRegistry.ts",
-      "line": 107,
+      "line": 175,
       "drops": "nothing",
       "condition": "windowing the resume-stale reader list into declared-size chunks",
       "verdict": "NONDROP",
@@ -6191,16 +6071,6 @@
       "note": "the unreadable-state restart-empty decision is readState (line 39), outside this slice"
     },
     {
-      "key": "src/core/quarantine.ts|state.entries.splice(state.entries.indexOf(oldestCache), 1);|1",
-      "file": "src/core/quarantine.ts",
-      "line": 56,
-      "drops": "the oldest quarantined row-kind payload (verbatim rejected/orphan row data) once the row-entry count exceeds CACHE_ENTRY_CAP=100",
-      "condition": "putQuarantine pushes a new entry while 100+ row-kind entries already exist",
-      "verdict": "HOLE",
-      "ref": "spec 04 invariant W (translated): 'operation ledger and quarantine: there are NO physical wipe paths... a record leaves durable storage only by server ack, explicit discard, or the user's explicit resetRuntime'; the row-kind FIFO cap is code-only (file doc comment), no spec rule and no eviction counter (noteQuarantinePut counts puts, noteDataLoss never fires here)",
-      "note": "same FIFO mechanism wave-1 flagged at :53; this line is the physical removal point"
-    },
-    {
       "key": "src/core/queryPersistence.ts|for (const key of keys) getDbRuntimeConfig().storage.set(key, null);|1",
       "file": "src/core/queryPersistence.ts",
       "line": 44,
@@ -6403,7 +6273,7 @@
     {
       "key": "src/core/reset.ts|return () => resetters.delete(reset);|1",
       "file": "src/core/reset.ts",
-      "line": 38,
+      "line": 51,
       "drops": "one resetter registration",
       "condition": "caller invokes its own unregister callback",
       "verdict": "NONDROP",
@@ -6413,7 +6283,7 @@
     {
       "key": "src/core/reset.ts|keyedResetters.set(key, reset);|1",
       "file": "src/core/reset.ts",
-      "line": 50,
+      "line": 63,
       "drops": "previous resetter registered under the same definition key (replaced)",
       "condition": "define* redefinition (Fast Refresh)",
       "verdict": "NONDROP",
@@ -6423,7 +6293,7 @@
     {
       "key": "src/core/reset.ts|storage.set(|1",
       "file": "src/core/reset.ts",
-      "line": 97,
+      "line": 111,
       "drops": "nothing",
       "condition": "writing the reset-intent record before the wipe",
       "verdict": "NONDROP",
@@ -6433,17 +6303,17 @@
     {
       "key": "src/core/reset.ts|if (key !== intentKey) storage.set(key, null);|1",
       "file": "src/core/reset.ts",
-      "line": 110,
+      "line": 124,
       "drops": "every persisted key under the library namespace: cache AND user-class records (ops, quarantine) unless carried via restore entries",
       "condition": "resetRuntime / resetRuntimeKeeping / resumeInterruptedStorageReset",
       "verdict": "CONTRACT",
       "ref": "04-persistence.md (translated): 'a user record leaves durable storage only by server ack, explicit discard, or the user's explicit resetRuntime (with a user-reset-discard event)'; 'logout reset does not keep the previous user's data and records the discard of open operations with user-reset-discard'; manifest reset carries ops/quarantine verbatim via resetRuntimeKeeping",
-      "note": "discard of open operations is also COUNTED at reset.ts:138 noteDataLoss('user-reset-discard')"
+      "note": "discard of open operations is also COUNTED at reset.ts:152 noteDataLoss('user-reset-discard')"
     },
     {
       "key": "src/core/reset.ts|storage.set(entry.key, entry.value);|1",
       "file": "src/core/reset.ts",
-      "line": 127,
+      "line": 141,
       "drops": "nothing",
       "condition": "restoring carried entries (manifest, ops, quarantine, once keys) after the wipe",
       "verdict": "NONDROP",
@@ -6453,7 +6323,7 @@
     {
       "key": "src/core/reset.ts|if (finalStorageClearSucceeded) attempt(() => storage.set(intentKey, null));|1",
       "file": "src/core/reset.ts",
-      "line": 135,
+      "line": 149,
       "drops": "the reset-intent marker",
       "condition": "only after the wipe and every restore write succeeded",
       "verdict": "NONDROP",
@@ -6941,16 +6811,6 @@
       "note": ""
     },
     {
-      "key": "src/dsl/defineQuery.ts|endCursor: config.getCursor ? config.getCursor(connection) : backward ? (info.startCursor ?? null) : (info.endCursor ?? null),|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 235,
-      "drops": "accumulated chain ids and page count: a null cursor makes the NEXT fetchNextPage run with cursor=null, which execute treats as a reset (ids replaced by page 1, :299/:325)",
-      "condition": "malformed connection payload: pageInfo.hasNextPage=true while endCursor/startCursor is missing (?? null fabricates the cursor)",
-      "verdict": "HOLE",
-      "ref": "no spec rule for hasNextPage-without-cursor; the chain-id replacement is uncounted (scope-complete-detach counts only detach paths)",
-      "note": "rows survive in the entity store but the query result and page-coverage membership silently shrink to page 1; well-formed servers never hit this"
-    },
-    {
       "key": "src/dsl/defineQuery.ts|const issued = reset ? (issuedResetSeqByBucket.get(guardKey) ?? 0) + 1 : issuedResetSeqByBucket.get(guardKey)!;|1",
       "file": "src/dsl/defineQuery.ts",
       "line": 300,
@@ -7084,11 +6944,11 @@
       "key": "src/dsl/facadeRemoteQueries.ts|getCursor: connection.cursor ? page => (page as RelationCursorPage).relationCursor ?? null : undefined,|1",
       "file": "src/dsl/facadeRemoteQueries.ts",
       "line": 119,
-      "drops": "accumulated chain ids: nullish declared-cursor result while pageInfo.hasNextPage=true makes the next loadMore a silent reset (same class as defineQuery.ts:235)",
-      "condition": "declared connection.cursor mapper returns null/undefined for a page the server marks as having more",
-      "verdict": "HOLE",
-      "ref": "no spec rule for a nullish declared cursor alongside hasNextPage=true; nothing counts the chain replacement",
-      "note": "relationCursor is undefined whenever value is nullish or the mapper abstains (:97); pairs with defineQuery.ts:235"
+      "drops": "nothing",
+      "condition": "declared relation cursor returns nullish",
+      "verdict": "CONTRACT",
+      "ref": "specs/08 F44: the defineQuery landing gate throws when hasNextPage is claimed with a nullish cursor; null here only lands for an exhausted chain",
+      "note": "single gate lives in defineQuery pageMetaOf"
     },
     {
       "key": "src/dsl/modelApplyTarget.ts|anchors.splice(lower, 0, { orderKey, row });|1",
@@ -7541,26 +7401,6 @@
       "note": "hasMore/fetchNextPage grow the window (modelScopeHandle.ts:176-180); nothing is discarded from the store"
     },
     {
-      "key": "src/core/apply/commitEnvelope.ts|const numeric = typeof value === 'number' ? value : value == null ? 0 : Number(value);|1",
-      "file": "src/core/apply/commitEnvelope.ts",
-      "line": 83,
-      "drops": "non-numeric or null stored counter value replaced by baseline 0 before applying delta",
-      "condition": "counter op reads a field holding a non-numeric value (corrupt or schema drift)",
-      "verdict": "HOLE",
-      "ref": "original field value vanishes into fabricated 0; no spec rule for non-numeric counter base, no counter fires (Codex round-2 find)",
-      "note": "wave-3 manual classification"
-    },
-    {
-      "key": "src/core/apply/commitEnvelope.ts|const prepared = target.preparePatch(counterId, { [op.field]: (Number.isFinite(numeric) ? numeric : 0) + op.delta }, previous);|1",
-      "file": "src/core/apply/commitEnvelope.ts",
-      "line": 84,
-      "drops": "non-finite coerced counter base replaced by 0",
-      "condition": "Number(value) yields non-finite for the stored counter field",
-      "verdict": "HOLE",
-      "ref": "same mechanism as :83 - fabricated 0 base, uncounted, no rule",
-      "note": "wave-3 manual classification"
-    },
-    {
       "key": "src/core/apply/deltaLog.ts|const parsed = raw === undefined ? Number.NaN : Number(raw);|1",
       "file": "src/core/apply/deltaLog.ts",
       "line": 36,
@@ -7679,6 +7519,321 @@
       "verdict": "NONDROP",
       "ref": "degrades to plain upsert (duplicate risk, not vanish) - consistent with the file-wide verdicts",
       "note": "wave-3 manual classification"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|pendingRejudges.clear();|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 34,
+      "drops": "nothing",
+      "condition": "runtime reset",
+      "verdict": "NONDROP",
+      "ref": "registerReset clears pending re-judgments together with reconcilers and query records; no chain survives the reset to judge"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (!isDbConfigured() || !reconcilers.has(pending.reconciler)) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 39,
+      "drops": "nothing",
+      "condition": "runtime reset or reconciler released before its fetch settled",
+      "verdict": "NONDROP",
+      "ref": "a released reconciler has no registered chain left; there is no cached chain data to prune or stale"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (serializedKeyOf(chain.queryKey) !== target) continue;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 42,
+      "drops": "nothing",
+      "condition": "chain belongs to a different query key of the same reconciler",
+      "verdict": "NONDROP",
+      "ref": "only the settled query deferred its judgment; sibling chains were judged at loss time"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (releasePendingWatch !== undefined) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 48,
+      "drops": "nothing",
+      "condition": "cache watch already subscribed",
+      "verdict": "NONDROP",
+      "ref": "idempotent subscribe guard; one watcher serves all pending keys"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (event.type !== 'updated' && event.type !== 'removed') return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 50,
+      "drops": "nothing",
+      "condition": "observer bookkeeping events",
+      "verdict": "NONDROP",
+      "ref": "only state updates or removal can settle a fetch; the pending entry stays queued"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (pending === undefined) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 53,
+      "drops": "nothing",
+      "condition": "settled query has no deferred judgment",
+      "verdict": "NONDROP",
+      "ref": "nothing was skipped for this key; loss-time judgment already ran"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (event.type === 'updated' && event.query.state.fetchStatus !== 'idle') return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 55,
+      "drops": "nothing",
+      "condition": "fetch still in flight or paused",
+      "verdict": "NONDROP",
+      "ref": "not a settle; the pending entry stays queued until fetchStatus reaches idle"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|pendingRejudges.delete(target);|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 56,
+      "drops": "nothing",
+      "condition": "fetch settled or query removed",
+      "verdict": "NONDROP",
+      "ref": "entry is consumed by the re-judgment invoked on the next line, or the query record no longer exists"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (event.type === 'removed') return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 58,
+      "drops": "nothing",
+      "condition": "query record removed while its re-judgment was pending",
+      "verdict": "NONDROP",
+      "ref": "a removed record holds no chain data and no freshness stamp to protect"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|pendingRejudges.set(target, { reconciler, swap: swap && new Map(swap), maintenance });|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 67,
+      "drops": "nothing",
+      "condition": "loss lands mid-fetch",
+      "verdict": "CONTRACT",
+      "ref": "specs/08-freshness-pacing.md F41: a loss judgment skipped mid-fetch is re-run after that fetch settles, including failure",
+      "note": "Deferral, not a drop: the judgment is remembered and re-run at settle."
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|for (const [from, to] of swap) pending.swap.set(from, to);|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 71,
+      "drops": "nothing",
+      "condition": "second loss lands on an already-pending chain",
+      "verdict": "NONDROP",
+      "ref": "merges identity-swap maps so the re-judgment follows every successor"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (state === undefined) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 80,
+      "drops": "nothing",
+      "condition": "no cached query record for this chain",
+      "verdict": "NONDROP",
+      "ref": "a chain without a cached record has no freshness stamp to protect"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 84,
+      "drops": "loss judgment for this batch",
+      "condition": "chain fetchStatus is fetching",
+      "verdict": "CONTRACT",
+      "ref": "specs/08-freshness-pacing.md F41: a loss judgment skipped mid-fetch is re-run after that fetch settles, including failure",
+      "note": "Skip is paired with rememberPendingRejudge one line above; the settle watcher re-runs the judgment."
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (!meta?.ids || meta.ids.length === 0) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 87,
+      "drops": "nothing",
+      "condition": "cached record holds no chain ids",
+      "verdict": "NONDROP",
+      "ref": "an empty chain has nothing to prune and is already vacuously stale-able by its own emptiness rules"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (remaining.length === meta.ids.length && remaining.every((id, index) => id === meta.ids![index])) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 97,
+      "drops": "nothing",
+      "condition": "chain fully materialized and unchanged",
+      "verdict": "NONDROP",
+      "ref": "no loss touched this chain; identical survivor set keeps data and freshness"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (remaining.length === meta.ids.length) return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 101,
+      "drops": "nothing",
+      "condition": "full-length identity rewrite (temp -> server swap)",
+      "verdict": "CONTRACT",
+      "ref": "specs/08-freshness-pacing.md F17: identity replace does not stale the chain and produces no network"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|return;|2",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 105,
+      "drops": "freshness stamp of the shrunk chain",
+      "condition": "survivors remain after a partial materialization loss",
+      "verdict": "COUNTED",
+      "ref": "noteChainSurvivorShrink -> diagnostics.chainSurvivorShrinks; specs/08-freshness-pacing.md F40: partial shrink rewrites survivors, marks stale without forced refetch, counts chainSurvivorShrinks"
+    },
+    {
+      "key": "src/core/bootFsck.ts|const restored = readQuarantineEntries().filter(readmits);|1",
+      "file": "src/core/bootFsck.ts",
+      "line": 88,
+      "drops": "nothing",
+      "condition": "fsck restore selects readmittable plan-row-rejected tickets",
+      "verdict": "NONDROP",
+      "ref": "selection only: entries the predicate rejects STAY in the quarantine; removal happens after the restore commit (takeQuarantineEntries at :95, [P45])",
+      "note": ""
+    },
+    {
+      "key": "src/core/bootFsck.ts|if (restored.length === 0) return;|1",
+      "file": "src/core/bootFsck.ts",
+      "line": 89,
+      "drops": "nothing",
+      "condition": "no quarantined row is readmittable this boot",
+      "verdict": "NONDROP",
+      "ref": "early return skips the restore commit and the ticket removal; all entries remain quarantined",
+      "note": ""
+    },
+    {
+      "key": "src/core/planes/operationState.ts|if (committedList === undefined) quarantined.push({ id: 'ops-once', raw: value.committedKeys ?? null, reason: 'corrupt-once-keys' });|1",
+      "file": "src/core/planes/operationState.ts",
+      "line": 100,
+      "drops": "the missing/non-array committedKeys leg of a matched-version ledger envelope - kept as a quarantine ticket, not dropped",
+      "condition": "versioned envelope on the current record version carries no decodable committedKeys array",
+      "verdict": "COUNTED",
+      "ref": "noteDataLoss('corrupt-once-keys') fires at hydrate (:491); specs/04-persistence.md :: 'malformed committedKeys in a durable envelope goes to the quarantine with corrupt-once-keys, not to a drop' (translated), [P42] in i-operation-ledger",
+      "note": "the ?? null only normalizes an absent leg into the ticket payload"
+    },
+    {
+      "key": "src/core/planes/operationState.ts|const committedKeys = versioned && committedList ? committedList.filter(isNonEmptyString) : [];|1",
+      "file": "src/core/planes/operationState.ts",
+      "line": 103,
+      "drops": "non-string / empty entries excluded from the hydrated once-key set",
+      "condition": "malformed elements inside the committedKeys array",
+      "verdict": "COUNTED",
+      "ref": "on the matched version every excluded element is quarantined (:101) and counted via corrupt-once-keys at hydrate (:491), [P42]; on a stale version the exclusion is P24 migration reading (silent by contract)",
+      "note": ""
+    },
+    {
+      "key": "src/core/planes/operationState.ts|return;|1",
+      "file": "src/core/planes/operationState.ts",
+      "line": 313,
+      "drops": "one terminal ack aimed at an unknown or already-closed operation (state unchanged)",
+      "condition": "close() finds no record or a non-pending record",
+      "verdict": "COUNTED",
+      "ref": "noteUnknownOperationAck() fires at :312; specs/06-operations.md rule 5 :: 'a terminal transition on an unknown or already-closed operation is a no-op with the unknownOperationAcks counter; a silent no-op is forbidden' (translated), [OP40]",
+      "note": ""
+    },
+    {
+      "key": "src/core/planes/operationState.ts|noteDataLoss('corrupt-once-keys', '__operations__', salvage.quarantined.filter(entry => entry.reason === 'corrupt-once-keys').length);|1",
+      "file": "src/core/planes/operationState.ts",
+      "line": 491,
+      "drops": "nothing",
+      "condition": "hydrate counts the quarantined once-key legs",
+      "verdict": "NONDROP",
+      "ref": "counter emission itself; the filter only sizes the loss already quarantined at :100-:101",
+      "note": ""
+    },
+    {
+      "key": "src/core/quarantine.ts|const diagnosticTickets = state.entries.filter(candidate => candidate.kind === 'row' && candidate.reason === 'plan-row-rejected');|1",
+      "file": "src/core/quarantine.ts",
+      "line": 54,
+      "drops": "nothing",
+      "condition": "cap selection over the diagnostic plan-row-rejected class only",
+      "verdict": "NONDROP",
+      "ref": "selection for the cap check; the eviction (the drop point) is the splice below; orphan-temp-row and every non-row entry never enter the capped set (spec 04 W-exception, [P44])",
+      "note": ""
+    },
+    {
+      "key": "src/core/quarantine.ts|state.entries.splice(state.entries.indexOf(oldest), 1);|1",
+      "file": "src/core/quarantine.ts",
+      "line": 57,
+      "drops": "the oldest plan-row-rejected diagnostic ticket once the class exceeds its cap",
+      "condition": "putQuarantine pushed the cap past 100 plan-row-rejected tickets",
+      "verdict": "COUNTED",
+      "ref": "noteDataLoss('quarantine-evicted') fires at :58; specs/04-persistence.md :: 'the only W exception - diagnostic plan-row-rejected tickets: capped, oldest-first eviction recorded by quarantine-evicted' (translated), [P44] in i-quarantine-retention",
+      "note": ""
+    },
+    {
+      "key": "src/core/queryPersistence.ts|return undefined;|5",
+      "file": "src/core/queryPersistence.ts",
+      "line": 116,
+      "drops": "same event as :113 - the validate-rejected record (already removed and reported)",
+      "condition": "validate(record) threw",
+      "verdict": "CONTRACT",
+      "ref": "specs/04-persistence.md :: invalid query record removed separately and recorded in diagnostics; reported at :114",
+      "note": "terminator of the catch at :112"
+    },
+    {
+      "key": "src/core/queryPersistence.ts|continue;|2",
+      "file": "src/core/queryPersistence.ts",
+      "line": 140,
+      "drops": "one family record whose payload identity disagrees with its storage key (removed at :138)",
+      "condition": "key !== recordKey(family, record.identity)",
+      "verdict": "CONTRACT",
+      "ref": "specs/04-persistence.md :: 'identity mismatch with the storage key is corruption-class: removed with reportRejectedRecord' (translated); reported at :139, [P46]",
+      "note": ""
+    },
+    {
+      "key": "src/core/queryPersistence.ts|continue;|3",
+      "file": "src/core/queryPersistence.ts",
+      "line": 145,
+      "drops": "one family record incompatible with the declaration (family, persistenceVersion or fingerprint mismatch; removed at :143)",
+      "condition": "declaration drift between sessions",
+      "verdict": "COUNTED",
+      "ref": "noteDataLoss('query-record-fingerprint-reset') fires per removal at :144 (specs/04-persistence.md fingerprint-reset rule, [P46])",
+      "note": ""
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|endCursor: config.getCursor ? config.getCursor(connection!) : backward ? (info.startCursor ?? null) : (info.endCursor ?? null),|1",
+      "file": "src/dsl/defineQuery.ts",
+      "line": 242,
+      "drops": "nothing",
+      "condition": "directional or declared cursor is missing on a landed page",
+      "verdict": "CONTRACT",
+      "ref": "specs/08 F44: hasNextPage with a nullish cursor throws a landing error 2 lines below; a nullish cursor is stored only for an exhausted chain",
+      "note": "malformed shapes are refused before the page commits"
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|} catch (error) {|3",
+      "file": "src/dsl/defineQuery.ts",
+      "line": 464,
+      "drops": "nothing",
+      "condition": "persisted record scope cannot be normalized or keyed during family invalidation",
+      "verdict": "CONTRACT",
+      "ref": "specs/08 F45: a matcher throw is a MATCH - the record is invalidated and reported via reportSyncError",
+      "note": "malformed persisted scopes cannot dodge family invalidation"
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|const rows = (meta?.ids ?? []).flatMap(id => {|1",
+      "file": "src/dsl/defineQuery.ts",
+      "line": 629,
+      "drops": "nothing",
+      "condition": "a landed chain id points at a row destroyed since the landing, or no chain meta exists",
+      "verdict": "CONTRACT",
+      "ref": "specs/08 F46: imperative read() returns survivors only - a dead id is skipped, an undefined hole is forbidden; absent meta reads as empty",
+      "note": "the loss court rewrites the chain itself once the in-flight fetch settles"
+    },
+    {
+      "key": "src/dsl/facadeRemoteQueries.ts|: (value.edges ?? []).flatMap((edge: { node?: unknown } | null | undefined) => (edge?.node == null ? [] : [edge.node]));|1",
+      "file": "src/dsl/facadeRemoteQueries.ts",
+      "line": 102,
+      "drops": "nothing",
+      "condition": "connection payload is non-null but carries no nodes/edges arrays, or edges hold null holes",
+      "verdict": "CONTRACT",
+      "ref": "specs/08 F47: a nullish connection payload is refused above; a present connection without node arrays is an empty page still vetted by the pageInfo landing gate",
+      "note": "dense-node normalization drops null edge holes only"
+    },
+    {
+      "key": "src/core/fetch/fetchReaderRegistry.ts|if (event.query.state.status !== 'error') return;|1",
+      "file": "src/core/fetch/fetchReaderRegistry.ts",
+      "line": 60,
+      "drops": "nothing",
+      "condition": "pending rejudge dropped after a SUCCESSFUL settle",
+      "verdict": "CONTRACT",
+      "ref": "specs/08-freshness-pacing.md :: 'successful landing re-establishes the chain itself; re-judge after success is forbidden as an extra pass' (translated)",
+      "note": "coordinator convergence fix"
     }
   ]
 }

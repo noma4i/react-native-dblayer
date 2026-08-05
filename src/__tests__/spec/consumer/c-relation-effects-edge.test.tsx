@@ -9,7 +9,7 @@ import {
   hasMany,
   type WriteOp
 } from '../../testApi';
-import { setupSpecRuntime } from '../helpers/harness';
+import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 /**
  * In-batch relation effect edge contracts (mutation-audit survivors of deriveEffects): counter
@@ -232,5 +232,63 @@ describe('relation effect in-batch edges', () => {
     parents.destroy('ghost');
 
     expect(children.find('orphan-1')).toMatchObject({ parentId: 'ghost' });
+  });
+});
+
+describe('relation effect drop observability', () => {
+  it('[RE40] skips a counter op aimed at a non-resident parent and counts the drop', () => {
+    setupSpecRuntime();
+    const chats = defineModel('SpecEffectsChatsGhostCounter', {
+      schema: defineShape<Chat>()({ unreadCount: f.num(), lastActivityAt: f.num() })
+    });
+    const messages = defineModel('SpecEffectsMessagesGhostCounter', {
+      schema: defineShape<Message>()({ chatId: f.str(), createdAt: f.num() }),
+      associations: () => ({
+        chat: belongsTo<Message, Chat>(chats, { foreignKey: 'chatId', counterCache: { field: 'unreadCount' } })
+      })
+    });
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-ghost', createdAt: 1 }]);
+
+    expect(chats.find('chat-ghost')).toBeUndefined();
+    expect(diagnostics().snapshot().counterOpDrops).toBe(1);
+  });
+
+  it('[RE40] skips a counter op over a non-numeric base without fabricating 0', () => {
+    setupSpecRuntime();
+    type CorruptChat = { id: string; unreadCount: number | string };
+    const chats = defineModel('SpecEffectsChatsCorruptBase', {
+      schema: defineShape<CorruptChat>()({ unreadCount: f.raw<number | string>() })
+    });
+    const messages = defineModel('SpecEffectsMessagesCorruptBase', {
+      schema: defineShape<Message>()({ chatId: f.str(), createdAt: f.num() }),
+      associations: () => ({
+        chat: belongsTo<Message, CorruptChat>(chats, { foreignKey: 'chatId', counterCache: { field: 'unreadCount' } })
+      })
+    });
+    chats.insert({ id: 'chat-1', unreadCount: 'corrupt' });
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-1', createdAt: 1 }]);
+
+    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 'corrupt' });
+    expect(diagnostics().snapshot().counterOpDrops).toBe(1);
+  });
+
+  it('[RE41] counts a touch effect dropped for a non-resident parent', () => {
+    setupSpecRuntime();
+    const chats = defineModel('SpecEffectsChatsGhostTouch', {
+      schema: defineShape<Chat>()({ unreadCount: f.num(), lastActivityAt: f.num() })
+    });
+    const messages = defineModel('SpecEffectsMessagesGhostTouch', {
+      schema: defineShape<Message>()({ chatId: f.str(), createdAt: f.num() }),
+      associations: () => ({
+        chat: belongsTo<Message, Chat>(chats, {
+          foreignKey: 'chatId',
+          touch: (message, chat) => (message.createdAt > chat.lastActivityAt ? { lastActivityAt: message.createdAt } : null)
+        })
+      })
+    });
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-ghost', createdAt: 5 }]);
+
+    expect(chats.find('chat-ghost')).toBeUndefined();
+    expect(diagnostics().snapshot().nonResidentTouchDrops).toBe(1);
   });
 });

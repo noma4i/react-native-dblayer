@@ -1,5 +1,7 @@
 import type { Resetter, SyncResetter } from '../types';
 import type { StorageResetEntry } from '../types/core.persistenceInternals.types';
+/** Internal: schemaManifest injects the current-manifest entry builder at module init (cycle-free), so every sanctioned wipe re-manifests the namespace it leaves behind. */
+export declare const registerCurrentManifestEntryProvider: (provider: () => StorageResetEntry) => void;
 /**
  * Register in-memory runtime state that `resetRuntime`'s kill-switch must clear. `defineModel` calls this
  * automatically for its own planes; use it directly only for extra runtime state defined outside a model.
@@ -21,7 +23,9 @@ export declare const registerKeyedReset: <TReset extends Resetter>(key: string, 
 export declare const resetInMemoryRuntime: () => void;
 /**
  * KILL-SWITCH: full invalidation in one call. Discards pending cache snapshots, deletes every
- * persisted key under the library namespace, clears all registered in-memory state and notifies
+ * persisted key under the library namespace, restores the current persistence manifest (so writes
+ * after the reset in the same process never leave an unmanifested store for the next boot to
+ * classify as corruption), clears all registered in-memory state and notifies
  * every live subscriber. The commit bus `publishAll` is the single wake-up channel for mounted
  * readers: each one re-acquires its handle from the new generation, so the first post-reset render
  * already serves the new runtime's data without a remount. There is no partial/per-model variant -

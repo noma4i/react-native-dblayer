@@ -1,7 +1,7 @@
 import { uniqBy } from 'es-toolkit';
 import type { ApplyRuntime, CommitBus, IncrementalCommitBatch, AppliedOp, OperationTransition, StoragePlane } from '../../types';
 import { getOperationState, getRuntimeGeneration } from '../../dsl/configure';
-import { noteApplyFailure, noteCommit } from '../diagnostics';
+import { noteApplyFailure, noteCommit, noteDataLoss } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { poisonStoreReads, publishProjectedBatch, restoreStoreReads } from '../store';
 import { reportSyncError } from '../syncError';
@@ -184,6 +184,9 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
             pendingDeltaModels.delete(candidate.seq);
           }
           for (const key of storage.keys(`${options.prefix()}query`)) storage.set(key, null);
+          noteDataLoss('delta-tail-cut', '__runtime__', tail.length);
+          // The failed batch aborted atomically: the store holds the pre-delta state, reads stay alive.
+          restoreStoreReads();
           getDbLogger().error('delta replay failed, tail cut', { seq: delta.seq, error });
           reportSyncError(error, { source: 'apply' }, 'apply');
           break;

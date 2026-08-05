@@ -82,6 +82,32 @@ describe('model pure helper edges', () => {
     expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', model: 'NormalizationRowIdFallback', reason: 'plan-row-rejected' }));
   });
 
+  it('[S26] rejects reserved store-plane field names at define time', () => {
+    expect(() =>
+      createModelNormalization({
+        id: 'NormalizationReservedOrderKey',
+        name: 'NormalizationReservedOrderKey',
+        fields: { orderKey: f.str() }
+      } as never)
+    ).toThrow('NormalizationReservedOrderKey field orderKey is reserved by the store plane');
+
+    expect(() =>
+      createModelNormalization({
+        id: 'NormalizationReservedDollar',
+        name: 'NormalizationReservedDollar',
+        fields: { $key: f.str() }
+      } as never)
+    ).toThrow('NormalizationReservedDollar field $key is reserved by the store plane');
+
+    expect(() =>
+      defineModelRuntime({
+        id: 'RuntimeReservedOrderKey',
+        name: 'RuntimeReservedOrderKey',
+        fields: { orderKey: f.str() }
+      })
+    ).toThrow('RuntimeReservedOrderKey field orderKey is reserved by the store plane');
+  });
+
   it('derives scope values without re-reading stored custom fields and normalizes scalar keys', () => {
     const fields = {
       ownerId: f.id(),

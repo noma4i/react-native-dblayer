@@ -1,6 +1,6 @@
 import { configureDb, registerRelationHost, resetRuntime, registerApplyTarget, createCommitEnvelope, createApplyRuntime, createCommitBus, createModelStore, registerModelStoreFactory, defineModelRuntime, f, getApplyRuntime, getInternalScopeHandle, storeModelQuery, storeScopeCollection } from '../../testApi';
 import type { ApplyTarget, Dependency, IncrementalCommitBatch, RelationHost, StoredRow, WriteOp } from '../../testApi';
-import { createMemoryPlane, createMockTransport, setupSpecRuntime } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 /**
  * Apply-pipeline batch contracts over a mock target: entity-before-scope ordering, scope-change
@@ -385,11 +385,12 @@ describe('apply pipeline batching', () => {
     expect(mock.rows.has('row-2')).toBe(false);
   });
 
-  it('normalizes nullable, numeric-string, and nonnumeric counter bases', () => {
+  it('[RE40] skips counter ops with nullable, numeric-string, and nonnumeric bases without fabricating a base', () => {
     const { mock } = setup();
     mock.rows.set('null-row', { id: 'null-row', score: null });
     mock.rows.set('string-row', { id: 'string-row', score: '4' });
     mock.rows.set('invalid-row', { id: 'invalid-row', score: 'invalid' });
+    diagnostics().reset();
 
     const envelope = createCommitEnvelope([
       { kind: 'counter', model: MODEL, id: 'null-row', field: 'score', delta: 2 },
@@ -397,11 +398,8 @@ describe('apply pipeline batching', () => {
       { kind: 'counter', model: MODEL, id: 'invalid-row', field: 'score', delta: 5 }
     ]);
 
-    expect(envelope.entityOps).toEqual([
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'null-row', score: 2 }] },
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'string-row', score: 7 }] },
-      { kind: 'upsert', model: MODEL, rows: [{ id: 'invalid-row', score: 5 }] }
-    ]);
+    expect(envelope.entityOps).toEqual([]);
+    expect(diagnostics().snapshot().counterOpDrops).toBe(3);
   });
 
   it('rejects a prepared upsert without a string id', () => {

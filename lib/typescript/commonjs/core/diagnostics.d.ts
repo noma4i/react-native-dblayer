@@ -19,6 +19,20 @@ export declare const noteReplaceRejected: () => void;
 export declare const noteApplyFailure: () => void;
 /** Count payloads kept in the quarantine instead of being dropped. */
 export declare const noteQuarantinePut: () => void;
+/** Count landings gated out by a live tombstone - the discriminator for vanished-window defects. */
+export declare const noteTombstoneWriteDrop: () => void;
+/** Count query chains shrunk by materialization loss while survivors remain. */
+export declare const noteChainSurvivorShrink: () => void;
+/** Count scope members whose entity row is absent at read time - must stay 0 after boot fsck. */
+export declare const noteMembershipMissingEntity: (count: number) => void;
+/** Count counter ops skipped for a non-resident parent or non-numeric base. */
+export declare const noteCounterOpDrop: () => void;
+/** Count touch effects dropped because the parent row is not resident in the plan. */
+export declare const noteNonResidentTouchDrop: () => void;
+/** Count terminal ledger acks aimed at an unknown or already-closed operation. */
+export declare const noteUnknownOperationAck: () => void;
+/** Count rows or fields evicted by causal admission (stale baseRevision against newer committed state). */
+export declare const noteCausalAdmissionDrop: () => void;
 /** Append a bounded, inspectable record whenever a row, membership, guard, or operation is discarded. */
 export declare const noteDataLoss: (mechanism: DataLossMechanism, model: string, count: number) => void;
 //# sourceMappingURL=diagnostics.d.ts.map

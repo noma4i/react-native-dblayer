@@ -1,4 +1,4 @@
-import { defineModelRuntime, f } from '../../testApi';
+import { defineModelRuntime, f, getInternalScopeHandle } from '../../testApi';
 import { diagnostics, setupSpecRuntime } from '../helpers/harness';
 
 type Row = { id: string; bucket: string; rank: number };
@@ -100,5 +100,19 @@ describe('scope planning loss reporting', () => {
 
     expect(lossEvents()).toEqual([{ mechanism: 'scope-complete-detach', model: model.modelId, count: 1 }]);
     expect(model.scopes.feed.read({ bucket: 'b' }).map(row => row.id)).toEqual(['b-1']);
+  });
+
+  it('[W40] counts a scope landing gated by a live tombstone at the plan and seed seams', () => {
+    const model = build();
+    model.scopes.feed.seed({ bucket: 'a' }, [{ id: 'r-1', bucket: 'a', rank: 1 }]);
+    model.destroy('r-1');
+    diagnostics().reset();
+
+    getInternalScopeHandle(model.scopes.feed).apply({ bucket: 'a' }, [{ id: 'r-1', bucket: 'a', rank: 1 }], 'complete');
+    expect(diagnostics().snapshot().tombstoneWriteDrops).toBe(1);
+
+    model.scopes.feed.seed({ bucket: 'a' }, [{ id: 'r-1', bucket: 'a', rank: 1 }]);
+    expect(diagnostics().snapshot().tombstoneWriteDrops).toBe(2);
+    expect(model.scopes.feed.read({ bucket: 'a' })).toEqual([]);
   });
 });

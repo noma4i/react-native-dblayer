@@ -1,5 +1,6 @@
 import type { AcceptedRow, CommitEnvelope, DestroyedRow, AppliedOp, OperationTransition, StoredRow, WriteOp } from '../../types';
 import { getRuntimeGeneration } from '../../dsl/configure';
+import { noteCounterOpDrop } from '../diagnostics';
 import { deduplicateScopeEntriesById } from '../planes/scopeIndex';
 import { deriveEffects } from '../relations';
 import { compositeKey } from '../serialize';
@@ -78,10 +79,16 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
     if (op.kind === 'counter') {
       const counterId = String(op.id);
       const previous = readPlannedRow(overlay, op.model, counterId);
-      if (!previous) continue;
+      if (!previous) {
+        noteCounterOpDrop();
+        continue;
+      }
       const value = previous[op.field];
-      const numeric = typeof value === 'number' ? value : value == null ? 0 : Number(value);
-      const prepared = target.preparePatch(counterId, { [op.field]: (Number.isFinite(numeric) ? numeric : 0) + op.delta }, previous);
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        noteCounterOpDrop();
+        continue;
+      }
+      const prepared = target.preparePatch(counterId, { [op.field]: value + op.delta }, previous);
       if (!prepared || (prepared.changedFields !== null && prepared.changedFields.length === 0)) continue;
       const id = String(prepared.row.id);
       writePlannedRow(overlay, op.model, id, prepared.row);

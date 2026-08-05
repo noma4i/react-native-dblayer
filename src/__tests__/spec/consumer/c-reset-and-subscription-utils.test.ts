@@ -20,7 +20,9 @@ describe('resetRuntime logout wipe', () => {
 
     resetRuntime();
 
-    expect(storage.keys('')).toEqual([]);
+    // The sanctioned wipe restores the current manifest in the same reset intent (spec 04):
+    // a configured runtime never leaves an unmanifested namespace behind.
+    expect(storage.keys('')).toEqual(['dbl:manifest']);
     expect(rows.find('row-1')).toBeUndefined();
     expect(rows.find('row-2')).toBeUndefined();
   });

@@ -81,6 +81,13 @@ describe('read diagnostics', () => {
       manifestResets: 0,
       applyFailure: 0,
       quarantinePuts: 0,
+      tombstoneWriteDrops: 0,
+      chainSurvivorShrinks: 0,
+      membershipMissingEntity: 0,
+      counterOpDrops: 0,
+      nonResidentTouchDrops: 0,
+      unknownOperationAcks: 0,
+      causalAdmissionDrops: 0,
       dataLossEvents: []
     });
   });

@@ -2,7 +2,7 @@ import { isUndefined, omitBy } from 'es-toolkit';
 import type { OperationRecord, OperationState, OperationTransition, StoragePlane, PersistedOperationState } from '../../types';
 import type { LedgerSalvage } from '../../types/core.quarantine.types';
 import { compositeKey } from '../serialize';
-import { noteCorruptionLedgerReset } from '../diagnostics';
+import { noteCorruptionLedgerReset, noteDataLoss, noteUnknownOperationAck } from '../diagnostics';
 import { getDbLogger } from '../logger';
 import { decodePersistence, decodeSupportedPersistence, encodePersistence, jsonRoundTrip, PERSISTENCE_SCHEMA_VERSION } from '../persistenceCodec';
 import { putQuarantine } from '../quarantine';
@@ -94,7 +94,13 @@ const salvageLedgerValue = (raw: string): LedgerSalvage => {
     if (isOperationRecord(record) && record.operationId === operationId) operations[operationId] = record;
     else quarantined.push({ id: operationId, raw: record, reason: staleVersion ? 'stale-record-version' : 'invalid-operation-record' });
   }
-  const committedKeys = versioned && Array.isArray(value.committedKeys) ? value.committedKeys.filter(isNonEmptyString) : [];
+  const committedList = Array.isArray(value.committedKeys) ? value.committedKeys : undefined;
+  if (versioned && !staleVersion) {
+    // Malformed committedKeys on the matched version is corruption: the leg is quarantined, never defaulted away.
+    if (committedList === undefined) quarantined.push({ id: 'ops-once', raw: value.committedKeys ?? null, reason: 'corrupt-once-keys' });
+    else for (const entry of committedList) if (!isNonEmptyString(entry)) quarantined.push({ id: 'ops-once', raw: entry, reason: 'corrupt-once-keys' });
+  }
+  const committedKeys = versioned && committedList ? committedList.filter(isNonEmptyString) : [];
   return { kind: 'salvaged', operations, committedKeys, quarantined, rewrite: staleVersion || !versioned || quarantined.length > 0 };
 };
 
@@ -222,7 +228,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
   };
   /** The same pair applied to every record: a projection rebuilt here can never disagree with one maintained incrementally. */
   const rebuildIndexes = (): void => {
-    committedKeys.clear();
+    // committedKeys stays: standalone once-keys from the previous placement have no backing record (spec 06 rule 5).
     pendingKeys.clear();
     opsByRowKey.clear();
     pendingPatchCount = 0;
@@ -302,7 +308,10 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     },
     close: (operationId, status) => {
       const operation = operations.get(operationId);
-      if (!operation || operation.status !== 'pending') return;
+      if (!operation || operation.status !== 'pending') {
+        noteUnknownOperationAck();
+        return;
+      }
       hydratedPendingIds.delete(operationId);
       const retainKey = status === 'committed' && operation.once === true;
       const record: OperationRecord = { ...operation, status, idempotencyKey: retainKey ? operation.idempotencyKey : undefined };
@@ -455,6 +464,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
     },
     hydrate: () => {
       operations.clear();
+      committedKeys.clear();
       hydratedPendingIds.clear();
       const rawOps = storage.get(opsKey());
       let rewriteSalvaged = false;
@@ -478,6 +488,7 @@ export const createOperationState = (options: { storage: StoragePlane; prefix: (
             const model = isNonArrayRecord(entry.raw) && isNonEmptyString(entry.raw.model) ? entry.raw.model : '__operations__';
             putQuarantine({ kind: 'operation', model, id: entry.id, raw: entry.raw, reason: entry.reason });
           }
+          noteDataLoss('corrupt-once-keys', '__operations__', salvage.quarantined.filter(entry => entry.reason === 'corrupt-once-keys').length);
           rewriteSalvaged = salvage.rewrite;
         }
       }

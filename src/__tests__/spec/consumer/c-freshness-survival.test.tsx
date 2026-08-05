@@ -202,11 +202,12 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     expect(rows.find('server-1')).toBeTruthy();
     expect(rows.find('row-2')).toBeTruthy();
     // The rewritten chain now anchors on the successor: destroying the untouched sibling must
-    // NOT empty the chain - a chain that still held the dead old id would go empty and refetch.
+    // shrink the chain to the survivor - a chain that still held the dead old id would go empty
+    // and refetch immediately without counting a survivor shrink.
+    const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
     act(() => rows.destroy('row-2'));
-    act(() => root.update(React.createElement(Root, { mounted: false })));
-    act(() => root.update(React.createElement(Root, { mounted: true })));
     await settle();
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore + 1);
     expect(calls).toBe(1);
     act(() => root.unmount());
   });
@@ -288,7 +289,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
-  it('stays fresh on remount while at least one committed row survives', async () => {
+  it('[F40] stales a partially emptied chain and counts the survivor shrink', async () => {
     let calls = 0;
     configureDb({
       storage: createMemoryPlane(),
@@ -299,8 +300,8 @@ describe('freshness follows committed-row survival and foreground resume', () =>
         }
       })
     });
-    const rows = createRowsModel('FreshnessPartialSurvival');
-    const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-partial-survival', select: data => data.rows, staleTime: Infinity });
+    const rows = createRowsModel('FreshnessPartialShrink');
+    const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-partial-shrink', select: data => data.rows, staleTime: Infinity });
     const Reader = () => {
       query.use(undefined);
       return null;
@@ -312,13 +313,69 @@ describe('freshness follows committed-row survival and foreground resume', () =>
       root = TestRenderer.create(React.createElement(Root, { mounted: true }));
     });
     await settle();
+    expect(calls).toBe(1);
+    const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
     act(() => rows.destroy('a'));
+    await settle();
+
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore + 1);
+    expect(rows.find('b')).toBeTruthy();
+    // The reduced result lost its freshness stamp: a remount refetches instead of trusting it.
     act(() => root.update(React.createElement(Root, { mounted: false })));
     act(() => root.update(React.createElement(Root, { mounted: true })));
     await settle();
+    expect(calls).toBe(2);
+    act(() => root.unmount());
+  });
 
+  it('[F41] re-judges a loss skipped mid-fetch after that fetch fails', async () => {
+    jest.useFakeTimers();
+    let calls = 0;
+    let failNext = false;
+    const rejects: Array<(error: Error) => void> = [];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          if (failNext) return new Promise<{ data: TData }>((_resolve, reject) => rejects.push(reject));
+          return { data: { rows: [{ id: 'kept', name: 'Kept', group: null }, { id: 'doomed', name: 'Doomed', group: null }] } as TData };
+        }
+      }),
+      defaults: { resumeStaleTime: 50 }
+    });
+    const rows = createRowsModel('FreshnessRejudgeFailedFetch');
+    const query = rows.query<Response, void, void, Row>('list', { document, key: 'freshness-rejudge-failed-fetch', select: data => data.rows, staleTime: Infinity });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
     expect(calls).toBe(1);
-    expect(rows.find('b')).toBeTruthy();
+    const shrinksBefore = diagnostics().snapshot().chainSurvivorShrinks;
+    failNext = true;
+    act(() => {
+      jest.advanceTimersByTime(51);
+      appStateHandler?.('background');
+      appStateHandler?.('active');
+    });
+    await settle();
+    expect(calls).toBe(2);
+    // Loss lands while the refetch is in flight: judgment is deferred, not dropped.
+    act(() => rows.destroy('doomed'));
+    await settle();
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore);
+
+    act(() => {
+      rejects.splice(0).forEach(reject => reject(new Error('network down')));
+    });
+    await settle();
+    expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore + 1);
     act(() => root.unmount());
   });
 

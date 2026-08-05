@@ -62,20 +62,17 @@ let storeTransactionCompletions: Array<() => void> = [];
  */
 export const runInStoreTransaction = <T>(run: () => T): T => {
   if (storeTransactionDepth > 0) return run();
-  let result!: T;
   storeTransactionDepth = 1;
   try {
-    result = run();
-  } catch (error) {
-    storeTransactionCompletions = [];
-    throw error;
+    return run();
   } finally {
+    // Completions drain on failure too: collection feeds already committed their writes, and a
+    // dropped completion would leave the batcher latch armed, silently eating every later delta.
     storeTransactionDepth = 0;
+    const completions = storeTransactionCompletions;
+    storeTransactionCompletions = [];
+    for (const complete of completions) complete();
   }
-  const completions = storeTransactionCompletions;
-  storeTransactionCompletions = [];
-  for (const complete of completions) complete();
-  return result;
 };
 
 export const isInStoreTransaction = (): boolean => storeTransactionDepth > 0;

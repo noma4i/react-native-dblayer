@@ -159,6 +159,28 @@ describe('associations', () => {
     ).toThrow('static find collides with the model surface');
   });
 
+  it('[S25] rejects a relation name that collides with the owner surface at define time', () => {
+    expect(() =>
+      defineModel('SpecRelationCollisionOwner', {
+        schema: UserSchema,
+        relations: () => ({
+          find: { by: { username: 'username' } }
+        })
+      })
+    ).toThrow('relation find collides with the model surface');
+  });
+
+  it('[S25] rejects a relation name that collides with the core surface at define time', () => {
+    expect(() =>
+      defineModel('SpecRelationCollisionCore', {
+        schema: UserSchema,
+        relations: () => ({
+          insert: { by: { username: 'username' } }
+        })
+      })
+    ).toThrow('relation insert collides with the model surface');
+  });
+
   it('resolves every lazy target read and rejects an unregistered target', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const User = defineModel('SpecLazyTargetReads', {

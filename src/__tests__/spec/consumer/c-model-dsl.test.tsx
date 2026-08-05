@@ -358,7 +358,7 @@ describe('model surface', () => {
     expect(relation.read().map(row => row.body)).toEqual(['FIRST', 'SECOND']);
   });
 
-  it('keeps a null remote list empty', async () => {
+  it('refuses a null remote list and keeps the sibling declaration landing', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => ({
         data: { catalog: [{ id: 'plain-1', chatId: 'chat-1', body: 'plain', status: 'sent' }] } as TData
@@ -383,7 +383,7 @@ describe('model surface', () => {
       })
     });
 
-    await Message.catalog({}).fetch();
+    await expect(Message.catalog({}).fetch()).rejects.toThrow('nullish list payload');
     await Message.plain({}).fetch();
 
     expect(Message.catalog({}).read()).toEqual([]);

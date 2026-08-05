@@ -1,6 +1,6 @@
 import { bootDb, compositeStorageKey, configureDb, encodePersistence, resetRuntime, type QueryPersistenceRecord, type StoragePlane } from '../../testApi';
 import { invalidatePersistedQuery, readPersistedQuery, readPersistedQueryFamily, removePersistedQuery, writePersistedQuery } from '../../testApi';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 const declaration = {
   family: 'query-persistence-contract',
@@ -217,6 +217,41 @@ describe('query persistence records', () => {
       })
     ).toBe(false);
     expect(onSyncError).toHaveBeenCalledTimes(2);
+  });
+
+  it('[P46] counts fingerprint-class removals, reports identity-key mismatch as corruption, keeps stale-version silent', () => {
+    const onSyncError = jest.fn();
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport(), defaults: { onSyncError } });
+    diagnostics().reset();
+    const fingerprintResets = () => diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'query-record-fingerprint-reset').length;
+    const validate = (value: QueryPersistenceRecord) => ({ payload: value.payload as string, scope: null });
+
+    // Exact read, fingerprint mismatch: counted removal, no corruption report.
+    storage.set(keyOf(), encodePersistence(record({ fingerprint: 'moved' })));
+    expect(readPersistedQuery(declaration, 'identity', validate)).toBeUndefined();
+    expect(fingerprintResets()).toBe(1);
+    expect(onSyncError).not.toHaveBeenCalled();
+
+    // Exact read, identity-vs-key mismatch: corruption class, not a fingerprint reset.
+    storage.set(keyOf(), encodePersistence(record({ identity: 'foreign' })));
+    expect(readPersistedQuery(declaration, 'identity', validate)).toBeUndefined();
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect(fingerprintResets()).toBe(1);
+
+    // Family read: family and persistenceVersion mismatches count per removal, stale-version stays silent.
+    storage.set(keyOf(declaration.family, 'a'), encodePersistence(record({ identity: 'a', family: 'other-family' })));
+    storage.set(keyOf(declaration.family, 'b'), encodePersistence(record({ identity: 'b', persistenceVersion: 9 })));
+    storage.set(keyOf(declaration.family, 'c'), encodePersistence({ ...(record({ identity: 'c' }) as Record<string, unknown>), recordVersion: 1 }));
+    expect(readPersistedQueryFamily(declaration)).toEqual([]);
+    expect(fingerprintResets()).toBe(3);
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+
+    // Family read, identity-vs-key mismatch: corruption class.
+    storage.set(keyOf(declaration.family, 'physical'), encodePersistence(record({ identity: 'declared' })));
+    expect(readPersistedQueryFamily(declaration)).toEqual([]);
+    expect(onSyncError).toHaveBeenCalledTimes(2);
+    expect(fingerprintResets()).toBe(3);
   });
 
   it('[P23] invalidates every accepted family record with one physical write', () => {

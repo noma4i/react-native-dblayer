@@ -107,17 +107,110 @@ describe('page metadata follows the declared direction', () => {
     reader.unmount();
   });
 
-  it('treats an absent pageInfo as exhaustion in both directions', async () => {
-    const forward = setup('forward', undefined);
-    const forwardReader = renderCountedInProvider(() => forward.query.use({ bucket: 'main' }));
-    await settle();
-    expect(forwardReader.result().hasNextPage).toBe(false);
-    forwardReader.unmount();
+});
 
-    const backward = setup('backward', undefined);
-    const backwardReader = renderCountedInProvider(() => backward.query.use({ bucket: 'main' }));
+/**
+ * A malformed connection response cannot move the chain: a page without applicable pageInfo, a page
+ * claiming a next page without a cursor, and a nullish payload are landing errors. The accumulated
+ * chain and its memberships stay intact and the failure is reported, never silent exhaustion.
+ */
+describe('malformed connection landings', () => {
+  let suffix = 0;
+  const setupChain = (secondPage: { nodes: Row[]; pageInfo?: PageInfo } | null) => {
+    const onSyncError = jest.fn();
+    const calls: Array<Record<string, unknown>> = [];
+    const responses: Array<{ nodes: Row[]; pageInfo?: PageInfo } | null> = [
+      { nodes: [{ id: 'row-1', bucket: 'main', label: 'page-1' }], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } },
+      secondPage,
+      { nodes: [{ id: 'row-3', bucket: 'main', label: 'page-3' }], pageInfo: { hasNextPage: false, endCursor: null } }
+    ];
+    let served = 0;
+    const transport = createMockTransport({
+      query: async <TData, TVariables>(operation: { variables?: TVariables }) => {
+        calls.push((operation.variables ?? {}) as Record<string, unknown>);
+        const response = responses[Math.min(served, responses.length - 1)]!;
+        served += 1;
+        return { data: { page: response } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport, defaults: { onSyncError } });
+    const modelId = `SpecMalformedLanding${++suffix}`;
+    const rows = defineModelRuntime({
+      id: modelId,
+      name: modelId,
+      fields: { bucket: f.str(), label: f.str() },
+      scopes: { bucket: ({ by: { bucket: 'bucket' }, sort: 'server-order' }) }
+    });
+    const query = rows.query<{ page: { nodes: Row[]; pageInfo?: PageInfo } | null }, { bucket: string }, { bucket: string }, Row>('bucket', {
+      document,
+      vars: scope => ({ bucket: scope.bucket }),
+      page: data => data.page as { nodes: Row[]; pageInfo?: PageInfo },
+      into: rows.scopes.bucket,
+      direction: 'forward',
+      coverage: 'page'
+    });
+    return { calls, query, onSyncError };
+  };
+
+  it('[F44] keeps the accumulated chain when a next page lands without usable pageInfo', async () => {
+    const { calls, query, onSyncError } = setupChain({ nodes: [{ id: 'row-2', bucket: 'main', label: 'page-2' }] });
+    const reader = renderCountedInProvider(() => query.use({ bucket: 'main' }));
     await settle();
-    expect(backwardReader.result().hasNextPage).toBe(false);
-    backwardReader.unmount();
+    expect((reader.result().data as Row[]).map(row => row.id)).toEqual(['row-1']);
+
+    await act(async () => {
+      reader.result().fetchNextPage();
+      await settle();
+    });
+
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: expect.stringContaining('pageInfo') });
+    expect((reader.result().data as Row[]).map(row => row.id)).toEqual(['row-1']);
+    expect(reader.result().hasNextPage).toBe(true);
+
+    await act(async () => {
+      reader.result().fetchNextPage();
+      await settle();
+    });
+
+    expect(calls[2]).toEqual({ bucket: 'main', after: 'cursor-1' });
+    expect((reader.result().data as Row[]).map(row => row.id)).toEqual(['row-1', 'row-3']);
+    reader.unmount();
+  });
+
+  it('[F44] keeps the accumulated chain when a next page claims hasNextPage without a cursor', async () => {
+    const { query, onSyncError } = setupChain({
+      nodes: [{ id: 'row-2', bucket: 'main', label: 'page-2' }],
+      pageInfo: { hasNextPage: true, endCursor: null }
+    });
+    const reader = renderCountedInProvider(() => query.use({ bucket: 'main' }));
+    await settle();
+
+    await act(async () => {
+      reader.result().fetchNextPage();
+      await settle();
+    });
+
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: expect.stringContaining('cursor') });
+    expect((reader.result().data as Row[]).map(row => row.id)).toEqual(['row-1']);
+    expect(reader.result().hasNextPage).toBe(true);
+    reader.unmount();
+  });
+
+  it('[F44] keeps the accumulated chain when a next page lands as a nullish payload', async () => {
+    const { query, onSyncError } = setupChain(null);
+    const reader = renderCountedInProvider(() => query.use({ bucket: 'main' }));
+    await settle();
+
+    await act(async () => {
+      reader.result().fetchNextPage();
+      await settle();
+    });
+
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect((reader.result().data as Row[]).map(row => row.id)).toEqual(['row-1']);
+    expect(reader.result().hasNextPage).toBe(true);
+    reader.unmount();
   });
 });

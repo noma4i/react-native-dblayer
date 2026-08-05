@@ -487,6 +487,65 @@ describe('hydrate key retention', () => {
     expect(diagnostics().snapshot().quarantinePuts).toBe(1);
   });
 
+  it('[P42] quarantines a non-array committedKeys leg with a loss counter instead of defaulting to empty', () => {
+    const { storage } = setup();
+    storage.set(`${PREFIX}ops`, encodePersistence({ recordVersion: 2, operations: {}, committedKeys: 'garbage' }));
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+
+    fresh.hydrate();
+
+    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ model: '__operations__', reason: 'corrupt-once-keys', raw: 'garbage' }));
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-once-keys', model: '__operations__', count: 1 });
+  });
+
+  it('[P42] quarantines each malformed committedKeys entry, keeps valid siblings, and rewrites clean', () => {
+    const { storage } = setup();
+    storage.set(`${PREFIX}ops`, encodePersistence({ recordVersion: 2, operations: {}, committedKeys: ['keep-key', 7, ''] }));
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+
+    fresh.hydrate();
+
+    expect(fresh.hasCommitted('keep-key')).toBe(true);
+    expect(readQuarantineEntries().filter(entry => entry.reason === 'corrupt-once-keys')).toHaveLength(2);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'corrupt-once-keys', model: '__operations__', count: 2 });
+    // The salvaged state is rewritten clean: a second hydrate quarantines nothing new.
+    const puts = diagnostics().snapshot().quarantinePuts;
+    const again = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    again.hydrate();
+    expect(again.hasCommitted('keep-key')).toBe(true);
+    expect(diagnostics().snapshot().quarantinePuts).toBe(puts);
+  });
+
+  it('[OP40] counts a terminal ack aimed at an unknown or already-closed operation', () => {
+    const { state } = setup();
+    state.close('ghost-operation', 'committed');
+    expect(diagnostics().snapshot().unknownOperationAcks).toBe(1);
+
+    state.begin(baseRecord('op-1'));
+    state.close('op-1', 'committed');
+    state.close('op-1', 'failed');
+
+    expect(state.get('op-1')?.status).toBe('committed');
+    expect(diagnostics().snapshot().unknownOperationAcks).toBe(2);
+  });
+
+  it('[OP41] keeps standalone once-keys through an index rebuild and the persist that follows it', () => {
+    const { storage, state } = setup();
+    state.begin(baseRecord('op-x'));
+    storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: ['carried-once'] }));
+    const fresh = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    fresh.hydrate();
+    expect(fresh.hasCommitted('carried-once')).toBe(true);
+
+    // remove() runs the full index rebuild, then persists the ledger envelope.
+    fresh.remove('op-x');
+
+    expect(fresh.hasCommitted('carried-once')).toBe(true);
+    const again = createOperationState({ storage, prefix: () => PREFIX, now: () => 1000 });
+    again.hydrate();
+    expect(again.hasCommitted('carried-once')).toBe(true);
+  });
+
   it('writes null persist entries once the ledger empties so stale storage keys clear', () => {
     const { state } = setup();
     state.begin(baseRecord('op-1'));

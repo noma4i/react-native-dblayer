@@ -113,6 +113,7 @@ export const defineModelFacade = <
   const compiledRelations = compileRemoteRelations<TShape>(runtime, relationDefinitions);
   const relationMethods: ModelRelationMethods<ModelStoredValue<TShape>, TRelations, ModelBuildInput<TShape>> = Object.create(null);
   for (const name of Object.keys(relationDefinitions)) {
+    if (Reflect.has(owner, name)) throw new Error(`${key}: relation ${name} collides with the model surface`);
     const method = (params: Record<string, unknown> | null) =>
       createNamedRelation(runtime, name, params, compiledRelations[name], relationDefinitions[name]?.remote?.type);
     Reflect.set(method, 'invalidate', () => compiledRelations[name]?.invalidate());
@@ -163,6 +164,9 @@ export const defineModelFacade = <
     actions,
     events
   };
+  for (const name of Object.keys(relationDefinitions)) {
+    if (name in base) throw new Error(`${key}: relation ${name} collides with the model surface`);
+  }
   const modelBase: ModelFacadeBase<ModelStoredValue<TShape>, ModelBuildInput<TShape>, TRelations, TActions, TEvents, TAssociations, TKey> = Object.assign(
     base,
     relationMethods,

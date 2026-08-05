@@ -48,8 +48,6 @@ export type ModelEventLifecycle = {
   setActive(active: boolean): void;
   /** Read the runtime-wide active flag. */
   isActive(): boolean;
-  /** Manually inject a payload into the transport event pipeline. */
-  dispatch(key: string, payload: unknown): void;
   /** Inspect runtime counters for every registered entry. */
   inspect(): ModelEventLifecycleInspectRow[];
   /** Final teardown for transport subscriptions and pending debounce/retry timers. */
@@ -74,7 +72,6 @@ export type SubscriptionEntryState = {
 /** One lifecycle runtime: entries plus activation state and the generation fence. */
 export type SubscriptionLifecycleContext = {
   states: SubscriptionEntryState[];
-  byKey: Map<string, SubscriptionEntryState>;
   active: boolean;
   activationEpoch: number;
   generationFence: { isCurrent(): boolean; captureNow(): void };

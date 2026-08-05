@@ -10,6 +10,19 @@ const resetters = new Set<Resetter>();
 const keyedResetters = new Map<string, Resetter>();
 const resetIntentKey = (prefix: string): string => `${prefix}reset-intent`;
 
+let currentManifestEntryProvider: (() => StorageResetEntry) | undefined;
+
+/** Internal: schemaManifest injects the current-manifest entry builder at module init (cycle-free), so every sanctioned wipe re-manifests the namespace it leaves behind. */
+export const registerCurrentManifestEntryProvider = (provider: () => StorageResetEntry): void => {
+  currentManifestEntryProvider = provider;
+};
+
+const withCurrentManifest = (restore: readonly StorageResetEntry[]): readonly StorageResetEntry[] => {
+  if (currentManifestEntryProvider === undefined) return restore;
+  const manifestEntry = currentManifestEntryProvider();
+  return restore.some(entry => entry.key === manifestEntry.key) ? restore : [...restore, manifestEntry];
+};
+
 const STORAGE_RESET_INTENT_VERSION = 1;
 
 const isStorageResetIntent = (value: unknown): value is StorageResetIntent =>
@@ -80,6 +93,7 @@ export const resetInMemoryRuntime = (): void => {
 
 const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void => {
   if (!isDbConfigured()) return;
+  const fullRestore = withCurrentManifest(restore);
   const discardedOpenOperations = getOperationState().open().length;
   advanceRuntimeGeneration();
   const resetErrors: unknown[] = [];
@@ -98,7 +112,7 @@ const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void =
       intentKey,
       encodePersistence<StorageResetIntent>({
         recordVersion: STORAGE_RESET_INTENT_VERSION,
-        restore: restore.map(entry => ({ ...entry }))
+        restore: fullRestore.map(entry => ({ ...entry }))
       })
     );
   } catch (error) {
@@ -122,7 +136,7 @@ const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void =
     resetErrors.push(error);
   }
   if (finalStorageClearSucceeded) {
-    for (const entry of restore) {
+    for (const entry of fullRestore) {
       try {
         storage.set(entry.key, entry.value);
       } catch (error) {
@@ -141,7 +155,9 @@ const resetRuntimeWithRecovery = (restore: readonly StorageResetEntry[]): void =
 
 /**
  * KILL-SWITCH: full invalidation in one call. Discards pending cache snapshots, deletes every
- * persisted key under the library namespace, clears all registered in-memory state and notifies
+ * persisted key under the library namespace, restores the current persistence manifest (so writes
+ * after the reset in the same process never leave an unmanifested store for the next boot to
+ * classify as corruption), clears all registered in-memory state and notifies
  * every live subscriber. The commit bus `publishAll` is the single wake-up channel for mounted
  * readers: each one re-acquires its handle from the new generation, so the first post-reset render
  * already serves the new runtime's data without a remount. There is no partial/per-model variant -

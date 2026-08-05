@@ -11,6 +11,7 @@ import type {
   RelationSpec,
   ScopeQueryHandle
 } from '../types';
+import { reportSyncError } from '../core/syncError';
 
 /**
  * The remote half of a declared relation becomes a query handle here. Each declaration kind knows
@@ -29,6 +30,9 @@ export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
   return Object.fromEntries(
     Object.entries(relations).map(([name, definition]) => {
       const remote = definition.remote;
+      // A nullish list/connection payload is not an empty list: refusing the landing here keeps
+      // the existing memberships and the accumulated chain untouched.
+      const refusedLanding = (message: string): Error => reportSyncError(new Error(message), { source: 'query', model: runtime.modelId, key: name }, 'compileRemoteRelations');
       const query = remote
         ? remote.type === 'single'
           ? (() => {
@@ -61,7 +65,11 @@ export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
                 return runtime.query(name, {
                   document: list.document,
                   vars: list.variables,
-                  select: (data: unknown) => (list.select(data) ?? []).flatMap(node => (node == null ? [] : [list.map ? list.map(node) : node])),
+                  select: (data: unknown) => {
+                    const value = list.select(data);
+                    if (value == null) throw refusedLanding('react-native-dblayer: relation landing refused - nullish list payload');
+                    return value.flatMap((node: unknown) => (node == null ? [] : [list.map ? list.map(node) : node]));
+                  },
                   write: write
                     ? ({ data, nodes, scope }, plan) =>
                         write({
@@ -88,13 +96,14 @@ export const compileRemoteRelations = <TShape extends DbShape<any, AnyFields>>(
                   vars: connection.variables,
                   page: (data: unknown): RelationCursorPage => {
                     const value = connection.connection(data);
-                    const nodes = value?.nodes
+                    if (value == null) throw refusedLanding('react-native-dblayer: relation landing refused - nullish connection payload');
+                    const nodes = value.nodes
                       ? [...value.nodes].filter((node: unknown) => node != null)
-                      : (value?.edges ?? []).flatMap((edge: { node?: unknown } | null | undefined) => (edge?.node == null ? [] : [edge.node]));
+                      : (value.edges ?? []).flatMap((edge: { node?: unknown } | null | undefined) => (edge?.node == null ? [] : [edge.node]));
                     return {
                       nodes: connection.map ? nodes.map((node: unknown) => connection.map!(node)) : nodes,
-                      pageInfo: value?.pageInfo,
-                      relationCursor: value && connection.cursor ? connection.cursor(data, value) : undefined
+                      pageInfo: value.pageInfo,
+                      relationCursor: connection.cursor ? connection.cursor(data, value) : undefined
                     };
                   },
                   write: write

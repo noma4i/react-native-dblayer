@@ -1,5 +1,5 @@
 import { configureDb, defineModel, defineModelRuntime, defineShape, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState, hasMany, registerMutationCorrelator } from '../../testApi';
-import { createMemoryPlane, createMockTransport } from '../helpers/harness';
+import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 type Row = { id: string; chatId: string; body: string };
 
@@ -60,6 +60,36 @@ describe('commit-envelope planning purity', () => {
     expect(getOperationState().failedFor(rows.modelId, tempId)?.operationId).toBe('op-failed');
     getApplyRuntime().commit(createCommitEnvelope(plan));
     expect(getOperationState().failedFor(rows.modelId, tempId)).toBeUndefined();
+  });
+
+  it('[W40] counts a snapshot landing gated by a live tombstone at the model prepare seam', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineRows('TombstonePrepare');
+    rows.insert({ id: 'row-1', chatId: 'chat-1', body: 'before' });
+    rows.destroy('row-1');
+    diagnostics().reset();
+
+    getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planRows([{ id: 'row-1', chatId: 'chat-1', body: 'after' }])));
+
+    expect(rows.find('row-1')).toBeUndefined();
+    expect(diagnostics().snapshot().tombstoneWriteDrops).toBe(1);
+  });
+
+  it('[W40] counts a replace whose successor id is gated by a live tombstone', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineRows('TombstoneSuccessor');
+    rows.insert({ id: 'temp-1', chatId: 'chat-1', body: 'optimistic' });
+    rows.insert({ id: 'server-1', chatId: 'chat-1', body: 'landed' });
+    rows.destroy('server-1');
+    diagnostics().reset();
+
+    getApplyRuntime().commit(
+      createCommitEnvelope(getInternalModelHandle(rows).planReplace('temp-1', { id: 'server-1', chatId: 'chat-1', body: 'response' }))
+    );
+
+    expect(rows.find('temp-1')).toBeUndefined();
+    expect(rows.find('server-1')).toBeUndefined();
+    expect(diagnostics().snapshot().tombstoneWriteDrops).toBe(1);
   });
 
   it('rejects an invalid replacement before planning any write', () => {

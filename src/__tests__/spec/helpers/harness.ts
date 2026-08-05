@@ -147,6 +147,13 @@ export type DiagnosticsSnapshot = {
   replaceRejected: number;
   applyFailure: number;
   quarantinePuts: number;
+  tombstoneWriteDrops: number;
+  chainSurvivorShrinks: number;
+  membershipMissingEntity: number;
+  counterOpDrops: number;
+  nonResidentTouchDrops: number;
+  unknownOperationAcks: number;
+  causalAdmissionDrops: number;
   dataLossEvents: Array<{ mechanism: string; model: string; count: number }>;
 };
 

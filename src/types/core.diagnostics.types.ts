@@ -1,5 +1,4 @@
 export type DataLossMechanism =
-  | 'deferred-patch-timeout'
   | 'scope-retention-trim'
   | 'scope-complete-detach'
   | 'stale-temp-row-expiry'
@@ -7,17 +6,18 @@ export type DataLossMechanism =
   | 'corrupt-row'
   | 'corrupt-tombstones'
   | 'corrupt-scope'
-  | 'failed-input-unserializable'
   | 'data-version-migration-reset'
   | 'schema-migration-reset'
   | 'model-corruption-recovery'
-  | 'operation-ledger-corruption-reset'
-  | 'operation-ledger-stale-version-reset'
   | 'corrupt-once-keys'
   | 'replacement-rejected'
   | 'unranked-ladder-value'
   | 'user-reset-discard'
-  | 'delta-tail-cut';
+  | 'delta-tail-cut'
+  | 'query-record-fingerprint-reset'
+  | 'subscription-payload-mismatch'
+  | 'quarantine-evicted'
+  | 'maintenance-rows-trim';
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
 
@@ -41,5 +41,12 @@ export type DiagnosticsState = {
   replaceRejected: number;
   applyFailure: number;
   quarantinePuts: number;
+  tombstoneWriteDrops: number;
+  chainSurvivorShrinks: number;
+  membershipMissingEntity: number;
+  counterOpDrops: number;
+  nonResidentTouchDrops: number;
+  unknownOperationAcks: number;
+  causalAdmissionDrops: number;
   dataLossEvents: DataLossEvent[];
 };

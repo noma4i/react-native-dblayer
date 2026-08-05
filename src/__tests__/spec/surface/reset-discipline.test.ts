@@ -45,6 +45,8 @@ describe('reset discipline', () => {
     const contextModules = new Set([
       'src/core/apply/commitEnvelope.ts',
       'src/core/diagnostics.ts',
+      'src/core/fetch/fetchReaderRegistry.ts',
+      'src/core/reset.ts',
       'src/core/serialize.ts',
       'src/core/storage.ts',
       'src/core/store.ts',

@@ -22,7 +22,7 @@ describe('resetRuntime failure isolation', () => {
     try {
       expect(() => resetRuntime()).toThrow(AggregateError);
       expect(calls).toEqual(['first', 'second', 'third']);
-      expect(storage.snapshotKeys()).toEqual([]);
+      expect(storage.snapshotKeys()).toEqual(['dbl:manifest']);
     } finally {
       unregisterFirst();
       unregisterSecond();
@@ -54,7 +54,7 @@ describe('resetRuntime failure isolation', () => {
     try {
       expect(() => resetRuntime()).toThrow(AggregateError);
       expect(calls).toEqual(['first', 'second']);
-      expect(storage.snapshotKeys()).toEqual([]);
+      expect(storage.snapshotKeys()).toEqual(['dbl:manifest']);
     } finally {
       unregisterFirst();
       unregisterSecond();

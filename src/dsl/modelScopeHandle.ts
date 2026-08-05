@@ -1,6 +1,6 @@
 import type { ApplyTarget, KeepPreviousOption, ModelContext, ScopeCoverage, ScopeHandle, ScopeSpec, StoredRowShape, ProjectionOptions, WriteOp } from '../types';
 import { invalidateModel } from '../core/invalidationRegistry';
-import { noteDataLoss } from '../core/diagnostics';
+import { noteDataLoss, noteTombstoneWriteDrop } from '../core/diagnostics';
 import { registerInternalScopeHandle } from '../core/internalHandles';
 import { compositeKey } from '../core/serialize';
 import { useScopeReadCount, useScopeReadRows, useScopeReadWindowRows } from '../read/scopeReadEngine';
@@ -31,6 +31,12 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
   applyEvent(ops: WriteOp[]): void;
 }) => {
   const { planes } = options.context;
+  const dropTombstonedRows = <TEntry,>(entries: TEntry[], rowOf: (entry: TEntry) => unknown): TEntry[] =>
+    entries.filter(entry => {
+      if (!planes().entityState.isTombstoned(options.normalize(rowOf(entry)).id)) return true;
+      noteTombstoneWriteDrop();
+      return false;
+    });
   return (scopeName: string): ScopeHandle<TStored, Record<string, unknown>, TInput> => {
     const spec = options.scopes![scopeName] as ScopeSpec<TStored>;
     const planScope = (
@@ -111,7 +117,10 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
       coverage: ScopeCoverage,
       planOptions?: { resetOrder?: boolean }
     ): WriteOp[] => {
-      const liveRows = rows.filter(({ row }) => options.admitPlanRow(row) !== undefined).filter(({ row }) => !planes().entityState.isTombstoned(options.normalize(row).id));
+      const liveRows = dropTombstonedRows(
+        rows.filter(({ row }) => options.admitPlanRow(row) !== undefined),
+        ({ row }) => row
+      );
       const requestedScopeKey = options.keyForScope(scopeName, scopeValue);
       const rowOps = options.planRows(liveRows.map(({ row }) => row));
       const releasedIds = new Set(
@@ -207,10 +216,10 @@ export const createModelScopeHandle = <TStored extends { id: string } & Record<s
         return next;
       },
       seed: (scopeValue: unknown, rows: TInput[]) => {
-        const liveRows = rows
-          .filter(row => options.admitPlanRow(row) !== undefined)
-          .filter(row => !planes().entityState.isTombstoned(options.normalize(row).id))
-          .map(row => ({ row: row as Record<string, unknown> }));
+        const liveRows = dropTombstonedRows(
+          rows.filter(row => options.admitPlanRow(row) !== undefined),
+          row => row
+        ).map(row => ({ row: row as Record<string, unknown> }));
         options.applyEvent([
           ...options.planRows(liveRows.map(entry => entry.row)),
           planScope(options.keyForScope(scopeName, scopeValue), liveRows, 'complete', { resetOrder: true })

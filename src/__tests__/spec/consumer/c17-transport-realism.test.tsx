@@ -133,7 +133,7 @@ describe('transport realism blind-spot coverage', () => {
     queryReader.unmount();
   });
 
-  it('D16 drops a cross-handle reset that resolves after a newer reset for the same scope bucket', async () => {
+  it('lands a cross-handle reset that resolves after another declaration reset the same scope bucket', async () => {
     const pending: Deferred<RaceResponse>[] = [];
     const transport = createMockTransport({
       query: async <TData,>() =>
@@ -166,7 +166,9 @@ describe('transport realism blind-spot coverage', () => {
     pending[0]?.resolve({ moments: [{ id: 'a1', userId: '54', status: 'older' }] });
     await firstFetch;
 
-    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['b1']);
+    // Declarations do not share the supersession gate: the other declaration's reset cannot
+    // swallow this landing, so the last landing owns the scope membership.
+    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['a1']);
     resetRuntime();
   });
 
@@ -308,7 +310,7 @@ describe('transport realism blind-spot coverage', () => {
     queryReader.unmount();
   });
 
-  it('D16 drops a cross-handle page response after a newer reset owns the shared scope bucket', async () => {
+  it('keeps a paged declaration landing its next page after another declaration reset the shared scope bucket', async () => {
     const pending: Deferred<PageResponse | RaceResponse>[] = [];
     const transport = createMockTransport({
       query: async <TData,>() =>
@@ -349,7 +351,9 @@ describe('transport realism blind-spot coverage', () => {
     stalePage?.resolve({ moments: { nodes: [{ id: 'a2', userId: '54', status: 'stale' }], pageInfo: { hasNextPage: false, endCursor: null } } });
     await settle();
 
-    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['b1']);
+    // The paged declaration's own gate saw no newer reset of ITS chain, so its page still lands;
+    // only a reset within the same declaration supersedes it.
+    expect(moments.scopes.byUser.read(scopeValue).map(row => row.id)).toEqual(['b1', 'a2']);
     reader.unmount();
     resetRuntime();
   });
