@@ -16,6 +16,7 @@ import type {
   RelationPlanReader,
   RelationTarget,
   StoredRow,
+  TouchCtx,
   TouchEntry,
   TouchFn,
   WriteOp
@@ -44,7 +45,7 @@ export const belongsTo = <TChild, TParent>(
   model: RelationTarget<TParent>,
   options: {
     foreignKey: keyof TChild & string;
-    touch?: (child: TChild, parent: TParent) => Partial<TParent> | null;
+    touch?: (child: TChild, parent: TParent, ctx: TouchCtx) => Partial<TParent> | null;
     counterCache?: { field: keyof TParent & string; filter?: (child: TChild) => boolean };
   }
 ): BelongsToDecl<TParent> => ({
@@ -236,7 +237,16 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
 
   const countKeyOf = (modelId: string, childId: string, counter: CounterRef): string => compositeKey(modelId, childId, counter.model, counter.field);
 
-  const accumulateTouch = (relation: Extract<RelationDecl, { kind: 'belongsTo' }>, child: StoredRow, parentId: string): void => {
+  const replacedIdsByModel = new Map<string, Set<string>>();
+  for (const destroyedRow of destroyedRows) {
+    if (destroyedRow.origin !== 'replace') continue;
+    const ids = replacedIdsByModel.get(destroyedRow.model) ?? new Set<string>();
+    ids.add(destroyedRow.id);
+    replacedIdsByModel.set(destroyedRow.model, ids);
+  }
+  const EMPTY_REPLACED_IDS: ReadonlySet<string> = new Set<string>();
+
+  const accumulateTouch = (relation: Extract<RelationDecl, { kind: 'belongsTo' }>, childModelId: string, child: StoredRow, parentId: string): void => {
     const parentKey = compositeKey(relation.model.modelId, parentId);
     if (!relation.touch || authoritative.has(parentKey) || touched.has(parentKey)) return;
     let entry = touchViews.get(parentKey);
@@ -246,7 +256,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
       entry = { model: relation.model.modelId, id: parentId, view: { ...parent }, patch: {} };
       touchViews.set(parentKey, entry);
     }
-    const patch = relation.touch(child, entry.view);
+    const patch = relation.touch(child, entry.view, { replacedIds: replacedIdsByModel.get(childModelId) ?? EMPTY_REPLACED_IDS });
     if (patch) {
       Object.assign(entry.view, patch);
       Object.assign(entry.patch, patch);
@@ -284,7 +294,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
           queue.push({ kind: 'counter', model: counter.model, id: counter.id, field: counter.field, delta: 1 });
         }
       }
-      accumulateTouch(relation, row, parentId);
+      accumulateTouch(relation, modelId, row, parentId);
     }
   };
 
@@ -351,7 +361,7 @@ export const deriveEffects = (accepted: AcceptedRow[], destroyedRows: DestroyedR
       for (const relation of Object.values(host.relations())) {
         if (relation.kind !== 'belongsTo') continue;
         const parentId = parentIdOf(acceptedRow.after, relation.foreignKey);
-        if (parentId) accumulateTouch(relation, acceptedRow.after, parentId);
+        if (parentId) accumulateTouch(relation, acceptedRow.model, acceptedRow.after, parentId);
       }
     }
   }

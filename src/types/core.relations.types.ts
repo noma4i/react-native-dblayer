@@ -16,8 +16,13 @@ export type RelationTarget<TStored> = ModelRef<TStored> | FacadeRelationTarget<T
 
 /** Untyped stored row: arbitrary model fields without an id requirement. */
 export type StoredRow = Record<string, unknown>;
+/** Facts the touch gate cannot derive from the child and parent rows alone. */
+export type TouchCtx = {
+  /** Child-model row ids destroyed by replace legs of the same plan: a parent reference to one of them must follow the swap. */
+  replacedIds: ReadonlySet<string>;
+};
 /** Parent-touch producer: derives a parent patch from a child write, or null to skip. */
-export type TouchFn = (child: StoredRow, parent: StoredRow) => StoredRow | null;
+export type TouchFn = (child: StoredRow, parent: StoredRow, ctx: TouchCtx) => StoredRow | null;
 
 export type BelongsToDecl<TStored = StoredRow> = {
   kind: 'belongsTo';

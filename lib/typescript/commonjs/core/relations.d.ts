@@ -1,4 +1,4 @@
-import type { AcceptedRow, BelongsToDecl, DestroyedRow, FacadeRelationTarget, HasManyDecl, HasOneDecl, ModelRef, ReferencesDecl, RelationHost, RelationPlanReader, RelationTarget, WriteOp } from '../types';
+import type { AcceptedRow, BelongsToDecl, DestroyedRow, FacadeRelationTarget, HasManyDecl, HasOneDecl, ModelRef, ReferencesDecl, RelationHost, RelationPlanReader, RelationTarget, TouchCtx, WriteOp } from '../types';
 /**
  * Declare an inverse parent relation (child -> parent) with optional derived parent updates from event data.
  * Resolved by `deriveEffects`, which accumulates `touch` patches per parent (folding several children in one
@@ -17,7 +17,7 @@ import type { AcceptedRow, BelongsToDecl, DestroyedRow, FacadeRelationTarget, Ha
  */
 export declare const belongsTo: <TChild, TParent>(model: RelationTarget<TParent>, options: {
     foreignKey: keyof TChild & string;
-    touch?: (child: TChild, parent: TParent) => Partial<TParent> | null;
+    touch?: (child: TChild, parent: TParent, ctx: TouchCtx) => Partial<TParent> | null;
     counterCache?: {
         field: keyof TParent & string;
         filter?: (child: TChild) => boolean;

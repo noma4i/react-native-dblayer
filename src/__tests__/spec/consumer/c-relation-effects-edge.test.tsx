@@ -99,7 +99,12 @@ describe('relation effect in-batch edges', () => {
         chat: belongsTo<Message, { id: string; unreadCount: number; lastActivityAt: number; lastMessageId: string | null }>(chats, {
           foreignKey: 'chatId',
           counterCache: { field: 'unreadCount' },
-          touch: (message, chat) => (message.createdAt >= chat.lastActivityAt ? { lastMessageId: message.id, lastActivityAt: message.createdAt } : null)
+          // The app-shaped gate: strictly-newer comparison (server clocks can run behind the
+          // optimistic timestamp), plus the follow-the-swap branch driven by ctx.replacedIds.
+          touch: (message, chat, ctx) =>
+            message.createdAt > chat.lastActivityAt || (chat.lastMessageId !== null && ctx.replacedIds.has(chat.lastMessageId))
+              ? { lastMessageId: message.id, lastActivityAt: message.createdAt }
+              : null
         })
       })
     });
@@ -107,11 +112,13 @@ describe('relation effect in-batch edges', () => {
     applyEvent(messages, [{ id: 'tmp:1', chatId: 'chat-1', createdAt: 5 }]);
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'tmp:1' });
 
-    // The response swap: the server row replaces the temp row in one plan. The parent preview
-    // must follow the swap - a dangling reference to the destroyed temp id is the defect class.
+    // The response swap: the server row replaces the temp row in one plan, and the server
+    // timestamp runs BEHIND the optimistic one. The parent preview must still follow the swap -
+    // a dangling reference to the destroyed temp id is the defect class, and client-vs-server
+    // clock comparison must never decide it.
     getApplyRuntime().commit(
       createCommitEnvelope([
-        { kind: 'upsert', model: messages.key, rows: [{ id: 'srv-1', chatId: 'chat-1', createdAt: 5 }], origin: 'replace' },
+        { kind: 'upsert', model: messages.key, rows: [{ id: 'srv-1', chatId: 'chat-1', createdAt: 4 }], origin: 'replace' },
         { kind: 'destroy', model: messages.key, ids: ['tmp:1'], origin: 'replace' }
       ])
     );
