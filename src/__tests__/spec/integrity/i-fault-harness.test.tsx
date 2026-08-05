@@ -8,6 +8,7 @@ import {
   createCommitBus,
   encodePersistence,
   getApplyRuntime,
+  getCommitBus,
   DB_FORMAT_VERSION,
   computeSchemaFingerprints,
   resetRuntime,
@@ -237,12 +238,14 @@ describe('persistence fault invariants', () => {
     await bootDb();
 
     // Commits before the corrupt delta live; the corrupt one and everything after are cut.
+    // The cut is EXACT: the head delta stays on disk, the loss counter names the dropped count,
+    // and the wipe touches only query records - never rows, snapseq, or the surviving head.
     expect(rows.find('row-1')).toMatchObject({ label: 'first' });
     expect(rows.find('row-2')).toBeUndefined();
     expect(rows.find('row-3')).toBeUndefined();
     expect(disk.get('dbl:query:probe')).toBeUndefined();
-    expect(disk.keys('dbl:delta:').length).toBeLessThan(deltaKeys.length);
-    expect(diagnostics().snapshot().dataLossEvents).toContainEqual(expect.objectContaining({ mechanism: 'delta-tail-cut' }));
+    expect(disk.keys('dbl:delta:')).toEqual([deltaKeys[0]!]);
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'delta-tail-cut', model: '__runtime__', count: 2 });
   });
 
   it('[P24] evicts a stale-version delta tail silently as format evolution, not corruption', async () => {
@@ -274,6 +277,193 @@ describe('persistence fault invariants', () => {
     expect(rows.find('row-2')).toBeUndefined();
     expect(disk.get('dbl:query:probe')).toBeUndefined();
     expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
+  });
+
+  it.each([
+    ['a string recordVersion', (delta: Record<string, unknown>) => ({ ...delta, recordVersion: '1' })],
+    ['a negative seq', (delta: Record<string, unknown>) => ({ ...delta, seq: -1 })],
+    ['a fractional seq', (delta: Record<string, unknown>) => ({ ...delta, seq: 1.5 })],
+    ['non-array ops', (delta: Record<string, unknown>) => ({ ...delta, ops: {} })],
+    ['an unknown op kind', (delta: Record<string, unknown>) => ({ ...delta, ops: [{ kind: 'garbage', model: 'X' }] })],
+    ['an op without a model', (delta: Record<string, unknown>) => ({ ...delta, ops: [{ kind: 'upsert' }] })],
+    ['a null op beside a valid one', (delta: Record<string, unknown>) => ({ ...delta, ops: [...(delta.ops as unknown[]), null] })]
+  ])('classifies a delta carrying %s as corruption and cuts the tail', async (_name, corrupt) => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('MalformedEnvelope');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    const deltaKeys = disk.keys('dbl:delta:').sort();
+    const parsed = JSON.parse(disk.get(deltaKeys[1]!)!) as Record<string, unknown>;
+    disk.set(deltaKeys[1]!, JSON.stringify(corrupt(parsed)));
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    await bootDb();
+
+    // Only a foreign numeric recordVersion is format evolution; every other unreadable shape is
+    // corruption: the tail is cut WITH a loss counter.
+    expect(rows.find('row-1')).toMatchObject({ label: 'first' });
+    expect(rows.find('row-2')).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'delta-tail-cut', model: '__runtime__', count: 1 });
+  });
+
+  it('replays deltas in numeric seq order however storage enumerates keys', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('SeqOrder');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    for (let version = 0; version <= 10; version += 1) rows.insert({ id: 'row-1', chatId: 'chat-1', label: `v${version}` });
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    const reversed = {
+      get: (key: string) => disk.get(key),
+      set: (key: string, value: string | null) => disk.set(key, value),
+      keys: (prefix: string) => disk.keys(prefix).reverse()
+    };
+
+    resetRuntime();
+    configureDb({ storage: reversed, transport: createMockTransport() });
+    await bootDb();
+
+    // 11 deltas force the 2-digit seq boundary: replay order comes from padded keys sorted
+    // numerically, never from the plane's enumeration order.
+    expect(rows.find('row-1')).toMatchObject({ label: 'v10' });
+  });
+
+  it('flush compaction writes the snapshot, advances snapseq, and deletes every covered delta', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('CompactionExact');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+    expect(storage.plane.keys('dbl:delta:').sort()).toEqual(['dbl:delta:000000000000', 'dbl:delta:000000000001']);
+
+    getApplyRuntime().flushCacheSnapshots();
+
+    expect(storage.plane.get(`dbl:snapseq:${rows.modelId}`)).toBe('1');
+    expect(storage.plane.keys('dbl:delta:')).toEqual([]);
+    expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBeDefined();
+  });
+
+  it('continues the delta sequence after a reboot from compacted snapshots', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('SeqAfterFlush');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    getApplyRuntime().flushCacheSnapshots();
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    // Numeric-looking bystander keys must not feed the seq counter.
+    disk.set('app:counter', '999');
+    disk.set('dbl:query:probe:99', 'cached');
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    await bootDb();
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+
+    // snapseq '0' is the only seq source left after compaction: the next delta is seq 1.
+    expect(disk.keys('dbl:delta:')).toEqual(['dbl:delta:000000000001']);
+  });
+
+  it('continues the delta sequence after a reboot over live deltas', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('SeqAfterDeltas');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    const reversed = {
+      get: (key: string) => disk.get(key),
+      set: (key: string, value: string | null) => disk.set(key, value),
+      keys: (prefix: string) => disk.keys(prefix).reverse()
+    };
+
+    resetRuntime();
+    configureDb({ storage: reversed, transport: createMockTransport() });
+    await bootDb();
+    expect(rows.find('row-2')).toMatchObject({ label: 'second' });
+    rows.insert({ id: 'row-3', chatId: 'chat-1', label: 'third' });
+
+    // The live delta tail (seq 0, 1) is the seq source: the next delta is seq 2, never a
+    // rewrite of a live key.
+    expect(disk.keys('dbl:delta:').sort()).toEqual(['dbl:delta:000000000000', 'dbl:delta:000000000001', 'dbl:delta:000000000002']);
+  });
+
+  it('skips delta ops already covered by the model snapshot and publishes nothing for them', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('CoveredOps');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'fresh' });
+    getApplyRuntime().flushCacheSnapshots();
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    // Resurrect the compacted delta with a STALE label: snapseq 0 already covers seq 0, so the
+    // op must be skipped - a snapshot is never stomped by an older covered delta.
+    disk.set(
+      'dbl:delta:000000000000',
+      JSON.stringify({ recordVersion: 1, seq: 0, ops: [{ kind: 'upsert', model: rows.modelId, rows: [{ id: 'row-1', chatId: 'chat-1', label: 'stale' }] }] })
+    );
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    const batches: unknown[] = [];
+    const unsubscribe = getCommitBus().subscribeAll(batch => batches.push(batch));
+    await bootDb();
+
+    expect(rows.find('row-1')).toMatchObject({ label: 'fresh' });
+    expect(batches).toEqual([]);
+    unsubscribe();
+  });
+
+  it('reads a model snapseq from storage once per session', async () => {
+    const base = createMemoryPlane();
+    let snapseqReads = 0;
+    const counting = {
+      get: (key: string) => {
+        if (key.startsWith('dbl:snapseq:')) snapseqReads += 1;
+        return base.get(key);
+      },
+      set: base.set,
+      keys: base.keys
+    };
+    resetRuntime();
+    configureDb({ storage: counting, transport: createMockTransport() });
+    const rows = createScopedRows('SnapseqReadOnce');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    getApplyRuntime().flushCacheSnapshots();
+    const afterFirstFlush = snapseqReads;
+
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+    getApplyRuntime().flushCacheSnapshots();
+    rows.insert({ id: 'row-3', chatId: 'chat-1', label: 'third' });
+    getApplyRuntime().flushCacheSnapshots();
+
+    // The in-memory snapseq cache is written on every flush: later flushes never re-read disk.
+    expect(snapseqReads).toBe(afterFirstFlush);
   });
 
   it('converges from every kill point inside the compaction flush', async () => {

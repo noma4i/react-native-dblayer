@@ -63,6 +63,28 @@ describe('schema fingerprint blast radius', () => {
     expect(diagnostics().snapshot().dataLossEvents).toEqual(firstDataLossEvents);
   });
 
+  it('clears the migrated model snapseq so stale deltas cannot claim coverage', async () => {
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport(), dataVersion: 'snapseq-wipe' });
+    const alphaBefore = defineAlpha({});
+    const betaBefore = defineBeta();
+    await bootDb();
+    alphaBefore.insert({ id: 'a-1', label: 'alpha' });
+    betaBefore.insert({ id: 'b-1', label: 'beta' });
+    getApplyRuntime().flushCacheSnapshots();
+    expect(storage.get('dbl:snapseq:BlastAlpha')).toBeDefined();
+
+    configureDb({ storage, transport: createMockTransport(), dataVersion: 'snapseq-wipe' });
+    defineAlpha({ addedField: f.str().nullDefault() });
+    defineBeta();
+    await bootDb();
+
+    // A migrated model loses its snapseq marker with its snapshots: a stale marker would let
+    // old deltas count as covered against the freshly cleared state.
+    expect(storage.get('dbl:snapseq:BlastAlpha')).toBeUndefined();
+    expect(storage.get('dbl:snapseq:BlastBeta')).toBeDefined();
+  });
+
   it('keeps persisted rows when a new model is added', async () => {
     const storage = createMemoryPlane();
 

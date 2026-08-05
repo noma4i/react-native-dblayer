@@ -3,6 +3,7 @@ import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getStoragePrefi
 import { isTempRowProtectedByModel } from '../dsl/maintenanceRegistry';
 import { createCommitEnvelope } from './apply/commitEnvelope';
 import { getApplyTarget } from './apply/applyTargetRegistry';
+import { getInternalModelHandleById } from './internalHandles';
 import { putQuarantine, takeQuarantineEntries } from './quarantine';
 import { planRequestFailureRollback } from './requestRollback';
 import { compositeKey, compositeStorageKey, parseCompositeKey } from './serialize';
@@ -35,16 +36,9 @@ const closeCrashedRequests = (): void => {
     const planned = planRequestFailureRollback(
       operation,
       id => (hasApplyTarget(operation.model) ? getApplyTarget(operation.model).readRow(id) : undefined),
-      (row, memberships) => [
-        { kind: 'upsert', model: operation.model, rows: [row], origin: 'replace' },
-        ...memberships.map(membership => ({
-          kind: 'scope-delta' as const,
-          model: operation.model,
-          scopeKey: membership.scopeKey,
-          append: [{ id: membership.id, orderKey: membership.orderKey }],
-          detach: [membership.id]
-        }))
-      ]
+      // THE model-owned restore plan: the fsck restore is byte-identical to the runtime
+      // transport-failure restore, relation effects (counter, touch) included.
+      (row, memberships) => getInternalModelHandleById(operation.model).planRestore(row, memberships)
     );
     recoveryOps.push(...planned.ops);
     recoveryTransitions.push(planned.transition);

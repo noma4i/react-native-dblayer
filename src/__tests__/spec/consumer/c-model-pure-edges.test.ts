@@ -189,7 +189,7 @@ describe('model write planning edges', () => {
     handle.applyRows([{ id: 'applied-id', bucket: 'b', label: 'applied' }]);
     expect(model.find('applied-id')).toMatchObject({ id: 'applied-id', label: 'applied' });
     expect(handle.planRestore({ id: 'new-id', bucket: 'a', label: 'new' }, memberships)).toEqual([
-      { kind: 'upsert', model: model.modelId, rows: [{ id: 'new-id', bucket: 'a', label: 'new' }], origin: 'replace' },
+      { kind: 'upsert', model: model.modelId, rows: [{ id: 'new-id', bucket: 'a', label: 'new' }], origin: 'event' },
       {
         kind: 'scope-delta',
         model: model.modelId,
@@ -226,7 +226,7 @@ describe('model write planning edges', () => {
     scopeReader.unmount();
     expect({ plan, rows }).toEqual({
       plan: [
-        { kind: 'upsert', model: model.modelId, rows: [{ id: 'same-id', bucket: 'a', label: 'restored' }], origin: 'replace' },
+        { kind: 'upsert', model: model.modelId, rows: [{ id: 'same-id', bucket: 'a', label: 'restored' }], origin: 'event' },
         {
           kind: 'scope-delta',
           model: model.modelId,

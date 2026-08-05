@@ -135,4 +135,62 @@ describe('commit-envelope planning purity', () => {
     expect(orderKeys).toHaveLength(3);
     expect(new Set(orderKeys).size).toBe(3);
   });
+
+  it('plans no destroy leg when a replacement keeps its own id', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineRows('SameIdReplace');
+    rows.insert({ id: 'row-1', chatId: 'chat-1', body: 'before' });
+
+    getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('row-1', { id: 'row-1', chatId: 'chat-1', body: 'after' })));
+
+    // The destroy leg names only a DIFFERENT old id: replacing an identity with itself updates
+    // the row and never schedules its own destruction.
+    expect(rows.find('row-1')).toMatchObject({ body: 'after' });
+  });
+
+  it('gates every scope entry by the final row: a non-member append never seats', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineModelRuntime({
+      id: 'CommitEnvelopeMemberGate',
+      name: 'CommitEnvelopeMemberGate',
+      fields: { chatId: f.str(), status: f.str() },
+      scopes: { thread: { by: { chatId: 'chatId' }, member: (row: { status: string }) => row.status === 'active' } }
+    });
+    rows.scopes.thread.seed({ chatId: 'chat-1' }, [{ id: 'row-1', chatId: 'chat-1', status: 'active' }]);
+    const scopeKey = compositeKey('thread', '{"chatId":"chat-1"}');
+
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        {
+          kind: 'upsert',
+          model: rows.modelId,
+          rows: [
+            { id: 'row-2', chatId: 'chat-1', status: 'archived' },
+            { id: 'row-3', chatId: 'chat-1', status: 'active' },
+            { id: 'row-4', chatId: 'chat-2', status: 'active' }
+          ]
+        },
+        {
+          kind: 'scope-delta',
+          model: rows.modelId,
+          scopeKey,
+          append: [
+            { id: 'row-2', orderKey: 'x1' },
+            { id: 'row-3', orderKey: 'x2' },
+            { id: 'row-4', orderKey: 'x3' }
+          ],
+          detach: []
+        }
+      ])
+    );
+
+    // The member predicate and the derived by-value both judge the FINAL committed row: the
+    // archived row and the foreign-chat row never seat, whatever the append claims.
+    expect(
+      rows.scopes.thread
+        .read({ chatId: 'chat-1' })
+        .map(row => row.id)
+        .sort()
+    ).toEqual(['row-1', 'row-3']);
+  });
 });

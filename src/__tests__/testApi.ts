@@ -5,6 +5,7 @@ export * from '../index';
 export type * from '../types';
 export { defineModelRuntime } from '../dsl/defineModelRuntime';
 export { createModelApplyTarget } from '../dsl/modelApplyTarget';
+export { planRequestFailureRollback } from '../core/requestRollback';
 
 type SingletonUseFind<TStored extends RowId> = (
   id: string | null | undefined,

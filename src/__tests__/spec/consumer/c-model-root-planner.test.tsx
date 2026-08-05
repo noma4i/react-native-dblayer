@@ -662,6 +662,25 @@ describe('model root planner type surface', () => {
     expect(diagnosticMessages(diagnostics)).toEqual([]);
   });
 
+  it('[W26] rejects a partial insert root payload at compile time', () => {
+    const source = `
+      import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+      import { defineModel, defineShape, f } from '${entry}';
+      type Row = { id: string; label: string };
+      type Data = { save: { row: { id: string } } };
+      declare const document: TypedDocumentNode<Data, { input: { label: string } }>;
+      const RowSchema = defineShape<Row>()({ label: f.str() });
+      defineModel('partial-insert', { schema: RowSchema, actions: owner => ({
+        save: owner.gql.action(document, { result: 'save', variables: (input: { label: string }) => ({ input }), root: { insert: { select: context => context.data.save.row } } })
+      }) });
+    `;
+    expectFixtureDiagnostic(source, {
+      anchor: 'context.data.save.row',
+      code: 2769,
+      message: /label/
+    });
+  });
+
   it('rejects the removed top-level gql builder', () => {
     const source = `
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';

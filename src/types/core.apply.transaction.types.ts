@@ -88,7 +88,7 @@ export type ApplyRuntime = {
   commit(envelope: CommitEnvelope): CommitBatch;
   /** Write every coalesced dirty cache snapshot NOW instead of on the scheduled tick. */
   flushCacheSnapshots(): void;
-  /** Boot roll-forward: apply every persisted delta op not yet covered by its model snapshot. Returns the replayed delta count. */
-  replayPersistedDeltas(): number;
+  /** Boot roll-forward: apply every persisted delta op not yet covered by its model snapshot. */
+  replayPersistedDeltas(): void;
   currentEpoch(): number;
 };

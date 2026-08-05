@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f, getApplyTarget, createCommitEnvelope, getApplyRuntime, getCommitBus } from '../../testApi';
+import { bootDb, computeSchemaFingerprints, configureDb, DB_FORMAT_VERSION, defineModelRuntime, f, getApplyTarget, createCommitEnvelope, getApplyRuntime, getCommitBus, resetRuntime, writePersistenceManifest } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 const createModels = () => {
@@ -109,6 +109,35 @@ describe('apply recovery', () => {
       secondTarget.scopeDelta = originalScopeDelta;
       unsubscribe();
     }
+  });
+
+  it('[W11] hydrates boot state through the same atomic apply without per-row publishes', async () => {
+    const { first } = createModels();
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    first.insertMany([
+      { id: 'row-1', label: 'one' },
+      { id: 'row-2', label: 'two' },
+      { id: 'row-3', label: 'three' }
+    ]);
+    getApplyRuntime().flushCacheSnapshots();
+    const disk = createMemoryPlane();
+    for (const key of storage.snapshotKeys()) disk.set(key, storage.get(key) ?? null);
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    const batches: number[] = [];
+    const unsubscribe = getCommitBus().subscribeAll(batch => {
+      batches.push(batch.rows.length);
+    });
+    await bootDb();
+
+    // Hydration is not a separate write path: restoring rows publishes NOTHING through the
+    // commit bus - the reader sees one final hydrated state, exactly like inside an apply batch.
+    expect(first.find('row-1')).toMatchObject({ label: 'one' });
+    expect(first.find('row-3')).toMatchObject({ label: 'three' });
+    expect(batches).toEqual([]);
+    unsubscribe();
   });
 
   it('poisons reads and publishes nothing when clean replay also fails', () => {

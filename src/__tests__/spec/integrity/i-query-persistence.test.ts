@@ -1,4 +1,4 @@
-import { compositeStorageKey, configureDb, encodePersistence, type QueryPersistenceRecord, type StoragePlane } from '../../testApi';
+import { bootDb, compositeStorageKey, configureDb, encodePersistence, resetRuntime, type QueryPersistenceRecord, type StoragePlane } from '../../testApi';
 import { invalidatePersistedQuery, readPersistedQuery, readPersistedQueryFamily, removePersistedQuery, writePersistedQuery } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
@@ -26,6 +26,34 @@ const record = (overrides: Partial<QueryPersistenceRecord<string, null>> = {}): 
 const keyOf = (family = declaration.family, identity = 'identity'): string => compositeStorageKey('dbl:', 'query', family, identity);
 
 describe('query persistence records', () => {
+  it('[P15] hydrates zero query records on boot: restoration is reader-driven, never a namespace scan', async () => {
+    const memory = createMemoryPlane();
+    for (let index = 0; index < 40; index += 1) {
+      memory.set(compositeStorageKey('dbl:', 'query', `family-${index}`, `identity-${index}`), encodePersistence(record()));
+    }
+    let queryReads = 0;
+    let queryKeyScans = 0;
+    const counting: StoragePlane = {
+      get: key => {
+        if (key.startsWith('dbl:query')) queryReads += 1;
+        return memory.get(key);
+      },
+      set: memory.set,
+      keys: prefix => {
+        if (prefix.startsWith('dbl:query')) queryKeyScans += 1;
+        return memory.keys(prefix);
+      }
+    };
+    resetRuntime();
+    configureDb({ storage: counting, transport: createMockTransport() });
+    await bootDb();
+
+    // 40 persisted query records on disk, and the boot read NONE of them: a reader restores
+    // its own record on mount; boot-time work stays constant in the namespace size.
+    expect(queryReads).toBe(0);
+    expect(queryKeyScans).toBe(0);
+  });
+
   it('removes corrupt, unsupported, and incompatible exact records', () => {
     const onSyncError = jest.fn();
     const storage = createMemoryPlane();

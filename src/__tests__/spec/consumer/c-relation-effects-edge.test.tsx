@@ -127,6 +127,56 @@ describe('relation effect in-batch edges', () => {
     expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'srv-1', unreadCount: 1 });
   });
 
+  it('keeps plain destroys out of replacedIds: only replace legs drive the follow-the-swap touch', () => {
+    setupSpecRuntime();
+    const chats = defineModel('SpecEffectsChatsPlainDestroy', {
+      schema: defineShape<{ id: string; unreadCount: number; lastActivityAt: number; lastMessageId: string | null }>()({
+        unreadCount: f.num(),
+        lastActivityAt: f.num(),
+        lastMessageId: f.str().nullable()
+      })
+    });
+    const messages = defineModel('SpecEffectsMessagesPlainDestroy', {
+      schema: defineShape<Message>()({ chatId: f.str(), createdAt: f.num() }),
+      associations: () => ({
+        chat: belongsTo<Message, { id: string; unreadCount: number; lastActivityAt: number; lastMessageId: string | null }>(chats, {
+          foreignKey: 'chatId',
+          counterCache: { field: 'unreadCount' },
+          touch: (message, chat, ctx) =>
+            message.createdAt > chat.lastActivityAt || (chat.lastMessageId !== null && ctx.replacedIds.has(chat.lastMessageId))
+              ? { lastMessageId: message.id, lastActivityAt: message.createdAt }
+              : null
+        })
+      })
+    });
+    chats.insert({ id: 'chat-1', unreadCount: 0, lastActivityAt: 0, lastMessageId: null });
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-1', createdAt: 10 }]);
+    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'msg-1', unreadCount: 1 });
+
+    // A PLAIN destroy of the referenced message plus an OLDER insert in one plan: the destroyed
+    // id is not a replace leg, so the follow-the-swap branch must not fire - the preview keeps
+    // the destroyed reference instead of jumping backwards in time.
+    getApplyRuntime().commit(
+      createCommitEnvelope([
+        { kind: 'destroy', model: messages.key, ids: ['msg-1'] },
+        { kind: 'upsert', model: messages.key, rows: [{ id: 'msg-0', chatId: 'chat-1', createdAt: 5 }], origin: 'event' }
+      ])
+    );
+
+    expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'msg-1', unreadCount: 1 });
+  });
+
+  it('runs no relation effects for snapshot-origin upserts', () => {
+    const { chats, messages } = createChatModels('SnapshotSilent');
+    getApplyRuntime().commit(
+      createCommitEnvelope([{ kind: 'upsert', model: messages.key, rows: [{ id: 'msg-1', chatId: 'chat-1', createdAt: 99 }] }])
+    );
+
+    // The snapshot pocket of the effect matrix: no counter, no touch - authority came from the
+    // server snapshot, not from an observed event.
+    expect(chats.find('chat-1')).toEqual({ id: 'chat-1', unreadCount: 0, lastActivityAt: 0 });
+  });
+
   it('trusts an authoritative parent snapshot over a derived counter in the same batch', () => {
     const { chats, messages } = createChatModels('Authoritative');
     const parentPlan = getInternalModelHandle(chats).planRows([{ id: 'chat-1', unreadCount: 50, lastActivityAt: 40 }], { origin: 'event' });
@@ -143,6 +193,24 @@ describe('relation effect in-batch edges', () => {
     messages.destroy('msg-1');
 
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
+  });
+
+  it('[RE6] restores the parent counter when a failed destroy rolls its child back', () => {
+    setupSpecRuntime();
+    const { chats, messages } = createChatModels('RollbackCounter');
+    applyEvent(messages, [{ id: 'msg-1', chatId: 'chat-1', createdAt: 1 }]);
+    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
+
+    // The write and rollback paths are symmetric: the destroy leg took the counter to 0, so
+    // the restore leg of the SAME operation must bring it back to 1 - a rollback that leaves
+    // the parent undercounted is partial state.
+    getApplyRuntime().commit(createCommitEnvelope([{ kind: 'destroy', model: messages.key, ids: ['msg-1'] }]));
+    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
+    const restorePlan = getInternalModelHandle(messages).planRestore({ id: 'msg-1', chatId: 'chat-1', createdAt: 1 }, []);
+    getApplyRuntime().commit(createCommitEnvelope(restorePlan));
+
+    expect(messages.find('msg-1')).toMatchObject({ chatId: 'chat-1' });
+    expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
   });
 
   it('treats a destroy of an absent parent as a no-op for orphan children carrying its key', () => {

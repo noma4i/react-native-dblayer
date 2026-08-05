@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f } from '../../testApi';
+import { configureDb, createCommitEnvelope, defineModelRuntime, f, getApplyRuntime, getInternalModelHandle } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCounted } from '../helpers/harness';
 
 type ChatRow = {
@@ -56,6 +56,48 @@ const row = (overrides: Partial<ChatRow> = {}): ChatRow => ({
 describe('per-field write policy', () => {
   beforeEach(() => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
+  });
+
+  it('runs a replace onto an already-landed row through snapshot-mode policies', () => {
+    const chats = createChatModel('WritePolicyReplaceLanded');
+    chats.insert(row());
+
+    // The replace target ALREADY landed through another channel: the response merges into it
+    // under snapshot-mode policies, so the guarded group still rejects the older tuple.
+    getApplyRuntime().commit(
+      createCommitEnvelope(
+        getInternalModelHandle(chats).planReplace(
+          'chat-1',
+          row({ name: 'Swapped', lastMessageId: 'message-5', lastMessageAt: '2026-07-20T00:00:05Z', lastSequenceNumber: 5 })
+        )
+      )
+    );
+
+    expect(chats.find('chat-1')).toMatchObject({
+      name: 'Swapped',
+      lastMessageId: 'message-10',
+      lastMessageAt: '2026-07-20T00:00:10Z',
+      lastSequenceNumber: 10
+    });
+  });
+
+  it('carries continuity fields through the temp merge base on a fresh replace swap', () => {
+    const media = defineModelRuntime({
+      id: 'WritePolicyReplaceFresh',
+      name: 'WritePolicyReplaceFresh',
+      fields: { url: f.str().nullable(), localPreviewUrl: f.str().nullable() },
+      write: { groups: [{ fields: ['localPreviewUrl'] as const, policy: 'continuity' }] }
+    });
+    media.insert({ id: 'tmp:swap-1', url: null, localPreviewUrl: 'file://local-preview' });
+
+    // A fresh swap (the server id never landed): the destroyed temp row is the merge base, so
+    // continuity fields the response dropped survive the identity swap.
+    getApplyRuntime().commit(
+      createCommitEnvelope(getInternalModelHandle(media).planReplace('tmp:swap-1', { id: 'server-1', url: 'https://cdn/1.mp4', localPreviewUrl: null }))
+    );
+
+    expect(media.find('tmp:swap-1')).toBeUndefined();
+    expect(media.find('server-1')).toMatchObject({ url: 'https://cdn/1.mp4', localPreviewUrl: 'file://local-preview' });
   });
 
   it('rejects an older bulk snapshot for the guarded group while applying its other fields', () => {

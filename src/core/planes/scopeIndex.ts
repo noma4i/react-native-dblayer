@@ -176,7 +176,17 @@ export const createScopeIndex = (options: { modelId: string; scopeNames?: string
         return result({ generation, coverage, entries }, detachedIds);
       }
       const keys = keysForSequence(deduplicated.length);
-      const entries = deduplicated.map((row, index) => scopeEntry(row.id, row.orderKey ?? keys[index]!));
+      // Held rows keep their keys, so freshly generated keys must steer around them: a collision
+      // would fail the uniqueness invariant and refuse the whole reconcile.
+      const taken = new Set(held.map(entry => entry.orderKey));
+      for (const row of deduplicated) if (row.orderKey !== undefined) taken.add(row.orderKey);
+      const entries = deduplicated.map((row, index) => {
+        if (row.orderKey !== undefined) return scopeEntry(row.id, row.orderKey);
+        let key = keys[index]!;
+        while (taken.has(key)) key = keysForSequence(1, key, keys[index + 1])[0]!;
+        taken.add(key);
+        return scopeEntry(row.id, key);
+      });
       const merged = [...entries, ...held.map(entry => scopeEntry(entry.id, entry.orderKey))];
       return result({ generation, coverage, entries: merged.sort(compareEntries) }, detachedIds);
     }

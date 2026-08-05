@@ -154,6 +154,24 @@ describe('model surface', () => {
     expect(Imported.find('42')).toEqual({ id: '42', title: 'numeric transport id' });
   });
 
+  it('[W19] keeps build pure: no store row, no ledger record, no commit, no subscriber tick', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const rows = defineModel('SpecModelDslPureBuild', { schema: defineShape<{ id: string; label: string }>()({ label: f.str() }) });
+    const reader = renderCounted(() => rows.useFind('built-1'));
+    const rendersBefore = reader.renders();
+    const diagnostics = (globalThis as Record<string, unknown>).__DBLAYER_DIAGNOSTICS__ as { snapshot: () => { commits: number } };
+    const commitsBefore = diagnostics.snapshot().commits;
+
+    const built = rows.build({ id: 'built-1', label: 'pure' });
+
+    expect(built).toEqual({ id: 'built-1', label: 'pure' });
+    expect(rows.find('built-1')).toBeUndefined();
+    expect(rows.operation('built-1').read()).toMatchObject({ pending: false, failed: false });
+    expect(diagnostics.snapshot().commits).toBe(commitsBefore);
+    expect(reader.renders()).toBe(rendersBefore);
+    reader.unmount();
+  });
+
   it('builds singleton statics from the public model facade', () => {
     configureRuntime(createMockTransport());
     const Counters = defineModel('SpecSingletonCounters', {

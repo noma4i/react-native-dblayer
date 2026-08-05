@@ -1,4 +1,4 @@
-import { configureDb , createOperationState, readCommittedOnceKeys, readQuarantineEntries, serializeOperationInput , encodePersistence, jsonRoundTrip } from '../../testApi';
+import { configureDb , createOperationState, planRequestFailureRollback, readCommittedOnceKeys, readQuarantineEntries, serializeOperationInput , encodePersistence, jsonRoundTrip } from '../../testApi';
 import type { OperationRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
@@ -493,5 +493,23 @@ describe('hydrate key retention', () => {
     state.remove('op-1');
 
     expect(state.persistEntries()).toEqual([]);
+  });
+
+  it('closes a failed operation as retryable only while a temp row or rollback snapshot exists', () => {
+    setup();
+    const bare: OperationRecord = { ...baseRecord('op-bare'), status: 'pending' };
+    const withTemp: OperationRecord = { ...baseRecord('op-temp'), tempIds: ['tmp:1'], status: 'pending' };
+
+    // Nothing local to retry from -> the close is terminal ('rolledback', not 'failed').
+    expect(planRequestFailureRollback(bare, () => undefined, () => []).transition).toEqual({
+      kind: 'close',
+      operationId: 'op-bare',
+      status: 'rolledback'
+    });
+    expect(planRequestFailureRollback(withTemp, () => undefined, () => []).transition).toEqual({
+      kind: 'close',
+      operationId: 'op-temp',
+      status: 'failed'
+    });
   });
 });

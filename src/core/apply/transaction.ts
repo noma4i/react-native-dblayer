@@ -168,17 +168,14 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
       // snapshot does not cover it yet. Replayed deltas mark their models dirty, so the next
       // compaction folds them into snapshots and deletes them; they are NOT re-written as deltas.
       const deltas = readDeltaLog(storage, options.prefix());
-      let replayed = 0;
       for (const delta of deltas) {
-        if (delta.seq >= deltaSeq) deltaSeq = delta.seq + 1;
         const ops = delta.ops.filter(op => snapseqOf(op.model) < delta.seq);
         pendingDeltaModels.set(delta.seq, touchedModelsOf(delta.ops));
         if (ops.length === 0) continue;
         epoch += 1;
         try {
-          publishProjectedBatch(bus, () => applyWithRecovery(ops, epoch, () => touchedModelsOf(ops).forEach(model => dirtyModels.add(model))), {
-            readyAfterApply: true
-          });
+          // Boot readiness belongs to bootDb's markStoresReady, not to each replayed batch.
+          publishProjectedBatch(bus, () => applyWithRecovery(ops, epoch, () => touchedModelsOf(ops).forEach(model => dirtyModels.add(model))));
         } catch (error) {
           // A delta the current code cannot apply cuts the tail exactly like a delta it cannot read.
           const tail = deltas.filter(candidate => candidate.seq >= delta.seq);
@@ -191,9 +188,7 @@ export const createApplyRuntime = (options: { storage: StoragePlane; prefix: () 
           reportSyncError(error, { source: 'apply' }, 'apply');
           break;
         }
-        replayed += 1;
       }
-      return replayed;
     },
     flushCacheSnapshots,
     currentEpoch: () => epoch

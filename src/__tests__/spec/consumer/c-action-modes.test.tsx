@@ -2,6 +2,7 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
 import { act } from 'react';
 import {
+  belongsTo,
   bootDb,
   configureDb,
   createCommitEnvelope,
@@ -740,6 +741,61 @@ describe('action modes', () => {
     expectWork(storage, restartedAffected, restartedUnrelated, lateResponseBefore, { commits: 0, affectedTicks: 0 });
     restartedAffected.unmount();
     restartedUnrelated.unmount();
+  });
+
+  it('restores the parent counter when boot fsck rolls back a crashed destroy', async () => {
+    type Chat = { id: string; unreadCount: number };
+    type Note = { id: string; chatId: string; label: string };
+    const ChatSchema = defineShape<Chat>()({ unreadCount: f.num() });
+    const NoteSchema = defineShape<Note>()({ chatId: f.str(), label: f.str() });
+    const noteDocument: TypedDocumentNode<{ noteDrop: { id: string } }, { id: string }> = { kind: Kind.DOCUMENT, definitions: [] };
+    const defineChatPair = () => {
+      const Chats = defineModel('SpecActionModeFsckCounterChats', { schema: ChatSchema });
+      const Notes = defineModel('SpecActionModeFsckCounterNotes', {
+        schema: NoteSchema,
+        associations: () => ({
+          chat: belongsTo<Note, Chat>(Chats, { foreignKey: 'chatId', counterCache: { field: 'unreadCount' } })
+        }),
+        actions: owner => ({
+          drop: owner.gql.action(noteDocument, {
+            mode: 'request',
+            result: 'noteDrop',
+            variables: (input: { id: string }) => input,
+            optimistic: { root: { destroy: { select: ({ input }) => input.id } } },
+            root: { destroy: { select: ({ data }) => data.noteDrop.id } }
+          })
+        })
+      });
+      return { Chats, Notes };
+    };
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport({ mutation: () => new Promise(() => undefined) }) });
+    const first = defineChatPair();
+    await act(async () => {
+      await bootDb();
+    });
+    first.Chats.insert({ id: 'chat-1', unreadCount: 0 });
+    getApplyRuntime().commit(
+      createCommitEnvelope([{ kind: 'upsert', model: first.Notes.key, rows: [{ id: 'note-1', chatId: 'chat-1', label: 'hello' }], origin: 'event' }])
+    );
+    expect(first.Chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
+    act(() => {
+      void first.Notes.actions.drop.run({ id: 'note-1' });
+    });
+    expect(first.Notes.find('note-1')).toBeUndefined();
+    expect(first.Chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
+
+    // Process restart mid-request: the fsck rollback runs the SAME model-owned restore plan as a
+    // runtime transport failure - the row, its membership, AND the derived counter come back.
+    configureDb({ storage, transport: createMockTransport() });
+    const second = defineChatPair();
+    await act(async () => {
+      await bootDb();
+    });
+
+    expect(second.Notes.find('note-1')).toMatchObject({ label: 'hello' });
+    expect(second.Chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
+    expect(second.Notes.operation('note-1').read()).toMatchObject({ pending: false, failed: true });
   });
 
   it('closes failed optimistic update retry and discard semantics', async () => {

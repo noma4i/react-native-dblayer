@@ -138,7 +138,9 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     return [...upsert, ...split.replaceOps];
   };
   return { prepareRow, preparePatch, putRows, planRows, planReplace, splitCorrelatedRows, planRestore: (next: unknown, memberships: ModelMembership[]): WriteOp[] => {
+    // Rollback restore is the mirror of the destroy leg: the row logically re-appears, so the
+    // event pocket of the effect matrix (counter +1, touch) applies - not the identity-swap pocket.
     const normalized = options.normalize(next);
-    return [{ kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace' }, ...restoreMembership(normalized.id, memberships)];
+    return [{ kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'event' }, ...restoreMembership(normalized.id, memberships)];
   } };
 };

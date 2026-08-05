@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { Kind } from 'graphql';
-import { configureDb, defineModel, defineShape, f, MutationDeliveryUnknownError, resetRuntime } from '../../testApi';
+import { belongsTo, configureDb, createCommitEnvelope, defineModel, defineShape, f, getApplyRuntime, MutationDeliveryUnknownError, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; label: string; status: 'pending' | 'done' };
@@ -94,6 +94,38 @@ describe('action failure contract', () => {
       deliveryUnknown: true
     });
     await expect(rows.actions.create.retry(optimistic.id)).resolves.toBeNull();
+  });
+
+  it('[RE2] leaves no partial derived state when a plan with relation effects is refused', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const chats = defineModel('SpecFailureEffectChats', {
+      schema: defineShape<{ id: string; unreadCount: number; lastActivityAt: number }>()({ unreadCount: f.num(), lastActivityAt: f.num() })
+    });
+    const messages = defineModel('SpecFailureEffectMessages', {
+      schema: defineShape<{ id: string; chatId: string; createdAt: number }>()({ chatId: f.str(), createdAt: f.num() }),
+      associations: () => ({
+        chat: belongsTo<{ id: string; chatId: string; createdAt: number }, { id: string; unreadCount: number; lastActivityAt: number }>(chats, {
+          foreignKey: 'chatId',
+          counterCache: { field: 'unreadCount' },
+          touch: (message, chat) => (message.createdAt > chat.lastActivityAt ? { lastActivityAt: message.createdAt } : null)
+        })
+      })
+    });
+    chats.insert({ id: 'chat-1', unreadCount: 0, lastActivityAt: 0 });
+
+    // The child upsert would derive a counter bump and a parent touch, but the malformed
+    // sibling op refuses the WHOLE plan: no child row, original counter, original touch mark.
+    expect(() =>
+      getApplyRuntime().commit(
+        createCommitEnvelope([
+          { kind: 'upsert', model: messages.key, rows: [{ id: 'msg-1', chatId: 'chat-1', createdAt: 5 }], origin: 'event' },
+          { kind: 'upsert', model: messages.key, rows: [{ chatId: 'chat-1', createdAt: 6 }], origin: 'event' }
+        ])
+      )
+    ).toThrow();
+
+    expect(messages.find('msg-1')).toBeUndefined();
+    expect(chats.find('chat-1')).toEqual({ id: 'chat-1', unreadCount: 0, lastActivityAt: 0 });
   });
 
   it('rejects an optimistic insert model without temp-row retention', () => {

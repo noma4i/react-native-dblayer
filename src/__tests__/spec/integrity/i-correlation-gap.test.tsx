@@ -115,6 +115,53 @@ function Activation(): null {
 afterEach(resetRuntime);
 
 describe('channel-agnostic temp correlation', () => {
+  it('[ID8] runs zero candidate search without a declared correlate: the temp and server rows coexist', async () => {
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: () => new Promise(() => undefined),
+        query: async <TData,>() => ({
+          data: { messages: [{ id: 'server-1', chatId: 'chat-1', body: 'hello', status: 'sent' }] } as TData
+        })
+      })
+    });
+    const messages = defineModel('SpecCorrelationUndeclared', {
+      schema: MessageSchema,
+      maintenance: { dropTempRowsAfterMs: 60_000 },
+      relations: owner => ({
+        thread: {
+          by: { chatId: 'chatId' },
+          remote: owner.gql.list(queryDocument, {
+            variables: (params: QueryVariables) => params,
+            select: data => data.messages
+          })
+        }
+      }),
+      actions: owner => ({
+        send: owner.gql.action(sendDocument, {
+          mode: 'request',
+          result: 'messageSend',
+          variables: (input: SendInput) => ({ input }),
+          optimistic: { root: { insert: { select: ({ input, tempId }) => ({ id: tempId, ...input, status: 'sending' as const }) } } },
+          root: { insert: { select: ({ data }) => data.messageSend.message } }
+        })
+      })
+    });
+    act(() => {
+      void messages.actions.send.run({ chatId: 'chat-1', body: 'hello' });
+    });
+    const tempId = messages.thread({ chatId: 'chat-1' }).read()[0]!.id;
+
+    await act(async () => messages.thread({ chatId: 'chat-1' }).fetch());
+
+    // Without a declared correlate there is NO candidate search: the matching payload lands as
+    // its own row, the temp row stays seated, and its operation stays open for the response.
+    const ids = messages.thread({ chatId: 'chat-1' }).read().map(row => row.id).sort();
+    expect(ids).toEqual(['server-1', tempId].sort());
+    expect(messages.find(tempId)).toBeDefined();
+    expect(messages.operation(tempId).read().pending).toBe(true);
+  });
+
   it('collapses an open temp row when a query lands the server row', async () => {
     configureDb({
       storage: createMemoryPlane(),
