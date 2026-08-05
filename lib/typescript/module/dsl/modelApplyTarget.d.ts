@@ -12,5 +12,6 @@ export declare const createModelApplyTarget: <TStored extends {
         id: string;
         changedFields: string[] | null;
     }>;
+    rowBelongsToScope(scopeKey: string, row: Record<string, unknown>): boolean;
 }) => ModelApplyTargetResult;
 //# sourceMappingURL=modelApplyTarget.d.ts.map

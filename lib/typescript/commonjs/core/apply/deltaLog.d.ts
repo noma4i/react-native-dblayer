@@ -7,7 +7,8 @@ export type DecodedDelta = {
     seq: number;
     ops: AppliedOp[];
 };
-export declare const decodeDelta: (raw: string) => DecodedDelta | null;
+/** Version discrimination runs BEFORE the shape gate: a foreign recordVersion is format evolution ('stale'), everything else that fails is corruption (null). */
+export declare const decodeDelta: (raw: string) => DecodedDelta | "stale" | null;
 export declare const readSnapseq: (storage: StoragePlane, prefix: string, model: string) => number;
 /**
  * Read the persisted delta tail in seq order. A broken delta cuts the tail: it and every later

@@ -17,9 +17,11 @@ export type DecodedDelta = { seq: number; ops: AppliedOp[] };
 const isDeltaOp = (value: unknown): value is AppliedOp =>
   typeof value === 'object' && value !== null && OP_KINDS.has((value as { kind?: unknown }).kind as string) && typeof (value as { model?: unknown }).model === 'string';
 
-export const decodeDelta = (raw: string): DecodedDelta | null => {
+/** Version discrimination runs BEFORE the shape gate: a foreign recordVersion is format evolution ('stale'), everything else that fails is corruption (null). */
+export const decodeDelta = (raw: string): DecodedDelta | 'stale' | null => {
   try {
     const parsed = JSON.parse(raw) as { recordVersion?: unknown; seq?: unknown; ops?: unknown };
+    if (typeof parsed.recordVersion === 'number' && parsed.recordVersion !== DELTA_RECORD_VERSION) return 'stale';
     if (parsed.recordVersion !== DELTA_RECORD_VERSION) return null;
     if (typeof parsed.seq !== 'number' || !Number.isSafeInteger(parsed.seq) || parsed.seq < 0) return null;
     if (!Array.isArray(parsed.ops) || !parsed.ops.every(isDeltaOp)) return null;
@@ -46,15 +48,19 @@ export const readDeltaLog = (storage: StoragePlane, prefix: string): DecodedDelt
   for (let index = 0; index < keys.length; index += 1) {
     const raw = storage.get(keys[index]!);
     const decoded = raw === undefined ? null : decodeDelta(raw);
-    if (decoded !== null) {
+    if (decoded !== null && decoded !== 'stale') {
       deltas.push(decoded);
       continue;
     }
     const cut = keys.slice(index);
     for (const key of cut) storage.set(key, null);
     for (const key of storage.keys(`${prefix}query`)) storage.set(key, null);
-    noteDataLoss('delta-tail-cut', '__runtime__', cut.length);
-    getDbLogger().error('delta tail cut', { from: keys[index], dropped: cut.length });
+    // A foreign recordVersion is routine format evolution: the tail is evicted silently.
+    // Only a delta the CURRENT version cannot read is corruption and counts as loss.
+    if (decoded !== 'stale') {
+      noteDataLoss('delta-tail-cut', '__runtime__', cut.length);
+      getDbLogger().error('delta tail cut', { from: keys[index], dropped: cut.length });
+    }
     break;
   }
   return deltas;

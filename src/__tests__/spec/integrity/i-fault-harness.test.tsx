@@ -245,6 +245,37 @@ describe('persistence fault invariants', () => {
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual(expect.objectContaining({ mechanism: 'delta-tail-cut' }));
   });
 
+  it('[P24] evicts a stale-version delta tail silently as format evolution, not corruption', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureFaultRuntime(storage);
+    const rows = createScopedRows('DeltaStaleVersion');
+    writePersistenceManifest('dbl:', { formatVersion: DB_FORMAT_VERSION, schemaFingerprints: computeSchemaFingerprints(), dataVersion: null });
+    await bootDb();
+    rows.insert({ id: 'row-1', chatId: 'chat-1', label: 'first' });
+    rows.insert({ id: 'row-2', chatId: 'chat-1', label: 'second' });
+
+    const disk = createMemoryPlane();
+    for (const write of storage.setCalls()) disk.set(write.key, write.value);
+    disk.set('dbl:query:probe', 'cached-query-record');
+    const deltaKeys = disk.keys('dbl:delta:').sort();
+    expect(deltaKeys.length).toBeGreaterThanOrEqual(2);
+    // A future format bump: the payload is a VALID envelope of another record version.
+    const foreign = JSON.parse(disk.get(deltaKeys[1]!)!) as { recordVersion: number };
+    disk.set(deltaKeys[1]!, JSON.stringify({ ...foreign, recordVersion: 999 }));
+
+    resetRuntime();
+    configureDb({ storage: disk, transport: createMockTransport() });
+    await bootDb();
+
+    // Format evolution behaves like the tail-cut for STATE (tail evicted, query records wiped)
+    // but is silent: no loss counter - stale version is routine evolution, not corruption.
+    expect(rows.find('row-1')).toMatchObject({ label: 'first' });
+    expect(rows.find('row-2')).toBeUndefined();
+    expect(disk.get('dbl:query:probe')).toBeUndefined();
+    expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
+  });
+
   it('converges from every kill point inside the compaction flush', async () => {
     const storage = createFaultStorage();
     resetRuntime();
