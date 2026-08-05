@@ -1,5 +1,32 @@
 # Changelog
 
+## 10.1.0-beta.1 - 2026-08-05
+
+### Breaking changes and migration
+
+- BREAKING: `DB_FORMAT_VERSION` moves to 11 - the durable-v2 persistence model cold-resets the cache once (rows, scopes, tombstones, deltas, snapseq markers); the outbox and quarantine ride through, unsent user rows stay retryable.
+- BREAKING: the `belongsTo` `touch` callback now receives a third argument `ctx: { replacedIds }` - the child-model row ids destroyed by replace legs of the same plan. A touch gate that owns a denormalized child reference must follow the swap through `ctx.replacedIds` instead of comparing client and server clocks.
+
+### Added
+
+- Durable delta log: every commit synchronously writes ONE atomic `delta:<seq>` key carrying the commit's rows AND scope changes, so an accepted commit is on disk before `commit` returns and a row/membership pair can never tear. Snapshot flushes act as compaction: each dirty model's snapshot advances its `snapseq` marker and deletes the deltas all touched models now cover. Boot replays the delta tail over the hydrated snapshots and converges idempotently.
+- Delta tail-cut recovery: a broken or unreadable delta removes itself and every later delta with a `delta-tail-cut` loss counter and evicts persisted query records, so every reader refetches instead of trusting a snapshot with a hole.
+- `planRequestFailureRollback`: the runtime transport-failure path and boot fsck now share ONE rollback planner - a kill mid-mutation ends exactly like a runtime failure (field-level patch rollback, temp insert stays retryable, destroy restores the snapshot and memberships).
+- Replace touch effect: the replace upsert leg triggers the parent `touch` in the same envelope, so a denormalized parent preview follows the temp-to-server swap instead of dangling on the destroyed temp id.
+- Zero-loss lifecycle fuzz: dual-channel delivery of one server row in both orders with a trimmed live copy, derived by-scope membership parity, no-duplicates, no-eternal-temp, and field-parity assert classes over seeded scenarios.
+
+### Fixed
+
+- Replace is a server identity fact: the response swap is never refused by causal admission. When the server row already landed through another channel (live event, sideload), the response merges into it under snapshot-mode policies and the temp leg is destroyed - no more eternal temp rows with local preview sources next to the server copy.
+- Deletion wins over the landing swap: a replace onto a tombstoned target plans only the destroy leg - the destroyed identity never resurrects through the response, the operation closes committed, and nothing is ticketed.
+- A refused delta write is contained: the commit still lands in memory, the models stay dirty, and the next successful flush covers the state; only the operation-ledger write may fail a commit.
+- Derived by-scope values always read through the declared field reader from the FINAL committed row, so a policy-restored source keeps its derived membership seat (media bucket) instead of detaching on a trimmed payload.
+- Boot fsck no longer detaches rowless scope entries by heuristic - delta replay makes a row/membership divergence inexpressible.
+
+### Known limitations
+
+- The compaction deletes a delta only when every model it touches has a covering snapshot; a model that never flushes keeps its deltas alive until the next flush cycle.
+
 ## 10.0.0-beta.24 - 2026-08-05
 
 ### Breaking changes and migration
