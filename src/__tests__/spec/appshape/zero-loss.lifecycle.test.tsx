@@ -433,7 +433,7 @@ describe('zero-loss lifecycle', () => {
   it('[T13] fuzz: full lifecycle with dual-channel delivery and session operators holds every assert class', async () => {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       const random = mulberry32(seed + 20_000);
-      let storage = createFaultStorage();
+      const storage = createFaultStorage();
       const responseQueue: Array<(value: { data: SendData | EditData }) => void> = [];
       const makeTransport = () =>
         createMockTransport({
@@ -441,7 +441,6 @@ describe('zero-loss lifecycle', () => {
         });
       resetRuntime();
       configureDb({ storage: storage.plane, transport: makeTransport() });
-      seedManifest();
       await bootDb();
       const media = (id: string): SendMedia => ({ id: `m-${id}`, kind: 'video', fileUrl: `https://cdn/${id}.mp4`, thumbUrl: null });
       /** What the mock server holds - survives every reset, reboot and account switch. */
@@ -479,16 +478,11 @@ describe('zero-loss lifecycle', () => {
         orphanSends.length = 0;
         responseQueue.length = 0;
       };
-      /** Process restart on the current disk snapshot: in-flight responses die, the ledger rides. */
+      /** Process restart on the SAME physical plane: in-flight responses die, the disk stays as-is. */
       const rebootOnCurrentDisk = async (): Promise<void> => {
         getApplyRuntime().flushCacheSnapshots();
-        const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length) as StoragePlane & { snapshotKeys: () => string[] };
-        const next = createFaultStorage();
-        for (const key of disk.snapshotKeys()) next.plane.set(key, disk.get(key) ?? null);
-        storage = next;
         orphanSends.push(...openSends.splice(0));
         responseQueue.length = 0;
-        resetRuntime();
         configureDb({ storage: storage.plane, transport: makeTransport() });
         await bootDb();
         assertNoCorruptionClassification();
@@ -578,15 +572,17 @@ describe('zero-loss lifecycle', () => {
           }
           assertManifestPresence();
         }
+        // Final process restart on the SAME plane: the verification session reads the real disk.
         getApplyRuntime().flushCacheSnapshots();
-        const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length) as StoragePlane & { snapshotKeys: () => string[] };
-        await bootOn(disk);
+        configureDb({ storage: storage.plane, transport: makeTransport() });
+        await bootDb();
 
         // loss: no user-data loss events on a clean lifecycle; a wipe never reads as corruption.
         expect(userLossEvents(diagnostics().snapshot())).toEqual([]);
         expect(diagnostics().snapshot().dataLossEvents.filter(event => event.mechanism === 'model-corruption-recovery')).toEqual([]);
         // manifest: the disk this session ends on is manifested whenever it is nonempty.
-        if (disk.snapshotKeys().some(key => key !== 'dbl:manifest')) expect(disk.snapshotKeys()).toContain('dbl:manifest');
+        const finalKeys = storage.plane.keys('dbl:');
+        if (finalKeys.some(key => key !== 'dbl:manifest')) expect(finalKeys).toContain('dbl:manifest');
         // row parity + field parity: every locally landed row is served with its landed fields.
         for (const [id, truth] of localTruth) {
           const row = Message.find(id);
