@@ -163,6 +163,54 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
+  it('[F17] rewrites only the swapped id of a multi-row chain and keeps the rest in place', async () => {
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        query: async <TData,>() => {
+          calls += 1;
+          return { data: { rows: [{ id: 'row-1', name: 'First', group: null }, { id: 'row-2', name: 'Second', group: null }] } as TData };
+        }
+      })
+    });
+    const rows = createRowsModel('FreshnessReplacePartial');
+    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-replace-partial', select: data => data.rows, staleTime: Infinity });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+    // Swap ONE of the two chain rows: the untouched sibling must anchor nothing - the chain
+    // rewrites only the swapped identity and stays fresh.
+    act(() => {
+      getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('row-1', { id: 'server-1', name: 'First', group: null })));
+    });
+    await settle();
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+
+    expect(calls).toBe(1);
+    expect(rows.find('server-1')).toBeTruthy();
+    expect(rows.find('row-2')).toBeTruthy();
+    // The rewritten chain now anchors on the successor: destroying the untouched sibling must
+    // NOT empty the chain - a chain that still held the dead old id would go empty and refetch.
+    act(() => rows.destroy('row-2'));
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+    expect(calls).toBe(1);
+    act(() => root.unmount());
+  });
+
   it('[F17] [W35] keeps the freshness chain intact through an identity replace without new transport', async () => {
     let calls = 0;
     configureDb({

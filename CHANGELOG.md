@@ -1,5 +1,32 @@
 # Changelog
 
+## 10.1.0-beta.2 - 2026-08-05
+
+### Breaking changes and migration
+
+- BREAKING: `model.invalidate(scope)` with an address that matches no declared relation now throws instead of silently doing nothing. Migration: none for yupi - the app has no direct `model.invalidate(scope)` call sites; write-plan and relation-level invalidation are unchanged, and the internal event fan-out stays silent.
+
+### Added
+
+- Freshness follows identity swaps: the replace destroy leg carries its successor id (`replacedBy`), and a persisted query chain rewrites the old id in place with its ORIGINAL freshness stamp - a landed send no longer stales the thread query and no longer triggers a refetch on the next mount. Partial swaps rewrite only the swapped id.
+- Rollback restore runs the event pocket of the relation effect matrix: a failed or crashed destroy returns the row, its memberships, AND the parent counter cache, on the runtime transport-failure path and boot fsck alike - ONE model-owned restore plan (`getInternalModelHandleById`).
+- Spec-marker catalog gate: `scripts/check-spec-markers.mjs` (pre-commit) requires every spec criterion to own a `[ID]`-marked case inside its declared suite, with a no-growth ratchet for unmarked cases.
+
+### Fixed
+
+- Complete-reconcile order keys steer around held rows: an open operation holding a scope row no longer collides with freshly generated keys - the collision refused the WHOLE fetch of that scope (models without `correlate` hit it on every fetch over a pending send).
+- Scope membership is gated by the FINAL committed row on every entry path: a member predicate or a foreign derived by-key filters `scope` next entries and `scope-delta` appends alike.
+- A replace that keeps its own id no longer schedules its own destroy leg.
+- Covered delta ops are skipped on boot replay without publishing batches, and an older resurrected delta can never stomp a fresher snapshot.
+- The delta seq counter survives reboots exactly: padded 12-digit keys keep numeric replay order under any storage enumeration; bystander keys never feed the counter; a refused delta write reuses its seq for the next accepted commit.
+- A refused ledger write fails the commit BEFORE anything applies: no optimistic row lands and reads stay alive (not poisoned).
+- A schema migration clears the migrated model's `snapseq` marker together with its snapshots, so stale deltas cannot claim coverage.
+- Malformed delta envelopes on the CURRENT record version (non-array ops, unknown op kind, an op without a model, fractional or negative seq, string recordVersion) are corruption with a counted tail-cut; only a foreign numeric `recordVersion` is silent format evolution.
+
+### Known limitations
+
+- Chain identity-swap fixation is a process property: a chain restored on a later boot over already-compacted swapped state degrades to a plain refetch, never a loss.
+
 ## 10.1.0-beta.1 - 2026-08-05
 
 ### Breaking changes and migration
