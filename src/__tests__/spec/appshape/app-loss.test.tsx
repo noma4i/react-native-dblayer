@@ -78,7 +78,7 @@ const allModels = (models: ReturnType<typeof createAppModels>) => [models.users,
 describe('app-shaped loss contracts', () => {
   guardDataLoss();
 
-  it('L1 replaces an optimistic media message without losing its thread membership or continuity fields', async () => {
+  it('[A11] L1 replaces an optimistic media message without losing its thread membership or continuity fields', async () => {
     let resolve!: (value: { data: any }) => void;
     const transport = createMockTransport({ mutation: async <TData,>() => new Promise<{ data: TData }>(nextResolve => { resolve = nextResolve as never; }) });
     configureDb({ storage: createMemoryPlane(), transport });

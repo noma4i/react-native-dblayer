@@ -236,7 +236,7 @@ describe('zero-loss lifecycle', () => {
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'user-reset-discard', model: '__operations__', count: 2 });
   });
 
-  it('keeps unsent user rows retryable after a kill at EVERY persisted write point', async () => {
+  it('[I4] keeps unsent user rows retryable after a kill at EVERY persisted write point', async () => {
     const random = mulberry32(1);
     const { writes, tempIds } = await runScenario(2);
     expect(tempIds.length).toBeGreaterThan(0);
@@ -396,7 +396,7 @@ describe('zero-loss lifecycle', () => {
     expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id)).toContain('server-tick');
   });
 
-  it('serves the row AND its membership from every kill point inside the flush', async () => {
+  it('[P6] serves the row AND its membership from every kill point inside the flush', async () => {
     const { writes } = await runScenario(0);
     // Kill right after the row key of server-2 reached the disk, before its scope key.
     const rowWriteIndex = writes.findIndex(write => write.key.startsWith('dbl:row:') && write.key.includes('server-2'));
@@ -430,7 +430,7 @@ describe('zero-loss lifecycle', () => {
     expect(row!.media?.fileUrl).toBe('https://cdn/video.mp4');
   });
 
-  it('fuzz: full lifecycle with dual-channel delivery holds every assert class', async () => {
+  it('[T13] fuzz: full lifecycle with dual-channel delivery holds every assert class', async () => {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       const random = mulberry32(seed + 20_000);
       const storage = createFaultStorage();
@@ -583,7 +583,7 @@ describe('zero-loss lifecycle', () => {
     }
   });
 
-  it('random kill points never lose rows the disk already holds', async () => {
+  it('[P1] random kill points never lose rows the disk already holds', async () => {
     for (let seed = 1; seed <= SEEDS; seed += 1) {
       const random = mulberry32(seed + 10_000);
       const { writes, serverIds } = await runScenario(0);

@@ -65,15 +65,15 @@ describe('reset and definition registries', () => {
 
   it('replaces the invalidation callback when the same definition registers again', () => {
     const calls: string[] = [];
-    registerModelInvalidation('SpecResetInvalidation', 'probe-query', () => void calls.push('first'));
-    registerModelInvalidation('SpecResetInvalidation', 'probe-query', () => void calls.push('second'));
+    registerModelInvalidation('SpecResetInvalidation', 'probe-query', () => calls.push('first') > 0);
+    registerModelInvalidation('SpecResetInvalidation', 'probe-query', () => calls.push('second') > 0);
 
     invalidateModel('SpecResetInvalidation');
 
     expect(calls).toEqual(['second']);
   });
 
-  it('runs boot validations declared before a reset on the next boot', () => {
+  it('[A7] runs boot validations declared before a reset on the next boot', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     let ran = 0;
     registerBootValidation('reset-probe', () => {

@@ -7,7 +7,7 @@ describe('generation registry', () => {
     expect(() => registry.register('owner', {}, 'duplicate owner')).toThrow('duplicate owner');
   });
 
-  it('allows a stale registration to be replaced after reset', () => {
+  it('[I8] allows a stale registration to be replaced after reset', () => {
     let generation = 1;
     const registry = createGenerationRegistry<object>(() => generation);
     const replacement = {};
@@ -17,7 +17,7 @@ describe('generation registry', () => {
     expect(registry.get('owner')).toBe(replacement);
   });
 
-  it('keeps the replacement when a stale disposer runs', () => {
+  it('[W7] [W16] [F8] keeps the replacement when a stale disposer runs', () => {
     let generation = 1;
     const registry = createGenerationRegistry<object>(() => generation);
     const unregisterStale = registry.register('owner', {}, 'duplicate owner');

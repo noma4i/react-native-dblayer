@@ -33,7 +33,7 @@ describe('operation ledger derived state', () => {
     resetRuntime();
   });
 
-  it('still owns the patched field after a failed operation is reopened', () => {
+  it('[OP9] still owns the patched field after a failed operation is reopened', () => {
     const ledger = getOperationState();
     ledger.begin(patchOperation('op-1'));
     ledger.close('op-1', 'failed');
@@ -45,7 +45,7 @@ describe('operation ledger derived state', () => {
     expect(ledger.latestPendingValue(MODEL, ROW, 'title')).toEqual({ found: true, value: 'local' });
   });
 
-  it('owns nothing once the only pending patch is removed', () => {
+  it('[OP10] owns nothing once the only pending patch is removed', () => {
     const ledger = getOperationState();
     ledger.begin(patchOperation('op-1'));
     expect([...ledger.ownedFields(MODEL, ROW)]).toEqual(['title']);

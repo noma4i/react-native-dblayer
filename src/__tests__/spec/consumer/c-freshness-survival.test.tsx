@@ -3,7 +3,7 @@ import { Kind } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, compositeKey, configureDb, defineModel, defineModelRuntime, defineShape, f, registerActiveFetchReaders, resetRuntime } from '../../testApi';
+import { DbProvider, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getInternalModelHandle, registerActiveFetchReaders, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -134,7 +134,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
-  it('refetches an Infinity-fresh detail query on remount after its committed row was destroyed', async () => {
+  it('[F3] refetches an Infinity-fresh detail query on remount after its committed row was destroyed', async () => {
     let calls = 0;
     configureDb({
       storage: createMemoryPlane(),
@@ -160,6 +160,39 @@ describe('freshness follows committed-row survival and foreground resume', () =>
 
     expect(calls).toBe(2);
     expect(rows.find('row-2')).toBeTruthy();
+    act(() => root.unmount());
+  });
+
+  it('[F17] [W35] keeps the freshness chain intact through an identity replace without new transport', async () => {
+    let calls = 0;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({ query: async <TData,>() => { calls += 1; return { data: { rows: [{ id: 'row-1', name: 'Materialized', group: null }] } as TData }; } })
+    });
+    const rows = createRowsModel('FreshnessReplaceIdentity');
+    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-replace-identity', select: data => data.rows, staleTime: Infinity });
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
+    let root!: TestRenderer.ReactTestRenderer;
+
+    act(() => {
+      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+    });
+    await settle();
+    expect(calls).toBe(1);
+    act(() => {
+      getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('row-1', { id: 'server-1', name: 'Materialized', group: null })));
+    });
+    await settle();
+    act(() => root.update(React.createElement(Root, { mounted: false })));
+    act(() => root.update(React.createElement(Root, { mounted: true })));
+    await settle();
+
+    expect(calls).toBe(1);
+    expect(rows.find('server-1')).toBeTruthy();
     act(() => root.unmount());
   });
 

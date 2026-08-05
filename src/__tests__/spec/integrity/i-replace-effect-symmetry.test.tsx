@@ -35,7 +35,7 @@ const createModels = (suffix: string) => {
 };
 
 describe('replace relation effects', () => {
-  it('E1 keeps a parent counter stable through an optimistic mutation commit identity swap', async () => {
+  it('[RE5] E1 keeps a parent counter stable through an optimistic mutation commit identity swap', async () => {
     let resolveMutation!: (value: { data: SendData }) => void;
     const transport = createMockTransport({
       mutation: async <TData,>() =>

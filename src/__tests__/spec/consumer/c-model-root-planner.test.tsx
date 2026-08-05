@@ -136,7 +136,7 @@ const expectNoResponseWrite = async (
 };
 
 describe('model root planner', () => {
-  it('rejects every malformed runtime root and normalizes numeric destroy ids', () => {
+  it('[W24] [T10] rejects every malformed runtime root and normalizes numeric destroy ids', () => {
     const owner = {
       modelId: 'SpecModelRootPlannerRuntimeEdges',
       planRows: () => []
@@ -502,7 +502,7 @@ describe('model root planner', () => {
     );
   });
 
-  it('rejects a same-owner WritePlan target before mutation', async () => {
+  it('[I18] [W25] rejects a same-owner WritePlan target before mutation', async () => {
     const existing = { id: 'same-owner', label: 'before', count: 1 };
     const responseRow = { id: 'same-owner-response', label: 'response', count: 2 };
     let ownerTarget: OwnerDeclaration | undefined;
@@ -601,7 +601,7 @@ const expectFixtureDiagnostic = (source: string, expected: ExpectedDiagnostic): 
 };
 
 describe('model root planner type surface', () => {
-  it('accepts owner-bound relation, action and live declarations without diagnostics', () => {
+  it('[S2] [S13] accepts owner-bound relation, action and live declarations without diagnostics', () => {
     const diagnostics = compileFixture(`
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
       import { defineModel, defineShape, f } from '${entry}';
@@ -681,7 +681,7 @@ describe('model root planner type surface', () => {
     });
   });
 
-  it('rejects the removed top-level gql builder', () => {
+  it('[S17] rejects the removed top-level gql builder', () => {
     const source = `
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
       import { defineModel, defineShape, f, gql } from '${entry}';
@@ -733,7 +733,7 @@ describe('model root planner type surface', () => {
     });
   });
 
-  it('rejects same-owner WritePlan targets', () => {
+  it('[S14] rejects same-owner WritePlan targets', () => {
     const source = `
       import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
       import { defineModel, defineShape, f } from '${entry}';

@@ -10,7 +10,7 @@ export type WriteOp =
   /** `operationId` lets a pending optimistic method-patch plan its own rollback while foreign patches keep its owned fields. */
   | { kind: 'patch'; model: string; id: string; patch: Record<string, unknown>; remove?: string[]; operationId?: string; baseRevision?: number }
   /** `replace` marks the destroy half of an identity swap during relation planning. */
-  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; operationTransitions?: OperationTransition[]; baseRevision?: number }
+  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; replacedBy?: string; operationTransitions?: OperationTransition[]; baseRevision?: number }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey?: string }>; detach: string[] }
   | { kind: 'counter'; model: string; id: string; field: string; delta: number };
@@ -18,6 +18,6 @@ export type WriteOp =
 /** Callback-free operation applied and persisted verbatim by one commit. */
 export type AppliedOp =
   | { kind: 'upsert'; model: string; rows: StoredRow[]; origin?: 'replace' }
-  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace' }
+  | { kind: 'destroy'; model: string; ids: string[]; tombstone?: boolean; origin?: 'replace'; replacedBy?: string }
   | { kind: 'scope'; model: string; scopeKey: string; next: ScopeIndexValue }
   | { kind: 'scope-delta'; model: string; scopeKey: string; append: Array<{ id: string; orderKey: string }>; detach: string[] };

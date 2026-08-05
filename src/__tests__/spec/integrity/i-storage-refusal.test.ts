@@ -55,7 +55,7 @@ describe('storage refusal', () => {
     allow();
   });
 
-  it('reuses the refused delta sequence for the next accepted commit', () => {
+  it('[P34] reuses the refused delta sequence for the next accepted commit', () => {
     const storage = createMemoryPlane();
     const accept = storage.set;
     let refuseDeltas = false;
@@ -78,7 +78,7 @@ describe('storage refusal', () => {
     expect(storage.keys('dbl:delta:').sort()).toEqual(['dbl:delta:000000000000', 'dbl:delta:000000000001']);
   });
 
-  it('fails the commit loudly on a refused ledger write, leaving reads alive and the row unapplied', async () => {
+  it('[P35] fails the commit loudly on a refused ledger write, leaving reads alive and the row unapplied', async () => {
     type Row = { id: string; label: string };
     const storage = createMemoryPlane();
     const accept = storage.set;

@@ -215,7 +215,7 @@ describe('unresolved temp row retention', () => {
     expect(rows.find('temp-old')).toBeUndefined();
   });
 
-  it('keeps an old temp row while its mutation is pending', async () => {
+  it('[ID11] keeps an old temp row while its mutation is pending', async () => {
     let resolve!: (value: { data: { save: TempRow } }) => void;
     const transport = createMockTransport({
       mutation: () =>

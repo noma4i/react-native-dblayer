@@ -84,7 +84,7 @@ const setup = () => {
 };
 
 describe('apply pipeline batching', () => {
-  it('stamps the only constructible envelope format and rejects it after a runtime reset', () => {
+  it('[I2] [ID7] [W1] stamps the only constructible envelope format and rejects it after a runtime reset', () => {
     const { storage, bus } = setup();
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
     const envelope = createCommitEnvelope([{ kind: 'upsert', model: MODEL, rows: [{ id: 'row-1' }] }]);
@@ -243,7 +243,7 @@ describe('apply pipeline batching', () => {
     expect(order).toEqual(['put', 'scope']);
   });
 
-  it('notifies a model query only after every model in the envelope reached final state', () => {
+  it('[A14] [W6] [W30] notifies a model query only after every model in the envelope reached final state', () => {
     setupSpecRuntime();
     const first = defineModelRuntime({
       id: 'SpecApplyBatchFirst',
@@ -282,7 +282,7 @@ describe('apply pipeline batching', () => {
     query.release();
   });
 
-  it('aggregates every scope note of one commit into a single merged scope change', () => {
+  it('[F7] aggregates every scope note of one commit into a single merged scope change', () => {
     const { storage, mock, bus, published } = setup();
     void mock;
     const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus });
@@ -491,5 +491,54 @@ describe('apply pipeline batching', () => {
     runtime.commit(createCommitEnvelope([{ kind: 'upsert', model, rows: [{ id: 'row-1' }] }]));
 
     expect(mock.rows.get('row-1')).toEqual({ id: 'row-1' });
+  });
+
+  it('[A4] [A12] [W29] runs begin, writes, and commit exactly once per target in one envelope', () => {
+    const firstModel = 'SpecApplyLifecycleFirst';
+    const secondModel = 'SpecApplyLifecycleSecond';
+    const storage = createMemoryPlane();
+    configureDb({ storage, transport: createMockTransport() });
+    type LifecycleOp = 'beginApply' | 'put' | 'commitApply';
+    const instrument = (mock: ReturnType<typeof createTargetMock>) => {
+      const counters: Record<LifecycleOp, number> = { beginApply: 0, put: 0, commitApply: 0 };
+      const events: LifecycleOp[] = [];
+      const record = (op: LifecycleOp): void => {
+        counters[op] += 1;
+        events.push(op);
+      };
+      const basePut = mock.target.put;
+      mock.target.beginApply = () => record('beginApply');
+      mock.target.commitApply = () => record('commitApply');
+      mock.target.put = incoming => {
+        record('put');
+        return basePut(incoming);
+      };
+      return { counters, events };
+    };
+    const first = createTargetMock();
+    const second = createTargetMock();
+    const firstLifecycle = instrument(first);
+    const secondLifecycle = instrument(second);
+    registerApplyTarget(firstModel, first.target);
+    registerApplyTarget(secondModel, second.target);
+    registerModelStoreFactory(firstModel, () =>
+      createModelStore({ modelId: firstModel, now: () => Date.now(), storage, prefix: () => PREFIX, applyWriteGate: (_previous, incoming) => incoming })
+    );
+    registerModelStoreFactory(secondModel, () =>
+      createModelStore({ modelId: secondModel, now: () => Date.now(), storage, prefix: () => PREFIX, applyWriteGate: (_previous, incoming) => incoming })
+    );
+    const runtime = createApplyRuntime({ storage, prefix: () => PREFIX, bus: createCommitBus() });
+
+    runtime.commit(
+      createCommitEnvelope([
+        { kind: 'upsert', model: firstModel, rows: [{ id: 'row-first' }] },
+        { kind: 'upsert', model: secondModel, rows: [{ id: 'row-second' }] }
+      ])
+    );
+
+    expect(firstLifecycle.counters).toEqual({ beginApply: 1, put: 1, commitApply: 1 });
+    expect(secondLifecycle.counters).toEqual({ beginApply: 1, put: 1, commitApply: 1 });
+    expect(firstLifecycle.events).toEqual(['beginApply', 'put', 'commitApply']);
+    expect(secondLifecycle.events).toEqual(['beginApply', 'put', 'commitApply']);
   });
 });

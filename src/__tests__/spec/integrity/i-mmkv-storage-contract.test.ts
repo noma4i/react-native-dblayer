@@ -59,7 +59,7 @@ describe('mmkv storage contract: mmkvStorage -> storagePlane -> manifest boot pa
     expect(getDbStorageKeys()).toEqual(['b']);
   });
 
-  it('mmkvStoragePlane() get/set/keys round-trip against the real adapter chain', () => {
+  it('[P21] mmkvStoragePlane() get/set/keys round-trip against the real adapter chain', () => {
     const plane = mmkvStoragePlane();
 
     expect(plane.get('dbl:sentinel')).toBeUndefined();

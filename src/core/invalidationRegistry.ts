@@ -16,7 +16,11 @@ export const registerModelInvalidation = (modelId: string, key: string, invalida
   registry.set(modelId, fns);
 };
 
-/** Fan an invalidation out to every query registered on the model. */
-export const invalidateModel = (modelId: string, scope?: unknown): void => {
-  for (const invalidate of registry.get(modelId)?.values() ?? []) invalidate(scope);
+/** Fan an invalidation out to every query registered on the model; returns how many accepted the address. */
+export const invalidateModel = (modelId: string, scope?: unknown): number => {
+  let covered = 0;
+  for (const invalidate of registry.get(modelId)?.values() ?? []) {
+    if (invalidate(scope)) covered += 1;
+  }
+  return covered;
 };

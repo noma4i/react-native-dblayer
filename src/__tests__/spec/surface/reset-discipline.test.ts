@@ -20,7 +20,7 @@ const sourceFiles = (directory: string): string[] =>
   });
 
 describe('reset discipline', () => {
-  it('passes every cache-key namespace as a literal from the cache set', () => {
+  it('[P26] passes every cache-key namespace as a literal from the cache set', () => {
     const violations: string[] = [];
     for (const file of sourceFiles(srcRoot)) {
       const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
@@ -37,6 +37,37 @@ describe('reset discipline', () => {
       visit(source);
     }
     expect(violations).toEqual([]);
+  });
+
+  it('[DC5] declares every mutable module variable inside a known runtime-context module', () => {
+    // Hidden state is what survives resetRuntime by accident: a module-level `let` outside the
+    // declared runtime-context modules is state no reset path owns.
+    const contextModules = new Set([
+      'src/core/apply/commitEnvelope.ts',
+      'src/core/diagnostics.ts',
+      'src/core/serialize.ts',
+      'src/core/storage.ts',
+      'src/core/store.ts',
+      'src/core/storeDerivedCollections.ts',
+      'src/core/storeSync.ts',
+      'src/dsl/configure.ts',
+      'src/utils/generateTempId.ts',
+      'src/utils/mmkvStorage.ts',
+      'src/utils/runtimeGeneration.ts'
+    ]);
+    const offenders: string[] = [];
+    for (const file of sourceFiles(srcRoot)) {
+      const relative = path.relative(path.resolve(srcRoot, '..'), file).replace(/^.*?src\//, 'src/');
+      if (contextModules.has(relative)) continue;
+      const source = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+      for (const statement of source.statements) {
+        if (!ts.isVariableStatement(statement)) continue;
+        if ((statement.declarationList.flags & ts.NodeFlags.Let) === 0) continue;
+        const { line } = source.getLineAndCharacterOfPosition(statement.getStart());
+        offenders.push(`${relative}:${line + 1}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it('never casts into CacheNamespace to smuggle a durable key through the cache surface', () => {

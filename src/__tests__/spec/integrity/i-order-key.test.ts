@@ -39,7 +39,7 @@ describe('order key primitives', () => {
     expect(() => keyBetween(upper, lower)).toThrow();
   });
 
-  it('sustains 5000 sequential insertions into one gap without a precision limit', () => {
+  it('[R4] sustains 5000 sequential insertions into one gap without a precision limit', () => {
     const lower = keyBetween(undefined, undefined);
     const upper = keyAfter(lower);
     let previous = lower;

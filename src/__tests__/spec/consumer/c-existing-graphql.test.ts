@@ -146,7 +146,7 @@ afterEach(() => {
 });
 
 describe('existing GraphQL boundary', () => {
-  it('[ID13] action replaces its temp row from an ordinary server row without echo identity', async () => {
+  it('[ID13] [OP19] action replaces its temp row from an ordinary server row without echo identity', async () => {
     const serverRow = { id: 'server-id13', label: 'server' };
     const fake = createFakeTransport({ mutation: [{ createRow: { row: serverRow } }] });
     dbLayer.configureDb({ storage: createMemoryPlane(), transport: fake.transport });
@@ -192,7 +192,7 @@ describe('existing GraphQL boundary', () => {
     }).toEqual({ defineCommand: false, defineFetch: false });
   });
 
-  it('[S12] relation action and live transport receive the original document and exact generated variables', async () => {
+  it('[S12] [I13] [OP18] [T5] relation action and live transport receive the original document and exact generated variables', async () => {
     const relationVariables: RelationVariables = { bucket: 'boundary' };
     const actionInput: ActionInput = { label: 'action-input' };
     const fake = createFakeTransport({
@@ -223,7 +223,7 @@ describe('existing GraphQL boundary', () => {
     expect(subscriptions[0]!.options).toEqual({ query: fixture.liveDocument, variables: liveVariables });
   });
 
-  it('[T12] clientMutationId presence or absence is opaque to row identity and result landing', async () => {
+  it('[T12] [OP22] clientMutationId presence or absence is opaque to row identity and result landing', async () => {
     const serverRow = { id: 'relay-server', label: 'server' };
     const fake = createFakeTransport({
       mutation: [

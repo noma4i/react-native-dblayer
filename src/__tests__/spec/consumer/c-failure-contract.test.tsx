@@ -128,7 +128,7 @@ describe('action failure contract', () => {
     expect(chats.find('chat-1')).toEqual({ id: 'chat-1', unreadCount: 0, lastActivityAt: 0 });
   });
 
-  it('rejects an optimistic insert model without temp-row retention', () => {
+  it('[OP4] rejects an optimistic insert model without temp-row retention', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
 
     expect(() =>

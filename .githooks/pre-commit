@@ -10,6 +10,9 @@ yarn lint
 echo "pre-commit: jsdoc"
 node scripts/check-jsdoc.mjs
 
+echo "pre-commit: spec markers"
+node scripts/check-spec-markers.mjs
+
 echo "pre-commit: build artifacts"
 yarn check:build
 

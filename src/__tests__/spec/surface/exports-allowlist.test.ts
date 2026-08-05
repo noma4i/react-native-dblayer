@@ -43,11 +43,26 @@ const assertRemovedModelConfig = (): void => {
 void assertRemovedModelConfig;
 
 describe('public barrel exports', () => {
-  it('matches the reviewed runtime export allowlist', () => {
+  it('[A13] never builds a model collection from a standalone query response', () => {
+    // queryCollectionOptions is the engine's query-owned collection: a model built from it would
+    // let one full response own the model and drop bystander rows.
+    const walk = (directory: string): string[] =>
+      fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+        const target = path.join(directory, entry.name);
+        if (entry.isDirectory()) return entry.name === '__tests__' ? [] : walk(target);
+        return /\.tsx?$/.test(entry.name) ? [target] : [];
+      });
+    const offenders = walk(path.resolve(__dirname, '../../..'))
+      .filter(file => fs.readFileSync(file, 'utf8').includes('queryCollectionOptions'))
+      .map(file => path.basename(file));
+    expect(offenders).toEqual([]);
+  });
+
+  it('[I9] [I16] [OP17] [S3] [S6] [S10] [DC2] [ID12] matches the reviewed runtime export allowlist', () => {
     expect(Object.keys(barrel).sort()).toEqual(runtimeExportAllowlist);
   });
 
-  it('does not export removed model compiler types', () => {
+  it('[S4] does not export removed model compiler types', () => {
     const entry = fs.readFileSync(path.resolve(__dirname, '../../../index.ts'), 'utf8');
     const removed = [
       'EnsuredRowResult',

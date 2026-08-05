@@ -108,7 +108,7 @@ describe('fetch lifecycle contracts', () => {
     }
   });
 
-  it('keeps only the latest of consecutive reader restarts', async () => {
+  it('[F6] keeps only the latest of consecutive reader restarts', async () => {
     const pending: Array<(value: FetchData) => void> = [];
     const transport = createMockTransport({
       query: async <TData,>() =>
@@ -311,6 +311,49 @@ describe('fetch lifecycle contracts', () => {
     act(() => {
       relation.invalidate();
     });
+    await settle();
+
+    expect(calls).toBe(2);
+    expect(relation.read().map(row => row.version)).toEqual([2]);
+    reader.unmount();
+  });
+
+  it('[F5] runs no transport when an invalidation lands with no mounted reader', async () => {
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return { data: { rows: [{ id: 'row-1', bucket: 'a', version: calls }] } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModel('SpecFetchContractsIdleRows', {
+      schema: ScopeSchema,
+      relations: owner => ({
+        byBucket: {
+          by: { bucket: 'bucket' },
+          remote: owner.gql.list(listDocument, {
+            variables: (scope: ScopeValue) => scope,
+            select: data => data.rows,
+            staleTime: Number.MAX_SAFE_INTEGER
+          })
+        }
+      })
+    });
+    const relation = rows.byBucket({ bucket: 'a' });
+    const seeded = renderCountedInProvider(() => relation.use());
+    await settle();
+    expect(calls).toBe(1);
+    seeded.unmount();
+
+    act(() => {
+      relation.invalidate();
+    });
+    await settle();
+
+    expect(calls).toBe(1);
+
+    const reader = renderCountedInProvider(() => relation.use());
     await settle();
 
     expect(calls).toBe(2);

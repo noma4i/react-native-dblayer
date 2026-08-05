@@ -57,7 +57,7 @@ describe('order value total order', () => {
     expect(compareOrderValues({ b: 2 }, { a: 1 })).toBe(-forward);
   });
 
-  it('breaks comparator ties and NaN results by codepoint id', () => {
+  it('[R12] breaks comparator ties and NaN results by codepoint id', () => {
     const tie = withIdTieBreak<{ id: string }>(() => 0);
     expect(tie({ id: 'a' }, { id: 'b' })).toBeLessThan(0);
     expect(tie({ id: 'b' }, { id: 'a' })).toBeGreaterThan(0);

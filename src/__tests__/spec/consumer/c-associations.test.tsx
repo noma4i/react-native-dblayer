@@ -174,4 +174,30 @@ describe('associations', () => {
     expect(target.where({ username: 'two' }).map(row => row.id)).toEqual(['user-2']);
     expect(() => modelRef<UserInput>('SpecMissingLazyTarget').find('user-1')).toThrow('No model registered for SpecMissingLazyTarget');
   });
+
+  it('[RE3] rejects a function-valued effect at the type level', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const User = defineModel('SpecFunctionEffectUser', {
+      schema: UserSchema
+    });
+    const Message = defineModel('SpecFunctionEffectMessage', {
+      schema: MessageSchema,
+      associations: () => ({
+        author: belongsTo<MessageInput, UserInput>(User, {
+          foreignKey: 'authorId',
+          // @ts-expect-error counterCache is a declarative structure: a function-valued effect is rejected
+          counterCache: () => ({ field: 'username' })
+        }),
+        editor: belongsTo<MessageInput, UserInput>(User, {
+          foreignKey: 'authorId',
+          counterCache: {
+            // @ts-expect-error the counted field is a declared parent key, never a producer function
+            field: () => 'username'
+          }
+        })
+      })
+    });
+
+    expect(Message.key).toBe('SpecFunctionEffectMessage');
+  });
 });

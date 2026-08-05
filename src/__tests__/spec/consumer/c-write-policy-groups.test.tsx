@@ -58,7 +58,7 @@ describe('per-field write policy', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() as never });
   });
 
-  it('runs a replace onto an already-landed row through snapshot-mode policies', () => {
+  it('[W32] runs a replace onto an already-landed row through snapshot-mode policies', () => {
     const chats = createChatModel('WritePolicyReplaceLanded');
     chats.insert(row());
 
@@ -81,7 +81,7 @@ describe('per-field write policy', () => {
     });
   });
 
-  it('carries continuity fields through the temp merge base on a fresh replace swap', () => {
+  it('[W33] carries continuity fields through the temp merge base on a fresh replace swap', () => {
     const media = defineModelRuntime({
       id: 'WritePolicyReplaceFresh',
       name: 'WritePolicyReplaceFresh',

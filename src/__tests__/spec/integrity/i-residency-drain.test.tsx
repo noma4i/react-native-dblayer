@@ -74,7 +74,7 @@ describe('residency drain', () => {
     expect(residencySnapshot().specGauge).toBeUndefined();
   });
 
-  it('holds nothing at all once the runtime is reset', () => {
+  it('[A1] holds nothing at all once the runtime is reset', () => {
     const rows = createRows();
     rows.insertMany([{ id: 'r-3', bucket: 'a', label: 'three' }]);
     const reader = renderCounted(() => rows.use.where({ bucket: 'a' }).rows());

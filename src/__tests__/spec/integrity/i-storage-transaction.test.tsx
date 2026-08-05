@@ -11,7 +11,7 @@ const ChildSchema = defineShape<Child>()({ parentId: f.str() });
 afterEach(resetRuntime);
 
 describe('storage transaction', () => {
-  it('publishes the cascade once and retries a refused cache flush', () => {
+  it('[I3] publishes the cascade once and retries a refused cache flush', () => {
     const memory = createMemoryPlane();
     let writeCount = 0;
     let failAtWrite = Number.POSITIVE_INFINITY;

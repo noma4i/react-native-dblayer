@@ -24,7 +24,7 @@ const rowB: Row = { id: 'user-b', accountId: 'B', nickname: 'account-b' };
  * account's rows are seeded. A reader frozen on the previous generation serves the old account.
  */
 describe('reset under a mounted reader', () => {
-  it('moves a mounted where-builder reader onto rows seeded after reset', () => {
+  it('[R22] moves a mounted where-builder reader onto rows seeded after reset', () => {
     const errorSpy = jest.spyOn(console, 'error');
     const rows = createUsers();
     rows.insert(rowA);

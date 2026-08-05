@@ -60,7 +60,7 @@ describe('outbox authority', () => {
     expect([...AUTHORIZED_DESTROY.keys()].filter(file => !destroyProducers.includes(file)).sort()).toEqual([]);
   });
 
-  it('builds a durable storage key only from its owning module', () => {
+  it('[P25] builds a durable storage key only from its owning module', () => {
     expect(durableKeyBuilders.filter(file => !AUTHORIZED_DURABLE_KEY_BUILDERS.has(file))).toEqual([]);
   });
 

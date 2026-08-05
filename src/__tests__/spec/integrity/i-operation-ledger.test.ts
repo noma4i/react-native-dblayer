@@ -32,7 +32,7 @@ const setup = (nowValue = () => 1000) => {
 };
 
 describe('committed once-key persistence format', () => {
-  it('refuses an unknown version, rejects non-string keys, and reads the canonical payload', () => {
+  it('[OP6] refuses an unknown version, rejects non-string keys, and reads the canonical payload', () => {
     const { storage } = setup();
     storage.set(`${PREFIX}ops-once`, encodePersistence({ keys: ['k1'] }, 99));
     expect(() => readCommittedOnceKeys(storage, PREFIX)).toThrow('Unsupported persistence schema version 99');
@@ -467,7 +467,7 @@ describe('hydrate key retention', () => {
     ['invalid patched values', { ...baseRecord('op-1'), patchedValues: [], status: 'pending' }],
     ['negative creation time', { ...baseRecord('op-1'), createdAt: -1, status: 'pending' }],
     ['fractional creation time', { ...baseRecord('op-1'), createdAt: 1.5, status: 'pending' }]
-  ])('quarantines a semantically invalid operation record beside a surviving one: %s', (_label, record) => {
+  ])('[P5] quarantines a semantically invalid operation record beside a surviving one: %s', (_label, record) => {
     const { storage } = setup();
     const keeper = { ...baseRecord('op-keeper'), status: 'pending' };
     storage.set(`${PREFIX}ops`, encodePersistence({ [String(record.operationId)]: record, 'op-keeper': keeper }));
@@ -495,7 +495,7 @@ describe('hydrate key retention', () => {
     expect(state.persistEntries()).toEqual([]);
   });
 
-  it('closes a failed operation as retryable only while a temp row or rollback snapshot exists', () => {
+  it('[OP34] closes a failed operation as retryable only while a temp row or rollback snapshot exists', () => {
     setup();
     const bare: OperationRecord = { ...baseRecord('op-bare'), status: 'pending' };
     const withTemp: OperationRecord = { ...baseRecord('op-temp'), tempIds: ['tmp:1'], status: 'pending' };

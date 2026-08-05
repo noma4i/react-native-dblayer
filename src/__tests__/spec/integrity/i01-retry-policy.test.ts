@@ -246,7 +246,7 @@ describe('query retry policy', () => {
     expect(calls).toBe(1);
   });
 
-  it('does not retry an old QueryClient after runtime reset', async () => {
+  it('[OP8] does not retry an old QueryClient after runtime reset', async () => {
     jest.useFakeTimers();
     try {
       let calls = 0;

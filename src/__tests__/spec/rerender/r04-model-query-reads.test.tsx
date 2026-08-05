@@ -73,7 +73,7 @@ describe('model query reads', () => {
     reader.unmount();
   });
 
-  it('reports one delta for one changed row however many readers are mounted', () => {
+  it('[R14] [A6] reports one delta for one changed row however many readers are mounted', () => {
     const rows = createRows();
     rows.insertMany(seed(50));
     const readers = Array.from({ length: 5 }, () => renderCounted(() => rows.use.where({ bucket: 'a' }).rows()));
@@ -112,7 +112,7 @@ describe('model query reads', () => {
     reader.unmount();
   });
 
-  it('keeps a shared query serving the readers that stayed', () => {
+  it('[R15] keeps a shared query serving the readers that stayed', () => {
     const rows = createRows();
     rows.insertMany(seed(6));
     const first = renderCounted(() => rows.use.where({ bucket: 'a' }).orderBy('rank', 'asc').rows());
@@ -146,7 +146,7 @@ describe('model query reads', () => {
     descending.unmount();
   });
 
-  it('follows the reader to its new filter and lets the old query go', () => {
+  it('[R16] follows the reader to its new filter and lets the old query go', () => {
     const rows = createRows();
     rows.insertMany(seed(6));
     let seen: string[] = [];

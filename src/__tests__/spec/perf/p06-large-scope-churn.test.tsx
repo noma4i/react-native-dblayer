@@ -70,7 +70,7 @@ const mountEnsemble = (tag: string, rowCount: number): { root: TestRenderer.Reac
 };
 
 describe('large scope churn', () => {
-  it('(a) keeps bump work constant between 100 and 800 mounted rows', () => {
+  it('[R1] (a) keeps bump work constant between 100 and 800 mounted rows', () => {
     const measureBumpWork = (rowCount: number) => {
       const { root, chats } = mountEnsemble(`BumpWork${rowCount}`, rowCount);
       diagnostics().reset();
@@ -93,7 +93,7 @@ describe('large scope churn', () => {
     expect(large.entityUpsertGuardHits).toBe(0);
   });
 
-  it('(b) keeps same-order page-reconcile fanout constant between 200 and 800 rows', () => {
+  it('[I7] (b) keeps same-order page-reconcile fanout constant between 200 and 800 rows', () => {
     const reconcileWork = (rowCount: number) => {
       const { root, chats } = mountEnsemble(`Land${rowCount}`, rowCount);
       const rows = Array.from({ length: rowCount }, (_, index) => buildChatRow(index));

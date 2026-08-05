@@ -31,7 +31,7 @@ describe('Model.wait', () => {
     expect(getCommitBus().subscriberCount()).toBe(before);
   });
 
-  it('subscribes to only the exact row dependency and resolves on committed arrival', async () => {
+  it('[S11] subscribes to only the exact row dependency and resolves on committed arrival', async () => {
     setupSpecRuntime();
     const Rows = createRows('Arrival');
     const OtherRows = createRows('Other');
@@ -53,7 +53,7 @@ describe('Model.wait', () => {
     expect(getCommitBus().activeDependencies()).toEqual([]);
   });
 
-  it('does not apply a deferred patch when the row arrives', async () => {
+  it('[T9] does not apply a deferred patch when the row arrives', async () => {
     setupSpecRuntime();
     const Rows = createRows('ReadOnly');
     const pending = Rows.wait('r-1', { timeoutMs: 1000 });

@@ -26,7 +26,7 @@ const corruptEntryOrder = (modelId: string, scopeName: string, id: string): void
 afterEach(() => resetRuntime());
 
 describe('scope order authority', () => {
-  it('materializes the declared comparator order even when persisted entry order is corrupt', () => {
+  it('[R5] materializes the declared comparator order even when persisted entry order is corrupt', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const Model = defineRows('SpecScopeOrderComparator');
     Model.insertMany([

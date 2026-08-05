@@ -177,13 +177,12 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
    * presence otherwise. The registry calls it only after reading landed non-empty chain ids for
    * this key, so the model branch reads the same cached meta unconditionally.
    */
-  const materializedIds = (scope: TScope): ReadonlySet<string> => {
+  const materializedIds = (scope: TScope, candidates: readonly string[]): ReadonlySet<string> => {
     if (destinationScope) {
       return new Set(destinationScope.readRows(scope).map(row => compositeKey(destinationModelId, destinationScope.normalizeRowId(row))));
     }
     const destination = config.into as ModelDestination<TStored>;
-    const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta;
-    return new Set(meta.ids.filter(id => destination.find(parseCompositeKey(id)![1]!) !== undefined));
+    return new Set(candidates.filter(id => destination.find(parseCompositeKey(id)![1]!) !== undefined));
   };
   /** Every registered chain with the destination it depends on; the registry owns selection and pruning. */
   const materializationChains = function* (): Iterable<MaterializedChain> {
@@ -191,7 +190,7 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
       yield {
         queryKey: queryKeyOf(bucketKeyOf(scope)),
         scopeKey: destinationScope ? destinationScope.key(scope) : null,
-        materialized: () => materializedIds(scope)
+        materialized: candidates => materializedIds(scope, candidates)
       };
     }
   };
@@ -478,10 +477,11 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     registerModelInvalidation(destinationModelId, keyName, scope => {
       if (scope === undefined) {
         invalidateAll();
-        return;
+        return true;
       }
-      if (destinationScope && !destinationScope.isComplete(scope)) return;
+      if (destinationScope && !destinationScope.isComplete(scope)) return false;
       invalidateMatching(normalizeScope(scope as TScope));
+      return true;
     });
   }
   const useObservedState = (key: string, scope: TScope | null, enabled: boolean, resurrectDestroyed: boolean): RequestState => {

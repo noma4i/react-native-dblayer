@@ -38,6 +38,7 @@ export type WriteOp = {
     ids: string[];
     tombstone?: boolean;
     origin?: 'replace';
+    replacedBy?: string;
     operationTransitions?: OperationTransition[];
     baseRevision?: number;
 } | {
@@ -73,6 +74,7 @@ export type AppliedOp = {
     ids: string[];
     tombstone?: boolean;
     origin?: 'replace';
+    replacedBy?: string;
 } | {
     kind: 'scope';
     model: string;

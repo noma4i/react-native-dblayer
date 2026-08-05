@@ -22,7 +22,7 @@ const seedShuffled = (items: { insertMany(rows: OrderedRow[]): void }): void => 
 };
 
 describe('defaultOrder', () => {
-  it('orders where results when no explicit orderBy is passed, and yields to an explicit one', () => {
+  it('[R3] orders where results when no explicit orderBy is passed, and yields to an explicit one', () => {
     setupSpecRuntime();
     const items = createOrdered('Where');
     seedShuffled(items);

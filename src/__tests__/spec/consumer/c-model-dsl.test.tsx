@@ -600,7 +600,7 @@ describe('model surface', () => {
     reader.unmount();
   });
 
-  it('reads owner rows from deferred action selectors', async () => {
+  it('[S22] reads owner rows from deferred action selectors', async () => {
     const observed: Array<{ found: string | undefined; count: number; selected: string[]; sequence: number }> = [];
     const transport = createMockTransport({
       mutation: async <TData,>() => ({

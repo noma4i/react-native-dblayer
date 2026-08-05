@@ -54,7 +54,7 @@ describe('query persistence records', () => {
     expect(queryKeyScans).toBe(0);
   });
 
-  it('removes corrupt, unsupported, and incompatible exact records', () => {
+  it('[P14] removes corrupt, unsupported, and incompatible exact records', () => {
     const onSyncError = jest.fn();
     const storage = createMemoryPlane();
     configureDb({
@@ -132,7 +132,7 @@ describe('query persistence records', () => {
     expect(storage.get(keyOf(declaration.family, 'declared-identity'))).toBeUndefined();
   });
 
-  it('drops stale-version exact and family records silently without a corruption report', () => {
+  it('[P24] drops stale-version exact and family records silently without a corruption report', () => {
     const onSyncError = jest.fn();
     const storage = createMemoryPlane();
     configureDb({
@@ -219,7 +219,7 @@ describe('query persistence records', () => {
     expect(onSyncError).toHaveBeenCalledTimes(2);
   });
 
-  it('invalidates every accepted family record with one physical write', () => {
+  it('[P23] invalidates every accepted family record with one physical write', () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport(), defaults: {} });
     writePersistedQuery({ ...record({ identity: 'first' }) });

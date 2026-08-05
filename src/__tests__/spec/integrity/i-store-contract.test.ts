@@ -28,7 +28,7 @@ describe('model store', () => {
     expect(store.read('row-evict')).toBeUndefined();
   });
 
-  it('serves scope joins without falling back to a full entity collection load', () => {
+  it('[R6] serves scope joins without falling back to a full entity collection load', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       const store = buildStore();
@@ -60,7 +60,7 @@ describe('model store', () => {
     expect(collections.count()).toBe(before);
   });
 
-  it('lands an inserted row into a live scope as one delta change at 300 and 3000 rows', () => {
+  it('[R2] lands an inserted row into a live scope as one delta change at 300 and 3000 rows', () => {
     const measure = (size: number): { changes: number; position: number } => {
       const store = buildStore();
       const ids = Array.from({ length: size }, (_, index) => `row-${index}`);
@@ -87,7 +87,7 @@ describe('model store', () => {
     expect(measure(3000)).toEqual({ changes: 1, position: 1500 });
   });
 
-  it('keeps scope reads empty until the store is marked ready', () => {
+  it('[P2] keeps scope reads empty until the store is marked ready', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1', label: 'first' });
     store.applyScopeChanges([{ scopeKey: 'scope-1', entries: entriesFor(['row-1']) }]);

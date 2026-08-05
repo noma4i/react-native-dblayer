@@ -65,7 +65,7 @@ describe('freshness follows scope membership, not only row survival', () => {
     act(() => root.unmount());
   });
 
-  it('prunes only the emptied scope and leaves a sibling scope of the same model untouched', async () => {
+  it('[F16] prunes only the emptied scope and leaves a sibling scope of the same model untouched', async () => {
     const calls: string[] = [];
     configureDb({
       storage: createMemoryPlane(),

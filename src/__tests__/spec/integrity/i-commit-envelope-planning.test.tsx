@@ -1,4 +1,4 @@
-import { configureDb, defineModelRuntime, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState, registerMutationCorrelator } from '../../testApi';
+import { configureDb, defineModel, defineModelRuntime, defineShape, f , createCommitEnvelope , getInternalModelHandle , compositeKey , getApplyRuntime, getOperationState, hasMany, registerMutationCorrelator } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 type Row = { id: string; chatId: string; body: string };
@@ -136,7 +136,7 @@ describe('commit-envelope planning purity', () => {
     expect(new Set(orderKeys).size).toBe(3);
   });
 
-  it('plans no destroy leg when a replacement keeps its own id', () => {
+  it('[W34] plans no destroy leg when a replacement keeps its own id', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineRows('SameIdReplace');
     rows.insert({ id: 'row-1', chatId: 'chat-1', body: 'before' });
@@ -148,7 +148,7 @@ describe('commit-envelope planning purity', () => {
     expect(rows.find('row-1')).toMatchObject({ body: 'after' });
   });
 
-  it('gates every scope entry by the final row: a non-member append never seats', () => {
+  it('[R24] gates every scope entry by the final row: a non-member append never seats', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const rows = defineModelRuntime({
       id: 'CommitEnvelopeMemberGate',
@@ -192,5 +192,38 @@ describe('commit-envelope planning purity', () => {
         .map(row => row.id)
         .sort()
     ).toEqual(['row-1', 'row-3']);
+  });
+
+  it('[RE4] plans the full cascade before any write applies', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    type Child = { id: string; parentId: string };
+    const children = defineModel('CommitEnvelopeCascadeChildren', {
+      schema: defineShape<Child>()({ parentId: f.str() })
+    });
+    const parents = defineModel('CommitEnvelopeCascadeParents', {
+      schema: defineShape<{ id: string; label: string }>()({ label: f.str() }),
+      associations: () => ({
+        children: hasMany<{ id: string; label: string }, Child>(children, { foreignKey: 'parentId', dependent: 'destroy' })
+      })
+    });
+    parents.insert({ id: 'parent-1', label: 'parent' });
+    children.insertMany([
+      { id: 'child-1', parentId: 'parent-1' },
+      { id: 'child-2', parentId: 'parent-1' }
+    ]);
+
+    const envelope = createCommitEnvelope([{ kind: 'destroy', model: parents.key, ids: ['parent-1'] }]);
+
+    // Planning is pure: both dependent destroys are already in the envelope while every row is untouched.
+    const plannedChildDestroys = envelope.entityOps.flatMap(op => (op.kind === 'destroy' && op.model === children.key ? [...op.ids] : [])).sort();
+    expect(plannedChildDestroys).toEqual(['child-1', 'child-2']);
+    expect(children.find('child-1')).toBeDefined();
+    expect(children.find('child-2')).toBeDefined();
+
+    getApplyRuntime().commit(envelope);
+
+    expect(parents.find('parent-1')).toBeUndefined();
+    expect(children.find('child-1')).toBeUndefined();
+    expect(children.find('child-2')).toBeUndefined();
   });
 });

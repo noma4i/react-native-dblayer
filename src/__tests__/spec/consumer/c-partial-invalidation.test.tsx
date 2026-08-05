@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
+import { bootDb, configureDb, defineModelRuntime, f, type DbTransport } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle } from '../helpers/harness';
 
 type MessageRow = {
@@ -80,7 +80,7 @@ describe('partial model invalidation', () => {
     expect(ids).toEqual(['message-1']);
   });
 
-  it('refetches only relations whose by keys are covered by the partial value', async () => {
+  it('[F11] refetches only relations whose by keys are covered by the partial value', async () => {
     const fetches = { thread: 0, mediaItems: 0 };
     const transport = createMockTransport({
       query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
@@ -122,5 +122,72 @@ describe('partial model invalidation', () => {
 
     expect(invalidationError).toBeUndefined();
     expect(fetches).toEqual({ thread: 2, mediaItems: 1 });
+  });
+
+  it('[F4] throws on an invalidation whose address matches no declared relation', async () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const messages = createMessageModel();
+    createQueries(messages);
+
+    expect(() => {
+      messages.invalidate({ threadBucket: 'unknown' });
+    }).toThrow();
+  });
+
+  it('[F12] fans a partial invalidation out to persisted scopes with no mounted readers after a restart', async () => {
+    const storage = createMemoryPlane();
+    const fetches = { thread: 0, mediaItems: 0 };
+    const createCountingTransport = () =>
+      createMockTransport({
+        query: async <TData,>(operation: Parameters<DbTransport['query']>[0]) => {
+          const scope = operation.variables as ThreadScope & Partial<MediaScope>;
+          const target = scope.mediaBucket === undefined ? 'thread' : 'mediaItems';
+          fetches[target] += 1;
+          return {
+            data: {
+              messages: [
+                {
+                  id: `${target}-${fetches[target]}`,
+                  chatId: scope.chatId,
+                  mediaBucket: scope.mediaBucket ?? null
+                }
+              ]
+            } as TData
+          };
+        }
+      });
+    configureDb({ storage, transport: createCountingTransport() });
+    const messages = createMessageModel();
+    const queries = createQueries(messages);
+    const threadReader = renderCountedInProvider(() => queries.thread.use({ chatId: '42' }));
+    const mediaReader = renderCountedInProvider(() => queries.mediaItems.use({ chatId: '42', mediaBucket: 'visual' }));
+    await settle();
+    expect(fetches).toEqual({ thread: 1, mediaItems: 1 });
+    threadReader.unmount();
+    mediaReader.unmount();
+
+    const restartedTransport = createCountingTransport();
+    configureDb({ storage, transport: restartedTransport });
+    const restartedMessages = createMessageModel();
+    const restartedQueries = createQueries(restartedMessages);
+    await act(async () => {
+      await bootDb();
+    });
+
+    act(() => {
+      restartedMessages.invalidate({ chatId: '42' });
+    });
+    await settle();
+    expect(restartedTransport.calls).toHaveLength(0);
+
+    const restartedThreadReader = renderCountedInProvider(() => restartedQueries.thread.use({ chatId: '42' }));
+    await settle();
+    expect(fetches).toEqual({ thread: 2, mediaItems: 1 });
+
+    const restartedMediaReader = renderCountedInProvider(() => restartedQueries.mediaItems.use({ chatId: '42', mediaBucket: 'visual' }));
+    await settle();
+    expect(fetches).toEqual({ thread: 2, mediaItems: 1 });
+    restartedThreadReader.unmount();
+    restartedMediaReader.unmount();
   });
 });

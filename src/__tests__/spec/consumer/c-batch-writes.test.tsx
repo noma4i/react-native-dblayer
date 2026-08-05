@@ -20,7 +20,7 @@ const seedItems = (items: ReturnType<typeof createItems>): void => {
 };
 
 describe('updateAll', () => {
-  it('patches every matching row in one commit and returns the count', () => {
+  it('[I15] [W18] [S7] [T6] patches every matching row in one commit and returns the count', () => {
     setupSpecRuntime();
     const items = createItems('Patch');
     seedItems(items);
@@ -46,7 +46,7 @@ describe('updateAll', () => {
     expect(items.where({ status: 'low' }).map(row => row.id).sort()).toEqual(['1', '2']);
   });
 
-  it('returns 0 and stays silent when nothing matches', () => {
+  it('[W20] returns 0 and stays silent when nothing matches', () => {
     setupSpecRuntime();
     const items = createItems('PatchNone');
     seedItems(items);

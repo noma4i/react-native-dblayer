@@ -84,7 +84,7 @@ describe('action modes', () => {
     jest.useRealTimers();
   });
 
-  it('runs a request through its response root with one envelope', async () => {
+  it('[S18] runs a request through its response root with one envelope', async () => {
     const calls: string[] = [];
     const storage = createMemoryPlane();
     const transport = createMockTransport({
@@ -482,7 +482,7 @@ describe('action modes', () => {
   it.each([
     ['update', 1],
     ['destroy', 1]
-  ] as const)('rolls back an optimistic %s after transport error', async (name, expectedTicks) => {
+  ] as const)('[OP13] rolls back an optimistic %s after transport error', async (name, expectedTicks) => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport({ mutation: async () => Promise.reject(new Error(`${name} failed`)) }) });
     const Unrelated = defineUnrelated(`SpecActionMode${name}Unrelated`);
@@ -743,7 +743,7 @@ describe('action modes', () => {
     restartedUnrelated.unmount();
   });
 
-  it('restores the parent counter when boot fsck rolls back a crashed destroy', async () => {
+  it('[RE11] restores the parent counter when boot fsck rolls back a crashed destroy', async () => {
     type Chat = { id: string; unreadCount: number };
     type Note = { id: string; chatId: string; label: string };
     const ChatSchema = defineShape<Chat>()({ unreadCount: f.num() });
@@ -798,7 +798,7 @@ describe('action modes', () => {
     expect(second.Notes.operation('note-1').read()).toMatchObject({ pending: false, failed: true });
   });
 
-  it('closes failed optimistic update retry and discard semantics', async () => {
+  it('[OP30] [S5] closes failed optimistic update retry and discard semantics', async () => {
     let attempt = 0;
     let resolveRetry!: (value: { data: StatusData }) => void;
     const retryResponse = new Promise<{ data: StatusData }>(resolve => {

@@ -19,7 +19,7 @@ const createItems = (suffix: string) =>
   });
 
 describe('sort tie-break determinism (A2)', () => {
-  it('orders equal-key rows identically in scope reads and builder reads (id tie-break)', () => {
+  it('[R9] orders equal-key rows identically in scope reads and builder reads (id tie-break)', () => {
     setupSpecRuntime();
     const items = createItems('CrossSurface');
 

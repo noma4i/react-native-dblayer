@@ -107,7 +107,8 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
         model: op.model,
         ids: existingDestroyIds,
         ...(op.tombstone !== undefined ? { tombstone: op.tombstone } : {}),
-        ...(op.origin ? { origin: op.origin } : {})
+        ...(op.origin ? { origin: op.origin } : {}),
+        ...(op.replacedBy !== undefined ? { replacedBy: op.replacedBy } : {})
       });
       continue;
     }

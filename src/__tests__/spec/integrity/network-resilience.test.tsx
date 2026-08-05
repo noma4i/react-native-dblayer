@@ -156,4 +156,46 @@ describe('network resilience timelines', () => {
     expect(timeline.last()).toMatchObject({ showData: true, showErrorBanner: false, hasData: true });
     timeline.unmount();
   });
+
+  it('[F14] rejects an offline model relation fetch when nothing was restored', async () => {
+    const wasOnline = isTestNetworkOnline();
+    setTestNetworkOnline(false);
+    const storage = createMemoryPlane();
+    const transport = createMockTransport();
+    configureDb({ storage, transport });
+    const request = createRequest('resilience-offline-imperative');
+    const keysBefore = storage.snapshotKeys();
+
+    await expect(request.fetch()).rejects.toThrow('react-native-dblayer: fetch is offline and no cached data exists');
+
+    expect(transport.calls).toHaveLength(0);
+    expect(request.read()).toBeUndefined();
+    expect(storage.snapshotKeys()).toEqual(keysBefore);
+    setTestNetworkOnline(wasOnline);
+  });
+
+  it('[F15] keeps served data on a stale fetch error while refresh reports the failure', async () => {
+    setTestNetworkOnline(true);
+    let failing = false;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        if (failing) throw new Error('transport down');
+        return { data: { value: 5 } as TData };
+      }
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const request = createRequest('resilience-stale-fetch-keeps');
+
+    await expect(request.fetch()).resolves.toBeUndefined();
+    expect(request.read()?.value).toBe(5);
+
+    failing = true;
+    // Actual contract: a failed non-restart fetch over a cached bucket resolves silently and keeps the served rows.
+    await expect(request.fetch()).resolves.toBeUndefined();
+    expect(request.read()?.value).toBe(5);
+
+    await expect(request.refresh()).rejects.toThrow('transport down');
+    expect(request.read()?.value).toBe(5);
+    expect(transport.calls.filter(call => call.kind === 'query')).toHaveLength(3);
+  });
 });

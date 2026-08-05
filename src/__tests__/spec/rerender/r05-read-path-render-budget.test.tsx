@@ -101,7 +101,7 @@ describe('read path render budget', () => {
     act(() => root.unmount());
   });
 
-  it('projects a changed scope snapshot once and preserves unaffected row identities', () => {
+  it('[R17] projects a changed scope snapshot once and preserves unaffected row identities', () => {
     setupSpecRuntime();
     const rows = createScopeRows();
     rows.insertMany(Array.from({ length: 50 }, (_, index) => ({ id: `row-${index}`, groupId: 'group-1', title: `title-${index}` })));

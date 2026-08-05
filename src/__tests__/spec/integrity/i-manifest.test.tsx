@@ -297,7 +297,7 @@ describe('persistence schema manifest', () => {
     expect(diagnostics.snapshot().dataLossEvents).toEqual(firstDataLossEvents);
   });
 
-  it('keeps every model operation record and once key across a schema migration', async () => {
+  it('[P3] keeps every model operation record and once key across a schema migration', async () => {
     const storage = configureManifestRuntime();
     const alphaId = 'ManifestLedgerAlpha';
     const betaId = 'ManifestLedgerBeta';
@@ -331,7 +331,7 @@ describe('persistence schema manifest', () => {
     expect(storage.get('dbl:ops-once')).toBeUndefined();
   });
 
-  it('cold-resets format 4 keys before reading the injective composite-key format', async () => {
+  it('[P9] cold-resets format 4 keys before reading the injective composite-key format', async () => {
     const storage = configureManifestRuntime();
     storage.set('dbl:manifest', encodePersistence({ formatVersion: 4, schemaFingerprint: stableSerialize([declaration('manifest-format-4')]), dataVersion: null }));
     storage.set('dbl:sentinel', 'discard');

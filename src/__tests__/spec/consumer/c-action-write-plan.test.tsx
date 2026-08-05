@@ -14,7 +14,7 @@ const RowSchema = defineShape<Row>()({
 });
 
 describe('action write plan', () => {
-  it('commits the root and declared cross-model writes in one response envelope', async () => {
+  it('[W13] [W15] [OP11] [OP12] commits the root and declared cross-model writes in one response envelope', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>() =>
         ({

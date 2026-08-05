@@ -130,7 +130,7 @@ afterEach(() => {
 });
 
 describe('model event ordering', () => {
-  it('delivers after the model write and exposes committed state to the listener', () => {
+  it('[I20] [W28] delivers after the model write and exposes committed state to the listener', () => {
     const document = makeDocument();
     const variables = { roomId: 'ordering-post-commit' };
     const { transport, subscribers } = createTransport();
@@ -149,7 +149,7 @@ describe('model event ordering', () => {
     unsubscribe();
   });
 
-  it('delivers an invalidation-only event after authoritative invalidation', () => {
+  it('[T8] [W22] delivers an invalidation-only event after authoritative invalidation', () => {
     const document = makeDocument();
     const variables = { roomId: 'ordering-invalidation' };
     const { transport, subscribers } = createTransport();
@@ -422,7 +422,7 @@ describe('model event ordering', () => {
     unsubscribe();
   });
 
-  it('keeps one row and one listener across response-before-subscription and subscription-before-response', () => {
+  it('[ID14] [OP21] keeps one row and one listener across response-before-subscription and subscription-before-response', () => {
     const document = makeDocument();
     const beforeVariables = { roomId: 'ordering-before-subscription' };
     const beforeResponse = payload('before-subscription', 1);
@@ -452,7 +452,7 @@ describe('model event ordering', () => {
     unsubscribeAfter();
   });
 
-  it('keeps the presentation listener isolated from write surfaces', () => {
+  it('[W23] [S8] keeps the presentation listener isolated from write surfaces', () => {
     const document = makeDocument();
     const variables = { roomId: 'ordering-listener-isolation' };
     const { transport, subscribers } = createTransport();

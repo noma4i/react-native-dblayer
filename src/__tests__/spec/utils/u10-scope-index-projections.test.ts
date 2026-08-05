@@ -13,7 +13,7 @@ const createIndex = (tag: string) => createScopeIndex({ modelId: `SpecScopeProje
  * answers for data that is no longer there.
  */
 describe('scope index projections', () => {
-  it('reports the same membership whichever path landed the rows', () => {
+  it('[R19] reports the same membership whichever path landed the rows', () => {
     const index = createIndex('Paths');
     index.write(SCOPE, index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }]).next);
     index.applyDelta(SCOPE, [{ id: 'row-2', orderKey: 'b' }], []);
@@ -33,7 +33,7 @@ describe('scope index projections', () => {
     expect(index.keysOf('row-2')).toEqual([]);
   });
 
-  it('holds no reverse entry for a row that left its last scope', () => {
+  it('[A2] holds no reverse entry for a row that left its last scope', () => {
     const index = createIndex('Reverse');
     index.applyDelta(SCOPE, [{ id: 'row-1', orderKey: 'a' }, { id: 'row-2', orderKey: 'b' }], []);
     expect(index.residentRowKeys()).toBe(2);
@@ -44,7 +44,7 @@ describe('scope index projections', () => {
     expect(index.residentRowKeys()).toBe(1);
   });
 
-  it('starts the order revision from scratch after a reset', () => {
+  it('[R18] starts the order revision from scratch after a reset', () => {
     const index = createIndex('Reset');
     index.write(SCOPE, index.reconcileNext(SCOPE, 'complete', [{ id: 'row-1' }]).next);
     index.applyDelta(SCOPE, [{ id: 'row-2', orderKey: 'b' }], []);

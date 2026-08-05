@@ -62,7 +62,7 @@ describe('store plane lifetime ownership', () => {
     return store;
   };
 
-  it('keeps rows readable after a long idle stretch with no mounted reader', async () => {
+  it('[A3] keeps rows readable after a long idle stretch with no mounted reader', async () => {
     const store = seed();
 
     await idleFor(30);

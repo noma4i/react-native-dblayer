@@ -57,7 +57,7 @@ describe('once and dedupe idempotency', () => {
     return { storage, rows, save: rows.actions.save, callCount: () => calls };
   };
 
-  it('sends a committed once operation exactly once for the same key', async () => {
+  it('[OP7] sends a committed once operation exactly once for the same key', async () => {
     const { save, callCount } = build({ once: true });
 
     await save.run({ key: 'gift-1', label: 'first' });

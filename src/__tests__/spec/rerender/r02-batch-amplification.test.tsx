@@ -84,7 +84,7 @@ const scopedModelQueryTransport = () =>
   });
 
 describe('rerender matrix batch amplification', () => {
-  it('keeps row and scope readers stable when an identical query page is normalized again', async () => {
+  it('[ID2] keeps row and scope readers stable when an identical query page is normalized again', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => {
         const payload: NestedQueryPayload = {

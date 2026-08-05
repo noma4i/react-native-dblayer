@@ -231,7 +231,7 @@ const createFieldFixture = (suffix: string, withPolicies = false) => {
 };
 
 describe('causal write admission', () => {
-  it('keeps the later response when an earlier response lands last', async () => {
+  it('[W27] keeps the later response when an earlier response lands last', async () => {
     const fixture = createFieldFixture('EarlierAfterLater');
     const { pending: earlier } = await fixture.start('earlier');
     const { pending: later } = await fixture.start('later');
@@ -244,7 +244,7 @@ describe('causal write admission', () => {
     fixture.unmount();
   });
 
-  it('keeps a live field commit when a slow response lands afterward', async () => {
+  it('[S16] keeps a live field commit when a slow response lands afterward', async () => {
     const fixture = createFieldFixture('ResponseAfterLive');
     const { pending: slow } = await fixture.start('slow');
     const liveRow = { ...initialRow(), protectedValue: 'live' };
@@ -296,7 +296,7 @@ describe('causal write admission', () => {
     fixture.unmount();
   });
 
-  it('runs causal admission before server, monotonic, local, continuity, snapshot, and keys policies', async () => {
+  it('[T11] runs causal admission before server, monotonic, local, continuity, snapshot, and keys policies', async () => {
     const fixture = createFieldFixture('PolicyOrder', true);
     const { pending: slow } = await fixture.start('slow');
     const expected: Row = {
@@ -332,7 +332,7 @@ describe('causal write admission', () => {
     fixture.unmount();
   });
 
-  it('protects only fields committed after the base and admits an unrelated slow-response field', async () => {
+  it('[I19] protects only fields committed after the base and admits an unrelated slow-response field', async () => {
     const fixture = createFieldFixture('PartialResponse');
     const { pending: slow } = await fixture.start('slow');
     const expected = { ...initialRow(), protectedValue: 'post-base', auxiliaryValue: 'slow-auxiliary' };
@@ -404,7 +404,7 @@ describe('causal write admission', () => {
     unrelatedReader.unmount();
   });
 
-  it('does not resurrect a row when a slow remote insert lands after a later local insert and destroy', async () => {
+  it('[I6] [ID5] does not resurrect a row when a slow remote insert lands after a later local insert and destroy', async () => {
     let deferred: DeferredMutation<InsertData> | undefined;
     const storage = createMemoryPlane();
     const transport = createMockTransport({

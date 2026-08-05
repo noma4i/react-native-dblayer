@@ -103,9 +103,11 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
     if (options.entityState().isTombstoned(normalized.id)) return [destroyLeg];
     const mergeBase = options.entityState().read(oldId);
     const memberships = options.captureMembership(oldId);
+    // The landing swap carries the successor id on its destroy leg: freshness chains and other
+    // identity followers rewrite the old id instead of treating the swap as a loss.
     return [
       { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase },
-      destroyLeg,
+      { ...destroyLeg, ...(destroyLeg.ids.length > 0 ? { replacedBy: normalized.id } : {}) },
       ...restoreMembership(normalized.id, memberships)
     ];
   };

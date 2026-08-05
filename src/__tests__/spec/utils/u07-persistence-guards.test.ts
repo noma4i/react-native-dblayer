@@ -70,7 +70,7 @@ describe('persisted query record guards', () => {
     ['updatedAt type', { dataUpdatedAt: 'now' }],
     ['updatedAt sign', { dataUpdatedAt: -1 }],
     ['invalidated flag', { invalidated: 'yes' }]
-  ])('rejects and deletes a stored record with a malformed %s', (_label, overrides) => {
+  ])('[P12] rejects and deletes a stored record with a malformed %s', (_label, overrides) => {
     expect(writePersistedQuery(record('bad'))).toBe(true);
     const key = storage.snapshotKeys().find(candidate => candidate.includes('query:guards'))!;
     [{ key, value: encodePersistence(record('bad', overrides)) }].forEach(entry => storage.set(entry.key, entry.value));

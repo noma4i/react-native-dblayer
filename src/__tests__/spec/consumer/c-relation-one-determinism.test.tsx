@@ -52,7 +52,7 @@ describe('hasOne resolves to one row on every surface', () => {
     reader.unmount();
   });
 
-  it('names the same row to a reader that mounted before the rows and one that mounted after', () => {
+  it('[R13] names the same row to a reader that mounted before the rows and one that mounted after', () => {
     const { messages, chats } = createModels('Agree');
     const early = mountLatest(chats);
     act(() => {

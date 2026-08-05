@@ -192,7 +192,7 @@ afterEach(() => {
 });
 
 describe('model live subscription registry', () => {
-  it('keeps inactive mounts transport-free and activates only after active becomes true', () => {
+  it('[T7] keeps inactive mounts transport-free and activates only after active becomes true', () => {
     const document = makeDocument();
     const variables = { roomId: 'room-1' };
     const { transport, subscribers } = createTransport();
@@ -217,7 +217,7 @@ describe('model live subscription registry', () => {
     act(() => root.unmount());
   });
 
-  it('shares one transport subscription across duplicate active mounts and tears down on the last unmount', () => {
+  it('[S9] shares one transport subscription across duplicate active mounts and tears down on the last unmount', () => {
     const document = makeDocument();
     const variables = { roomId: 'room-2' };
     const { transport, subscribers } = createTransport();
@@ -304,7 +304,7 @@ describe('model live subscription registry', () => {
     act(() => root.unmount());
   });
 
-  it('passes the exact document and variables references to transport and maps an aliased root field', () => {
+  it('[I17] passes the exact document and variables references to transport and maps an aliased root field', () => {
     const document = makeDocument('messageChanged', 'messageAlias');
     const variables = { roomId: 'room-3' };
     const { transport, subscribers } = createTransport();
@@ -363,7 +363,7 @@ describe('model live subscription registry', () => {
     release();
   });
 
-  it('does not notify presentation listeners for null or zero-work declarations', () => {
+  it('[W21] does not notify presentation listeners for null or zero-work declarations', () => {
     const document = makeDocument();
     const nullVariables = { roomId: 'room-12-null' };
     const zeroWorkVariables = { roomId: 'room-12-zero' };

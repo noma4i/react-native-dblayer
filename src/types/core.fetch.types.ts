@@ -24,10 +24,10 @@ export type MaterializationReconciler = {
  * One registered scope of a query: its cache key, the destination scope it depends on (`null` for a
  * model destination, which depends on row presence alone) and the composite row ids still held.
  */
-export type MaterializedChain = { queryKey: QueryKey; scopeKey: string | null; materialized(): ReadonlySet<string> };
+export type MaterializedChain = { queryKey: QueryKey; scopeKey: string | null; materialized(candidates: readonly string[]): ReadonlySet<string> };
 
 /** Query-invalidation callback registered per model. */
-export type InvalidateFn = (scope?: unknown) => void;
+export type InvalidateFn = (scope?: unknown) => boolean;
 
 /**
  * Per-key reader-local state react-query's vocabulary cannot express (offline pause, next-page

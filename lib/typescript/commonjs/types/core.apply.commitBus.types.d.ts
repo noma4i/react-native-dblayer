@@ -3,6 +3,7 @@ export type RowChange = {
     id: string;
     fields: string[] | null;
     kind?: 'upsert' | 'destroy';
+    replacedBy?: string;
 };
 type ScopeChange = {
     model: string;

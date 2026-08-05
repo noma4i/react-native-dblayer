@@ -127,7 +127,7 @@ describe('app-shaped scope restore', () => {
     expect({ thread: threadAfter, media: mediaAfter }).toEqual({ thread: threadBefore, media: mediaBefore });
   });
 
-  it('S2 keeps both scopes after a circle is sent and the process restarts', async () => {
+  it('[R21] S2 keeps both scopes after a circle is sent and the process restarts', async () => {
     const storage = createMemoryPlane();
     const serverCircle = { ...videoMessage('server-circle', 4), mediaBucket: 'visual' };
     const build = () => {

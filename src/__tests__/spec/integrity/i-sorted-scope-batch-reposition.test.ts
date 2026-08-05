@@ -2,7 +2,7 @@ import { configureDb, defineModelRuntime, f } from '../../testApi';
 import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 
 describe('sorted scope batch reposition integrity', () => {
-  it('places every changed row against one batch-wide moving set', () => {
+  it('[R10] places every changed row against one batch-wide moving set', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const users = defineModelRuntime({
       id: 'SortedScopeBatchReposition',

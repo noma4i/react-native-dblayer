@@ -44,7 +44,7 @@ describe('filtered counter cache', () => {
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 0 });
   });
 
-  it('decrements only for the children it counted', () => {
+  it('[RE8] decrements only for the children it counted', () => {
     const { chats, messages } = createModels('Symmetry');
     messages.insertMany([
       { id: 'm-counted', chatId: 'chat-1', unread: true, body: 'counted' },

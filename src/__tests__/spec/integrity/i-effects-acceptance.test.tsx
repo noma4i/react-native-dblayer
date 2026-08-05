@@ -46,7 +46,7 @@ describe('effects derive from accepted rows', () => {
     expect(replayed.chats.find('chat-1')).toMatchObject({ unreadCount: 1, lastMessageId: 'message-1' });
   });
 
-  it('runs relation callbacks once during planning', () => {
+  it('[RE1] runs relation callbacks once during planning', () => {
     const storage = createMemoryPlane();
     let touchCalls = 0;
     configureDb({ storage, transport: createMockTransport() });

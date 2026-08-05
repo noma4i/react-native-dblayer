@@ -25,7 +25,7 @@ describe('apply recovery', () => {
     configureDb({ storage, transport: createMockTransport() });
   });
 
-  it('replays once from a clean row state and publishes only the recovered batch', () => {
+  it('[W9] replays once from a clean row state and publishes only the recovered batch', () => {
     const { first, second } = createModels();
     const target = getApplyTarget(second.modelId);
     const originalPut = target.put;
@@ -58,7 +58,7 @@ describe('apply recovery', () => {
     }
   });
 
-  it('aborts scope deltas before replay so generation advances once', () => {
+  it('[W8] aborts scope deltas before replay so generation advances once', () => {
     const { first, second } = createModels();
     first.scopes.all.seed({}, [{ id: 'first-seed', label: 'seed' }]);
     second.scopes.all.seed({}, [{ id: 'second-seed', label: 'seed' }]);
@@ -140,7 +140,7 @@ describe('apply recovery', () => {
     unsubscribe();
   });
 
-  it('poisons reads and publishes nothing when clean replay also fails', () => {
+  it('[W10] poisons reads and publishes nothing when clean replay also fails', () => {
     const { first, second } = createModels();
     const target = getApplyTarget(second.modelId);
     const originalPut = target.put;

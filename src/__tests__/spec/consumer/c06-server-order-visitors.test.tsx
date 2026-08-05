@@ -95,7 +95,7 @@ describe('server-order visitor scope behavior', () => {
     queryReader.unmount();
   });
 
-  it('keeps page coverage idempotent on duplicate payload and rerenders once on real change', async () => {
+  it('[ID4] keeps page coverage idempotent on duplicate payload and rerenders once on real change', async () => {
     const responses = [
       {
         moments: {

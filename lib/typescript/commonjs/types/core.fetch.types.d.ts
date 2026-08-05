@@ -24,10 +24,10 @@ export type MaterializationReconciler = {
 export type MaterializedChain = {
     queryKey: QueryKey;
     scopeKey: string | null;
-    materialized(): ReadonlySet<string>;
+    materialized(candidates: readonly string[]): ReadonlySet<string>;
 };
 /** Query-invalidation callback registered per model. */
-export type InvalidateFn = (scope?: unknown) => void;
+export type InvalidateFn = (scope?: unknown) => boolean;
 /**
  * Per-key reader-local state react-query's vocabulary cannot express (offline pause, next-page
  * distinction): flags, a monotonic change version, and listener fan-out - one home shared by

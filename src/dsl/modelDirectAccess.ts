@@ -44,7 +44,9 @@ export const createModelDirectAccess = <TStored extends { id: string; updatedAt?
     build: input => options.normalize(input, true),
     normalize: input => options.normalize(input),
     invalidate: scope => {
-      invalidateModel(options.modelId, scope);
+      const covered = invalidateModel(options.modelId, scope);
+      // An address that reaches nobody is a caller mistake, never a silent no-op.
+      if (scope !== undefined && covered === 0) throw new Error(`${options.modelId} invalidate: address matches no declared relation`);
     }
   };
 };

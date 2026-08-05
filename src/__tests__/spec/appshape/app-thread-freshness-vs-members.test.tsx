@@ -35,7 +35,7 @@ const message = (id: string, sequenceNumber: number) => ({
  * not fresh whatever its timestamp says.
  */
 describe('app-shaped thread freshness against lost members', () => {
-  it('T2 refetches a restored thread whose membership did not come back', async () => {
+  it('[F18] T2 refetches a restored thread whose membership did not come back', async () => {
     const history = [1, 2, 3].map(index => message(`m-${index}`, index));
     let calls = 0;
     const storage = createMemoryPlane();
@@ -96,7 +96,7 @@ describe('app-shaped thread freshness against lost members', () => {
     expect(calls).toBe(2);
   });
 
-  it('T3 repairs the thread when only its own membership is lost and the sibling scope survives', async () => {
+  it('[F19] T3 repairs the thread when only its own membership is lost and the sibling scope survives', async () => {
     const history = [1, 2, 3].map(index => message(`m-${index}`, index));
     let calls = 0;
     const storage = createMemoryPlane();
@@ -163,7 +163,7 @@ describe('app-shaped thread freshness against lost members', () => {
     expect(calls).toBe(2);
   });
 
-  it('T4 repairs the thread when the rows are gone and only the membership came back', async () => {
+  it('[F20] T4 repairs the thread when the rows are gone and only the membership came back', async () => {
     const history = [1, 2, 3].map(index => message(`m-${index}`, index));
     let calls = 0;
     const storage = createMemoryPlane();

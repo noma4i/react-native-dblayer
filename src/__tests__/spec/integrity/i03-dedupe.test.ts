@@ -49,7 +49,7 @@ const deferredMutation = () => {
 };
 
 describe('mutation dedupe semantics', () => {
-  it('skips a second run while the same default key is pending', async () => {
+  it('[F2] skips a second run while the same default key is pending', async () => {
     const deferred = deferredMutation();
     const action = createAction('Pending', deferred.transport);
 
@@ -123,7 +123,7 @@ describe('mutation dedupe semantics', () => {
     }
   });
 
-  it('rejects once with dedupe false at definition time', () => {
+  it('[OP33] rejects once with dedupe false at definition time', () => {
     expect(() => defineAction('InvalidOnce', { once: true, dedupe: false })).toThrow('once cannot be combined with dedupe: false');
   });
 

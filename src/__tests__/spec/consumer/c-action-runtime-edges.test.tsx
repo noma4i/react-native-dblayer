@@ -183,7 +183,7 @@ describe('action runtime edges', () => {
     ).toEqual(['noise-1', 'server-1']);
   });
 
-  it('destroys the temp leg without resurrecting the server row when the landed identity was deleted', async () => {
+  it('[W31] destroys the temp leg without resurrecting the server row when the landed identity was deleted', async () => {
     // The response row id is created and deleted while the request is in flight. Deletion
     // wins over the landing swap: the server row never resurrects, the temp leg is destroyed
     // with it, the operation closes committed, and nothing is ticketed - an intentional

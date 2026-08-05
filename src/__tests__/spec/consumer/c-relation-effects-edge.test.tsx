@@ -127,7 +127,7 @@ describe('relation effect in-batch edges', () => {
     expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'srv-1', unreadCount: 1 });
   });
 
-  it('keeps plain destroys out of replacedIds: only replace legs drive the follow-the-swap touch', () => {
+  it('[RE9] keeps plain destroys out of replacedIds: only replace legs drive the follow-the-swap touch', () => {
     setupSpecRuntime();
     const chats = defineModel('SpecEffectsChatsPlainDestroy', {
       schema: defineShape<{ id: string; unreadCount: number; lastActivityAt: number; lastMessageId: string | null }>()({
@@ -166,7 +166,7 @@ describe('relation effect in-batch edges', () => {
     expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'msg-1', unreadCount: 1 });
   });
 
-  it('runs no relation effects for snapshot-origin upserts', () => {
+  it('[RE10] runs no relation effects for snapshot-origin upserts', () => {
     const { chats, messages } = createChatModels('SnapshotSilent');
     getApplyRuntime().commit(
       createCommitEnvelope([{ kind: 'upsert', model: messages.key, rows: [{ id: 'msg-1', chatId: 'chat-1', createdAt: 99 }] }])
@@ -213,7 +213,7 @@ describe('relation effect in-batch edges', () => {
     expect(chats.find('chat-1')).toMatchObject({ unreadCount: 1 });
   });
 
-  it('treats a destroy of an absent parent as a no-op for orphan children carrying its key', () => {
+  it('[RE7] treats a destroy of an absent parent as a no-op for orphan children carrying its key', () => {
     setupSpecRuntime();
     type Child = { id: string; parentId: string };
     const children = defineModel('SpecEffectsOrphanChildren', {

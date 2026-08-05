@@ -116,7 +116,7 @@ const createGraphModels = (suffix: string) => {
 };
 
 describe('sideload graph', () => {
-  it('normalizes, deduplicates, and commits a direct graph in one envelope', () => {
+  it('[I11] normalizes, deduplicates, and commits a direct graph in one envelope', () => {
     configureRuntime(createMockTransport());
     diagnostics().reset();
     const { Chat, User } = createGraphModels('Direct');

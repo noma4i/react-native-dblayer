@@ -132,7 +132,7 @@ describe('compositeKey segment boundaries', () => {
     expect(compositeKey('a', 'b', 'c')).not.toBe(compositeKey('a', 'bc'));
   });
 
-  it('keeps segment boundaries injective when values contain NUL', () => {
+  it('[ID9] keeps segment boundaries injective when values contain NUL', () => {
     const key = compositeKey('a\0b', 'c');
     expect(key).not.toBe(compositeKey('a', 'b\0c'));
     expect(firstCompositeKeyPart(key)).toBe('a\0b');

@@ -7,7 +7,7 @@ import { createMemoryPlane, createMockTransport } from '../helpers/harness';
  * readers reclaims the whole database - and the user returns to an app that lost their data.
  */
 describe('durability under idle', () => {
-  it('keeps rows that belong to a declared scope when the app suspends', () => {
+  it('[I5] keeps rows that belong to a declared scope when the app suspends', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport({}) });
     const scoped = defineModelRuntime({
       id: 'SpecDurableScoped',
@@ -24,7 +24,7 @@ describe('durability under idle', () => {
     expect(scoped.all().map(row => row.id)).toEqual(['row-1', 'row-2']);
   });
 
-  it('keeps written rows when the app suspends with no reader mounted', () => {
+  it('[A9] keeps written rows when the app suspends with no reader mounted', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport({}) });
     const rows = defineModelRuntime({ id: 'SpecDurableIdle', name: 'SpecDurableIdle', fields: { body: f.str() } });
     rows.insertMany([

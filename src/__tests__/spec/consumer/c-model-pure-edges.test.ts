@@ -151,7 +151,7 @@ describe('model landing graph edges', () => {
 });
 
 describe('model write planning edges', () => {
-  it('empties a scope on destroy and keeps the scope itself declared', () => {
+  it('[A10] empties a scope on destroy and keeps the scope itself declared', () => {
     configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
     const model = defineModelRuntime({
       id: 'ModelGcStaleScopeMember',

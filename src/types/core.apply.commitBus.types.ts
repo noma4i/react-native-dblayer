@@ -1,4 +1,4 @@
-export type RowChange = { model: string; id: string; fields: string[] | null; kind?: 'upsert' | 'destroy' };
+export type RowChange = { model: string; id: string; fields: string[] | null; kind?: 'upsert' | 'destroy'; replacedBy?: string };
 type ScopeChange = { model: string; scopeKey: string };
 type PendingChange = { model: string; id: string };
 export type CommitBatch = { rows: RowChange[]; scopes: ScopeChange[]; pending?: PendingChange[] };

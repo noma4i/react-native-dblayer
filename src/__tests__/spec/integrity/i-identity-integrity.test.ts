@@ -19,7 +19,7 @@ describe('identity integrity red-first', () => {
     ])).toThrow('identity-duplicate-subscription');
   });
 
-  it('aliases counter snapshots when template key segments contain colons', () => {
+  it('[P10] aliases counter snapshots when template key segments contain colons', () => {
     const first = defineModelRuntime({ id: 'a:b', name: 'IdentityCounterFirst', fields: { count: f.num() } });
     const second = defineModelRuntime({ id: 'a', name: 'IdentityCounterSecond', fields: { count: f.num() } });
     const children = defineModelRuntime({
@@ -38,7 +38,7 @@ describe('identity integrity red-first', () => {
     expect(second.find('b:c')?.count).toBe(11);
   });
 
-  it('normalizes a numeric id before core row lookup', () => {
+  it('[R11] normalizes a numeric id before core row lookup', () => {
     const rows = defineModelRuntime({ id: 'IdentityNumericId', name: 'IdentityNumericId', fields: { body: f.str() } });
     rows.insert({ id: 1, body: 'number' } as never);
 

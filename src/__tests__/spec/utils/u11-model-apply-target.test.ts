@@ -28,7 +28,7 @@ describe('model apply target', () => {
     setupSpecRuntime();
   });
 
-  it('builds twice for one model id without claiming a process-wide slot', () => {
+  it('[A8] builds twice for one model id without claiming a process-wide slot', () => {
     const first = buildTarget('SpecApplyTargetTwice');
     const second = buildTarget('SpecApplyTargetTwice');
 

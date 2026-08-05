@@ -16,7 +16,7 @@ const actionDocument: TypedDocumentNode<ActionResponse, ActionVariables> = { kin
 const RowSchema = defineShape<Row>()({ value: f.str() });
 
 describe('write plan safety', () => {
-  it('drops a query response when write resets the runtime', async () => {
+  it('[OP16] drops a query response when write resets the runtime', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => ({ data: { root: { id: 'root-query-reset', value: 'root' } } as TData })
     });
@@ -251,7 +251,7 @@ describe('write plan safety', () => {
     expect(RootDestroy.find('root-forged-target')).toBeUndefined();
   });
 
-  it('rejects undefined update patches before committing the root response', async () => {
+  it('[W17] rejects undefined update patches before committing the root response', async () => {
     const transport = createMockTransport({
       query: async <TData,>() => ({ data: { root: { id: 'root-undefined', value: 'root' } } as TData })
     });

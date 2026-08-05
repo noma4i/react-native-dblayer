@@ -115,7 +115,7 @@ function Activation(): null {
 afterEach(resetRuntime);
 
 describe('channel-agnostic temp correlation', () => {
-  it('[ID8] runs zero candidate search without a declared correlate: the temp and server rows coexist', async () => {
+  it('[ID8] [R23] runs zero candidate search without a declared correlate: the temp and server rows coexist', async () => {
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
@@ -162,7 +162,7 @@ describe('channel-agnostic temp correlation', () => {
     expect(messages.operation(tempId).read().pending).toBe(true);
   });
 
-  it('collapses an open temp row when a query lands the server row', async () => {
+  it('[ID6] collapses an open temp row when a query lands the server row', async () => {
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
@@ -180,7 +180,7 @@ describe('channel-agnostic temp correlation', () => {
     expectCorrelated(messages, tempId);
   });
 
-  it('collapses an open temp row when a model event lands the server row', () => {
+  it('[OP31] [OP20] collapses an open temp row when a model event lands the server row', () => {
     let next!: (data: unknown) => void;
     const transport = createMockTransport({
       mutation: () => new Promise(() => undefined),

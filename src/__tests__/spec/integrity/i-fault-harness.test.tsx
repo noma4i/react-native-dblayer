@@ -99,7 +99,7 @@ describe('persistence fault invariants', () => {
     expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-1'))).toBe(encodePersistence({ id: 'row-1', label: 'local' }));
   });
 
-  it('writes the ledger synchronously and the cache snapshot on the flush', () => {
+  it('[OP5] writes the ledger synchronously and the cache snapshot on the flush', () => {
     const storage = createFaultStorage();
     configureFaultRuntime(storage);
     const rows = createRows('TransitionEnvelope');
@@ -215,7 +215,7 @@ describe('persistence fault invariants', () => {
     expect(storage.setCalls().some(write => write.key.startsWith(`dbl:row:${rows.modelId}`))).toBe(false);
   });
 
-  it('cuts the delta tail on corruption, wipes query records, and counts the loss', async () => {
+  it('[P7] cuts the delta tail on corruption, wipes query records, and counts the loss', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -287,7 +287,7 @@ describe('persistence fault invariants', () => {
     ['an unknown op kind', (delta: Record<string, unknown>) => ({ ...delta, ops: [{ kind: 'garbage', model: 'X' }] })],
     ['an op without a model', (delta: Record<string, unknown>) => ({ ...delta, ops: [{ kind: 'upsert' }] })],
     ['a null op beside a valid one', (delta: Record<string, unknown>) => ({ ...delta, ops: [...(delta.ops as unknown[]), null] })]
-  ])('classifies a delta carrying %s as corruption and cuts the tail', async (_name, corrupt) => {
+  ])('[P28] classifies a delta carrying %s as corruption and cuts the tail', async (_name, corrupt) => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -313,7 +313,7 @@ describe('persistence fault invariants', () => {
     expect(diagnostics().snapshot().dataLossEvents).toContainEqual({ mechanism: 'delta-tail-cut', model: '__runtime__', count: 1 });
   });
 
-  it('replays deltas in numeric seq order however storage enumerates keys', async () => {
+  it('[P29] replays deltas in numeric seq order however storage enumerates keys', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -338,7 +338,7 @@ describe('persistence fault invariants', () => {
     expect(rows.find('row-1')).toMatchObject({ label: 'v10' });
   });
 
-  it('flush compaction writes the snapshot, advances snapseq, and deletes every covered delta', async () => {
+  it('[P30] flush compaction writes the snapshot, advances snapseq, and deletes every covered delta', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -356,7 +356,7 @@ describe('persistence fault invariants', () => {
     expect(storage.plane.get(compositeStorageKey('dbl:', 'row', rows.modelId, 'row-2'))).toBeDefined();
   });
 
-  it('continues the delta sequence after a reboot from compacted snapshots', async () => {
+  it('[P31] continues the delta sequence after a reboot from compacted snapshots', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -380,7 +380,7 @@ describe('persistence fault invariants', () => {
     expect(disk.keys('dbl:delta:')).toEqual(['dbl:delta:000000000001']);
   });
 
-  it('continues the delta sequence after a reboot over live deltas', async () => {
+  it('[P31] continues the delta sequence after a reboot over live deltas', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -408,7 +408,7 @@ describe('persistence fault invariants', () => {
     expect(disk.keys('dbl:delta:').sort()).toEqual(['dbl:delta:000000000000', 'dbl:delta:000000000001', 'dbl:delta:000000000002']);
   });
 
-  it('skips delta ops already covered by the model snapshot and publishes nothing for them', async () => {
+  it('[P32] skips delta ops already covered by the model snapshot and publishes nothing for them', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);
@@ -437,7 +437,7 @@ describe('persistence fault invariants', () => {
     unsubscribe();
   });
 
-  it('reads a model snapseq from storage once per session', async () => {
+  it('[P33] reads a model snapseq from storage once per session', async () => {
     const base = createMemoryPlane();
     let snapseqReads = 0;
     const counting = {
@@ -466,7 +466,7 @@ describe('persistence fault invariants', () => {
     expect(snapseqReads).toBe(afterFirstFlush);
   });
 
-  it('converges from every kill point inside the compaction flush', async () => {
+  it('[P8] converges from every kill point inside the compaction flush', async () => {
     const storage = createFaultStorage();
     resetRuntime();
     configureFaultRuntime(storage);

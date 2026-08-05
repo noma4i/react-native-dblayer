@@ -158,7 +158,7 @@ describe('rerender matrix scope window budget', () => {
   // happened. Work counters are the sole admissible basis for a speed gate, so a counter that overreports is
   // worse than no counter. Both halves live in one test on purpose: asserting zero is only meaningful next to a
   // proof that this same harness can drive the counter above zero.
-  it('counts a resort only when a complete reconcile actually changes the scope order', () => {
+  it('[R8] counts a resort only when a complete reconcile actually changes the scope order', () => {
     setupSpecRuntime();
     const rows = createRows();
     seedRows(rows);

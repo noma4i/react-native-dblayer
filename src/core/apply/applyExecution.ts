@@ -53,7 +53,7 @@ const applyOperations = (ops: AppliedOp[]): IncrementalCommitBatch => {
     if (op.kind === 'destroy') {
       const ids = target.destroy(op.ids, op.tombstone);
       for (const id of ids) {
-        batch.rows.push({ model: op.model, id, fields: null, kind: 'destroy' });
+        batch.rows.push({ model: op.model, id, fields: null, kind: 'destroy', ...(op.replacedBy !== undefined ? { replacedBy: op.replacedBy } : {}) });
       }
       noteRows(op.model, target, ids);
     }

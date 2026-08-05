@@ -15,7 +15,7 @@ const RowSchema = defineShape<Row>()({
 });
 
 describe('action write plan failure boundaries', () => {
-  it('publishes a rejected action through the shared hook state', async () => {
+  it('[W14] publishes a rejected action through the shared hook state', async () => {
     const failure = new Error('transport failed');
     configureDb({
       storage: createMemoryPlane(),
@@ -42,7 +42,7 @@ describe('action write plan failure boundaries', () => {
     handle.unmount();
   });
 
-  it('retains the failed optimistic root when planning fails after a sibling intent', async () => {
+  it('[W2] retains the failed optimistic root when planning fails after a sibling intent', async () => {
     const transport = createMockTransport({
       mutation: async <TData,>() =>
         ({

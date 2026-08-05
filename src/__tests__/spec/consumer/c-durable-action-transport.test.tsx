@@ -103,7 +103,7 @@ const unmountReaders = (readers: ReturnType<typeof mountReaders>): void => {
 };
 
 describe('durable action transport', () => {
-  it('starts atomically without transport and exposes only the typed handle', async () => {
+  it('[I21] [OP1] [OP25] [OP28] starts atomically without transport and exposes only the typed handle', async () => {
     const storage = createMemoryPlane();
     const transport = createMockTransport();
     const { JobModel, AuditModel, Unrelated } = await defineFixture(storage, transport, 'SpecDurableStart');
@@ -124,7 +124,7 @@ describe('durable action transport', () => {
     unmountReaders(readers);
   });
 
-  it('executes the exact document and variables and commits all response writes once', async () => {
+  it('[OP23] [OP24] [S15] [T12] executes the exact document and variables and commits all response writes once', async () => {
     const storage = createMemoryPlane();
     let capturedOperation: Parameters<DbTransport['mutation']>[0] | undefined;
     const transport = createMockTransport({
@@ -218,7 +218,7 @@ describe('durable action transport', () => {
     unmountReaders(readers);
   });
 
-  it('keeps failure open and re-executes the same operation and optimistic row', async () => {
+  it('[OP26] keeps failure open and re-executes the same operation and optimistic row', async () => {
     let attempt = 0;
     let resolveRetry!: (value: { data: StartData }) => void;
     const retryResponse = new Promise<{ data: StartData }>(resolve => {
@@ -278,7 +278,7 @@ describe('durable action transport', () => {
     unmountReaders(readers);
   });
 
-  it('keeps unknown delivery open but blocks automatic re-execution', async () => {
+  it('[OP32] keeps unknown delivery open but blocks automatic re-execution', async () => {
     const storage = createMemoryPlane();
     const transport = createMockTransport({
       mutation: async () => {
@@ -398,7 +398,7 @@ describe('durable action transport', () => {
     unmountReaders(readers);
   });
 
-  it('resumes and executes the same typed handle after runtime reconfiguration', async () => {
+  it('[OP27] [S21] resumes and executes the same typed handle after runtime reconfiguration', async () => {
     const storage = createMemoryPlane();
     const firstTransport = createMockTransport();
     const first = await defineFixture(storage, firstTransport, 'SpecDurableRestart');

@@ -103,7 +103,7 @@ describe('model-owned write declarations', () => {
     expect(rows.find('row-1')).toBeUndefined();
   });
 
-  it('uses the same field policy for query and model event landings', async () => {
+  it('[W5] uses the same field policy for query and model event landings', async () => {
     let next!: (data: unknown) => void;
     const transport = createMockTransport({
       query: async <TData,>() => ({ data: { rows: [{ id: 'query-1', body: 'query-server', media: serverMedia }] } as TData }),
@@ -184,5 +184,29 @@ describe('model-owned write declarations', () => {
     });
 
     expect(rows.find('server-1')).toEqual({ id: 'server-1', body: 'server-body', media: expectedMedia });
+  });
+
+  it('[W4] treats every field as server-authoritative when a model declares no write groups', async () => {
+    const transport = createMockTransport({
+      query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', body: 'server-body', media: serverMedia }] } as TData })
+    });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const rows = defineModel('WriteDeclarationServerAuthoritative', {
+      schema: RowSchema,
+      relations: owner => ({
+        remote: {
+          remote: owner.gql.list(queryDocument, {
+            variables: (params: QueryVariables) => params,
+            select: data => data.rows
+          })
+        }
+      })
+    });
+    rows.insert({ id: 'row-1', body: 'local-body', media: localMedia });
+
+    await rows.remote({}).fetch();
+
+    // Without write groups the zero dimensions land verbatim, where a grouped model keeps the local ones.
+    expect(rows.find('row-1')).toEqual({ id: 'row-1', body: 'server-body', media: serverMedia });
   });
 });

@@ -13,7 +13,7 @@ import { createMemoryPlane, createMockTransport } from '../helpers/harness';
 afterEach(resetRuntime);
 
 describe('interrupted namespace reset recovery', () => {
-  it('finishes a durable reset intent before accepting a compatible manifest', () => {
+  it('[P22] finishes a durable reset intent before accepting a compatible manifest', () => {
     const storage = createMemoryPlane();
     configureDb({ storage, transport: createMockTransport(), defaults: {} });
     writePersistenceManifest('dbl:', {

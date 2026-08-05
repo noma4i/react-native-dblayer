@@ -13,12 +13,12 @@ describe('buildScopeKey stability', () => {
     expect(buildScopeKey({ chatId: undefined })).toBe(root);
   });
 
-  it('keys primitive scopes distinctly from records and from each other', () => {
+  it('[ID10] keys primitive scopes distinctly from records and from each other', () => {
     const outputs = [buildScopeKey('abc'), buildScopeKey(42), buildScopeKey(true), buildScopeKey({ id: 'abc' }), buildScopeKey(null)];
     expect(new Set(outputs).size).toBe(5);
   });
 
-  it('produces one key regardless of filter key order and undefined padding', () => {
+  it('[R7] produces one key regardless of filter key order and undefined padding', () => {
     expect(buildScopeKey({ a: 1, b: 2 })).toBe(buildScopeKey({ b: 2, a: 1 }));
     expect(buildScopeKey({ a: 1, b: 2 })).toBe(buildScopeKey({ b: 2, a: 1, c: undefined }));
     expect(buildScopeKey({ a: 1 })).not.toBe(buildScopeKey({ a: '1' }));

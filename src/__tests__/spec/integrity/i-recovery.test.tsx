@@ -266,7 +266,7 @@ describe('persistence recovery protocol', () => {
     expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 
-  it('keeps a crashed request insert as a failed retryable operation with its row alive', async () => {
+  it('[P27] [OP2] keeps a crashed request insert as a failed retryable operation with its row alive', async () => {
     const modelId = 'RecoveryRequestInsert';
     const tempId = 'tmp_crashed_request';
     const operationId = 'op-crashed-request';

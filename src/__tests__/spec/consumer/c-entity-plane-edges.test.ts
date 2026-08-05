@@ -117,7 +117,7 @@ describe('entity plane edges', () => {
     expect(plane.evict('missing')).toBe(false);
   });
 
-  it('drops missing and corrupt persisted rows and corrupt tombstones during hydrate', () => {
+  it('[P4] drops missing and corrupt persisted rows and corrupt tombstones during hydrate', () => {
     const values = new Map<string, string>();
     let rowsPrefix = '';
     const storage: StoragePlane = {
@@ -202,7 +202,7 @@ describe('entity plane edges', () => {
     expect(plane.isTombstoned('row-0')).toBe(true);
   });
 
-  it('evicts the oldest tombstones first and protects the young ones above the cap', () => {
+  it('[P18] evicts the oldest tombstones first and protects the young ones above the cap', () => {
     let now = 0;
     const storage = createMemoryPlane();
     const { modelId, plane } = createPlane(storage, () => now);

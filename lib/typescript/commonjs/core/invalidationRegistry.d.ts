@@ -9,6 +9,6 @@ import type { InvalidateFn } from '../types';
  * so redefining a query (e.g. a Fast Refresh reload) never accumulates dead closures.
  */
 export declare const registerModelInvalidation: (modelId: string, key: string, invalidate: InvalidateFn) => void;
-/** Fan an invalidation out to every query registered on the model. */
-export declare const invalidateModel: (modelId: string, scope?: unknown) => void;
+/** Fan an invalidation out to every query registered on the model; returns how many accepted the address. */
+export declare const invalidateModel: (modelId: string, scope?: unknown) => number;
 //# sourceMappingURL=invalidationRegistry.d.ts.map

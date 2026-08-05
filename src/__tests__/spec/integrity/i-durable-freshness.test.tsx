@@ -102,7 +102,7 @@ describe('durable freshness', () => {
     jest.useRealTimers();
   });
 
-  it('restores a fresh named fetch with its original timestamp and without transport', async () => {
+  it('[F9] restores a fresh named fetch with its original timestamp and without transport', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-07-31T00:00:00.000Z'));
     const storage = createMemoryPlane();
@@ -125,7 +125,7 @@ describe('durable freshness', () => {
     expect(calls).toBe(1);
   });
 
-  it('refetches an expired named fetch exactly once after restart', async () => {
+  it('[F10] refetches an expired named fetch exactly once after restart', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-07-31T00:00:00.000Z'));
     const storage = createMemoryPlane();
@@ -167,7 +167,7 @@ describe('durable freshness', () => {
     expect(calls).toBe(1);
   });
 
-  it('keeps runtime-zero and anonymous fetches process-local', async () => {
+  it('[P17] keeps runtime-zero and anonymous fetches process-local', async () => {
     const storage = createMemoryPlane();
     let zeroCalls = 0;
     let anonymousCalls = 0;
@@ -219,7 +219,7 @@ describe('durable freshness', () => {
     expect(calls).toBe(2);
   });
 
-  it('restores invalidated data as stale', async () => {
+  it('[P16] restores invalidated data as stale', async () => {
     const storage = createMemoryPlane();
     let calls = 0;
     const transport = createMockTransport({
@@ -249,7 +249,7 @@ describe('durable freshness', () => {
     expect(readValue(restoredResult)).toBe('2');
   });
 
-  it('separates freshness-aware fetch, forced refresh, and family removal', async () => {
+  it('[F13] separates freshness-aware fetch, forced refresh, and family removal', async () => {
     const storage = createMemoryPlane();
     let calls = 0;
     const transport = createMockTransport({
@@ -274,7 +274,7 @@ describe('durable freshness', () => {
     expect(readValue(request)).toBe('3');
   });
 
-  it('restores model relation rows and pagination metadata before freshness evaluation', async () => {
+  it('[P13] restores model relation rows and pagination metadata before freshness evaluation', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-07-31T00:00:00.000Z'));
     const storage = createMemoryPlane();
@@ -525,7 +525,7 @@ describe('durable freshness', () => {
     expect(calls).toBe(2);
   });
 
-  it('drops restored query metadata when its named freshness class becomes process-local', async () => {
+  it('[P19] drops restored query metadata when its named freshness class becomes process-local', async () => {
     const storage = createMemoryPlane();
     let calls = 0;
     const freshnessClasses = { durable: 1_000 };

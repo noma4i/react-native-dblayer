@@ -24,7 +24,7 @@ const defineBeta = () =>
   });
 
 describe('schema fingerprint blast radius', () => {
-  it('keeps an untouched model rows when a different model gains a field', async () => {
+  it('[P20] keeps an untouched model rows when a different model gains a field', async () => {
     const storage = createMemoryPlane();
 
     configureDb({ storage, transport: createMockTransport(), dataVersion: 'blast' });

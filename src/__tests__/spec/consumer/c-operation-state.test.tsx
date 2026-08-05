@@ -67,7 +67,7 @@ const UserSchema = defineShape<UserInput>()({
 });
 
 describe('operation state', () => {
-  it('exposes pending patch values through snapshot and reactive operation reads', async () => {
+  it('[OP3] exposes pending patch values through snapshot and reactive operation reads', async () => {
     let resolveUpdate!: (value: { data: UpdateData }) => void;
     const response = new Promise<{ data: UpdateData }>(resolve => {
       resolveUpdate = resolve;
@@ -145,7 +145,7 @@ describe('operation state', () => {
     reader.unmount();
   });
 
-  it('exposes a retained insert failure through operation reads', async () => {
+  it('[S20] exposes a retained insert failure through operation reads', async () => {
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
