@@ -3,11 +3,11 @@ import type { ApplyRuntime, CommitBus, StoragePlane } from '../../types';
  * One apply runtime per configured database: every model shares the same epoch counter and commit
  * bus, so one plan touching several models applies and persists as one transaction.
  *
- * Persistence splits by data class. The operation ledger (the user's unacked writes) is written
- * SYNCHRONOUSLY inside the commit - a kill right after a send still finds the operation and its
- * domain input on disk. Model cache snapshots (rows, scopes) coalesce per tick: back-to-back
- * commits in one tick encode each dirty model once, and a kill inside that window costs only
- * refetchable cache that the ledger can rebuild.
+ * Every commit is durable before it returns. The operation ledger (the user's unacked writes) and
+ * the commit's cache delta (one atomic `delta:<seq>` key carrying rows AND scope changes) are both
+ * written synchronously - a kill at any later point finds the commit on disk, and the row/membership
+ * pair can never tear. Model snapshots coalesce per tick as COMPACTION: the flush writes each dirty
+ * model's snapshot, advances its `snapseq`, and deletes the deltas the snapshots now cover.
  */
 export declare const createApplyRuntime: (options: {
     storage: StoragePlane;

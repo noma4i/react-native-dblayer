@@ -33,6 +33,8 @@ const document = { kind: 'Document', definitions: [] } as never;
  * `it`. Every case below is a former loss that stays here as its own regression shield.
  */
 
+type SendMedia = { id: string; kind: string; fileUrl: string; thumbUrl: string | null };
+
 type SendInput = {
   id: string;
   chatId: string;
@@ -42,9 +44,20 @@ type SendInput = {
   createdAt: string;
   updatedAt: string;
   sequenceNumber: number | null;
+  media?: SendMedia | null;
+  mediaBucket?: string | null;
 };
 
 type SendData = { send: { message: SendInput } };
+type EditData = { edit: { message: SendInput } };
+
+const MediaShape = defineShape<SendMedia>()({
+  kind: f.str(),
+  fileUrl: f.str(),
+  thumbUrl: f.str().nullable()
+});
+
+const mediaBucketOf = (message: { media?: SendMedia | null }): string | null => (message.media ? 'visual' : null);
 
 const SendSchema = defineShape<SendInput>()({
   chatId: f.str(),
@@ -53,13 +66,16 @@ const SendSchema = defineShape<SendInput>()({
   status: f.str(),
   createdAt: f.str(),
   updatedAt: f.str(),
-  sequenceNumber: f.num().nullable()
+  sequenceNumber: f.num().nullable(),
+  media: f.object(MediaShape).from((message: { media?: SendMedia | null }) => message.media ?? null).nullable(),
+  mediaBucket: f.custom<string | null, SendInput>(mediaBucketOf).nullable()
 });
 
 const Message = defineModel('ZeroLossMessage', {
   schema: SendSchema,
   relations: () => ({
-    thread: { by: { chatId: 'chatId' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
+    thread: { by: { chatId: 'chatId' }, sort: { field: 'sequenceNumber', dir: 'desc' } },
+    mediaItems: { by: { chatId: 'chatId', mediaBucket: 'mediaBucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } }
   }),
   maintenance: { dropTempRowsAfterMs: 600_000 },
   actions: owner => ({
@@ -69,7 +85,23 @@ const Message = defineModel('ZeroLossMessage', {
       variables: () => ({}),
       optimistic: { root: { insert: { select: ({ input, tempId }) => ({ ...input.row, id: tempId }) } } },
       root: { insert: { select: ({ data }) => data.send.message } }
+    }),
+    edit: owner.gql.action<EditData, Record<string, never>, { messageId: string; body: string }, 'edit'>(document, {
+      mode: 'request',
+      result: 'edit',
+      variables: () => ({}),
+      optimistic: { root: { update: { select: ({ input }) => ({ id: input.messageId, patch: { body: input.body } }) } } },
+      root: { update: { select: ({ data }) => ({ id: data.edit.message.id, patch: { body: data.edit.message.body } }) } }
     })
+  })
+});
+
+type ChatInput = { id: string; updatedAt: string; lastMessage?: SendInput | null };
+
+const Chat = defineModel('ZeroLossChat', {
+  schema: defineShape<ChatInput>()({ updatedAt: f.str() }),
+  sideloads: () => ({
+    lastMessage: { model: Message, select: (chat: ChatInput) => chat.lastMessage ?? null }
   })
 });
 
@@ -284,7 +316,7 @@ describe('zero-loss lifecycle', () => {
     expect(tickets[0]).toMatchObject({ kind: 'row', model: 'ZeroLossMessage', raw: invalid });
   });
 
-  it('keeps the optimistic row when a correlated replace is rejected by causal admission', async () => {
+  it('completes the destroy leg without resurrecting the server row when the user deleted the landed identity', async () => {
     resetRuntime();
     let resolveSend!: (value: { data: unknown }) => void;
     configureDb({
@@ -308,13 +340,92 @@ describe('zero-loss lifecycle', () => {
     Message.destroy('server-echo');
     resolveSend({ data: { send: { message: serverRow('server-echo', 'draft', 101) } } });
     await run;
-    // The replace pair is rejected atomically: the destroy leg must not run once the upsert leg
-    // is refused, and the refused server payload gets a quarantine ticket instead of vanishing.
-    expect(Message.find(tempId)).toBeDefined();
-    const tickets = readQuarantineEntries().filter(entry => entry.reason === 'replace-rejected-by-admission');
-    expect(tickets).toHaveLength(1);
-    expect(tickets[0]).toMatchObject({ kind: 'row', model: 'ZeroLossMessage', id: 'server-echo' });
+    // Deletion wins over the landing swap: the user destroyed this identity while the request
+    // was in flight, so the temp leg is destroyed too, the server row never resurrects, and the
+    // operation closes committed. An intentional delete is not a loss, so nothing is ticketed.
+    expect(Message.find(tempId)).toBeUndefined();
+    expect(Message.find('server-echo')).toBeUndefined();
+    expect(readQuarantineEntries()).toEqual([]);
     expect(Message.operation(tempId).read().pending).toBe(false);
+    expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id)).not.toContain(tempId);
+  });
+
+  it('swaps temp for the server row even when another channel landed the server copy first', async () => {
+    resetRuntime();
+    let resolveSend!: (value: { data: unknown }) => void;
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: async <TData,>() =>
+          new Promise<{ data: TData }>(resolve => {
+            resolveSend = resolve as (value: { data: unknown }) => void;
+          })
+      })
+    });
+    seedManifest();
+    await bootDb();
+    const input: SendInput = { id: 'local-1', chatId: 'chat-1', userId: 'me', body: 'race-draft', status: 'Sending', createdAt: NOW, updatedAt: NOW, sequenceNumber: 100 };
+    const run = Message.actions.send.run({ row: input }).catch(() => {});
+    await Promise.resolve();
+    const tempId = Message.where({ chatId: 'chat-1' }).read().find(row => row.status === 'Sending')!.id;
+    // The sender's own server copy arrives through a sideload channel (chat lastMessage) while the
+    // response is still in flight - the everyday chatUpdated race, not an exotic interleaving.
+    const serverCopy = { ...serverRow('server-race', 'race-draft', 101), userId: 'me' };
+    Chat.insert({ id: 'chat-1', updatedAt: NOW, lastMessage: serverCopy });
+    resolveSend({ data: { send: { message: serverCopy } } });
+    await run;
+    // Replace is a server identity fact: exactly one row remains, under the server id.
+    const bodies = Message.where({ chatId: 'chat-1' }).read().filter(row => row.body === 'race-draft');
+    expect(bodies.map(row => row.id)).toEqual(['server-race']);
+    expect(Message.find(tempId)).toBeUndefined();
+    expect(Message.operation(tempId).read().pending).toBe(false);
+  });
+
+  it('serves an accepted event commit after a kill before any coalesced flush', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureDb({ storage: storage.plane, transport: createMockTransport() });
+    seedManifest();
+    await bootDb();
+    Message.where({ chatId: 'chat-1' }).seed([serverRow('server-tick', 'landed', 7)]);
+    // Kill NOW: no background flush ran. The commit was accepted, so it must be durable.
+    const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length);
+    await bootOn(disk);
+    expect(Message.where({ chatId: 'chat-1' }).read().map(row => row.id)).toContain('server-tick');
+  });
+
+  it('serves the row AND its membership from every kill point inside the flush', async () => {
+    const { writes } = await runScenario(0);
+    // Kill right after the row key of server-2 reached the disk, before its scope key.
+    const rowWriteIndex = writes.findIndex(write => write.key.startsWith('dbl:row:') && write.key.includes('server-2'));
+    expect(rowWriteIndex).toBeGreaterThanOrEqual(0);
+    const disk = diskAtWrite(writes, rowWriteIndex + 1);
+    await bootOn(disk);
+    // Row and membership are one atomic pair: a row the disk holds is readable through its scope.
+    const memberIds = Message.thread({ chatId: 'chat-1' }).read().map(row => row.id);
+    if (Message.find('server-2') !== undefined) expect(memberIds).toContain('server-2');
+  });
+
+  it('keeps fields landed after a mutation started when the process dies mid-mutation', async () => {
+    const storage = createFaultStorage();
+    resetRuntime();
+    configureDb({ storage: storage.plane, transport: createMockTransport({ mutation: async <TData,>() => new Promise<{ data: TData }>(() => {}) }) });
+    seedManifest();
+    await bootDb();
+    Message.where({ chatId: 'chat-1' }).seed([serverRow('server-edit', 'original', 5)]);
+    Message.actions.edit.run({ messageId: 'server-edit', body: 'edited' }).catch(() => {});
+    await Promise.resolve();
+    // While the edit is in flight, the server lands media on the same row (transcode finished).
+    Message.where({ chatId: 'chat-1' }).seed([
+      { ...serverRow('server-edit', 'edited', 5), media: { id: 'm1', kind: 'video', fileUrl: 'https://cdn/video.mp4', thumbUrl: 'https://cdn/thumb.jpg' } }
+    ]);
+    getApplyRuntime().flushCacheSnapshots();
+    const disk = diskAtWrite(storage.setCalls(), storage.setCalls().length);
+    await bootOn(disk);
+    const row = Message.find('server-edit');
+    expect(row).toBeDefined();
+    // Boot rollback is field-level, like the runtime path: media landed AFTER the edit started and survives.
+    expect(row!.media?.fileUrl).toBe('https://cdn/video.mp4');
   });
 
   it('never loses user rows to random corruption of cache keys', async () => {

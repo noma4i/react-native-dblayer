@@ -1,7 +1,7 @@
 import type { MaintenanceReport } from '../types';
 import { reconcilePersistence } from '../core/schemaManifest';
 import { runBootValidations } from './bootValidations';
-import { purgeForeignStorageKeys } from './configure';
+import { getApplyRuntime, purgeForeignStorageKeys } from './configure';
 import { runModelMaintenance } from './maintenanceRegistry';
 import { getApplyTargets } from '../core/apply/applyTargetRegistry';
 import { runBootFsck } from '../core/bootFsck';
@@ -10,7 +10,7 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
 
 /**
  * Recommended data-startup sequence after `configureDb`: deferred definition validation, the
- * persistence reconcile, then the boot fsck to repair any partially-written commit, then
+ * persistence reconcile, the delta roll-forward, then the boot fsck to close crashed operations, then
  * `purgeForeignStorageKeys()` to clear any pre-migration/foreign storage keys, then the declared model
  * maintenance - in exactly that order, once, before the first render that reads a model.
  *
@@ -32,6 +32,9 @@ export const bootDb = async (): Promise<{ maintenance: MaintenanceReport[]; rese
   const assertCurrentGeneration = (): void => {
     if (!generationFence.isCurrent()) throw new Error('runtime generation changed during boot');
   };
+  // Roll the persisted delta tail forward over the snapshots BEFORE any repair reads the planes.
+  getApplyRuntime().replayPersistedDeltas();
+  assertCurrentGeneration();
   runBootFsck();
   assertCurrentGeneration();
   hydrateStoreScopes(getApplyTargets());

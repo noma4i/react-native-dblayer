@@ -15,10 +15,9 @@ export type DataLossMechanism =
   | 'operation-ledger-stale-version-reset'
   | 'corrupt-once-keys'
   | 'replacement-rejected'
-  | 'orphan-membership-dropped'
   | 'unranked-ladder-value'
   | 'user-reset-discard'
-  | 'fsck-scope-detach';
+  | 'delta-tail-cut';
 
 export type DataLossEvent = { mechanism: DataLossMechanism; model: string; count: number };
 

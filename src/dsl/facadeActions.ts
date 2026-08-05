@@ -28,7 +28,8 @@ import { createGenerationFence } from '../utils/runtimeGeneration';
 import { isNonArrayRecord } from '../utils/normalizeHelpers';
 import { useActionHandle } from './actionHook';
 import { createWritePlanCollector, runWritePlanInvalidations, stampCausalRevision } from './writePlan';
-import { compositeKey, stableSerialize } from '../core/serialize';
+import { planRequestFailureRollback } from '../core/requestRollback';
+import { compositeKey } from '../core/serialize';
 import { MutationDeliveryUnknownError } from '../core/mutationDeliveryError';
 
 /**
@@ -423,34 +424,12 @@ export const createAction = <TStored extends { id: string; updatedAt?: string | 
         if (error instanceof MutationDeliveryUnknownError) {
           getApplyRuntime().commit(createCommitEnvelope([], [{ kind: 'close', operationId, status: 'delivery_unknown' }]));
         } else {
-          const rollbackOps =
-            active.intent === 'patch' && active.rollbackRow !== undefined
-              ? (() => {
-                  const rowId = active.rowIds[0]!;
-                  const current = getInternalModelHandle(runtime).readRow(rowId);
-                  if (!current) return [];
-                  const patch: Record<string, unknown> = {};
-                  const remove: string[] = [];
-                  for (const field of active.patchedFields!) {
-                    const latest = getOperationState().latestPendingValue(runtime.modelId, rowId, field, operationId);
-                    if (latest.found) {
-                      patch[field] = latest.value;
-                      continue;
-                    }
-                    if (!active.patchedValues || stableSerialize(current[field]) !== stableSerialize(active.patchedValues[field])) continue;
-                    if (Object.hasOwn(active.rollbackRow, field)) {
-                      patch[field] = active.rollbackRow[field];
-                      continue;
-                    }
-                    remove.push(field);
-                  }
-                  return [{ kind: 'patch' as const, model: runtime.modelId, id: rowId, patch, remove, operationId }];
-                })()
-              : active.intent === 'destroy' && active.rollbackRow !== undefined && active.rollbackMemberships !== undefined
-                ? getInternalModelHandle(runtime).planRestore(active.rollbackRow, active.rollbackMemberships)
-                : [];
-          const status = active.tempIds.length > 0 || active.rollbackRow !== undefined ? ('failed' as const) : ('rolledback' as const);
-          getApplyRuntime().commit(createCommitEnvelope(rollbackOps, [{ kind: 'close', operationId, status }]));
+          const planned = planRequestFailureRollback(
+            active,
+            id => getInternalModelHandle(runtime).readRow(id),
+            (row, memberships) => getInternalModelHandle(runtime).planRestore(row, memberships)
+          );
+          getApplyRuntime().commit(createCommitEnvelope(planned.ops, [planned.transition]));
         }
       }
       if (generationFence.isCurrent()) {

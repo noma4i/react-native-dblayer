@@ -224,7 +224,7 @@ describe('model event ordering', () => {
     unsubscribe();
   });
 
-  it('delivers a commit whose cache flush is refused and keeps memory consistent', () => {
+  it('delivers a commit whose delta write is refused and keeps memory consistent', () => {
     const document = makeDocument();
     const variables = { roomId: 'ordering-commit-failure' };
     const storage = createMemoryPlane();
@@ -250,12 +250,12 @@ describe('model event ordering', () => {
     renderActivation(true);
     act(() => subscriberFor(subscribers, variables).handlers.next({ payloadAlias: payload('commit-failure', 1) }));
 
-    // The refused write was the coalesced cache snapshot: memory stays consistent, the event
-    // delivers, and the next flush lands the snapshot.
+    // The refused write was the commit's delta key: the refusal is contained, memory stays
+    // consistent, the event delivers, and the flush lands the covering snapshot.
     expect(listener).toHaveBeenCalledTimes(1);
     expect(model.find('commit-failure')).toMatchObject({ label: 'message-commit-failure' });
-    expect(() => getApplyRuntime().flushCacheSnapshots()).toThrow('commit storage failure');
     getApplyRuntime().flushCacheSnapshots();
+    expect(storage.keys('dbl:row:').length).toBeGreaterThan(0);
     unsubscribe();
   });
 

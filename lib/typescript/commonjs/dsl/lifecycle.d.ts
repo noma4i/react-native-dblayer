@@ -1,7 +1,7 @@
 import type { MaintenanceReport } from '../types';
 /**
  * Recommended data-startup sequence after `configureDb`: deferred definition validation, the
- * persistence reconcile, then the boot fsck to repair any partially-written commit, then
+ * persistence reconcile, the delta roll-forward, then the boot fsck to close crashed operations, then
  * `purgeForeignStorageKeys()` to clear any pre-migration/foreign storage keys, then the declared model
  * maintenance - in exactly that order, once, before the first render that reads a model.
  *

@@ -183,11 +183,11 @@ describe('action runtime edges', () => {
     ).toEqual(['noise-1', 'server-1']);
   });
 
-  it('keeps the temp row seated when the replace pair is rejected by causal admission', async () => {
-    // The response row id is created and deleted while the request is in flight, so
-    // admission rejects the replace upsert (deletion wins). Refusing the upsert leg
-    // cancels the destroy and detach legs of the same pair: the temp row keeps its
-    // seat, the refused payload is ticketed, and no entry without a row can land.
+  it('destroys the temp leg without resurrecting the server row when the landed identity was deleted', async () => {
+    // The response row id is created and deleted while the request is in flight. Deletion
+    // wins over the landing swap: the server row never resurrects, the temp leg is destroyed
+    // with it, the operation closes committed, and nothing is ticketed - an intentional
+    // delete is not a loss.
     const pending: Array<{ resolve(data: Data): void }> = [];
     const transport = createMockTransport({
       mutation: <TData,>() =>
@@ -220,13 +220,13 @@ describe('action runtime edges', () => {
     await expect(run).resolves.toEqual({ row: { id: 'server-1', value: 'v1' } });
 
     expect(Model.find('server-1')).toBeUndefined();
-    expect(Model.find(tempId)).toBeDefined();
-    expect(readQuarantineEntries()).toContainEqual(expect.objectContaining({ kind: 'row', model: 'SpecActionReplaceOrphan', id: 'server-1', reason: 'replace-rejected-by-admission' }));
+    expect(Model.find(tempId)).toBeUndefined();
+    expect(readQuarantineEntries()).toEqual([]);
     const target = getApplyTarget('SpecActionReplaceOrphan');
     const scopeKey = target.readAllScopeKeys().find(key => key.includes('byValue'))!;
     const entryIds = target.readScopeEntries(scopeKey).map(entry => entry.id);
     expect(entryIds).not.toContain('server-1');
-    expect(entryIds).toContain(tempId);
+    expect(entryIds).not.toContain(tempId);
   });
 
   it('does not send a request after before or variables resets runtime', async () => {

@@ -11,7 +11,7 @@ export type WriteOp = {
     mergeBase?: never;
     baseRevision?: number;
 }
-/** Replace carries the prior row only through planning so write groups observe the same commit semantics. `replaceOf` binds the pair: refusing this upsert cancels the destroy and detach legs of the same plan. */
+/** Replace carries the prior row only through planning so write groups observe the same commit semantics. */
  | {
     kind: 'upsert';
     model: string;
@@ -20,7 +20,6 @@ export type WriteOp = {
     mergeBase?: unknown;
     operationId?: string;
     baseRevision?: number;
-    replaceOf?: string;
 }
 /** `operationId` lets a pending optimistic method-patch plan its own rollback while foreign patches keep its owned fields. */
  | {

@@ -240,7 +240,7 @@ describe('runtime edge helpers', () => {
     expect(isTempRowProtectedByModel('MissingMaintenanceModel', 'tmp:1')).toBe(false);
   });
 
-  it('derives missing scope fields through the declared field reader', () => {
+  it('derives scope fields from the final row even when a stale stored copy exists', () => {
     const fields = {
       source: f.str(),
       derived: f.custom<string, { source?: string }>(input => input.source)
@@ -251,7 +251,9 @@ describe('runtime edge helpers', () => {
     );
 
     expect(scopeKeys.scopeValueFromRow({ value: 'derived' }, { source: 'value' })).toEqual({ value: 'value' });
-    expect(scopeKeys.scopeValueFromRow({ value: 'derived' }, { source: 'source', derived: 'stored' })).toEqual({ value: 'stored' });
+    // The stored copy of a derived field never drives attach/detach: a policy-restored source
+    // must win over a stale derived value persisted before the restore.
+    expect(scopeKeys.scopeValueFromRow({ value: 'derived' }, { source: 'source', derived: 'stored' })).toEqual({ value: 'source' });
   });
 
   it('normalizes nested logical criteria and unknown fields', () => {

@@ -3,17 +3,16 @@ import { getApplyRuntime, getDbRuntimeConfig, getOperationState, getStoragePrefi
 import { isTempRowProtectedByModel } from '../dsl/maintenanceRegistry';
 import { createCommitEnvelope } from './apply/commitEnvelope';
 import { getApplyTarget } from './apply/applyTargetRegistry';
-import { noteDataLoss } from './diagnostics';
 import { putQuarantine, takeQuarantineEntries } from './quarantine';
+import { planRequestFailureRollback } from './requestRollback';
 import { compositeKey, compositeStorageKey, parseCompositeKey } from './serialize';
 import { isTempId } from '../utils/generateTempId';
 
 /**
- * THE boot integrity pass. Persistence is immediate, so a crash can leave the namespace with a
- * partially-written commit; every check below repairs one partial-write shape without dropping
- * user data: a crashed pending request closes as retryable, an ownerless temp row is quarantined,
- * a scope entry without a row detaches with a counter, and a quarantined row that the current
- * codecs accept again is restored.
+ * THE boot integrity pass. The delta log makes every commit durable and atomic, so no torn
+ * row/membership shape exists to repair; what remains is operation truth: a crashed pending
+ * request closes exactly like a runtime transport failure, an ownerless temp row is quarantined,
+ * and a quarantined row that the current codecs accept again is restored.
  */
 
 const hasApplyTarget = (model: string): boolean => {
@@ -25,7 +24,7 @@ const hasApplyTarget = (model: string): boolean => {
   }
 };
 
-/** A kill mid-mutation closes exactly like a runtime transport failure: the row rolls back, the operation stays retryable, an unsent insert is never destroyed. */
+/** A kill mid-mutation closes exactly like a runtime transport failure: THE shared rollback planner, field-level for patches, retryable always. */
 const closeCrashedRequests = (): void => {
   const operations = getOperationState();
   const crashedRequests = operations.takeHydratedPending(operation => operation.actionMode === 'request');
@@ -33,22 +32,22 @@ const closeCrashedRequests = (): void => {
   const recoveryOps: WriteOp[] = [];
   const recoveryTransitions: OperationTransition[] = [];
   for (const operation of crashedRequests) {
-    const rollbackRow = operation.rollbackRow;
-    const rollbackMemberships = operation.rollbackMemberships;
-    if (rollbackRow !== undefined && rollbackMemberships !== undefined) {
-      recoveryOps.push({ kind: 'upsert', model: operation.model, rows: [rollbackRow], origin: 'replace' });
-      for (const membership of rollbackMemberships) {
-        recoveryOps.push({
-          kind: 'scope-delta',
+    const planned = planRequestFailureRollback(
+      operation,
+      id => (hasApplyTarget(operation.model) ? getApplyTarget(operation.model).readRow(id) : undefined),
+      (row, memberships) => [
+        { kind: 'upsert', model: operation.model, rows: [row], origin: 'replace' },
+        ...memberships.map(membership => ({
+          kind: 'scope-delta' as const,
           model: operation.model,
           scopeKey: membership.scopeKey,
           append: [{ id: membership.id, orderKey: membership.orderKey }],
           detach: [membership.id]
-        });
-      }
-    }
-    const retryable = operation.tempIds.length > 0 || rollbackRow !== undefined;
-    recoveryTransitions.push({ kind: 'close', operationId: operation.operationId, status: retryable ? 'failed' : 'rolledback' });
+        }))
+      ]
+    );
+    recoveryOps.push(...planned.ops);
+    recoveryTransitions.push(planned.transition);
   }
   getApplyRuntime().commit(createCommitEnvelope(recoveryOps, recoveryTransitions));
 };
@@ -80,29 +79,6 @@ const quarantineOrphanTempRows = (): void => {
   }
 };
 
-/** A scope entry whose row never landed is a torn commit tail: detach it with a counter. */
-const detachRowlessScopeEntries = (): void => {
-  const storage = getDbRuntimeConfig().storage;
-  const scopePrefix = compositeStorageKey(getStoragePrefix(), 'scope');
-  const models = new Set<string>();
-  for (const key of storage.keys(scopePrefix)) {
-    const model = parseCompositeKey(key.slice(scopePrefix.length))?.[0];
-    if (model !== undefined && hasApplyTarget(model)) models.add(model);
-  }
-  for (const model of models) {
-    const target = getApplyTarget(model);
-    for (const scopeKey of target.readAllScopeKeys()) {
-      const missing = target
-        .readScopeEntries(scopeKey)
-        .map(entry => entry.id)
-        .filter(id => target.readRow(id) === undefined);
-      if (missing.length === 0) continue;
-      noteDataLoss('fsck-scope-detach', model, missing.length);
-      getApplyRuntime().commit(createCommitEnvelope([{ kind: 'scope-delta', model, scopeKey, append: [], detach: missing }]));
-    }
-  }
-};
-
 /** A quarantined row that the current codecs admit again returns to its model and drops its ticket. */
 const restoreReadmittedRows = (): void => {
   const restored = takeQuarantineEntries(entry => {
@@ -122,6 +98,5 @@ const restoreReadmittedRows = (): void => {
 export const runBootFsck = (): void => {
   closeCrashedRequests();
   quarantineOrphanTempRows();
-  detachRowlessScopeEntries();
   restoreReadmittedRows();
 };

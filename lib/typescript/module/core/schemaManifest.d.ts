@@ -1,5 +1,5 @@
 import type { PersistenceManifest, SchemaDeclaration, SchemaFingerprints } from '../types';
-export declare const DB_FORMAT_VERSION = 10;
+export declare const DB_FORMAT_VERSION = 11;
 /** Register one model declaration for the persistence schema fingerprint. Nested array and object shape recursion is intentionally not fingerprinted. */
 export declare const registerSchemaDeclaration: (declaration: SchemaDeclaration) => void;
 export declare const computeSchemaFingerprints: () => SchemaFingerprints;

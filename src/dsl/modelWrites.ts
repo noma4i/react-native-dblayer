@@ -26,12 +26,16 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
   ) => {
     const incoming = options.normalize(value);
     if (origin === undefined && options.entityState().isTombstoned(incoming.id)) return null;
-    const admitted = options.revisions.admitRow(incoming, previous, baseRevision);
+    // Replace is a server identity fact: it never fails the causal gate. When the server row
+    // already landed through another channel, the response merges into it under snapshot-mode
+    // policies instead of leaving the temp row behind.
+    const replaceOntoLanded = origin === 'replace' && (previous !== undefined || options.entityState().read(incoming.id) !== undefined);
+    const admitted = options.revisions.admitRow(incoming, previous, origin === 'replace' ? undefined : baseRevision);
     if (!admitted) return null;
     return options.entityState().previewUpsert(admitted, {
       previous,
-      mergeBase: origin === 'replace' ? mergeBase : undefined,
-      ctx: { origin: origin ?? 'snapshot', operationId }
+      mergeBase: origin === 'replace' && !replaceOntoLanded ? mergeBase : undefined,
+      ctx: { origin: replaceOntoLanded ? 'snapshot' : (origin ?? 'snapshot'), operationId }
     });
   };
   const preparePatch = (
@@ -87,19 +91,21 @@ export const createModelWrites = <TStored extends { id: string } & Record<string
         : failedOperation
           ? [{ kind: 'remove', operationId: failedOperation.operationId, expectedStatus: 'failed' }]
           : [];
+    const destroyLeg: WriteOp = {
+      kind: 'destroy',
+      model: options.modelId,
+      ids: normalized.id === oldId ? [] : [oldId],
+      origin: 'replace',
+      ...(operationTransitions.length > 0 ? { operationTransitions } : {})
+    };
+    // Deletion wins over the landing swap: when the user destroyed this identity while the
+    // request was in flight, the temp leg is destroyed too and the server row never lands.
+    if (options.entityState().isTombstoned(normalized.id)) return [destroyLeg];
     const mergeBase = options.entityState().read(oldId);
     const memberships = options.captureMembership(oldId);
-    // The upsert leg compiles first so an admission refusal cancels the destroy and detach
-    // legs of the same pair; a same-id replace keeps only the transitions of its destroy leg.
     return [
-      { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase, replaceOf: oldId },
-      {
-        kind: 'destroy',
-        model: options.modelId,
-        ids: normalized.id === oldId ? [] : [oldId],
-        origin: 'replace',
-        ...(operationTransitions.length > 0 ? { operationTransitions } : {})
-      },
+      { kind: 'upsert', model: options.modelId, rows: [normalized], origin: 'replace', mergeBase },
+      destroyLeg,
       ...restoreMembership(normalized.id, memberships)
     ];
   };

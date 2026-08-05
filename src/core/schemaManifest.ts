@@ -7,7 +7,7 @@ import { decodeSupportedPersistence, encodePersistence, PERSISTENCE_SCHEMA_VERSI
 import { isNonArrayRecord, isNonEmptyString } from '../utils/normalizeHelpers';
 import type { PersistenceManifest, SchemaDeclaration, SchemaFingerprints } from '../types';
 
-export const DB_FORMAT_VERSION = 10;
+export const DB_FORMAT_VERSION = 11;
 
 const declarations = new Map<string, SchemaDeclaration>();
 
@@ -107,6 +107,10 @@ export const reconcilePersistence = (): { reset: boolean } => {
     // A schema migration wipes the model's CACHE namespaces only. Its pending operations keep
     // their domain input in the ledger, so the user's unsent writes stay retryable across the bump.
     for (const modelId of affectedIds) clearModelPersistence(storage, prefix, modelId);
+    // Deltas are multi-model and unreadable per-model here: they go as cache eviction with the
+    // same migration event; commits of clean models not yet compacted return by ordinary freshness.
+    for (const key of storage.keys(`${prefix}delta:`)) storage.set(key, null);
+    for (const modelId of affectedIds) storage.set(`${prefix}snapseq:${modelId}`, null);
     for (const modelId of affectedIds) noteDataLoss('schema-migration-reset', modelId, 1);
   }
 

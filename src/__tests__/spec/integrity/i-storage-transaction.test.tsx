@@ -44,12 +44,12 @@ describe('storage transaction', () => {
     failAtWrite = writeCount + 1;
     act(() => children.insert({ id: 'child-1', parentId: 'parent-1' }));
 
-    // The commit applies and publishes atomically in memory; the refused cache flush retries.
+    // The commit applies and publishes atomically in memory; the refused delta write is
+    // contained and the flush lands the covering snapshots.
     expect(children.find('child-1')).toMatchObject({ parentId: 'parent-1' });
     expect(parents.find('parent-1')).toEqual({ id: 'parent-1', childCount: 1 });
     expect(parentReader.renders()).toBe(parentRenders + 1);
     expect(childReader.renders()).toBe(childRenders + 1);
-    expect(() => getApplyRuntime().flushCacheSnapshots()).toThrow('durable commit failed');
     getApplyRuntime().flushCacheSnapshots();
     expect(memory.keys('dbl:row:').length).toBeGreaterThan(0);
     parentReader.unmount();

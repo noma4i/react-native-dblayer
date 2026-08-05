@@ -95,6 +95,31 @@ const createQueueTransport = (responses: MediaResponse[]) => {
 };
 
 describe('media scope bucket behavior', () => {
+  it('keeps membership when a policy restores the derived bucket source the payload dropped', () => {
+    configureDb({ storage: createMemoryPlane(), transport: createMockTransport() });
+    const media = defineModelRuntime({
+      id: 'SpecConsumerPolicyMediaBuckets',
+      name: 'SpecConsumerPolicyMediaBuckets',
+      fields: {
+        id: f.str(),
+        chatId: f.str(),
+        media: f.object(defineShape()({ kind: f.str() })).from((input: { media?: { kind: string } | null }) => input.media ?? null).nullable(),
+        bucket: f.custom<'visual' | null, { media?: { kind: string } | null }>(input => (input.media ? 'visual' : null)).nullable(),
+        sequenceNumber: f.num()
+      },
+      write: { groups: [{ fields: ['media'] as const, policy: 'continuity' }] },
+      scopes: { media: { by: { chatId: 'chatId', bucket: 'bucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } } }
+    });
+    media.insert({ id: 'row-1', chatId: 'chat-1', media: { kind: 'video' }, sequenceNumber: 1 } as never);
+    const visual = { chatId: 'chat-1', bucket: 'visual' } as const;
+    expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['row-1']);
+    // The trimmed channel drops media; the continuity policy restores it on the final row.
+    // The derived by-value follows the FINAL row, so the membership seat survives.
+    media.insert({ id: 'row-1', chatId: 'chat-1', sequenceNumber: 2 } as never);
+    expect(media.find('row-1')!.media).toEqual({ kind: 'video' });
+    expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['row-1']);
+  });
+
   it('keeps derived custom bucket membership instances distinct', async () => {
     const responses = [
       { mediaItems: { nodes: [{ id: 'audio-1', chatId: 'chat-1', media: { kind: 'audio' as const }, sequenceNumber: 20, label: 'audio' }] } },

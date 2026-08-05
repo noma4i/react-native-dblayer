@@ -12,7 +12,9 @@ export const createModelScopeKeys = (
     const value: Record<string, unknown> = {};
     for (const [scopeField, rowField] of Object.entries(by)) {
       const fieldSpec = config.fields[rowField];
-      const fieldValue = fieldSpec?.derived === true && row[rowField] !== undefined ? row[rowField] : fieldSpec ? readModelField(fieldSpec, row, rowField, false) : row[rowField];
+      // A derived by-value always comes from the FINAL committed row: the stored copy of a derived
+      // field can be stale against a policy-restored source and must never drive attach/detach.
+      const fieldValue = fieldSpec ? readModelField(fieldSpec, row, rowField, false) : row[rowField];
       if (fieldValue === undefined || fieldValue === null) return null;
       value[scopeField] = fieldValue;
     }
