@@ -27,6 +27,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
     baseRevision?: number
   ): PreparedRowWrite | null;
   putRows(rows: TStored[]): Array<{ id: string; changedFields: string[] | null }>;
+  rowBelongsToScope(scopeKey: string, row: Record<string, unknown>): boolean;
 }): ModelApplyTargetResult => {
   const { planes } = options.context;
   const applyTarget: ModelApplyTargetResult['applyTarget'] = {
@@ -76,6 +77,7 @@ export const createModelApplyTarget = <TStored extends { id: string } & Record<s
       unresolved.forEach((id, index) => placements.push({ id, orderKey: unresolvedKeys[index]! }));
       return placements;
     },
+    rowBelongsToScope: options.rowBelongsToScope,
     readScopeOrderRevision: (scopeKey: string): number => planes().scopeIndex.orderRevision(scopeKey),
     readScopeGeneration: (scopeKey: string): number => planes().scopeIndex.read(scopeKey).generation,
     scopeOrderAffected: (scopeKey: string, id: string, fields: string[] | null): boolean => {

@@ -105,11 +105,13 @@ describe('scope window resolved state', () => {
   it('orders equal scope keys by row id during an incremental insert', () => {
     setupSpecRuntime();
     const stories = createStories();
-    stories.scopes.byBucket.seed({ bucket: 'equal' }, []);
+    // Rows are created BEFORE the scope exists, so membership arrives only through the
+    // explicit scope-delta appends below; both rows genuinely belong to the target bucket.
     stories.insertMany([
-      { id: 'story-b', bucket: 'other', title: 'Second' },
-      { id: 'story-a', bucket: 'other', title: 'First' }
+      { id: 'story-b', bucket: 'equal', title: 'Second' },
+      { id: 'story-a', bucket: 'equal', title: 'First' }
     ]);
+    stories.scopes.byBucket.seed({ bucket: 'equal' }, []);
     const target = getApplyTarget(stories.modelId);
     const scopeKey = target.readAllScopeKeys().find(key => key.includes('equal'))!;
     getApplyRuntime().commit(

@@ -71,6 +71,8 @@ const createDerivedMediaModel = () =>
     fields: {
       id: f.str(),
       chatId: f.str(),
+      // The derived by-source is a STORED field: membership recomputes from the final row.
+      media: f.object(defineShape()({ kind: f.str() })).from((input: DerivedMediaInput) => input.media ?? null).nullable(),
       bucket: f.custom<'audio' | 'visual' | null, DerivedMediaInput>(input => (input.media?.kind === 'audio' ? 'audio' : input.media?.kind ? 'visual' : null)).nullable(),
       sequenceNumber: f.num(),
       label: f.str()
@@ -118,6 +120,46 @@ describe('media scope bucket behavior', () => {
     media.insert({ id: 'row-1', chatId: 'chat-1', sequenceNumber: 2 } as never);
     expect(media.find('row-1')!.media).toEqual({ kind: 'video' });
     expect(media.scopes.media.read(visual).map(row => row.id)).toEqual(['row-1']);
+  });
+
+  it('[P6] lands a policy-overridden row into the scope of its FINAL bucket, never the raw one', async () => {
+    const responses = [
+      { mediaItems: { nodes: [{ id: 'row-1', chatId: 'chat-1', media: { kind: 'video' as const }, sequenceNumber: 2, label: 'echo' }] } }
+    ];
+    const transport = createMockTransport({ query: async <TData,>() => ({ data: responses.shift() as TData }) });
+    configureDb({ storage: createMemoryPlane(), transport });
+    const media = defineModelRuntime({
+      id: 'SpecConsumerFinalBucketLanding',
+      name: 'SpecConsumerFinalBucketLanding',
+      fields: {
+        id: f.str(),
+        chatId: f.str(),
+        media: f.object(defineShape()({ kind: f.str() })).from((input: { media?: { kind: string } | null }) => input.media ?? null).nullable(),
+        bucket: f.custom<'audio' | 'visual' | null, { media?: { kind: string } | null }>(input => (input.media?.kind === 'audio' ? 'audio' : input.media?.kind ? 'visual' : null)).nullable(),
+        sequenceNumber: f.num(),
+        label: f.str()
+      },
+      // The media source moves only through a patch: a landed snapshot cannot flip it.
+      write: { groups: [{ fields: ['media'] as const, policy: 'local' }] },
+      scopes: { media: { by: { chatId: 'chatId', bucket: 'bucket' }, sort: { field: 'sequenceNumber', dir: 'desc' } } }
+    });
+    const query = media.query<{ mediaItems: { nodes: unknown[] } }, { chatId: string; bucket: 'audio' | 'visual' }, { chatId: string; bucket: 'audio' | 'visual' }, { id: string }>(
+      'final-bucket-landing',
+      { document, vars: value => value, select: data => data.mediaItems.nodes, into: media.scopes.media }
+    );
+    media.insert({ id: 'row-1', chatId: 'chat-1', media: { kind: 'audio' }, sequenceNumber: 1, label: 'origin' } as never);
+    const audio = { chatId: 'chat-1', bucket: 'audio' } as const;
+    const visual = { chatId: 'chat-1', bucket: 'visual' } as const;
+    expect(media.scopes.media.read(audio).map(row => row.id)).toEqual(['row-1']);
+
+    // The visual page returns row-1 with a video source, but the local policy keeps the audio
+    // source on the FINAL row. Membership must follow the final row: landing the raw bucket
+    // would seat one identity in two buckets at once.
+    await query.fetch(visual);
+
+    expect(media.find('row-1')!.media).toEqual({ kind: 'audio' });
+    expect(media.scopes.media.read(visual).map(row => row.id)).toEqual([]);
+    expect(media.scopes.media.read(audio).map(row => row.id)).toEqual(['row-1']);
   });
 
   it('keeps derived custom bucket membership instances distinct', async () => {

@@ -12,7 +12,8 @@ const buildTarget = (modelId: string) => {
     scopeSortedRows: () => [],
     prepareRow: row => ({ row: row as Row, changedFields: null }),
     preparePatch: (id, patch) => ({ row: { id, ...patch } as Row, changedFields: Object.keys(patch) }),
-    putRows: rows => rows.map(row => ({ id: row.id, changedFields: null }))
+    putRows: rows => rows.map(row => ({ id: row.id, changedFields: null })),
+    rowBelongsToScope: () => true
   });
 };
 

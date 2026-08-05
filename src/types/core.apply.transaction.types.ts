@@ -43,6 +43,8 @@ export type ApplyTarget = {
   readScopeOrderRevision(scopeKey: string): number;
   readScopeGeneration(scopeKey: string): number;
   scopeOrderAffected(scopeKey: string, id: string, fields: string[] | null): boolean;
+  /** Membership authority for by-scopes: does the FINAL row belong to this scope (member predicate + derived by-value)? Scopes without `by` always accept. */
+  rowBelongsToScope(scopeKey: string, row: Record<string, unknown>): boolean;
   scopeSortMeta(scopeKey: string): ScopeSortMeta;
   /** Declared row comparator for a client-sorted scope; `null` for server-order scopes. */
   compareScopeRows(scopeKey: string): ((left: Record<string, unknown>, right: Record<string, unknown>) => number) | null;

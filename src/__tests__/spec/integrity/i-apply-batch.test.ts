@@ -21,6 +21,7 @@ const createTargetMock = () => {
     readAllRows: () => [...rows.values()],
     readScopeEntries: () => [],
     planScopePlacement: (_scopeKey, ids) => ids.map((id, index) => ({ id, orderKey: `P${index}` })),
+    rowBelongsToScope: () => true,
     readScopeOrderRevision: () => 0,
     readScopeGeneration: () => 0,
     scopeOrderAffected: () => false,

@@ -111,8 +111,19 @@ const prepareOperations = (ops: WriteOp[], overlay: Map<string, Map<string, Stor
       });
       continue;
     }
+    // Membership authority is the FINAL committed row: an entry whose planned row no longer
+    // belongs to the scope (member predicate, derived by-value after write policies) is gated
+    // out, so a landing grouped by a raw pre-policy value cannot seat one identity in 2 buckets.
+    const entryBelongs = (scopeKey: string) => (entry: { id: string }) => {
+      const row = readPlannedRow(overlay, op.model, entry.id);
+      return !row || target.rowBelongsToScope(scopeKey, row);
+    };
+    if (op.kind === 'scope') {
+      preparedOps.push({ ...op, next: { ...op.next, entries: op.next.entries.filter(entryBelongs(op.scopeKey)) } });
+      continue;
+    }
     if (op.kind === 'scope-delta') {
-      const append = deduplicateScopeEntriesById(op.append);
+      const append = deduplicateScopeEntriesById(op.append).filter(entryBelongs(op.scopeKey));
       const keyless = append.filter(entry => entry.orderKey === undefined).map(entry => entry.id);
       const placed =
         keyless.length > 0

@@ -14,6 +14,7 @@ import type {
   WriteOp
 } from '../types';
 import { registerRelationHost } from '../core/relations';
+import { firstCompositeKeyPart } from '../core/serialize';
 import { createModelNormalization } from './modelNormalization';
 import { createModelScopeKeys } from './modelScopeKeys';
 import { createModelCriteria } from './modelCriteria';
@@ -129,6 +130,19 @@ export const defineModelRuntime = <
     matchesCriteria,
     normalizeCriteria
   });
+  // Membership authority for by-scopes: the FINAL committed row decides where an identity sits.
+  // The envelope compiler gates every scope entry through this, so a landing grouped by a raw
+  // (pre-policy) derived value can never seat a row in a bucket its final state left.
+  const rowBelongsToScope = (scopeKey: string, row: Record<string, unknown>): boolean => {
+    const scopeName = firstCompositeKeyPart(scopeKey);
+    const by = scopeByFieldMap.get(scopeName);
+    if (!by) return true;
+    const spec = scopeSpecs[scopeName];
+    if (spec?.member && !spec.member(row as InferStoredFields<TFields> & Record<string, unknown>)) return false;
+    const value = scopeValueFromRow(by, row);
+    if (!value) return false;
+    return keyForScope(scopeName, value) === scopeKey;
+  };
   const { applyTarget, applySnapshot, applyEvent } = createModelApplyTarget<InferStoredFields<TFields> & Record<string, unknown>>({
     modelId: config.id,
     scopes: config.scopes as Record<string, ScopeSpec<InferStoredFields<TFields> & Record<string, unknown>>> | undefined,
@@ -136,7 +150,8 @@ export const defineModelRuntime = <
     scopeSortedRows,
     prepareRow,
     preparePatch,
-    putRows
+    putRows,
+    rowBelongsToScope
   });
   registerApplyTarget(config.id, applyTarget);
   registerModelSchema<InferStoredFields<TFields> & Record<string, unknown>>({
