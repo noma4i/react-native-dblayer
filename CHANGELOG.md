@@ -1,5 +1,27 @@
 # Changelog
 
+## 10.1.0-beta.3 - 2026-08-06
+
+### Added
+
+- Landing admission seam: a malformed node inside a valid page is judged ONCE (`admitRowId` -> `admitPlanRow`), quarantined as `plan-row-rejected`, and dropped - the valid siblings land and the freshness chain is built from the admitted set. Before this a single node without an id crashed the WHOLE landing (`requires id`) and no page row reached the store.
+- Manifest continuity conformance: `i-reset-manifest-continuity` (P50), `i-session-switch-same-plane` (P51), and fresh-login thread-window discriminators [F50]-[F55] run as permanent battle-sequence suites on one storage plane with a real boot and no manual reseeding.
+- Lifecycle fuzz operators: `reset`, `reboot`, and `accountSwitch` fire mid-sequence on the SAME physical plane (no journal-fold copies), with a post-step invariant "a nonempty namespace always carries the manifest" and a zero-`model-corruption-recovery` class.
+- Full-length identity rewrite keeps the ORIGINAL freshness stamp ([F56]): rewriting a chain onto successor ids can never make a query fresher.
+
+### Fixed
+
+- Dead batch-mode channel removed: `IncrementalCommitBatch` no longer carries `mode`/`maintenanceModels` (the producer left with the reachability collection), and the loss judge treats every source alike - a maintenance-born trim now correctly refetches an emptied chain.
+- Duplicate define-time relation collision gate removed; the single `name in base` gate owns the invariant.
+- Quarantine cap selection reduced to the single reason predicate (`plan-row-rejected`).
+- Completion drain failure order: when several store-transaction completions throw, the caller sees the FIRST failure.
+
+### Verification
+
+- Mutation gate vs 10.1.0-beta.2 under the FULL suite (coverage off): 434 diff mutants, every survivor classified; 2 live data defects found by the adversarial verdict review (malformed-node landing crash, rewrite freshness restamp) are fixed red-first in this release.
+- Weak-matcher test-class defect fixed suite-wide entry points: `toEqual` forgives undefined array items, `toThrow(string)` matches substrings.
+
+
 ## 10.1.0-beta.2 - 2026-08-05
 
 ### Breaking changes and migration
