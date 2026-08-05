@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { bootDb, configureDb, resetRuntime } from '../../testApi';
+import { bootDb, configureDb, readQuarantineEntries, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, recordTimelineInProvider, settle } from '../helpers/harness';
 import { createAppModels } from './appModels';
 
@@ -303,6 +303,10 @@ describe('app-shaped fresh login thread window', () => {
     expect(threadIds(models)).toEqual(['m-2', 'm-1']);
     expect(models.messages.find('m-1')).toMatchObject({ body: 'body-1' });
     expect(models.messages.find('m-2')).toMatchObject({ body: 'body-2' });
+    // The rejected node is judged ONCE: exactly 1 quarantine ticket, no double admission.
+    const tickets = readQuarantineEntries().filter(entry => entry.reason === 'plan-row-rejected');
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0]).toMatchObject({ kind: 'row', model: expect.stringContaining('FreshLoginF55') });
     expect(diagnostics().snapshot().dataLossEvents).toEqual([]);
   });
 

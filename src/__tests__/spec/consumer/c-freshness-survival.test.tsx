@@ -3,7 +3,7 @@ import { Kind } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getInternalModelHandle, registerActiveFetchReaders, resetRuntime } from '../../testApi';
+import { DbProvider, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getDbQueryClient, getInternalModelHandle, registerActiveFetchReaders, resetRuntime } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -502,33 +502,38 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
-  it('[F44] keeps the original freshness stamp through a full-length identity rewrite', async () => {
+  it('[F56] keeps the original freshness stamp through a full-length identity rewrite', async () => {
     jest.useFakeTimers();
-    let calls = 0;
     configureDb({
       storage: createMemoryPlane(),
       transport: createMockTransport({
-        query: async <TData,>() => {
-          calls += 1;
-          return { data: { rows: [{ id: 'row-1', name: 'First', group: null }] } as TData };
-        }
+        query: async <TData,>() => ({ data: { rows: [{ id: 'row-1', name: 'First', group: null }] } as TData })
       })
     });
     const rows = createRowsModel('FreshnessRewriteStamp');
-    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-rewrite-stamp', select: data => data.rows, staleTime: 100 });
+    const query = rows.query<Response, void, void, Row>('detail', { document, key: 'freshness-rewrite-stamp', select: data => data.rows, staleTime: Infinity });
+    const stampOf = (): number => {
+      const states = getDbQueryClient()
+        .getQueryCache()
+        .getAll()
+        .map(cached => cached.state.dataUpdatedAt)
+        .filter(stamp => stamp > 0);
+      expect(states).toHaveLength(1);
+      return states[0]!;
+    };
     const Reader = () => {
       query.use(undefined);
       return null;
     };
-    const Root = ({ mounted }: { mounted: boolean }) => React.createElement(DbProvider, null, mounted ? React.createElement(Reader) : null);
     let root!: TestRenderer.ReactTestRenderer;
-
     act(() => {
-      root = TestRenderer.create(React.createElement(Root, { mounted: true }));
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
     });
     await settle();
-    expect(calls).toBe(1);
-    // The swap lands 50ms in: rewriting the chain onto the successor must NOT restamp freshness.
+    const landedStamp = stampOf();
+
+    // The swap lands 50ms later: rewriting the chain onto the successor must NOT restamp
+    // freshness - a NOW stamp here would silently defer every schedule keyed to the landing.
     act(() => {
       jest.advanceTimersByTime(50);
     });
@@ -536,15 +541,9 @@ describe('freshness follows committed-row survival and foreground resume', () =>
       getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('row-1', { id: 'server-1', name: 'First', group: null })));
     });
     await settle();
-    act(() => {
-      jest.advanceTimersByTime(70);
-    });
-    // 120ms after the LANDING the data is stale (staleTime 100). A rewrite stamped at +50ms
-    // would still read fresh here and silently suppress this refetch.
-    act(() => root.update(React.createElement(Root, { mounted: false })));
-    act(() => root.update(React.createElement(Root, { mounted: true })));
-    await settle();
-    expect(calls).toBe(2);
+
+    expect(rows.find('server-1')).toBeTruthy();
+    expect(stampOf()).toBe(landedStamp);
     act(() => root.unmount());
   });
 
