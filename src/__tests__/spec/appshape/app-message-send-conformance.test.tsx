@@ -6,6 +6,7 @@ import {
   defineModel,
   defineShape,
   f,
+  isTempId,
   type DbTransport
 } from '../../testApi';
 import { createMemoryPlane, createMockTransport, guardDataLoss, renderCounted } from '../helpers/harness';
@@ -73,6 +74,9 @@ const compareMessagesNewest = (left: MessageRow, right: MessageRow): number => {
   if (left.sequenceNumber !== null && right.sequenceNumber !== null && left.sequenceNumber !== right.sequenceNumber) {
     return right.sequenceNumber - left.sequenceNumber;
   }
+  // A pending temp row outranks a landed row on a tie: client-vs-server clocks never order them.
+  const leftTemp = isTempId(left.id);
+  if (leftTemp !== isTempId(right.id)) return leftTemp ? -1 : 1;
   return right.createdAt.localeCompare(left.createdAt);
 };
 
@@ -188,6 +192,42 @@ describe('app message send conformance', () => {
 
     expect(messages.thread({ chatId: 'chat-1' }).read().map(row => row.id)).toEqual(['server-other']);
     expect(chats.find('chat-1')).toMatchObject({ lastMessageId: 'server-other', unreadCount: 1 });
+    release();
+  });
+
+  it('C4 a pending send is never reordered under a landed row by client-vs-server clocks', async () => {
+    let eventHandlers!: Parameters<NonNullable<DbTransport['subscribe']>>[1];
+    configureDb({
+      storage: createMemoryPlane(),
+      transport: createMockTransport({
+        mutation: async <TData,>() => new Promise<{ data: TData }>(() => {}),
+        subscribe: (_options, handlers) => {
+          eventHandlers = handlers;
+          return () => undefined;
+        }
+      })
+    });
+    const { messages, chats } = createModels('ClockTie');
+    insertChat(chats);
+    const release = acquireModelSubscriptions();
+
+    // The optimistic createdAt comes from the CLIENT clock, which runs behind the server here.
+    messages.actions.send.run(message('ignored', { sequenceNumber: 5, createdAt: '2026-07-27T00:00:30Z' })).catch(() => {});
+    await Promise.resolve();
+    const tempId = messages.thread({ chatId: 'chat-1' }).read()[0]!.id;
+
+    // A rival message lands through the live channel with the SAME sequence number and a later
+    // server timestamp. A clock comparison must never sink the user's pending send under it.
+    act(() => {
+      eventHandlers.next({
+        messageCreated: {
+          message: message('server-rival', { userId: 'other', status: 'Sent', sequenceNumber: 5, createdAt: '2026-07-27T00:01:00Z', updatedAt: '2026-07-27T00:01:00Z' })
+        }
+      });
+    });
+
+    const ids = messages.thread({ chatId: 'chat-1' }).read().map(row => row.id);
+    expect(ids).toEqual([tempId, 'server-rival']);
     release();
   });
 
