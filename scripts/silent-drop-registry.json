@@ -7834,6 +7834,16 @@
       "verdict": "CONTRACT",
       "ref": "specs/08-freshness-pacing.md :: 'successful landing re-establishes the chain itself; re-judge after success is forbidden as an extra pass' (translated)",
       "note": "coordinator convergence fix"
+    },
+    {
+      "key": "src/core/storeSync.ts|} catch (error) {|2",
+      "file": "src/core/storeSync.ts",
+      "line": 140,
+      "drops": "nothing",
+      "condition": "one completion throws during the isolated drain",
+      "verdict": "NONDROP",
+      "ref": "W44 isolated completion drain: error captured, remaining completions still run, first failure rethrown",
+      "note": "coordinator W44 fix"
     }
   ]
 }

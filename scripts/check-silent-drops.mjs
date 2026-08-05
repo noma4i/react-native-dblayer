@@ -81,12 +81,30 @@ try {
   process.exit(1);
 }
 
+// CONTRACT refs must anchor to reality: an existing specs file or a criterion ID present in specs.
+const specFiles = new Set(readdirSync(path.join(LIB_ROOT, 'specs')).filter(name => name.endsWith('.md')));
+const specText = [...specFiles].map(name => readFileSync(path.join(LIB_ROOT, 'specs', name), 'utf8')).join('\n');
+const specIds = new Set([...specText.matchAll(/^\| ([A-Z]{1,3}\d{1,3}) \|/gm)].map(match => match[1]));
+const specPrefixes = new Set([...specFiles].map(name => name.slice(0, 2)));
+const contractRefAnchored = ref => {
+  for (const match of ref.matchAll(/\b([\w-]+\.md)\b/g)) {
+    if (specFiles.has(match[1])) return true;
+  }
+  for (const match of ref.matchAll(/specs\/(\d{2})\b/g)) {
+    if (specPrefixes.has(match[1])) return true;
+  }
+  return [...ref.matchAll(/\b([A-Z]{1,3}\d{1,3})\b/g)].some(match => specIds.has(match[1]));
+};
+
 const entries = new Map();
 const problems = [];
 for (const entry of registry.entries ?? []) {
   if (typeof entry.key !== 'string' || !VERDICTS.has(entry.verdict) || typeof entry.ref !== 'string' || entry.ref.length === 0) {
     problems.push(`malformed entry: ${JSON.stringify(entry).slice(0, 120)}`);
     continue;
+  }
+  if (entry.verdict === 'CONTRACT' && !contractRefAnchored(entry.ref)) {
+    problems.push(`CONTRACT ref names no existing spec file or criterion id: ${entry.key.slice(0, 100)}`);
   }
   if (entries.has(entry.key)) problems.push(`duplicate entry: ${entry.key}`);
   entries.set(entry.key, entry);

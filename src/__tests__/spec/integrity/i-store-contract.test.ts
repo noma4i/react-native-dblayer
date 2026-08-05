@@ -147,6 +147,22 @@ describe('model store', () => {
     unsubscribe();
   });
 
+  it('[W44] drains every completion when an earlier completion throws', () => {
+    const order: string[] = [];
+    expect(() =>
+      runInStoreTransaction(() => {
+        afterStoreTransaction(() => {
+          order.push('first');
+          throw new Error('completion failed');
+        });
+        afterStoreTransaction(() => order.push('second'));
+        afterStoreTransaction(() => order.push('third'));
+      })
+    ).toThrow('completion failed');
+
+    expect(order).toEqual(['first', 'second', 'third']);
+  });
+
   it('[W43] skips membership entries with no entity row, counts the misses, and does not throw', () => {
     const store = buildStore();
     store.upsert({ id: 'row-1' });
