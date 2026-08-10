@@ -20,6 +20,10 @@ export declare const restorePersistedBucket: <TPayload, TCached, TScope>(args: {
     };
     /** The shape the reader caches; the stored record decides the window, not this value. */
     cache: (payload: TPayload) => TCached;
+    /** Reconcile valid metadata with its current destination before it reaches the query cache. */
+    reconcile: (record: QueryPersistenceRecord<TPayload, TScope>) => QueryPersistenceRecord<TPayload, TScope>;
+    /** Report a failed best-effort rewrite without rejecting the salvaged in-memory result. */
+    onRewriteError: (error: unknown) => void;
     window: (empty: boolean) => number | null;
 }) => TCached | undefined;
 /**
@@ -30,11 +34,13 @@ export declare const restorePersistedBucket: <TPayload, TCached, TScope>(args: {
 export declare const persistBucket: <TPayload, TScope>(args: {
     declaration: QueryPersistenceDeclaration;
     identity: string;
-    queryKey: QueryKey;
     scope: TScope;
     payload: TPayload;
     empty: boolean;
+    dataUpdatedAt: number;
+    invalidated: boolean;
     window: (empty: boolean) => number | null;
     invalidationRevision?: number;
+    onError?: (error: unknown) => void;
 }) => void;
 //# sourceMappingURL=persistedBucket.d.ts.map

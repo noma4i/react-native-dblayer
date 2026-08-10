@@ -771,9 +771,19 @@
       "note": "Fan-out only."
     },
     {
-      "key": "src/core/fetch/persistedBucket.ts|if (record === undefined) return undefined;|1",
+      "key": "src/core/fetch/persistedBucket.ts|} catch (error) {|1",
       "file": "src/core/fetch/persistedBucket.ts",
-      "line": 26,
+      "line": 9,
+      "drops": "a durable query write failed before storage accepted it",
+      "condition": "storage.set throws while persisting a landed or reconciled query bucket",
+      "verdict": "CONTRACT",
+      "ref": "P52: a refused reconciliation rewrite reports one sync error while the reconciled in-memory result remains stale",
+      "note": "Callers without an error reporter receive the original throw; reconciliation passes reportPersistenceError."
+    },
+    {
+      "key": "src/core/fetch/persistedBucket.ts|if (persisted === undefined) return undefined;|1",
+      "file": "src/core/fetch/persistedBucket.ts",
+      "line": 42,
       "drops": "nothing",
       "condition": "no restorable persisted record for this identity",
       "verdict": "NONDROP",
@@ -2991,26 +3001,6 @@
       "note": "No address means no bucket exists; result surfaces as isInactive phase, not as fetched-empty."
     },
     {
-      "key": "src/dsl/defineQuery.ts|if (meta.ids.length === 0) return;|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 155,
-      "drops": "destination validation skipped for a persisted empty chain: record restores without checking scope snapshot or rows",
-      "condition": "restored ChainMeta has ids.length === 0",
-      "verdict": "CONTRACT",
-      "ref": "specs/04-persistence.md: 'An empty record (0 materialized ids) requires no destination: an empty result never persists a scope snapshot... requiring a scope snapshot for an empty chain is forbidden' (translated); also P17",
-      "note": "Prior suspicion HOLE refuted: spec explicitly forbids demanding a destination for empty chains; empty freshness uses the empty window (emptyStaleTime)."
-    },
-    {
-      "key": "src/dsl/defineQuery.ts|return;|1",
-      "file": "src/dsl/defineQuery.ts",
-      "line": 168,
-      "drops": "nothing: early return after the scope-destination branch validated successfully",
-      "condition": "scope destination present and all parsed ids found in scope rows",
-      "verdict": "NONDROP",
-      "ref": "structural early return; only skips the model-destination check that does not apply to a scope destination",
-      "note": "Failure paths above it throw; this line is the success exit."
-    },
-    {
       "key": "src/dsl/defineQuery.ts|return new Set(candidates.filter(id => destination.find(parseCompositeKey(id)![1]!) !== undefined));|1",
       "file": "src/dsl/defineQuery.ts",
       "line": 185,
@@ -3019,6 +3009,16 @@
       "verdict": "COUNTED",
       "ref": "materialization reconciler: registerMaterializationReconciler @ src/dsl/defineQuery.ts:197 consumed by noteLostMaterialization @ src/core/fetch/fetchReaderRegistry.ts:22",
       "note": "The exclusion IS the loss sensor: a shrunken set marks the chain stale and triggers the follow-up refetch (spec 08 F3/F16), not a silent discard."
+    },
+    {
+      "key": "src/dsl/defineQuery.ts|const ids = record.payload.ids.filter(id => materialized.has(id));|1",
+      "file": "src/dsl/defineQuery.ts",
+      "line": 228,
+      "drops": "persisted query ids whose destination row or scope membership is missing after boot",
+      "condition": "a structurally valid query record no longer matches the restored materialization",
+      "verdict": "CONTRACT",
+      "ref": "P52: restore salvages materialization drift as a reconciled stale record and preserves its landing timestamp",
+      "note": "The corrected ids reach memory and durable metadata; structural identity corruption remains rejected."
     },
     {
       "key": "src/dsl/defineQuery.ts|...((config.vars?.(scope) ?? {}) as Record<string, unknown>),|1",
@@ -3033,7 +3033,7 @@
     {
       "key": "src/dsl/defineQuery.ts|} catch (error) {|1",
       "file": "src/dsl/defineQuery.ts",
-      "line": 306,
+      "line": 337,
       "drops": "nothing: transport error is rethrown on both branches",
       "condition": "transport.query rejected or responseDataOrThrow threw",
       "verdict": "NONDROP",
@@ -3071,9 +3071,9 @@
       "note": "Imperative fetch()/refresh() resolve silently on a disabled scope; same semantics as inactive identity."
     },
     {
-      "key": "src/dsl/defineQuery.ts|return;|2",
+      "key": "src/dsl/defineQuery.ts|return;|1",
       "file": "src/dsl/defineQuery.ts",
-      "line": 364,
+      "line": 395,
       "drops": "offline: no network attempt; completes with restored data, or silently for non-propagating internal callers",
       "condition": "isFetchNetworkOnline() false before fetch; throw only when restored === undefined and propagateFailure",
       "verdict": "CONTRACT",
@@ -3081,9 +3081,9 @@
       "note": "isPaused is set on this exact path and surfaced via RequestState; observer resumes on reconnect (refetchOnReconnect + networkMode online)."
     },
     {
-      "key": "src/dsl/defineQuery.ts|return;|3",
+      "key": "src/dsl/defineQuery.ts|return;|2",
       "file": "src/dsl/defineQuery.ts",
-      "line": 402,
+      "line": 429,
       "drops": "freshness stamp/persist of a response that predates an in-flight invalidation; rows themselves already landed via applyResponse",
       "condition": "localState invalidateSeq moved while the fetch was in flight",
       "verdict": "CONTRACT",
@@ -3093,7 +3093,7 @@
     {
       "key": "src/dsl/defineQuery.ts|} catch (error) {|2",
       "file": "src/dsl/defineQuery.ts",
-      "line": 406,
+      "line": 433,
       "drops": "nothing at this line: dispatcher for the disposition branches",
       "condition": "fetchQuery/persist/fence path threw inside run()",
       "verdict": "NONDROP",
@@ -3101,9 +3101,9 @@
       "note": ""
     },
     {
-      "key": "src/dsl/defineQuery.ts|return;|4",
+      "key": "src/dsl/defineQuery.ts|return;|3",
       "file": "src/dsl/defineQuery.ts",
-      "line": 409,
+      "line": 436,
       "drops": "error of a run superseded by runtime reset, swallowed for non-propagating callers",
       "condition": "generation fence not current and propagateFailure falsy",
       "verdict": "CONTRACT",
@@ -3121,9 +3121,9 @@
       "note": "The superseding run owns key state and outcome, per the code comment at :411."
     },
     {
-      "key": "src/dsl/defineQuery.ts|return;|5",
+      "key": "src/dsl/defineQuery.ts|return;|4",
       "file": "src/dsl/defineQuery.ts",
-      "line": 417,
+      "line": 444,
       "drops": "network error while offline: fetch outcome reduced to pause; throw only for propagating callers with no cached data",
       "condition": "isFetchNetworkOnline() false in the catch; cached !== undefined or propagateFailure falsy",
       "verdict": "CONTRACT",
@@ -3141,9 +3141,9 @@
       "note": "Prior suspicion HOLE refuted by the explicit spec rule; the failure is additionally recorded in react-query state and surfaced via RequestState.error (:534) and reportSyncError fired at :308."
     },
     {
-      "key": "src/dsl/defineQuery.ts|return;|6",
+      "key": "src/dsl/defineQuery.ts|return;|5",
       "file": "src/dsl/defineQuery.ts",
-      "line": 422,
+      "line": 449,
       "drops": "fetch error swallowed as a promise outcome for non-propagating internal callers (reader-registry refetch, reactive refresh/fetchNextPage)",
       "condition": "propagateFailure falsy and (restart, or no cached data)",
       "verdict": "COUNTED",
@@ -3181,9 +3181,9 @@
       "note": ""
     },
     {
-      "key": "src/dsl/defineQuery.ts|return;|7",
+      "key": "src/dsl/defineQuery.ts|return;|6",
       "file": "src/dsl/defineQuery.ts",
-      "line": 471,
+      "line": 501,
       "drops": "nothing: control-flow return after invalidateAll() completed",
       "condition": "invalidate() called without a scope",
       "verdict": "NONDROP",
@@ -7778,7 +7778,7 @@
     {
       "key": "src/dsl/defineQuery.ts|} catch (error) {|3",
       "file": "src/dsl/defineQuery.ts",
-      "line": 464,
+      "line": 482,
       "drops": "nothing",
       "condition": "persisted record scope cannot be normalized or keyed during family invalidation",
       "verdict": "CONTRACT",

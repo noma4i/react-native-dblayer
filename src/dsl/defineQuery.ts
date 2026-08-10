@@ -149,27 +149,10 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     return Object.entries(partial as Record<string, unknown>).every(([key, value]) => Object.is((scope as Record<string, unknown>)[key], value));
   };
   const persistenceWindow = (empty: boolean): number | null => persistenceWindowOf(empty, config.staleTime, config.emptyStaleTime, getDbRuntimeConfig().defaults);
-  const validateDestination = (scope: TScope, meta: ChainMeta): void => {
-    // An empty chain materializes nothing, so there is no destination to require: an empty result
-    // never persists a scope snapshot, and demanding one would make every empty record stale.
-    if (meta.ids.length === 0) return;
+  const validateDestinationIdentity = (meta: ChainMeta): void => {
     const parsedIds = meta.ids.map(id => parseCompositeKey(id));
     if (parsedIds.some(parts => parts?.length !== 2 || parts[0] !== destinationModelId)) {
       throw new Error('react-native-dblayer: persisted query row identity does not match its destination');
-    }
-    if (destinationScope) {
-      if (!destinationScope.isResolved(scope)) {
-        throw new Error('react-native-dblayer: persisted query scope destination is missing');
-      }
-      const rowIds = destinationScope.readRows(scope).map(row => destinationScope.normalizeRowId(row));
-      if (parsedIds.some(parts => !rowIds.includes(parts![1]!))) {
-        throw new Error('react-native-dblayer: persisted query scope row is missing');
-      }
-      return;
-    }
-    const destination = config.into as ModelDestination<TStored>;
-    if (parsedIds.some(parts => destination.find(parts![1]!) === undefined)) {
-      throw new Error('react-native-dblayer: persisted query model row is missing');
     }
   };
   /**
@@ -184,13 +167,41 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
     const destination = config.into as ModelDestination<TStored>;
     return new Set(candidates.filter(id => destination.find(parseCompositeKey(id)![1]!) !== undefined));
   };
+  const persist = (
+    scope: TScope,
+    meta: ChainMeta,
+    invalidationRevision?: number,
+    onError?: (error: unknown) => void
+  ): void => {
+    const identity = bucketKeyOf(scope);
+    const queryState = getDbQueryClient().getQueryState(queryKeyOf(identity))!;
+    persistBucket<ChainMeta, TScope>({
+      declaration: persistenceDeclaration,
+      identity,
+      scope,
+      payload: meta,
+      empty: isEmptyChain(meta),
+      dataUpdatedAt: queryState.dataUpdatedAt,
+      invalidated: queryState.isInvalidated,
+      window: persistenceWindow,
+      invalidationRevision: invalidationRevision ?? persistenceRevisionByBucket.get(identity) ?? readQueryPersistenceRevision(persistenceDeclaration, identity),
+      onError
+    });
+  };
+  const reportPersistenceError = (error: unknown): void => {
+    reportSyncError(error, { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery');
+  };
   /** Every registered chain with the destination it depends on; the registry owns selection and pruning. */
   const materializationChains = function* (): Iterable<MaterializedChain> {
     for (const scope of registeredScopes.values()) {
       yield {
         queryKey: queryKeyOf(bucketKeyOf(scope)),
         scopeKey: destinationScope ? destinationScope.key(scope) : null,
-        materialized: candidates => materializedIds(scope, candidates)
+        materialized: candidates => materializedIds(scope, candidates),
+        persistMaterialization: ids => {
+          const meta = getDbQueryClient().getQueryData(queryKeyOf(bucketKeyOf(scope))) as ChainMeta;
+          persist(scope, { ...meta, ids: [...ids] }, undefined, reportPersistenceError);
+        }
       };
     }
   };
@@ -208,24 +219,23 @@ export const defineQuery = <TResponse, TVars, TScope, TStored>(
         if (bucketKeyOf(restoredScope) !== identity || !isChainMeta(candidate.payload)) {
           throw new Error('react-native-dblayer: persisted query identity or metadata is invalid');
         }
-        validateDestination(restoredScope, candidate.payload);
+        validateDestinationIdentity(candidate.payload);
         return { payload: candidate.payload, scope: restoredScope };
       },
+      reconcile: record => {
+        const materialized = materializedIds(record.scope, record.payload.ids);
+        const ids = record.payload.ids.filter(id => materialized.has(id));
+        if (ids.length === record.payload.ids.length) return record;
+        return {
+          ...record,
+          payload: { ...record.payload, ids },
+          empty: ids.length === 0,
+          invalidated: true
+        };
+      },
+      onRewriteError: reportPersistenceError,
       cache: meta => meta,
       window: persistenceWindow
-    });
-  };
-  const persist = (scope: TScope, meta: ChainMeta, invalidationRevision?: number): void => {
-    const identity = bucketKeyOf(scope);
-    persistBucket<ChainMeta, TScope>({
-      declaration: persistenceDeclaration,
-      identity,
-      queryKey: queryKeyOf(identity),
-      scope,
-      payload: meta,
-      empty: isEmptyChain(meta),
-      window: persistenceWindow,
-      invalidationRevision: invalidationRevision ?? persistenceRevisionByBucket.get(identity) ?? readQueryPersistenceRevision(persistenceDeclaration, identity)
     });
   };
   const landingError = (message: string): Error => reportSyncError(new Error(message), { source: 'query', model: destinationModelId, key: keyName }, 'defineQuery');

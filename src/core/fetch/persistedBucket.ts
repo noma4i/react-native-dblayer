@@ -1,7 +1,16 @@
 import type { QueryKey } from '@tanstack/react-query';
-import type { QueryPersistenceDeclaration, QueryPersistenceRecord } from '../../types';
+import type { QueryPersistenceDeclaration, QueryPersistenceRecord, QueryPersistenceWrite } from '../../types';
 import { getDbQueryClient } from '../../dsl/configure';
 import { readPersistedQuery, removePersistedQuery, writePersistedQuery } from '../queryPersistence';
+
+const writeBucket = <TPayload, TScope>(input: QueryPersistenceWrite<TPayload, TScope>, onError?: (error: unknown) => void): void => {
+  try {
+    writePersistedQuery(input);
+  } catch (error) {
+    if (onError === undefined) throw error;
+    onError(error);
+  }
+};
 
 /**
  * Move one bucket between storage and the query cache.
@@ -20,13 +29,33 @@ export const restorePersistedBucket = <TPayload, TCached, TScope>(args: {
   validate: (record: QueryPersistenceRecord) => { payload: TPayload; scope: TScope };
   /** The shape the reader caches; the stored record decides the window, not this value. */
   cache: (payload: TPayload) => TCached;
+  /** Reconcile valid metadata with its current destination before it reaches the query cache. */
+  reconcile: (record: QueryPersistenceRecord<TPayload, TScope>) => QueryPersistenceRecord<TPayload, TScope>;
+  /** Report a failed best-effort rewrite without rejecting the salvaged in-memory result. */
+  onRewriteError: (error: unknown) => void;
   window: (empty: boolean) => number | null;
 }): TCached | undefined => {
-  const record = readPersistedQuery<TPayload, TScope>(args.declaration, args.identity, args.validate);
-  if (record === undefined) return undefined;
+  const persisted = readPersistedQuery<TPayload, TScope>(args.declaration, args.identity, args.validate);
+  if (persisted === undefined) return undefined;
+  const record = args.reconcile(persisted);
   if (args.window(record.empty) === null) {
     removePersistedQuery(args.declaration, args.identity);
     return undefined;
+  }
+  if (record !== persisted) {
+    writeBucket(
+      {
+        ...args.declaration,
+        identity: args.identity,
+        scope: record.scope,
+        payload: record.payload,
+        empty: record.empty,
+        dataUpdatedAt: record.dataUpdatedAt,
+        invalidated: record.invalidated,
+        invalidationRevision: record.invalidationRevision
+      },
+      args.onRewriteError
+    );
   }
   const cached = args.cache(record.payload);
   const client = getDbQueryClient();
@@ -43,24 +72,30 @@ export const restorePersistedBucket = <TPayload, TCached, TScope>(args: {
 export const persistBucket = <TPayload, TScope>(args: {
   declaration: QueryPersistenceDeclaration;
   identity: string;
-  queryKey: QueryKey;
   scope: TScope;
   payload: TPayload;
   empty: boolean;
+  dataUpdatedAt: number;
+  invalidated: boolean;
   window: (empty: boolean) => number | null;
   invalidationRevision?: number;
+  onError?: (error: unknown) => void;
 }): void => {
   if (args.window(args.empty) === null) {
     removePersistedQuery(args.declaration, args.identity);
     return;
   }
-  writePersistedQuery({
-    ...args.declaration,
-    identity: args.identity,
-    scope: args.scope,
-    payload: args.payload,
-    empty: args.empty,
-    dataUpdatedAt: getDbQueryClient().getQueryState(args.queryKey)!.dataUpdatedAt,
-    invalidationRevision: args.invalidationRevision
-  });
+  writeBucket(
+    {
+      ...args.declaration,
+      identity: args.identity,
+      scope: args.scope,
+      payload: args.payload,
+      empty: args.empty,
+      dataUpdatedAt: args.dataUpdatedAt,
+      invalidated: args.invalidated,
+      invalidationRevision: args.invalidationRevision
+    },
+    args.onError
+  );
 };

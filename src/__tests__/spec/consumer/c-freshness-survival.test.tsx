@@ -3,7 +3,7 @@ import { Kind } from 'graphql';
 import React, { act } from 'react';
 import { AppState } from 'react-native';
 import TestRenderer from 'react-test-renderer';
-import { DbProvider, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getDbQueryClient, getInternalModelHandle, registerActiveFetchReaders, resetRuntime } from '../../testApi';
+import { DbProvider, bootDb, compositeKey, configureDb, createCommitEnvelope, defineModel, defineModelRuntime, defineShape, f, getApplyRuntime, getDbQueryClient, getInternalModelHandle, registerActiveFetchReaders, resetRuntime, type QueryPersistenceRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, diagnostics, settle } from '../helpers/harness';
 
 type Row = { id: string; name: string; group: string | null };
@@ -17,10 +17,12 @@ type EmptyVariables = Record<string, never>;
 type ValueRelationOptions = { staleTime?: number | string; resumeStaleTime?: number | null };
 
 const document = { kind: 'Document', definitions: [] } as never;
+const rowsDocument: TypedDocumentNode<Response, Record<string, never>> = { kind: Kind.DOCUMENT, definitions: [] };
 const valueDocument: TypedDocumentNode<ValueData, ValueVariables> = { kind: Kind.DOCUMENT, definitions: [] };
 const foreignDocument: TypedDocumentNode<ForeignData, EmptyVariables> = { kind: Kind.DOCUMENT, definitions: [] };
 const ValueSchema = defineShape<ValueRow>()({ value: f.str() });
 const ForeignSchema = defineShape<ForeignRow>()({ ids: f.array(f.str()) });
+const RowSchema = defineShape<Row>()({ name: f.str(), group: f.str().nullable() });
 
 const createValueRelation = (key: string, transportValueKey = 0, options: ValueRelationOptions = {}) => {
   const Model = defineModel(key, {
@@ -45,6 +47,27 @@ const createRowsModel = (id: string) =>
     fields: { name: f.str(), group: f.str().nullable() },
     scopes: { group: ({ by: { group: 'group' } }) }
   });
+
+const createDurableRowsModel = () =>
+  defineModel('FreshnessDurableRewrite', {
+    schema: RowSchema,
+    relations: owner => ({
+      detail: {
+        remote: owner.gql.list(rowsDocument, {
+          variables: () => ({}),
+          select: data => data.rows,
+          staleTime: 1_000
+        })
+      }
+    })
+  });
+
+const readOnlyQueryRecord = (storage: ReturnType<typeof createMemoryPlane>): QueryPersistenceRecord<{ ids: string[] }> => {
+  const key = storage.snapshotKeys().find(candidate => candidate.startsWith('dbl:query:'));
+  if (key === undefined) throw new Error('query record is missing');
+  const envelope = JSON.parse(storage.get(key)!) as { payload: QueryPersistenceRecord<{ ids: string[] }> };
+  return envelope.payload;
+};
 
 describe('freshness follows committed-row survival and foreground resume', () => {
   let appStateHandler: ((state: string) => void) | undefined;
@@ -435,7 +458,7 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     act(() => root.unmount());
   });
 
-  it('[F43] follows both identity swaps merged into one deferred judgment without a shrink or refetch', async () => {
+  it('[F43] follows both deferred identity swaps without clearing the failed refresh invalidation', async () => {
     jest.useFakeTimers();
     let calls = 0;
     let failNext = false;
@@ -491,13 +514,14 @@ describe('freshness follows committed-row survival and foreground resume', () =>
     });
     await settle();
 
-    // A full-length identity rewrite is not a loss: no shrink, no follow-up refetch.
+    // A full-length identity rewrite is not a new loss, so it causes no immediate follow-up.
+    // The failed refresh invalidation remains and starts a refetch when the reader remounts.
     expect(diagnostics().snapshot().chainSurvivorShrinks).toBe(shrinksBefore);
     expect(calls).toBe(2);
     act(() => root.update(React.createElement(Root, { mounted: false })));
     act(() => root.update(React.createElement(Root, { mounted: true })));
     await settle();
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
     expect([...observedIds].sort()).toEqual(['srv-a', 'srv-b']);
     act(() => root.unmount());
   });
@@ -544,6 +568,69 @@ describe('freshness follows committed-row survival and foreground resume', () =>
 
     expect(rows.find('server-1')).toBeTruthy();
     expect(stampOf()).toBe(landedStamp);
+    act(() => root.unmount());
+  });
+
+  it('[F57] preserves durable invalidation through a full-length identity rewrite and restart', async () => {
+    const storage = createMemoryPlane();
+    const onSyncError = jest.fn();
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        const id = calls === 1 ? 'row-1' : 'server-1';
+        return { data: { rows: [{ id, name: 'First', group: null }] } as TData };
+      }
+    });
+    configureDb({ storage, transport, defaults: { onSyncError } });
+    const rows = createDurableRowsModel();
+    const query = rows.detail({});
+    const Reader = () => {
+      query.use(undefined);
+      return null;
+    };
+    let root!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(Reader)));
+    });
+    await settle();
+    expect(calls).toBe(1);
+    act(() => root.unmount());
+    const originalStamp = readOnlyQueryRecord(storage).dataUpdatedAt;
+
+    query.invalidate();
+    expect(getDbQueryClient().getQueryCache().getAll()[0]!.state.isInvalidated).toBe(true);
+    const invalidateQueries = jest.spyOn(getDbQueryClient(), 'invalidateQueries');
+    act(() => {
+      getApplyRuntime().commit(createCommitEnvelope(getInternalModelHandle(rows).planReplace('row-1', { id: 'server-1', name: 'First', group: null })));
+    });
+    await settle();
+
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: expect.any(Array), exact: true, refetchType: 'none' });
+    expect(getDbQueryClient().getQueryCache().getAll()[0]!.state).toMatchObject({ dataUpdatedAt: originalStamp, isInvalidated: true });
+    expect(readOnlyQueryRecord(storage)).toMatchObject({
+      payload: { ids: [compositeKey('FreshnessDurableRewrite', 'server-1')] },
+      empty: false,
+      dataUpdatedAt: originalStamp,
+      invalidated: true
+    });
+
+    configureDb({ storage, transport, defaults: { onSyncError } });
+    const restartedRows = createDurableRowsModel();
+    const restartedQuery = restartedRows.detail({});
+    await bootDb();
+    const RestartedReader = () => {
+      restartedQuery.use(undefined);
+      return null;
+    };
+    act(() => {
+      root = TestRenderer.create(React.createElement(DbProvider, null, React.createElement(RestartedReader)));
+    });
+    await settle();
+
+    expect(calls).toBe(2);
+    expect(restartedRows.find('server-1')).toBeTruthy();
+    expect(onSyncError).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

@@ -1,5 +1,6 @@
 import { bootDb, compositeStorageKey, configureDb, encodePersistence, resetRuntime, type QueryPersistenceRecord, type StoragePlane } from '../../testApi';
 import { invalidatePersistedQuery, readPersistedQuery, readPersistedQueryFamily, removePersistedQuery, writePersistedQuery } from '../../testApi';
+import { restorePersistedBucket } from '../../../core/fetch/persistedBucket';
 import { createMemoryPlane, createMockTransport, diagnostics } from '../helpers/harness';
 
 const declaration = {
@@ -26,6 +27,36 @@ const record = (overrides: Partial<QueryPersistenceRecord<string, null>> = {}): 
 const keyOf = (family = declaration.family, identity = 'identity'): string => compositeStorageKey('dbl:', 'query', family, identity);
 
 describe('query persistence records', () => {
+  it('does not rewrite an unchanged record during reader-driven restore', () => {
+    const memory = createMemoryPlane();
+    let queryWrites = 0;
+    const storage: StoragePlane = {
+      get: memory.get,
+      set: (key, value) => {
+        if (key === keyOf()) queryWrites += 1;
+        memory.set(key, value);
+      },
+      keys: memory.keys
+    };
+    configureDb({ storage, transport: createMockTransport() });
+    writePersistedQuery({ ...declaration, identity: 'identity', scope: null, payload: 'value', empty: false, dataUpdatedAt: 123 });
+    const writesBeforeRestore = queryWrites;
+
+    expect(
+      restorePersistedBucket({
+        declaration,
+        identity: 'identity',
+        queryKey: ['query-persistence-contract', 'identity'],
+        validate: candidate => ({ payload: candidate.payload as string, scope: null }),
+        reconcile: candidate => candidate,
+        cache: payload => payload,
+        onRewriteError: jest.fn(),
+        window: () => 1_000
+      })
+    ).toBe('value');
+    expect(queryWrites).toBe(writesBeforeRestore);
+  });
+
   it('[P15] hydrates zero query records on boot: restoration is reader-driven, never a namespace scan', async () => {
     const memory = createMemoryPlane();
     for (let index = 0; index < 40; index += 1) {

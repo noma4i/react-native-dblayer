@@ -24,7 +24,13 @@ export type MaterializationReconciler = {
  * One registered scope of a query: its cache key, the destination scope it depends on (`null` for a
  * model destination, which depends on row presence alone) and the composite row ids still held.
  */
-export type MaterializedChain = { queryKey: QueryKey; scopeKey: string | null; materialized(candidates: readonly string[]): ReadonlySet<string> };
+export type MaterializedChain = {
+  queryKey: QueryKey;
+  scopeKey: string | null;
+  materialized(candidates: readonly string[]): ReadonlySet<string>;
+  /** Persist the same reconciled ids and freshness state that the query cache receives. */
+  persistMaterialization(ids: readonly string[]): void;
+};
 
 /** Query-invalidation callback registered per model. */
 export type InvalidateFn = (scope?: unknown) => boolean;

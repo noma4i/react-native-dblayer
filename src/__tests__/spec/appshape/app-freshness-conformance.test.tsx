@@ -1,7 +1,7 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { focusManager } from '@tanstack/react-query';
 import { act } from 'react';
-import { bootDb, configureDb, defineModel, defineShape, f, setFetchNetworkOnline } from '../../testApi';
+import { bootDb, compositeKey, configureDb, defineModel, defineShape, f, setFetchNetworkOnline, type QueryPersistenceRecord } from '../../testApi';
 import { createMemoryPlane, createMockTransport, renderCountedInProvider, settle, settleUntil } from '../helpers/harness';
 
 /**
@@ -127,6 +127,13 @@ const defineCatalogModel = (tag: string) =>
     })
   });
 
+const readOnlyQueryRecord = (storage: ReturnType<typeof createMemoryPlane>): QueryPersistenceRecord<{ ids: string[] }> => {
+  const key = storage.snapshotKeys().find(candidate => candidate.startsWith('dbl:query:'));
+  if (key === undefined) throw new Error('query record is missing');
+  const envelope = JSON.parse(storage.get(key)!) as { payload: QueryPersistenceRecord<{ ids: string[] }> };
+  return envelope.payload;
+};
+
 describe('app-shaped freshness conformance', () => {
   afterEach(() => {
     setFetchNetworkOnline(true);
@@ -249,6 +256,188 @@ describe('app-shaped freshness conformance', () => {
 
     expect(calls).toBe(2);
     reader.unmount();
+  });
+
+  it('[P52] persists an app-shaped survivor chain as stale before a cold restart', async () => {
+    const storage = createMemoryPlane();
+    const onSyncError = jest.fn();
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return {
+          data: {
+            chats: {
+              nodes: calls === 1
+                ? [
+                    { id: 'chat-left', status: 'Secondary', lastActivityAt: '2026-08-02T00:00:00Z' },
+                    { id: 'chat-kept', status: 'Secondary', lastActivityAt: '2026-08-01T00:00:00Z' }
+                  ]
+                : [{ id: 'chat-kept', status: 'Secondary', lastActivityAt: '2026-08-01T00:00:00Z' }],
+              pageInfo: { hasNextPage: false, endCursor: null }
+            }
+          } as TData
+        };
+      }
+    });
+    configureDb({ storage, transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: FRESHNESS, onSyncError } });
+    const Chat = defineChats('DurableScopeSurvivor');
+    await bootDb();
+    const relation = Chat.list({ statusFilter: 'Secondary' });
+    await relation.fetch();
+    const originalStamp = readOnlyQueryRecord(storage).dataUpdatedAt;
+
+    Chat.update('chat-left', { status: 'Primary' });
+
+    expect(readOnlyQueryRecord(storage)).toMatchObject({
+      payload: { ids: [compositeKey('AppFreshnessChatDurableScopeSurvivor', 'chat-kept')] },
+      empty: false,
+      dataUpdatedAt: originalStamp,
+      invalidated: true
+    });
+
+    configureDb({ storage, transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: FRESHNESS, onSyncError } });
+    const Restarted = defineChats('DurableScopeSurvivor');
+    await bootDb();
+    const restarted = Restarted.list({ statusFilter: 'Secondary' });
+
+    expect(restarted.read().map(row => row.id)).toEqual(['chat-kept']);
+    await restarted.fetch();
+    expect(calls).toBe(2);
+    expect(onSyncError).not.toHaveBeenCalled();
+  });
+
+  it('persists an emptied app-shaped scope as stale before a cold restart', async () => {
+    const storage = createMemoryPlane();
+    const onSyncError = jest.fn();
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return {
+          data: {
+            chats: {
+              nodes: calls === 1 ? [{ id: 'chat-left', status: 'Secondary', lastActivityAt: '2026-08-01T00:00:00Z' }] : [],
+              pageInfo: { hasNextPage: false, endCursor: null }
+            }
+          } as TData
+        };
+      }
+    });
+    configureDb({ storage, transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: FRESHNESS, onSyncError } });
+    const Chat = defineChats('DurableScopeEmpty');
+    await bootDb();
+    await Chat.list({ statusFilter: 'Secondary' }).fetch();
+    const originalStamp = readOnlyQueryRecord(storage).dataUpdatedAt;
+
+    Chat.update('chat-left', { status: 'Primary' });
+
+    expect(readOnlyQueryRecord(storage)).toMatchObject({ payload: { ids: [] }, empty: true, dataUpdatedAt: originalStamp, invalidated: true });
+
+    configureDb({ storage, transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: FRESHNESS, onSyncError } });
+    const Restarted = defineChats('DurableScopeEmpty');
+    await bootDb();
+    const restarted = Restarted.list({ statusFilter: 'Secondary' });
+
+    expect(restarted.read()).toEqual([]);
+    await restarted.fetch();
+    expect(calls).toBe(2);
+    expect(onSyncError).not.toHaveBeenCalled();
+  });
+
+  it('salvages materialization after a refused post-commit query rewrite', async () => {
+    const baseStorage = createMemoryPlane();
+    let refuseQueryRewrite = false;
+    const storage = {
+      ...baseStorage,
+      set: (key: string, value: string | null): void => {
+        if (refuseQueryRewrite && key.startsWith('dbl:query:')) throw new Error('query rewrite refused');
+        baseStorage.set(key, value);
+      }
+    };
+    const loggerError = jest.fn();
+    const onSyncError = jest.fn((_error: Error, _context: { source: string; model?: string; key?: string }) => {
+      throw new Error('observer refused the report');
+    });
+    let calls = 0;
+    const transport = createMockTransport({
+      query: async <TData,>() => {
+        calls += 1;
+        return {
+          data: {
+            chats: {
+              nodes: calls === 1 ? [{ id: 'chat-left', status: 'Secondary', lastActivityAt: '2026-08-01T00:00:00Z' }] : [],
+              pageInfo: { hasNextPage: false, endCursor: null }
+            }
+          } as TData
+        };
+      }
+    });
+    configureDb({
+      storage,
+      transport,
+      dataVersion: 'app-freshness',
+      defaults: { freshnessClasses: FRESHNESS, onSyncError },
+      logger: { debug: jest.fn(), error: loggerError }
+    });
+    const Chat = defineChats('DurableScopeRefusal');
+    await bootDb();
+    await Chat.list({ statusFilter: 'Secondary' }).fetch();
+
+    refuseQueryRewrite = true;
+    Chat.update('chat-left', { status: 'Primary' });
+    refuseQueryRewrite = false;
+
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+    expect(onSyncError.mock.calls[0]![0]).toMatchObject({ message: 'query rewrite refused' });
+    expect(onSyncError.mock.calls[0]![1]).toEqual({
+      source: 'query',
+      model: 'AppFreshnessChatDurableScopeRefusal',
+      key: expect.stringMatching(/\S/)
+    });
+    expect(loggerError).toHaveBeenCalledWith('defineQuery onSyncError failed', { error: expect.objectContaining({ message: 'observer refused the report' }) });
+
+    configureDb({ storage, transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: FRESHNESS, onSyncError } });
+    const Restarted = defineChats('DurableScopeRefusal');
+    await bootDb();
+    const restarted = Restarted.list({ statusFilter: 'Secondary' });
+
+    expect(restarted.read()).toEqual([]);
+    await restarted.fetch();
+    expect(calls).toBe(2);
+    expect(onSyncError).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the storage error when a landed query record write is refused', async () => {
+    const baseStorage = createMemoryPlane();
+    let refuseQueryWrite = false;
+    const storage = {
+      ...baseStorage,
+      set: (key: string, value: string | null): void => {
+        if (refuseQueryWrite && key.startsWith('dbl:query:')) throw new Error('landed query write refused');
+        baseStorage.set(key, value);
+      }
+    };
+    const transport = createMockTransport({
+      query: async <TData,>() => ({
+        data: {
+          chats: {
+            nodes: [{ id: 'chat-kept', status: 'Secondary', lastActivityAt: '2026-08-01T00:00:00Z' }],
+            pageInfo: { hasNextPage: false, endCursor: null }
+          }
+        } as TData
+      })
+    });
+    configureDb({ storage, transport, dataVersion: 'app-freshness', defaults: { freshnessClasses: FRESHNESS } });
+    const relation = defineChats('DurableScopeLandingRefusal').list({ statusFilter: 'Secondary' });
+    await bootDb();
+
+    refuseQueryWrite = true;
+    try {
+      await expect(relation.refresh()).rejects.toThrow('landed query write refused');
+    } finally {
+      refuseQueryWrite = false;
+    }
   });
 
   it('A3 keeps every paged chat the user revealed when the window closes under a mounted reader', async () => {

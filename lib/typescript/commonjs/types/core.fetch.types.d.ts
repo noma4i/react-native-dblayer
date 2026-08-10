@@ -25,6 +25,8 @@ export type MaterializedChain = {
     queryKey: QueryKey;
     scopeKey: string | null;
     materialized(candidates: readonly string[]): ReadonlySet<string>;
+    /** Persist the same reconciled ids and freshness state that the query cache receives. */
+    persistMaterialization(ids: readonly string[]): void;
 };
 /** Query-invalidation callback registered per model. */
 export type InvalidateFn = (scope?: unknown) => boolean;

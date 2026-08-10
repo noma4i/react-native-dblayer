@@ -94,11 +94,15 @@ const judgeChain = (client: QueryClient, reconciler: MaterializationReconciler, 
   const materialized = chain.materialized(candidates);
   const remaining = candidates.filter(id => materialized.has(id));
   if (remaining.length === meta.ids.length && remaining.every((id, index) => id === meta.ids![index])) return;
+  const invalidated = state.isInvalidated || remaining.length < meta.ids.length;
   // Keep the original freshness stamp: rewriting the survivor set must never make a query fresher.
   client.setQueryData(chain.queryKey, { ...meta, ids: remaining }, { updatedAt: state.dataUpdatedAt });
-  // A full-length identity rewrite is not a loss; any shrink forfeits freshness.
+  // setQueryData clears React Query invalidation, so restore every pre-existing invalidation and
+  // mark every shrink stale before persisting the same state.
+  if (invalidated) void client.invalidateQueries({ queryKey: chain.queryKey, exact: true, refetchType: 'none' });
+  chain.persistMaterialization(remaining);
+  // A full-length identity rewrite is not a new loss.
   if (remaining.length === meta.ids.length) return;
-  void client.invalidateQueries({ queryKey: chain.queryKey, exact: true, refetchType: 'none' });
   if (remaining.length > 0) {
     noteChainSurvivorShrink();
     return;

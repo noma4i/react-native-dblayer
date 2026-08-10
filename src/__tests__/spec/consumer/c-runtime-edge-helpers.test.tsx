@@ -307,7 +307,7 @@ describe('runtime edge helpers', () => {
     // looks like a chain is never pruned, so the reader is reached through its own registration.
     const releaseChain = registerMaterializationReconciler({
       modelId: 'Rows',
-      chains: () => [{ queryKey, scopeKey: null, materialized: () => new Set<string>() }]
+      chains: () => [{ queryKey, scopeKey: null, materialized: () => new Set<string>(), persistMaterialization: jest.fn() }]
     });
 
     getCommitBus().publish({

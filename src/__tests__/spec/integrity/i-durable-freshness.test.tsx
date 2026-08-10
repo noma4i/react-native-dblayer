@@ -97,6 +97,13 @@ const rewriteQueryRecord = (
   [{ key, value: encodePersistence(update(envelope.payload)) }].forEach(entry => storage.set(entry.key, entry.value));
 };
 
+const readOnlyQueryRecord = (storage: ReturnType<typeof createMemoryPlane>): QueryPersistenceRecord<{ ids: string[] }> => {
+  const key = storage.snapshotKeys().find(candidate => candidate.startsWith('dbl:query:'));
+  if (key === undefined) throw new Error('query record is missing');
+  const envelope = JSON.parse(storage.get(key)!) as { payload: QueryPersistenceRecord<{ ids: string[] }> };
+  return envelope.payload;
+};
+
 describe('durable freshness', () => {
   afterEach(() => {
     jest.useRealTimers();
@@ -459,8 +466,9 @@ describe('durable freshness', () => {
     expect(() => Message.thread({ chatId: 'other-chat' }).invalidate()).not.toThrow();
   });
 
-  it('rejects a missing direct-model destination row and a disabled durable policy', async () => {
+  it('reconciles a missing direct-model destination row and rejects a disabled durable policy', async () => {
     const storage = createMemoryPlane();
+    const onSyncError = jest.fn();
     let calls = 0;
     const transport = createMockTransport({
       query: async <TData,>() => {
@@ -477,7 +485,8 @@ describe('durable freshness', () => {
       transport,
       dataVersion: 'durable-freshness',
       defaults: {
-        freshnessClasses: { durable: 1_000 }
+        freshnessClasses: { durable: 1_000 },
+        onSyncError
       }
     });
     const Message = defineModel('DurableFreshnessDirectDestination', {
@@ -495,6 +504,7 @@ describe('durable freshness', () => {
     await bootDb();
     const details = Message.details({ id: 'm-1' });
     await details.fetch();
+    const originalStamp = readOnlyQueryRecord(storage).dataUpdatedAt;
 
     const rowPrefix = compositeStorageKey('dbl:', 'row', 'DurableFreshnessDirectDestination');
     getApplyRuntime().flushCacheSnapshots();
@@ -504,7 +514,8 @@ describe('durable freshness', () => {
       transport,
       dataVersion: 'durable-freshness',
       defaults: {
-        freshnessClasses: { durable: 1_000 }
+        freshnessClasses: { durable: 1_000 },
+        onSyncError
       }
     });
     const MessageAfterRestart = defineModel('DurableFreshnessDirectDestination', {
@@ -520,8 +531,12 @@ describe('durable freshness', () => {
       })
     });
     await bootDb();
-    expect(storage.snapshotKeys().filter(key => key.startsWith('dbl:query:'))).toHaveLength(1);
-    await MessageAfterRestart.details({ id: 'm-1' }).fetch();
+    const restartedDetails = MessageAfterRestart.details({ id: 'm-1' });
+
+    expect(restartedDetails.read()).toBeUndefined();
+    expect(readOnlyQueryRecord(storage)).toMatchObject({ payload: { ids: [] }, empty: true, dataUpdatedAt: originalStamp, invalidated: true });
+    expect(onSyncError).not.toHaveBeenCalled();
+    await restartedDetails.fetch();
     expect(calls).toBe(2);
   });
 
