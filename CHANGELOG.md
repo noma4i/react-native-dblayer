@@ -1,5 +1,13 @@
 # Changelog
 
+## 10.1.0-beta.4 - 2026-08-10
+
+### Fixed
+
+- Query materialization reconciliation now writes the same survivor ids to the query cache and durable metadata, without changing the original landing timestamp.
+- A restored query whose destination scope, membership, or row is missing is salvaged as stale metadata and refetched instead of being reported as structural corruption.
+- Full-length identity rewrites preserve a pre-existing invalidation in memory and durable metadata; refused reconciliation writes report one sync error while the salvaged memory result remains readable.
+
 ## 10.1.0-beta.3 - 2026-08-06
 
 ### Added
